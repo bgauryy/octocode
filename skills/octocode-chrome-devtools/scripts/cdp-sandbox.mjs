@@ -46,16 +46,16 @@ const TMPDIR_REAL = safePath(TMPDIR_RAW);
 const RUNNER_REAL = safePath(RUNNER);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 
-// Generated scripts import this helper via `new URL('./sourcemap-resolver.mjs', import.meta.url)`,
-// which resolves relative to the script's location in $TMPDIR. Keep the filename fixed so that
-// path always resolves correctly. Concurrent runs are safe: the file is read-only utility code.
-const SOURCEMAP_HELPER = resolve(__dir, 'sourcemap-resolver.mjs');
-const SOURCEMAP_TMP    = join(TMPDIR_RAW, 'sourcemap-resolver.mjs');
-if (existsSync(SOURCEMAP_HELPER)) {
-  try {
-    copyFileSync(SOURCEMAP_HELPER, SOURCEMAP_TMP);
-  } catch (e) {
-    console.error(`[CDP_SANDBOX] Warning: could not copy sourcemap resolver: ${e.message}`);
+// Generated scripts import helpers via `new URL('./<helper>.mjs', import.meta.url)`,
+// which resolves relative to the script's location in $TMPDIR. Keep filenames fixed so that
+// paths always resolve correctly. Concurrent runs are safe: these are read-only utility files.
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs'];
+for (const helper of HELPERS) {
+  const src = resolve(__dir, helper);
+  const dst = join(TMPDIR_RAW, helper);
+  if (existsSync(src)) {
+    try { copyFileSync(src, dst); }
+    catch (e) { console.error(`[CDP_SANDBOX] Warning: could not copy ${helper}: ${e.message}`); }
   }
 }
 

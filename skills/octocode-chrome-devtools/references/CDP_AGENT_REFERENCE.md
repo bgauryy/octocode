@@ -3,6 +3,62 @@
 > Use `cdp-runner.mjs` / `cdp-sandbox.mjs` — connection is handled automatically. This reference covers domain APIs, method params, events, and error codes only.
 
 
+## 0. Domain Enable Map
+
+Enable only what you need. Call at the **top** of `run()` before any listener or send.
+
+| User request | Domains to enable |
+|---|---|
+| network requests / errors | `Network.enable` |
+| console / exceptions | `Runtime.enable`, `Log.enable` |
+| performance metrics | `Performance.enable` |
+| DOM queries / rendering | `DOM.enable`, `Runtime.enable` |
+| CSS / computed styles | `DOM.enable`, `CSS.enable` (**DOM first**) |
+| screenshots / navigation | `Page.enable` |
+| accessibility tree | `Accessibility.enable` |
+| heap snapshot / memory leak | `HeapProfiler.enable` |
+| file upload | `DOM.enable`, `Runtime.enable` → `DOM.setFileInputFiles(nodeId, files:[…])` → dispatch `change`/`input` events |
+| wait for network idle | `Network.enable` → track `requestWillBeSent`/`loadingFinished` pairs |
+| wait for selector with actionability | `DOM.enable`, `Runtime.enable` → poll `getBoundingClientRect` + `getComputedStyle` |
+| shadow DOM query / click | `DOM.enable`, `Runtime.enable` → `DOM.getDocument({pierce:true})`; `DOM.querySelector` does **NOT** cross shadow roots |
+| fetch mocking / intercept | `Fetch.enable` with `patterns:[{urlPattern,requestStage}]` (no zero-arg form) |
+| JS function coverage | `Profiler.enable` → `Profiler.startPreciseCoverage` |
+| CSS rule coverage | `DOM.enable`, `CSS.enable` → `CSS.startRuleUsageTracking` |
+| source map resolution | `Debugger.enable` + `Debugger.setSkipAllPauses({skip:true})` → `Debugger.scriptParsed`; use `createSourceMapResolver(cdp)` from `scripts/sourcemap-resolver.mjs` |
+| security events | `Security.enable` → listen for `Security.visibleSecurityStateChanged` |
+| tracing / timeline | `Page.enable` (Tracing needs no enable call) |
+| mobile / viewport / touch | no enable — `Emulation.setDeviceMetricsOverride` + `setTouchEmulationEnabled` + `setUserAgentOverride` (call **before** navigate) |
+| emulation / geolocation | no enable — call `Emulation.*` directly; geolocation also needs `Browser.grantPermissions` |
+| dark mode / media queries | no enable — `Emulation.setEmulatedMedia` |
+| network throttling / offline | `Network.enable` → `Network.emulateNetworkConditions` |
+| automate / login / clicks | `Page.enable`, `Runtime.enable`, `Network.enable` |
+| websocket surveillance | `Network.enable` |
+| security audit (full) | `Network.enable`, `Runtime.enable`, `DOM.enable`, `Page.enable` |
+| all / full audit | all of the above |
+
+### Event ordering — non-negotiable
+Enable domains → attach `cdp.on(...)` → navigate / evaluate. **Events fire and are gone** — a listener registered after navigation misses prior events silently.
+
+### Debugger gotcha
+When `Debugger.enable` is active, any `debugger` statement blocks all `Runtime.evaluate` calls indefinitely. Add immediately after:
+```js
+await cdp.send('Debugger.enable', {});
+await cdp.send('Debugger.setSkipAllPauses', { skip: true });
+```
+
+### Dialog guard
+Add when navigating pages that may open `alert()`/`confirm()`/`prompt()`:
+```js
+cdp.on('Page.javascriptDialogOpening', () =>
+  cdp.send('Page.handleJavaScriptDialog', { accept: true }));
+```
+
+### Output prefixes (quick list)
+`[FINDING]` `[ACTION]` `[METRIC]` `[NETWORK]` `[NETWORK_ERROR]` `[NETWORK_FAILED]` `[EXCEPTION]` `[EXCEPTION_LOCATION]` `[CONSOLE:TYPE]` `[LOG:LEVEL]` `[PERFORMANCE]` `[DOM]` `[CSS]` `[SECURITY]` `[SCREENSHOT]` `[SCRAPE]` `[EMULATE]` `[AUTOMATE]` `[INJECT]` `[MONITOR]` `[SEARCH]` `[AUTH]` `[AUTH_COMPLETE]` `[AUTH_TIMEOUT]` `[SOURCEMAP]`
+Full semantics → `INTENTS.md` → Output Prefix Reference.
+
+---
+
 ## 1. Target — Multi-tab & context management
 
 | Method | Input | Output | Use when |

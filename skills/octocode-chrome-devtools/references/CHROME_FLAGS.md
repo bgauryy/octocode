@@ -111,3 +111,135 @@ node <skill-dir>/scripts/open-browser.mjs --headless --chromePath "C:\Program Fi
 - For Chromium in CI: install with `apt-get install -y chromium-browser` (Ubuntu/Debian)
 
 **Mode decision** → see `SKILL.md` → Open Browser.
+
+---
+
+## Shell Examples
+
+All examples use **bash/zsh** (macOS / Linux). For Windows equivalents:
+
+```powershell
+# PowerShell
+$SKILL_DIR = "<skill-dir>"
+$TMPDIR    = node -e "process.stdout.write(require('os').tmpdir())"
+node "$SKILL_DIR\scripts\open-browser.mjs" --headless --port 9222
+node "$SKILL_DIR\scripts\cdp-sandbox.mjs" "$TMPDIR\cdp-task.mjs" --new-tab "about:blank" `
+  > "$TMPDIR\cdp-output-task.txt" 2>&1
+node "$SKILL_DIR\scripts\open-browser.mjs" --port 9222 --cleanup
+```
+
+```cmd
+SET SKILL_DIR=<skill-dir>
+FOR /F "delims=" %%i IN ('node -e "process.stdout.write(require('os').tmpdir())"') DO SET TMPDIR=%%i
+node "%SKILL_DIR%\scripts\open-browser.mjs" --headless --port 9222
+node "%SKILL_DIR%\scripts\cdp-sandbox.mjs" "%TMPDIR%\cdp-task.mjs" --new-tab "about:blank" ^
+  > "%TMPDIR%\cdp-output-task.txt" 2>&1
+node "%SKILL_DIR%\scripts\open-browser.mjs" --port 9222 --cleanup
+```
+
+### Network / console errors — headless
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
+# generate network+console script (SCRIPT_PATTERNS.md), save to $TMPDIR/cdp-network.mjs
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-network.mjs" --new-tab "about:blank" \
+  > "$TMPDIR/cdp-output-network.txt" 2>&1
+node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
+# analyze: [NETWORK_ERROR] + [CONSOLE:ERROR] + [EXCEPTION]
+```
+
+### Visible browser / let user see the page
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+node "$SKILL_DIR/scripts/open-browser.mjs" --profile Default --port 9222
+# generate monitor script, save to $TMPDIR/cdp-monitor.mjs
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-monitor.mjs" \
+  --new-tab "https://site.com" --keep-tab \
+  > "$TMPDIR/cdp-output-monitor.txt" 2>&1
+```
+
+### Performance / memory audit — headless
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-audit.mjs" --new-tab "about:blank" \
+  > "$TMPDIR/cdp-output-audit.txt" 2>&1
+node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
+# analyze: [PERFORMANCE] + [FINDING] + [METRIC]
+```
+
+### Inspect iframes and service workers
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" --list-targets --port 9222
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-task.mjs" \
+  --target-url "iframe-url-pattern" --port 9222
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-task.mjs" \
+  --target-type service_worker --port 9222
+```
+
+### Mobile / responsive layout — headless with emulation
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222 \
+  --windowSize 390x844 \
+  --userAgent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+# generate emulate script from INTENTS.md ## emulate, set DEVICE to "iPhone 15 Pro"
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-emulate.mjs" --new-tab "about:blank" \
+  > "$TMPDIR/cdp-output-emulate.txt" 2>&1
+node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
+# look for [EMULATE] viewport active, [FINDING] LAYOUT_BREAK, [METRIC] innerWidth
+```
+
+### Security audit — headless
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
+# generate security audit script from SCRIPT_PATTERNS.md "Security Audit"
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-security.mjs" --new-tab "about:blank" \
+  > "$TMPDIR/cdp-output-security.txt" 2>&1
+node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
+# look for [FINDING] MISSING_CSP, WEAK_CSP, COOKIE_NO_HTTPONLY, PROTOTYPE_POLLUTION
+```
+
+### User login → authenticated scrape
+
+**Browser must be visible — never `--headless`.**
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+
+# 1. Open Chrome visibly — if output contains "isolated": true, log in in that CDP window
+node "$SKILL_DIR/scripts/open-browser.mjs" --profile Default --port 9222
+
+# 2. Run user-auth script — agent waits while user authenticates
+#    Set LOGIN_URL and POST_AUTH_PATTERN inside the script
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-user-auth.mjs" \
+  --new-tab "about:blank" --keep-tab \
+  > "$TMPDIR/cdp-auth-output.txt" 2>&1
+# watch for [AUTH_COMPLETE] or [AUTH_TIMEOUT]
+
+# 3. After [AUTH_COMPLETE] — run scrape on the same authenticated session
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-scrape.mjs" \
+  --new-tab "about:blank" \
+  > "$TMPDIR/cdp-scrape-output.txt" 2>&1
+
+# 4. Leave Chrome open for further tasks; cleanup when done:
+#    node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
+```
+
+`[AUTH_COMPLETE]` → proceed to step 3. `[AUTH_TIMEOUT]` → increase `TIMEOUT_MS` or fix `POST_AUTH_PATTERN`.
+Combine `user-auth` + `debug` or `user-auth` + `security` on the same port.

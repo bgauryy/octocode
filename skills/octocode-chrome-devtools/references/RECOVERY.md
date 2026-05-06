@@ -12,17 +12,19 @@
 | `No page targets found` | Use `--new-tab about:blank` to open a fresh tab |
 | Need to inspect an iframe or service worker | Use `--list-targets` to discover, then `--target-url <pattern>` or `--target-type service_worker` |
 | `[CDP_RETRY_NEEDED]` in output (exit 2) | Read the `[CDP_RETRY_NEEDED]` lines — fix the domain enable or method name, retry once |
-| Bot-wall detected (Cloudflare / Radware / Akamai challenge instead of real page) | Pass `--userAgent` explicitly with a current Chrome desktop UA string only when needed. For sites that fingerprint JS (canvas, WebGL, timing): use the `user-auth` flow — visible browser, user solves the challenge in the CDP-controlled session. |
+| Bot-wall detected (bot-wall / CDN challenge instead of real page) | Pass `--userAgent` explicitly with a current Chrome desktop UA string only when needed. For sites that fingerprint JS (canvas, WebGL, timing): use the `user-auth` flow — visible browser, user solves the challenge in the CDP-controlled session. |
 | `ERR_ACCESS_DENIED` in sandbox | Script tried to write outside `cdp.outputDir`, read a blocked path, or spawn a child process / Worker. Fix: all file writes via `join(cdp.outputDir, filename)`; all browser interaction via `cdp.send()`; no `child_process`, `net`, or `new Worker()`. |
 | `[AUTH_TIMEOUT]` — user-auth script timed out | User did not authenticate within `TIMEOUT_MS`. Increase the timeout, verify `POST_AUTH_PATTERN` matches the actual post-login URL fragment, or set `AUTH_COOKIE_NAME` to the exact cookie the app sets on successful login. |
 | Events not firing | Page loaded before listeners attached — attach listeners first, then call `Page.navigate` inside `run()` |
 | `--new-tab <url>` misses network/script events | Tab loads before script connects — use `--new-tab about:blank` + `Page.navigate` inside `run()` |
-| JavaScript dialog blocking all commands | Add dialog guard before navigate: `cdp.on('Page.javascriptDialogOpening', () => cdp.send('Page.handleJavaScriptDialog', { accept: true }))` — see Dialog guard in `CDP_QUICK_REFERENCE.md` |
+| JavaScript dialog blocking all commands | Add dialog guard before navigate: `cdp.on('Page.javascriptDialogOpening', () => cdp.send('Page.handleJavaScriptDialog', { accept: true }))` — see Dialog guard in `CDP_AGENT_REFERENCE.md` section 0 |
 | URL with `?` or `&` fails in zsh | Always quote the URL: `--url "http://..."` |
 | `Runtime.evaluate` hangs after `Debugger.enable` | Add `await cdp.send('Debugger.setSkipAllPauses', { skip: true })` immediately after `Debugger.enable` |
 | `Page.navigate` times out on ALL URLs | Chrome session is stale — run `open-browser.mjs --cleanup` then relaunch with `--headless` |
 | Unsure whether cleanup will kill the tracked browser | Run `open-browser.mjs --cleanup --dry-run`; it reports whether the tracked PID matches both the CDP port and temp profile without killing anything |
 | `Security.getSecurityState` not found | Removed from current CDP — use `Security.visibleSecurityStateChanged` event instead |
+| `Storage.enable` not found (exit 2) | Not available in Chrome CDP (Chrome 120+). Remove the call — cookies, localStorage, sessionStorage, and IndexedDB are accessible without it via `Network.getAllCookies`, `Runtime.evaluate`, and `IndexedDB.*` domain calls |
+| `IndexedDB.requestDatabaseNames` not found | Use `Runtime.evaluate` with `indexedDB.databases()` instead — it is a Promise-based browser API available in Chrome 71+ |
 | `Target.createBrowserContext` not allowed | Requires browser-level WebSocket — not available in tab-level CDP connection |
 | Geolocation `getCurrentPosition` hangs | Add `Browser.grantPermissions({ permissions: ["geolocation"] })` before `Emulation.setGeolocationOverride` |
 | `CSS.enable` throws "DOM agent needs to be enabled first" | Enable `DOM` before `CSS` — order matters |

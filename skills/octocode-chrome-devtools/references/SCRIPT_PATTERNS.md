@@ -10,6 +10,8 @@
 | Inspect DOM size and accessibility basics | [DOM + Accessibility Audit](#dom--accessibility-audit) |
 | Check heap usage and detached nodes | [Heap Memory Audit](#heap-memory-audit-leak-detection) |
 | Audit headers, cookies, CSP, token exposure | [Security Audit](#security-audit) |
+| Full cookie + localStorage + IDB + SW + quota inventory | `INTENTS.md` → `## storage` |
+| Detect pre-granted GDPR consent and tracker pre-firing | `INTENTS.md` → `## consent` |
 | Watch WebSocket frames | [WebSocket Surveillance](#websocket-surveillance) |
 | Search all page resources for text | [Search Text Across All Resources](#search-text-across-all-resources) |
 | Upload files through real inputs | [File Upload](#file-upload) |
@@ -849,6 +851,22 @@ resolver.printSummary();
 - `resolver.resolve()` returns `null` when script has no map or position is outside all segments
 - The Profiler gives `startOffset` (byte offset) not `{line,col}` — use `offsetToLineCol()` helper
 - Short function names (`length <= 2`) after mangling are meaningless — skip unless `orig.name` resolves them
+
+
+
+## Storage Audit
+
+> **Full script in `INTENTS.md` → `## storage`** — grep: `rg -n "^## storage" references/INTENTS.md`
+
+Inventories cookies, localStorage, sessionStorage, IndexedDB, Cache Storage, Service Workers, and quota.
+Also detects **cookie resurrection** (tracking IDs mirrored across storage to survive clearing).
+
+
+## Consent Audit
+
+> **Full script in `INTENTS.md` → `## consent`** — grep: `rg -n "^## consent" references/INTENTS.md`
+
+Detects CMP presence, pre-granted consent state, and tracker firing before user consent.
 
 
 ## Full Audit (combine all)
