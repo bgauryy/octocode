@@ -1,5 +1,24 @@
 # Script Patterns Reference
 
+## Pattern Index
+
+| Need | Pattern |
+|---|---|
+| Capture errors, failed requests, console output | [Network + Console](#network--console-most-common) |
+| Measure high-level performance metrics | [Performance Audit](#performance-audit) |
+| Measure LCP/CLS/INP with injected observers | [Core Web Vitals](#core-web-vitals-inject-before-navigate) |
+| Inspect DOM size and accessibility basics | [DOM + Accessibility Audit](#dom--accessibility-audit) |
+| Check heap usage and detached nodes | [Heap Memory Audit](#heap-memory-audit-leak-detection) |
+| Audit headers, cookies, CSP, token exposure | [Security Audit](#security-audit) |
+| Watch WebSocket frames | [WebSocket Surveillance](#websocket-surveillance) |
+| Search all page resources for text | [Search Text Across All Resources](#search-text-across-all-resources) |
+| Upload files through real inputs | [File Upload](#file-upload) |
+| Wait for quiet network | [waitForNetworkIdle](#waitfornetworkidle) |
+| Wait for usable elements | [waitForSelector with Actionability](#waitforselector-with-actionability) |
+| Save screenshots, PDFs, and metadata | [Save Files](#save-files--screenshots-pdfs-and-metadata) |
+| Query inside shadow roots | [Shadow DOM](#shadow-dom--querying-inside-shadow-roots) |
+| Resolve generated locations to source maps | [Source Map Resolution](#source-map-resolution) |
+| Combine major checks | [Full Audit](#full-audit-combine-all) |
 
 ## Network + Console (most common)
 

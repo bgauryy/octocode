@@ -21,6 +21,7 @@
 | URL with `?` or `&` fails in zsh | Always quote the URL: `--url "http://..."` |
 | `Runtime.evaluate` hangs after `Debugger.enable` | Add `await cdp.send('Debugger.setSkipAllPauses', { skip: true })` immediately after `Debugger.enable` |
 | `Page.navigate` times out on ALL URLs | Chrome session is stale — run `open-browser.mjs --cleanup` then relaunch with `--headless` |
+| Unsure whether cleanup will kill the tracked browser | Run `open-browser.mjs --cleanup --dry-run`; it reports whether the tracked PID matches both the CDP port and temp profile without killing anything |
 | `Security.getSecurityState` not found | Removed from current CDP — use `Security.visibleSecurityStateChanged` event instead |
 | `Target.createBrowserContext` not allowed | Requires browser-level WebSocket — not available in tab-level CDP connection |
 | Geolocation `getCurrentPosition` hangs | Add `Browser.grantPermissions({ permissions: ["geolocation"] })` before `Emulation.setGeolocationOverride` |

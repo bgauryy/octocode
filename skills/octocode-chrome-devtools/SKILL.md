@@ -62,6 +62,7 @@ node <skill-dir>/scripts/open-browser.mjs --headless [--port 9222] [--url "<url>
 node <skill-dir>/scripts/open-browser.mjs --headless --windowSize 390x844
 node <skill-dir>/scripts/open-browser.mjs --headless --userAgent "Mozilla/5.0 ..."
 node <skill-dir>/scripts/open-browser.mjs --profile Default [--port 9222]
+node <skill-dir>/scripts/open-browser.mjs --port 9222 --cleanup --dry-run
 node <skill-dir>/scripts/open-browser.mjs --port 9222 --cleanup
 ```
 

@@ -15,6 +15,7 @@ const PROFILE     = getArg('--profile', 'Default');
 const URL_ARG     = getArg('--url', '');
 const HEADLESS    = hasFlag('--headless');
 const CLEANUP     = hasFlag('--cleanup');
+const DRY_RUN     = hasFlag('--dry-run');
 const CHROME_PATH  = getArg('--chromePath', '');
 const WINDOW_SIZE  = getArg('--windowSize', '');   // e.g. "390x844" for mobile, "1920x1080" for desktop
 const USER_AGENT  = getArg('--userAgent', '');
@@ -135,14 +136,27 @@ async function removeDirWithRetry(dir) {
 
 async function cleanupSession() {
   const session = readSession();
-  if (!session) { console.error('[BROWSER] No tracked session found for port', PORT); return; }
+  if (!session) {
+    console.error('[BROWSER] No tracked session found for port', PORT);
+    ok({ status: 'NO_TRACKED_SESSION', port: PORT });
+    return;
+  }
   if (String(session.port) !== String(PORT)) {
     err(`Tracked session port mismatch: expected ${PORT}, found ${session.port}`);
   }
   if (!processMatchesTrackedSession(session)) {
     console.error(`[BROWSER] Refusing to kill pid=${session.pid}; it does not match the tracked CDP port/profile`);
+    if (DRY_RUN) {
+      ok({ status: 'CLEANUP_DRY_RUN', port: PORT, pid: session.pid, matchesTrackedSession: false, wouldKill: false });
+      return;
+    }
     try { rmSync(SESSION_FILE, { force: true }); } catch {}
     ok({ status: 'STALE_SESSION_REMOVED', port: PORT });
+    return;
+  }
+
+  if (DRY_RUN) {
+    ok({ status: 'CLEANUP_DRY_RUN', port: PORT, pid: session.pid, matchesTrackedSession: true, wouldKill: true, profileDir: session.profileDir });
     return;
   }
 
