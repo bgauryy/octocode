@@ -1,6 +1,6 @@
 # OctoCode Skills
 
-Specialized AI agent skills extending OctoCode. 15 skills live under `skills/`.
+Specialized AI agent skills extending OctoCode. 16 skills live under `skills/`.
 
 ---
 
@@ -23,6 +23,7 @@ Specialized AI agent skills extending OctoCode. 15 skills live under `skills/`.
 | **Doc Writer** | `octocode-documentation-writer/` | Produce comprehensive project documentation. |
 | **News** | `octocode-news/` | Research recent AI, DevTools, web, and security updates. |
 | **Search Skill** | `octocode-search-skill/` | Find, preview, and download agent skills. |
+| **Chrome DevTools** | `octocode-chrome-devtools/` | Open Chrome via CDP, generate inspection scripts, trace errors to source. |
 
 ---
 
@@ -72,3 +73,6 @@ Scans recent AI, developer tooling, web platform, security, and notable-repo upd
 
 ### Search Skill
 Searches GitHub for `SKILL.md` files, scores relevance, previews results, and downloads selected skill folders.
+
+### Chrome DevTools
+Opens Chrome with CDP WebSocket debugging, generates a custom inspection script per task, runs it live, and traces errors back to source code using Octocode local tools. Covers network, console, performance, DOM, CSS, screenshots, iframes, service workers, and any CDP domain. Includes script self-review, CDP error retry, and multi-target routing.
