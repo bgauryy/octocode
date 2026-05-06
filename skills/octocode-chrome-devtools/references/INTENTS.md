@@ -48,6 +48,7 @@ When combining: enable all required domains first, attach all event listeners, t
 | accessibility, a11y, aria, screen reader | [accessibility](#accessibility) | ↓ |
 | third-party, external scripts, CDN, supply chain | [supply-chain](#supply-chain) | ↓ |
 | full audit, all checks, everything | [full-audit](#full-audit) | ↓ |
+| open page, browse with monitoring, watch this page, live check, open and monitor, open and inspect | [live-page](#live-page) | ↓ |
 
 
 ## debug
@@ -1956,3 +1957,87 @@ export async function run(cdp) {
 | `[INJECT]` | inject | Script injected into document |
 | `[MONITOR]` | monitor | State snapshot from polling loop |
 | `[ACTION]` | debug, automate | Concrete next step for agent or developer |
+
+
+## live-page
+
+**Trigger phrases:** "open page", "open this URL", "open and monitor", "watch this page", "open browser and wait", "live check", "open and inspect", "browse with monitoring", "open it and I'll tell you what to check"
+
+**Purpose:** Opens Chrome in **visible** mode at a URL, tells the user the browser is ready, then waits for on-demand inspection instructions — without reloading the page between checks. Use when the user wants to interact freely (log in, navigate, fill forms) and ask questions about the live page state at any point.
+
+**Key distinction from other intents:**
+- Other intents = agent navigates and inspects in one automated pass
+- `live-page` = user drives the browser; agent attaches and inspects on demand, page state preserved
+
+**Domains required:** None for the open step. Each on-demand check enables only what it needs.
+
+**Critical flags:**
+- `open-browser.mjs` → omit `--headless` (visible mode required for user interaction)
+- `cdp-sandbox.mjs` → always pass `--keep-tab` and `--target-url <pattern>` to attach without reloading
+- Do NOT call `Page.navigate` in on-demand scripts — the user is already on the page they want
+
+**Step 1 — Open the browser (run once)**
+
+```bash
+node <skill-dir>/scripts/open-browser.mjs --url "<url>" [--port 9222]
+```
+
+Then tell the user:
+> *"Chrome is open at `<url>`. Do whatever you need — log in, navigate, interact. Tell me what to check and I'll inspect the live page."*
+
+**Step 2 — Inspect on demand (run per question, no reload)**
+
+```bash
+node <skill-dir>/scripts/cdp-sandbox.mjs "$TMPDIR/cdp-<task>.mjs" \
+  --target-url "<url-pattern>" --keep-tab \
+  > "$TMPDIR/cdp-output-<task>.txt" 2>&1
+```
+
+Write a focused script for whatever the user asked. Read current page state via `Runtime.evaluate` — do not navigate.
+
+**Minimal on-demand script skeleton:**
+
+```js
+export async function run(cdp) {
+  // DO NOT call Page.navigate — attach to live state only
+
+  // Example: read current URL and title
+  const { result: urlRes } = await cdp.send('Runtime.evaluate', {
+    expression: 'JSON.stringify({ url: location.href, title: document.title })',
+    returnByValue: true,
+  });
+  console.log(`[FINDING] PAGE_STATE: ${urlRes.value}`);
+
+  // Example: dump localStorage keys
+  const { result: storageRes } = await cdp.send('Runtime.evaluate', {
+    expression: 'JSON.stringify(Object.keys(localStorage))',
+    returnByValue: true,
+  });
+  console.log(`[FINDING] STORAGE_KEYS: ${storageRes.value}`);
+
+  // For screenshots, DOM, network history, etc. — use the matching intent script
+  // with --keep-tab --target-url to avoid reload.
+}
+```
+
+**What to check on the live page:**
+
+| User asks | Add to script |
+|---|---|
+| Screenshot | `Page.captureScreenshot` |
+| Current DOM / elements | `DOM.enable` → `DOM.getDocument` → `Runtime.evaluate` |
+| Cookies | `Network.enable` → `Network.getAllCookies` (names only, never values) |
+| localStorage / sessionStorage | `Runtime.evaluate` with `Object.keys(localStorage)` |
+| Console errors so far | `Runtime.evaluate` → `window.__cdpErrors` if pre-patched, else check DOM |
+| Page performance | `Runtime.evaluate` → `JSON.stringify(performance.getEntriesByType('navigation'))` |
+| Network calls already made | `Runtime.evaluate` → `performance.getEntriesByType('resource')` |
+
+> **Note:** Listeners attached after page load miss past events. Use `Runtime.evaluate` to read state already on the page (performance entries, window globals, DOM) instead of waiting for new events.
+
+**Step 3 — Close when done**
+
+```bash
+node <skill-dir>/scripts/open-browser.mjs --port 9222 --cleanup
+```
+
+**Output prefixes:** `[FINDING]` `[DOM]` `[SCREENSHOT]` `[STORAGE]` `[SECURITY]` `[METRIC]`

@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: Browser debugging and web inspection via Chrome CDP. Use for DevTools-grade evidence or automation: network, console, performance, DOM/CSS, screenshots/PDF, security checks, auth-gated inspection, and source tracing from live page findings. Prefer lighter browser tools for simply opening a page.
+description: Browser debugging and web inspection via Chrome CDP. Use for DevTools-grade evidence or automation: network, console, performance, DOM/CSS, screenshots/PDF, security checks, auth-gated inspection, and source tracing from live page findings. Also use when the user asks to open a web page with live monitoring — open a visible tab, let the user interact freely, then inspect or automate on demand without reloading. Prefer lighter browser tools for simply opening a page.
 ---
 
 # Octocode Browser
@@ -64,6 +64,54 @@ For non-trivial investigations:
 6. Report: summarize findings plainly; trace source when there is a useful symbol, URL, or stack.
 
 For simple checks, collapse steps while preserving event ordering and sandbox rules.
+
+## Live Page Mode — Open, Interact, Inspect On Demand
+
+Use this mode when the user wants to browse freely and ask questions about the live page state at any point — without reloading.
+
+**Step 1 — Open a visible tab**
+
+```bash
+node <skill-dir>/scripts/open-browser.mjs --url "<url>" [--port 9222]
+```
+
+No `--headless`. Chrome opens visibly. Tell the user:
+> *"Chrome is open at `<url>`. Do whatever you need on the page — log in, navigate, interact. Tell me when you want me to check something."*
+
+**Step 2 — Wait for the user**
+
+Do nothing until the user asks. They may log in, fill forms, navigate, or just browse.
+
+**Step 3 — Inspect on demand (no reload)**
+
+When the user asks to check something, attach to the existing tab:
+
+```bash
+node <skill-dir>/scripts/cdp-sandbox.mjs "$TMPDIR/cdp-<task>.mjs" \
+  --target-url "<url-pattern>" --keep-tab \
+  > "$TMPDIR/cdp-output-<task>.txt" 2>&1
+```
+
+`--keep-tab` prevents the tab from closing after the script runs. `--target-url` attaches to the already-open tab — **no navigation, no reload, page state is preserved.**
+
+Repeat Step 3 for each follow-up question. Chrome stays open between checks.
+
+**Step 4 — Close when done**
+
+```bash
+node <skill-dir>/scripts/open-browser.mjs --port 9222 --cleanup
+```
+
+**What you can check on the live page:**
+- Screenshot of current state → use `screenshot` intent
+- Network requests made so far → use `network` intent (attach `Network.enable` before checking)
+- Console errors → use `console` intent
+- DOM / CSS → use `dom` intent
+- Storage (cookies, localStorage) → use `storage` intent
+- Performance metrics → use `performance` intent
+- Any custom `[FINDING]` — write a focused script against the current tab
+
+> **Note:** Listeners attached *after* page load will not capture past events (network, console). For retroactive data, use `Runtime.evaluate` to read `window.performance`, `document`, or app-level state already on the page.
 
 If `$TMPDIR/cdp-output-<task>.txt` is < 10 min old and clearly matches the same URL plus intent, re-analyze it instead of starting Chrome again. Rerun when the user needs fresh data, the page is stateful, or the match is uncertain.
 
