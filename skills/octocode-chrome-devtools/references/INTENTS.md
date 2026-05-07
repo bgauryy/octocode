@@ -43,6 +43,8 @@ When combining: enable all required domains first, attach all event listeners, t
 | JS coverage, dead code, unused functions | [js-coverage](#js-coverage) | ↓ |
 | security, cookies, tokens, headers, CSP, exfil | [security](#security) | ↓ |
 | websocket, WS, real-time, socket frames | [websocket](#websocket) | ↓ |
+| service worker, SW lifecycle, cache, offline, PWA worker | [service-worker](#service-worker) | ↓ |
+| web worker, shared worker, worker thread, background thread | [workers](#workers) | ↓ |
 | intercept, mock, block, fake response, modify request | [intercept](#intercept) | ↓ |
 | screenshot, capture, visual, PDF, print | [screenshot](#screenshot) | ↓ |
 | accessibility, a11y, aria, screen reader | [accessibility](#accessibility) | ↓ |
@@ -585,10 +587,10 @@ await cdp.send('Profiler.disable', {});
 **Domains:** `Network.enable`
 
 **Key events/methods:**
-- `Network.webSocketCreated` → `{requestId, url}` — WS endpoint established
+- `Network.webSocketCreated` → `{requestId, url, initiator}` — WS object constructed (`new WebSocket(url)`) — **this is the correct creation event, not `requestWillBeSent`**
 - `Network.webSocketHandshakeResponseReceived` → headers, status
-- `Network.webSocketFrameSent` → `{requestId, timestamp, response: {payloadData}}`
-- `Network.webSocketFrameReceived` → `{requestId, timestamp, response: {payloadData}}`
+- `Network.webSocketFrameSent` → `{requestId, timestamp, response: {payloadData, opcode}}` — opcode 1 = text, 2 = binary
+- `Network.webSocketFrameReceived` → `{requestId, timestamp, response: {payloadData, opcode}}`
 - `Network.webSocketClosed` → `{requestId, timestamp}`
 
 **Output prefixes:** `[NETWORK]` `[FINDING]` `[METRIC]`
@@ -598,6 +600,109 @@ await cdp.send('Profiler.disable', {});
 - Frame payload contains `token`, `password`, `key` → `[FINDING] SENSITIVE_IN_WS_FRAME: ${snippet}`
 - Base64-encoded payload (matches `/^[A-Za-z0-9+/]{40,}={0,2}$/`) → `[FINDING] WS_BASE64_FRAME: possible encoded data`
 - Frame size > 100KB → `[FINDING] LARGE_WS_FRAME: ${kb}KB sent` *(threshold is a default — adjust for your protocol)*
+- opcode === 2 → binary frame; base64-decode payload for inspection
+
+**WS inside Web Workers:** `Network.webSocketCreated` does **not** fire on the main session for WebSockets opened inside a Web Worker or Shared Worker. To capture those, enable the `workers` intent first (`Target.setAutoAttach`), then call `cdp.send('Network.enable', {}, sessionId)` on each attached worker session. See the **workers** intent and **WebSocket inside Workers** pattern in `SCRIPT_PATTERNS.md`.
+
+
+## service-worker
+
+**Trigger phrases:** "service worker", "SW lifecycle", "PWA worker", "offline cache", "push notifications", "background sync", "SW registered", "what service workers are running", "is there a service worker"
+
+**Domains:** `ServiceWorker.enable` + `Target.setAutoAttach` (to receive the SW as an attachable target)
+
+**Key events/methods:**
+- `ServiceWorker.enable` — must call before navigation to receive SW events
+- Event: `ServiceWorker.workerRegistrationUpdated` → `{registrations[]}` — fires when a SW registration is created or deleted; each `registration` has `{registrationId, scopeURL, isDeleted}`
+- Event: `ServiceWorker.workerVersionUpdated` → `{versions[]}` — fires on **every state transition**; each `version` has `{registrationId, versionId, scriptURL, status, runningStatus}`:
+  - `status`: `"new"` → `"installing"` → `"installed"` → `"activating"` → `"activated"` → `"redundant"`
+  - `runningStatus`: `"stopped"` → `"starting"` → `"running"` → `"stopping"`
+- `ServiceWorker.disable` — call at cleanup to stop receiving events
+
+**SW methods (imperative):**
+- `ServiceWorker.skipWaiting({scopeURL})` — force a waiting SW to activate immediately
+- `ServiceWorker.updateRegistration({scopeURL})` — trigger a SW update check
+- `ServiceWorker.unregister({scopeURL})` — unregister a SW
+
+**Output prefixes:** `[SW]` `[FINDING]` `[MONITOR]`
+
+**`[FINDING]` conditions to emit:**
+- New registration for a non-extension scope → `[FINDING] SW_REGISTERED: ${scopeURL}`
+- SW reaches `activated` state → `[FINDING] SW_ACTIVATED: ${scriptURL}`
+- SW `isDeleted` = true (unregistered or evicted) → `[FINDING] SW_REMOVED: ${scopeURL}`
+- SW script is on a third-party domain → `[FINDING] SW_THIRD_PARTY_SCRIPT: ${scriptURL}`
+
+**Tip — navigator API for a point-in-time snapshot (after page load):**
+```js
+const regs = await cdp.send('Runtime.evaluate', {
+  expression: `navigator.serviceWorker.getRegistrations().then(r=>JSON.stringify(r.map(x=>({scope:x.scope,state:(x.active||x.installing||x.waiting)?.state,script:(x.active||x.installing||x.waiting)?.scriptURL}))))`,
+  awaitPromise: true, returnByValue: false,
+});
+const sws = JSON.parse(regs.result.value ?? '[]');
+```
+Use the CDP domain (`ServiceWorker.enable` + events) for **live lifecycle tracking**; use `navigator.serviceWorker.getRegistrations()` for a **snapshot** after load.
+
+**Combine with:** `workers` (to attach to the SW target and capture its network traffic), `storage` (to read CacheStorage entries managed by the SW).
+
+
+## workers
+
+**Trigger phrases:** "web worker", "shared worker", "worker thread", "background worker", "blob worker", "WS inside worker", "what workers are running", "worker targets", "worker network traffic"
+
+**Domains:** `Target.setAutoAttach` + `Target.setDiscoverTargets` — must be called **before navigation**
+
+**Key events/methods:**
+- `Target.setAutoAttach({autoAttach: true, waitForDebuggerOnStart: false, flatten: true})` — auto-attach to all child targets (workers, service workers) with flat session model
+- `Target.setDiscoverTargets({discover: true})` — emit `Target.targetCreated` for worker targets that Chrome discovers
+- Event: `Target.attachedToTarget` → `{targetInfo, sessionId}` — fires when a worker is attached; `targetInfo.type` is one of `"worker"` (Web Worker), `"shared_worker"`, `"service_worker"`
+- Event: `Target.targetCreated` → `{targetInfo}` — fires when a worker target is created (type = worker/shared_worker/service_worker)
+- `Target.getTargets({})` → `{targetInfos[]}` — list all known targets including workers (use after page settles)
+- `Target.detachFromTarget({sessionId})` — detach from a worker when done
+
+**Enabling Network on a worker (flat session model):**
+
+When `flatten: true` is set in `setAutoAttach`, worker sessions share the same WebSocket connection. Pass `sessionId` as the **third argument** to `cdp.send()` to route commands to that session:
+
+```js
+cdp.on('Target.attachedToTarget', async ({ targetInfo, sessionId }) => {
+  if (!['worker', 'shared_worker', 'service_worker'].includes(targetInfo.type)) return;
+  console.log(`[WORKER] Attached: type=${targetInfo.type} url=${targetInfo.url || '(blob)'}`);
+  // Enable Network on this worker's session to capture its HTTP + WS traffic
+  await cdp.send('Network.enable', {}, sessionId);
+  // All Network events from this worker now carry { sessionId } in their metadata.
+  // Route them with a wrapper that filters by sessionId.
+});
+```
+
+**Routing worker events (filter by sessionId):**
+```js
+// Generic: listen to an event on a specific worker session
+function onWorkerEvent(event, workerSessionId, handler) {
+  cdp.on(event, (params, meta) => {
+    if (meta?.sessionId === workerSessionId) handler(params);
+  });
+}
+// Then:
+onWorkerEvent('Network.webSocketCreated', sessionId, ({ requestId, url }) => {
+  console.log(`[WORKER] WS inside worker: ${url}`);
+});
+```
+
+**Output prefixes:** `[WORKER]` `[FINDING]` `[MONITOR]`
+
+**`[FINDING]` conditions to emit:**
+- Worker URL is a blob: URL → `[FINDING] WORKER_BLOB: ${url}` (expected but opaque; blob workers cannot be inspected via source)
+- Shared Worker detected → `[FINDING] SHARED_WORKER: ${url}` (multi-tab communication channel)
+- Service Worker detected → `[FINDING] SERVICE_WORKER_TARGET: ${url}` (complements service-worker intent)
+- WS connection inside a worker → `[FINDING] WS_IN_WORKER: type=${type} url=${wsUrl}`
+
+**Cleanup:**
+```js
+await cdp.send('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
+await cdp.send('Target.setDiscoverTargets', { discover: false });
+```
+
+**Combine with:** `websocket` (capture WS frames inside workers), `service-worker` (track SW lifecycle alongside its target session), `network` (capture HTTP requests made by workers).
 
 
 ## intercept
@@ -1956,6 +2061,8 @@ export async function run(cdp) {
 | `[EMULATE]` | emulate | Environment override active |
 | `[INJECT]` | inject | Script injected into document |
 | `[MONITOR]` | monitor | State snapshot from polling loop |
+| `[SW]` | service-worker | Service Worker lifecycle event or state |
+| `[WORKER]` | workers | Worker target attached or event from worker session |
 | `[ACTION]` | debug, automate | Concrete next step for agent or developer |
 
 
@@ -1972,7 +2079,7 @@ export async function run(cdp) {
 **Domains required:** None for the open step. Each on-demand check enables only what it needs.
 
 **Critical flags:**
-- `open-browser.mjs` → omit `--headless` (visible mode required for user interaction)
+- `open-browser.mjs` → **NEVER pass `--headless`** — the user must see and control the browser. This is non-negotiable for this intent.
 - `cdp-sandbox.mjs` → always pass `--keep-tab` and `--target-url <pattern>` to attach without reloading
 - Do NOT call `Page.navigate` in on-demand scripts — the user is already on the page they want
 

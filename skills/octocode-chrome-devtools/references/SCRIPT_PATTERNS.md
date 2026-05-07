@@ -854,6 +854,201 @@ resolver.printSummary();
 
 
 
+## Service Worker Lifecycle
+
+Tracks every Service Worker state transition via the `ServiceWorker` CDP domain. Captures registration, full lifecycle (new → installing → installed → activating → activated → redundant), and the navigator API snapshot.
+
+```js
+export async function run(cdp) {
+  await cdp.send('Network.enable', {});
+  await cdp.send('Page.enable', {});
+  await cdp.send('Page.setLifecycleEventsEnabled', { enabled: true });
+  await cdp.send('ServiceWorker.enable', {}); // must be before navigation
+
+  const swVersions = new Map(); // scriptURL → latest status/runningStatus key
+  const swRegistrations = new Set(); // scopeURLs seen
+
+  cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
+    for (const r of registrations) {
+      if (r.scopeURL.startsWith('chrome-extension:')) continue;
+      const label = r.isDeleted ? 'DELETED' : 'REGISTERED';
+      console.log(`[SW] ${label}: scope=${r.scopeURL} id=${r.registrationId}`);
+      if (!r.isDeleted) {
+        swRegistrations.add(r.scopeURL);
+        console.log(`[FINDING] SW_REGISTERED: ${r.scopeURL}`);
+      } else {
+        console.log(`[FINDING] SW_REMOVED: ${r.scopeURL}`);
+      }
+    }
+  });
+
+  cdp.on('ServiceWorker.workerVersionUpdated', ({ versions }) => {
+    for (const v of versions) {
+      if (!v.scriptURL || v.scriptURL.startsWith('chrome-extension:')) continue;
+      const key = `${v.status}/${v.runningStatus}`;
+      const prev = swVersions.get(v.scriptURL);
+      if (prev === key) continue; // deduplicate repeated events
+      swVersions.set(v.scriptURL, key);
+      const fn = v.scriptURL.split('/').slice(-1)[0].split('?')[0];
+      console.log(`[SW] VERSION: ${fn} → ${v.status}/${v.runningStatus} (script=${v.scriptURL})`);
+      if (v.status === 'activated') console.log(`[FINDING] SW_ACTIVATED: ${v.scriptURL}`);
+      if (v.status === 'redundant')  console.log(`[FINDING] SW_REDUNDANT: ${v.scriptURL}`);
+      const swHost = (() => { try { return new URL(v.scriptURL).hostname; } catch { return ''; } })();
+      const pageHost = (() => { try { return new URL(TARGET_URL).hostname; } catch { return ''; } })();
+      if (swHost && pageHost && swHost !== pageHost) console.log(`[FINDING] SW_THIRD_PARTY_SCRIPT: ${v.scriptURL}`);
+    }
+  });
+
+  await cdp.send('Page.navigate', { url: TARGET_URL });
+  await new Promise(r => setTimeout(r, 15000)); // allow SW to install + activate
+
+  // Point-in-time snapshot via navigator API
+  const { result } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      if (!navigator.serviceWorker) return '[]';
+      const regs = await navigator.serviceWorker.getRegistrations();
+      return JSON.stringify(regs.map(r => ({
+        scope: r.scope,
+        updateViaCache: r.updateViaCache,
+        state: (r.active || r.installing || r.waiting)?.state ?? 'unknown',
+        scriptURL: (r.active || r.installing || r.waiting)?.scriptURL ?? null,
+      })));
+    })()`,
+    awaitPromise: true, returnByValue: false,
+  });
+  const sws = JSON.parse(result.value ?? '[]');
+
+  console.log(`[METRIC] SW registrations (live CDP): ${swRegistrations.size}`);
+  console.log(`[METRIC] SW registrations (navigator API): ${sws.length}`);
+  for (const s of sws) {
+    console.log(`[SW] SNAPSHOT: scope=${s.scope} state=${s.state} script=${s.scriptURL}`);
+  }
+
+  await cdp.send('ServiceWorker.disable', {});
+}
+```
+
+**Key facts:**
+- `ServiceWorker.enable` must be called before navigation — events are not replayed retroactively
+- `workerVersionUpdated` fires repeatedly for the same version as state advances — deduplicate on `scriptURL + status/runningStatus`
+- `workerRegistrationUpdated` fires for ALL known registrations (including from prior sessions, extensions) on enable — filter `chrome-extension:` scopes
+- `status` lifecycle order: `new` → `installing` → `installed` → `activating` → `activated` → `redundant`
+- `runningStatus` lifecycle: `stopped` → `starting` → `running` → `stopping`
+- Use `ServiceWorker.skipWaiting({scopeURL})` to force a waiting SW to activate immediately (useful in tests)
+
+
+## WebSocket inside Workers
+
+Web Workers and Shared Workers can open their own WebSocket connections. These do **not** emit `Network.webSocketCreated` on the main session — you must attach to each worker via `Target.setAutoAttach` and enable `Network` on its session.
+
+```js
+export async function run(cdp) {
+  await cdp.send('Network.enable', {});
+  await cdp.send('Page.enable', {});
+  await cdp.send('Page.setLifecycleEventsEnabled', { enabled: true });
+  await cdp.send('ServiceWorker.enable', {});
+  // flatten:true = worker sessions share the same CDP WebSocket; sessionId routes commands
+  await cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+  await cdp.send('Target.setDiscoverTargets', { discover: true });
+
+  const wsMap = new Map(); // `${sessionLabel}::${requestId}` → { url, frames }
+
+  // Helper: attach Network WS listeners to any session (main page OR worker)
+  function listenWS(session, label) {
+    function on(event, handler) {
+      cdp.on(event, (params, meta) => {
+        // main page: no meta.sessionId; worker: meta.sessionId matches
+        const isTarget = label === 'MAIN'
+          ? !meta?.sessionId
+          : meta?.sessionId === session.sessionId;
+        if (isTarget) handler(params);
+      });
+    }
+
+    on('Network.webSocketCreated', ({ requestId, url }) => {
+      wsMap.set(`${label}::${requestId}`, { url, sent: [], recv: [] });
+      console.log(`[WORKER] WS OPENED [${label}]: ${url}`);
+      const wsHost = (() => { try { return new URL(url).hostname; } catch { return '?'; } })();
+      console.log(`[FINDING] WS_IN_WORKER: type=${label} host=${wsHost} url=${url}`);
+    });
+
+    on('Network.webSocketFrameSent', ({ requestId, response }) => {
+      const ws = wsMap.get(`${label}::${requestId}`);
+      if (!ws) return;
+      const p = response?.payloadData ?? '';
+      ws.sent.push(p);
+      console.log(`[WORKER] WS SENT [${label}] ${p.length}B op=${response?.opcode}: ${p.slice(0, 200)}`);
+      if (/token|password|secret|key|auth|jwt/i.test(p))
+        console.log(`[FINDING] SENSITIVE_IN_WS_SENT [${label}]: ${p.slice(0, 80)}`);
+    });
+
+    on('Network.webSocketFrameReceived', ({ requestId, response }) => {
+      const ws = wsMap.get(`${label}::${requestId}`);
+      if (!ws) return;
+      const p = response?.payloadData ?? '';
+      ws.recv.push(p);
+      console.log(`[WORKER] WS RECV [${label}] ${p.length}B op=${response?.opcode}: ${p.slice(0, 200)}`);
+    });
+
+    on('Network.webSocketClosed', ({ requestId }) => {
+      const ws = wsMap.get(`${label}::${requestId}`);
+      if (!ws) return;
+      console.log(`[WORKER] WS CLOSED [${label}]: ${ws.url} S:${ws.sent.length} R:${ws.recv.length}`);
+    });
+  }
+
+  // Listen on the main page session
+  listenWS({ sessionId: null }, 'MAIN');
+
+  // When a worker attaches, enable Network on it and listen there too
+  let workerCount = 0;
+  cdp.on('Target.attachedToTarget', async ({ targetInfo, sessionId }) => {
+    const t = targetInfo.type;
+    if (!['worker', 'shared_worker', 'service_worker'].includes(t)) return;
+    workerCount++;
+    const label = `${t.toUpperCase()}(${workerCount})`;
+    console.log(`[WORKER] Attached: type=${t} label=${label} url=${targetInfo.url || '(blob)'}`);
+    console.log(`[FINDING] WORKER_${t.toUpperCase()}: ${targetInfo.url || '(blob)'}`);
+    try {
+      await cdp.send('Network.enable', {}, sessionId); // route to worker session
+      listenWS({ sessionId }, label);
+    } catch (e) {
+      console.log(`[WORKER] Network.enable failed for ${label}: ${e.message}`);
+    }
+  });
+
+  cdp.on('Page.javascriptDialogOpening', () => cdp.send('Page.handleJavaScriptDialog', { accept: true }));
+
+  await cdp.send('Page.navigate', { url: TARGET_URL });
+  await new Promise(r => setTimeout(r, 20000));
+
+  // Summary
+  const allWS = [...wsMap.values()];
+  console.log(`[METRIC] Total WS connections (main + workers): ${allWS.length}`);
+  for (const ws of allWS) {
+    console.log(`[METRIC]  WS: ${ws.url} sent:${ws.sent.length} recv:${ws.recv.length}`);
+  }
+  const { targetInfos } = await cdp.send('Target.getTargets', {});
+  const wTargets = targetInfos.filter(t => ['worker','shared_worker','service_worker'].includes(t.type));
+  console.log(`[METRIC] Worker targets: ${wTargets.length}`);
+  for (const t of wTargets) console.log(`[METRIC]  type=${t.type} url=${t.url || '(blob)'}`);
+
+  // Cleanup
+  await cdp.send('ServiceWorker.disable', {});
+  await cdp.send('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
+  await cdp.send('Target.setDiscoverTargets', { discover: false });
+}
+```
+
+**Key facts:**
+- `flatten: true` on `setAutoAttach` is required — it makes all sessions share one WS connection and routes via `sessionId`
+- Pass `sessionId` as the **third argument** to `cdp.send(method, params, sessionId)` to send commands to a worker session
+- Worker `Network.*` events arrive on the main `cdp.on()` listener but carry a `meta.sessionId` in the second argument — check it to route correctly
+- Workers spawned as `blob:` URLs cannot be read by source, but their network traffic (HTTP + WS) is fully capturable
+- `Target.setAutoAttach` with `waitForDebuggerOnStart: false` lets workers run normally — set to `true` only if you need to pause a worker at startup for debugging
+- `shared_worker` type means a single worker shared across tabs — it persists even after the page navigates
+
+
 ## Storage Audit
 
 > **Full script in `INTENTS.md` → `## storage`** — grep: `rg -n "^## storage" references/INTENTS.md`

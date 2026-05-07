@@ -71,11 +71,13 @@ Use this mode when the user wants to browse freely and ask questions about the l
 
 **Step 1 — Open a visible tab**
 
+> **NEVER pass `--headless` in Live Page Mode.** The user must be able to see and interact with the page. Omit `--headless` entirely — do not add it even if it is the default for other workflows.
+
 ```bash
 node <skill-dir>/scripts/open-browser.mjs --url "<url>" [--port 9222]
 ```
 
-No `--headless`. Chrome opens visibly. Tell the user:
+Chrome opens visibly. Tell the user:
 > *"Chrome is open at `<url>`. Do whatever you need on the page — log in, navigate, interact. Tell me when you want me to check something."*
 
 **Step 2 — Wait for the user**
