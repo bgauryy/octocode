@@ -17,16 +17,68 @@ const HEADLESS    = hasFlag('--headless');
 const CLEANUP     = hasFlag('--cleanup');
 const DRY_RUN     = hasFlag('--dry-run');
 const CHROME_PATH  = getArg('--chromePath', '');
-const WINDOW_SIZE  = getArg('--windowSize', '');   // e.g. "390x844" for mobile, "1920x1080" for desktop
+const WINDOW_SIZE  = getArg('--windowSize', '');
 const USER_AGENT  = getArg('--userAgent', '');
+const PROXY_SERVER = getArg('--proxyServer', '');
+const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
+const PROXY_PAC_URL = getArg('--proxyPacUrl', '');
+const CONFIG_PATH = getArg('--config', '');
 
 const TMP         = tmpdir();
 const SESSION_FILE = join(TMP, `cdp-session-${PORT}.json`);
-// Headless Chrome gets its own isolated temp profile — never touches the real user profile
+// Headless always uses an isolated temp profile.
 const HEADLESS_PROFILE_DIR = join(TMP, `cdp-chrome-profile-${PORT}`);
 
 function ok(payload)  { console.log(JSON.stringify(payload)); }
 function err(message) { console.log(JSON.stringify({ status: 'ERROR', message })); process.exit(1); }
+
+function readJsonFile(filePath, { strict = false } = {}) {
+  if (!filePath || !existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (jsonErr) {
+    if (strict) err(`Invalid JSON in config file: ${filePath} (${jsonErr.message})`);
+    console.error(`[BROWSER] Warning: ignoring invalid JSON config ${filePath}: ${jsonErr.message}`);
+    return null;
+  }
+}
+
+function normalizeProxyConfig(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const enabled = raw.enabled;
+  const server = typeof raw.server === 'string' ? raw.server.trim() : '';
+  const bypassList = typeof raw.bypassList === 'string' ? raw.bypassList.trim() : '';
+  const pacUrl = typeof raw.pacUrl === 'string' ? raw.pacUrl.trim() : '';
+  return {
+    enabled: enabled === undefined ? true : Boolean(enabled),
+    server,
+    bypassList,
+    pacUrl,
+  };
+}
+
+function loadProxyConfig() {
+  const cwdConfig = join(process.cwd(), '.octocode', 'chrome-devtools.json');
+  const homeConfig = join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.octocode', 'config.json');
+  if (CONFIG_PATH && !existsSync(CONFIG_PATH)) err(`Config file not found: ${CONFIG_PATH}`);
+  const candidateFiles = CONFIG_PATH ? [CONFIG_PATH] : [cwdConfig, homeConfig];
+
+  for (const configFile of candidateFiles) {
+    const json = readJsonFile(configFile, { strict: Boolean(CONFIG_PATH) });
+    if (!json || typeof json !== 'object') continue;
+
+    const candidates = [
+      json?.proxy,
+      json?.chromeDevtools?.proxy,
+      json?.skills?.['octocode-chrome-devtools']?.proxy,
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeProxyConfig(candidate);
+      if (normalized) return normalized;
+    }
+  }
+  return null;
+}
 
 function findChrome() {
   if (platform() === 'darwin') {
@@ -160,7 +212,6 @@ async function cleanupSession() {
     return;
   }
 
-  // Kill the process, then wait briefly so Chrome releases profile files.
   try { process.kill(session.pid, 'SIGTERM'); console.error(`[BROWSER] Sent SIGTERM to Chrome pid=${session.pid}`); }
   catch { console.error(`[BROWSER] Process pid=${session.pid} already gone`); }
   const exited = await waitForExit(session.pid);
@@ -170,13 +221,11 @@ async function cleanupSession() {
     await waitForExit(session.pid, 1000);
   }
 
-  // Remove temp profile dir
   if (session.profileDir && existsSync(session.profileDir)) {
     try { await removeDirWithRetry(session.profileDir); console.error(`[BROWSER] Removed profile: ${session.profileDir}`); }
     catch (e) { console.error(`[BROWSER] Could not remove profile: ${e.message}`); }
   }
 
-  // Remove session file
   try { rmSync(SESSION_FILE, { force: true }); } catch {}
   console.error('[BROWSER] Session cleaned up');
   ok({ status: 'CLEANED_UP', port: PORT });
@@ -184,9 +233,29 @@ async function cleanupSession() {
 
 if (CLEANUP) { await cleanupSession(); process.exit(0); }
 
+const proxyConfig = loadProxyConfig();
+const effectiveProxyServer =
+  PROXY_SERVER || (proxyConfig?.enabled ? proxyConfig.server : '');
+const effectiveProxyBypassList =
+  PROXY_BYPASS_LIST || (proxyConfig?.enabled ? proxyConfig.bypassList : '');
+const effectiveProxyPacUrl =
+  PROXY_PAC_URL || (proxyConfig?.enabled ? proxyConfig.pacUrl : '');
+const proxyRequested = Boolean(effectiveProxyServer || effectiveProxyPacUrl);
+
 const existing = await checkRunning();
 if (existing) {
-  ok({ status: 'BROWSER_READY', wsUrl: existing.webSocketDebuggerUrl, port: PORT, reused: true, browser: existing.Browser });
+  ok({
+    status: 'BROWSER_READY',
+    wsUrl: existing.webSocketDebuggerUrl,
+    port: PORT,
+    reused: true,
+    browser: existing.Browser,
+    proxyConfigured: false,
+    proxyRequested,
+    warning: proxyRequested
+      ? 'Existing Chrome was reused; proxy settings cannot be applied to an already-running CDP session. Run cleanup or use another port for a fresh proxied session.'
+      : undefined,
+  });
   process.exit(0);
 }
 
@@ -196,10 +265,7 @@ if (CHROME_PATH && !existsSync(CHROME_PATH)) err(`Chrome not found at --chromePa
 
 const HOME = process.env.HOME ?? process.env.USERPROFILE;
 
-// On macOS, Chrome enforces a single instance per user-data-dir.
-// If Chrome is already running without CDP, spawning with the real profile dir
-// just hands off to the existing process (which has no CDP port).
-// Detect this and fall back to an isolated temp-profile so we force a new process.
+// If Chrome is already running without CDP, real-profile launches may hand off to it.
 function isChromeRunning() {
   if (platform() === 'darwin') {
     try { execSync('pgrep -x "Google Chrome" > /dev/null 2>&1'); return true; } catch { return false; }
@@ -226,23 +292,19 @@ if (HEADLESS) {
   mkdirSync(HEADLESS_PROFILE_DIR, { recursive: true });
   userDataDir = HEADLESS_PROFILE_DIR;
 } else if (isChromeRunning()) {
-  // Chrome is already open without CDP — use isolated temp profile to force a new CDP process
   usingIsolatedProfile = true;
   mkdirSync(HEADLESS_PROFILE_DIR, { recursive: true });
   userDataDir = HEADLESS_PROFILE_DIR;
-  console.error('[BROWSER] Chrome already running without CDP — launching isolated CDP session');
+  console.error('[BROWSER] Chrome already running without CDP - launching isolated CDP session');
 } else {
   userDataDir = platform() === 'darwin'
     ? `${HOME}/Library/Application Support/Google/Chrome`
     : platform() === 'win32'
       ? `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data`
       : `${HOME}/.config/google-chrome`;
-  // SECURITY WARNING: real user profile exposes all cookies, stored credentials, and
-  // active authenticated sessions to CDP scripts. Only do this when explicitly needed
-  // for auth-dependent tasks and you trust the scripts being run.
   console.error('[BROWSER] WARNING: Using real user Chrome profile. CDP scripts will have access');
   console.error('[BROWSER] WARNING: to all cookies, auth tokens, and sessions in this profile.');
-  console.error('[BROWSER] WARNING: Use --headless for isolated inspection without auth exposure.');
+  console.error('[BROWSER] WARNING: Use --headless for isolated inspection without profile access.');
 }
 
 const chromeArgs = [
@@ -255,14 +317,14 @@ const chromeArgs = [
 
 if (!HEADLESS && !usingIsolatedProfile) chromeArgs.push(`--profile-directory=${PROFILE}`, '--restore-last-session');
 if (HEADLESS)  chromeArgs.push('--headless=new', '--disable-gpu', '--disable-dev-shm-usage');
-// --no-sandbox removes Chrome's OS process sandbox. Only add it on Linux where it is
-// required (e.g. running as root or inside Docker). Never add it on macOS or Windows.
 if (HEADLESS && platform() === 'linux') chromeArgs.push('--no-sandbox', '--disable-setuid-sandbox');
 if (USER_AGENT) chromeArgs.push(`--user-agent=${USER_AGENT}`);
 if (WINDOW_SIZE) {
-  // Accept "WxH" or "W,H" — normalise to Chrome's expected "W,H" format
   chromeArgs.push(`--window-size=${WINDOW_SIZE.replace('x', ',')}`);
 }
+if (effectiveProxyServer) chromeArgs.push(`--proxy-server=${effectiveProxyServer}`);
+if (effectiveProxyBypassList) chromeArgs.push(`--proxy-bypass-list=${effectiveProxyBypassList}`);
+if (effectiveProxyPacUrl && !effectiveProxyServer) chromeArgs.push(`--proxy-pac-url=${effectiveProxyPacUrl}`);
 if (URL_ARG)   chromeArgs.push(URL_ARG);
 
 const profileLabel = HEADLESS ? 'headless' : usingIsolatedProfile ? 'isolated-cdp' : PROFILE;
@@ -271,22 +333,28 @@ console.error(`[BROWSER] Launching Chrome: headless=${HEADLESS} port=${PORT} pro
 const child = spawn(chromePath, chromeArgs, { detached: true, stdio: 'ignore' });
 child.unref();
 
-// Track session for later cleanup (headless or isolated non-headless)
 if (HEADLESS || usingIsolatedProfile) writeSession(child.pid);
 
-// Poll until ready (max 20s)
 let attempts = 0;
 while (attempts < 40) {
   await new Promise(r => setTimeout(r, 500));
   const info = await checkRunning();
   if (info) {
-    ok({ status: 'BROWSER_READY', wsUrl: info.webSocketDebuggerUrl, port: PORT, reused: false, browser: info.Browser, isolated: HEADLESS || usingIsolatedProfile, sessionFile: (HEADLESS || usingIsolatedProfile) ? SESSION_FILE : null });
+    ok({
+      status: 'BROWSER_READY',
+      wsUrl: info.webSocketDebuggerUrl,
+      port: PORT,
+      reused: false,
+      browser: info.Browser,
+      isolated: HEADLESS || usingIsolatedProfile,
+      sessionFile: (HEADLESS || usingIsolatedProfile) ? SESSION_FILE : null,
+      proxyConfigured: proxyRequested,
+    });
     process.exit(0);
   }
   attempts++;
 }
 
-// If we get here Chrome failed to start — clean up the temp profile
 if ((HEADLESS || usingIsolatedProfile) && existsSync(HEADLESS_PROFILE_DIR)) {
   rmSync(HEADLESS_PROFILE_DIR, { recursive: true, force: true });
   rmSync(SESSION_FILE, { force: true });

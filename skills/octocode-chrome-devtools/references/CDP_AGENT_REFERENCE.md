@@ -2,6 +2,27 @@
 
 > Use `cdp-runner.mjs` / `cdp-sandbox.mjs` — connection is handled automatically. This reference covers domain APIs, method params, events, and error codes only.
 
+## Source of Truth — Actual CDP API
+
+Use this file for common workflows and known gotchas. Use the official protocol pages for the exact current API shape:
+
+```text
+https://chromedevtools.github.io/devtools-protocol/tot/<Domain>/
+```
+
+Example: `https://chromedevtools.github.io/devtools-protocol/tot/DOM/`
+
+Before using any unfamiliar method, optional parameter, return field, event, or experimental/deprecated API, check the matching domain page. If Chrome is already running with remote debugging and the task depends on the browser's exact supported protocol, fetch the local protocol description instead:
+
+```bash
+curl -fsS "http://127.0.0.1:9222/json/protocol" > "$TMPDIR/cdp-protocol.json"
+rg -n '"domain" *: *"DOM"|"name" *: *"getDocument"' "$TMPDIR/cdp-protocol.json"
+```
+
+Replace `9222` with the active CDP port if needed. Tip-of-tree docs expose the full protocol surface and can move ahead of a user's installed Chrome. The local `/json/protocol` endpoint is the best authority for that running browser.
+
+For browser/Web APIs invoked through `Runtime.evaluate`, this CDP reference is only illustrative. Verify current Web API documentation and feature-detect in the target page (`'storage' in navigator`, `'PerformanceObserver' in window`, etc.) before relying on optional or fast-moving APIs.
+
 
 ## 0. Domain Enable Map
 
@@ -226,171 +247,90 @@ Call `Debugger.enable` first (returns `debuggerId`).
 
 ## 12. Agent Patterns
 
-### Click an element
-```ts
-const { root } = await tab.send<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 });
-const { nodeId } = await tab.send<{ nodeId: number }>('DOM.querySelector', { nodeId: root.nodeId, selector: '#submit' });
-await tab.send('DOM.scrollIntoViewIfNeeded', { nodeId });
-const { model } = await tab.send<{ model: { content: number[] } }>('DOM.getBoxModel', { nodeId });
-const [x1,,x3,,,,,y1,,,,y3] = model.content; // 8-point polygon
-const cx = (x1 + x3) / 2, cy = (y1 + y3) / 2;
-await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1 });
-await tab.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1 });
+Keep runnable code in `SCRIPT_PATTERNS.md`; use this section as the CDP behavior checklist.
+
+| Pattern | Key CDP rule | Runnable reference |
+|---|---|---|
+| click element | `DOM.getBoxModel` gives an 8-point content polygon; click center with `Input.dispatchMouseEvent` | `SCRIPT_PATTERNS_ASYNC_WORKERS.md` -> `waitForSelector with Actionability` |
+| fill text | focus node then `Input.insertText`, or set native input value and dispatch `input` + `change` for frameworks | `INTENTS_AUTOMATION.md` -> `automate` |
+| wait for selector | CDP has no native wait; poll with `Runtime.evaluate` or `DOM.querySelector` | `SCRIPT_PATTERNS_ASYNC_WORKERS.md` |
+| wait for network idle | attach `Network.*` listeners before navigation; track pending requests until quiet | `SCRIPT_PATTERNS_ASYNC_WORKERS.md` |
+| iframe JS | capture `Runtime.executionContextCreated` and pass `contextId` to `Runtime.evaluate` | section 3 |
+| page callback | `Runtime.addBinding` exposes `window.<name>(payload)`; listen for `Runtime.bindingCalled` | section 3 |
+| pre-load inject | `Page.addScriptToEvaluateOnNewDocument` before navigation; remove by `identifier` when done | `INTENTS_ENVIRONMENT.md` -> `inject` |
+| mock/block requests | `Fetch.enable` before navigation; every `requestPaused` needs continue/fulfill/fail | section 7 |
+| file upload | use absolute host paths; dispatch `input` and `change` afterward | `SCRIPT_PATTERNS_BROWSER.md` -> `File Upload` |
+| shadow DOM | `DOM.querySelector` never crosses shadow roots; use recursive `Runtime.evaluate`; closed roots stay inaccessible | `SCRIPT_PATTERNS_BROWSER.md` |
+| isolated context | browser-level `Target.createBrowserContext` requires browser-level WebSocket; tab-level connections may reject it | `RECOVERY.md` |
+| self-signed TLS | `Security.enable` then `Security.setIgnoreCertificateErrors({ ignore: true })` before navigate | section 9 |
+
+Always handle: `Target.targetCrashed`, `Runtime.exceptionThrown`, `Log.entryAdded` with `level: "error"`, `Fetch.requestPaused` deadlocks, and `Page.navigate` responses containing `errorText`.
+
+
+## 13. ServiceWorker — Lifecycle tracking
+
+Call `ServiceWorker.enable` **before** navigation. All events are deduplicated — the same version may emit multiple identical state updates; filter by `scriptURL + status + runningStatus`.
+
+| Method / Event | Key fields | Use when |
+|---|---|---|
+| `ServiceWorker.enable` | — | Start receiving SW events — must precede navigation |
+| `ServiceWorker.disable` | — | Stop events (call at cleanup) |
+| `ServiceWorker.skipWaiting` | `scopeURL` | Force a waiting SW to activate immediately |
+| `ServiceWorker.updateRegistration` | `scopeURL` | Trigger an update check |
+| `ServiceWorker.unregister` | `scopeURL` | Unregister a SW |
+| Event: `workerRegistrationUpdated` | `registrations[{registrationId, scopeURL, isDeleted}]` | SW registered or unregistered |
+| Event: `workerVersionUpdated` | `versions[{scriptURL, status, runningStatus}]` | Any state transition |
+
+**`status` values (in order):** `new` → `installing` → `installed` → `activating` → `activated` → `redundant`
+
+**`runningStatus` values:** `stopped` → `starting` → `running` → `stopping`
+
+**Filter noise:** `workerRegistrationUpdated` fires on enable for every SW already registered in the browser (including extensions). Filter `chrome-extension:` scopes. Deduplicate `workerVersionUpdated` on `scriptURL + status/runningStatus`.
+
+→ **Runnable implementation:** `SCRIPT_PATTERNS.md → Service Worker Lifecycle`
+
+
+## 14. Target — Worker & multi-context sessions
+
+`Target` domain manages tabs, workers, and browser contexts. The **flat session model** (`flatten: true`) is the recommended mode — all sessions share a single WebSocket connection and commands are routed via `sessionId`.
+
+| Method / Event | Key fields | Use when |
+|---|---|---|
+| `Target.setAutoAttach` | `autoAttach: bool`, `waitForDebuggerOnStart: bool`, `flatten: bool` | Auto-attach to child targets (workers, service workers) |
+| `Target.setDiscoverTargets` | `discover: bool` | Emit `targetCreated` for every known target |
+| `Target.getTargets` | — | `targetInfos[]` — list all tabs, workers, frames |
+| `Target.attachToTarget` | `targetId`, `flatten?: bool` | Manually attach to a target |
+| `Target.detachFromTarget` | `sessionId` | Detach from a target |
+| `Target.createBrowserContext` | `disposeOnDetach?: bool` | Incognito-style isolated context |
+| `Target.disposeBrowserContext` | `browserContextId` | Destroy a browser context |
+| Event: `attachedToTarget` | `{targetInfo, sessionId}` | Worker/tab attached — `sessionId` routes commands |
+| Event: `targetCreated` | `{targetInfo}` | New target discovered |
+| Event: `targetDestroyed` | `{targetId}` | Target closed |
+| Event: `targetCrashed` | `{targetId, status, errorCode}` | Tab/worker crashed — restart it |
+
+**`targetInfo.type` values:** `page` · `iframe` · `worker` (Web Worker) · `shared_worker` · `service_worker` · `browser` · `background_page`
+
+**Routing a command to a worker session:**
+```js
+// Third argument to cdp.send() = sessionId → routes to that session
+await cdp.send('Network.enable', {}, sessionId);
 ```
 
-### Fill a text field
-```ts
-const { root } = await tab.send<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 });
-const { nodeId } = await tab.send<{ nodeId: number }>('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[name="email"]' });
-await tab.send('DOM.focus', { nodeId });
-await tab.send('Input.insertText', { text: 'user@example.com' });
-```
-
-### Wait for navigation
-```ts
-const { frameId } = await tab.send<{ frameId: string }>('Page.navigate', { url: 'https://example.com' });
-await new Promise<void>(resolve =>
-  browser.on('Page.frameStoppedLoading', ({ frameId: fid }) => { if (fid === frameId) resolve(); })
-);
-```
-
-### Wait for an element (no native waitForSelector — must poll)
-
-**Basic existence poll** — resolves as soon as `DOM.querySelector` returns a non-zero `nodeId`. Does NOT check visibility, enabled state, or pointer-events.
-```ts
-type TabSend = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
-
-async function waitForSelector(send: TabSend, selector: string, timeoutMs = 10000): Promise<number> {
-  const deadline = Date.now() + timeoutMs;
-  const { root } = await send<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 });
-  while (Date.now() < deadline) {
-    const { nodeId } = await send<{ nodeId: number }>('DOM.querySelector', { nodeId: root.nodeId, selector });
-    if (nodeId !== 0) return nodeId;
-    await new Promise(r => setTimeout(r, 200));
-  }
-  throw new Error(`Timeout waiting for: ${selector}`);
-}
-```
-
-Need full actionability check (visible + enabled + pointer)? → `SCRIPT_PATTERNS.md → waitForSelector with Actionability`
-
-### Run JS in a specific iframe
-```ts
-// Capture contextId per frame from Runtime.executionContextCreated
-const iframeContexts = new Map<string, number>(); // frameId → contextId
-browser.on('Runtime.executionContextCreated', ({ context }: any) => {
-  if (context.auxData?.frameId) iframeContexts.set(context.auxData.frameId, context.id);
-});
-await tab.send('Runtime.enable');
-
-// Then target that iframe's context
-const { result } = await tab.send<{ result: { value: unknown } }>('Runtime.evaluate', {
-  expression: 'document.querySelector("input").value',
-  contextId: iframeContexts.get(iframeFrameId),
-  returnByValue: true,
-});
-```
-
-### Let page JS call back into the agent
-```ts
-await tab.send('Runtime.addBinding', { name: 'agentCallback' });
-// In page JS:  window.agentCallback(JSON.stringify({ event: 'done', data: 42 }))
-browser.on('Runtime.bindingCalled', ({ name, payload }: any) => {
-  if (name === 'agentCallback') {
-    const data = JSON.parse(payload as string);
-    console.log('Page called back:', data);
-  }
-});
-```
-
-### Inject script before page JS runs (anti-bot, stubs)
-```ts
-const { identifier } = await tab.send<{ identifier: string }>(
-  'Page.addScriptToEvaluateOnNewDocument',
-  { source: `Object.defineProperty(navigator, 'webdriver', { get: () => false });` }
-);
-// later:
-await tab.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
-```
-
-### Mock an API call
-```ts
-await tab.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/data*', requestStage: 'Request' }] });
-
-browser.on('Fetch.requestPaused', async ({ requestId }) => {
-  const body = Buffer.from(JSON.stringify({ mocked: true })).toString('base64');
-  await tab.send('Fetch.fulfillRequest', {
-    requestId,
-    responseCode: 200,
-    responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-    body,
-  });
+**Routing events from a worker session:**
+```js
+cdp.on('Network.webSocketCreated', (params, meta) => {
+  if (meta?.sessionId === workerSessionId) { /* event from worker */ }
 });
 ```
 
-### File upload
-
-**Method:** `DOM.setFileInputFiles` — sets absolute file paths on `input[type="file"]`.  
-**Gotchas:** files must be absolute paths; always dispatch `input` + `change` events after (frameworks won't react otherwise); if nodeId is 0, page is still loading — use `waitForSelector` first.
-
-→ **Runnable implementation:** `SCRIPT_PATTERNS.md → File Upload`
-
-### Wait for network idle
-
-**Concept:** Track every `Network.requestWillBeSent` / `loadingFinished` pair — resolve when pending count hits 0 and stays 0 for `idleMs`. More reliable than `setTimeout`.  
-**Key rule:** attach listener **before** `Page.navigate` — events fire the moment navigation starts.  
-**Signature:** `waitForNetworkIdle(cdp, { idleMs?: number, timeoutMs?: number }): Promise<void>`
-
-→ **Runnable implementation:** `SCRIPT_PATTERNS.md → waitForNetworkIdle`
-
-### Wait for selector with actionability
-
-**Concept:** No native `waitForSelector` in CDP — must poll via `Runtime.evaluate`. Checks visibility (`getBoundingClientRect`, `display`, `visibility`, `opacity`), enabled state (`!el.disabled`), and pointer accessibility (`pointerEvents !== 'none'`). Returns `nodeId` for DOM operations.  
-**Signature:** `waitForSelector(cdp, selector, { timeoutMs?, checkVisible?, checkEnabled?, checkPointer?, pollMs? }): Promise<nodeId>`
-
-→ **Runnable implementation:** `SCRIPT_PATTERNS.md → waitForSelector with Actionability`
-
-### Query elements inside shadow DOM
-
-**Key facts:**
-- `DOM.querySelector` / `DOM.querySelectorAll` **never** cross shadow boundaries
-- Use `DOM.getDocument({ pierce: true })` to get shadow roots in the tree (appear as nodeType 11)
-- Use `Runtime.evaluate` with a recursive `pierce()` helper to search across all shadow roots
-- Closed shadow roots (`mode: 'closed'`) are inaccessible — no CDP bypass exists
-
-→ **Runnable implementation (3 patterns):** `SCRIPT_PATTERNS.md → Shadow DOM — Querying Inside Shadow Roots`
-
-### Isolated task context (no cookie/storage leakage)
-```ts
-const { browserContextId } = await browser.send<{ browserContextId: string }>(
-  'Target.createBrowserContext', { disposeOnDetach: true }
-);
-const tab = await openTab(browser, 'about:blank'); // pass browserContextId inside openTab if needed
-// ... do work ...
-await browser.send('Target.closeTarget', { targetId: tab.targetId });
-await browser.send('Target.disposeBrowserContext', { browserContextId });
-```
-
-### Ignore SSL errors
-```ts
-await tab.send('Security.enable');
-await tab.send('Security.setIgnoreCertificateErrors', { ignore: true });
-await tab.send('Page.navigate', { url: 'https://self-signed.local' });
-```
-
-### Error signals — always handle these
-- `Target.targetCrashed` → restart the target
-- `Runtime.exceptionThrown` → unhandled JS error on the page
-- `Log.entryAdded` with `level: "error"` → browser/network error
-- `Fetch.requestPaused` with no handler → page hangs forever (deadlock)
-- `Page.navigate` with `errorText` in response → navigation failed
+→ **Runnable implementation:** `SCRIPT_PATTERNS.md → WebSocket inside Workers`
 
 
-## 13. Covered Domains — Quick Reference
+## 15. Covered Domains — Quick Reference
 
 | Domain | `enable` required? | Core purpose | Spec |
 |---|---|---|---|
-| Target | No | Tabs, sessions, isolated contexts | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Target/) |
+| Target | No | Tabs, workers, sessions, isolated contexts | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Target/) |
 | Page | Yes | Navigate, screenshot, PDF, dialogs, script injection | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Page/) |
 | Runtime | Yes (for events) | Execute JS, bindings, iframe contexts | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Runtime/) |
 | DOM | Yes (for events) | Query/mutate DOM nodes | [↗](https://chromedevtools.github.io/devtools-protocol/tot/DOM/) |
@@ -405,11 +345,12 @@ await tab.send('Page.navigate', { url: 'https://self-signed.local' });
 | Performance | Yes | Collect perf metrics | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Performance/) |
 | Log | Yes | Capture all console/browser output | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Log/) |
 | Browser | No | Permissions, downloads, version | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Browser/) |
+| ServiceWorker | Yes | SW lifecycle events, skip-waiting, unregister | [↗](https://chromedevtools.github.io/devtools-protocol/tot/ServiceWorker/) |
 
 
-## 14. Other Domains — Not covered in this doc
+## 16. Other Domains — Official Spec Index
 
-These domains exist in the full protocol. Consult the linked spec when needed.
+These domains exist in the full protocol. Consult the linked spec before using their methods, params, events, or experimental/deprecated features.
 
 | Domain | Spec | Notes |
 |---|---|---|
@@ -446,7 +387,6 @@ These domains exist in the full protocol. Consult the linked spec when needed.
 | Profiler | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Profiler/) | CPU profiler (start/stop, coverage) |
 | PWA | [↗](https://chromedevtools.github.io/devtools-protocol/tot/PWA/) | Install/uninstall PWAs, change launch type |
 | Schema | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Schema/) | List all supported domains (`Schema.getDomains`) |
-| ServiceWorker | [↗](https://chromedevtools.github.io/devtools-protocol/tot/ServiceWorker/) | Inspect/update/skip-waiting service workers |
 | SmartCardEmulation | [↗](https://chromedevtools.github.io/devtools-protocol/tot/SmartCardEmulation/) | Simulate smart card readers |
 | SystemInfo | [↗](https://chromedevtools.github.io/devtools-protocol/tot/SystemInfo/) | GPU info, display info, process list |
 | Tethering | [↗](https://chromedevtools.github.io/devtools-protocol/tot/Tethering/) | Port-forward between host and device (Android) |

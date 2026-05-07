@@ -20,12 +20,11 @@ function decodeVLQList(str) {
 }
 
 function parseMap(mapJson) {
-  // Strip sourcesContent immediately — security rule
+  // Never retain original source bodies.
   delete mapJson.sourcesContent;
 
   const sources = mapJson.sources ?? [];
   const names   = mapJson.names   ?? [];
-  // mappings: array of { genLine, genCol, srcIdx, srcLine, srcCol, nameIdx? }
   const segments = [];
 
   let genLine = 0;
@@ -55,7 +54,6 @@ function parseMap(mapJson) {
     genLine++;
   }
 
-  // Sort by generated position for binary search
   segments.sort((a, b) => a.gl !== b.gl ? a.gl - b.gl : a.gc - b.gc);
 
   return { segments, sources, names };
@@ -65,9 +63,7 @@ function originalPositionFor(parsed, genLine, genCol) {
   const { segments, sources, names } = parsed;
   if (!segments.length) return null;
 
-  // Binary search: find the last segment on the same generated line with
-  // generated column <= requested column. Returning a previous line would
-  // create a plausible-looking but wrong source location.
+  // Same-line lookup only; previous-line matches look plausible but are wrong.
   let lo = 0, hi = segments.length - 1, best = -1;
 
   while (lo <= hi) {
@@ -86,7 +82,7 @@ function originalPositionFor(parsed, genLine, genCol) {
 
   return {
     source: sources[seg.si] ?? null,
-    line:   seg.sl + 1, // 1-indexed for display
+    line:   seg.sl + 1,
     col:    seg.sc,
     name:   seg.ni >= 0 ? (names[seg.ni] ?? null) : null,
   };
@@ -111,18 +107,14 @@ async function fetchText(url, timeoutMs = 4000) {
 }
 
 export async function createSourceMapResolver(cdp) {
-  // Enable Debugger to receive scriptParsed events
   await cdp.send('Debugger.enable', {});
-  await cdp.send('Debugger.setSkipAllPauses', { skip: true }); // prevent breakpoint hangs
+  await cdp.send('Debugger.setSkipAllPauses', { skip: true });
 
-  // scriptId → parsed map (or null if failed/absent)
   const parsedMaps = new Map();
-  // scriptId → script URL (for logging)
   const scriptUrls = new Map();
 
   const stats = { withMap: 0, withoutMap: 0, loaded: 0, failed: 0 };
 
-  // Pending map loads — collect promises so we can await all before resolving
   const loadPromises = [];
 
   cdp.on('Debugger.scriptParsed', ({ scriptId, url, sourceMapURL }) => {
@@ -140,13 +132,10 @@ export async function createSourceMapResolver(cdp) {
         let mapText;
 
         if (sourceMapURL.startsWith('data:')) {
-          // Inline base64 map — instant, zero network risk
           const b64start = sourceMapURL.indexOf('base64,');
           if (b64start === -1) return;
           mapText = Buffer.from(sourceMapURL.slice(b64start + 7), 'base64').toString('utf8');
         } else {
-          // External URL — resolve relative to the script URL. Handles
-          // root-relative, sibling, parent-dir, querystring, and absolute URLs.
           const mapUrl = url ? new URL(sourceMapURL, url).href : sourceMapURL;
           mapText = await fetchText(mapUrl);
         }
@@ -165,11 +154,6 @@ export async function createSourceMapResolver(cdp) {
   });
 
   return {
-    /**
-     * Wait for all in-flight map loads to settle.
-     * Call this after page load / network idle, before resolving positions.
-     * @param {number} [timeoutMs=8000] - max wait; maps still loading after this are skipped
-     */
     async settle(timeoutMs = 8000) {
       let timer;
       try {
@@ -182,30 +166,21 @@ export async function createSourceMapResolver(cdp) {
       }
     },
 
-    /**
-     * Resolve a generated (compiled) position to original source.
-     * @param {string} scriptId  — from Profiler result or Debugger callFrame
-     * @param {number} line      — 0-indexed line in compiled script
-     * @param {number} col       — 0-indexed column in compiled script
-     * @returns {{ source, name, line, col } | null}
-     */
     resolve(scriptId, line, col) {
       const parsed = parsedMaps.get(scriptId);
       if (!parsed) return null;
       return originalPositionFor(parsed, line, col);
     },
 
-    /** true if a map was successfully loaded for this script */
     hasMap(scriptId) {
       const m = parsedMaps.get(scriptId);
       return m !== null && m !== undefined;
     },
 
-    /** Emit a [SOURCEMAP] summary line */
     printSummary() {
       const total = stats.withMap + stats.withoutMap;
       const failNote = stats.failed > 0
-        ? ` (failed maps are likely on internal servers or require auth — expected for production sites)`
+        ? ` (failed maps are likely on internal servers or require auth - expected for production sites)`
         : '';
       console.log(
         `[SOURCEMAP] ${total} scripts: ` +

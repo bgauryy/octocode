@@ -1,36 +1,9 @@
-/**
- * undercover.mjs — Drop-in stealth + self-test for CDP scripts
- *
- * The sandbox auto-stages this file to $TMPDIR alongside your script.
- * Import it at the top of any run() with:
- *
- *   import { applyStealthPatches, verifyStealth } from './undercover.mjs';
- *
- * Then call BEFORE Page.navigate:
- *
- *   await applyStealthPatches(cdp);
- *   await cdp.send('Network.enable', {});
- *   await cdp.send('Page.navigate', { url: TARGET });
- *
- * Optional: call verifyStealth(cdp) after the page settles to confirm patches held.
- *
- * Options for applyStealthPatches(cdp, opts):
- *   opts.userAgent  — override the default Windows/Chrome UA string
- *   opts.timezone   — IANA timezone string (default: 'America/New_York')
- *   opts.locale     — locale string (default: 'en-US')
- *   opts.lat        — latitude  (default: 40.7128  — New York)
- *   opts.lon        — longitude (default: -74.0060 — New York)
- *   opts.origin     — origin for Browser.grantPermissions (default: undefined = all)
- */
-
-// ─────────────────────────────────────────────────────────────────────────────
-// applyStealthPatches — 25 CDP-only anti-detection techniques
-// ─────────────────────────────────────────────────────────────────────────────
+// Drop-in stealth patches for public sites likely to fingerprint headless Chrome.
+// Import from generated scripts before Page.navigate.
 export async function applyStealthPatches(cdp, opts = {}) {
   const ua = opts.userAgent ??
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-  // 1. User-Agent + Client Hints
   await cdp.send('Network.setUserAgentOverride', {
     userAgent: ua,
     platform: 'Win32',
@@ -49,7 +22,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
     },
   });
 
-  // 2. Viewport — headless default is 0×0 outer
   await cdp.send('Emulation.setDeviceMetricsOverride', {
     width: 1920, height: 1080,
     deviceScaleFactor: 1,
@@ -58,24 +30,20 @@ export async function applyStealthPatches(cdp, opts = {}) {
     positionX: 0, positionY: 0,
   });
 
-  // 3. Timezone + Locale
   await cdp.send('Emulation.setTimezoneOverride', { timezoneId: opts.timezone ?? 'America/New_York' });
   await cdp.send('Emulation.setLocaleOverride',   { locale:     opts.locale   ?? 'en-US' });
 
-  // 4. Geolocation
   await cdp.send('Emulation.setGeolocationOverride', {
     latitude:  opts.lat ?? 40.7128,
     longitude: opts.lon ?? -74.0060,
     accuracy: 100,
   });
 
-  // 5. Grant permissions — avoids detection via blocked-permission signals
   await cdp.send('Browser.grantPermissions', {
     permissions: ['geolocation', 'notifications', 'camera', 'microphone'],
     origin: opts.origin ?? undefined,
   });
 
-  // 6. Extra HTTP headers — look like a real browser
   await cdp.send('Network.setExtraHTTPHeaders', {
     headers: {
       'Accept-Language':    'en-US,en;q=0.9',
@@ -86,9 +54,7 @@ export async function applyStealthPatches(cdp, opts = {}) {
     },
   });
 
-  // 7. JS patches — injected before any page script runs
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(function(){
-    // toString() native bypass — MUST be first
     const _patchedFns = new WeakSet();
     const _nativeToString = Function.prototype.toString;
     Function.prototype.toString = new Proxy(_nativeToString, {
@@ -99,7 +65,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
       try { Object.defineProperty(obj, prop, { get: fn, configurable: true, enumerable: true }); } catch (_) {}
     }
 
-    // navigator signals
     def(navigator, 'webdriver',           () => undefined);
     def(navigator, 'vendor',              () => 'Google Inc.');
     def(navigator, 'platform',            () => 'Win32');
@@ -109,13 +74,11 @@ export async function applyStealthPatches(cdp, opts = {}) {
     def(navigator, 'cookieEnabled',       () => true);
     def(navigator, 'languages',           () => ['en-US', 'en']);
 
-    // window.chrome
     if (!window.chrome) window.chrome = {
       runtime: { id: undefined, connect: () => {}, sendMessage: () => {}, onMessage: { addListener: () => {}, removeListener: () => {} } },
       app: { isInstalled: false }, csi: () => {}, loadTimes: () => ({}),
     };
 
-    // plugins + mimeTypes
     def(navigator, 'plugins', () => Object.assign(
       [{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
@@ -127,7 +90,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
       { namedItem: () => null, item: () => null }
     ));
 
-    // permissions
     const _origQuery = navigator.permissions.query.bind(navigator.permissions);
     navigator.permissions.query = function(p) {
       if (['notifications','camera','microphone'].includes(p.name)) return Promise.resolve({ state: 'prompt', onchange: null });
@@ -135,7 +97,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
     };
     _patchedFns.add(navigator.permissions.query);
 
-    // connection
     if (navigator.connection) {
       def(navigator.connection, 'rtt',          () => 50);
       def(navigator.connection, 'downlink',     () => 10);
@@ -143,18 +104,15 @@ export async function applyStealthPatches(cdp, opts = {}) {
       def(navigator.connection, 'saveData',     () => false);
     }
 
-    // document.hasFocus()
     document.hasFocus = function() { return true; };
     _patchedFns.add(document.hasFocus);
 
-    // screen + window dimensions
     def(window, 'outerWidth',  () => 1920); def(window, 'outerHeight', () => 1080);
     def(window, 'screenX',     () => 20);   def(window, 'screenY',     () => 40);
     def(screen, 'width',       () => 1920); def(screen, 'height',      () => 1080);
     def(screen, 'availWidth',  () => 1920); def(screen, 'availHeight', () => 1040);
     def(screen, 'colorDepth',  () => 24);   def(screen, 'pixelDepth',  () => 24);
 
-    // WebGL vendor / renderer
     const patchWebGL = ctx => {
       const o = ctx.prototype.getParameter;
       ctx.prototype.getParameter = function(p) {
@@ -167,7 +125,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
     patchWebGL(WebGLRenderingContext);
     if (typeof WebGL2RenderingContext !== 'undefined') patchWebGL(WebGL2RenderingContext);
 
-    // Canvas toDataURL — pixel noise breaks canvas hash fingerprint
     const _origToDU = HTMLCanvasElement.prototype.toDataURL;
     HTMLCanvasElement.prototype.toDataURL = function(...a) {
       const c = this.getContext('2d');
@@ -176,7 +133,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
     };
     _patchedFns.add(HTMLCanvasElement.prototype.toDataURL);
 
-    // AudioBuffer noise — defeats audio fingerprint hash
     if (window.AudioBuffer) {
       const _origGCD = AudioBuffer.prototype.getChannelData;
       AudioBuffer.prototype.getChannelData = function(ch) {
@@ -187,7 +143,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
       _patchedFns.add(AudioBuffer.prototype.getChannelData);
     }
 
-    // MediaDevices.enumerateDevices — empty in headless
     if (navigator.mediaDevices?.enumerateDevices) {
       const _origEnum = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
       navigator.mediaDevices.enumerateDevices = function() {
@@ -200,7 +155,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
       _patchedFns.add(navigator.mediaDevices.enumerateDevices);
     }
 
-    // iframe contentWindow.webdriver — detectors probe iframes
     const _ifd = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
     if (_ifd?.get) {
       const _og = _ifd.get;
@@ -218,10 +172,6 @@ export async function applyStealthPatches(cdp, opts = {}) {
   console.log('[INJECT] Stealth patches applied (25 techniques)');
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// verifyStealth — 13-point self-test after page load
-// Emits [INJECT] PASS or [FINDING] STEALTH_FAIL per signal
-// ─────────────────────────────────────────────────────────────────────────────
 export async function verifyStealth(cdp) {
   const { result } = await cdp.send('Runtime.evaluate', {
     expression: `JSON.stringify({
@@ -254,7 +204,7 @@ export async function verifyStealth(cdp) {
     ['navigator.webdriver',    v.webdriver === undefined,       `expected undefined, got ${v.webdriver}`],
     ['navigator.vendor',       v.vendor    === 'Google Inc.',   `expected "Google Inc.", got "${v.vendor}"`],
     ['navigator.platform',     v.platform  === 'Win32',         `expected "Win32", got "${v.platform}"`],
-    ['navigator.plugins ≥ 3',  v.pluginCount >= 3,              `expected ≥3, got ${v.pluginCount}`],
+    ['navigator.plugins >= 3', v.pluginCount >= 3,              `expected >=3, got ${v.pluginCount}`],
     ['hardwareConcurrency',    v.hardwareConcurrency === 8,     `expected 8, got ${v.hardwareConcurrency}`],
     ['deviceMemory',           v.deviceMemory        === 8,     `expected 8, got ${v.deviceMemory}`],
     ['languages[0]',           v.lang0 === 'en-US',             `expected "en-US", got "${v.lang0}"`],
@@ -269,8 +219,8 @@ export async function verifyStealth(cdp) {
   let passed = 0, failed = 0;
   for (const [name, ok, msg] of checks) {
     if (ok) { console.log(`[INJECT] PASS: ${name}`); passed++; }
-    else     { console.log(`[FINDING] STEALTH_FAIL: ${name} — ${msg}`); failed++; }
+    else     { console.log(`[FINDING] STEALTH_FAIL: ${name} - ${msg}`); failed++; }
   }
-  console.log(`[INJECT] Stealth self-test: ${passed}/${checks.length} passed${failed > 0 ? ` — ${failed} FAILED` : ' — all clear'}`);
+  console.log(`[INJECT] Stealth self-test: ${passed}/${checks.length} passed${failed > 0 ? ` - ${failed} FAILED` : ' - all clear'}`);
   return { passed, failed, total: checks.length };
 }

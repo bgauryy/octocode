@@ -1,12 +1,10 @@
-// Base run(cdp) template. Use cdp-sandbox.mjs to run generated scripts.
+// Base run(cdp) template. Save task copies in $TMPDIR and run with cdp-sandbox.mjs.
 
 export async function run(cdp) {
-
-  // ── 0. SOURCE MAP RESOLVER (optional — must be first, before any navigation) ─
+  // Optional: source maps must be registered before navigation.
   // const { createSourceMapResolver } = await import(new URL('./sourcemap-resolver.mjs', import.meta.url).href);
   // const resolver = await createSourceMapResolver(cdp);
 
-  // ── 1. ENABLE DOMAINS ────────────────────────────────────────────────────────
   await cdp.send('Runtime.enable', {});
   await cdp.send('Network.enable', {});
   await cdp.send('Log.enable', {});
@@ -16,8 +14,20 @@ export async function run(cdp) {
   // await cdp.send('Performance.enable', {});
 
   console.log(`[METRIC] Inspecting: ${cdp.targetInfo.url}`);
-
-  // ── 2. ATTACH EVENT LISTENERS ────────────────────────────────────────────────
+  cdp.addReasoningStep?.({
+    step: 'init',
+    hypothesis: 'Target page has useful runtime/network evidence',
+    action: 'Enabled Runtime/Network/Log and started listeners',
+    result: `Attached to ${cdp.targetInfo.url}`,
+    nextAction: 'Collect signals and decide if targeted follow-up tabs are needed',
+  });
+  cdp.upsertResourceMap?.(`tab:${cdp.targetInfo.id ?? 'unknown'}`, {
+    type: 'tab',
+    url: cdp.targetInfo.url ?? null,
+    title: cdp.targetInfo.title ?? null,
+    tabId: cdp.targetInfo.id ?? null,
+    notes: 'Primary analysis target',
+  });
 
   cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
     const msg = args.map(a => a.value ?? a.description ?? '[object]').join(' ');
@@ -41,7 +51,7 @@ export async function run(cdp) {
     if (!r) return;
     const duration = Date.now() - r.start;
     console.log(`[NETWORK] ${response.status} ${r.method} ${r.url} (${duration}ms)`);
-    if (response.status >= 400) console.log(`[NETWORK_ERROR] HTTP ${response.status} → ${r.url}`);
+    if (response.status >= 400) console.log(`[NETWORK_ERROR] HTTP ${response.status} -> ${r.url}`);
     if (duration > 3000)       console.log(`[FINDING] SLOW_REQUEST: ${r.url} took ${duration}ms`);
   });
   cdp.on('Network.loadingFailed', ({ requestId, errorText, blockedReason }) => {
@@ -54,14 +64,18 @@ export async function run(cdp) {
       console.log(`[LOG:${entry.level.toUpperCase()}] [${entry.source}] ${entry.text}${entry.url ? ` @ ${entry.url}:${entry.lineNumber}` : ''}`);
   });
 
-  // ── 3. INSPECTION LOGIC ──────────────────────────────────────────────────────
-  // Add your cdp.send() calls here. See SCRIPT_PATTERNS.md for copy-paste patterns.
+  // Add task-specific cdp.send() calls here. See SCRIPT_PATTERNS.md.
 
-  // ── 4. WAIT ───────────────────────────────────────────────────────────────────
-  // Navigating inside run()? Use waitForNetworkIdle from SCRIPT_PATTERNS.md instead.
-  const MONITOR_MS = 10000; // 3s static page · 10s dynamic · 30s long network check
+  const MONITOR_MS = 10000; // 3s static, 10s dynamic, 30s long network check
   console.log(`[METRIC] Monitoring for ${MONITOR_MS / 1000}s...`);
   await new Promise(r => setTimeout(r, MONITOR_MS));
 
   console.log(`[METRIC] Total requests: ${requests.size}`);
+  cdp.addReasoningStep?.({
+    step: 'wrap-up',
+    hypothesis: 'Collected enough baseline signal for this run',
+    action: `Observed requests and exceptions for ${MONITOR_MS}ms`,
+    result: `requests=${requests.size}`,
+    nextAction: requests.size === 0 ? 'Consider navigation or explicit trigger on same tab' : 'Drill into failing or slow requests',
+  });
 }

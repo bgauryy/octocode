@@ -69,7 +69,7 @@ node <skill-dir>/scripts/open-browser.mjs --headless --windowSize 390x844 \
 
 **`--windowSize` does not set `window.innerWidth` in `headless=new`** (Chrome 112+). The OS window size and the page viewport are decoupled in modern headless mode. For any test that reads `window.innerWidth`, `window.innerHeight`, or uses CSS media queries, you must use the script-level approach.
 
-For real mobile emulation (media queries, touch, DPR, Sec-CH-UA), always use the script-level CDP calls from `INTENTS.md → ## emulate`. Launch flags alone are **not enough**.
+For real mobile emulation (media queries, touch, DPR, Sec-CH-UA), always use the script-level CDP calls from `INTENTS_ENVIRONMENT.md` -> `## emulate`. Launch flags alone are **not enough**.
 
 
 ## Optional flags for special scenarios
@@ -86,6 +86,33 @@ Pass these via a custom launch call when needed:
 | `--lang=<locale>` | Test localisation (e.g. `--lang=fr`) |
 | `--disable-extensions` | Clean run without user extensions |
 | `--incognito` | No persistent state — good for auth flow testing |
+
+## Proxy Routing
+
+Chrome can route traffic only through an already-configured proxy endpoint (HTTP/SOCKS/PAC), not directly into a VPN account. Use this only when the user provides or already runs a proxy.
+
+```bash
+node <skill-dir>/scripts/open-browser.mjs --headless \
+  --proxyServer "socks5://127.0.0.1:1080" \
+  --proxyBypassList "<-loopback>"
+
+node <skill-dir>/scripts/open-browser.mjs --headless \
+  --proxyPacUrl "http://127.0.0.1:3128/proxy.pac"
+```
+
+Proxy settings only apply when Chrome is launched fresh. If output has `"reused": true` and `"proxyRequested": true`, cleanup the tracked session first or use a different `--port`; Chrome cannot apply new proxy flags to an already-running CDP session.
+
+Config shape for `<repo>/.octocode/chrome-devtools.json` or global `chromeDevtools.proxy`:
+
+```json
+{
+  "proxy": {
+    "enabled": true,
+    "server": "socks5://127.0.0.1:1080",
+    "bypassList": "<-loopback>"
+  }
+}
+```
 
 ## Chrome binary paths per platform
 
@@ -116,7 +143,21 @@ node <skill-dir>/scripts/open-browser.mjs --headless --chromePath "C:\Program Fi
 
 ## Shell Examples
 
-All examples use **bash/zsh** (macOS / Linux). For Windows equivalents:
+Set these once in bash/zsh examples:
+
+```bash
+SKILL_DIR=<skill-dir>
+TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
+PORT=9222
+```
+
+Cleanup when a headless or isolated CDP session is no longer needed:
+
+```bash
+node "$SKILL_DIR/scripts/open-browser.mjs" --port "$PORT" --cleanup
+```
+
+Windows equivalents for the common command shape:
 
 ```powershell
 # PowerShell
@@ -125,7 +166,6 @@ $TMPDIR    = node -e "process.stdout.write(require('os').tmpdir())"
 node "$SKILL_DIR\scripts\open-browser.mjs" --headless --port 9222
 node "$SKILL_DIR\scripts\cdp-sandbox.mjs" "$TMPDIR\cdp-task.mjs" --new-tab "about:blank" `
   > "$TMPDIR\cdp-output-task.txt" 2>&1
-node "$SKILL_DIR\scripts\open-browser.mjs" --port 9222 --cleanup
 ```
 
 ```cmd
@@ -134,112 +174,61 @@ FOR /F "delims=" %%i IN ('node -e "process.stdout.write(require('os').tmpdir())"
 node "%SKILL_DIR%\scripts\open-browser.mjs" --headless --port 9222
 node "%SKILL_DIR%\scripts\cdp-sandbox.mjs" "%TMPDIR%\cdp-task.mjs" --new-tab "about:blank" ^
   > "%TMPDIR%\cdp-output-task.txt" 2>&1
-node "%SKILL_DIR%\scripts\open-browser.mjs" --port 9222 --cleanup
 ```
 
-### Network / console errors — headless
+### One-pass inspection — headless
 
 ```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
-# generate network+console script (SCRIPT_PATTERNS.md), save to $TMPDIR/cdp-network.mjs
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-network.mjs" --new-tab "about:blank" \
-  > "$TMPDIR/cdp-output-network.txt" 2>&1
-node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
-# analyze: [NETWORK_ERROR] + [CONSOLE:ERROR] + [EXCEPTION]
+node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port "$PORT"
+# save the selected intent/pattern script to "$TMPDIR/cdp-task.mjs"
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-task.mjs" \
+  --port "$PORT" --new-tab "about:blank" \
+  > "$TMPDIR/cdp-output-task.txt" 2>&1
 ```
 
-### Visible browser / let user see the page
+Use this for network, console, performance, memory, security, screenshot, and most audit scripts. Analyze the prefixes requested by that intent, for example `[NETWORK_ERROR]`, `[CONSOLE:ERROR]`, `[EXCEPTION]`, `[PERFORMANCE]`, `[FINDING]`.
+
+### Visible browser / live page
 
 ```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-node "$SKILL_DIR/scripts/open-browser.mjs" --profile Default --port 9222
-# generate monitor script, save to $TMPDIR/cdp-monitor.mjs
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-monitor.mjs" \
-  --new-tab "https://site.com" --keep-tab \
-  > "$TMPDIR/cdp-output-monitor.txt" 2>&1
+node "$SKILL_DIR/scripts/open-browser.mjs" --url "https://site.com" --port "$PORT"
+# after the user interacts, save an on-demand script to "$TMPDIR/cdp-live-check.mjs"
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-live-check.mjs" \
+  --port "$PORT" --target-url "site.com" --keep-tab \
+  > "$TMPDIR/cdp-output-live-check.txt" 2>&1
 ```
 
-### Performance / memory audit — headless
+### User login -> authenticated follow-up
+
+Browser must be visible. Ask before using the real profile.
 
 ```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-audit.mjs" --new-tab "about:blank" \
-  > "$TMPDIR/cdp-output-audit.txt" 2>&1
-node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
-# analyze: [PERFORMANCE] + [FINDING] + [METRIC]
+node "$SKILL_DIR/scripts/open-browser.mjs" --profile Default --port "$PORT"
+# save the user-auth script from INTENTS_AUTH.md to "$TMPDIR/cdp-user-auth.mjs"
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-user-auth.mjs" \
+  --port "$PORT" --new-tab "about:blank" --keep-tab \
+  > "$TMPDIR/cdp-auth-output.txt" 2>&1
+# after [AUTH_COMPLETE], run debug/scrape/security scripts on the same port
 ```
 
 ### Inspect iframes and service workers
 
 ```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" --list-targets --port 9222
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" --list-targets --port "$PORT"
 node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-task.mjs" \
-  --target-url "iframe-url-pattern" --port 9222
+  --port "$PORT" --target-url "iframe-url-pattern"
 node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-task.mjs" \
-  --target-type service_worker --port 9222
+  --port "$PORT" --target-type service_worker
 ```
 
-### Mobile / responsive layout — headless with emulation
+### Mobile / responsive layout
 
 ```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222 \
+node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port "$PORT" \
   --windowSize 390x844 \
   --userAgent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-# generate emulate script from INTENTS.md ## emulate, set DEVICE to "iPhone 15 Pro"
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-emulate.mjs" --new-tab "about:blank" \
+# still set script-level emulation in the CDP script for viewport/DPR/touch accuracy
+node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-emulate.mjs" \
+  --port "$PORT" --new-tab "about:blank" \
   > "$TMPDIR/cdp-output-emulate.txt" 2>&1
-node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
-# look for [EMULATE] viewport active, [FINDING] LAYOUT_BREAK, [METRIC] innerWidth
 ```
-
-### Security audit — headless
-
-```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
-# generate security audit script from SCRIPT_PATTERNS.md "Security Audit"
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-security.mjs" --new-tab "about:blank" \
-  > "$TMPDIR/cdp-output-security.txt" 2>&1
-node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
-# look for [FINDING] MISSING_CSP, WEAK_CSP, COOKIE_NO_HTTPONLY, PROTOTYPE_POLLUTION
-```
-
-### User login → authenticated scrape
-
-**Browser must be visible — never `--headless`.**
-
-```bash
-SKILL_DIR=<skill-dir>
-TMPDIR=$(node -e "process.stdout.write(require('os').tmpdir())")
-
-# 1. Open Chrome visibly — if output contains "isolated": true, log in in that CDP window
-node "$SKILL_DIR/scripts/open-browser.mjs" --profile Default --port 9222
-
-# 2. Run user-auth script — agent waits while user authenticates
-#    Set LOGIN_URL and POST_AUTH_PATTERN inside the script
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-user-auth.mjs" \
-  --new-tab "about:blank" --keep-tab \
-  > "$TMPDIR/cdp-auth-output.txt" 2>&1
-# watch for [AUTH_COMPLETE] or [AUTH_TIMEOUT]
-
-# 3. After [AUTH_COMPLETE] — run scrape on the same authenticated session
-node "$SKILL_DIR/scripts/cdp-sandbox.mjs" "$TMPDIR/cdp-scrape.mjs" \
-  --new-tab "about:blank" \
-  > "$TMPDIR/cdp-scrape-output.txt" 2>&1
-
-# 4. Leave Chrome open for further tasks; cleanup when done:
-#    node "$SKILL_DIR/scripts/open-browser.mjs" --port 9222 --cleanup
-```
-
-`[AUTH_COMPLETE]` → proceed to step 3. `[AUTH_TIMEOUT]` → increase `TIMEOUT_MS` or fix `POST_AUTH_PATTERN`.
-Combine `user-auth` + `debug` or `user-auth` + `security` on the same port.
