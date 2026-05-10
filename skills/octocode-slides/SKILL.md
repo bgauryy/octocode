@@ -126,21 +126,21 @@ All generated paths are relative to the deck root:
 │   ├── base.css                  ← layout, variables, all slide rules
 │   └── theme.css                 ← per-deck fonts, colors, tokens
 ├── js/
-│   └── navbridge.js              ← keyboard bridge (required in every slide)
+│   ├── navbridge.js              ← keyboard bridge (required in every slide)
+│   └── presenter.js              ← presenter notes popup (wired by index.html)
+
 ├── assets/                       ← images and other media referenced by slides
 │   └── (place images here)       ← slides reference as ../assets/image.png
 ├── slides/                       ← one HTML file per slide
 │   ├── title.html                ← filenames use slugs, not numbers
 │   └── slug.html
-└── .content/                     ← all planning artifacts
-    ├── brief.md
-    ├── research.md
-    ├── outline.md
-    ├── DESIGN.md
-    └── slides/
-        ├── title.md              ← per-slide spec: content + reasoning + design plan
-        └── slug.md
+└── .content/                     ← planning artifacts (3 files only)
+    ├── request.md                ← user intent + sources + research findings (phases 1–2)
+    ├── outline.md                ← narrative arc + slide list with inline notes (phase 3)
+    └── DESIGN.md                 ← visual system: colors, fonts, libraries (phase 4)
 ```
+
+**`.content/` is three files — not a folder tree.** `request.md` captures everything the user asked for and everything research found. `outline.md` is the single source of truth for slide structure, and includes inline notes per slide. No `.content/slides/` subfolder. No per-slide spec files. Everything the implementation phase needs is in `outline.md` and `request.md`.
 
 **Path contract (enforced by `scripts/slide.html`):**
 - Each slide lives in `slides/slug.html` — filenames use slug names, not numeric prefixes (order is controlled by the `slides` array in `index.html`, not filenames)
@@ -148,6 +148,8 @@ All generated paths are relative to the deck root:
 - Each slide includes `<script src="../js/navbridge.js"></script>` before `</body>` — one level up
 - Each slide references images as `../assets/image.png` — one level up from `slides/`
 - `index.html` references slides via `const slides = [{ path, hidden, name }]` — see manifest format below
+
+- `index.html` is generated from `scripts/base.html`, loads `js/presenter.js`, and supports direct name hashes, overview grid, navbridge, and `P` presenter notes
 - **Avoid `slides/slides/` double-nesting.** The `slides/` folder contains HTML files directly.
 
 **Slide manifest format (in `index.html`):**
@@ -175,16 +177,16 @@ Every `.slide` element uses `display: flex; flex-direction: column` (from `base.
 
 ## Six phases
 
-| Phase | Reference doc | Input | Output | Stop only when |
+| Phase | Reference doc | Input | Output | Ask user when |
 |-------|--------------|-------|--------|----------------|
-| 1 · Brief | `references/01-brief.md` | User conversation | `.content/brief.md` | Goal, source, audience, or deliverable is ambiguous |
-| 2 · Research | `references/02-research.md` | `brief.md` | `.content/research.md` | A source gap blocks a claim |
-| 3 · Outline | `references/03-outline.md` | `brief.md` + `research.md` | `.content/outline.md` + `.content/slides/*.md` specs | User has not delegated content decisions and the structure needs approval |
-| 4 · Design | `references/04-design.md` | `brief.md` + `outline.md` + slide specs | `DESIGN.md` + CSS + updated slide specs | Brand/visual direction needs user choice |
-| 5 · Implementation | `references/05-implementation.md` | All above + slide specs | `slides/` folder | A missing asset or content decision blocks implementation |
-| 6 · Review | `references/06-review.md` | `slides/` folder | Approved deck | User requests changes |
+| 1 · Request | `references/01-brief.md` | User conversation | `.content/request.md` | Any of: goal, audience, source material, or aesthetic is missing from the initial request |
+| 2 · Research | `references/02-research.md` | `request.md` | Appended to `.content/request.md` | A specific fact only the user can provide is needed |
+| 3 · Outline | `references/03-outline.md` | `request.md` | `.content/outline.md` | **Always** — show the outline and ask if structure works before designing |
+| 4 · Design | `references/04-design.md` | `request.md` + `outline.md` | `DESIGN.md` + CSS | **Always** — show 3 style directions and wait for choice (unless fast mode) |
+| 5 · Implementation | `references/05-implementation.md` | `request.md` + `outline.md` + `DESIGN.md` | `slides/` folder | A missing asset or unresolved `[NEEDS SOURCE]` blocks a specific slide |
+| 6 · Review | `references/06-review.md` | `slides/` folder | Approved deck | User requests changes after seeing the rendered deck |
 
-**Each phase reads its reference doc first. Each phase uses the previous phase's output files. Pause only when the decision affects the final deck and cannot be inferred safely.**
+**Each phase reads its reference doc first. Phases 3 and 4 always pause for user input (outline approval, then design direction). All other phases pause only when a specific unknown blocks the deck.**
 
 ---
 
@@ -194,7 +196,7 @@ Use these as judgment aids, not bureaucracy. When the user gives a different con
 
 1. **One slide = one file.** Keep each slide as standalone HTML unless the user asks for a different output format.
 2. **Decision gates are smart stops, not ceremony.** Continue with stated assumptions when the user delegated judgment or the answer is obvious from context.
-3. **Validate meaningful claims before turning them into slide facts.** Prefer user-provided sources first, then Octocode/local repo tools for code or internal files, then web/official sources for public facts or current data. If a claim cannot be validated, ask the user for a source or mark the slide `[NEEDS SOURCE]` and avoid presenting it as fact.
+3. **Never invent content.** Do not fabricate numbers, statistics, quotes, company names, product names, dates, or technical facts. Only put on a slide what comes from: the user's own source material, a verifiable web/official source, or Octocode/local tools confirming it from the repo. If a claim cannot be validated, mark the slide `[NEEDS SOURCE]`, tell the user what is missing, and halt that slide until resolved. Invented content that looks real is worse than a blank slide.
 4. **Use design tokens in slide HTML.** Prefer CSS variables for colors, fonts, and spacing so theme changes stay safe.
 5. **Choose named fonts deliberately.** Use Google or Fontshare fonts when available; system fonts are acceptable as fallbacks or when the brand guide requires them.
 6. **Keep slides scroll-free.** If content overflows, split it, move detail to speaker notes, or make an intentional async-deck exception.
@@ -204,18 +206,21 @@ Use these as judgment aids, not bureaucracy. When the user gives a different con
 10. **Run the Self-Review (Phase 6 · Step 0) before showing the deck.** Fix clear failures; document intentional trade-offs when the brief requires them.
 11. **Run bidirectional planning before Phase 5.** Top-down pass (goal → arc → sections → slides) then bottom-up pass (closing → sections → arc → goal). Both should hold before implementation.
 12. **Apply the three-lens check before writing HTML.** Content (single claim + source) · UX (Q→A chain + cognitive load) · UI (layout type + 3-second test). If a lens fails, revise the outline or ask the user rather than forcing the slide.
-13. **Use `.content/slides/slug.md` specs as the implementation contract.** Each spec describes title, description, reasoning, data, widgets, graphs, images, and UX/UI.
+13. **Use `.content/outline.md` as the implementation contract.** Each row in the outline table — plus its inline notes — contains the title, type, source trace, key content, and flow logic needed to build the slide. Work directly from the outline; do not create per-slide spec files.
 14. **Create `js/navbridge.js` before writing any slide HTML.** Every slide must include `<script src="../js/navbridge.js"></script>` immediately before `</body>`. Without navbridge, arrow-key navigation stops working after the user clicks inside a slide.
 15. **Use `{ path, hidden, name }` objects in the slides manifest — never plain strings.** The `name` field is the URL hash slug; it must be a descriptive slug (e.g. `'problem'`), never a number. Playback order is controlled by the array — filenames may use numbers as hints but the number has no functional effect.
 16. **Use a single `handleKey()` navigation handler in `index.html`.** Do NOT attach a second `keydown` listener to iframe elements — that double-fires and advances two slides per key. The postMessage path from navbridge and the parent window keydown path both route through the same `handleKey()`.
 17. **Flex layout is the baseline for all slides.** `.slide { display: flex; flex-direction: column }` is set in `base.css`. Centered types add `justify-content: center`. Never rely on absolute positioning to center slide content — use flex alignment so all slide types stay consistent across themes.
+18. **Ask the user before committing to a design direction.** Before writing `theme.css` or `DESIGN.md`, show the user the 3 design options (Phase 4 · Step 5) and wait for a choice — unless the user explicitly said "fast mode", "your call", or "just build it". Auto-selecting a theme without showing it first wastes all of Phase 5 if the aesthetic is wrong.
+19. **All slides must start from `scripts/slide.html` — no exceptions.** Never write slide HTML from scratch. Every slide must import `../css/base.css`, `../css/theme.css`, and `../js/navbridge.js` using those exact relative paths. Template consistency is how the deck looks like one product. Any slide that deviates breaks the visual system.
+20. **Slide content must be brief and grounded — not prose, not padding.** A slide is not a document. Write the minimum words that carry the claim. Do not restate what the title already says. Do not add transitional phrases ("In summary…", "As we can see…", "This shows that…"). Do not fill bullet points with synonyms of each other. If you are adding words to feel complete, cut them.
 
 ### Evidence and validation
 
 - Use **Octocode/local tools** when the deck depends on repo structure, code snippets, API behavior, local docs, or user-provided source files.
 - Use **web research** when the deck depends on public facts, current statistics, external best practices, market context, library docs, or visual/design inspiration.
 - Ask the user for validation when a claim is business-sensitive, proprietary, impossible to verify with available tools, or when web research would be inappropriate.
-- Separate verified facts from assumptions in `research.md` and slide specs. Keep assumptions visibly labeled until they are validated by the user, Octocode/local sources, or web research.
+- Separate verified facts from assumptions in `request.md` (mark as `assumed` in the facts table). Keep assumptions visibly labeled until they are validated by the user, Octocode/local sources, or web research.
 
 ---
 
@@ -223,12 +228,33 @@ Use these as judgment aids, not bureaucracy. When the user gives a different con
 
 Artifacts exist to help the next phase, not to prove work was done.
 
-- Keep `brief.md`, `research.md`, `outline.md`, and `DESIGN.md` as short as possible while still actionable.
+- Keep `request.md`, `outline.md`, and `DESIGN.md` as short as possible while still actionable.
 - Avoid duplicating long source text across artifacts. Preserve only deck-relevant facts, quotes, code, numbers, and links.
 - Prefer tables for decisions and traceability; prefer bullets only when they shorten the document.
 - Ask one bundled question only when needed. If the user says "your call", "just build it", or gives enough context, write assumptions and continue.
 - Optimize for the smallest deck that achieves the goal at the right depth. Avoid padding for impressive slide count.
-- Per-slide specs contain only what is needed to build the slide: final text, speaker notes, reasoning, data/assets, widgets/graphs/images, and UX/UI notes — not research dumps.
+- Outline rows and inline slide notes contain only what is needed to build the slide: final text, speaker notes, reasoning, data/assets, widgets/graphs/images, and UX/UI notes — not research dumps.
+
+---
+
+## Validating or editing an existing deck
+
+When the user already has slides and asks to **review**, **validate**, **audit**, **fix**, or **update** them — do NOT restart from Phase 1. Enter the correct phase based on what the user needs:
+
+| User intent | Enter at |
+|-------------|----------|
+| "Review my slides" / "check quality" / "what's wrong" | **Phase 6** — read `references/06-review.md`, run full review |
+| "Fix this slide" / "update this content" | **Phase 5** — re-read `outline.md` row for that slide, edit `slides/slug.html` directly, re-run Phase 6 Step 0 |
+| "Add a slide" / "remove a slide" | **Phase 3 → 5** — update `.content/outline.md`, write/delete the file, update `const slides` in `index.html`, re-run Phase 6 |
+| "Change the theme / colors / fonts" | **Phase 4** — update `DESIGN.md` + `css/theme.css`, re-run Phase 6 Step 3 |
+| "Restructure the deck" / "reorder slides" | **Phase 3** — revise `.content/outline.md`, reorder `const slides` array in `index.html`, update any outline rows whose `Reasoning` changes, re-run Phase 6 |
+
+**Before editing any existing file:**
+1. Read the existing file first — do not overwrite blindly.
+2. Check the relevant row in `.content/outline.md` (and any matching `Slide notes`) for the slide's original intent before changing content.
+3. After any edit, re-run the relevant Phase 6 checks (not the full review unless content or structure changed significantly).
+
+**If no `.content/` folder exists** (deck was created outside this skill): run Phase 6 as a pure file-based review. Treat the slide HTML as the source of truth. Do not create `.content/` artifacts unless the user asks for them.
 
 ---
 
@@ -236,7 +262,7 @@ Artifacts exist to help the next phase, not to prove work was done.
 
 If the user says **"your call"**, **"skip design choices"**, **"just build it"**, **"fast mode"**, or similar:
 
-1. Infer missing brief fields from the request and source material; record assumptions in `brief.md`
+1. Infer missing brief fields from the request and source material; record assumptions in `request.md`
 2. Auto-select a theme from the **Theme Selection Matrix** in `references/design-system.md` based on audience + goal
 3. Skip style previews, design approval, and batch-by-batch user pauses
 4. Show a compact outline only if the content direction is non-obvious; otherwise continue
@@ -295,7 +321,7 @@ Two tests. Run both before every delivery.
 | 7 | Three-dot window chrome on every code block |
 | 8 | Accent color on more than 3 elements per slide |
 
-**Score ≥ 2 → fix flagged signals before delivering.**
+**Score ≥ 2 → fix flagged signals before delivering. Target is 0/8; tolerate at most 1/8.**
 
 ### Content Slop — score 1 point per signal
 
@@ -310,7 +336,7 @@ Two tests. Run both before every delivery.
 | 7 | A diagram or flow is present but does not represent real, accurate structure — it is approximate or invented |
 | 8 | An image is decorative (mood, texture, stock photo) rather than informational (screenshot, real diagram, direct evidence) |
 
-**Score ≥ 2 → fix flagged signals before delivering. Name what you fixed.**
+**Score ≥ 1 → fix before delivering. Name what you fixed. Target is 0/8.**
 
 ---
 
@@ -318,14 +344,20 @@ Two tests. Run both before every delivery.
 
 - `index.html` opens from the deck root and lists every slide in order
 - `js/navbridge.js` exists at the deck root
+
+- `js/presenter.js` exists at the deck root
 - Every slide file exists directly under `slides/`
 - Every slide HTML includes `<script src="../js/navbridge.js"></script>` immediately before `</body>`
 - `const slides = [...]` in `index.html` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
-- Every slide has a complete `.content/slides/slug.md` spec with title, description, reasoning, data, widgets, graphs, images, and UX/UI
+- `.content/outline.md` has a row for every slide with a claim-sentence title, type, source, key content, and flow logic; special slides have matching `Slide notes`
 - No `{{…}}` placeholder tokens remain
 - No broken CSS, image, CDN, or iframe paths remain
 - Browser/render review passes with no visible overflow at 1280×720
 - Arrow-key navigation works after clicking inside a slide (navbridge active)
+
+- Direct name hashes (for example `#problem`) activate exactly one slide
+
+- `P` opens presenter notes and reads each slide's `<aside class="speaker-notes">`
 - Visual Slop score is 0/8 when possible and always ≤1/8
 - Content Slop score is 0/8 — no invented data, no filler language, no noun-phrase titles, no decorative images
 - Final response includes the deck path and serve command
@@ -334,11 +366,11 @@ Two tests. Run both before every delivery.
 
 | File | Purpose | Read when |
 |------|---------|-----------|
-| `references/01-brief.md` | Intake: ask questions, read user source files | Phase 1 |
-| `references/02-research.md` | Research: web + GitHub + local content | Phase 2 |
-| `references/03-outline.md` | Outline: narrative arc + slide plan | Phase 3 |
-| `references/04-design.md` | Design: visual system research + DESIGN.md + CSS | Phase 4 |
-| `references/05-implementation.md` | Implementation: per-slide specs + HTML slides | Phase 5 |
+| `references/01-brief.md` | Request intake: understand user intent, read sources, write `request.md` | Phase 1 |
+| `references/02-research.md` | Research: fill gaps, append findings to `request.md` | Phase 2 |
+| `references/03-outline.md` | Outline: narrative arc + slide list with inline notes | Phase 3 |
+| `references/04-design.md` | Design: reasoning chain → 3 previews → user picks → DESIGN.md + CSS | Phase 4 |
+| `references/05-implementation.md` | Implementation: build slides from outline.md rows | Phase 5 |
 | `references/06-review.md` | Review: technical + design + content checks | Phase 6 |
 | `references/design-system.md` | CSS contract, design process, anti-slop guide, resources | Phase 4 |
 | `references/html-templates.md` | All slide type HTML + base.css boilerplate + Motion patterns | Phase 5 |
@@ -352,29 +384,13 @@ Two tests. Run both before every delivery.
 | `scripts/base.html` | `index.html` | Always | Navigation controller template |
 | `scripts/slide.html` | `slides/*.html` | Always | Per-slide template |
 | `scripts/navbridge.js` | `js/navbridge.js` | **Always** — every slide must include it | Keyboard bridge: forwards arrow keys from focused iframe to parent via postMessage |
-| `scripts/presenter.js` | `js/presenter.js` | Optional — when user wants presenter mode | Presenter popup: P key opens speaker notes + elapsed timer in a separate window. Requires same-origin serving. |
+| `scripts/presenter.js` | `js/presenter.js` | **Always** — loaded by `scripts/base.html` | Presenter popup: P key opens speaker notes + elapsed timer in a separate window. Requires same-origin serving. |
 
 ### Script decision guide
 
 **`navbridge.js`** — copy to `js/navbridge.js` and include `<script src="../js/navbridge.js"></script>` in every slide. Non-negotiable: without it, arrow-key navigation stops working after the user clicks inside a slide.
 
-**`presenter.js`** — copy to `js/presenter.js` and wire it in `index.html` when the user asks for presenter mode or speaker notes during live delivery. Not included by default to keep `index.html` lean.
-
-**Wire presenter.js in `index.html`:**
-```javascript
-// After go() is defined, add:
-const presenter = initPresenter(
-  () => stage.querySelector('.slide-frame[data-active]'),
-  playable,
-  () => current
-);
-
-// Call presenter.onSlideChange() inside go() after updating the active frame:
-// presenter.onSlideChange();
-
-// Add 'p'/'P' to the handleKey switch:
-// case 'p': case 'P': presenter.open(); break;
-```
+**`presenter.js`** — copy to `js/presenter.js` for every generated deck. `scripts/base.html` already loads it and wires `P` to speaker notes, so do not add a second presenter key handler or custom popup implementation.
 
 **Why other patterns don't belong in `scripts/`:**
 

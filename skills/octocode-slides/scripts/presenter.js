@@ -1,17 +1,14 @@
 /**
  * Octocode Slides — Presenter View
  *
- * Optional add-on for index.html. Press P to open the presenter popup.
+ * Press P in the generated deck shell to open the presenter popup.
  *
  * Requires same-origin serving (npx serve works; file:// does not).
+ * The default scripts/base.html template already loads and wires this file;
+ * custom index.html files should copy that integration instead of inventing
+ * a second keyboard handler.
  *
- * Usage in index.html:
- *   1. Copy this file to js/presenter.js at the deck root.
- *   2. Add before </body>: <script src="js/presenter.js"></script>
- *   3. Call initPresenter(getActiveFrame, playable, getCurrentIndex)
- *      after the slides array and go() function are defined.
- *
- * Expected call site in index.html (add after go() is defined):
+ * Expected call site in index.html:
  *
  *   initPresenter(
  *     () => stage.querySelector('.slide-frame[data-active]'),
@@ -120,6 +117,15 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     }
   }
 
+  function frameLoaded(frame) {
+    try {
+      return !!(frame && frame.contentDocument &&
+        frame.contentDocument.readyState === 'complete');
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── Push update to popup ────────────────────────────────────────────────
   function push() {
     if (!win || win.closed) return;
@@ -128,7 +134,7 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     var next = playable[idx + 1];
     var frame = getActiveFrame();
 
-    // Wait for iframe to load before reading notes
+    // Wait for iframe content to finish loading before reading notes.
     function doSend() {
       win.postMessage({
         type: 'octocode-slides:presenter-update',
@@ -138,9 +144,9 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
       }, '*');
     }
 
-    if (frame && frame.complete !== false) {
+    if (!frame || frameLoaded(frame)) {
       doSend();
-    } else if (frame) {
+    } else {
       frame.addEventListener('load', doSend, { once: true });
     }
   }

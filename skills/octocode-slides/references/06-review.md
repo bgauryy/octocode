@@ -68,11 +68,12 @@ Static review is not enough for HTML slides. Before showing the deck to the user
 
 1. Serve the deck root: `npx serve .octocode/slides/{{slideName}}`
 2. Open `index.html` in a browser or browser automation tool
-3. Visit every slide through normal navigation and by hash (`#1`, `#2`, ...)
+3. Visit every slide through normal navigation and by name hash (e.g. `#title`, `#problem`, `#closing`)
 4. Check browser console errors and failed network requests
 5. Verify no slide visually overflows or clips important content at 1280×720; when automation is available, compare each iframe document's `scrollWidth/scrollHeight` to its viewport even when CSS uses `overflow: hidden`
-6. Verify keyboard controls: next, previous, Home, End, fullscreen, and overview
-7. Capture screenshots when tooling is available, preferably under `.content/review/screenshots/`
+6. Verify keyboard controls: next, previous, Home, End, fullscreen, overview, and presenter notes (`P`)
+7. Deep-link directly to at least three named hashes in a fresh tab; exactly one `.slide-frame[data-active]` should be active each time
+8. Capture screenshots when tooling is available, preferably under `.content/review/screenshots/`
 
 If browser tooling is unavailable, open the deck manually and document that limitation in the final response. If rendering is impossible, tell the user clearly before delivery.
 
@@ -89,9 +90,15 @@ Check each item. Fix any failure before moving to Step 3.
 - [ ] `playable = slides.filter(s => !s.hidden)` filters hidden slides
 - [ ] `postMessage` listener handles `octocode-slides:nav` and `octocode-slides:activity`
 - [ ] `ResizeObserver` + `scale()` logic present and correct
-- [ ] Keyboard navigation: `→` `←` `Space` `Home` `End` `F` `G`
+- [ ] Keyboard navigation: `→` `←` `Space` `Home` `End` `F` `G` `P`
 - [ ] Progress bar, counter, and HUD elements present
 - [ ] Hash updates use `slide.name` (not numeric index)
+
+- [ ] Direct hash loading activates exactly one iframe and one overview cell
+
+- [ ] `js/presenter.js` is copied, loaded by `index.html`, and `P` opens speaker notes without console errors
+
+- [ ] `index.html` is based on `scripts/base.html` multi-iframe controller, not a stale single-iframe controller
 
 **CSS**
 - [ ] `css/base.css` declares all custom properties used across slides
@@ -106,6 +113,8 @@ Check each item. Fix any failure before moving to Step 3.
 - [ ] Every slide links to `../css/base.css` and `../css/theme.css`
 - [ ] Every slide includes `<script src="../js/navbridge.js"></script>` immediately before `</body>`
 - [ ] `js/navbridge.js` exists at the deck root
+
+- [ ] `js/presenter.js` exists at the deck root
 - [ ] Every CDN library listed in DESIGN.md is loaded in the correct slide files
 - [ ] Motion scripts use `type="module"` and load from `cdn.jsdelivr.net/npm/motion@latest/+esm`
 - [ ] Code slides initialize highlight.js — either `hljs.highlightAll()` or `querySelectorAll('pre code').forEach(el => hljs.highlightElement(el))`
@@ -135,21 +144,20 @@ Check each item. Fix any failure before moving to Step 3.
 
 ## Step 4 · Content & flow review
 
-Read `.content/slides/slug.md` and compare to the implemented `slides/slug.html`, and read the full title sequence:
+Read `.content/outline.md` rows and compare to the implemented `slides/slug.html` files. Read the full title sequence aloud.
 
-**Per-slide spec completeness**
-- [ ] Every implemented slide has a matching `.content/slides/slug.md` spec
-- [ ] Every spec includes `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
-- [ ] No spec still says `Status: needs source`, `needs asset`, or `revisit` unless the slide intentionally ships a labeled placeholder
-- [ ] `Widgets`, `Graphs`, and `Images` in the spec match the implemented HTML and loaded libraries
+**Outline-to-slide completeness**
+- [ ] Every implemented slide has a matching row in `.content/outline.md`
+- [ ] No outline row still says `[NEEDS SOURCE]`, `needs asset`, or `revisit` unless the slide intentionally ships a labeled placeholder
+- [ ] `Widgets`, `Graphs`, and `Images` notes in the outline match the implemented HTML and loaded libraries
 
 **Content accuracy**
 - [ ] Headline text matches what was planned
-- [ ] Bullet points match the slide spec content (no missing or added points)
+- [ ] Bullet points match the outline content (no missing or added points)
 - [ ] Code slides show the correct language class and snippet
-- [ ] Chart/data values match the slide spec and cited source
-- [ ] Image path, placeholder, alt text, and overlay match the slide spec
-- [ ] UX/UI layout, reading order, dominant visual, and animation match the slide spec
+- [ ] Chart/data values match the outline row and cited source
+- [ ] Image path, placeholder, alt text, and overlay match the outline notes
+- [ ] UX/UI layout, reading order, dominant visual, and animation match the outline notes
 - [ ] Speaker notes are present and contain useful context
 - [ ] No slide body overflows (verify each layout fits within the 1280×720 stage; split or simplify any slide that would scroll)
 - [ ] No placeholder text (`{{…}}` tokens left un-replaced)
@@ -213,12 +221,11 @@ Deck complete ✓
 ├── index.html
 ├── README.md
 ├── css/        (base.css + theme.css)
-├── js/         (navbridge.js)
+├── js/         (navbridge.js + presenter.js)
 ├── assets/     (images)
 ├── slides/     (N slide HTML files)
 └── .content/
-    ├── brief.md · DESIGN.md · outline.md
-    └── slides/  (N slide specs)
+    └── request.md · outline.md · DESIGN.md
 
 Serve: npx serve .octocode/slides/{{slideName}}
 Open:  http://localhost:3000

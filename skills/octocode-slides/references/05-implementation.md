@@ -1,9 +1,9 @@
 # Phase 5 — Implementation
 
-**Role:** Implementation agent. Turn the outline, slide specs, and DESIGN.md into working HTML slides. Keep the build focused: finalize only the slide-ready content needed for each slide, then implement the HTML and review in small internal batches.
+**Role:** Implementation agent. Turn the outline, inline slide notes, and DESIGN.md into working HTML slides. Keep the build focused: finalize only the slide-ready content needed for each slide, then implement the HTML and review in small internal batches.
 
-**Input:** `.content/brief.md` · `.content/outline.md` · `.content/slides/*.md` · `.content/DESIGN.md` · `css/base.css` + `css/theme.css`
-**Output:** updated `.content/slides/NN-slug.md` specs · `slides/NN-slug.html` (implemented)
+**Input:** `.content/request.md` · `.content/outline.md` · `.content/DESIGN.md` · `css/base.css` + `css/theme.css`
+**Output:** `slides/slug.html` (one per outline row)
 
 **Path contract — read before writing any file. All paths are inside `.octocode/slides/{{slideName}}/`:**
 ```
@@ -33,34 +33,33 @@ Read these files now (in parallel):
 
 ---
 
-## Step 2 · Verify and finalize per-slide specs
+## Step 2 · Verify the outline is implementation-ready
 
-Before writing any HTML, verify that every outline row has a matching `.content/slides/NN-slug.md` spec. The spec separates what the slide means from how it is implemented.
+Before writing any HTML, read `.content/outline.md` fully. For each row in the outline table:
 
-For each slide in `.content/outline.md`:
+- Confirm the title is a claim sentence (not a topic label) — if not, fix it now
+- Check the `Source` column: any `[NEEDS SOURCE]` must be resolved or the slide flagged with a visible placeholder in HTML
+- Check `Slide notes` for any widget, chart data, image path, or layout instruction specific to that slide
+- If a chart slide has no data in the outline, ask the user for the values before building that slide
+- If an image slide has no path and no placeholder instruction, use the `image-ph` pattern from `references/html-templates.md`
 
-- Confirm the spec contains `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
-- Resolve `Status: needs source`, `needs asset`, or `revisit` before building, unless the slide intentionally uses an image placeholder
-- Tighten body content to final slide text; move extra explanation into speaker notes
-- Confirm the planned widget/graph/image can be implemented with the selected libraries and available assets
-
-Track completion internally. Skip per-slide confirmations unless the user asked for progress at that granularity.
+Track completion internally. Do not ask the user for per-slide confirmation unless a specific data gap blocks progress.
 
 ---
 
 ## Step 3 · Implement slides
 
-For each slide, build directly from its `.content/slides/NN-slug.md` spec, starting from `scripts/slide.html`:
+For each row in `.content/outline.md`, build directly from the row's data and any matching `Slide notes` entry:
 
-1. Copy `scripts/slide.html` as the starting point
-2. Use `Title` for the on-slide heading and browser `<title>`
-3. Use `Description` and `Reasoning` to preserve the slide's purpose and flow; do not let implementation drift from them
-4. Use `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI` to choose the exact markup and libraries
-5. Replace all `<!-- LLM: ... -->` comments with actual content
+1. Copy `scripts/slide.html` as the starting point — **always**
+2. Use the row's title as the on-slide heading and browser `<title>`
+3. Use the row's type, key content, source, and flow logic as the implementation contract
+4. Check `Slide notes` for that slug — use any widget/chart/image/layout instructions found there
+5. Replace all `<!-- LLM: ... -->` comments with actual content from `request.md`
 6. Use the correct layout from `references/html-templates.md` for the slide type
-7. Add CDN libraries if this slide needs them — check DESIGN.md libraries list AND the slide spec (`Graphs` → chart library, `Widgets` → Motion/Mermaid/code, Markdown body → marked.js)
-8. Use Motion animation patterns from `references/html-templates.md` if appropriate
-9. Write to `slides/NN-slug.html` (NOT `slides/slides/` — slides go directly in `slides/`)
+7. Add CDN libraries only if this slide needs them — check `DESIGN.md → Libraries` then the slide's `Slide notes`
+8. Use Motion animation patterns from `references/html-templates.md` where the slide type calls for it
+9. Write to `slides/slug.html` — slug must match the `Slug` column in the outline table (NOT `slides/slides/`)
 10. Track completion internally
 
 **Implementation rules:**
@@ -81,10 +80,10 @@ For each slide, build directly from its `.content/slides/NN-slug.md` spec, start
 - For progress bars: use **Motion** `animate(el, { width: ['0%', 'N%'] })` or CSS `@starting-style`
 - `calc(-1 * clamp(...))` for any negated length instead of `-clamp(...)`
 - Motion: load as `<script type="module">` at bottom of `<body>`
-- **Treat the approved outline as the contract.** If implementation reveals a better title, split, or order, update `.content/outline.md` first and keep the Question-Answer chain intact.
+- **The outline is the contract.** If implementation reveals a better title, split, or order — update `.content/outline.md` first, then build to the updated version.
 - **Preserve the Question-Answer chain.** The `Flow logic` column in the outline is the contract. Each slide's heading should carry the meaning of that column — if the title drifts, the chain breaks.
 
-**Image handling (check the slide spec's `Images` section first, then brief.md → Images inventory):**
+**Image handling (check the slide's `Slide notes` in `outline.md`, then `request.md → Images`):**
 
 All image files go in `assets/` at the deck root. Slides reference them as `../assets/filename.png` (one level up from `slides/`).
 
@@ -98,6 +97,25 @@ All image files go in `assets/` at the deck root. Slides reference them as `../a
 Add a `data-expected` attribute with a plain-English description of the image when it helps review, especially for placeholders: `data-expected="{{what the image shows}}"`.
 
 For full-bleed slides with images: the `.image-overlay` gradient div is **mandatory** — it ensures text in `.image-caption` remains legible regardless of the image content.
+
+---
+
+## Step 3b · Template alignment check (run after every slide, not at the end)
+
+Every slide must be structurally identical in its scaffolding. Check each slide before moving to the next:
+
+| Check | Pass condition | Fix |
+|-------|---------------|-----|
+| Started from `scripts/slide.html` | `<link rel="stylesheet" href="../css/base.css">` exists | Re-copy template, do not patch inline |
+| Theme loaded | `<link rel="stylesheet" href="../css/theme.css">` exists | Add the link |
+| Navbridge loaded | `<script src="../js/navbridge.js"></script>` immediately before `</body>` | Add in correct position |
+| Local CSS is justified | Only slide-specific layout helpers live in `<style>`; colors/fonts/sizes still use design tokens | Move reusable styles to `base.css` or `theme.css` |
+| CSS variables only | No `color: #hex` or `font-family: "..."` inline on any element | Replace all hardcoded values with `var(--token)` |
+| Slide class set | `<div class="slide slide--{{type}}">` matches the slide type in the outline row | Correct the class |
+| No inline `style` width/height for layout | Dimensions use CSS classes or `var()` | Extract to class |
+| No scroll at 1280×720 | Content fits without `overflow-y: auto` being needed | Split slide or reduce content |
+
+**If any slide fails a check:** fix it immediately before writing the next slide. Do not accumulate debt.
 
 ---
 
@@ -134,7 +152,7 @@ Once all slides are implemented:
 
 **Required — `js/navbridge.js`:** Copy `scripts/navbridge.js` to `js/navbridge.js` at the deck root. Forwards keyboard events from the focused iframe to the parent navigation controller. Do not rewrite from memory.
 
-**Optional — `js/presenter.js`:** Copy `scripts/presenter.js` to `js/presenter.js` when the user asks for presenter mode or live speaker notes. Wire it in `index.html` per the instructions in `SKILL.md → Script files → Wire presenter.js`. Do not include by default.
+**Required — `js/presenter.js`:** Copy `scripts/presenter.js` to `js/presenter.js` at the deck root. The default `scripts/base.html` controller loads it and wires `P` to presenter notes. Do not hand-wire a second presenter implementation in generated decks.
 
 ### 5b · Build index.html
 
@@ -145,6 +163,8 @@ Once all slides are implemented:
    - `name` — unique slug for URL hash (e.g. `'problem'` → `#problem`). **Do NOT use numbers** — playback order is controlled by the array, not filenames.
    - `hidden` — `true` to skip during playback and hide from overview grid
 4. Keep entries in the order you want them shown — this array is the single source of truth for slide order.
+
+Do not replace `scripts/base.html` with a single-iframe controller. The current controller preloads slide iframes for grid thumbnails, uses name-based hashes, forwards iframe keyboard events through navbridge, and wires `P` to presenter notes.
 5. Write to `index.html` (at deck root — same level as `css/`, `js/`, and `slides/`)
 
 ```javascript
@@ -180,11 +200,11 @@ Reorder slides: edit the `slides` array in `index.html`
 
 Before handing off to Phase 6:
 
-- [ ] Every slide in the outline has a `.content/slides/NN-slug.md` file
-- [ ] Every slide spec has `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
-- [ ] No slide spec remains `Status: needs source`, `needs asset`, or `revisit` unless the deck intentionally ships an image placeholder
+- [ ] Every slide in `outline.md` has been implemented as `slides/slug.html`
+- [ ] No outline row remains `[NEEDS SOURCE]`, `needs asset`, or `revisit` unless the deck intentionally ships a labeled placeholder
 - [ ] Every slide in the outline has a `slides/*.html` file (not `slides/slides/`)
 - [ ] `js/navbridge.js` exists at the deck root (same level as `css/` and `slides/`)
+- [ ] `js/presenter.js` exists at the deck root (same level as `css/` and `slides/`)
 - [ ] Every slide HTML file contains `<script src="../js/navbridge.js"></script>` immediately before `</body>`
 - [ ] `const slides = [...]` in `index.html` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
 - [ ] All `path` values in the manifest start with `slides/` (e.g. `'slides/problem.html'`)

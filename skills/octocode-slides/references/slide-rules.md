@@ -453,6 +453,48 @@ Motion.js or CSS animation sequences should fire inside a `DOMContentLoaded` lis
 
 ---
 
+## 8.8 — 8.9 Anti-Hallucination and Content Brevity Rules
+
+### 8.8 Never Invent Content
+
+| What to never invent | Why |
+|---------------------|-----|
+| Numbers, percentages, statistics | Invented stats destroy trust when the audience checks them |
+| Company names, product names, release versions | Confidently wrong names are worse than admitting uncertainty |
+| Quotes or attributed statements | Misattributed quotes are uncorrectable after delivery |
+| Architecture, system topology, API signatures | "Approximately right" diagrams mislead engineers |
+| Timeline dates, project outcomes, team sizes | Decision-makers act on these |
+
+**Rule:** If a fact isn't in the user's source material, a verifiable public source, or a local tool result — mark it `[NEEDS SOURCE]` and halt that slide. Do not fill the gap with a plausible-sounding number.
+
+**How to handle missing data:**
+1. Mark the slide `[NEEDS SOURCE: describe what's missing]`
+2. Tell the user what is needed: "I need the actual response-time figures — do you have a link or file?"
+3. Leave a clearly labeled placeholder (e.g., `{{INSERT METRIC}}`) so the user knows exactly where to contribute
+4. Build all other slides; come back to flagged ones after the user provides the missing data
+
+### 8.9 Brevity Rules — Slides Are Not Documents
+
+A slide is a visual moment, not a paragraph. Apply these cuts before implementation:
+
+| Remove | Replace with |
+|--------|-------------|
+| Transitional phrases ("In summary…", "As we can see…", "This demonstrates that…") | The actual claim — the title already does the transition work |
+| Synonym bullets (three bullets that say the same thing differently) | One bullet with the most specific version |
+| Filler connectors ("Furthermore", "Additionally", "It is worth noting that") | Delete. The next bullet already continues the thought |
+| Hedging qualifiers ("may potentially", "could possibly", "in some cases") | A specific qualifier ("in 3 of 4 cases") or remove |
+| Restating the title in the body | The title IS the claim. The body adds evidence or steps, not paraphrase |
+| AI-style prose flourishes ("This revolutionary approach…", "By leveraging…") | Concrete noun + verb: "This cuts latency by 40%" |
+
+**Word budget per slide element:**
+- Title (claim sentence): ≤12 words
+- Subtitle / byline: ≤8 words  
+- Bullet: ≤10 words each, ≤5 bullets total
+- Stat slide big number: 1 number + 1 label + 1 source line
+- Code slide: only the lines that prove the point — no surrounding scaffolding unless it's the point
+
+---
+
 ## 9. Anti-Patterns (Banned by Default)
 
 | # | Anti-pattern | Why it fails |

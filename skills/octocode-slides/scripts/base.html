@@ -253,10 +253,13 @@
   <kbd>G</kbd> grid
   <span class="hud-sep">/</span>
   <kbd>F</kbd> full
+  <span class="hud-sep">/</span>
+  <kbd>P</kbd> notes
 </div>
 
 <div id="overview-hint">Overview — click a slide to jump &nbsp;·&nbsp; G or Esc to close</div>
 
+<script src="js/presenter.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
 //  SLIDE MANIFEST
@@ -290,6 +293,7 @@ const nameToIdx  = Object.fromEntries(playable.map((s, i) => [s.name, i]));
 
 let current    = 0;
 let inOverview = false;
+let presenter  = null;
 
 const stage   = document.getElementById('stage');
 const bar     = document.getElementById('progress');
@@ -305,7 +309,7 @@ const hudCount= document.getElementById('hud-count');
 // ═══════════════════════════════════════════════════════════════════════════
 playable.forEach((slide, i) => {
   const cell = document.createElement('div');
-  cell.className = 'slide-cell' + (i === 0 ? ' is-active' : '');
+  cell.className = 'slide-cell';
   cell.addEventListener('click', () => {
     if (inOverview) { closeOverview(); go(i); }
   });
@@ -315,7 +319,6 @@ playable.forEach((slide, i) => {
   f.className = 'slide-frame';
   f.setAttribute('tabindex', '-1');
   f.setAttribute('title', `Slide ${i + 1}: ${slide.name}`);
-  if (i === 0) f.setAttribute('data-active', '');
 
   // Slide number badge (overview only)
   const num = document.createElement('span');
@@ -335,6 +338,14 @@ playable.forEach((slide, i) => {
 
 const frames = () => stage.querySelectorAll('.slide-frame');
 const cells  = () => stage.querySelectorAll('.slide-cell');
+
+if (typeof initPresenter === 'function') {
+  presenter = initPresenter(
+    () => stage.querySelector('.slide-frame[data-active]'),
+    playable,
+    () => current
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SCALE STAGE TO WINDOW
@@ -378,10 +389,10 @@ function clampIndex(n) {
 function go(idx) {
   const allFrames = frames();
   const allCells  = cells();
-  if (idx < 0 || idx >= total) return;
+  if (idx < 0 || idx >= total || !allFrames.length) return;
 
-  allFrames[current].removeAttribute('data-active');
-  allCells[current].classList.remove('is-active');
+  allFrames[current]?.removeAttribute('data-active');
+  allCells[current]?.classList.remove('is-active');
 
   current = idx;
 
@@ -396,6 +407,7 @@ function go(idx) {
 
   // Name-based hash — stable across slide reorders
   history.replaceState(null, '', '#' + encodeURIComponent(slide.name));
+  presenter?.onSlideChange();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -464,6 +476,10 @@ function handleKey(e) {
     case 'G':
       openOverview();
       break;
+    case 'p':
+    case 'P':
+      presenter?.open();
+      break;
     default:
       handled = false;
   }
@@ -521,8 +537,9 @@ window.addEventListener('hashchange', function () {
 // ═══════════════════════════════════════════════════════════════════════════
 //  INIT — respect hash on first load, else start at slide 1
 // ═══════════════════════════════════════════════════════════════════════════
-current = clampIndex(indexFromHash(location.hash));
-go(current);
+// Do not pre-mark slide 1 active; go() is the single activation path so
+// direct hash loads (#problem) never leave two visible iframes.
+go(clampIndex(indexFromHash(location.hash)));
 showHud();
 </script>
 

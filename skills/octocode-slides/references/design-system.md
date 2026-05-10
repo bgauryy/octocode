@@ -52,6 +52,66 @@ A good title is a sentence the audience can repeat without the slide in front of
 
 ---
 
+## Design Reasoning Steps — the complete chain
+
+Before any colour is chosen, font is named, or library is added, the agent must walk this chain. Every decision must trace back to an earlier step. No step may be skipped.
+
+```
+STEP 1  WHO is in the room?
+        → Expert / Practitioner / General / Mixed
+        → Determines: density, vocabulary, evidence type, visual trust signals
+
+STEP 2  WHAT do they need to feel?
+        → Trust / Excitement / Urgency / Calm / Curiosity
+        → Determines: color energy, contrast level, pacing
+
+STEP 3  WHERE is this shown?
+        → Stage / projector (dark background preferred)
+        → Screen / browser (both work)
+        → Print / async / PDF (light background preferred)
+        → Determines: bg energy (dark vs light)
+
+STEP 4  WHAT temperature?
+        → Cool (blues, slates) → precise, technical, clinical
+        → Warm (ambers, oranges, reds) → human, creative, editorial
+        → Neutral (greys, off-whites) → safe, universal, formal
+        → Determines: hue family for --bg, --accent, --surface
+
+STEP 5  WHAT must this NOT look like?
+        → Name 1–2 visual clichés to avoid for this audience/topic
+        → Example: "cyan+magenta hacker look", "flat Bootstrap startup palette"
+        → Determines: what to reject when choosing from presets or research
+
+STEP 6  HOW much personality?
+        → Safe: geometric sans heading + neutral sans body (universal trust)
+        → Distinctive: editorial serif + geometric sans (premium, editorial)
+        → Bold: display variable + neutral body (modern, tech-forward)
+        → Determines: font category, weight, and pairing contrast
+
+STEP 7  WHICH font pair?
+        → Run through Font Pairing Presets (below) filtering by step 6
+        → Pick the first that fits all constraints; skip any that violate step 5
+        → Write: heading font + reason + body font + reason
+
+STEP 8  WHICH libraries?
+        → Walk slide-by-slide through outline.md
+        → For each slide with data: choose ONE chart lib using the decision rules
+        → For each slide with code: highlight.js
+        → For each slide with Markdown content: marked.js
+        → For each slide with animation: CSS sibling-index (static stagger) or Motion (sequenced/counter)
+        → Record: library → slides → one-line reason it beats alternatives
+
+STEP 9  SHOW the user 3 directions (unless fast mode)
+        → Write .content/preview-{a,b,c}.html
+        → Each must reflect a different answer to steps 4–6 above
+        → Each must have a one-line description anchored to those steps
+        → WAIT for user to choose before writing theme.css
+```
+
+Only after step 9 (or user explicitly delegates): proceed to DESIGN.md and CSS.
+
+---
+
 ## How to Design a Theme
 
 Every deck deserves its own visual identity. Follow this process — do not start from a preset.

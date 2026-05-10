@@ -2,10 +2,10 @@
 
 **Role:** Visual designer. You create a fitting visual identity for this specific deck through deliberate choices grounded in the brief. Be distinctive where it matters, but do not create design process overhead when the goal is speed.
 
-**Input:** `.content/brief.md` · `.content/outline.md` · `.content/research.md` · `.content/slides/*.md`
-**Output:** `.content/DESIGN.md` · `css/base.css` · `css/theme.css` · updated `.content/slides/*.md` UX/UI sections
+**Input:** `.content/request.md` · `.content/outline.md`
+**Output:** `.content/DESIGN.md` · `css/base.css` · `css/theme.css`
 
-> **Smart gates in this phase:** Ask for visual approval only when the user wants to choose a direction, a brand decision is ambiguous, or the deck is high-stakes enough that subjective design choice should not be inferred. If the user says "fast mode", "your call", or "just build it", auto-select the direction and continue.
+> **Design gate (default: ask).** Always show the user 3 design directions and wait for a choice before writing CSS. Skip only when the user explicitly delegates ("fast mode", "your call", "just build it") or a brand guide is locked. The Design Reasoning Chain (Step 2b) must be completed before any aesthetic choice is made.
 
 ---
 
@@ -15,13 +15,13 @@ Read now (in parallel):
 - `references/design-system.md` — CSS variable contract, design process, anti-slop guide, resources
 - `references/resources.md` — CDN libraries, font catalogs, color tools, inspiration sources
 - `references/slide-rules.md` §§2–3 — Visual/Design rules and Layout rules (required by Global Rule 9)
-- `.content/slides/*.md` — per-slide specs from Phase 3; use these to design each slide without re-interpreting content
+- `.content/outline.md` — slide list with inline notes from Phase 3; use Slide notes for special design treatment per slide
 
 ---
 
 ## Step 2 · Map images from the brief
 
-Read `brief.md` → Images inventory section. For every image listed:
+Read `request.md` → Images section. For every image listed:
 
 | Decision | What to record |
 |----------|----------------|
@@ -30,9 +30,26 @@ Read `brief.md` → Images inventory section. For every image listed:
 | Full-bleed or inline? | Full-bleed → `slide--image` type; inline → `image-ph` inside `content` or `two-col` |
 | Does image require text overlay? | Add `image-overlay` gradient div when needed to keep text legible on full-bleed slides |
 
-Record as a table in `DESIGN.md` → Layout notes. Also update each affected slide spec's `Images` and `UX / UI` sections. Leave placeholder slides marked with `[IMAGE PLACEHOLDER]` in the outline so Phase 5 knows to use the placeholder template.
+Record as a table in `DESIGN.md` → Layout notes. Also update each affected slide's inline notes in `outline.md` (`Images` and `UX / UI`). Leave placeholder slides marked with `[IMAGE PLACEHOLDER]` in the outline so Phase 5 knows to use the placeholder template.
 
 If no images were listed in the brief: skip this step.
+
+---
+
+## Design Reasoning Chain — complete this before any aesthetic decision
+
+Every design choice must trace back to the audience and goal. Work through these six questions in order. Write 1–2 sentence answers for each in `DESIGN.md → Visual identity`. Never skip this chain to jump to "looks cool."
+
+| Step | Question | What a strong answer sounds like |
+|------|----------|----------------------------------|
+| 1 · Audience signal | Who is in the room and what do they trust? | "Developers who distrust vague claims → high contrast, code-native fonts, specific numbers." |
+| 2 · Energy | Dark (focused, projector) or Light (readable, print)? | "Stage / conference room → dark background dominant." |
+| 3 · Temperature | Warm, cool, or neutral? | "AI/infrastructure topic → cool (blues, slates) signals precision." |
+| 4 · Personality | What emotion should the first slide trigger? | "Trust and momentum — not excitement, not fear." |
+| 5 · Differentiation | What does the competition look like, and what should this NOT look like? | "Generic startup decks use cyan+magenta on black → avoid, use slate+amber instead." |
+| 6 · Constraint | Is there a brand guide, color palette, or font stack locked by the user? | "No guide provided → full design latitude." |
+
+**Only after completing this chain:** pick colors, pick fonts, pick layouts, pick libraries. Every pick should have a one-line reason that points back to a step above.
 
 ---
 
@@ -53,11 +70,11 @@ Write your analysis — 5–6 short answers. This drives your research direction
 
 ---
 
-## Step 3b · Refine per-slide design specs
+## Step 3b · Review per-slide design needs
 
-Before writing HTML, each slide spec should describe the design plan at slide level. Update `.content/slides/slug.md` for any slide whose visual treatment is not obvious.
+Before writing CSS, check `outline.md → Slide notes` for any slide whose visual treatment is not obvious.
 
-For each spec, ensure these sections are actionable:
+For each slide with special treatment in `Slide notes`, confirm:
 
 | Section | What Phase 4 should add or confirm |
 |---------|----------------------------------|
@@ -68,7 +85,7 @@ For each spec, ensure these sections are actionable:
 | `Images` | File path or placeholder, alt text, crop/framing, overlay, caption |
 | `UX / UI` | Layout type, dominant visual, reading order, density, animation, accessibility/contrast |
 
-Avoid changing `Title`, `Description`, or `Reasoning` unless the outline is also updated. If a design choice reveals that a slide is overloaded, split it now and update both `outline.md` and the slide specs.
+If a design review reveals a slide is overloaded, add a split note in `outline.md → Slide notes` and flag it for Phase 5.
 
 ---
 
@@ -95,9 +112,18 @@ Fallback if these tools are unavailable: use available web search/browser tools,
 
 ---
 
-## Step 5 · Generate style previews only when useful
+## Step 5 · Generate style previews — MANDATORY unless fast mode
 
-Generate previews when the user asked to choose, the brand/aesthetic is subjective, or you need to de-risk the design before building. Otherwise skip this step, write `DESIGN.md`, and continue.
+**Default: always generate previews and ask the user to choose before writing CSS.**
+
+Design is subjective. An agent that silently auto-selects colors and fonts will frequently produce a deck the user hates — then Phase 5 has to be redone. Spend 3 minutes on previews, not 30 minutes on a wrong theme.
+
+**Exceptions — skip previews and auto-select only when:**
+- User explicitly said "fast mode", "your call", "just build it", or "skip design"
+- A `brand_guide: locked` entry exists in `request.md`
+- The user already approved a specific theme in this conversation
+
+In all other cases, generate three previews.
 
 When previews are needed, write exactly three standalone HTML files — each a different visual direction:
 - `.content/preview-a.html`
@@ -181,7 +207,7 @@ Type scale (all clamp — no raw px or rem on text):
 
 ## Layout notes
 
-List only slides that need special design attention. Detailed per-slide choices live in `.content/slides/slug.md`.
+List only slides that need special design attention. All slide-level notes live in `.content/outline.md → Slide notes`.
 
 | Slide | Special treatment |
 |-------|------------------|
@@ -196,15 +222,24 @@ List only slides that need special design attention. Detailed per-slide choices 
 
 ## Libraries
 
-| Library | Slides | Why |
-|---------|--------|-----|
-| {{marked.js}} | {{03, 07}} | Markdown content slides |
-| {{highlight.js}} | {{05}} | Code syntax highlighting |
-| {{Chart.js / ECharts / uPlot / ApexCharts / D3.js}} | {{06}} | Graph from slide spec |
-| {{Motion}} | {{01, 08}} | Entrance stagger / counter |
-```
+Only list libraries actually needed. For each: which slide, and why this library over alternatives.
 
----
+| Library | Slides | Why this library |
+|---------|--------|------------------|
+| {{highlight.js}} | {{05}} | Code slide — real syntax colours, not faked |
+| {{Chart.js}} | {{06}} | Bar/line/donut — lightest option |
+| {{Motion}} | {{01}} | Counter/stagger — CSS alone cannot sequence |
+
+**Library decision rules (one chart lib per slide):**
+- Bar, line, area, donut, scatter → **Chart.js** (default, lightest)
+- Heatmap, geo, treemap, candlestick → **ECharts**
+- Dense time-series 100+ points → **uPlot**
+- Polished look, minimal config → **ApexCharts**
+- Custom bespoke / network → **D3.js**
+- Number counter / spring animation → **Motion** (not a chart lib)
+- Flow / sequence diagram → **Mermaid** (not a chart lib)
+- Static comparison ≤6 bars → **CSS only**, no library
+```---
 
 ## Step 7 · Generate CSS files
 

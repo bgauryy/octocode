@@ -154,14 +154,33 @@ function goToSlide(n) {
 }
 ```
 
-**Customize transition direction (e.g. next = slide left, prev = slide right):**
+**Directional transitions — modern approach (`:active-view-transition-type`):**
+```js
+// Pass a direction type so CSS can target forward vs backward separately
+function goToSlide(n, direction = 'forward') {
+  if (!document.startViewTransition) { updateSlide(n); return; }
+  document.startViewTransition({
+    update: () => updateSlide(n),
+    types: [direction]          // 'forward' or 'backward'
+  });
+}
+```
+
 ```css
-/* In index.html <style> */
+/* In index.html <style> — direction-aware keyframes */
 @keyframes slide-out-left  { to   { transform: translateX(-100%); opacity: 0; } }
 @keyframes slide-in-right  { from { transform: translateX( 100%); opacity: 0; } }
+@keyframes slide-out-right { to   { transform: translateX( 100%); opacity: 0; } }
+@keyframes slide-in-left   { from { transform: translateX(-100%); opacity: 0; } }
 
-::view-transition-old(root) { animation: slide-out-left  0.3s ease; }
-::view-transition-new(root) { animation: slide-in-right  0.3s ease; }
+:active-view-transition-type(forward) {
+  &::view-transition-old(root) { animation: slide-out-left  0.3s ease; }
+  &::view-transition-new(root) { animation: slide-in-right  0.3s ease; }
+}
+:active-view-transition-type(backward) {
+  &::view-transition-old(root) { animation: slide-out-right 0.3s ease; }
+  &::view-transition-new(root) { animation: slide-in-left  0.3s ease; }
+}
 
 /* Gate reduced-motion */
 @media (prefers-reduced-motion: reduce) {
@@ -169,9 +188,11 @@ function goToSlide(n) {
 }
 ```
 
-**MPA / cross-document path (same-origin files, no JS needed):**
+> **What VT animates in this architecture:** `document.startViewTransition` in `index.html` snapshots the **parent `#stage` wrapper** (the iframe container). The slide content *inside* the iframe is captured as a pixel snapshot. This is correct and visually convincing — the animation happens at the parent level, not inside the iframe.
+
+**MPA / cross-document path (only for non-iframe decks):**
 ```css
-/* Add to base.css — enables cross-document transitions between all slide pages */
+/* Only use when each slide is a top-level page (no iframe wrapper). */
 @view-transition { navigation: auto; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -179,12 +200,13 @@ function goToSlide(n) {
 }
 ```
 
-**Named shared elements (persist a logo/title across slides):**
+**Named shared elements (logo/title that morphs between slides):**
 ```css
-.slide-logo { view-transition-name: deck-logo; }
+/* Apply to the *same* element in old and new slide — must be unique per transition */
+.slide-logo { view-transition-name: deck-logo; contain: layout; }
 ```
 
-> **iframe caveat:** cross-document VT does not fire inside iframes. Use the SPA path (`document.startViewTransition`) in the outer `index.html` controller instead.
+> **iframe caveat:** cross-document VT and `view-transition-name` on elements *inside* iframes do not propagate to the parent. Use the SPA path (`document.startViewTransition` in `index.html`) and name elements on the **parent** (e.g. a HUD logo or progress bar) for morphing effects.
 
 ---
 
@@ -557,7 +579,35 @@ sequenceDiagram
 
 ---
 
-## Color & Design Inspiration
+## PDF Export
+
+### Decktape — universal HTML slide → PDF exporter
+**Rating:** ★★★★☆ — works with any HTML slide framework; no dependency on the slide code itself
+**Repo:** [astefanutti/decktape](https://github.com/astefanutti/decktape) | 2.4k+ stars
+**Use when:** User asks to export the deck to PDF for sharing, printing, or archiving.
+
+```bash
+# Serve the deck first (required — Decktape fetches from a live URL)
+npx serve .octocode/slides/{{slideName}}
+
+# Export all slides to PDF
+npx decktape http://localhost:3000 deck.pdf
+
+# Export with explicit size (matches 1280×720 stage)
+npx decktape --size 1280x720 http://localhost:3000 deck.pdf
+
+# Export specific slides (1-indexed)
+npx decktape --slides 1-10 http://localhost:3000 deck.pdf
+```
+
+**How it works:** Decktape drives a headless Chromium via Puppeteer, advances each slide via keyboard, and prints each to a PDF page. It auto-detects Reveal.js, Impress, and generic HTML decks.
+
+**Alternative — browser `@media print`:**
+`base.css` already defines `@media print { .slide { width: 1280px; height: 720px; page-break-after: always; } }`. Open `index.html` in Chrome → File → Print → Save as PDF. Lower fidelity than Decktape (no JS, no charts) but requires no installation.
+
+---
+
+
 
 ### Catppuccin — Warm pastel palette system, 4 flavors
 **Rating:** ★★★☆☆ — strong palette for pastel/cozy aesthetics; too niche for general use
@@ -597,6 +647,17 @@ Colors: Rosewater, Flamingo, Pink, Mauve, Red, Peach, Yellow, Green, Teal, Sapph
   --accent:  #88c0d0; /* Frost — or #81a1c1 for cooler blue */
 }
 ```
+
+### Coolors Contrast Checker — WCAG AA/AAA verification
+**Rating:** ★★★★☆ — fast, visual, covers AA/AAA for normal and large text; free, no sign-in
+**URL:** [coolors.co/contrast-checker](https://coolors.co/contrast-checker)
+**Use when:** Review phase `06-review.md` requires WCAG AA (4.5:1 normal / 3:1 large text). Paste hex values for text and background, read ratio instantly.
+
+Alternative: [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/) — same function, more detail on pass/fail thresholds.
+
+> **Minimum targets for slides:** body text ≥ 4.5:1, heading text (≥24px bold) ≥ 3:1, UI labels ≥ 4.5:1. Dark-on-light and light-on-dark both need checking.
+
+---
 
 ### Radix Colors — Perceptually uniform color scales
 **Rating:** ★★★★☆ — best tool for building custom surface/muted/border steps from a base hue; perceptually uniform in dark + light
@@ -659,6 +720,20 @@ Notable: Satoshi, Cabinet Grotesk, Clash Display, General Sans, Switzer.
 **URL:** [fontjoy.com](https://fontjoy.com/)
 **Use when:** Browsing Google Fonts manually isn't surfacing the right pair. Font Joy generates pairings with a "generate" button — lock the heading or body font and regenerate the other. Different job than Fontshare/Google Fonts browsing.
 
+### Type-Scale — Modular type scale calculator
+**Rating:** ★★★★☆ — instant visual preview of any base size + ratio; generates the full CSS scale
+**URL:** [type-scale.com](https://type-scale.com/)
+**Use when:** Choosing heading/body/caption sizes for a new deck; pick a ratio and base, then copy the resulting `font-size` values into `base.css`.
+
+**Recommended scales for 1280×720 slides:**
+| Body (base) | Ratio | H1 result | Notes |
+|-------------|-------|-----------|-------|
+| 24px | 1.333 (Perfect Fourth) | ~57px | Clean, technical |
+| 28px | 1.25 (Major Third) | ~55px | Balanced, editorial |
+| 26px | 1.414 (√2) | ~74px | Bold, keynote-style |
+
+Plug into CSS variables: `--fs-body: 26px; --fs-h2: 37px; --fs-h1: 52px; --fs-label: 18px;`
+
 ---
 
 ## Design Research (agent tool guide)
@@ -703,3 +778,6 @@ When deviating: define a `/* Custom: <name> */` block at the top of `theme.css` 
 | Arctic minimal palette | Nord |
 | Perceptual color scales | Radix Colors |
 | Font pairing discovery | Font Joy |
+| Type scale (base + ratio → CSS sizes) | type-scale.com |
+| WCAG contrast check (AA/AAA) | Coolors contrast checker |
+| Export deck to PDF | `npx decktape http://localhost:port deck.pdf` |

@@ -1,114 +1,149 @@
-# Phase 1 — Brief
+# Phase 1 — Request
 
-**Role:** Intake agent. Understand the request fully before any research begins.
+**Role:** Intake agent. Understand what the user wants and gather any source material before research begins.
 
 **Input:** User conversation
-**Output:** `.content/brief.md`
+**Output:** `.content/request.md`
 
 ---
 
-## Step 1 · Resolve the brief with minimum friction
+## Step 1 · Read the request and infer what you can
 
-First read the user's request and infer what you can. If the topic, audience, goal, source material, and output format are clear enough to proceed, do **not** ask a question. Write the assumptions into `brief.md` and continue.
+Read the user's message carefully. Extract every piece of information already given:
+- Topic / title
+- Audience (who, expertise, posture)
+- Goal (teach / pitch / update / inspire / demo / workshop)
+- Source files or material provided
+- Aesthetic / brand preference
+- Slide count or time constraint
+- Any images or diagrams mentioned
 
-Ask one bundled question only when a missing answer would materially change the deck. Include only the unknown fields; do not ask the user to repeat information already provided.
-
-```
-Tell me about the deck:
-
-1. Do you have source materials?
-   (a) Folder path — I'll read it with local tools
-   (b) Specific files
-   (c) No files — describe the content here
-
-2. Topic / title:
-3. Audience:
-   (a) Who are they? (devs / execs / mixed / students / customers / investors)
-   (b) Expertise level? (expert · practitioner · informed · general)
-   (c) Posture? (skeptical · neutral · already bought in)
-4. Goal (teach / pitch / update / inspire / demo):
-5. Approx slide count (5–10 exec brief / 10–15 pitch / 15–30 technical deep-dive / your call):
-6. Any tone or aesthetic preference?
-   (a) Describe a vibe / aesthetic
-   (b) I have a brand guide — share the path or paste colors/fonts
-   (c) No preference — your call
-
-7. Do you have images, screenshots, or diagrams to include?
-   (a) Yes — folder path: _______
-   (b) Yes — specific file paths: _______
-   (c) I'll describe them and drop in the paths later
-   (d) No images — text and data only
-```
+**Rule:** If a field can be inferred confidently from context, infer it and record the assumption — do not ask. Ask only for what is genuinely unknown and would change the deck if you guessed wrong.
 
 ---
 
-## Step 2 · Read source files and brand guide (if paths were given)
+## Step 2 · Ask what is missing (one focused question)
 
-Read in parallel using Octocode local tools when available:
+**If the user's request is complete enough to proceed:** skip this step entirely. Write `request.md` and continue.
+
+**If one or more fields are ambiguous or missing:** ask one bundled question. Include only the unknown fields — do not ask for information the user already gave.
 
 ```
-View source folder structure
-Find relevant source files (`.md`, `.txt`, `.html`, `.pdf`, `.pptx`, code files)
-Read the 3–5 most relevant files first
+A few things to confirm before I start:
+
+{{Include only the lines below that are actually unknown}}
+
+Source material:
+  (a) Folder path — I'll read it
+  (b) Specific files — paste the paths
+  (c) No files — describe the content here
+
+Audience:
+  Who are they? (devs / execs / mixed / students / customers / investors)
+  Expertise level? (expert / practitioner / informed / general)
+
+Goal: (teach / pitch / update / inspire / demo)
+
+Slide count:
+  (a) Exec brief — 5–10
+  (b) Pitch / update — 10–15
+  (c) Technical deep-dive — 15–30
+  (d) Your call
+
+Aesthetic / brand:
+  (a) Describe a vibe (dark/light, bold/minimal, technical/editorial…)
+  (b) I have a brand guide — paste the path or colors/fonts
+  (c) No preference — your call
+
+Images to include?
+  (a) Yes — folder path or file list
+  (b) I'll add them later
+  (c) No images needed
 ```
 
-Fallback if Octocode local tools are unavailable: use `rg --files`, `find`, `sed`, `head`, `pdftotext`, or other local readers appropriate to the file type.
-
-**If a brand guide path was given (question 6b):** read it now and record exact values — hex colors, font names, spacing rules. Mark the brief with `brand_guide: locked`. Phase 4 should treat it as the primary design source and skip visual research unless the guide is incomplete or the user asks for exploration.
-
-Record only what the deck may use: key facts, quotes, code, data, brand values, image paths, and obvious gaps. Avoid pasting long documents into the brief — Phase 2 handles deeper synthesis.
+**Smart rules for asking:**
+- If the topic is obvious from the message, do NOT ask "what is the topic?"
+- If the audience is obvious (e.g., "for my engineering team"), do NOT ask about audience
+- If the user says "your call", "just build it", or "fast mode", skip this step and proceed with assumptions
+- Never ask more than one question per unknown — pick the most important if several are missing and you can infer the rest
 
 ---
 
-## Step 3 · Write brief.md
+## Step 3 · Read source files
 
-Create `.content/brief.md` inside `.octocode/slides/{{slideName}}/`. Keep it concise enough that the next phase can scan it quickly.
+If source file paths were given (in initial message or from Step 2 answer), read them now using available local tools.
+
+Read in parallel when possible:
+- View folder structure if a directory was given
+- Read the 3–5 most relevant files first (`.md`, `.txt`, `.html`, code files)
+- For repos: view structure, search key concepts, read key files
+
+If a brand guide was given: record exact values — hex colors, font names, spacing rules. Mark the brief `brand_guide: locked`.
+
+---
+
+## Step 4 · Write request.md
+
+Create `.content/request.md` inside `.octocode/slides/{{slideName}}/`. This single file is the source of truth for what the user wants and what was gathered. Research findings (Phase 2) will be appended to this same file.
 
 ```markdown
-# Brief: {{Title}}
+# Request: {{Title}}
 
-## Deck intent
-- **Audience:** {{who}} · **Expertise:** {{expert / practitioner / informed / general}} · **Posture:** {{skeptical / neutral / bought-in}}
+## What the user wants
+- **Topic:** {{}}
+- **Audience:** {{who}} · {{expertise: expert / practitioner / informed / general}} · {{posture: skeptical / neutral / bought-in}}
 - **Depth level:** {{Executive / Management / Technical / Mixed / Async}} ← inferred from audience + goal
-- **Goal:** {{}}
-- **Slide count:** {{}}
-- **Tone / aesthetic:** {{or "not specified"}}
+- **Goal:** {{teach / pitch / update / inspire / demo}}
+- **Slide count:** {{target or range}}
+- **Tone / aesthetic:** {{description or "not specified — your call"}}
 - **Brand guide:** {{path or values, or "none"}}
 
-## Source files read
-| Path | One-line summary |
-|------|-----------------|
-| {{path}} | {{}} |
+## Assumptions made
+{{List any field that was inferred, not stated. If none: "None — all fields confirmed by user."}}
+
+## Source files
+| Path | Summary |
+|------|---------|
+| {{path}} | {{one-line description of relevant content}} |
 
 ## Raw content notes
-{{Key points, quotes, code, data — exactly as found. No interpretation.}}
+{{Key facts, quotes, code, data — exactly as found. No interpretation. Be brief.}}
 
-## Images inventory
-| Slide purpose | File path or description | Status |
-|---------------|--------------------------|--------|
-| {{e.g., "hero title background"}} | {{path or "user will provide"}} | {{ready / placeholder}} |
+## Images
+| Purpose | Path or description | Status |
+|---------|---------------------|--------|
+| {{hero background}} | {{path or "user will provide"}} | {{ready / placeholder}} |
 
 ## Known gaps
-{{What we still need to find: stats, code examples, context, comparisons, etc.}}
-{{If none: "None — source files are sufficient."}}
+{{What is still needed: stats, code, comparisons, images, etc.}}
+{{If none: "None — source material is sufficient."}}
+
+---
+<!-- Phase 2 research findings will be appended below this line -->
 ```
 
 ---
 
 ## Gate 1 — Smart stop
 
-Show the user only if confirmation is needed. If the user delegated judgment or the request is clear, send a short progress update and continue to Phase 2.
+**Show the user only when confirmation adds real value.** In most cases: write `request.md` and move directly to Phase 2.
 
+Ask the user to confirm when:
+- The topic is ambiguous and the wrong interpretation would waste all of Phase 2
+- Source files were listed but couldn't be read (access error, missing path)
+- The user's aesthetic preference is highly specific and you need confirmation before Phase 4
+
+When asking:
 ```
-Brief captured.
+Request captured.
 
 Topic: {{title}}
-Audience: {{}} · Goal: {{}}
+Audience: {{}} · Goal: {{}} · Depth: {{}}
 Source files read: {{n or "none"}}
-Images: {{n ready · n placeholder · or "none"}}
-Gaps for research: {{list or "none"}}
+Assumptions: {{list or "none"}}
+Gaps: {{list or "none"}}
 
 Reply "good" to start research, or correct anything above.
 ```
 
-Stop here only if the brief has a real blocker. Otherwise continue with stated assumptions.
+If the request is clear: send a one-line progress note ("Request captured — starting research") and continue.

@@ -2,16 +2,15 @@
 
 **Role:** Information architect. You turn research into the smallest narrative structure that achieves the user's goal — choosing slide order, types, and content balance for the audience.
 
-**Input:** `.content/brief.md` · `.content/research.md`
-**Output:** `.content/outline.md` · `.content/slides/slug.md` per-slide specs
+**Input:** `.content/request.md`
+**Output:** `.content/outline.md`
 
 ---
 
 ## Step 1 · Read inputs
 
-Read all three now (in parallel):
-- `.content/brief.md` — audience, goal, tone, slide count, images inventory
-- `.content/research.md` — all sourced facts, code, quotes, data
+Read both now (in parallel):
+- `.content/request.md` — audience, goal, tone, slide count, source content, research findings, gaps
 - `references/slide-rules.md` — master rule set for content, narrative, layout, and anti-patterns (required by Global Rule 9)
 
 ---
@@ -89,20 +88,35 @@ Deciding the library in the outline prevents mis-matched library loads at Phase 
 
 ## Step 5 · Draft the outline
 
-Create `.content/outline.md` inside `.octocode/slides/{{slideName}}/`.
+Create `.content/outline.md` inside `.octocode/slides/{{slideName}}/`. This file is the complete implementation contract — no per-slide spec files are needed.
 
 ```markdown
 # Outline: {{Title}}
 
 **Arc:** {{name}} — {{one sentence justification}}
+**Depth:** {{Executive / Management / Technical / Mixed / Async}} — {{one sentence on what this means for slide style}}
 
-| # | Title (claim sentence) | Type | From research.md | Key content | Flow logic |
-|---|------------------------|------|------------------|-------------|------------|
-| 01 | {{Deck title}} | title | — | Title, subtitle, presenter name | Raises: "What is this about?" |
-| 02 | Agenda | agenda | — | Section list matching arc | Answers: overview · Raises: "Where do we start?" |
-| 03 | {{Claim: specific insight or problem}} | content | §{{section}} | {{bullets from research}} | Answers: {{prior Q}} · Raises: {{next Q}} |
-| … | … | … | … | … | … |
-| N | {{CTA sentence}} | closing | — | Next step, contact, link | Answers: "What do I do now?" |
+| # | Slug | Title (claim sentence) | Type | Key content | Source | Flow logic |
+|---|------|------------------------|------|-------------|--------|------------|
+| 01 | title | {{Deck title}} | title | Title, subtitle, presenter name | — | Raises: "What is this?" |
+| 02 | agenda | Agenda | agenda | Section list matching arc | — | Raises: "Where do we start?" |
+| 03 | {{slug}} | {{Claim sentence}} | content | {{final bullets · max 5 · ≤10 words each}} | request.md §{{section}} | Answers: {{prior Q}} · Raises: {{next Q}} |
+| … | … | … | … | … | … | … |
+| N | closing | {{CTA sentence}} | closing | Next step, contact, link | — | Answers: "What do I do now?" |
+
+## Slide notes
+
+{{Only add a note for slides that need special treatment — a specific widget, chart config, missing source, or layout instruction. Simple content/stats/code slides need no notes.}}
+
+### {{slug}} — {{title}}
+- **Widget/chart:** {{e.g., "Chart.js donut — data: [42, 31, 27] — labels: [A, B, C] — key: A dominates"}}
+- **Code:** {{e.g., "lines 12–28 of src/auth.ts — show the token validation path"}}
+- **Image:** {{path or "user will provide — placeholder needed"}}
+- **Data source:** {{URL or file — or "[NEEDS SOURCE]"}}
+- **Layout note:** {{anything special: two-col, full-bleed, specific animation}}
+
+### {{slug}} — {{title}}
+...
 ```
 
 **Slide type options:**
@@ -110,8 +124,8 @@ Create `.content/outline.md` inside `.octocode/slides/{{slideName}}/`.
 
 **Guidelines:**
 - Non-structural slide titles (all except `title`, `agenda`, `section`, `closing`) should be **claim sentences** — sentences the audience can repeat without the slide.
-- Source columns should point to real sections in `research.md`, `brief.md`, or a user file. If source support is missing, validate with Octocode/local tools or web research when appropriate; if still unresolved, mark `[NEEDS SOURCE]` and ask the user before making it a confident claim.
-- Slide count should stay within the range in `brief.md` (calibrated by depth level in Step 2). If the outline exceeds the upper bound by more than 3, trim slides or explicitly note why the added depth is necessary.
+- Source columns point to sections in `request.md` or a user file path. If source support is missing, validate with Octocode/local tools or web research when appropriate; if still unresolved, mark `[NEEDS SOURCE]` and ask the user before making it a confident claim.
+- Slide count should stay within the range in `request.md` (calibrated by depth level in Step 2). If the outline exceeds the upper bound by more than 3, trim slides or explicitly note why the added depth is necessary.
 - Prefer the fewest slides that answer the audience's core question. If two adjacent slides make the same point, merge or cut.
 - Dense content → split the slide rather than shrinking text.
 - Avoid 3 consecutive slides of the same type unless the rhythm is intentional.
@@ -144,88 +158,41 @@ Mark any slide failing two or more lenses `[REVISIT]`. Resolve it before Phase 5
 
 ---
 
-## Step 5c · Create per-slide specs
+## Gate 3 — Always show the outline and ask
 
-For every outline row, create `.content/slides/slug.md`. This is the slide's source-of-truth planning doc. Keep each spec concise but complete enough that Phase 4 can design it and Phase 5 can build it without re-interpreting the story.
+**Default: always show the outline to the user and wait for feedback before moving to Phase 4.**
 
-```markdown
-# {{NN · Slide title}}
+The outline determines the entire arc, content, and slide count. Getting it wrong at this stage means rebuilding slides later. Showing it takes 30 seconds; rebuilding takes 30 minutes.
 
-## Identity
-- **Type:** {{title / content / chart / code / image / ...}}
-- **Section / beat:** {{Discomfort / Relief / Confidence / Momentum / appendix}}
-- **Status:** {{ready / needs source / needs asset / revisit}}
-
-## Title
-{{Final on-slide title. Non-structural slides use a claim sentence.}}
-
-## Description
-{{1–2 sentences describing what the audience should understand from this slide.}}
-
-## Reasoning
-{{Why this slide exists, why it appears here, what prior question it answers, and what next question it raises.}}
-
-## Content
-- **Speaker notes:** {{2–4 sentences}}
-- **Body:** {{final bullets, quote, code summary, or caption text}}
-- **Source trace:** {{brief.md / research.md section / user file path}}
-
-## Data
-{{Exact numbers, labels, units, source, freshness, and any assumptions. Use "None" if not data-backed.}}
-
-## Widgets
-{{Interactive or visual components: counter, progress bar, code block, Mermaid diagram, callout, tabs, etc. Use "None" if plain content.}}
-
-## Graphs
-{{Chart type, library, data shape, axes/labels, key insight. Use "None" if no graph.}}
-
-## Images
-{{Image path or placeholder description, alt text, crop/framing, overlay needs. Use "None" if no image.}}
-
-## UX / UI
-{{Layout type, dominant visual, reading order, whitespace/density note, animation, accessibility/contrast considerations.}}
-```
-
-**Rules:**
-- Avoid duplicating long research excerpts. Link to the source section and copy only the final slide-ready content.
-- If a slide needs a graph, image, widget, or data point and the source is missing, validate with Octocode/web or set `Status: needs source` / `needs asset` before Gate 3.
-- Design choices belong in `UX / UI`; deck-wide choices still belong in `DESIGN.md`.
-- Phase 4 may refine `UX / UI`, `Widgets`, `Graphs`, and `Images`; preserve the slide's `Title`, `Description`, and `Reasoning` unless the outline is updated.
-
----
-
-## Gate 3 — Smart stop
-
-**Before showing the Gate 3 summary, run the storytelling arc check:**
+**Run the storytelling arc check first:**
 
 | Beat | Required slide | Present? |
 |------|---------------|----------|
-| **Discomfort** | A slide that surfaces a real problem the audience recognises — before any solution | Slide #__ or `[MISSING]` |
-| **Relief** | A slide that reframes or names the insight that makes the problem solvable | Slide #__ or `[MISSING]` |
-| **Confidence** | A slide (or slides) with real evidence — numbers, code, outcome — that the solution works | Slide #__ or `[MISSING]` |
-| **Momentum** | The closing CTA — one specific action the audience can take immediately | Slide #__ or `[MISSING]` |
+| **Discomfort** | A slide that surfaces a real problem — before any solution | Slide #__ or `[MISSING]` |
+| **Relief** | A slide that reframes the problem or names the insight | Slide #__ or `[MISSING]` |
+| **Confidence** | Evidence slide — numbers, code, outcome — that proves the solution works | Slide #__ or `[MISSING]` |
+| **Momentum** | Closing CTA — one specific action the audience can take now | Slide #__ or `[MISSING]` |
 
-Any `[MISSING]` beat means the outline is structurally incomplete. Add the missing slide, merge the beat into an adjacent slide, or ask the user whether that beat is out of scope.
+Any `[MISSING]` beat = structurally incomplete. Add the beat, merge it into an adjacent slide, or ask the user whether it is out of scope.
 
----
-
-Show the user when the structure needs approval or the user has not delegated content decisions. If the user said "your call", "just build it", "fast mode", or equivalent, show a compact outline summary and continue unless there is a real content ambiguity.
+**Then show the user:**
 
 ```
 Outline ready for "{{title}}" — {{N}} slides.
 
-Arc: {{name}} ({{reason}})
-
+Arc: {{name}} ({{one-line reason it fits audience + goal}})
 Story beats: Discomfort (#__) · Relief (#__) · Confidence (#__) · Momentum (#__)
 
 {{Paste full outline table}}
 
-Does this work?
-- Add, remove, or reorder slides
-- Change any type or content focus
-- Adjust the arc
+Slide notes:
+{{List only slides flagged [NEEDS SOURCE] or with special requirements}}
 
-Reply "good" to proceed to design, or give feedback.
+Does this structure work?
+- Reply "good" to move to design
+- Or: add/remove/reorder slides, change arc, adjust a slide's type or focus
 ```
 
-Update `.content/outline.md` with any changes before proceeding. Stop here only when approval is required or unresolved `[NEEDS SOURCE]` items would affect the deck's claims.
+**Exception — fast mode:** If the user said "your call", "just build it", or "fast mode", send a compact one-line summary ("Outline: {{N}} slides, {{arc}} arc — starting design") and continue without waiting.
+
+Update `.content/outline.md` with any changes before proceeding to Phase 4. Resolve all `[NEEDS SOURCE]` gaps before implementation or clearly flag them for the user.
