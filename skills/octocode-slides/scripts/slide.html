@@ -274,5 +274,14 @@
 
 <!-- LLM: Place your initialization scripts here if needed. Delete this comment if none. -->
 
+<!--
+  NAVBRIDGE — keeps arrow-key navigation working when the user clicks inside
+  this iframe. The script listens for nav keys on the slide document and
+  forwards them to the parent index.html via postMessage. It is a no-op when
+  the slide is opened standalone (not inside an iframe).
+  Path is one level up from slides/ — keep this path unchanged.
+-->
+<script src="../js/navbridge.js"></script>
+
 </body>
 </html>

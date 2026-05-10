@@ -146,24 +146,47 @@ All generated paths are relative to the deck root:
 ├── css/
 │   ├── base.css                  ← layout, variables, all slide rules
 │   └── theme.css                 ← per-deck fonts, colors, tokens
+├── js/
+│   └── navbridge.js              ← keyboard bridge (required in every slide)
+├── assets/                       ← images and other media referenced by slides
+│   └── (place images here)       ← slides reference as ../assets/image.png
 ├── slides/                       ← one HTML file per slide
-│   ├── 01-title.html
-│   └── NN-slug.html
+│   ├── title.html                ← filenames use slugs, not numbers
+│   └── slug.html
 └── .content/                     ← all planning artifacts
     ├── brief.md
     ├── research.md
     ├── outline.md
     ├── DESIGN.md
     └── slides/
-        ├── 01-title.md           ← per-slide spec: content + reasoning + design plan
-        └── NN-slug.md
+        ├── title.md              ← per-slide spec: content + reasoning + design plan
+        └── slug.md
 ```
 
 **Path contract (enforced by `scripts/slide.html`):**
-- Each slide lives in `slides/NN-slug.html`
+- Each slide lives in `slides/slug.html` — filenames use slug names, not numeric prefixes (order is controlled by the `slides` array in `index.html`, not filenames)
 - Each slide links CSS as `../css/base.css` and `../css/theme.css` — one level up
-- `index.html` references slides as `slides/NN-slug.html` — one level down
+- Each slide includes `<script src="../js/navbridge.js"></script>` before `</body>` — one level up
+- Each slide references images as `../assets/image.png` — one level up from `slides/`
+- `index.html` references slides via `const slides = [{ path, hidden, name }]` — see manifest format below
 - **Avoid `slides/slides/` double-nesting.** The `slides/` folder contains HTML files directly.
+
+**Slide manifest format (in `index.html`):**
+```javascript
+const slides = [
+  { path: 'slides/title.html',   hidden: false, name: 'title' },
+  { path: 'slides/problem.html', hidden: false, name: 'problem' },
+  // hidden: true = skip during playback, hide from overview grid
+];
+```
+- `name` is the URL hash slug (e.g. `#problem`) — must be unique, must NOT be a number
+- Playback order = array order. Filenames can be reordered freely without breaking links.
+
+**Navbridge — how keyboard navigation stays alive inside iframes:**
+`js/navbridge.js` runs inside every slide iframe. When the user clicks a slide and the iframe gains focus, arrow keys fire on the iframe document. Navbridge captures them and forwards them to the parent via `postMessage({ type: 'octocode-slides:nav', key })`. The parent `index.html` listens for these messages and routes them through the same `handleKey()` function used for parent-window keystrokes. There is a single navigation handler — do NOT add a second `keydown` listener to the iframe.
+
+**Slide flex layout:**
+Every `.slide` element uses `display: flex; flex-direction: column` (from `base.css`). Centered slide types (`title`, `section`, `quote`, `closing`, `stats`) add `justify-content: center` automatically. Content types (`content`, `two-col`, `code`, `chart`) stack header zone above body zone. All content must fit at 1280×720 without scrolling — if it overflows, split into a new slide.
 
 **Serving:** `npx serve .octocode/slides/{{slideName}}` — serves from the deck root.
 
@@ -202,7 +225,11 @@ Use these as judgment aids, not bureaucracy. When the user gives a different con
 10. **Run the Self-Review (Phase 6 · Step 0) before showing the deck.** Fix clear failures; document intentional trade-offs when the brief requires them.
 11. **Run bidirectional planning before Phase 5.** Top-down pass (goal → arc → sections → slides) then bottom-up pass (closing → sections → arc → goal). Both should hold before implementation.
 12. **Apply the three-lens check before writing HTML.** Content (single claim + source) · UX (Q→A chain + cognitive load) · UI (layout type + 3-second test). If a lens fails, revise the outline or ask the user rather than forcing the slide.
-13. **Use `.content/slides/NN-slug.md` specs as the implementation contract.** Each spec describes title, description, reasoning, data, widgets, graphs, images, and UX/UI.
+13. **Use `.content/slides/slug.md` specs as the implementation contract.** Each spec describes title, description, reasoning, data, widgets, graphs, images, and UX/UI.
+14. **Create `js/navbridge.js` before writing any slide HTML.** Every slide must include `<script src="../js/navbridge.js"></script>` immediately before `</body>`. Without navbridge, arrow-key navigation stops working after the user clicks inside a slide.
+15. **Use `{ path, hidden, name }` objects in the slides manifest — never plain strings.** The `name` field is the URL hash slug; it must be a descriptive slug (e.g. `'problem'`), never a number. Playback order is controlled by the array — filenames may use numbers as hints but the number has no functional effect.
+16. **Use a single `handleKey()` navigation handler in `index.html`.** Do NOT attach a second `keydown` listener to iframe elements — that double-fires and advances two slides per key. The postMessage path from navbridge and the parent window keydown path both route through the same `handleKey()`.
+17. **Flex layout is the baseline for all slides.** `.slide { display: flex; flex-direction: column }` is set in `base.css`. Centered types add `justify-content: center`. Never rely on absolute positioning to center slide content — use flex alignment so all slide types stay consistent across themes.
 
 ### Evidence and validation
 
@@ -311,11 +338,15 @@ Two tests. Run both before every delivery.
 ## Done means
 
 - `index.html` opens from the deck root and lists every slide in order
+- `js/navbridge.js` exists at the deck root
 - Every slide file exists directly under `slides/`
-- Every slide has a complete `.content/slides/NN-slug.md` spec with title, description, reasoning, data, widgets, graphs, images, and UX/UI
+- Every slide HTML includes `<script src="../js/navbridge.js"></script>` immediately before `</body>`
+- `const slides = [...]` in `index.html` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
+- Every slide has a complete `.content/slides/slug.md` spec with title, description, reasoning, data, widgets, graphs, images, and UX/UI
 - No `{{…}}` placeholder tokens remain
 - No broken CSS, image, CDN, or iframe paths remain
-- Browser/render review passes with no visible overflow
+- Browser/render review passes with no visible overflow at 1280×720
+- Arrow-key navigation works after clicking inside a slide (navbridge active)
 - Visual Slop score is 0/8 when possible and always ≤1/8
 - Content Slop score is 0/8 — no invented data, no filler language, no noun-phrase titles, no decorative images
 - Final response includes the deck path and serve command

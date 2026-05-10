@@ -8,6 +8,10 @@ Read during Phase 5 implementation, and consult during Phase 4 when a design cho
 
 Every `slides/NN-slug.html` uses this shell. Slides fill the iframe 100%×100% — the stage in `index.html` handles all scaling. Add CDN `<link>` / `<script>` tags inside `<head>` only when the slide needs them.
 
+The `.slide` element uses `display: flex; flex-direction: column` (from `base.css`). Centered slide types (`title`, `section`, `quote`, `closing`, `stats`) add `justify-content: center` and optionally `align-items: center`. Content types (`content`, `two-col`, `code`, `chart`, `timeline`) use the default column flex so the header zone stacks above the body zone.
+
+**`js/navbridge.js` is required in every slide.** It propagates arrow-key events from the iframe back to the parent navigation controller via `postMessage`, so keyboard navigation keeps working after the user clicks inside a slide. The `<script>` tag is already included at the end of `scripts/slide.html` — do not remove it.
+
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -24,10 +28,13 @@ Every `slides/NN-slug.html` uses this shell. Slides fill the iframe 100%×100% �
 </head>
 <body>
 <div class="slide slide--{{TYPE}}">
+  <!-- Images: use ../assets/filename.png (assets/ is one level up from slides/) -->
   <!-- content -->
 </div>
 <aside class="speaker-notes">{{Speaker notes}}</aside>
 <!-- Motion animations go here as <script type="module"> if needed -->
+<!-- navbridge: keeps arrow-key nav working when iframe has focus. Paths are one level up from slides/ -->
+<script src="../js/navbridge.js"></script>
 </body>
 </html>
 ```
@@ -711,207 +718,66 @@ body {
 
 ---
 
-## `index.html` — navigation controller boilerplate
+## `index.html` — navigation controller
 
-Copy from `scripts/base.html` (preferred) or use this condensed version. Key additions vs the old pattern: **slide-cell wrappers** (required for overview mode), **overview grid** (G key), and **hash navigation** (`index.html#5` = slide 5).
+**Always copy from `scripts/base.html`** — it is the canonical source of truth. The condensed reference below shows the key patterns; use the full template for actual implementation.
 
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>{{Deck Title}}</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+### Slide manifest format
 
-    html, body {
-      width: 100%; height: 100%;
-      background: #000;
-      overflow: hidden;
-      display: grid;
-      place-items: center;
-    }
-
-    #stage {
-      width: 1280px;
-      height: 720px;
-      position: relative;
-      transform-origin: center center;
-    }
-
-    /* Normal mode: cells are transparent stacked layers */
-    .slide-cell { position: absolute; inset: 0; width: 100%; height: 100%; }
-
-    /* Iframes fill their cell; only the active one is visible */
-    .slide-frame {
-      position: absolute; inset: 0; width: 100%; height: 100%;
-      border: none; opacity: 0; transition: opacity 150ms ease; pointer-events: none;
-    }
-    .slide-frame[data-active] { opacity: 1; pointer-events: auto; }
-
-    #progress {
-      position: fixed; bottom: 0; left: 0; height: 3px;
-      background: rgba(255,255,255,0.5); transition: width 200ms ease; pointer-events: none;
-    }
-    #counter {
-      position: fixed; bottom: 10px; right: 18px;
-      font: 11px/1 system-ui, sans-serif; color: rgba(255,255,255,0.3);
-      letter-spacing: 0.06em; pointer-events: none;
-    }
-
-    /* ── Overview mode (G key) ───────────────────────── */
-    body.overview { overflow-y: auto; background: #0e0e0e; display: block; }
-    body.overview #stage {
-      width: 100%; height: auto; min-height: 100vh;
-      position: static; transform: none !important;
-      display: grid; grid-template-columns: repeat(auto-fill, 256px);
-      gap: 1.25rem; padding: 2.5rem 2rem 4rem; align-content: start;
-    }
-    body.overview .slide-cell {
-      position: relative; width: 256px; height: 144px;
-      overflow: hidden; border-radius: 6px; cursor: pointer;
-      border: 2px solid rgba(255,255,255,0.08);
-      transition: border-color 120ms ease;
-    }
-    body.overview .slide-cell:hover { border-color: rgba(255,255,255,0.4); }
-    body.overview .slide-cell.is-active { border-color: rgba(255,255,255,0.75); }
-    body.overview .slide-frame {
-      position: absolute; top: 0; left: 0;
-      width: 1280px !important; height: 720px !important;
-      transform: scale(0.2); transform-origin: top left;
-      opacity: 1; pointer-events: none; transition: none;
-    }
-    .slide-cell .slide-num {
-      display: none; position: absolute; bottom: 4px; right: 6px;
-      font: 700 9px/1 system-ui, sans-serif; color: rgba(255,255,255,0.45); z-index: 10;
-    }
-    body.overview .slide-cell .slide-num { display: block; }
-    body.overview #progress, body.overview #counter { display: none; }
-    #overview-hint {
-      display: none; position: fixed; top: 0; left: 0; right: 0;
-      padding: 0.5rem 1.5rem; text-align: right;
-      font: 10px/1.5 system-ui, sans-serif; color: rgba(255,255,255,0.25);
-      pointer-events: none; z-index: 200;
-    }
-    body.overview #overview-hint { display: block; }
-  </style>
-</head>
-<body>
-
-<div id="stage"></div>
-<div id="progress"></div>
-<div id="counter"></div>
-<div id="overview-hint">Overview — click a slide to jump &nbsp;·&nbsp; G or Esc to close</div>
-
-<script>
-// LIST EVERY SLIDE IN ORDER:
+```javascript
 const slides = [
-  'slides/01-title.html',
-  'slides/02-agenda.html',
-  // add all slide paths here
+  // Each entry: { path, hidden, name }
+  //   path   – slide HTML file relative to index.html
+  //   name   – unique slug for URL hash (e.g. 'problem' → #problem)
+  //            Do NOT use numbers — playback order is controlled by this array.
+  //   hidden – true = skip during playback AND hide from overview grid
+  { path: 'slides/title.html',    hidden: false, name: 'title' },
+  { path: 'slides/problem.html',  hidden: false, name: 'problem' },
+  { path: 'slides/solution.html', hidden: false, name: 'solution' },
+  { path: 'slides/closing.html',  hidden: false, name: 'closing' },
 ];
-
-let current    = 0;
-let inOverview = false;
-
-const stage   = document.getElementById('stage');
-const bar     = document.getElementById('progress');
-const counter = document.getElementById('counter');
-
-// Build slide cells (each wrapping an iframe)
-slides.forEach((src, i) => {
-  const cell = document.createElement('div');
-  cell.className = 'slide-cell' + (i === 0 ? ' is-active' : '');
-  cell.addEventListener('click', () => { if (inOverview) { closeOverview(); go(i); } });
-
-  const f = document.createElement('iframe');
-  f.src = src; f.className = 'slide-frame';
-  f.setAttribute('tabindex', '-1');
-  f.setAttribute('title', `Slide ${i + 1} of ${slides.length}`);
-  if (i === 0) f.setAttribute('data-active', '');
-
-  // Forward navigation keys from inside the iframe back to the parent.
-  // Clicking a link moves focus into the iframe — without this the arrow
-  // keys stop working until the user clicks outside the iframe.
-  const NAV_KEYS = ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown',' ','Home','End','f','F','g','G','Escape'];
-  f.addEventListener('load', () => {
-    try {
-      f.contentWindow.addEventListener('keydown', e => {
-        if (NAV_KEYS.includes(e.key)) {
-          e.preventDefault();
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, bubbles: true }));
-        }
-      });
-    } catch (_) {}
-  });
-
-  const num = document.createElement('span');
-  num.className = 'slide-num';
-  num.textContent = String(i + 1).padStart(2, '0');
-
-  cell.appendChild(f); cell.appendChild(num);
-  stage.appendChild(cell);
-});
-
-const frames = () => stage.querySelectorAll('.slide-frame');
-const cells  = () => stage.querySelectorAll('.slide-cell');
-
-function scaleStage() {
-  if (inOverview) return;
-  const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-  stage.style.transform = `scale(${s})`;
-}
-new ResizeObserver(scaleStage).observe(document.documentElement);
-scaleStage();
-
-function go(idx) {
-  const af = frames(), ac = cells();
-  if (idx < 0 || idx >= af.length) return;
-  af[current].removeAttribute('data-active'); ac[current].classList.remove('is-active');
-  current = idx;
-  af[current].setAttribute('data-active', ''); ac[current].classList.add('is-active');
-  const pct = ((current + 1) / af.length) * 100;
-  bar.style.width = pct + '%';
-  counter.textContent = `${current + 1} / ${af.length}`;
-  history.replaceState(null, '', '#' + (current + 1));
-}
-
-function openOverview()  { inOverview = true;  document.body.classList.add('overview'); }
-function closeOverview() { inOverview = false; document.body.classList.remove('overview'); requestAnimationFrame(scaleStage); }
-
-document.addEventListener('keydown', e => {
-  if (inOverview) { if (e.key === 'Escape' || e.key === 'g' || e.key === 'G') closeOverview(); return; }
-  switch (e.key) {
-    case 'ArrowRight': case 'ArrowDown': case ' ': e.preventDefault(); go(current + 1); break;
-    case 'ArrowLeft':  case 'ArrowUp':             e.preventDefault(); go(current - 1); break;
-    case 'Home': go(0); break;
-    case 'End':  go(frames().length - 1); break;
-    case 'f': case 'F':
-      document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.(); break;
-    case 'g': case 'G': openOverview(); break;
-  }
-});
-
-let tx = null;
-document.addEventListener('touchstart', e => { if (!inOverview) tx = e.touches[0].clientX; }, { passive: true });
-document.addEventListener('touchend',   e => {
-  if (tx === null || inOverview) return;
-  const d = tx - e.changedTouches[0].clientX;
-  if (Math.abs(d) > 40) go(current + (d > 0 ? 1 : -1));
-  tx = null;
-});
-
-window.addEventListener('hashchange', () => {
-  const n = parseInt(location.hash.slice(1), 10);
-  if (!isNaN(n) && n >= 1 && n <= slides.length) go(n - 1);
-});
-
-const startIdx = parseInt(location.hash.slice(1), 10);
-go(!isNaN(startIdx) && startIdx >= 1 && startIdx <= slides.length ? startIdx - 1 : 0);
-</script>
-
-</body>
-</html>
 ```
 
-**After generating all slides:** update `const slides = [...]` with every file path in order.
+Key rules for the manifest:
+- **Filename numbers do NOT control order** — the array position does. Files can be named `slides/title.html` without a numeric prefix.
+- **`name` must be unique** across all visible (non-hidden) slides.
+- **`hidden: true`** skips the slide during playback and hides it from the overview grid, but keeps the file in the deck (useful for draft slides or extended-edition content).
+- **Name-based hash navigation**: `#problem` jumps to the slide where `name === 'problem'`. Legacy numeric hashes (`#5`) still work for backwards compatibility.
+
+### Navbridge integration
+
+The parent `index.html` uses a **single `handleKey()` function** as the sole navigation handler:
+
+- When the **parent window** has focus → `document.addEventListener('keydown', handleKey, true)` fires directly.
+- When the **iframe** has focus (user clicked inside a slide) → `js/navbridge.js` inside the slide posts `{ type: 'octocode-slides:nav', key }` and the parent's `window.addEventListener('message', ...)` calls `handleKey()`.
+
+Do NOT attach a second `keydown` listener to the iframe — that would double-fire and advance two slides per key press.
+
+```javascript
+// navbridge postMessage receiver in index.html
+window.addEventListener('message', function (event) {
+  var data = event.data;
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'octocode-slides:nav' && data.key) {
+    handleKey({ key: data.key, preventDefault: function () {} });
+  } else if (data.type === 'octocode-slides:activity') {
+    showHud(); // wake the keyboard hint HUD
+  }
+});
+```
+
+### HUD (keyboard hint pill)
+
+The HUD fades in on mouse move / key press, fades out after 1.6 s:
+
+```javascript
+let hudTimer;
+function showHud() {
+  hud.classList.add('show');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => hud.classList.remove('show'), 1600);
+}
+window.addEventListener('mousemove', showHud);
+```
+
+**After generating all slides:** fill `const slides = [...]` with every `{ path, hidden, name }` entry in presentation order.

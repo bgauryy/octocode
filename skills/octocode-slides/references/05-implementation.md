@@ -9,11 +9,17 @@
 ```
 .octocode/slides/{{slideName}}/   ← deck root (serve from here)
 ├── index.html                    ← navigation controller
-├── css/base.css + theme.css      ← CSS at deck root
-└── slides/NN-slug.html           ← slides one level deeper
+├── css/
+│   ├── base.css
+│   └── theme.css
+├── js/
+│   └── navbridge.js              ← keyboard bridge (must exist)
+├── assets/                       ← images and media referenced by slides
+│   └── (images go here)
+└── slides/
+    └── *.html                    ← one HTML file per slide
 ```
-Each slide uses `../css/base.css` (one level up). `index.html` uses `slides/NN-slug.html` (one level down).
-Keep slides out of `slides/slides/` — there is no double-nesting in this structure.
+Each slide uses paths one level up: `../css/base.css`, `../js/navbridge.js`, `../assets/image.png`. `index.html` uses `slides/slug.html` (one level down). Keep slides out of `slides/slides/` — there is no double-nesting in this structure.
 
 ---
 
@@ -79,11 +85,13 @@ For each slide, build directly from its `.content/slides/NN-slug.md` spec, start
 
 **Image handling (check the slide spec's `Images` section first, then brief.md → Images inventory):**
 
+All image files go in `assets/` at the deck root. Slides reference them as `../assets/filename.png` (one level up from `slides/`).
+
 | Image status in brief | What to do in HTML |
 |-----------------------|--------------------|
-| `ready` — file path provided | `<img src="{{path}}" alt="{{descriptive alt text}}">` directly |
+| `ready` — file path provided | `<img src="../assets/{{filename}}" alt="{{descriptive alt text}}">` |
 | `placeholder` — user will provide later | Use `image-ph` (inline) or `image-ph-bleed` (full-bleed) from `references/html-templates.md` |
-| Full-bleed `slide--image` with ready image | `<img>` + `<div class="image-overlay">` + optional `.image-caption` |
+| Full-bleed `slide--image` with ready image | `<img src="../assets/{{filename}}">` + `<div class="image-overlay">` + optional `.image-caption` |
 | Full-bleed `slide--image` with no image yet | `image-ph-bleed` div + `<div class="image-overlay">` + `.image-caption` |
 
 Add a `data-expected` attribute with a plain-English description of the image when it helps review, especially for placeholders: `data-expected="{{what the image shows}}"`.
@@ -117,15 +125,94 @@ This loop runs until all slides in the outline are implemented.
 
 ---
 
-## Step 5 · Build index.html
+## Step 5 · Build index.html and js/navbridge.js
 
 Once all slides are implemented:
 
+### 5a · Create js/navbridge.js
+
+Write `js/navbridge.js` at the deck root (same level as `css/` and `slides/`). This script is included by every slide HTML and forwards keyboard navigation events from inside the iframe back to the parent `index.html` via `postMessage`, so arrow keys keep working after the user clicks anywhere inside a slide.
+
+```javascript
+/*
+ * Slide → parent navigation bridge.
+ * When a slide iframe has keyboard focus (after the user clicks anywhere
+ * inside it), arrow keys fire on the iframe's document, not the parent
+ * window. This script forwards those keys to the parent via postMessage
+ * so the navigation controller in index.html can keep working.
+ */
+(function () {
+  if (window.parent === window) return; // standalone, not embedded
+
+  var NAV_KEYS = {
+    ArrowLeft: 1, ArrowRight: 1, ArrowUp: 1, ArrowDown: 1,
+    PageUp: 1, PageDown: 1, Home: 1, End: 1,
+    ' ': 1, g: 1, G: 1, f: 1, F: 1
+  };
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    return !!el.isContentEditable;
+  }
+
+  function hasTextSelection() {
+    try {
+      var sel = window.getSelection && window.getSelection();
+      return !!(sel && String(sel).length > 0);
+    } catch (_) { return false; }
+  }
+
+  function send(key) {
+    try {
+      window.parent.postMessage(
+        { type: 'octocode-slides:nav', key: key },
+        '*'
+      );
+    } catch (_) {}
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (isTypingTarget(e.target)) return;
+    if (!NAV_KEYS[e.key]) return;
+    if (e.key === ' ' && hasTextSelection()) return;
+    send(e.key);
+    e.preventDefault();
+  }, true);
+
+  // Forward mouse activity so the parent HUD wakes up
+  document.addEventListener('mousemove', function () {
+    try { window.parent.postMessage({ type: 'octocode-slides:activity' }, '*'); }
+    catch (_) {}
+  }, { passive: true });
+})();
+```
+
+### 5b · Build index.html
+
 1. Start from `scripts/base.html`
 2. Replace all `<!-- LLM: ... -->` comments with actual values
-3. Fill `const slides = [...]` with `slides/NN-slug.html` paths in order (each path starts with `slides/`)
-4. Write to `index.html` (at deck root — same level as `css/` and `slides/`)
-5. Write `README.md` (at deck root):
+3. Fill `const slides = [...]` using the `{ path, hidden, name }` object format:
+   - `path` — slide HTML file relative to `index.html` (e.g. `'slides/problem.html'`)
+   - `name` — unique slug for URL hash (e.g. `'problem'` → `#problem`). **Do NOT use numbers** — playback order is controlled by the array, not filenames.
+   - `hidden` — `true` to skip during playback and hide from overview grid
+4. Keep entries in the order you want them shown — this array is the single source of truth for slide order.
+5. Write to `index.html` (at deck root — same level as `css/`, `js/`, and `slides/`)
+
+```javascript
+// Example manifest — replace with actual slides:
+const slides = [
+  { path: 'slides/title.html',    hidden: false, name: 'title' },
+  { path: 'slides/problem.html',  hidden: false, name: 'problem' },
+  { path: 'slides/solution.html', hidden: false, name: 'solution' },
+  { path: 'slides/closing.html',  hidden: false, name: 'closing' },
+];
+```
+
+### 5c · Write README.md
+
+Write `README.md` (at deck root):
 
 ```markdown
 # {{Deck Title}}
@@ -135,8 +222,9 @@ Then open: http://localhost:3000
 
 Keys: `→` next · `←` prev · `Space` next · `G` overview grid · `F` fullscreen
 
-Edit a slide: `slides/NN-*.html`
+Edit a slide: `slides/*.html`
 Change theme: `css/theme.css` — all slides update automatically
+Reorder slides: edit the `slides` array in `index.html`
 ```
 
 ---
@@ -148,10 +236,15 @@ Before handing off to Phase 6:
 - [ ] Every slide in the outline has a `.content/slides/NN-slug.md` file
 - [ ] Every slide spec has `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
 - [ ] No slide spec remains `Status: needs source`, `needs asset`, or `revisit` unless the deck intentionally ships an image placeholder
-- [ ] Every slide in the outline has a `slides/NN-slug.html` file (not `slides/slides/`)
-- [ ] All slide paths in `const slides = [...]` start with `slides/` (e.g. `slides/01-title.html`)
-- [ ] `index.html` is at the deck root (same level as `css/` and `slides/`)
+- [ ] Every slide in the outline has a `slides/*.html` file (not `slides/slides/`)
+- [ ] `js/navbridge.js` exists at the deck root (same level as `css/` and `slides/`)
+- [ ] Every slide HTML file contains `<script src="../js/navbridge.js"></script>` immediately before `</body>`
+- [ ] `const slides = [...]` in `index.html` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
+- [ ] All `path` values in the manifest start with `slides/` (e.g. `'slides/problem.html'`)
+- [ ] All `name` values are unique slugs — not numbers, not filenames with extensions
+- [ ] `index.html` is at the deck root (same level as `css/`, `js/`, and `slides/`)
 - [ ] No slide HTML contains hardcoded colors, fonts, or pixel sizes
 - [ ] Every CDN library listed in DESIGN.md is actually loaded in the slides that need it
+- [ ] Each slide's `.slide` container uses flex layout (inherited from `base.css`); no slide content overflows at 1280×720
 
 Pass to Phase 6 → read `references/06-review.md`. Start with Step 0 (Self-review).
