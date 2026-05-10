@@ -133,16 +133,23 @@ Each preview shows **the title slide only**, fully rendered: color palette, font
 - None may score 2+ on the Visual Slop Test, and none may fail the Content Slop Test (from SKILL.md)
 - If the title slide would benefit from a hero image that is not provided, render the `PLACEHOLDER` component in the preview and label what image the user should add later.
 
-Show the user:
+**Run the Think-before-asking protocol first** (`SKILL.md → Think before asking`). Before presenting previews, complete this reasoning pass internally:
+- What audience/goal signals drove the three direction choices?
+- Which direction is most likely right, and why?
+- What assumption could the user correct that would change the direction?
+
+Show the user using the `SKILL.md → Presenting options to the user` format — reasoning first, choices second:
 
 ```
-Three style directions ready:
+Three style directions for "{{title}}" — built for {{audience}} × {{goal}}:
 
-  A → .content/preview-a.html  ({{8-word description of the aesthetic}})
-  B → .content/preview-b.html  ({{8-word description}})
-  C → .content/preview-c.html  ({{8-word description}})
+Why these three: {{1-2 sentences on what drove the visual directions — audience trust signals, energy, differentiation}}
 
-Open them and pick one — or describe what to change.
+A → .content/preview-a.html — {{8-word descriptor tied to audience signal}}
+B → .content/preview-b.html — {{8-word descriptor tied to a different signal}}
+C → .content/preview-c.html — {{8-word descriptor — most distinct from A and B}}
+
+Open them and reply "A", "B", or "C" — or describe what to adjust.
 ```
 
 **Gate 4a — Smart stop.** Stop for a choice only when previews were generated. Write DESIGN.md after the user picks a direction or delegates the choice.
@@ -153,21 +160,22 @@ Open them and pick one — or describe what to change.
 
 ---
 
-## Step 5b · Pointer & click feedback (default: on)
+## Step 5b · Pointer & click feedback (default: off — opt-in)
 
-A subtle layer of pointer chrome — custom cursor + mouse-down spark — makes the deck feel like a live console. **Default: include it.** It is best for live presentations: stage talks, demos, engineering decks, and dark/console-style themes (where the focal accent reads cleanly through the cursor ring).
+A subtle layer of pointer chrome — custom cursor + mouse-down spark — makes the deck feel like a live console. **Default: off.** Enable only when the brief explicitly signals a live context.
 
-**Keep it when** the deck is presented live, has a dark or tech-leaning palette, or the brief mentions "demo / live / console / interactive feel".
+**Enable when** the user says "live presentation", "demo mode", or "add cursor effects", OR the brief explicitly calls for a live talk, demo, or dark/tech theme.
 
-**Remove it when:**
-- Output is print/PDF-first or async/silent (no live presenter)
+**Leave off when:**
+- The brief is async/silent, print/PDF-first, or the presentation context is unspecified
+- Audience profile is `Executive` print-readers or accessibility-first contexts
 - Brand guide forbids non-OS cursor behaviour
-- Audience profile is `Executive` print-readers or accessibility-first contexts where the OS cursor must dominate
 - User explicitly opts out ("no custom cursor", "default cursor only")
+- Running in fast mode with no live-context signal in the brief
 
 When kept, list the two libraries in `DESIGN.md → Libraries` (see `references/resources.md → Pointer & Click Feedback` for full URLs and theme bindings) and add the `## Pointer & click feedback` block to `DESIGN.md`. Implementation wiring belongs in Phase 5 — design only declares intent + tokens.
 
-When removed, write `Pointer chrome: off` in `DESIGN.md → Libraries` with a one-line reason.
+When not enabled, write `Pointer chrome: off` in `DESIGN.md → Libraries` with a one-line reason (or omit the section entirely if the deck has no live context).
 
 ---
 
@@ -235,7 +243,7 @@ List only slides that need special design attention. All slide-level notes live 
 
 ## Pointer & click feedback
 
-Default: ON for live presentations. Set to `off` and add a one-line reason if the deck is print/PDF-first, async/silent, or the user opted out.
+Default: OFF. Include this section only when enabled (see Step 5b). Add a one-line reason when enabled: which brief signal triggered the opt-in.
 
 | Element | Behaviour | Token |
 |---------|-----------|-------|
@@ -272,21 +280,22 @@ Only list libraries actually needed. For each: which slide, and why this library
 
 Show this only when user design approval is needed. In fast/delegated mode, send a short update and continue to Phase 5.
 
-```
-DESIGN.md written. Theme locked.
+Use the `SKILL.md → Presenting options to the user` format — show reasoning before the approval ask:
 
-Key choices:
-- Color: {{accent is X, chosen because Y}}
-- Font: {{X for headings (why it fits), Y for body}}
-- Distinctive: {{what makes this deck visually unique}}
+```
+Design locked — "{{title}}"
+
+Why these choices:
+- Color: {{accent is X — chosen because Y tied to audience signal}}
+- Font: {{X for headings — why it fits this audience; Y for body}}
+- Distinctive: {{the one decision that sets this apart from a generic template}}
 
 Libraries: {{list or "none"}}
 
-Image placeholders: {{list slide + expected image, or "none"}}
-{{If any: "Please provide these images later, or reply that the placeholders should remain."}}
+Image placeholders: {{list slide slug + expected image — or "none"}}
+{{If any: "Provide these later or reply that placeholders should remain."}}
 
-Review DESIGN.md at .content/DESIGN.md, then reply "good" to start building slides,
-or describe any changes.
+Reply "good" to start building slides — or describe any changes.
 ```
 
 Stop only when approval is required. After approval, or when continuing in delegated mode, delete previews if they exist: `rm .content/preview-*.html`

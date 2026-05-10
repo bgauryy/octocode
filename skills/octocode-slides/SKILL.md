@@ -109,7 +109,7 @@ All generated paths are relative to the deck root:
 │   └── theme.css                 ← per-deck fonts, colors, tokens (overrides only)
 ├── js/
 │   ├── navbridge.js              ← keyboard bridge (required in every slide)
-│   └── presenter.js              ← presenter notes popup (wired by index.html)
+│   └── presenter.js              ← presenter popup: slide previews + notes + timer + jump (wired by index.html)
 
 ├── assets/                       ← images and other media referenced by slides
 │   └── (place images here)       ← slides reference as ../assets/image.png
@@ -127,34 +127,14 @@ All generated paths are relative to the deck root:
 **Path contract (enforced by `scripts/slide.html` + `scripts/base.html`):**
 - Slides live in `slides/slug.html` (no double-nesting) and reference `../css/base.css`, `../css/theme.css`, `../js/navbridge.js`, `../assets/*` (one level up).
 - `index.html` references slides via `const slides = [{ path, hidden, name }]` — order is the array, not the filename.
-- `index.html` is generated from `scripts/base.html`, loads `js/presenter.js`, and supports direct name hashes, overview grid, navbridge, and `P` presenter notes.
+- `index.html` is generated from `scripts/base.html`, loads `js/presenter.js`, and supports direct name hashes, overview grid, navbridge, `P` presenter popup (slide previews + notes + timer + jump control), `B`/`W` blackout, and scroll-wheel navigation.
+- Manifest format and full example → see Hard constraint #4 and `references/05-implementation.md` Step 5b.
 
-**Slide manifest format (in `index.html`):**
-```javascript
-const slides = [
-  { path: 'slides/title.html',   hidden: false, name: 'title' },
-  { path: 'slides/problem.html', hidden: false, name: 'problem' },
-  // hidden: true = skip during playback, hide from overview grid
-];
-```
-- `name` is the URL hash slug (e.g. `#problem`) — must be unique, must NOT be a number
-- Playback order = array order. Filenames can be reordered freely without breaking links.
+**Navbridge** (`js/navbridge.js`) runs inside every slide iframe and forwards arrow-key events to the parent via `postMessage` so keyboard navigation stays alive after a user clicks into a slide. See Hard constraint #2 and `references/05-implementation.md` Step 5 for wiring details.
 
-**Navbridge — how keyboard navigation stays alive inside iframes:**
-`js/navbridge.js` runs inside every slide iframe. When the user clicks a slide and the iframe gains focus, arrow keys fire on the iframe document. Navbridge captures them and forwards them to the parent via `postMessage({ type: 'octocode-slides:nav', key })`. The parent `index.html` listens for these messages and routes them through the same `handleKey()` function used for parent-window keystrokes. There is a single navigation handler — do NOT add a second `keydown` listener to the iframe.
-
-**Slide skeleton — four regions, only one required:**
-Every `.slide` is a flex column (`display: flex; flex-direction: column` from `base.css`) and can use up to four canonical regions, in order:
-- `.slide-logo` — optional, top-right brand mark
-- `.slide-header` — optional, holds `.title` + `.description`
-- `.slide-content` — **required**, smart flex body
-- `.slide-footer` — optional, source / page / link
-
-The skeleton is a contract for **where** things sit when present — not a recipe forcing every slide to look the same. Use only the regions that serve the slide; omit the rest. Centered types (`title`, `section`, `quote`, `closing`) center the stack vertically. `.slide-content` defaults to flex column; modifier classes (`--center`, `--middle`, `--row`, `--grid-2`, `--grid-3`) cover the common cases, and inline overrides are fine for one-off layouts. All content must fit at 1280×720 without scrolling — if it overflows, split into a new slide. Full contract → `references/html-templates.md`.
+**Slide skeleton:** four canonical regions in order — `.slide-logo` (opt) → `.slide-header` (opt) → `.slide-content` (required) → `.slide-footer` (opt). Use only what the slide needs. All content must fit at 1280×720 without scrolling. Full templates → `references/html-templates.md`.
 
 **Serving:** `npx serve .octocode/slides/{{slideName}}` — serves from the deck root.
-
-**How it works:** `index.html` is the navigation controller. Each slide is a standalone HTML file loaded as an iframe. See `scripts/base.html` for the full implementation.
 
 ---
 
@@ -179,7 +159,7 @@ Two layers — both matter, but they're not equal. Hard constraints are structur
 
 ### Hard constraints — non-negotiable
 
-1. **No fabricated content.** Numbers, quotes, names, dates, code, and architecture must come from user sources, verified web sources, or Octocode/local tools. If a claim can't be validated, mark the slide `[NEEDS SOURCE]` and halt it until resolved. Invented content that looks real is worse than a blank slide.
+1. **No fabricated content.** Numbers, quotes, names, dates, code, and architecture must come from user sources, verified web sources, or Octocode/local tools. If a claim can't be validated, mark the slide `[NEEDS SOURCE]` and ask the user once. If the user does not provide a source in the next reply, apply this resolution ladder in order: (a) replace the specific stat with a sourced range or publicly known order-of-magnitude; (b) remove the claim and strengthen an adjacent bullet; (c) drop the slide and redistribute its point across neighboring slides. Never hold the deck blocked past one unanswered ask. Invented content that looks real is worse than a blank slide.
 2. **Path contract.** Slides live in `slides/slug.html` and reference `../css/base.css`, `../css/theme.css`, `../js/navbridge.js`, `../assets/*`. Every slide starts from `scripts/slide.html`. Every slide includes `<script src="../js/navbridge.js"></script>` before `</body>` — without it, arrow-key navigation dies after the user clicks inside a slide.
 3. **Single navigation handler.** `index.html` is built from `scripts/base.html` and routes both parent keystrokes and iframe `postMessage` events through one `handleKey()`. Do not add a second `keydown` listener — it double-fires.
 4. **Manifest format.** `const slides = [...]` uses `{ path, hidden, name }` objects. `name` is a descriptive slug (`'problem'`, never `'1'` or `'2'`). Array order = playback order; filenames are free.
@@ -194,7 +174,7 @@ Two layers — both matter, but they're not equal. Hard constraints are structur
 - **Bidirectional planning + three-lens check before HTML.** Top-down (goal → arc → slides) and bottom-up (titles read as a paragraph). Each slide passes Content / UX / UI lenses (defined under "Bidirectional Slide Planning" above).
 - **Both Slop Tests pass before delivery.** Visual ≤1/8, Content 0/8. Document any intentional exception.
 - **Phase 3 and Phase 4 always pause for user input.** Outline approval, then design direction. Skip only when the user said "fast mode", "your call", "just build it", or a brand guide is locked.
-- **Pointer chrome is default-on for live presentations.** A custom cursor + mouse-down spark makes the deck feel like a live console — well suited to talks, demos, and dark/tech themes. Phase 4 confirms or removes it; remove only when the brief calls for print/PDF-first output, the deck is async/silent, or the user opts out. Libraries and wiring → `references/resources.md` → Pointer & Click Feedback.
+- **Pointer chrome is opt-in.** Off by default. Enable only when the brief explicitly calls for a live talk, demo, or dark/tech theme — or when the user says "live presentation", "demo mode", or "add cursor effects". When enabled, use a custom cursor + mouse-down spark. Libraries and wiring → `references/resources.md` → Pointer & Click Feedback. Fast mode never enables pointer chrome unless the brief signals a live context.
 - **Master rule set is `references/slide-rules.md`.** When this file and a phase doc disagree on a default, the more specific rule wins; record the resolution.
 
 ### Evidence
@@ -216,6 +196,67 @@ Artifacts exist to help the next phase, not to prove work was done.
 - Ask one bundled question only when needed. If the user says "your call", "just build it", or gives enough context, write assumptions and continue.
 - Optimize for the smallest deck that achieves the goal at the right depth. Avoid padding for impressive slide count.
 - Outline rows and inline slide notes contain only what is needed to build the slide: final text, speaker notes, reasoning, data/assets, widgets/graphs/images, and UX/UI notes — not research dumps.
+
+---
+
+## Think before asking
+
+Run this reasoning pass internally **before asking the user any question** — at Phase 1 clarification, Phase 3 outline gate, Phase 4 design gate, or any mid-phase block. Never ask out of caution.
+
+**Step 1 — What do I know?**
+List all fields extracted or confidently inferred from the user's request and source material. Write assumptions explicitly; they are still progress.
+
+**Step 2 — What is genuinely unknown?**
+A field qualifies as unknown only if both are true:
+- (a) it cannot be reasonably inferred from context, and
+- (b) guessing wrong would change the audience, story arc, visual direction, or output format in a material way
+
+If a field fails condition (a) or (b), infer it and record as `assumed` — do not ask.
+
+**Step 3 — Is the unknown worth asking?**
+Ask only if unknowns remain after Step 2. Then: bundle all unknowns into **one message**, pre-fill the most likely answer as the default option, and make the no-effort reply obvious ("reply 'good' to continue" or option letters).
+
+**Step 4 — Show reasoning before the question**
+Every gate message follows this shape:
+
+```
+[What I built / found]
+[Why I made this choice — 1-2 sentences tied to audience + goal]
+[The choices or unknowns, formatted as options]
+[The minimum-effort reply path]
+```
+
+Showing reasoning before the question lets the user confirm or correct a choice with one word instead of re-explaining from scratch.
+
+---
+
+## Presenting options to the user
+
+All gates that show multiple options use **one canonical format** — whether asking a clarification question, showing an outline, presenting design directions, or offering post-review actions. Define this format in your gate messages, not each time from scratch.
+
+```
+[Context: what was built and why]
+Option A — [descriptor]: [one-line description tied to audience/goal signal]
+Option B — [descriptor]: [one-line description]
+Option C — [descriptor]: [one-line description]
+
+[Minimum-effort reply]: reply "A", "B", or "C" — or describe what to adjust.
+```
+
+**Rules for option presentation:**
+- Each option has a letter (A, B, C), a short label, and a one-line reason tied to *this* audience and goal — not generic aesthetics
+- Options must be meaningfully different — not the same choice with minor color variation
+- The minimum-effort reply is always stated: letter selection, "good", or "continue"
+- Never present more than 3 options; if more exist, pick the 3 most distinct
+- The context sentence explains the agent's reasoning first — options come second
+
+**When to use this format:**
+| Gate | What the options are |
+|------|---------------------|
+| Phase 1 — clarification | Unknown fields bundled into one ask |
+| Phase 3 — outline approval | Narrative arc + slide structure |
+| Phase 4 — design direction | 3 visual directions (linked previews) |
+| Phase 6 — post-review | What to change next |
 
 ---
 
@@ -311,18 +352,21 @@ The full handoff checklist lives in `references/06-review.md` Step 2 (technical)
 
 ## Reference files
 
-| File | Purpose | Read when |
-|------|---------|-----------|
-| `references/01-brief.md` | Request intake: understand user intent, read sources, write `request.md` | Phase 1 |
-| `references/02-research.md` | Research: fill gaps, append findings to `request.md` | Phase 2 |
-| `references/03-outline.md` | Outline: narrative arc + slide list with inline notes | Phase 3 |
-| `references/04-design.md` | Design: reasoning chain → 3 previews → user picks → DESIGN.md + CSS | Phase 4 |
-| `references/05-implementation.md` | Implementation: build slides from outline.md rows | Phase 5 |
-| `references/06-review.md` | Review: technical + design + content checks | Phase 6 |
-| `references/design-system.md` | CSS contract, design process, anti-slop guide, resources | Phase 4 |
-| `references/html-templates.md` | All slide-type HTML templates + `<index.html>` patterns + Motion patterns (`scripts/base.css` is the source of truth for CSS) | Phase 5 |
-| `references/resources.md` | CDN libs with full URLs and usage examples | Phase 4 + 5 |
-| `references/slide-rules.md` | **Master rule set**: content, visual, layout, narrative, UX, delivery, anti-patterns, named formulas | Phase 3 + 4 + 5 |
+> **Before entering any phase, read the blocking rule for that phase's reference file below.** If the rule is already satisfied, proceed; if not, resolve it before reading the full file.
+
+| File | Purpose | Read when | Blocking rule |
+|------|---------|-----------|---------------|
+| `references/01-brief.md` | Request intake: understand user intent, read sources, write `request.md` | Phase 1 | Ask only when a missing field would materially change the deck — never ask for info already given; infer and record as `assumed`. |
+| `references/02-research.md` | Research: fill gaps, append findings to `request.md` | Phase 2 | Mark every unverifiable claim `[NEEDS SOURCE]`; do not invent or paraphrase data to fill a gap. |
+| `references/03-outline.md` | Outline: narrative arc + slide list with inline notes | Phase 3 | Read `slide-rules.md` §0 (Audience & Depth) before writing a single slide row — depth level governs all later decisions. |
+| `references/04-design.md` | Design: reasoning chain → 3 previews → user picks → DESIGN.md + CSS | Phase 4 | Complete the Design Reasoning Chain before any aesthetic choice; never short-circuit it — that is how decks end up as generic templates. |
+| `references/05-implementation.md` | Implementation: build slides from outline.md rows | Phase 5 | Every slide must include `<script src="../js/navbridge.js"></script>` before `</body>` — without it, arrow-key navigation dies after the user clicks inside the slide. |
+| `references/06-review.md` | Review: technical + design + content checks | Phase 6 | Both Slop Tests must pass (Visual ≤1/8, Content 0/8) before showing the user anything; fix failures first. |
+| `references/design-system.md` | CSS contract, design process, anti-slop guide, resources | Phase 4 | No raw hex / rem / pixel values in slide HTML — use CSS variables (`var(--accent)`, `var(--t-title)`, etc.) exclusively. |
+| `references/html-templates.md` | All slide-type HTML templates + `<index.html>` patterns + Motion patterns (`scripts/base.css` is the source of truth for CSS) | Phase 5 | Use only the four canonical regions in order: `.slide-logo` → `.slide-header` → `.slide-content` → `.slide-footer`; omit regions not needed. |
+| `references/resources.md` | CDN libs with full URLs and usage examples | Phase 4 + 5 | Load libraries per-slide only — each iframe is a separate document; never share a global library across slides. |
+| `references/slide-rules.md` | **Master rule set**: content, visual, layout, narrative, UX, delivery, anti-patterns, named formulas | Phase 3 + 4 + 5 | When this file and a phase doc disagree, the more specific rule wins; record the resolution in `DESIGN.md` or the outline note. |
+| `references/image-generation.md` | **Optional**: Nano Banana 2 (Gemini 3.1 Flash Image) integration — three paths: A (Python SDK + `GEMINI_API_KEY`), B (`belt` CLI), C (Gemini CLI + `mcp-nanobanana-go` MCP, requires GCP ADC); prompts, env params best practice, paths, opt-in rules | Phase 5 only when user opts in to image generation | Never generate images silently — only when the user explicitly says "generate images". |
 
 ## Script files
 
@@ -330,11 +374,11 @@ The `scripts/` folder holds the **copy-verbatim** templates. Every generated dec
 
 | File | Destination | Purpose |
 |------|-------------|---------|
-| `scripts/base.html` | `index.html` | Navigation controller (multi-iframe stage, name hashes, overview, presenter, HUD) |
+| `scripts/base.html` | `index.html` | Navigation controller (multi-iframe stage, name hashes, overview, presenter, HUD, `B`/`W` blackout, wheel nav) |
 | `scripts/slide.html` | `slides/*.html` | Per-slide template (4-region skeleton + LLM placeholders) |
 | `scripts/base.css` | `css/base.css` | Layout primitives, type scale, slide-type rules, components, animations, print |
 | `scripts/navbridge.js` | `js/navbridge.js` | Forwards iframe key events to parent — required in every slide |
-| `scripts/presenter.js` | `js/presenter.js` | `P`-key speaker-notes popup, loaded by `scripts/base.html` |
+| `scripts/presenter.js` | `js/presenter.js` | `P`-key presenter popup: current + next slide previews, speaker notes, timer, jump-to-slide control |
 
 **Rule:** copy verbatim, never paraphrase. Theme overrides go in `css/theme.css`; one-off layout helpers live in the slide's local `<style>`. Never edit a copied script after the copy. Step-by-step in `references/05-implementation.md` Step 5.
 

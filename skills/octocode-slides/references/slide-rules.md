@@ -451,13 +451,9 @@ Motion.js or CSS animation sequences should fire inside a `DOMContentLoaded` lis
 | Architecture, system topology, API signatures | "Approximately right" diagrams mislead engineers |
 | Timeline dates, project outcomes, team sizes | Decision-makers act on these |
 
-**Rule:** If a fact isn't in the user's source material, a verifiable public source, or a local tool result — mark it `[NEEDS SOURCE]` and halt that slide. Do not fill the gap with a plausible-sounding number.
+**Rule:** If a fact isn't in the user's source material, a verifiable public source, or a local tool result — mark it `[NEEDS SOURCE]`.
 
-**How to handle missing data:**
-1. Mark the slide `[NEEDS SOURCE: describe what's missing]`
-2. Tell the user what is needed: "I need the actual response-time figures — do you have a link or file?"
-3. Leave a clearly labeled placeholder (e.g., `{{INSERT METRIC}}`) so the user knows exactly where to contribute
-4. Build all other slides; come back to flagged ones after the user provides the missing data
+**How to handle:** follow `SKILL.md → Hard constraints #1` — ask the user once, then apply the resolution ladder if no source arrives. Never hold the deck blocked past one unanswered ask.
 
 ### 8.9 Brevity Rules — Slides Are Not Documents
 

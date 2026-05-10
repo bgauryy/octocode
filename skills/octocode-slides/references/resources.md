@@ -609,7 +609,7 @@ npx decktape --slides 1-10 http://localhost:3000 deck.pdf
 
 ## Pointer & Click Feedback
 
-A two-piece pointer-chrome layer that makes a live deck feel like a debugger console: a themed cursor that follows the speaker, plus a short spark on every click. Both libs are tiny, vanilla, MIT, and themable through the deck's existing CSS variables. **Default: ON for live presentations; remove only when the brief is print/PDF-first, async, or the user opts out** (see `references/04-design.md` Step 5b).
+A two-piece pointer-chrome layer that makes a live deck feel like a debugger console: a themed cursor that follows the speaker, plus a short spark on every click. Both libs are tiny, vanilla, MIT, and themable through the deck's existing CSS variables. **Default: OFF — opt-in only.** Enable only when the brief signals a live talk, demo, or dark/tech context (see `SKILL.md → Strong defaults → Pointer chrome` and `references/04-design.md` Step 5b).
 
 > **Where they load:** parent `index.html` only — never per slide. Slides are iframes with separate documents, so loading these inside slides would create one cursor per slide and break the spark on slide chrome.
 

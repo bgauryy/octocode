@@ -1,6 +1,6 @@
 # Phase 1 — Request
 
-**Role:** Intake agent. Understand what the user wants and gather any source material before research begins.
+**Role:** Intake agent. Understand the request fully before any research begins.
 
 **Input:** User conversation
 **Output:** `.content/request.md`
@@ -24,41 +24,42 @@ Read the user's message carefully. Extract every piece of information already gi
 
 ## Step 2 · Ask what is missing (one focused question)
 
+**Run the Think-before-asking protocol first** (`SKILL.md → Think before asking`). Complete Steps 1–3 of that protocol internally before writing any question. Only ask if genuinely unknown fields remain after inference.
+
 **If the user's request is complete enough to proceed:** skip this step entirely. Write `request.md` and continue.
 
-**If one or more fields are ambiguous or missing:** ask one bundled question. Include only the unknown fields — do not ask for information the user already gave.
+**If fields remain genuinely unknown:** bundle all into one message using `SKILL.md → Presenting options to the user`. Show what you already know before asking:
 
 ```
-A few things to confirm before I start:
+Got it — starting slides on "{{topic}}".
 
-{{Include only the lines below that are actually unknown}}
+Inferred: Audience: {{}} · Goal: {{}} · Depth: {{}} · Aesthetic: {{or "your call"}}
+
+One thing I need before starting:
+{{Include ONLY lines below that are genuinely unknown — remove the rest}}
 
 Source material:
-  (a) Folder path — I'll read it
-  (b) Specific files — paste the paths
-  (c) No files — describe the content here
+  A — Folder path (I'll read it)
+  B — Specific files (paste paths)
+  C — No files — I'll work from the topic description
 
-Audience:
-  Who are they? (devs / execs / mixed / students / customers / investors)
-  Expertise level? (expert / practitioner / informed / general)
-
-Goal: (teach / pitch / update / inspire / demo)
+Audience (if unclear):
+  A — {{most likely option inferred from context}}
+  B — {{second option}}
+  C — Other: describe
 
 Slide count:
-  (a) Exec brief — 5–10
-  (b) Pitch / update — 10–15
-  (c) Technical deep-dive — 15–30
-  (d) Your call
+  A — Exec brief (5–10)
+  B — Pitch / update (10–15)
+  C — Technical deep-dive (15–30)
+  D — Your call
 
-Aesthetic / brand:
-  (a) Describe a vibe (dark/light, bold/minimal, technical/editorial…)
-  (b) I have a brand guide — paste the path or colors/fonts
-  (c) No preference — your call
+Aesthetic:
+  A — Describe a vibe (dark/light, bold/minimal, technical/editorial…)
+  B — Brand guide — paste path or colors/fonts
+  C — No preference — your call
 
-Images to include?
-  (a) Yes — folder path or file list
-  (b) I'll add them later
-  (c) No images needed
+Reply with letters (e.g. "A, C, A") or correct anything above.
 ```
 
 **Smart rules for asking:**
@@ -71,12 +72,18 @@ Images to include?
 
 ## Step 3 · Read source files
 
-If source file paths were given (in initial message or from Step 2 answer), read them now using available local tools.
+If source file paths were given (in initial message or from Step 2 answer), read them now. Choose tools based on what was provided:
 
-Read in parallel when possible:
-- View folder structure if a directory was given
-- Read the 3–5 most relevant files first (`.md`, `.txt`, `.html`, code files)
-- For repos: view structure, search key concepts, read key files
+| Source type | Tool routing |
+|-------------|-------------|
+| Local folder path | `localViewStructure` → identify key files → `localSearchCode` for key concepts → `localGetFileContent` for relevant sections |
+| Local file path(s) | `localGetFileContent` on each; read in parallel |
+| GitHub repo URL | `githubViewRepoStructure` → `githubSearchCode` for key patterns → `githubGetFileContent` for relevant files |
+| GitHub PR / commit | `githubSearchPullRequests` for context, then dive into changed files |
+| npm / pip / other package | `packageSearch` first to get repo URL, then treat as GitHub repo |
+| No path — description only | Skip this step; record as "Source: user description" in `request.md` |
+
+Read in parallel when possible. For any repo: view structure first, then search key concepts, then read 3–5 files most relevant to the deck topic. For code: extract architecture decisions, key APIs, real examples — not implementation minutiae.
 
 If a brand guide was given: record exact values — hex colors, font names, spacing rules. Mark the brief `brand_guide: locked`.
 
@@ -84,7 +91,7 @@ If a brand guide was given: record exact values — hex colors, font names, spac
 
 ## Step 4 · Write request.md
 
-Create `.content/request.md` inside `.octocode/slides/{{slideName}}/`. This single file is the source of truth for what the user wants and what was gathered. Research findings (Phase 2) will be appended to this same file.
+Derive `slideName` as a lowercase kebab-slug of the deck title (e.g. "API Caching Deep Dive" → `api-caching-deep-dive`). Create `.content/request.md` inside `.octocode/slides/{{slideName}}/`. This single file is the source of truth for what the user wants and what was gathered. Research findings (Phase 2) will be appended to this same file.
 
 ```markdown
 # Request: {{Title}}
@@ -110,9 +117,10 @@ Create `.content/request.md` inside `.octocode/slides/{{slideName}}/`. This sing
 {{Key facts, quotes, code, data — exactly as found. No interpretation. Be brief.}}
 
 ## Images
+{{If no images mentioned: "None."}}
 | Purpose | Path or description | Status |
 |---------|---------------------|--------|
-| {{hero background}} | {{path or "user will provide"}} | {{ready / placeholder}} |
+| {{e.g. title hero, product screenshot}} | {{path or "user will provide"}} | {{ready / placeholder}} |
 
 ## Known gaps
 {{What is still needed: stats, code, comparisons, images, etc.}}
@@ -131,7 +139,6 @@ Create `.content/request.md` inside `.octocode/slides/{{slideName}}/`. This sing
 Ask the user to confirm when:
 - The topic is ambiguous and the wrong interpretation would waste all of Phase 2
 - Source files were listed but couldn't be read (access error, missing path)
-- The user's aesthetic preference is highly specific and you need confirmation before Phase 4
 
 When asking:
 ```

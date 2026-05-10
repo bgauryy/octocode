@@ -25,6 +25,8 @@
   ║    F              toggle fullscreen                                      ║
   ║    G              toggle overview grid (thumbnail navigator)             ║
   ║    Escape         close overview                                         ║
+  ║    B / W          black / white screen (press again to dismiss)          ║
+  ║    Scroll wheel   next / previous slide                                  ║
   ╚══════════════════════════════════════════════════════════════════════════╝
 -->
 <html lang="en">
@@ -241,6 +243,18 @@
     body.overview #progress,
     body.overview #counter,
     body.overview #hud { display: none; }
+
+    /* ── Blackout overlay (B = black screen, W = white screen) ───────────── */
+    #blackout {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    #blackout.is-black { background: #000; opacity: 1; pointer-events: auto; }
+    #blackout.is-white { background: #fff; opacity: 1; pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -266,9 +280,15 @@
   <kbd>F</kbd> full
   <span class="hud-sep">/</span>
   <kbd>P</kbd> notes
+  <span class="hud-sep">/</span>
+  <kbd>B</kbd><kbd>W</kbd> blank
 </div>
 
 <div id="overview-hint">Overview — click a slide to jump &nbsp;·&nbsp; G or Esc to close</div>
+
+<!-- ── Blackout overlay ───────────────────────────────────────────────────── -->
+<!-- B = black screen · W = white screen · press again to dismiss             -->
+<div id="blackout" aria-hidden="true"></div>
 
 <script src="js/presenter.js"></script>
 <script>
@@ -306,11 +326,23 @@ let current    = 0;
 let inOverview = false;
 let presenter  = null;
 
-const stage   = document.getElementById('stage');
-const bar     = document.getElementById('progress');
-const counter = document.getElementById('counter');
-const hud     = document.getElementById('hud');
-const hudCount= document.getElementById('hud-count');
+const stage      = document.getElementById('stage');
+const bar        = document.getElementById('progress');
+const counter    = document.getElementById('counter');
+const hud        = document.getElementById('hud');
+const hudCount   = document.getElementById('hud-count');
+const blackoutEl = document.getElementById('blackout');
+let blackoutMode = null; // 'black' | 'white' | null
+
+function toggleBlackout(mode) {
+  if (blackoutMode === mode) {
+    blackoutMode = null;
+    blackoutEl.className = '';
+  } else {
+    blackoutMode = mode;
+    blackoutEl.className = mode === 'black' ? 'is-black' : 'is-white';
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  BUILD SLIDE CELLS
@@ -491,6 +523,14 @@ function handleKey(e) {
     case 'P':
       presenter?.open();
       break;
+    case 'b':
+    case 'B':
+      toggleBlackout('black');
+      break;
+    case 'w':
+    case 'W':
+      toggleBlackout('white');
+      break;
     default:
       handled = false;
   }
@@ -515,6 +555,8 @@ window.addEventListener('message', function (event) {
     handleKey({ key: data.key, preventDefault: function () {} });
   } else if (data.type === 'octocode-slides:activity') {
     showHud();
+  } else if (data.type === 'octocode-slides:presenter-goto') {
+    go(clampIndex(data.index));
   }
 });
 
@@ -533,6 +575,19 @@ document.addEventListener('touchend', e => {
   if (Math.abs(diff) > 40) go(current + (diff > 0 ? 1 : -1));
   touchStartX = null;
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  WHEEL NAVIGATION  (scroll down = next, scroll up = previous)
+// ═══════════════════════════════════════════════════════════════════════════
+let wheelTimer = null;
+document.addEventListener('wheel', function(e) {
+  if (inOverview) return;
+  if (Math.abs(e.deltaY) < 20) return;
+  clearTimeout(wheelTimer);
+  wheelTimer = setTimeout(function() {
+    go(current + (e.deltaY > 0 ? 1 : -1));
+  }, 60);
+}, { passive: true });
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  HASH NAVIGATION

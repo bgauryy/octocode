@@ -73,7 +73,7 @@ Static review is not enough for HTML slides. Before showing the deck to the user
 3. Visit every slide through normal navigation and by name hash (e.g. `#title`, `#problem`, `#closing`)
 4. Check browser console errors and failed network requests
 5. Verify no slide visually overflows or clips important content at 1280×720; when automation is available, compare each iframe document's `scrollWidth/scrollHeight` to its viewport even when CSS uses `overflow: hidden`
-6. Verify keyboard controls: next, previous, Home, End, fullscreen, overview, and presenter notes (`P`)
+6. Verify keyboard controls: next, previous, Home, End, fullscreen (`F`), overview (`G`), presenter popup (`P`), blackout (`B`/`W`), and scroll-wheel navigation
 7. Deep-link directly to at least three named hashes in a fresh tab; exactly one `.slide-frame[data-active]` should be active each time
 8. Capture screenshots when tooling is available, preferably under `.content/review/screenshots/`
 
@@ -90,15 +90,15 @@ Check each item. Fix any failure before moving to Step 3.
 - [ ] Every slide has a unique `name` slug
 - [ ] All `path` values start with `slides/` and the files exist
 - [ ] `playable = slides.filter(s => !s.hidden)` filters hidden slides
-- [ ] `postMessage` listener handles `octocode-slides:nav` and `octocode-slides:activity`
+- [ ] `postMessage` listener handles `octocode-slides:nav`, `octocode-slides:activity`, and `octocode-slides:presenter-goto`
 - [ ] `ResizeObserver` + `scale()` logic present and correct
-- [ ] Keyboard navigation: `→` `←` `Space` `Home` `End` `F` `G` `P`
+- [ ] Keyboard navigation: `→` `←` `Space` `Home` `End` `F` `G` `P` `B` `W`
 - [ ] Progress bar, counter, and HUD elements present
 - [ ] Hash updates use `slide.name` (not numeric index)
 
 - [ ] Direct hash loading activates exactly one iframe and one overview cell
 
-- [ ] `js/presenter.js` is copied, loaded by `index.html`, and `P` opens speaker notes without console errors
+- [ ] `js/presenter.js` is copied, loaded by `index.html`, and `P` opens the presenter popup (slide previews + speaker notes + timer + jump control) without console errors
 
 - [ ] `index.html` is based on `scripts/base.html` multi-iframe controller, not a stale single-iframe controller
 
@@ -211,6 +211,8 @@ Re-run the relevant Slop Test after any content, CSS, or theme changes.
 
 Once all checks pass:
 
+Use the `SKILL.md → Presenting options to the user` format — share the review findings first, then the options:
+
 ```
 Review complete ✓
 
@@ -218,14 +220,16 @@ Deck: .octocode/slides/{{slideName}}/index.html
 Serve: npx serve .octocode/slides/{{slideName}}
 Slides: {{N}} · Theme: {{name}} · Visual Slop: {{0 or 1}}/8 · Content Slop: 0/8
 
-Open index.html to see the full presentation.
+What I fixed: {{list any Slop Test failures that were corrected, or "none needed"}}
+What's still outstanding: {{list any [NEEDS SOURCE] or image placeholders — or "none"}}
 
-What would you like to change?
-1. Fix a specific slide
-2. Change a slide's content or design
-3. Add or remove a slide
-4. Change the theme
-5. It's good — done!
+A — Fix a specific slide
+B — Change slide content or design
+C — Add or remove a slide
+D — Change the theme
+E — Done ✓
+
+Reply with a letter — or "E" if the deck is ready.
 ```
 
 If the user says "done" (option 5): confirm the deck location and output the final file tree.

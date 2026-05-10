@@ -38,12 +38,17 @@ Only research what is needed to fill the gaps. Do not do exhaustive research for
 
 ## Step 2 · Deep-read source files (if not done in Phase 1)
 
-If source files were listed in `request.md` but not yet read, read them now:
-- View folder structure if a directory was given
-- Read the most relevant files
-- For code repos: search key concepts, trace key functions
+If source files were listed in `request.md` but not yet fully read, go deeper now. Use the same tool routing as Phase 1 Step 3:
 
-Extract: key facts, code patterns, architecture decisions, quotes worth featuring.
+| Source type | Deeper research approach |
+|-------------|-------------------------|
+| Local workspace / folder | `localSearchCode` for key concepts and patterns → `localGetFileContent` on specific files → `lspGotoDefinition` to trace a function to its definition → `lspFindReferences` to see where a type/function is used → `lspCallHierarchy` to trace call chains (for code-flow slides) |
+| GitHub repo | `githubSearchCode` for key API patterns or architecture → `githubGetFileContent` for specific files/sections → `githubSearchPullRequests` for context on design decisions |
+| Package / library | `packageSearch` → check deprecation, repo URL → dive into repo with GitHub tools |
+
+For code repos: search key concepts, trace function call chains with LSP tools, and read 3–5 files that directly support the slide content. Extract: real code patterns (≤20 lines), architecture decisions, API signatures, error handling examples, benchmarks.
+
+Do not read all files indiscriminately — stay focused on what fills the gaps in `request.md → Known gaps`.
 
 ---
 
@@ -69,17 +74,27 @@ For each finding: record the exact URL and which slide it will support.
 
 ---
 
-## Step 4 · Octocode / GitHub research
+## Step 4 · Octocode research — external code, repos, and packages
 
-**When:** Deck needs real code samples, API references, library examples, or architecture patterns.
+**When:** Deck needs real code samples, API references, real-world architecture patterns, or library usage examples that aren't in the user's source files.
 
-```
-Search repos: "<topic> <language>"
-Search code: "<key pattern>"
-Read: README, spec, or focused source file
-```
+**Tool routing by goal:**
 
-Prefer code that is credible (known org, maintained), short (≤20 lines), and directly illustrates a key point.
+| Goal | Tool chain |
+|------|-----------|
+| Find repos for a topic | `githubSearchCode(match="path", keywords)` → pick 1-2 credible results → `githubViewRepoStructure` → `githubGetFileContent` |
+| Find a code pattern in a known repo | `githubSearchCode(match="file", owner, repo, keywords)` → `githubGetFileContent(matchString=...)` for the relevant section |
+| Research a library / package | `packageSearch(name)` → check repo URL → `githubViewRepoStructure` → read README + key source files |
+| Trace how a function is used | Clone repo locally with `githubCloneRepo` → `localSearchCode` → `lspFindReferences` or `lspCallHierarchy` |
+| Find real-world examples of a pattern | `githubSearchCode(match="file", keywords=["pattern", "example"])` across GitHub |
+
+**Code quality criteria — feature only code that is:**
+- From a credible, maintained repo (known org, recent commits, reasonable star count)
+- Short enough to read on a slide (≤20 lines; trim setup/imports unless they're the point)
+- Directly illustrating the claim in the slide title — not surrounding scaffolding
+- Real, not paraphrased or invented from memory
+
+Record each code snippet with its exact source URL and line range in the `Code to feature` section (Step 5).
 
 ---
 
@@ -90,23 +105,26 @@ Append the findings block below the `<!-- Phase 2 -->` separator in `.content/re
 ```markdown
 ## Research findings
 
-### From source files (additional)
-{{Any new insight from deeper reading. Skip if already covered in Phase 1.}}
+### From local workspace
+{{Key findings from local source files not already captured in Phase 1. Include file path and relevant lines.}}
+| Path:lines | Finding | Supports |
+|------------|---------|---------|
+| {{path:L12-28}} | {{architecture decision / API shape / key pattern}} | {{which slide}} |
 
 ### From web
 | URL | Key fact / quote | Supports |
 |-----|-----------------|---------|
 | {{url}} | {{fact}} | {{which part of deck}} |
 
-### From GitHub
+### From GitHub / external repos
 | Repo | Key finding | Link |
 |------|-------------|------|
-| {{owner/repo}} | {{architecture insight or code pattern}} | {{URL}} |
+| {{owner/repo}} | {{architecture insight or code pattern}} | {{URL#L}} |
 
 ### Code to feature
 \```{{language}}
-// Source: {{URL or path:line}}
-{{snippet — max 20 lines}}
+// Source: {{full URL with line range, or local path:L12-28}}
+{{snippet — max 20 lines, trimmed to the point}}
 \```
 
 ### Facts and data confirmed

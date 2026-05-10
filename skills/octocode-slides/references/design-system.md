@@ -263,55 +263,13 @@ Recommended pair: **Lora** / Source Sans 3
 
 ## Anti-Slop Guide
 
-### Explicitly banned — avoid in any deck
-
-- Inter or Roboto as the **only** heading font (fine as body; banned as sole head)
-- `background-clip: text` gradient fade on headings
-- Purple `#7c3aed` / `#8b5cf6` or cyan `#06b6d4` + fuchsia as accent (neon dashboard cliché)
-- Multiple radial gradients blended as a background ("gradient mesh blob")
-- Animated glowing `box-shadow` on cards
-- Emoji leading every bullet or section heading
-- Three-dot window chrome (`• • •`) on every code block
-- Identical layout on every slide — centered stack repeated 15 times
-- More than 3 accent-colored elements per slide
-
-### The swap test
-
-After generating the deck: if you swapped the title with a competitor's name and nothing else felt different, the design likely failed. Aim for **at least one visual decision that couldn't come from a default template**.
+Full anti-pattern list → `references/slide-rules.md` §9. The swap test is in `references/slide-rules.md` §6.4.
 
 ---
 
 ## Resources
 
-### Fonts
-
-**Google Fonts** — `https://fonts.google.com`
-Confirmed distinctive options: Fraunces, Space Grotesk, Bricolage Grotesque, Outfit, Instrument Serif, Sora, Playfair Display, Plus Jakarta Sans, Cabinet Grotesk.
-Note: Inter is available, but use it as the sole heading font only when the brand or audience calls for a very neutral voice.
-
-**Fontshare** — `https://www.fontshare.com`
-Free for commercial use. Strong display options: Cabinet Grotesk, General Sans, Sentient.
-
-**IBM Plex** — `https://github.com/IBM/plex`
-Cohesive family (Sans, Serif, Mono). Available on Google Fonts.
-
----
-
-### Color & Accessibility
-
-**WebAIM Contrast Checker** — `https://webaim.org/resources/contrastchecker`
-Validate every `--text` / `--bg` and `--accent` / `--bg` pair. Must reach 4.5:1.
-
-**Coolors** — `https://coolors.co`
-Palette generator with OKLCH export. Useful for building surface/border/muted from a base background.
-
-**Reasonable Colors** — `https://www.reasonable.work/colors`
-Accessible color pairs that pass WCAG AA in all listed combinations.
-
-**Material Design 3 Color** — `https://m3.material.io/styles/color/overview`
-Role-based token vocabulary maps directly to the `--bg / --surface / --accent` contract here.
-
----
+**Fonts and color/accessibility tools** → `references/resources.md` → Fonts and Color Tools sections (CDN imports, pairings, contrast checkers).
 
 ### Design Inspiration
 

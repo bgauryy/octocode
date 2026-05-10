@@ -108,8 +108,8 @@ Create `.content/outline.md` inside `.octocode/slides/{{slideName}}/`. This file
 - Avoid 3 consecutive slides of the same type unless the rhythm is intentional.
 - The opening should hook early — state the problem, opportunity, or striking fact before detailed solution content.
 - The close should land — one clear insight, one action, one next step.
-- **Ghost outline test:** Read the titles alone as a paragraph. They should tell the complete story — argument, evidence, and conclusion — without the body content. If they don't, revise the structure.
-- **Question-Answer chain (slide-rules.md §5.1):** Each slide title should answer the implicit question raised by the previous slide and raise the question the next slide answers. Add a "Flow logic" column to the outline table if the chain isn't obvious.
+- **Ghost outline test:** Read the titles alone as a paragraph. They should tell the complete story — argument, evidence, and conclusion — without the body content. If they don't, revise the structure before adding body content.
+- **Question-Answer chain (slide-rules.md §5.1):** Each slide title should answer the implicit question raised by the previous slide and raise the question the next slide answers. Record each in the `Flow logic` column as `Answers: "X" · Raises: "Y"`. **If the chain breaks** (a slide answers a question that was never raised, or raises a question that is never answered): (a) reorder — the misplaced slide likely belongs earlier or later; (b) add a bridge slide if the logical gap is real; (c) cut the slide if it adds no new information to the chain. Never leave a broken chain and ship — a gap in titles means a gap in the audience's understanding.
 - **Data needs context:** each `chart`, `stats`, or `code` slide should have a context slide before or after it that states what the data means.
 - **Appendix slides** go after `closing`, are labeled `[APPENDIX]`, and do not count against the target slide count.
 
@@ -133,7 +133,12 @@ The lenses are a thinking tool, not a checkbox grade. If a slide fails one lens 
 
 The outline determines the entire arc, content, and slide count. Getting it wrong at this stage means rebuilding slides later. Showing it takes 30 seconds; rebuilding takes 30 minutes.
 
-**Run the storytelling arc check first:**
+**Run the Think-before-asking protocol first** (`SKILL.md → Think before asking`). Before presenting, complete this reasoning pass internally:
+- What did I know about the audience/goal, and how did it drive the arc choice?
+- What did I assume, and could the user correct it?
+- Are any beats missing or any slides weak in the chain?
+
+**Run the storytelling arc check:**
 
 | Beat | Required slide | Present? |
 |------|---------------|----------|
@@ -144,22 +149,22 @@ The outline determines the entire arc, content, and slide count. Getting it wron
 
 Any `[MISSING]` beat = structurally incomplete. Add the beat, merge it into an adjacent slide, or ask the user whether it is out of scope.
 
-**Then show the user:**
+**Then show the user** using the `SKILL.md → Presenting options to the user` format — reasoning first, choices second:
 
 ```
-Outline ready for "{{title}}" — {{N}} slides.
+Outline ready — "{{title}}" · {{N}} slides · {{arc}} arc
 
-Arc: {{name}} ({{one-line reason it fits audience + goal}})
+Why this arc: {{1-2 sentences — how audience + goal drove this structure}}
+Assumptions: {{list or "none — all confirmed"}}
+
 Story beats: Discomfort (#__) · Relief (#__) · Confidence (#__) · Momentum (#__)
 
 {{Paste full outline table}}
 
-Slide notes:
-{{List only slides flagged [NEEDS SOURCE] or with special requirements}}
+Slides needing attention:
+{{List only [NEEDS SOURCE] or special-treatment slides — or "none"}}
 
-Does this structure work?
-- Reply "good" to move to design
-- Or: add/remove/reorder slides, change arc, adjust a slide's type or focus
+Reply "good" to move to design — or describe what to change.
 ```
 
 **Exception — fast mode:** If the user said "your call", "just build it", or "fast mode", send a compact one-line summary ("Outline: {{N}} slides, {{arc}} arc — starting design") and continue without waiting.

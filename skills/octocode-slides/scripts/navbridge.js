@@ -15,7 +15,8 @@
   var NAV_KEYS = {
     ArrowLeft: 1, ArrowRight: 1, ArrowUp: 1, ArrowDown: 1,
     PageUp: 1, PageDown: 1, Home: 1, End: 1,
-    ' ': 1, g: 1, G: 1, f: 1, F: 1
+    ' ': 1, g: 1, G: 1, f: 1, F: 1,
+    b: 1, B: 1, w: 1, W: 1, p: 1, P: 1
   };
 
   function isTypingTarget(el) {

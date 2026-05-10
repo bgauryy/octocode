@@ -58,7 +58,7 @@ For each row in `.content/outline.md`, build directly from the row's data and an
 - `calc(-1 * clamp(...))` for any negated length instead of `-clamp(...)`
 - Motion: load as `<script type="module">` at bottom of `<body>`
 - **The outline is the contract.** If implementation reveals a better title, split, or order — update `.content/outline.md` first, then build to the updated version.
-- **Preserve the Question-Answer chain.** The `Flow logic` column in the outline is the contract. Each slide's heading should carry the meaning of that column — if the title drifts, the chain breaks.
+- **Preserve the Question-Answer chain.** The `Flow logic` column in the outline is the contract. Each slide's heading should carry the meaning of that column. If implementation reveals the title drifts from the chain: (a) fix the title to match the chain; (b) if a better reframe serves the chain better, update `.content/outline.md → Flow logic` first, then build to the updated version. Never silently change a title without updating the outline — the chain breaks invisibly.
 
 **Image handling (check the slide's `Slide notes` in `outline.md`, then `request.md → Images`):**
 
@@ -72,6 +72,8 @@ All image files go in `assets/` at the deck root. Slides reference them as `../a
 | Full-bleed `slide--image` with no image yet | `image-ph-bleed` div + `<div class="image-overlay">` + `.image-caption` |
 
 For any missing image, do not search, download, generate, or silently substitute an image. Render the `PLACEHOLDER` component and add a `data-expected` attribute with a plain-English description of the image: `data-expected="{{what the image shows}}"`. The user can replace it later with a real file.
+
+**Opt-in exception — image generation via Nano Banana 2 (Gemini 3.1 Flash Image):** when the user has *explicitly* asked to generate images for the deck **and** `data-expected` is concrete, follow `references/image-generation.md`. Three paths are available: **Path A** (default — Python SDK + `GEMINI_API_KEY`), **Path B** (`belt` from inference.sh), **Path C** (Gemini CLI + `mcp-nanobanana-go` MCP server — requires GCP ADC + `GOOGLE_CLOUD_PROJECT`; the `gemini` CLI itself has no built-in image command, only this MCP path works). Save outputs into `assets/` and reference them with the standard `../assets/{{filename}}` path. Without explicit opt-in, the placeholder rule above wins.
 
 For full-bleed slides with images: the `.image-overlay` gradient div is **mandatory** — it ensures text in `.image-caption` remains legible regardless of the image content.
 
@@ -149,7 +151,7 @@ If `css/base.css` is missing for any reason, copy it now: `cp scripts/base.css c
    - `hidden` — `true` to skip during playback and hide from overview grid
 4. Keep entries in the order you want them shown — this array is the single source of truth for slide order.
 
-Do not replace `scripts/base.html` with a single-iframe controller. The current controller preloads slide iframes for grid thumbnails, uses name-based hashes, forwards iframe keyboard events through navbridge, and wires `P` to presenter notes.
+Do not replace `scripts/base.html` with a single-iframe controller. The current controller preloads slide iframes for grid thumbnails, uses name-based hashes, forwards iframe keyboard events through navbridge, wires `P` to the presenter popup, `B`/`W` to blackout, and supports scroll-wheel navigation.
 5. Write to `index.html` (at deck root — same level as `css/`, `js/`, and `slides/`)
 
 ```javascript
@@ -162,9 +164,9 @@ const slides = [
 ];
 ```
 
-### 5c · Wire pointer chrome on `index.html` (default: on)
+### 5c · Wire pointer chrome on `index.html` (opt-in only)
 
-If `DESIGN.md → Pointer & click feedback` is present, copy the wiring snippet from `references/resources.md → Pointer & Click Feedback → Wiring on index.html` into `index.html` (just before `</body>`). The snippet is the canonical implementation — do not paraphrase.
+If `DESIGN.md → Pointer & click feedback` section is present (enabled in Phase 4 Step 5b), copy the wiring snippet from `references/resources.md → Pointer & Click Feedback → Wiring on index.html` into `index.html` (just before `</body>`). The snippet is the canonical implementation — do not paraphrase.
 
 **Mandatory rules** (verified in Phase 6):
 - Loaded on `index.html` only — **never** inside a slide HTML (each slide is a separate iframe document).
@@ -183,7 +185,7 @@ Write `README.md` (at deck root):
 Serve: `npx serve .octocode/slides/{{slideName}}`
 Then open: http://localhost:3000
 
-Keys: `→` next · `←` prev · `Space` next · `G` overview grid · `F` fullscreen
+Keys: `→` next · `←` prev · `Space` next · `G` grid · `F` full · `P` presenter · `B`/`W` blank
 
 Edit a slide: `slides/*.html`
 Change theme: `css/theme.css` — all slides update automatically
