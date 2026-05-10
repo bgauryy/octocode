@@ -1,39 +1,9 @@
 <!DOCTYPE html>
-<!--
-  ╔══════════════════════════════════════════════════════════════════════════╗
-  ║  OCTOCODE SLIDES — NAVIGATION CONTROLLER                                 ║
-  ║  Generated from: skills/octocode-slides/scripts/base.html               ║
-  ║                                                                          ║
-  ║  LLM INSTRUCTIONS (remove all <!-- LLM: --> comments in final output):  ║
-  ║  1. Replace every <!-- LLM: ... --> placeholder with actual values       ║
-  ║  2. Fill the const slides = [...] array — one { path, hidden, name }    ║
-  ║     object per slide, in the order you want them shown.                 ║
-  ║     • path   – path to the slide HTML relative to index.html            ║
-  ║     • name   – unique slug used in the URL hash (e.g. 'my-slide')       ║
-  ║                Do NOT use numbers — order is controlled by the array.   ║
-  ║     • hidden – true = skip during playback + hide from overview grid    ║
-  ║  3. Set the <title> to the deck title                                   ║
-  ║  4. Adjust #progress background to match the theme accent color         ║
-  ║  5. Make sure every slide HTML file includes js/navbridge.js            ║
-  ║     (see scripts/slide.html — the navbridge script tag is already       ║
-  ║      included in the template)                                          ║
-  ║                                                                          ║
-  ║  KEYBOARD SHORTCUTS:                                                     ║
-  ║    → / ↓ / Space  next slide                                             ║
-  ║    ← / ↑          previous slide                                         ║
-  ║    Home / End     first / last slide                                     ║
-  ║    F              toggle fullscreen                                      ║
-  ║    G              toggle overview grid (thumbnail navigator)             ║
-  ║    Escape         close overview                                         ║
-  ╚══════════════════════════════════════════════════════════════════════════╝
--->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- LLM: Set this to the deck title (e.g., "Octocode MCP — 20-min Tech Talk") -->
-  <title><!-- LLM: Deck Title --></title>
+  <title>From Code Search to AI-Powered Research Engine</title>
 
   <style>
     /* ── Reset ─────────────────────────────────────────── */
@@ -43,7 +13,7 @@
     html, body {
       width: 100%; height: 100%;
       /* LLM: Change to theme --bg value (e.g., #0D1117 for Terminal, oklch(16% 0.02 290) for Midnight) */
-      background: #000;
+      background: #050914;
       overflow: hidden;
       display: grid;
       place-items: center;
@@ -59,11 +29,9 @@
     }
 
     /* ── Slide cell wrapper ─────────────────────────────── */
-    /* All slide cells stack at inset:0. The topmost (last in DOM) cell would
-       otherwise swallow every mouse-down — blocking text selection inside the
-       active iframe — so inactive cells must not accept pointer events.
-       Pair this with .slide-frame[data-active] below; both rules MUST flip
-       in lockstep on slide change (`go()` toggles `is-active` + `data-active`). */
+    /* All 25+ cells stack at inset:0; only the active one accepts pointer events
+       so clicks (and text selection) actually reach the active iframe instead of
+       being swallowed by the topmost stacked cell. */
     .slide-cell {
       position: absolute;
       inset: 0;
@@ -74,9 +42,6 @@
     .slide-cell.is-active { pointer-events: auto; }
 
     /* ── Slide iframes ──────────────────────────────────── */
-    /* Inactive iframes are invisible AND non-interactive. Without
-       pointer-events:none they would still capture clicks (preventing the
-       active iframe behind them from receiving selection or click events). */
     .slide-frame {
       position: absolute;
       inset: 0;
@@ -86,8 +51,7 @@
       transition: opacity 150ms ease;
       pointer-events: none;
     }
-    /* Active frame is visible and accepts pointer events (enables navbridge,
-       text selection, copy/paste, and link clicks inside the slide). */
+    /* Active frame is visible and accepts pointer events (enables navbridge). */
     .slide-frame[data-active] { opacity: 1; pointer-events: auto; }
 
     /* ── Progress bar ───────────────────────────────────── */
@@ -96,7 +60,7 @@
       bottom: 0; left: 0;
       height: 3px;
       /* LLM: Set to theme --accent (e.g., #39D353 for Terminal, #C9B37A for Midnight) */
-      background: rgba(255,255,255,0.5);
+      background: linear-gradient(90deg, #5cd0ec, #a78bfa);
       transition: width 200ms ease;
       pointer-events: none;
       z-index: 10;
@@ -248,7 +212,6 @@
 <!-- ── Stage ────────────────────────────────────────────────────────────── -->
 <!-- All slide cells (each wrapping an iframe) are injected here by JS.      -->
 <div id="stage">
-  <!-- LLM: DO NOT add content here manually. JS builds slide cells from slides[]. -->
 </div>
 
 <!-- ── UI chrome ─────────────────────────────────────────────────────────── -->
@@ -286,12 +249,57 @@
 //  LLM: Replace the placeholder entries below with the actual slide list.
 // ═══════════════════════════════════════════════════════════════════════════
 const slides = [
-  // LLM: List every slide as { path, hidden, name }, in presentation order.
-  // { path: 'slides/title.html',   hidden: false, name: 'title' },
-  // { path: 'slides/problem.html', hidden: false, name: 'problem' },
-  // { path: 'slides/solution.html',hidden: false, name: 'solution' },
-  // { path: 'slides/closing.html', hidden: false, name: 'closing' },
-];
+    { path: "slides/title.html",                                    hidden: false,name: "title" },
+    { path: "slides/ai-agents-need-context.html",                   hidden: false,name: "ai-agents-need-context" },
+    { path: "slides/octocode-mcp.html",                             hidden: false,name: "octocode-mcp" },
+    { path: "slides/octocode-harness.html",                         hidden: false,name: "octocode-harness" },
+    { path: "slides/research-loop.html",                            hidden: false,name: "research-loop" },
+    { path: "slides/ai-agents-need-code-context.html",              hidden: true, name: "ai-agents-need-code-context" },
+    { path: "slides/from-github-search-to-research-engine.html",    hidden: true, name: "from-github-search-to-research-engine" },
+    { path: "slides/real-code-intelligence-prevents-guessing.html", hidden: true, name: "real-code-intelligence-prevents-guessing" },
+    { path: "slides/code-research-loop.html",                       hidden: true, name: "code-research-loop" },
+    { path: "slides/capabilities-map-to-questions.html",            hidden: false,name: "capabilities-map-to-questions" },
+    { path: "slides/octocode-research-protocol.html",               hidden: false,name: "octocode-research-protocol" },
+    { path: "slides/protocol-request-envelope.html",                hidden: false,name: "protocol-request-envelope" },
+    { path: "slides/protocol-response-hints.html",                  hidden: false,name: "protocol-response-hints" },
+    { path: "slides/wix-research-title.html",                      hidden: false,name: "wix-research-title" },
+    { path: "slides/wix-research-is-multi-agent-investigation.html",hidden: false,name: "wix-research-is-multi-agent-investigation" },
+    { path: "slides/wix-research-investigations-cross-boundaries.html",hidden: false,name: "wix-research-investigations-cross-boundaries" },
+    { path: "slides/wix-research-question-becomes-investigation.html",hidden: false,name: "wix-research-question-becomes-investigation" },
+    { path: "slides/wix-research-planner-brief.html",              hidden: false,name: "wix-research-planner-brief" },
+    { path: "slides/wix-researcher-follows-evidence.html",         hidden: false,name: "wix-researcher-follows-evidence" },
+    { path: "slides/wix-research-helpers-stay-isolated.html",      hidden: false,name: "wix-research-helpers-stay-isolated" },
+    { path: "slides/wix-research-context-stays-sharp.html",        hidden: false,name: "wix-research-context-stays-sharp" },
+    { path: "slides/wix-research-memory-starts-ahead.html",        hidden: false,name: "wix-research-memory-starts-ahead" },
+    { path: "slides/wix-research-skills-encode-playbooks.html",    hidden: false,name: "wix-research-skills-encode-playbooks" },
+    { path: "slides/wix-research-same-tools-for-humans-ai.html",   hidden: false,name: "wix-research-same-tools-for-humans-ai" },
+    { path: "slides/wix-research-one-loop-many-roles.html",        hidden: false,name: "wix-research-one-loop-many-roles" },
+    { path: "slides/wix-research-three-things-to-remember.html",   hidden: false,name: "wix-research-three-things-to-remember" },
+    { path: "slides/wix-research-grounded-answer.html",            hidden: false,name: "wix-research-grounded-answer" },
+    { path: "slides/results-turn-into-next-move.html",              hidden: true, name: "results-turn-into-next-move" },
+    { path: "slides/daily-research-companion.html",                 hidden: true, name: "daily-research-companion" },
+    { path: "slides/six-code-intelligence-moves.html",              hidden: true, name: "six-code-intelligence-moves" },
+    { path: "slides/research-branches-on-evidence.html",            hidden: true, name: "research-branches-on-evidence" },
+    { path: "slides/ai-powered-research-engine.html",               hidden: true, name: "ai-powered-research-engine" },
+    { path: "slides/cited-code-map-output.html",                    hidden: true, name: "cited-code-map-output" },
+    { path: "slides/planner-researcher-contract.html",              hidden: false,name: "planner-researcher-contract" },
+    { path: "slides/tools-and-skills-workflows.html",               hidden: false,name: "tools-and-skills-workflows" },
+    { path: "slides/interface-serves-agents-and-humans.html",       hidden: false,name: "interface-serves-agents-and-humans" },
+    { path: "slides/tool-scope-reasoning-contract.html",            hidden: false,name: "tool-scope-reasoning-contract" },
+    { path: "slides/helper-isolation-prevents-context-fatigue.html",hidden: false,name: "helper-isolation-prevents-context-fatigue" },
+    { path: "slides/helpers-return-typed-findings.html",            hidden: false,name: "helpers-return-typed-findings" },
+    { path: "slides/portable-research-engine.html",                 hidden: false,name: "portable-research-engine" },
+    { path: "slides/typed-findings-at-agent-boundaries.html",       hidden: false,name: "typed-findings-at-agent-boundaries" },
+    { path: "slides/named-gaps-build-trust.html",                   hidden: false,name: "named-gaps-build-trust" },
+    { path: "slides/context-compaction-correctness.html",           hidden: false,name: "context-compaction-correctness" },
+    { path: "slides/workflow-depth-matrix.html",                    hidden: false,name: "workflow-depth-matrix" },
+    { path: "slides/inspectable-research-trail.html",               hidden: false,name: "inspectable-research-trail" },
+    { path: "slides/follow-ups-continue-context.html",              hidden: false,name: "follow-ups-continue-context" },
+    { path: "slides/evidence-behavior-evals.html",                  hidden: false,name: "evidence-behavior-evals" },
+    { path: "slides/better-context-before-coding.html",             hidden: false,name: "better-context-before-coding" },
+    { path: "slides/search-tool-to-research-engine.html",           hidden: false,name: "search-tool-to-research-engine" },
+    { path: "slides/better-context-makes-better-agents.html",       hidden: false,name: "better-context-makes-better-agents" }
+  ];
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  DERIVED STATE — do not edit below this line

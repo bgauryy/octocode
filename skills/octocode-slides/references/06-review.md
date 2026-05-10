@@ -100,6 +100,18 @@ Check each item. Fix any failure before moving to Step 3.
 
 - [ ] `index.html` is based on `scripts/base.html` multi-iframe controller, not a stale single-iframe controller
 
+**Pointer + selection contract (CRITICAL — easy to break, breaks silently)**
+
+All `.slide-cell` wrappers stack at `inset:0`. If any inactive cell still accepts pointer events, the topmost stacked cell will swallow every mouse-down and the user cannot select text, click links, or interact with the active iframe. Verify in `index.html` style block:
+
+- [ ] `.slide-cell` declares `pointer-events: none` (default state for inactive cells)
+- [ ] `.slide-cell.is-active` declares `pointer-events: auto`
+- [ ] `.slide-frame` declares `pointer-events: none`
+- [ ] `.slide-frame[data-active]` declares `pointer-events: auto`
+- [ ] `go()` toggles BOTH `is-active` (on the cell) AND `data-active` (on the iframe) in the same step — never one without the other
+- [ ] No slide HTML or shared CSS sets `user-select: none` on body, `.slide`, or any text-bearing container
+- [ ] Browser sanity check: `document.elementFromPoint(640, 360)` (centre of stage) returns the active `<iframe class="slide-frame">`, not a stacked `.slide-cell`. If it returns a cell or another iframe, selection is broken — fix before shipping.
+
 **CSS**
 - [ ] `css/base.css` declares all custom properties used across slides
 - [ ] `css/theme.css` overrides only variables defined in `base.css`
