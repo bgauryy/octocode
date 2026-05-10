@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║  OCTOCODE SLIDES — NAVIGATION CONTROLLER                                 ║
+  ║  Generated from: skills/octocode-slides/scripts/base.html               ║
+  ║                                                                          ║
+  ║  LLM INSTRUCTIONS (remove all <!-- LLM: --> comments in final output):  ║
+  ║  1. Replace every <!-- LLM: ... --> placeholder with actual values       ║
+  ║  2. Fill the const slides = [...] array with every slide path in order   ║
+  ║  3. Set the <title> to the deck title                                    ║
+  ║  4. Adjust progress bar color if theme accent is not white               ║
+  ║                                                                          ║
+  ║  KEYBOARD SHORTCUTS:                                                     ║
+  ║    → / ↓ / Space  next slide                                             ║
+  ║    ← / ↑          previous slide                                         ║
+  ║    Home / End     first / last slide                                     ║
+  ║    F              toggle fullscreen                                      ║
+  ║    G              toggle overview grid (thumbnail navigator)             ║
+  ║    Escape         close overview                                         ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- LLM: Set this to the deck title (e.g., "Octocode MCP — 20-min Tech Talk") -->
+  <title><!-- LLM: Deck Title --></title>
+
+  <style>
+    /* ── Reset ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Full-window letterbox ──────────────────────────── */
+    /* Change background to match theme --bg for a tighter look
+       (e.g., #0D1117 for Terminal, oklch(16% 0.02 290) for Midnight) */
+    html, body {
+      width: 100%; height: 100%;
+      /* LLM: Change to theme --bg value if desired */
+      background: #000;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+
+    /* ── 1280×720 stage ─────────────────────────────────── */
+    /* JS scales this to fill the window while keeping 16:9. */
+    #stage {
+      width: 1280px;
+      height: 720px;
+      position: relative;
+      transform-origin: center center;
+    }
+
+    /* ── Slide cell wrapper ─────────────────────────────── */
+    /* Every iframe lives inside a .slide-cell.              */
+    /* Normal mode: cells stack absolutely to fill stage.    */
+    /* Overview mode: cells become a visual grid.            */
+    .slide-cell {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Slide iframes ──────────────────────────────────── */
+    /* pointer-events:none keeps keyboard focus on parent.   */
+    /* tabindex="-1" prevents Tab from landing on iframes.   */
+    .slide-frame {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      border: none;
+      opacity: 0;
+      transition: opacity 150ms ease;
+      pointer-events: none;
+    }
+    .slide-frame[data-active] { opacity: 1; pointer-events: auto; }
+
+    /* ── Progress bar ───────────────────────────────────── */
+    #progress {
+      position: fixed;
+      bottom: 0; left: 0;
+      height: 3px;
+      /* LLM: Set to theme --accent (e.g., #39D353 for Terminal, #C9B37A for Midnight) */
+      background: rgba(255,255,255,0.5);
+      transition: width 200ms ease;
+      pointer-events: none;
+    }
+
+    /* ── Slide counter ──────────────────────────────────── */
+    #counter {
+      position: fixed;
+      bottom: 10px; right: 18px;
+      font: 11px/1 system-ui, sans-serif;
+      color: rgba(255,255,255,0.3);
+      letter-spacing: 0.06em;
+      pointer-events: none;
+    }
+
+    /* ════════════════════════════════════════════════════
+       OVERVIEW MODE  (body.overview)
+       Press G to open, press G or Escape to close.
+       Shows all slides as scaled thumbnails.
+       Click any thumbnail to jump to that slide.
+       ════════════════════════════════════════════════════ */
+
+    body.overview {
+      overflow-y: auto;
+      background: #0e0e0e;
+      display: block;
+    }
+
+    body.overview #stage {
+      /* Override 1280×720 fixed canvas — become a responsive thumbnail grid */
+      width: 100%;
+      height: auto;
+      min-height: 100vh;
+      position: static;
+      transform: none !important;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 256px);
+      gap: 1.25rem;
+      padding: 2.5rem 2rem 4rem;
+      align-content: start;
+    }
+
+    body.overview .slide-cell {
+      position: relative;
+      width: 256px;
+      height: 144px;
+      overflow: hidden;
+      border-radius: 6px;
+      border: 2px solid rgba(255,255,255,0.08);
+      cursor: pointer;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    body.overview .slide-cell:hover {
+      border-color: rgba(255,255,255,0.4);
+    }
+    body.overview .slide-cell.is-active {
+      border-color: rgba(255,255,255,0.75);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
+    }
+
+    /* Scale 1280×720 iframe down to 256×144 (factor 0.2) */
+    body.overview .slide-frame {
+      position: absolute;
+      top: 0; left: 0;
+      width: 1280px !important;
+      height: 720px !important;
+      transform: scale(0.2);
+      transform-origin: top left;
+      opacity: 1;
+      pointer-events: none;
+      transition: none;
+    }
+
+    /* Slide number badge — only visible in overview */
+    .slide-cell .slide-num {
+      display: none;
+      position: absolute;
+      bottom: 4px; right: 6px;
+      font: 700 9px/1 system-ui, sans-serif;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 0.04em;
+      z-index: 10;
+      pointer-events: none;
+    }
+    body.overview .slide-cell .slide-num { display: block; }
+
+    /* Overview hint strip at top */
+    #overview-hint {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 0.5rem 1.5rem;
+      font: 10px/1.5 system-ui, sans-serif;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 0.08em;
+      text-align: right;
+      pointer-events: none;
+      z-index: 200;
+    }
+    body.overview #overview-hint { display: block; }
+
+    /* Progress bar and counter hidden in overview */
+    body.overview #progress,
+    body.overview #counter { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- ── Stage ────────────────────────────────────────────────────────────── -->
+<!-- All slide cells (each wrapping an iframe) are injected here by JS.      -->
+<div id="stage">
+  <!-- LLM: DO NOT add content here manually. JS builds slide cells from slides[]. -->
+</div>
+
+<!-- ── UI chrome ─────────────────────────────────────────────────────────── -->
+<div id="progress"></div>
+<div id="counter"></div>
+<div id="overview-hint">Overview — click a slide to jump &nbsp;·&nbsp; G or Esc to close</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  SLIDE MANIFEST
+//  LLM: Replace this array with every slide path, in order.
+//  Paths are relative to this index.html file. Use forward slashes.
+// ═══════════════════════════════════════════════════════════════════════════
+const slides = [
+  // LLM: List every slide path here, one per line, in presentation order.
+  // 'slides/01-title.html',
+  // 'slides/02-agenda.html',
+  // 'slides/03-problem.html',
+  // ...
+  // 'slides/NN-closing.html',
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════════
+let current    = 0;
+let inOverview = false;
+
+const stage   = document.getElementById('stage');
+const bar     = document.getElementById('progress');
+const counter = document.getElementById('counter');
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BUILD SLIDE CELLS
+//  Each iframe is wrapped in a .slide-cell div.
+//  Normal mode: cells are transparent absolute overlays stacked on stage.
+//  Overview mode: cells become 256×144 grid items with the iframe scaled 0.2×.
+// ═══════════════════════════════════════════════════════════════════════════
+slides.forEach((src, i) => {
+  const cell = document.createElement('div');
+  cell.className = 'slide-cell' + (i === 0 ? ' is-active' : '');
+  cell.addEventListener('click', () => {
+    if (inOverview) { closeOverview(); go(i); }
+  });
+
+  const f = document.createElement('iframe');
+  f.src       = src;
+  f.className = 'slide-frame';
+  f.setAttribute('tabindex', '-1');
+  f.setAttribute('title', `Slide ${i + 1} of ${slides.length}`);
+  if (i === 0) f.setAttribute('data-active', '');
+
+  // Forward navigation keys from inside the iframe back to the parent.
+  // When a user clicks a link, focus moves into the iframe and the parent's
+  // keydown listener stops firing — this listener restores arrow navigation.
+  const NAV_KEYS = ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown',' ','Home','End','f','F','g','G','Escape'];
+  f.addEventListener('load', () => {
+    try {
+      f.contentWindow.addEventListener('keydown', e => {
+        if (NAV_KEYS.includes(e.key)) {
+          e.preventDefault();
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, bubbles: true }));
+        }
+      });
+    } catch (_) { /* cross-origin safety */ }
+  });
+
+  const num = document.createElement('span');
+  num.className = 'slide-num';
+  num.textContent = String(i + 1).padStart(2, '0');
+
+  cell.appendChild(f);
+  cell.appendChild(num);
+  stage.appendChild(cell);
+});
+
+const frames = () => stage.querySelectorAll('.slide-frame');
+const cells  = () => stage.querySelectorAll('.slide-cell');
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SCALE STAGE TO WINDOW
+//  Maintains 1280×720 (16:9) at any window size.
+// ═══════════════════════════════════════════════════════════════════════════
+function scaleStage() {
+  if (inOverview) return;
+  const s = Math.min(
+    window.innerWidth  / 1280,
+    window.innerHeight / 720
+  );
+  stage.style.transform = `scale(${s})`;
+}
+
+const ro = new ResizeObserver(scaleStage);
+ro.observe(document.documentElement);
+scaleStage();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════════════════════════════════
+function go(idx) {
+  const allFrames = frames();
+  const allCells  = cells();
+  if (idx < 0 || idx >= allFrames.length) return;
+
+  allFrames[current].removeAttribute('data-active');
+  allCells[current].classList.remove('is-active');
+
+  current = idx;
+
+  allFrames[current].setAttribute('data-active', '');
+  allCells[current].classList.add('is-active');
+
+  const pct = ((current + 1) / allFrames.length) * 100;
+  bar.style.width     = pct + '%';
+  counter.textContent = `${current + 1} / ${allFrames.length}`;
+
+  // Hash navigation — update URL without pushing a history entry
+  history.replaceState(null, '', '#' + (current + 1));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  OVERVIEW MODE
+//  G key opens the thumbnail grid. G or Escape closes it.
+//  Clicking a thumbnail closes overview and jumps to that slide.
+// ═══════════════════════════════════════════════════════════════════════════
+function openOverview() {
+  inOverview = true;
+  document.body.classList.add('overview');
+  document.body.style.overflow = '';
+}
+
+function closeOverview() {
+  inOverview = false;
+  document.body.classList.remove('overview');
+  requestAnimationFrame(scaleStage);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (inOverview) {
+    if (e.key === 'Escape' || e.key === 'g' || e.key === 'G') closeOverview();
+    return;
+  }
+
+  switch (e.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+    case ' ':
+      e.preventDefault();
+      go(current + 1);
+      break;
+
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      e.preventDefault();
+      go(current - 1);
+      break;
+
+    case 'Home': go(0); break;
+    case 'End':  go(frames().length - 1); break;
+
+    case 'f':
+    case 'F':
+      document.fullscreenElement
+        ? document.exitFullscreen?.()
+        : document.documentElement.requestFullscreen?.();
+      break;
+
+    case 'g':
+    case 'G':
+      openOverview();
+      break;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TOUCH / SWIPE  (left = next, right = previous)
+// ═══════════════════════════════════════════════════════════════════════════
+let touchStartX = null;
+
+document.addEventListener('touchstart', e => {
+  if (!inOverview) touchStartX = e.touches[0].clientX;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  if (touchStartX === null || inOverview) return;
+  const diff = touchStartX - e.changedTouches[0].clientX;
+  if (Math.abs(diff) > 40) go(current + (diff > 0 ? 1 : -1));
+  touchStartX = null;
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  HASH NAVIGATION
+//  index.html#5 loads slide 5 directly.
+//  URL updates automatically on every slide change.
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('hashchange', () => {
+  const n = parseInt(location.hash.slice(1), 10);
+  if (!isNaN(n) && n >= 1 && n <= slides.length) go(n - 1);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INIT — respect hash on first load, else start at slide 1
+// ═══════════════════════════════════════════════════════════════════════════
+const startIdx = parseInt(location.hash.slice(1), 10);
+go(!isNaN(startIdx) && startIdx >= 1 && startIdx <= slides.length ? startIdx - 1 : 0);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,157 @@
+# Phase 5 — Implementation
+
+**Role:** Implementation agent. Turn the outline, slide specs, and DESIGN.md into working HTML slides. Keep the build focused: finalize only the slide-ready content needed for each slide, then implement the HTML and review in small internal batches.
+
+**Input:** `.content/brief.md` · `.content/outline.md` · `.content/slides/*.md` · `.content/DESIGN.md` · `css/base.css` + `css/theme.css`
+**Output:** updated `.content/slides/NN-slug.md` specs · `slides/NN-slug.html` (implemented)
+
+**Path contract — read before writing any file. All paths are inside `.octocode/slides/{{slideName}}/`:**
+```
+.octocode/slides/{{slideName}}/   ← deck root (serve from here)
+├── index.html                    ← navigation controller
+├── css/base.css + theme.css      ← CSS at deck root
+└── slides/NN-slug.html           ← slides one level deeper
+```
+Each slide uses `../css/base.css` (one level up). `index.html` uses `slides/NN-slug.html` (one level down).
+Keep slides out of `slides/slides/` — there is no double-nesting in this structure.
+
+---
+
+## Step 1 · Read references
+
+Read these files now (in parallel):
+- `references/html-templates.md` — all slide type HTML templates + base.css boilerplate + Motion patterns
+- `references/resources.md` — CDN URLs for any library listed in DESIGN.md
+- `references/slide-rules.md` §§1, 5 — Content rules and Logical Flow rules (required by Global Rule 9)
+
+---
+
+## Step 2 · Verify and finalize per-slide specs
+
+Before writing any HTML, verify that every outline row has a matching `.content/slides/NN-slug.md` spec. The spec separates what the slide means from how it is implemented.
+
+For each slide in `.content/outline.md`:
+
+- Confirm the spec contains `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
+- Resolve `Status: needs source`, `needs asset`, or `revisit` before building, unless the slide intentionally uses an image placeholder
+- Tighten body content to final slide text; move extra explanation into speaker notes
+- Confirm the planned widget/graph/image can be implemented with the selected libraries and available assets
+
+Track completion internally. Skip per-slide confirmations unless the user asked for progress at that granularity.
+
+---
+
+## Step 3 · Implement slides
+
+For each slide, build directly from its `.content/slides/NN-slug.md` spec, starting from `scripts/slide.html`:
+
+1. Copy `scripts/slide.html` as the starting point
+2. Use `Title` for the on-slide heading and browser `<title>`
+3. Use `Description` and `Reasoning` to preserve the slide's purpose and flow; do not let implementation drift from them
+4. Use `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI` to choose the exact markup and libraries
+5. Replace all `<!-- LLM: ... -->` comments with actual content
+6. Use the correct layout from `references/html-templates.md` for the slide type
+7. Add CDN libraries if this slide needs them — check DESIGN.md libraries list AND the slide spec (`Graphs` → chart library, `Widgets` → Motion/Mermaid/code, Markdown body → marked.js)
+8. Use Motion animation patterns from `references/html-templates.md` if appropriate
+9. Write to `slides/NN-slug.html` (NOT `slides/slides/` — slides go directly in `slides/`)
+10. Track completion internally
+
+**Implementation rules:**
+- CSS variables only (`var(--accent)`, `var(--t-title)`, etc.) — no hardcoded values
+- Speaker notes go in `<aside class="speaker-notes">`
+- Overflow → split into a new slide (update `.content/outline.md` and continue)
+- For code slides: use highlight.js with the theme from DESIGN.md
+- For markdown-content slides: use marked.js + `data-md` pattern
+- For diagram / flow / architecture slides: use Mermaid.js
+- For chart slides — pick the right library (one per slide; avoid loading two chart libs):
+  - Bar / line / area / donut / scatter / radar → **Chart.js** (lightest, best default)
+  - Heatmap / geo / treemap / candlestick → **ECharts**
+  - Dense time-series (100+ data points) → **uPlot**
+  - Polished look with minimal config → **ApexCharts**
+  - Custom / bespoke / network layout → **D3.js**
+  - Static comparison ≤6 bars → CSS-only `width: X%` bars, no library
+- For KPI / counter / number countup: use **Motion** `animate(0, N, onUpdate)` — no chart library needed
+- For progress bars: use **Motion** `animate(el, { width: ['0%', 'N%'] })` or CSS `@starting-style`
+- `calc(-1 * clamp(...))` for any negated length instead of `-clamp(...)`
+- Motion: load as `<script type="module">` at bottom of `<body>`
+- **Treat the approved outline as the contract.** If implementation reveals a better title, split, or order, update `.content/outline.md` first and keep the Question-Answer chain intact.
+- **Preserve the Question-Answer chain.** The `Flow logic` column in the outline is the contract. Each slide's heading should carry the meaning of that column — if the title drifts, the chain breaks.
+
+**Image handling (check the slide spec's `Images` section first, then brief.md → Images inventory):**
+
+| Image status in brief | What to do in HTML |
+|-----------------------|--------------------|
+| `ready` — file path provided | `<img src="{{path}}" alt="{{descriptive alt text}}">` directly |
+| `placeholder` — user will provide later | Use `image-ph` (inline) or `image-ph-bleed` (full-bleed) from `references/html-templates.md` |
+| Full-bleed `slide--image` with ready image | `<img>` + `<div class="image-overlay">` + optional `.image-caption` |
+| Full-bleed `slide--image` with no image yet | `image-ph-bleed` div + `<div class="image-overlay">` + `.image-caption` |
+
+Add a `data-expected` attribute with a plain-English description of the image when it helps review, especially for placeholders: `data-expected="{{what the image shows}}"`.
+
+For full-bleed slides with images: the `.image-overlay` gradient div is **mandatory** — it ensures text in `.image-caption` remains legible regardless of the image content.
+
+---
+
+## Step 4 · Implementation loop
+
+After every **5 slides**, run an internal mini-review. Pause for user feedback only when the user explicitly wants collaborative checkpoints, a missing asset blocks a slide, or a content decision cannot be inferred.
+
+When pausing for user feedback, use:
+
+```
+Slides {{N–M}} implemented ({{current}}/{{total}} total).
+
+Self-check before showing you:
+- Titles: all claim sentences (not topic labels)?
+- Flow: each slide answers the previous question, raises the next?
+- Overflow: all content fits 1280×720 without scrolling?
+- Variables: no hardcoded colors/fonts?
+
+Reply "continue" to build the next batch, or give feedback.
+```
+
+In fast/delegated mode, continue after the internal mini-review without waiting. If the user gives feedback, fix the flagged slides before continuing.
+If the user says "continue", run the self-check against the next batch as you build it.
+
+This loop runs until all slides in the outline are implemented.
+
+---
+
+## Step 5 · Build index.html
+
+Once all slides are implemented:
+
+1. Start from `scripts/base.html`
+2. Replace all `<!-- LLM: ... -->` comments with actual values
+3. Fill `const slides = [...]` with `slides/NN-slug.html` paths in order (each path starts with `slides/`)
+4. Write to `index.html` (at deck root — same level as `css/` and `slides/`)
+5. Write `README.md` (at deck root):
+
+```markdown
+# {{Deck Title}}
+
+Serve: `npx serve .octocode/slides/{{slideName}}`
+Then open: http://localhost:3000
+
+Keys: `→` next · `←` prev · `Space` next · `G` overview grid · `F` fullscreen
+
+Edit a slide: `slides/NN-*.html`
+Change theme: `css/theme.css` — all slides update automatically
+```
+
+---
+
+## Step 6 · Final implementation check
+
+Before handing off to Phase 6:
+
+- [ ] Every slide in the outline has a `.content/slides/NN-slug.md` file
+- [ ] Every slide spec has `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
+- [ ] No slide spec remains `Status: needs source`, `needs asset`, or `revisit` unless the deck intentionally ships an image placeholder
+- [ ] Every slide in the outline has a `slides/NN-slug.html` file (not `slides/slides/`)
+- [ ] All slide paths in `const slides = [...]` start with `slides/` (e.g. `slides/01-title.html`)
+- [ ] `index.html` is at the deck root (same level as `css/` and `slides/`)
+- [ ] No slide HTML contains hardcoded colors, fonts, or pixel sizes
+- [ ] Every CDN library listed in DESIGN.md is actually loaded in the slides that need it
+
+Pass to Phase 6 → read `references/06-review.md`. Start with Step 0 (Self-review).
