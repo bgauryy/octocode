@@ -367,6 +367,7 @@ The full handoff checklist lives in `references/06-review.md` Step 2 (technical)
 | `references/resources.md` | CDN libs with full URLs and usage examples | Phase 4 + 5 | Load libraries per-slide only — each iframe is a separate document; never share a global library across slides. |
 | `references/slide-rules.md` | **Master rule set**: content, visual, layout, narrative, UX, delivery, anti-patterns, named formulas | Phase 3 + 4 + 5 | When this file and a phase doc disagree, the more specific rule wins; record the resolution in `DESIGN.md` or the outline note. |
 | `references/image-generation.md` | **Optional**: Nano Banana 2 (Gemini 3.1 Flash Image) integration — three paths: A (Python SDK + `GEMINI_API_KEY`), B (`belt` CLI), C (Gemini CLI + `mcp-nanobanana-go` MCP, requires GCP ADC); prompts, env params best practice, paths, opt-in rules | Phase 5 only when user opts in to image generation | Never generate images silently — only when the user explicitly says "generate images". |
+| `references/animation.md` | **Optional**: `animation.js` step engine — `[data-step]` markup, CSS hooks, loading order, dot indicator, full example | Phase 5 when a slide needs animated step-by-step reveal | Load `animation.js` **before** `navbridge.js` in every slide that uses steps — wrong order silently breaks the intercept. |
 
 ## Script files
 
@@ -379,6 +380,7 @@ The `scripts/` folder holds the **copy-verbatim** templates. Every generated dec
 | `scripts/base.css` | `css/base.css` | Layout primitives, type scale, slide-type rules, components, animations, print |
 | `scripts/navbridge.js` | `js/navbridge.js` | Forwards iframe key events to parent — required in every slide |
 | `scripts/presenter.js` | `js/presenter.js` | `P`-key presenter popup: current + next slide previews, speaker notes, timer, jump-to-slide control |
+| `scripts/animation.js` | `js/animation.js` | Optional per-slide step engine — reveals `[data-step]` elements one at a time on `→`; hides in reverse on `←`; must load before `navbridge.js` |
 
 **Rule:** copy verbatim, never paraphrase. Theme overrides go in `css/theme.css`; one-off layout helpers live in the slide's local `<style>`. Never edit a copied script after the copy. Step-by-step in `references/05-implementation.md` Step 5.
 

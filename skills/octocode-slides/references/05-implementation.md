@@ -57,6 +57,7 @@ For each row in `.content/outline.md`, build directly from the row's data and an
 - For chart / KPI / progress widgets — the outline already names the library (Phase 3 Step 4). If it doesn't, decide from `references/resources.md → Data Visualization — Library Decision` and update `outline.md` before implementing. One chart lib per slide; never two.
 - `calc(-1 * clamp(...))` for any negated length instead of `-clamp(...)`
 - Motion: load as `<script type="module">` at bottom of `<body>`
+- **Step animations**: when the outline row or slide notes call for step-by-step reveal, add `data-step="N"` to each element and load `../js/animation.js` **before** `../js/navbridge.js`. Read `references/animation.md` for the full protocol. Never add `data-step` to title or header elements — those must be visible on slide entry.
 - **The outline is the contract.** If implementation reveals a better title, split, or order — update `.content/outline.md` first, then build to the updated version.
 - **Preserve the Question-Answer chain.** The `Flow logic` column in the outline is the contract. Each slide's heading should carry the meaning of that column. If implementation reveals the title drifts from the chain: (a) fix the title to match the chain; (b) if a better reframe serves the chain better, update `.content/outline.md → Flow logic` first, then build to the updated version. Never silently change a title without updating the outline — the chain breaks invisibly.
 
@@ -88,6 +89,7 @@ Every slide must be structurally identical in its scaffolding. Check each slide 
 | Started from `scripts/slide.html` | `<link rel="stylesheet" href="../css/base.css">` exists | Re-copy template, do not patch inline |
 | Theme loaded | `<link rel="stylesheet" href="../css/theme.css">` exists | Add the link |
 | Navbridge loaded | `<script src="../js/navbridge.js"></script>` immediately before `</body>` | Add in correct position |
+| animation.js order (if slide uses steps) | `<script src="../js/animation.js">` appears **before** `<script src="../js/navbridge.js">` | Swap order — wrong order silently breaks step intercept |
 | Local CSS is justified | Only slide-specific layout helpers live in `<style>`; colors/fonts/sizes still use design tokens | Move reusable styles to `base.css` or `theme.css` |
 | CSS variables only | No `color: #hex` or `font-family: "..."` inline on any element | Replace all hardcoded values with `var(--token)` |
 | Slide class set | `<div class="slide slide--{{type}}">` matches the slide type in the outline row | Correct the class |
@@ -136,8 +138,11 @@ Run these copies; never paraphrase from memory:
 ```bash
 cp scripts/navbridge.js js/navbridge.js
 cp scripts/presenter.js js/presenter.js
+cp scripts/animation.js js/animation.js   # copy even if no slides use steps yet
 # css/base.css was already copied by Phase 4 Step 7; verify it exists
 ```
+
+**`animation.js`** is an optional per-slide script. Copying it to `js/` at deck build time makes it available for any slide to opt in — slides that don't include the `<script>` tag are unaffected.
 
 If `css/base.css` is missing for any reason, copy it now: `cp scripts/base.css css/base.css`. Theme overrides remain in `css/theme.css`.
 
