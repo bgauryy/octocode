@@ -14,25 +14,37 @@
 Read now (in parallel):
 - `references/design-system.md` — CSS variable contract, design process, anti-slop guide, resources
 - `references/resources.md` — CDN libraries, font catalogs, color tools, inspiration sources
+- `references/wireframes.md` — general slide layout examples for content, images, stats, charts, quotes, code, timelines, and closing slides
 - `references/slide-rules.md` §§2–3 — Visual/Design rules and Layout rules (required by Global Rule 9)
 - `.content/outline.md` — slide list with inline notes from Phase 3; use Slide notes for special design treatment per slide
 
 ---
 
-## Step 2 · Map images from the brief
+## Step 2 · Map explicit and implied images
 
-Read `request.md` → Images section. For every image listed:
+Read `request.md` → Images section and `.content/outline.md` → Slide notes. Map both:
+- **Explicit images** the user already mentioned.
+- **Implied images** the design would benefit from, such as title hero art, product screenshots, portraits, diagrams, object photos, or any visual used to describe something.
+
+Do **not** invent, search for, download, or generate missing images during design. If the image is not already provided, create a `PLACEHOLDER` entry and let the user add the real image later.
 
 | Decision | What to record |
 |----------|----------------|
 | Is the image file ready? | `ready` → use `<img src="{{path}}">` directly in Phase 5 |
-| Is the image "user will provide"? | `placeholder` → use the `image-ph` / `image-ph-bleed` pattern from `references/html-templates.md` |
+| Is the image "user will provide"? | `placeholder` → use the `PLACEHOLDER` component: `image-ph` / `image-ph-bleed` from `references/html-templates.md` |
+| Did design identify a needed image that the user did not provide? | `placeholder` → record the expected image in plain English and ask the user to provide it later |
 | Full-bleed or inline? | Full-bleed → `slide--image` type; inline → `image-ph` inside `content` or `two-col` |
 | Does image require text overlay? | Add `image-overlay` gradient div when needed to keep text legible on full-bleed slides |
 
 Record as a table in `DESIGN.md` → Layout notes. Also update each affected slide's inline notes in `outline.md` (`Images` and `UX / UI`). Leave placeholder slides marked with `[IMAGE PLACEHOLDER]` in the outline so Phase 5 knows to use the placeholder template.
 
-If no images were listed in the brief: skip this step.
+For every placeholder, include:
+- Slide slug or number.
+- Placement: `inline` or `full-bleed`.
+- Expected image description, e.g. "PLACEHOLDER: product screenshot showing the dashboard".
+- User question, e.g. "Please provide the dashboard screenshot for slide 03, or keep the placeholder."
+
+If no explicit or implied images are needed: record `Images: none` in `DESIGN.md` and continue.
 
 ---
 
@@ -137,6 +149,7 @@ Each preview shows **the title slide only**, fully rendered: color palette, font
 - Prefer a mix of dark and light backgrounds when that helps the user choose
 - None may copy color values verbatim from `design-system.md` themes
 - None may score 2+ on the Visual Slop Test, and none may fail the Content Slop Test (from SKILL.md)
+- If the title slide would benefit from a hero image that is not provided, render the `PLACEHOLDER` component in the preview and label what image the user should add later.
 
 Show the user:
 
@@ -261,6 +274,9 @@ Key choices:
 - Distinctive: {{what makes this deck visually unique}}
 
 Libraries: {{list or "none"}}
+
+Image placeholders: {{list slide + expected image, or "none"}}
+{{If any: "Please provide these images later, or reply that the placeholders should remain."}}
 
 Review DESIGN.md at .content/DESIGN.md, then reply "good" to start building slides,
 or describe any changes.

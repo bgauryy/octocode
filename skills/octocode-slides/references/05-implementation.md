@@ -90,11 +90,11 @@ All image files go in `assets/` at the deck root. Slides reference them as `../a
 | Image status in brief | What to do in HTML |
 |-----------------------|--------------------|
 | `ready` — file path provided | `<img src="../assets/{{filename}}" alt="{{descriptive alt text}}">` |
-| `placeholder` — user will provide later | Use `image-ph` (inline) or `image-ph-bleed` (full-bleed) from `references/html-templates.md` |
+| `placeholder` / `[IMAGE PLACEHOLDER]` — user will provide later | Use the `PLACEHOLDER` component: `image-ph` (inline) or `image-ph-bleed` (full-bleed) from `references/html-templates.md` |
 | Full-bleed `slide--image` with ready image | `<img src="../assets/{{filename}}">` + `<div class="image-overlay">` + optional `.image-caption` |
 | Full-bleed `slide--image` with no image yet | `image-ph-bleed` div + `<div class="image-overlay">` + `.image-caption` |
 
-Add a `data-expected` attribute with a plain-English description of the image when it helps review, especially for placeholders: `data-expected="{{what the image shows}}"`.
+For any missing image, do not search, download, generate, or silently substitute an image. Render the `PLACEHOLDER` component and add a `data-expected` attribute with a plain-English description of the image: `data-expected="{{what the image shows}}"`. The user can replace it later with a real file.
 
 For full-bleed slides with images: the `.image-overlay` gradient div is **mandatory** — it ensures text in `.image-caption` remains legible regardless of the image content.
 

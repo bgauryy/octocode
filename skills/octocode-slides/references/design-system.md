@@ -314,8 +314,14 @@ Recommended pair: **Lora** / Source Sans 3
 
 ### Layout
 - Slide padding: `var(--pad)` on all sides; usually not tighter than `var(--sp-6)`.
-- Two zones per slide: header (heading) + body (takes remaining space).
-- Full-bleed slides (`section`, `closing`, `quote`): vertically centered, generous padding.
+- **Canonical regions (a slide uses up to four):**
+  - `.slide-logo` — optional, top-right brand mark
+  - `.slide-header` — optional, holds `.title` + `.description`
+  - `.slide-content` — required, smart flex body
+  - `.slide-footer` — optional, source / page / link
+  Only `.slide-content` is required. Logo and footer are usually deck-wide for visual rhythm, but can be skipped on hero / section slides — pick a posture and stick to it. The skeleton is a contract for *where* things sit when present, not a prescription that every slide must show every region.
+- Centered slide types (`title`, `section`, `quote`, `closing`) center their stack vertically; `title` and `closing` also center horizontally.
+- Per-slide flex / grid wireframes and the content-signal → layout decision table live in `references/wireframes.md`.
 
 ### Slide Density (hard limits)
 

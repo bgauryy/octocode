@@ -2,36 +2,44 @@
 <!--
   ╔══════════════════════════════════════════════════════════════════════════╗
   ║  OCTOCODE SLIDES — INDIVIDUAL SLIDE PAGE                                 ║
-  ║  Generated from: skills/octocode-slides/scripts/slide.html              ║
+  ║  Generated from: skills/octocode-slides/scripts/slide.html               ║
+  ║                                                                          ║
+  ║  CANONICAL SLIDE SKELETON — a slide uses up to four regions:             ║
+  ║                                                                          ║
+  ║    .slide-logo     optional · brand mark, anchored top-right             ║
+  ║    .slide-header   optional · .title + .description                      ║
+  ║    .slide-content  REQUIRED · smart flex body                            ║
+  ║    .slide-footer   optional · source / page / link                       ║
+  ║                                                                          ║
+  ║  Only .slide-content is required. The skeleton is a contract for         ║
+  ║  WHERE things go when present, not a recipe for what every slide must    ║
+  ║  contain. Use only the regions that serve this slide; omit the rest.     ║
   ║                                                                          ║
   ║  LLM INSTRUCTIONS:                                                       ║
   ║  1. Replace every <!-- LLM: ... --> comment with actual content          ║
-  ║  2. Change slide--TYPE to the correct type class (see types below)       ║
-  ║  3. Add CDN <script> / <link> tags in <head> only if this slide needs    ║
-  ║     marked.js, highlight.js, Chart.js, ECharts, uPlot, ApexCharts,       ║
-  ║     Mermaid.js, or another library named in the outline row               ║
-  ║  4. Add a Motion <script type="module"> at the bottom of <body> only if  ║
-  ║     this slide uses stagger, counters, or sequenced animations            ║
-  ║  5. Remove this comment block before saving the final slide              ║
+  ║  2. Change slide--TYPE on the root .slide div (see types below)          ║
+  ║  3. Keep regions this slide needs; delete the rest. Variety is good.     ║
+  ║  4. Logo / footer rhythm is usually deck-wide (always-on, always-off,    ║
+  ║     or always-except-hero). Pick one posture in Phase 4 and stick to it. ║
+  ║  5. Add CDN <script>/<link> tags in <head> only when needed              ║
+  ║  6. Remove this comment block before saving the final slide              ║
   ║                                                                          ║
-  ║  SLIDE TYPES (change class on .slide div):                               ║
+  ║  SLIDE TYPES:                                                            ║
   ║    slide--title        slide--agenda        slide--section               ║
   ║    slide--content      slide--two-col       slide--quote                 ║
   ║    slide--code         slide--chart         slide--timeline              ║
   ║    slide--comparison   slide--closing       slide--markdown-content      ║
   ║    slide--stats        slide--image                                      ║
   ║                                                                          ║
-  ║  See references/html-templates.md for the full markup for each type.     ║
+  ║  See references/html-templates.md for the full markup for each type.    ║
+  ║  See references/wireframes.md to pick a layout from content.            ║
   ╚══════════════════════════════════════════════════════════════════════════╝
 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
 
-  <!--
-    LLM: Set this to the slide heading / title. Used as tab title when opening
-    the slide file directly (standalone mode).
-  -->
+  <!-- LLM: Set this to the slide heading. Used as tab title in standalone mode. -->
   <title><!-- LLM: Slide title (e.g., "The Problem") --></title>
 
   <!-- Always include both CSS files. Paths are relative to slides/ subfolder. -->
@@ -47,107 +55,69 @@
       <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
       Then add at bottom of body: <script>hljs.highlightAll();</script>
 
-      Theme options (match to slide theme — see resources.md):
-        github-dark       → Terminal theme
-        monokai-sublime   → Blueprint theme
-        github            → Editorial theme (light)
-        ascetic           → Studio theme
-        tokyo-night-dark  → Midnight theme
-
     marked.js (render Markdown content):
       <script src="https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js"></script>
-      Then add data-md attribute to the container div.
-      And add at bottom of body: see markdown pattern below.
 
     Chart.js (bar, line, donut, scatter, radar):
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-      Use <canvas> element in body.
 
-    ECharts (heatmap, geo, treemap, candlestick, complex charts):
-      <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
-      Use <div id="chart" class="chart-surface"></div> in body.
-
-    uPlot (dense time-series):
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot/dist/uPlot.min.css">
-      <script src="https://cdn.jsdelivr.net/npm/uplot/dist/uPlot.iife.min.js"></script>
-      Use <div id="chart" class="chart-surface"></div> in body.
-
-    ApexCharts (polished multi-type charts):
-      <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-      Use <div id="chart" class="chart-surface"></div> in body.
-
-    Mermaid.js (flowcharts, sequence diagrams):
-      <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-      Use <div class="mermaid"> in body + mermaid.initialize() at bottom.
-
-    D3.js (custom SVG, networks, bespoke charts — ESM):
-      Do NOT add in <head>. Import from a <script type="module"> at bottom:
-      import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-
-    Motion (stagger, counters, timeline — loaded as ESM module):
-      Do NOT add in <head>. Add <script type="module"> at bottom of <body>.
-      See Motion patterns in references/html-templates.md.
+    ECharts / uPlot / ApexCharts / D3 / Mermaid / Motion:
+      See references/html-templates.md and references/resources.md.
     ═══════════════════════════════════════════════════════════════════
-  -->
-
-  <!--
-    LLM: REMOVE the comment above. Only keep the actual <link> / <script> tags you need.
-    If no CDN libraries are needed for this slide, leave this section empty.
   -->
 </head>
 <body>
 
 <!--
   ═══════════════════════════════════════════════════════════════════════════
-  SLIDE CONTAINER
-  LLM: Change slide--TYPE to the appropriate type for this slide.
-
-  Layout classes applied automatically by base.css for each type:
-    slide--title       → centered, large display text, no header/body zones
-    slide--agenda      → header zone + numbered list body
-    slide--section     → centered, section number + display heading
-    slide--content     → header zone + bulleted list body (max 4 bullets)
-    slide--two-col     → header zone + 2-column grid body
-    slide--quote       → centered, large quote mark + blockquote
-    slide--code        → header zone + code block + caption
-    slide--chart       → header zone + chart area + insight line
-    slide--timeline    → header zone + vertical timeline list
-    slide--comparison  → header zone + 3-column grid (col | divider | col)
-    slide--stats       → header zone + stat grid (1–3 large KPI numbers)
-    slide--image       → full-bleed image/video + gradient overlay + optional caption
-    slide--closing     → centered, display text + CTA + links
-
-  For full HTML markup per type, see: references/html-templates.md
+  SLIDE CONTAINER — change slide--TYPE to the correct type for this slide.
+  Each type sets centering, padding, and color treatment via base.css.
   ═══════════════════════════════════════════════════════════════════════════
 -->
 <div class="slide slide--<!-- LLM: TYPE (e.g., content) -->">
 
   <!--
-    ═══════════════════════════════════════════════════════════════════
-    SLIDE HEADER — slide heading / title
-    LLM: Include <div class="slide-header"> only for slides that have a
-    heading zone (content, two-col, code, chart, timeline, comparison).
-    Title, section, quote, and closing slides do NOT use slide-header.
-    ═══════════════════════════════════════════════════════════════════
+    ─── REGION 1 · LOGO (optional) ───
+    Brand mark anchored top-right. Decide once for the whole deck whether to
+    show a logo on every slide. Mixing some-with, some-without breaks rhythm.
+    Delete this header if the deck has no logo.
   -->
-  <div class="slide-header">
-    <!--
-      Heading classes:
-        .display  → large accent-colored display text (title/section slides)
-        .title    → standard slide heading (content, code, chart, etc.)
-        .subtitle → supporting line under display or title
-        .eyebrow  → small uppercase label above the heading
-    -->
-    <h2 class="title fade-in"><!-- LLM: Slide heading text --></h2>
-  </div>
+  <!--
+  <header class="slide-logo">
+    <img src="../assets/logo.svg" alt="LLM: Brand name">
+  </header>
+  -->
 
   <!--
-    ═══════════════════════════════════════════════════════════════════
-    SLIDE BODY — main content area
-    LLM: Replace the comment below with the correct markup for the
-    slide type. See references/html-templates.md for full templates.
+    ─── REGION 2 · HEADER (optional) ───
+    Title + description, stacked. The description is muted subtitle text and
+    is optional — use it to add a "why this matters" line under a claim title.
+    Centered slide types (title, section, quote, closing) carry their heading
+    here using .display instead of .title.
+    Pure-message slides (single quote, single number) can omit this region.
+  -->
+  <header class="slide-header">
+    <!--
+      Heading classes:
+        .display  → large accent display text (title/section/closing slides)
+        .title    → standard slide heading (content/code/chart/timeline/etc.)
+    -->
+    <h2 class="title fade-in"><!-- LLM: Slide heading — claim sentence --></h2>
+    <!-- description is optional — delete this <p> if not needed -->
+    <p class="description"><!-- LLM: One-line description (optional) --></p>
+  </header>
 
-    Common patterns:
+  <!--
+    ─── REGION 3 · CONTENT (required) ───
+    The body of the slide. Uses flex column by default with vertical gap.
+    Add a modifier class when the default flex isn't right:
+      slide-content--center  → center on both axes (single number, hero block)
+      slide-content--middle  → vertically center only
+      slide-content--row     → flex-row (text + image side-by-side)
+      slide-content--grid-2  → 2 equal columns
+      slide-content--grid-3  → 3 equal columns
+
+    Common bodies (replace this comment with one of these):
       Bullets:
         <ul class="bullets">
           <li class="slide-up delay-1">{{Point}}</li>
@@ -155,62 +125,74 @@
         </ul>
 
       Two columns:
-        <div class="two-col">
-          <div class="col slide-up delay-1">
-            <h3 class="col-heading">{{Left}}</h3>
-            <ul><li>{{Point}}</li></ul>
-          </div>
-          <div class="col slide-up delay-2">...</div>
-        </div>
+        Use slide-content--grid-2 on this <main>, then:
+        <div class="col"><h3 class="col-heading">{{Left}}</h3>...</div>
+        <div class="col"><h3 class="col-heading">{{Right}}</h3>...</div>
 
-      Code block (plain CSS, no highlight.js):
-        <pre class="code-block slide-up delay-1">
-          <code class="language-{{js|python|bash|go|rust}}">{{code}}</code>
-        </pre>
+      Code (with highlight.js):
+        <pre class="code-block slide-up delay-1"><code class="language-{{lang}}">
+        {{ ≤ 20 lines }}
+        </code></pre>
+        <p class="code-caption">{{One-line takeaway}}</p>
 
       Quote:
         <p class="quote-mark fade-in" aria-hidden="true">"</p>
         <blockquote class="quote-text slide-up">{{quote}}</blockquote>
         <cite class="quote-attr fade-in delay-2">— {{Name}}</cite>
 
+      KPI grid (1–3 numbers):
+        <div class="stat-grid">
+          <div class="stat-item"><span class="stat-value">{{N}}</span>
+                                 <span class="stat-label">{{label}}</span></div>
+        </div>
+
       Chart (HTML+CSS bars — no JS library):
-        <div class="bar-chart slide-up delay-1" role="img" aria-label="{{description}}">
+        <div class="bar-chart slide-up" role="img" aria-label="{{description}}">
           <div class="bar-row">
             <span class="bar-label">{{Label}}</span>
             <div class="bar" style="--pct:75%"><span>{{Value}}</span></div>
           </div>
         </div>
-        <p class="chart-insight fade-in delay-3">{{Insight}}</p>
+        <p class="chart-insight">{{Insight}}</p>
 
-      Markdown content (requires marked.js in <head>):
-        <div class="md-body slide-up delay-1" data-md>
-          {{raw markdown text}}
-        </div>
-
-    ═══════════════════════════════════════════════════════════════════
+    Full per-type templates → references/html-templates.md
   -->
+  <main class="slide-content">
+    <!-- LLM: Replace this comment with the body markup for this slide type -->
+  </main>
 
-  <!-- LLM: Replace this comment with the correct content markup for this slide type -->
+  <!--
+    ─── REGION 4 · FOOTER (optional) ───
+    Source line, page number, link, or attribution. Like the logo, this is
+    a deck-wide decision. Include on every slide or none. Footer must not
+    introduce new evidence — sources/links/page numbers only.
+    Delete this footer if the deck has no footer.
+  -->
+  <!--
+  <footer class="slide-footer">
+    <span><!-- LLM: Source or context --></span>
+    <span><!-- LLM: Page number or link --></span>
+  </footer>
+  -->
 
 </div><!-- end .slide -->
 
 
 <!--
   ═══════════════════════════════════════════════════════════════════════════
-  SPEAKER NOTES — hidden in the presentation, visible in a notes view
-  LLM: Always include this. Write 2–4 sentences the presenter would say.
-  These are hidden by base.css (.speaker-notes { display: none; })
+  SPEAKER NOTES — hidden in the presentation, surfaced by the P key.
+  Always include this. Write 2–4 sentences the presenter would say.
   ═══════════════════════════════════════════════════════════════════════════
 -->
 <aside class="speaker-notes">
-  <!-- LLM: Write speaker notes here. What should the presenter say for this slide? -->
+  <!-- LLM: Speaker notes go here -->
 </aside>
 
 
 <!--
   ═══════════════════════════════════════════════════════════════════════════
   CDN LIBRARY INIT SCRIPTS (at end of body)
-  LLM: Place library initialization scripts here, after the slide content.
+  Place library initialization scripts here, after slide content.
 
   highlight.js (if added in <head>):
     <script>hljs.highlightAll();</script>
@@ -224,61 +206,40 @@
     </script>
 
   Mermaid.js (if added in <head>):
-    <script>
-      mermaid.initialize({ theme: 'dark', startOnLoad: true });
-    </script>
+    <script>mermaid.initialize({ theme: 'dark', startOnLoad: true });</script>
 
-	  Chart.js (if added in <head>):
+  Chart.js (if added in <head>):
     <script>
       new Chart(document.getElementById('chart'), {
-        type: 'bar',   // or 'line', 'doughnut', 'pie'
-        data: { labels: [...], datasets: [{ data: [...], backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() }] },
-        options: { responsive: false, animation: { duration: 800 }, plugins: { legend: { display: false } } }
-	      });
-	    </script>
+        type: 'bar',
+        data: { labels: [...], datasets: [{ data: [...],
+          backgroundColor: getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent').trim() }] },
+        options: { responsive: false, animation: { duration: 800 },
+                   plugins: { legend: { display: false } } }
+      });
+    </script>
 
-	  ECharts / uPlot / ApexCharts / D3:
-	    See references/resources.md for the exact initialization pattern.
-	    Use one chart library per slide, matching the outline row's Graphs notes.
-
-	  Motion animation (use type="module" — NOT type="text/javascript"):
+  Motion animation (use type="module"):
     <script type="module">
       import { animate, stagger, timeline } from "https://cdn.jsdelivr.net/npm/motion@latest/+esm";
-
-      // LLM: Check prefers-reduced-motion before running animations
       if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-
-        // Stagger list items:
-        animate('.bullets li, .agenda-list li', { opacity: [0,1], y: [16,0] },
+        animate('.bullets li, .agenda-list li, .stat-item, .tl-item',
+          { opacity: [0,1], y: [16,0] },
           { delay: stagger(0.12), duration: 0.45, easing: [0.22,1,0.36,1] });
-
-        // Title + subtitle sequence:
-        // timeline([
-        //   ['.display',  { opacity:[0,1], y:[-14,0] }, { duration: 0.5 }],
-        //   ['.subtitle', { opacity:[0,1] },             { duration: 0.35, at:'+0.1' }],
-        // ]);
-
-        // Animated counter (for stat/KPI):
-        // animate(0, TARGET_NUMBER, {
-        //   duration: 1.4, easing: [0.22,1,0.36,1],
-        //   onUpdate(v) { document.getElementById('kpi').textContent = Math.round(v).toLocaleString(); }
-        // });
-
       }
     </script>
 
-  LLM: Only keep the script blocks that this specific slide actually uses.
-  Delete unused examples above.
+  LLM: Only keep the script blocks this slide actually uses. Delete the rest.
   ═══════════════════════════════════════════════════════════════════════════
 -->
 
-<!-- LLM: Place your initialization scripts here if needed. Delete this comment if none. -->
+<!-- LLM: Put CDN init scripts here if needed. Delete this comment otherwise. -->
+
 
 <!--
-  NAVBRIDGE — keeps arrow-key navigation working when the user clicks inside
-  this iframe. The script listens for nav keys on the slide document and
-  forwards them to the parent index.html via postMessage. It is a no-op when
-  the slide is opened standalone (not inside an iframe).
+  NAVBRIDGE — keeps arrow-key navigation working when the iframe has focus.
+  Forwards key events to the parent index.html via postMessage.
   Path is one level up from slides/ — keep this path unchanged.
 -->
 <script src="../js/navbridge.js"></script>

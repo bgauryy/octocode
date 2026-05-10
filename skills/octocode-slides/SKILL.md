@@ -166,8 +166,14 @@ const slides = [
 **Navbridge — how keyboard navigation stays alive inside iframes:**
 `js/navbridge.js` runs inside every slide iframe. When the user clicks a slide and the iframe gains focus, arrow keys fire on the iframe document. Navbridge captures them and forwards them to the parent via `postMessage({ type: 'octocode-slides:nav', key })`. The parent `index.html` listens for these messages and routes them through the same `handleKey()` function used for parent-window keystrokes. There is a single navigation handler — do NOT add a second `keydown` listener to the iframe.
 
-**Slide flex layout:**
-Every `.slide` element uses `display: flex; flex-direction: column` (from `base.css`). Centered slide types (`title`, `section`, `quote`, `closing`, `stats`) add `justify-content: center` automatically. Content types (`content`, `two-col`, `code`, `chart`) stack header zone above body zone. All content must fit at 1280×720 without scrolling — if it overflows, split into a new slide.
+**Slide skeleton — four regions, only one required:**
+Every `.slide` is a flex column (`display: flex; flex-direction: column` from `base.css`) and can use up to four canonical regions, in order:
+- `.slide-logo` — optional, top-right brand mark
+- `.slide-header` — optional, holds `.title` + `.description`
+- `.slide-content` — **required**, smart flex body
+- `.slide-footer` — optional, source / page / link
+
+The skeleton is a contract for **where** things sit when present — not a recipe forcing every slide to look the same. Use only the regions that serve the slide; omit the rest. Centered types (`title`, `section`, `quote`, `closing`) center the stack vertically. `.slide-content` defaults to flex column; modifier classes (`--center`, `--middle`, `--row`, `--grid-2`, `--grid-3`) cover the common cases, and inline overrides are fine for one-off layouts. All content must fit at 1280×720 without scrolling — if it overflows, split into a new slide. Full contract → `references/html-templates.md`.
 
 **Serving:** `npx serve .octocode/slides/{{slideName}}` — serves from the deck root.
 
