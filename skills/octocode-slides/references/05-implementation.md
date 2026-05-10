@@ -171,6 +171,35 @@ const slides = [
 ];
 ```
 
+### 5b² · Wire pointer chrome on `index.html` (default: on)
+
+If `DESIGN.md → Pointer & click feedback` is present (default for live presentations — see `references/04-design.md` Step 5b), wire the two libraries on the parent **only**. Skip this step when `DESIGN.md → Libraries` says `Pointer chrome: off`.
+
+Insert just before `</body>` in `index.html`:
+
+```html
+<!-- ── Pointer chrome (parent only — never per slide) ─── -->
+<click-spark style="--click-spark-color: var(--accent); position: fixed; inset: 0; pointer-events: none; z-index: 5;"></click-spark>
+<script type="module">
+  import { followingDotCursor } from "https://unpkg.com/cursor-effects@latest/dist/esm.js";
+  import "https://cdn.jsdelivr.net/gh/hexagoncircle/click-spark/click-spark.js";
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  if (!matchMedia('(pointer: coarse)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    new followingDotCursor({ color: accent });
+  }
+</script>
+```
+
+**Rules:**
+- Loaded on `index.html` **only** — never inside a slide HTML. Slides are separate iframe documents; loading there would spawn one cursor per slide and break continuity across transitions.
+- `z-index` must sit **above** the slide stage but **below** the HUD / progress bar / counter (which use `z-index: 10`+ in `scripts/base.html`). The example uses `z-index: 5`.
+- The HUD must stay clickable, so keep `pointer-events: none` on the `<click-spark>` wrapper — clicks pass through to the underlying element while still emitting a spark at the click point.
+- `pointer: coarse` short-circuit disables the custom cursor on touch devices.
+- `prefers-reduced-motion` short-circuit is defensive — the library already honours it, but the deck's policy is to respect it at every layer.
+- For offline-friendly delivery, vendor both files into `js/vendor/cursor-effects.esm.js` and `js/vendor/click-spark.js` and switch the imports to relative paths.
+
+Verification: open `index.html`, see the cursor follow with a small lag, click anywhere on the chrome — a 6-spoke spark should fire in `--accent`. Press `G` to enter overview; the custom cursor should disappear (or you can wrap the `new followingDotCursor(...)` in a `body.overview` guard if it interferes with thumbnail clicking).
+
 ### 5c · Write README.md
 
 Write `README.md` (at deck root):

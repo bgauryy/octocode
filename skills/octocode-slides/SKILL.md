@@ -217,6 +217,7 @@ Two layers — both matter, but they're not equal. Hard constraints are structur
 - **Bidirectional planning + three-lens check before HTML.** Top-down (goal → arc → slides) and bottom-up (titles read as a paragraph). Each slide passes Content / UX / UI lenses (defined under "Bidirectional Slide Planning" above).
 - **Both Slop Tests pass before delivery.** Visual ≤1/8, Content 0/8. Document any intentional exception.
 - **Phase 3 and Phase 4 always pause for user input.** Outline approval, then design direction. Skip only when the user said "fast mode", "your call", "just build it", or a brand guide is locked.
+- **Pointer chrome is default-on for live presentations.** A custom cursor + mouse-down spark makes the deck feel like a live console — well suited to talks, demos, and dark/tech themes. Phase 4 confirms or removes it; remove only when the brief calls for print/PDF-first output, the deck is async/silent, or the user opts out. Libraries and wiring → `references/resources.md` → Pointer & Click Feedback.
 - **Master rule set is `references/slide-rules.md`.** When this file and a phase doc disagree on a default, the more specific rule wins; record the resolution.
 
 ### Evidence

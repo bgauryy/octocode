@@ -607,7 +607,62 @@ npx decktape --slides 1-10 http://localhost:3000 deck.pdf
 
 ---
 
+## Pointer & Click Feedback
 
+A two-piece pointer-chrome layer that makes a live deck feel like a debugger console: a themed cursor that follows the speaker, plus a short spark on every click. Both libs are tiny, vanilla, MIT, and themable through the deck's existing CSS variables. **Default: ON for live presentations; remove only when the brief is print/PDF-first, async, or the user opts out** (see `references/04-design.md` Step 5b).
+
+> **Where they load:** parent `index.html` only — never per slide. Slides are iframes with separate documents, so loading these inside slides would create one cursor per slide and break the spark on slide chrome.
+
+### tholman/cursor-effects — themable custom cursor (vanilla JS)
+**Rating:** ★★★★☆ — battle-tested, ships ESM + UMD, already respects `prefers-reduced-motion` (matches the deck's animation policy)
+**CDN (ESM):** `https://unpkg.com/cursor-effects@latest/dist/esm.js`
+**Repo:** [tholman/cursor-effects](https://github.com/tholman/cursor-effects) | MIT
+**Use when:** A live presentation or dark/tech deck wants a themed pointer (`followingDotCursor` / `trailingCursor` / `rainbowCursor`). Skip on print-first or async decks.
+
+```html
+<!-- in index.html, just before </body> -->
+<script type="module">
+  import { followingDotCursor } from "https://unpkg.com/cursor-effects@latest/dist/esm.js";
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  new followingDotCursor({ color: accent });
+</script>
+```
+
+**Available effects:** `followingDotCursor`, `trailingCursor`, `rainbowCursor`, `bubbleCursor`, `fairyDustCursor`, `ghostCursor`, `springyEmojiCursor`, `emojiCursor`, `clockCursor`, `characterCursor`, `textFlag`. For a presentation default, prefer `followingDotCursor` (smallest visual footprint) or `trailingCursor` (slightly more presence on big-screen projectors).
+
+### hexagoncircle/click-spark — `<click-spark>` Web Component (mouse-down feedback)
+**Rating:** ★★★★★ — one file, no build step, themable via a single CSS custom property
+**Source:** [hexagoncircle/click-spark/click-spark.js](https://github.com/hexagoncircle/click-spark/blob/main/click-spark.js) | MIT
+**Use when:** Click feedback should reinforce live interactions — demos, button-led walkthroughs, anything where the speaker is clicking on stage.
+
+```html
+<!-- in index.html, just before </body> -->
+<script type="module" src="js/vendor/click-spark.js"></script>
+<click-spark style="--click-spark-color: var(--accent);"></click-spark>
+```
+
+**Notes for the slide deck context:**
+- Wrap the spark element so it sits **above** slide iframes but **below** chrome (HUD, progress bar, counter): give it `position: fixed; inset: 0; pointer-events: none; z-index: 5;` and keep the HUD at `z-index: 50`.
+- Click events fired inside an iframe are captured by the iframe's document, not the parent — the spark fires on parent-level chrome (overview thumbnails, navigation hints) which is the intended behaviour.
+- For a focal-lane variant, use `--click-spark-color: var(--violet)` on a second `<click-spark>` scoped to a specific container.
+
+### Wiring on `index.html` (recommended pattern)
+```html
+<!-- ── Pointer chrome (parent only) ────────────────────── -->
+<click-spark style="--click-spark-color: var(--accent); position: fixed; inset: 0; pointer-events: none; z-index: 5;"></click-spark>
+<script type="module">
+  import { followingDotCursor } from "https://unpkg.com/cursor-effects@latest/dist/esm.js";
+  import "https://cdn.jsdelivr.net/gh/hexagoncircle/click-spark/click-spark.js";
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  if (!matchMedia('(pointer: coarse)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    new followingDotCursor({ color: accent });
+  }
+</script>
+```
+
+`pointer: coarse` short-circuit opts touch devices out cleanly. `prefers-reduced-motion` short-circuit honours OS settings even though the cursor library handles it internally too. For offline-friendly decks, vendor both files into `js/vendor/` and replace the two URLs with relative paths.
+
+---
 
 ### Catppuccin — Warm pastel palette system, 4 flavors
 **Rating:** ★★★☆☆ — strong palette for pastel/cozy aesthetics; too niche for general use
@@ -781,3 +836,5 @@ When deviating: define a `/* Custom: <name> */` block at the top of `theme.css` 
 | Type scale (base + ratio → CSS sizes) | type-scale.com |
 | WCAG contrast check (AA/AAA) | Coolors contrast checker |
 | Export deck to PDF | `npx decktape http://localhost:port deck.pdf` |
+| Themed live-presentation cursor | tholman/cursor-effects (`followingDotCursor`) |
+| Mouse-down click spark | hexagoncircle/click-spark (`<click-spark>`) |

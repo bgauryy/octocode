@@ -153,6 +153,24 @@ Open them and pick one — or describe what to change.
 
 ---
 
+## Step 5b · Pointer & click feedback (default: on)
+
+A subtle layer of pointer chrome — custom cursor + mouse-down spark — makes the deck feel like a live console. **Default: include it.** It is best for live presentations: stage talks, demos, engineering decks, and dark/console-style themes (where the focal accent reads cleanly through the cursor ring).
+
+**Keep it when** the deck is presented live, has a dark or tech-leaning palette, or the brief mentions "demo / live / console / interactive feel".
+
+**Remove it when:**
+- Output is print/PDF-first or async/silent (no live presenter)
+- Brand guide forbids non-OS cursor behaviour
+- Audience profile is `Executive` print-readers or accessibility-first contexts where the OS cursor must dominate
+- User explicitly opts out ("no custom cursor", "default cursor only")
+
+When kept, list the two libraries in `DESIGN.md → Libraries` (see `references/resources.md → Pointer & Click Feedback` for full URLs and theme bindings) and add the `## Pointer & click feedback` block to `DESIGN.md`. Implementation wiring belongs in Phase 5 — design only declares intent + tokens.
+
+When removed, write `Pointer chrome: off` in `DESIGN.md → Libraries` with a one-line reason.
+
+---
+
 ## Step 6 · Write DESIGN.md
 
 Write `.content/DESIGN.md` inside `.octocode/slides/{{slideName}}/`. Keep it short and actionable. Every decision should explain the WHY, not just the WHAT.
@@ -215,6 +233,17 @@ List only slides that need special design attention. All slide-level notes live 
 - Sequences / stagger / counters: Motion (motion.dev) on slides: {{list or "none"}}
 - `@media (prefers-reduced-motion: reduce)` respected in every animated slide
 
+## Pointer & click feedback
+
+Default: ON for live presentations. Set to `off` and add a one-line reason if the deck is print/PDF-first, async/silent, or the user opted out.
+
+| Element | Behaviour | Token |
+|---------|-----------|-------|
+| Custom cursor | Small ring + center dot; ring lags dot ~80 ms for a debugger-feel pointer. Native cursor preserved on form fields, links, and during text selection. | `--accent` ring, `--accent-2` dot |
+| Hover state | Ring scales to 1.6× and shifts to `--accent-strong` over interactive elements (buttons, cards, code panels). | `--accent-strong` |
+| Mouse-down spark | 6-spoke radial spark at click point — short (~320 ms), `cubic-bezier(0.22, 1, 0.36, 1)`. Honours `prefers-reduced-motion: reduce`. | `--accent` (+ optional `--violet` focal ray) |
+| Iframe handoff | Parent (`index.html`) owns one shared overlay so the cursor stays continuous across slide transitions; HUD/progress/counter excluded from spark hits. Disabled in overview mode (`body.overview`). | — |
+
 ## Libraries
 
 Only list libraries actually needed. For each: which slide, and why this library over alternatives.
@@ -224,8 +253,10 @@ Only list libraries actually needed. For each: which slide, and why this library
 | {{highlight.js}} | {{05}} | Code slide — real syntax colours, not faked |
 | {{Chart.js}} | {{06}} | Bar/line/donut — lightest option |
 | {{Motion}} | {{01}} | Counter/stagger — CSS alone cannot sequence |
+| {{tholman/cursor-effects}} | parent | Pointer chrome — themable custom cursor that already respects `prefers-reduced-motion` |
+| {{hexagoncircle/click-spark}} | parent | Mouse-down spark — single Web Component themed via `--click-spark-color` |
 
-**Library decision rules:** one chart lib per slide. Full table → `references/resources.md → Data Visualization — Library Decision`. The Libraries table above only needs to list libraries this deck actually uses, with the `Why` column tied back to the audience and content (not just "lightest").
+**Library decision rules:** one chart lib per slide. Full table → `references/resources.md → Data Visualization — Library Decision`. Pointer chrome libs load once on `index.html`, not per-slide. The Libraries table above only needs to list libraries this deck actually uses, with the `Why` column tied back to the audience and content (not just "lightest").
 ```
 
 ---
