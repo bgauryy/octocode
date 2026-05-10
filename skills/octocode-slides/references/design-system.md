@@ -40,126 +40,44 @@ Calibration bands:
 
 ## Slide Title Contract
 
-Most slide titles (except `title`, `agenda`, `section`, `closing` types) should be **claim sentences**, not topic labels.
-
-| ❌ Topic label | ✅ Claim sentence |
-|---------------|------------------|
-| "Performance" | "API response time dropped 40% after caching" |
-| "Our Team" | "Five engineers shipped this in eight weeks" |
-| "Key Findings" | "Users abandon at step 3 — always" |
-
-A good title is a sentence the audience can repeat without the slide in front of them.
+Claim-sentence vs topic-label rule lives in `slide-rules.md §1.2` (master rule set) and is summarised in `SKILL.md → Operating principles`. This file does not restate it — but every CSS decision below assumes titles carry meaning, not labels.
 
 ---
 
-## Design Reasoning Steps — the complete chain
+## Design Reasoning
 
-Before any colour is chosen, font is named, or library is added, the agent must walk this chain. Every decision must trace back to an earlier step. No step may be skipped.
+The reasoning chain that drives every aesthetic decision lives in `references/04-design.md → Design Reasoning Chain`. Walk that chain *before* opening this document — the answers there determine which sections of the design system you actually need.
 
-```
-STEP 1  WHO is in the room?
-        → Expert / Practitioner / General / Mixed
-        → Determines: density, vocabulary, evidence type, visual trust signals
-
-STEP 2  WHAT do they need to feel?
-        → Trust / Excitement / Urgency / Calm / Curiosity
-        → Determines: color energy, contrast level, pacing
-
-STEP 3  WHERE is this shown?
-        → Stage / projector (dark background preferred)
-        → Screen / browser (both work)
-        → Print / async / PDF (light background preferred)
-        → Determines: bg energy (dark vs light)
-
-STEP 4  WHAT temperature?
-        → Cool (blues, slates) → precise, technical, clinical
-        → Warm (ambers, oranges, reds) → human, creative, editorial
-        → Neutral (greys, off-whites) → safe, universal, formal
-        → Determines: hue family for --bg, --accent, --surface
-
-STEP 5  WHAT must this NOT look like?
-        → Name 1–2 visual clichés to avoid for this audience/topic
-        → Example: "cyan+magenta hacker look", "flat Bootstrap startup palette"
-        → Determines: what to reject when choosing from presets or research
-
-STEP 6  HOW much personality?
-        → Safe: geometric sans heading + neutral sans body (universal trust)
-        → Distinctive: editorial serif + geometric sans (premium, editorial)
-        → Bold: display variable + neutral body (modern, tech-forward)
-        → Determines: font category, weight, and pairing contrast
-
-STEP 7  WHICH font pair?
-        → Run through Font Pairing Presets (below) filtering by step 6
-        → Pick the first that fits all constraints; skip any that violate step 5
-        → Write: heading font + reason + body font + reason
-
-STEP 8  WHICH libraries?
-        → Walk slide-by-slide through outline.md
-        → For each slide with data: choose ONE chart lib using the decision rules
-        → For each slide with code: highlight.js
-        → For each slide with Markdown content: marked.js
-        → For each slide with animation: CSS sibling-index (static stagger) or Motion (sequenced/counter)
-        → Record: library → slides → one-line reason it beats alternatives
-
-STEP 9  SHOW the user 3 directions (unless fast mode)
-        → Write .content/preview-{a,b,c}.html
-        → Each must reflect a different answer to steps 4–6 above
-        → Each must have a one-line description anchored to those steps
-        → WAIT for user to choose before writing theme.css
-```
-
-Only after step 9 (or user explicitly delegates): proceed to DESIGN.md and CSS.
+This file is the visual *contract*: tokens, palettes, typography presets, font pairings. It is not the *process*.
 
 ---
 
-## How to Design a Theme
+## Theme Authoring — rules of thumb
 
-Every deck deserves its own visual identity. Follow this process — do not start from a preset.
+The Phase 4 process is in `04-design.md`; this section captures the rules that process applies. Use these alongside the Design Reasoning Chain — not as a replacement.
 
-### 1 · Read the audience and goal
+**Audience signals → visual posture (a starting frame, not a verdict):**
 
-| Signal | What it suggests |
-|--------|-----------------|
-| Developers / technical audience | High contrast, code-native fonts, readable from distance |
+| Audience | What it suggests |
+|----------|-----------------|
+| Developers / technical | High contrast, code-native fonts, readable from distance |
 | Executives / investors | Premium restraint, serif or distinctive sans, limited palette |
 | Creative / product | More expressive color and layout, personality over safety |
 | Academic / research | Clean, readable, data-forward — legibility over style |
 | Mixed / public | Light background, clear hierarchy, no niche aesthetics |
 
-### 2 · Set the energy
+**Font pairing rules:**
+- Two fonts maximum (one heading, one body). Monospace adds a third for code.
+- Heading font should have *character* — chosen, not defaulted (Inter / Roboto alone fail Visual Slop).
+- Body font legible at 18–22pt on screen.
+- The pair should feel related: both geometric, both humanist, or contrast intentionally (serif heading + sans body).
 
-Decide two things before picking any colors:
-
-**Background energy:** Dark (focused, immersive, projector-friendly) or Light (clear, readable, print-friendly)?
-
-**Color temperature:** Warm (approachable, creative, editorial) or Cool (technical, clinical, precise) or Neutral (safe, universal)?
-
-### 3 · Research before deciding
-
-Use `references/resources.md` to find:
-- Dribbble / Behance for visual direction on real decks
-- Google Fonts / Fontshare for distinctive type pairs
-- WebAIM for contrast validation
-- GitHub repos for CSS presentation aesthetics
-
-### 4 · Pick a font pair
-
-Rules:
-- **Two fonts maximum.** One for headings, one for body. Monospace for code.
-- Heading font should have **character** — something chosen, not defaulted.
-- Body font should be **highly legible** at 18–22pt on screen.
-- The pair should feel related: both geometric, both humanist, or contrast intentionally (e.g., serif heading + sans body).
-
-See → Font Pairing Presets section below.
-
-### 5 · Build the color system
-
-Start from the background energy (step 2). Pick colors in this order:
-1. `--bg` — the base
-2. `--text` — contrast ≥ 4.5:1 against `--bg`
-3. `--accent` — one focused punch of color (used sparingly — see Design Rules)
-4. `--surface`, `--border`, `--muted` — usually derived from `--bg`
-5. `--code-bg`, `--code-text` — readable mono colors that feel cohesive with the theme
+**Color order — pick in this sequence so contrast and hierarchy fall out naturally:**
+1. `--bg` (the base — sets the entire mood)
+2. `--text` (contrast ≥ 4.5:1 against `--bg` — non-negotiable)
+3. `--accent` (one focused punch; used on ≤3 elements per slide)
+4. `--surface`, `--border`, `--muted` (usually derived from `--bg`)
+5. `--code-bg`, `--code-text` (readable mono colors that feel cohesive with the theme)
 
 Use OKLCH for dark/muted themes to get perceptually uniform lightness steps.
 Validate every `--text` / `--bg` pair at `https://webaim.org/resources/contrastchecker`.

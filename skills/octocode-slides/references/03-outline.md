@@ -17,7 +17,7 @@ Read both now (in parallel):
 
 ## Step 2 · Calibrate to audience depth
 
-Before picking an arc, translate the brief's audience profile into slide-level constraints using `references/slide-rules.md` §0 (Audience & Depth).
+Translate the brief's audience profile into slide-level constraints using `references/slide-rules.md` §0 (Audience & Depth).
 
 | From brief | Resolve to |
 |-----------|------------|
@@ -26,9 +26,11 @@ Before picking an arc, translate the brief's audience profile into slide-level c
 | Evidence type needed | Business outcomes · Code · Before/after · Timeline |
 | Target slide count | Cross-check against depth ranges in §0.5 |
 
-Write one sentence: *"Depth: {{level}} — this means {{slide style implications}}."*
+Take a moment before continuing — the answer here governs every later decision in this phase, including which material to cut. Write one sentence:
 
-This sentence governs every subsequent decision in this phase. Use it to cut material as much as to add material.
+> *"Depth: {{level}} — this means {{slide style implications}}."*
+
+If the audience is mixed or the brief is ambiguous, decide who the deck is *primarily* for and design for them; secondary audiences get appendix slides. Don't try to satisfy every viewer at full depth — that's how decks turn into documents.
 
 ---
 
@@ -50,39 +52,14 @@ Write one sentence naming the arc and why it fits the audience + goal.
 
 ## Step 4 · Select slide types
 
-Before writing the outline table, map each idea from research to a slide type that delivers it best. The type is a design decision, not a format choice.
+For each idea from research, pick the type that makes the point legible in 3 seconds without the presenter speaking. **Type is a design decision, not a format choice.**
 
-| I want to communicate... | Best type |
-|--------------------------|-----------|
-| A single striking fact or number | `stats` |
-| My claim + 2–4 supporting reasons | `content` |
-| Two things differ in important ways | `two-col` |
-| External credibility — a powerful quote | `quote` |
-| Working proof in real code | `code` |
-| Quantitative trend or distribution | `chart` |
-| A sequence, journey, or roadmap | `timeline` |
-| Help the audience decide between options | `comparison` |
-| A photo, diagram, or visual that speaks alone | `image` |
-| Shifting to the next major topic | `section` |
+The full type → use-case table lives in `SKILL.md → Visual Type Decision`. Read it once, then return here.
 
-**Decision rule:** Choose the type that makes the slide's point legible in 3 seconds without the presenter speaking. If a `content` slide only works when explained aloud, it should be `stats`, `chart`, or `code` instead.
+**Two judgement calls only this phase makes:**
 
-**Avoid type monotony.** Three consecutive `content` slides = audience disengagement. Vary types as the content and arc demand.
-
-**For `chart` slides — also pick the library at outline time (not implementation time):**
-
-| Data shape | Library | Add to outline "Key content" column |
-|------------|---------|-------------------------------------|
-| Bar, line, area, donut, scatter, radar | Chart.js | `chart · Chart.js` |
-| Heatmap, geo, treemap, candlestick | ECharts | `chart · ECharts` |
-| Dense time-series (100+ pts) | uPlot | `chart · uPlot` |
-| Polished multi-type | ApexCharts | `chart · ApexCharts` |
-| Custom SVG, network layout, projection, bespoke chart | D3.js | `chart · D3.js` |
-| KPI number / counter | `stats` type + Motion | `stats · Motion countup` |
-| Flow / architecture / sequence | Mermaid.js diagram | `image` or `content` with Mermaid embed |
-| Static comparison ≤6 bars | CSS-only | `chart · CSS bars` |
-
-Deciding the library in the outline prevents mis-matched library loads at Phase 5 and flags `[NEEDS SOURCE]` for any chart whose data has not yet been confirmed.
+- **Vary types as the arc demands.** Three consecutive `content` slides usually means the agent stopped thinking. If it's intentional rhythm (e.g., a teaching sequence), record why; otherwise rework.
+- **For `chart` slides — pick the library now, not in Phase 5.** Add it to the `Key content` column as `chart · {{Library}}` (e.g., `chart · Chart.js`). Decision rules → `references/resources.md → Data Visualization — Library Decision`. Deciding here prevents mis-matched library loads at implementation and flags `[NEEDS SOURCE]` for any chart whose data isn't confirmed.
 
 ---
 
@@ -140,21 +117,13 @@ Create `.content/outline.md` inside `.octocode/slides/{{slideName}}/`. This file
 
 ## Step 5b · Bidirectional validation
 
-After drafting the outline table, run all three checks before Gate 3. Record weak spots inline so they can be fixed before implementation.
+Before Gate 3, run the bidirectional + three-lens check defined in `SKILL.md → Bidirectional Slide Planning`. Apply it to *this* outline:
 
-**Top-down (row 1 → N):** Does the opening hook create discomfort before slide 3? Does each section follow logically — no unexplained jumps? Does the ghost outline test pass (read only titles aloud — do they tell the complete story)?
+- **Top-down (row 1 → N):** Does the opening hook create discomfort before slide 3? Each section follow logically? Ghost outline test pass — reading titles alone tells the complete story?
+- **Bottom-up (row N → 1):** Does the closing CTA trace back to the opening problem? Each slide's claim support its section? Every `[NEEDS SOURCE]` resolvable, or should the slide be cut / reframed / sent to the user?
+- **Per-slide three-lens** (Content · UX · UI — defined in SKILL.md). Mark any slide failing two or more lenses `[REVISIT]`. Resolve before Phase 5 or ask the user which direction to take.
 
-**Bottom-up (row N → 1):** Does the closing CTA trace back to the opening problem? Does each slide's claim support its section? Can every `[NEEDS SOURCE]` be resolved, or should the slide be cut, reframed, or sent to the user for validation?
-
-**Per-slide three-lens check** — reason through all three for every slide:
-
-| Lens | Pass condition |
-|------|---------------|
-| **Content** | Single claim stated. Evidence sourced or explicitly marked as assumption / `[NEEDS SOURCE]`. Nothing cuttable without losing the point. |
-| **UX** | Q→A chain intact. Cognitive load fits depth level. If removed, flow still holds. |
-| **UI** | Layout type chosen and justified. Dominant visual identified. 3-second test plausible without verbal explanation. No type monotony with adjacent slides. |
-
-Mark any slide failing two or more lenses `[REVISIT]`. Resolve it before Phase 5 or ask the user which direction to take.
+The lenses are a thinking tool, not a checkbox grade. If a slide fails one lens but the brief explicitly justifies the trade-off (e.g., a known-dense reference slide for an async deck), record the reason inline rather than forcing a rewrite.
 
 ---
 

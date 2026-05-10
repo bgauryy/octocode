@@ -69,15 +69,7 @@ For each row in `.content/outline.md`, build directly from the row's data and an
 - For code slides: use highlight.js with the theme from DESIGN.md
 - For markdown-content slides: use marked.js + `data-md` pattern
 - For diagram / flow / architecture slides: use Mermaid.js
-- For chart slides — pick the right library (one per slide; avoid loading two chart libs):
-  - Bar / line / area / donut / scatter / radar → **Chart.js** (lightest, best default)
-  - Heatmap / geo / treemap / candlestick → **ECharts**
-  - Dense time-series (100+ data points) → **uPlot**
-  - Polished look with minimal config → **ApexCharts**
-  - Custom / bespoke / network layout → **D3.js**
-  - Static comparison ≤6 bars → CSS-only `width: X%` bars, no library
-- For KPI / counter / number countup: use **Motion** `animate(0, N, onUpdate)` — no chart library needed
-- For progress bars: use **Motion** `animate(el, { width: ['0%', 'N%'] })` or CSS `@starting-style`
+- For chart / KPI / progress widgets — the outline already names the library (Phase 3 Step 4). If it doesn't, decide from `references/resources.md → Data Visualization — Library Decision` and update `outline.md` before implementing. One chart lib per slide; never two.
 - `calc(-1 * clamp(...))` for any negated length instead of `-clamp(...)`
 - Motion: load as `<script type="module">` at bottom of `<body>`
 - **The outline is the contract.** If implementation reveals a better title, split, or order — update `.content/outline.md` first, then build to the updated version.
@@ -121,7 +113,9 @@ Every slide must be structurally identical in its scaffolding. Check each slide 
 
 ## Step 4 · Implementation loop
 
-After every **5 slides**, run an internal mini-review. Pause for user feedback only when the user explicitly wants collaborative checkpoints, a missing asset blocks a slide, or a content decision cannot be inferred.
+Run an internal mini-review at natural break points — section boundaries, after every 5–8 slides, or whenever density / type pattern changes. The point is to catch drift early, not to hit a fixed cadence.
+
+Pause for user feedback only when the user explicitly wants collaborative checkpoints, a missing asset blocks a slide, or a content decision can't be inferred from `outline.md` + `request.md`.
 
 When pausing for user feedback, use:
 

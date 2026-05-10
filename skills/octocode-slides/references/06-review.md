@@ -8,7 +8,9 @@
 
 ## Step 0 · Self-review — run before showing anything to the user
 
-Score every slide against these three checklists. Fix every failure before proceeding to Step 1. No slide is delivered with an open failure.
+Walk every slide through the three checklists below. Treat them as a thinking tool, not a passing grade — most items are the strong defaults from `SKILL.md → Operating principles → Strong defaults`. Fix every clear failure; when an item is intentionally violated for a brief-driven reason, record the reason inline (in `outline.md → Slide notes` or as an HTML comment) instead of forcing a rewrite.
+
+The "Anti-patterns" table is different — those are auto-fail and should be removed without negotiation.
 
 ---
 

@@ -5,7 +5,7 @@
 **Input:** `.content/request.md` · `.content/outline.md`
 **Output:** `.content/DESIGN.md` · `css/base.css` · `css/theme.css`
 
-> **Design gate (default: ask).** Always show the user 3 design directions and wait for a choice before writing CSS. Skip only when the user explicitly delegates ("fast mode", "your call", "just build it") or a brand guide is locked. The Design Reasoning Chain (Step 2b) must be completed before any aesthetic choice is made.
+> **Design gate (default: ask).** Show the user 3 design directions and wait for a choice before writing CSS. Skip when the user explicitly delegates ("fast mode", "your call", "just build it") or a brand guide is locked. Complete the Design Reasoning Chain (between Step 2 and Step 3 below) before any aesthetic choice — short-circuiting it is how decks end up looking like generic templates.
 
 ---
 
@@ -65,24 +65,7 @@ Every design choice must trace back to the audience and goal. Work through these
 
 ---
 
-## Step 3 · Analyze the deck's design context
-
-Before searching for inspiration, answer these questions from the brief and outline:
-
-| Question | What it drives |
-|----------|----------------|
-| What emotion should the first slide trigger? | Color energy and contrast level |
-| Is the content data-heavy, narrative, or code-driven? | Layout density and type personality |
-| Formal boardroom, tech conference, or creative studio? | Restraint vs. expression |
-| Does the deck live in dark environments (projector, stage)? | Dark vs. light background |
-| What does the competition / industry look like? | What to differentiate from |
-| Are there user-provided images that anchor the visual style? | Palette should complement image tones |
-
-Write your analysis — 5–6 short answers. This drives your research direction.
-
----
-
-## Step 3b · Review per-slide design needs
+## Step 3 · Review per-slide design needs
 
 Before writing CSS, check `outline.md → Slide notes` for any slide whose visual treatment is not obvious.
 
@@ -124,18 +107,17 @@ Fallback if these tools are unavailable: use available web search/browser tools,
 
 ---
 
-## Step 5 · Generate style previews — MANDATORY unless fast mode
+## Step 5 · Generate style previews
 
-**Default: always generate previews and ask the user to choose before writing CSS.**
+**Default:** generate three previews and ask the user to choose before writing CSS. Design is subjective — an agent that silently auto-selects colors and fonts produces a deck the user hates often enough that 3 minutes of previews beats 30 minutes of rebuilds.
 
-Design is subjective. An agent that silently auto-selects colors and fonts will frequently produce a deck the user hates — then Phase 5 has to be redone. Spend 3 minutes on previews, not 30 minutes on a wrong theme.
-
-**Exceptions — skip previews and auto-select only when:**
+**Skip previews and auto-select when:**
 - User explicitly said "fast mode", "your call", "just build it", or "skip design"
 - A `brand_guide: locked` entry exists in `request.md`
 - The user already approved a specific theme in this conversation
+- The brief is so specific (e.g., "match this exact reference") that previews would only delay confirmation
 
-In all other cases, generate three previews.
+When skipping, write `> Auto-selected: {{theme}} — {{one-line reason}}` at the top of `DESIGN.md` so the choice is visible.
 
 When previews are needed, write exactly three standalone HTML files — each a different visual direction:
 - `.content/preview-a.html`
@@ -243,16 +225,10 @@ Only list libraries actually needed. For each: which slide, and why this library
 | {{Chart.js}} | {{06}} | Bar/line/donut — lightest option |
 | {{Motion}} | {{01}} | Counter/stagger — CSS alone cannot sequence |
 
-**Library decision rules (one chart lib per slide):**
-- Bar, line, area, donut, scatter → **Chart.js** (default, lightest)
-- Heatmap, geo, treemap, candlestick → **ECharts**
-- Dense time-series 100+ points → **uPlot**
-- Polished look, minimal config → **ApexCharts**
-- Custom bespoke / network → **D3.js**
-- Number counter / spring animation → **Motion** (not a chart lib)
-- Flow / sequence diagram → **Mermaid** (not a chart lib)
-- Static comparison ≤6 bars → **CSS only**, no library
-```---
+**Library decision rules:** one chart lib per slide. Full table → `references/resources.md → Data Visualization — Library Decision`. The Libraries table above only needs to list libraries this deck actually uses, with the `Why` column tied back to the audience and content (not just "lightest").
+```
+
+---
 
 ## Step 7 · Generate CSS files
 

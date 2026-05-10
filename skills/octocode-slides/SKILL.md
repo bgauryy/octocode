@@ -187,46 +187,44 @@ The skeleton is a contract for **where** things sit when present — not a recip
 |-------|--------------|-------|--------|----------------|
 | 1 · Request | `references/01-brief.md` | User conversation | `.content/request.md` | Any of: goal, audience, source material, or aesthetic is missing from the initial request |
 | 2 · Research | `references/02-research.md` | `request.md` | Appended to `.content/request.md` | A specific fact only the user can provide is needed |
-| 3 · Outline | `references/03-outline.md` | `request.md` | `.content/outline.md` | **Always** — show the outline and ask if structure works before designing |
-| 4 · Design | `references/04-design.md` | `request.md` + `outline.md` | `DESIGN.md` + CSS | **Always** — show 3 style directions and wait for choice (unless fast mode) |
+| 3 · Outline | `references/03-outline.md` | `request.md` | `.content/outline.md` | Default: pause to confirm structure. Skip in fast mode. |
+| 4 · Design | `references/04-design.md` | `request.md` + `outline.md` | `DESIGN.md` + CSS | Default: show 3 style directions and wait. Skip in fast mode or when brand is locked. |
 | 5 · Implementation | `references/05-implementation.md` | `request.md` + `outline.md` + `DESIGN.md` | `slides/` folder | A missing asset or unresolved `[NEEDS SOURCE]` blocks a specific slide |
 | 6 · Review | `references/06-review.md` | `slides/` folder | Approved deck | User requests changes after seeing the rendered deck |
 
-**Each phase reads its reference doc first. Phases 3 and 4 always pause for user input (outline approval, then design direction). All other phases pause only when a specific unknown blocks the deck.**
+**Each phase reads its reference doc first.** Phases 3 and 4 are gates because getting structure or aesthetic wrong cascades expensive rework — pausing 30 seconds beats rebuilding 30 slides. Other phases continue until something specific blocks them.
 
 ---
 
-## Operating guardrails
+## Operating principles
 
-Use these as judgment aids, not bureaucracy. When the user gives a different constraint, adapt and document the assumption.
+Two layers — both matter, but they're not equal. Hard constraints are structural correctness; if you break one, the deck is broken. Strong defaults are how good decks behave; deviate when the audience, brief, or content makes the override obviously right, and write the reason in `DESIGN.md` or the outline notes.
 
-1. **One slide = one file.** Keep each slide as standalone HTML unless the user asks for a different output format.
-2. **Decision gates are smart stops, not ceremony.** Continue with stated assumptions when the user delegated judgment or the answer is obvious from context.
-3. **Never invent content.** Do not fabricate numbers, statistics, quotes, company names, product names, dates, or technical facts. Only put on a slide what comes from: the user's own source material, a verifiable web/official source, or Octocode/local tools confirming it from the repo. If a claim cannot be validated, mark the slide `[NEEDS SOURCE]`, tell the user what is missing, and halt that slide until resolved. Invented content that looks real is worse than a blank slide.
-4. **Use design tokens in slide HTML.** Prefer CSS variables for colors, fonts, and spacing so theme changes stay safe.
-5. **Choose named fonts deliberately.** Use Google or Fontshare fonts when available; system fonts are acceptable as fallbacks or when the brand guide requires them.
-6. **Keep slides scroll-free.** If content overflows, split it, move detail to speaker notes, or make an intentional async-deck exception.
-7. **Start from the templates when building new files.** Use `scripts/slide.html` for slides and `scripts/base.html` for `index.html`.
-8. **Run both Slop Tests (Visual + Content) before delivering.** Target Visual 0/8 and Content 0/8; document any intentional exception.
-9. **Consult `references/slide-rules.md` before Phase 3, 4, and 5.** It is the master rule set for content, design, layout, narrative, and delivery decisions.
-10. **Run the Self-Review (Phase 6 · Step 0) before showing the deck.** Fix clear failures; document intentional trade-offs when the brief requires them.
-11. **Run bidirectional planning before Phase 5.** Top-down pass (goal → arc → sections → slides) then bottom-up pass (closing → sections → arc → goal). Both should hold before implementation.
-12. **Apply the three-lens check before writing HTML.** Content (single claim + source) · UX (Q→A chain + cognitive load) · UI (layout type + 3-second test). If a lens fails, revise the outline or ask the user rather than forcing the slide.
-13. **Use `.content/outline.md` as the implementation contract.** Each row in the outline table — plus its inline notes — contains the title, type, source trace, key content, and flow logic needed to build the slide. Work directly from the outline; do not create per-slide spec files.
-14. **Create `js/navbridge.js` before writing any slide HTML.** Every slide must include `<script src="../js/navbridge.js"></script>` immediately before `</body>`. Without navbridge, arrow-key navigation stops working after the user clicks inside a slide.
-15. **Use `{ path, hidden, name }` objects in the slides manifest — never plain strings.** The `name` field is the URL hash slug; it must be a descriptive slug (e.g. `'problem'`), never a number. Playback order is controlled by the array — filenames may use numbers as hints but the number has no functional effect.
-16. **Use a single `handleKey()` navigation handler in `index.html`.** Do NOT attach a second `keydown` listener to iframe elements — that double-fires and advances two slides per key. The postMessage path from navbridge and the parent window keydown path both route through the same `handleKey()`.
-17. **Flex layout is the baseline for all slides.** `.slide { display: flex; flex-direction: column }` is set in `base.css`. Centered types add `justify-content: center`. Never rely on absolute positioning to center slide content — use flex alignment so all slide types stay consistent across themes.
-18. **Ask the user before committing to a design direction.** Before writing `theme.css` or `DESIGN.md`, show the user the 3 design options (Phase 4 · Step 5) and wait for a choice — unless the user explicitly said "fast mode", "your call", or "just build it". Auto-selecting a theme without showing it first wastes all of Phase 5 if the aesthetic is wrong.
-19. **All slides must start from `scripts/slide.html` — no exceptions.** Never write slide HTML from scratch. Every slide must import `../css/base.css`, `../css/theme.css`, and `../js/navbridge.js` using those exact relative paths. Template consistency is how the deck looks like one product. Any slide that deviates breaks the visual system.
-20. **Slide content must be brief and grounded — not prose, not padding.** A slide is not a document. Write the minimum words that carry the claim. Do not restate what the title already says. Do not add transitional phrases ("In summary…", "As we can see…", "This shows that…"). Do not fill bullet points with synonyms of each other. If you are adding words to feel complete, cut them.
+### Hard constraints — non-negotiable
 
-### Evidence and validation
+1. **No fabricated content.** Numbers, quotes, names, dates, code, and architecture must come from user sources, verified web sources, or Octocode/local tools. If a claim can't be validated, mark the slide `[NEEDS SOURCE]` and halt it until resolved. Invented content that looks real is worse than a blank slide.
+2. **Path contract.** Slides live in `slides/slug.html` and reference `../css/base.css`, `../css/theme.css`, `../js/navbridge.js`, `../assets/*`. Every slide starts from `scripts/slide.html`. Every slide includes `<script src="../js/navbridge.js"></script>` before `</body>` — without it, arrow-key navigation dies after the user clicks inside a slide.
+3. **Single navigation handler.** `index.html` is built from `scripts/base.html` and routes both parent keystrokes and iframe `postMessage` events through one `handleKey()`. Do not add a second `keydown` listener — it double-fires.
+4. **Manifest format.** `const slides = [...]` uses `{ path, hidden, name }` objects. `name` is a descriptive slug (`'problem'`, never `'1'` or `'2'`). Array order = playback order; filenames are free.
+5. **Outline is the implementation contract.** Build slides from `.content/outline.md` rows. If implementation reveals a better title, split, or order — update the outline first, then build. No per-slide spec files.
 
-- Use **Octocode/local tools** when the deck depends on repo structure, code snippets, API behavior, local docs, or user-provided source files.
-- Use **web research** when the deck depends on public facts, current statistics, external best practices, market context, library docs, or visual/design inspiration.
-- Ask the user for validation when a claim is business-sensitive, proprietary, impossible to verify with available tools, or when web research would be inappropriate.
-- Separate verified facts from assumptions in `request.md` (mark as `assumed` in the facts table). Keep assumptions visibly labeled until they are validated by the user, Octocode/local sources, or web research.
+### Strong defaults — override with a written reason
+
+- **Design tokens only in slide HTML.** `var(--accent)`, `var(--t-title)`, etc. No raw hex/rem/pixel values. Flex layout is the baseline; absolute centering breaks at theme switches.
+- **Named fonts chosen deliberately.** Google or Fontshare fonts beat system fonts unless the brand guide says otherwise.
+- **One claim per slide, scroll-free at 1280×720.** If content overflows, split rather than shrink. If you're adding words to feel complete, cut.
+- **No filler language.** No "In summary…", "As we can see…", "Key takeaways:". The title carries the claim; bullets support, never restate.
+- **Bidirectional planning + three-lens check before HTML.** Top-down (goal → arc → slides) and bottom-up (titles read as a paragraph). Each slide passes Content / UX / UI lenses (defined under "Bidirectional Slide Planning" above).
+- **Both Slop Tests pass before delivery.** Visual ≤1/8, Content 0/8. Document any intentional exception.
+- **Phase 3 and Phase 4 always pause for user input.** Outline approval, then design direction. Skip only when the user said "fast mode", "your call", "just build it", or a brand guide is locked.
+- **Master rule set is `references/slide-rules.md`.** When this file and a phase doc disagree on a default, the more specific rule wins; record the resolution.
+
+### Evidence
+
+- **Octocode / local tools** for repo structure, code snippets, API behavior, local docs, user files.
+- **Web research** for public facts, current stats, external best practices, library docs, visual inspiration.
+- **Ask the user** when a claim is proprietary, business-sensitive, or unverifiable with available tools.
+- Separate verified facts from assumptions in `request.md` (mark `assumed`). Keep assumptions visibly labeled until validated.
 
 ---
 
@@ -277,36 +275,13 @@ If the user says **"your call"**, **"skip design choices"**, **"just build it"**
 
 ---
 
-## CDN Libraries
+## Libraries
 
-Load per-slide only — iframes are separate documents.
+Load libraries per-slide only — each iframe is a separate document. Pick the lightest tool that delivers the slide's intent; avoid loading two chart libraries on one slide.
 
-| Library | When | CDN |
-|---------|------|-----|
-| **marked.js** | Slide body is Markdown | `cdn.jsdelivr.net/npm/marked/lib/marked.umd.js` |
-| **Motion** | Counters, timelines, spring physics | `cdn.jsdelivr.net/npm/motion@latest/+esm` (ESM module) |
-| **GSAP** | SVG paths, complex choreography | `cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js` |
-| **highlight.js** | Code with real syntax colors | `cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/...` |
-| **Chart.js** | Bar, line, area, donut, scatter, radar | `cdn.jsdelivr.net/npm/chart.js` |
-| **ECharts** | Heatmap, geo, treemap, candlestick, complex | `cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js` |
-| **uPlot** | Dense time-series (100+ points, perf-critical) | `cdn.jsdelivr.net/npm/uplot/dist/uPlot.iife.min.js` |
-| **ApexCharts** | Polished multi-type with strong defaults | `cdn.jsdelivr.net/npm/apexcharts` |
-| **D3.js** | Custom SVG, networks, projections, bespoke charts | `cdn.jsdelivr.net/npm/d3@7/+esm` |
-| **Mermaid.js** | Flowcharts, sequence diagrams, architecture | `cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js` |
-| **View Transitions** | Animated slide-to-slide navigation | Browser-native — no CDN. See `references/resources.md` |
-
-**Chart library decision (one per slide — avoid loading two chart libs on the same slide):**
-- Standard charts (bar / line / donut) → **Chart.js** — lightest, best default
-- Heatmap / geo / treemap / candlestick → **ECharts**
-- Dense time-series (100+ points) → **uPlot**
-- Polished look with minimal config → **ApexCharts**
-- Custom / bespoke / network → **D3.js**
-- Static comparison ≤6 bars → CSS-only, no library
-- KPI counter / number countup → **Motion** `animate(0, N, onUpdate)` — no chart lib needed
+**Single source of truth:** `references/resources.md` — full CDN URLs, decision tables for chart libraries, animation tools, and code rendering. Read it during Phase 4 (when picking libraries for the deck) and Phase 5 (when wiring them into slides).
 
 Slide types → CSS classes: `section` → `slide--section` · `two-col` → `slide--two-col` · `stats` → `slide--stats` · `image` → `slide--image` · all others match.
-
-Full CDN URLs and usage patterns → `references/resources.md`
 
 ---
 

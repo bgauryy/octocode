@@ -230,23 +230,9 @@ Aim for roughly **3 visual elements per 1 text block** in a balanced deck. Purel
 
 ### 4.0 Storytelling Fundamentals
 
-These rules govern all structural and content decisions before any layout or design choice is made.
+The five storytelling principles — **audience is the hero**, **stakes before solution**, **four emotional beats** (Discomfort → Relief → Confidence → Momentum), **specificity is credibility**, **one deliberate surprise**, **no filler slides** — live in `SKILL.md → Storytelling`. They govern all structural and content decisions before any layout or design choice is made.
 
-**The audience is the hero.** The presenter is the guide; the solution is the hero's weapon. Frame claims around what changes for *the audience* — not only what the product does or what the team built.
-
-**Stakes before solution.** Spend at minimum one full slide establishing the problem before revealing any solution. If the problem slide does not create genuine discomfort or recognition, the solution slide will not land.
-
-**Four emotional beats (follow this order):**
-1. **Discomfort** — a real problem the audience recognises in their own context
-2. **Relief** — the reframe or insight that makes the problem solvable
-3. **Confidence** — concrete evidence that the solution works (real numbers, real code, real outcome)
-4. **Momentum** — one specific action the audience can take immediately
-
-**Specificity is credibility.** Make claims as specific as evidence allows. "8-second load time" beats "poor performance". "12,000 users abandoned at step 3" beats "users experienced friction". Vague claims are forgettable. Specific claims are citable.
-
-**One deliberate surprise.** Consider one moment per deck that subverts expectation — a counter-intuitive result, a reversal, an unexpected comparison. Place it in the middle section when it serves the story. Validate and source the data.
-
-**No filler slides.** Each slide should deliver information the audience did not have before seeing it. Slides that only summarize what was just said, restate the agenda, or fill time are candidates to cut.
+This document goes deeper on the *mechanics* of each beat: how to write a problem slide that lands, how density should change across the arc, how to land a closing CTA. Read this section after the SKILL.md storytelling section — it adds detail, it doesn't replace.
 
 ### 4.1 Pyramid Principle
 **Lead with your conclusion, then support it.** Avoid making the audience wait for the big reveal. The first content slide should deliver the main claim. Subsequent slides prove it.
@@ -543,19 +529,7 @@ A slide is a visual moment, not a paragraph. Apply these cuts before implementat
 
 ## Quick Pre-Delivery Checklist
 
-Before every slide is finalized, run this checklist.
-
-**Three-lens check (per slide — validate before writing HTML):**
-
-| Lens | Pass condition |
-|------|---------------|
-| **Content** | Single claim in the title; every body element supports the claim; nothing present that fails the "So What?" filter; source in `research.md` cited or `[NEEDS SOURCE]` flagged |
-| **UX** | Q→A chain intact (prior slide's raised question is answered; next question is raised); cognitive load fits audience depth; slide is not removable without breaking the flow |
-| **UI** | Layout type delivers the point in ≤ 3 seconds; single dominant visual; reading order is unambiguous; no layout type repeated 3+ consecutive slides |
-
-**Deck-level bidirectional check (run once after all slides are planned):**
-- Top-down: goal → arc → sections → slides — each level serves the level above it
-- Bottom-up: closing → sections → arc → goal — the CTA traces back to the opening hook; no slide is orphaned from the argument
+Before every slide is finalized, run this checklist alongside the three-lens + bidirectional check defined in `SKILL.md → Bidirectional Slide Planning`.
 
 - [ ] **3-second test**: can a stranger state the slide's point in 3 seconds?
 - [ ] **Title is a claim**: not a label; contains a verb and a specific assertion
