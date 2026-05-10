@@ -168,6 +168,7 @@ Two layers — both matter, but they're not equal. Hard constraints are structur
 ### Strong defaults — override with a written reason
 
 - **Design tokens only in slide HTML.** `var(--accent)`, `var(--t-title)`, etc. No raw hex/rem/pixel values. Flex layout is the baseline; absolute centering breaks at theme switches.
+- **Meaningful class names and IDs on every controlled element.** Repetitive components get a context-qualified class alongside any base-CSS class (e.g. `col two-col-left`, not bare `col`). Every element targeted by a JS animation counter, chart init, or direct JS access gets `id="{slide-slug}-{role}"` (e.g. `id="metrics-kpi-1"`). Never use bare IDs (`id="chart"`) or context-free classes (`class="item"`) as sole identifiers — they collide when scripting multiple slides from `index.html`. Full convention in `references/html-templates.md → Naming convention`.
 - **Named fonts chosen deliberately.** Google or Fontshare fonts beat system fonts unless the brand guide says otherwise.
 - **One claim per slide, scroll-free at 1280×720.** If content overflows, split rather than shrink. If you're adding words to feel complete, cut.
 - **No filler language.** No "In summary…", "As we can see…", "Key takeaways:". The title carries the claim; bullets support, never restate.

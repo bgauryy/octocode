@@ -23,8 +23,43 @@ The slide never advances until all steps have been shown. The slide never retrea
 
 When all steps are exhausted in the current direction, the key passes through normally to navbridge, which forwards it to the parent, and normal slide navigation resumes.
 
+### Full event flow (parent-window focus — the default state)
+
+Because the parent `index.html` normally has keyboard focus (the user hasn't clicked inside the slide), nav keys would bypass `animation.js` entirely and jump straight to `go()`. To fix this, `base.html` routes all nav keys through the active iframe first:
+
 ```
-Key press
+User presses → (parent window has focus)
+  │
+  ▼
+index.html handleKey()  — no passthrough flag
+  └── postMessage {type:'octocode-slides:key', key:'→'} to active iframe
+          │
+          ▼
+      navbridge.js message listener  — dispatches synthetic keydown
+              │
+              ▼
+          animation.js (capture, runs first)
+              ├── step available? → showNext() + stopImmediatePropagation
+              │       └── navbridge keydown listener NEVER fires
+              │               └── no postMessage back → parent stays on slide ✓
+              │
+              └── no step left? → falls through
+                      │
+                      ▼
+                  navbridge.js keydown listener
+                      └── postMessage {type:'octocode-slides:nav', key:'→'} to parent
+                              │
+                              ▼
+                          index.html message handler
+                              └── handleKey({passthrough:true}) → go(next) ✓
+```
+
+### When the iframe already has focus (user clicked inside the slide)
+
+The existing mechanism is unchanged — `animation.js` intercepts real keystrokes in capture phase, navbridge forwards unconsumed keys to the parent:
+
+```
+User presses → (iframe has focus)
   │
   ▼
 animation.js (capture, runs first)
@@ -33,7 +68,7 @@ animation.js (capture, runs first)
           │
           ▼
       navbridge.js (capture, runs second)
-          └── postMessage to parent → slide changes
+          └── postMessage → parent handleKey(passthrough:true) → slide changes
 ```
 
 ---

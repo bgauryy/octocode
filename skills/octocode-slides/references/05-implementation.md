@@ -92,6 +92,8 @@ Every slide must be structurally identical in its scaffolding. Check each slide 
 | animation.js order (if slide uses steps) | `<script src="../js/animation.js">` appears **before** `<script src="../js/navbridge.js">` | Swap order — wrong order silently breaks step intercept |
 | Local CSS is justified | Only slide-specific layout helpers live in `<style>`; colors/fonts/sizes still use design tokens | Move reusable styles to `base.css` or `theme.css` |
 | CSS variables only | No `color: #hex` or `font-family: "..."` inline on any element | Replace all hardcoded values with `var(--token)` |
+| Meaningful class names | No bare context-free class (`col`, `item`, `row`) as the sole class on animated or scripted elements — a context qualifier must be present (e.g. `col two-col-left`) | Add qualifier per `html-templates.md → Naming convention` |
+| ID convention | Every JS-targeted element uses `id="{slide-slug}-{role}"` (e.g. `id="metrics-kpi-1"`) — not bare `id="kpi"` or `id="chart"` | Rename to follow convention |
 | Slide class set | `<div class="slide slide--{{type}}">` matches the slide type in the outline row | Correct the class |
 | No inline `style` width/height for layout | Dimensions use CSS classes or `var()` | Extract to class |
 | No scroll at 1280×720 | Content fits without `overflow-y: auto` being needed | Split slide or reduce content |

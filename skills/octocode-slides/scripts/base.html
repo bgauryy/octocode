@@ -496,6 +496,31 @@ function handleKey(e) {
     return;
   }
 
+  // ── Step-animation routing ──────────────────────────────────────────────
+  // When the parent window has focus (the default — user hasn't clicked inside
+  // the slide), nav keys fire here directly and bypass animation.js inside the
+  // iframe entirely. Fix: forward those keys into the active iframe so
+  // animation.js can intercept them in capture phase. animation.js consumes the
+  // key (stopImmediatePropagation) if a step is pending; navbridge inside the
+  // iframe then posts back only once all steps are exhausted, at which point
+  // the message handler below calls handleKey with passthrough:true and normal
+  // slide navigation resumes.
+  // passthrough:true is set only by the message handler — it marks a reply from
+  // navbridge meaning "nothing left to consume, please advance/retreat."
+  if (!e.passthrough) {
+    var _stepKeys = { ArrowRight: 1, ArrowDown: 1, ' ': 1, ArrowLeft: 1, ArrowUp: 1 };
+    if (_stepKeys[e.key]) {
+      var _af = stage.querySelector('.slide-frame[data-active]');
+      if (_af) {
+        try { _af.contentWindow.postMessage({ type: 'octocode-slides:key', key: e.key }, '*'); }
+        catch (_) {}
+      }
+      showHud();
+      if (e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
   let handled = true;
   switch (e.key) {
     case 'ArrowRight':
@@ -552,7 +577,9 @@ window.addEventListener('message', function (event) {
   var data = event.data;
   if (!data || typeof data !== 'object') return;
   if (data.type === 'octocode-slides:nav' && data.key) {
-    handleKey({ key: data.key, preventDefault: function () {} });
+    // passthrough:true tells handleKey this reply came from navbridge inside the
+    // iframe — animation.js had nothing left to consume, so navigate normally.
+    handleKey({ key: data.key, passthrough: true, preventDefault: function () {} });
   } else if (data.type === 'octocode-slides:activity') {
     showHud();
   } else if (data.type === 'octocode-slides:presenter-goto') {

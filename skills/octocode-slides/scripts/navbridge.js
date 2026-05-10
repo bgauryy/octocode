@@ -55,4 +55,25 @@
     try { window.parent.postMessage({ type: 'octocode-slides:activity' }, '*'); }
     catch (_) {}
   }, { passive: true });
+
+  // ── Step-animation back-channel ─────────────────────────────────────────
+  // The parent forwards nav keys here (instead of navigating immediately) so
+  // animation.js gets first refusal on each keystroke, even when the parent
+  // window has focus. We dispatch a synthetic keydown on the slide's document:
+  //   • animation.js (capture, registered first) intercepts — if a step is
+  //     pending it calls stopImmediatePropagation, navbridge's own listener
+  //     never fires, no postMessage goes back, parent stays on this slide.
+  //   • If animation.js has nothing left to consume the event falls through to
+  //     navbridge's keydown listener, which posts back to the parent, and the
+  //     parent's message handler calls handleKey(passthrough:true) → navigate.
+  // Slides without animation.js: the synthetic event reaches navbridge's
+  // listener directly and posts back immediately — no delay, no hang.
+  window.addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || data.type !== 'octocode-slides:key' || !data.key) return;
+    if (!NAV_KEYS[data.key]) return;
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: data.key, bubbles: true, cancelable: true })
+    );
+  });
 })();
