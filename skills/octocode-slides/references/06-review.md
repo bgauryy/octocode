@@ -58,7 +58,7 @@ Score every slide against these three checklists. Fix every failure before proce
 
 **Scoring:** Each failing check = one fix to consider. Resolve clear failures before Step 1; document intentional exceptions when the brief requires them.
 
-After fixing all anti-patterns, count both Slop Tests from SKILL.md and record `Visual Slop: N/8` and `Content Slop: N/8`. Carry both numbers into the Step 6 user summary. Visual target is 0/8 and always ≤1/8; Content target is 0/8.
+After fixing all anti-patterns, run both Slop Tests (tables are in `SKILL.md → Slop Test`). Record `Visual Slop: N/8` and `Content Slop: N/8`. Carry both scores into the Step 6 user summary. Visual target is 0/8 and always ≤1/8; Content target is 0/8.
 
 ---
 
@@ -83,12 +83,15 @@ If browser tooling is unavailable, open the deck manually and document that limi
 Check each item. Fix any failure before moving to Step 3.
 
 **Navigation controller (`index.html`)**
-- [ ] `const slides = [...]` lists every slide file in correct order
-- [ ] Slide count in `slides[]` matches number of `.html` files in `slides/`
-- [ ] No broken paths (all `slides/NN-*.html` files exist)
+- [ ] `const slides = [...]` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
+- [ ] Every slide has a unique `name` slug
+- [ ] All `path` values start with `slides/` and the files exist
+- [ ] `playable = slides.filter(s => !s.hidden)` filters hidden slides
+- [ ] `postMessage` listener handles `octocode-slides:nav` and `octocode-slides:activity`
 - [ ] `ResizeObserver` + `scale()` logic present and correct
-- [ ] Keyboard navigation: `→` `←` `Space` `Home` `End` `F`
-- [ ] Progress bar and counter elements present
+- [ ] Keyboard navigation: `→` `←` `Space` `Home` `End` `F` `G`
+- [ ] Progress bar, counter, and HUD elements present
+- [ ] Hash updates use `slide.name` (not numeric index)
 
 **CSS**
 - [ ] `css/base.css` declares all custom properties used across slides
@@ -101,31 +104,20 @@ Check each item. Fix any failure before moving to Step 3.
 
 **Individual slides**
 - [ ] Every slide links to `../css/base.css` and `../css/theme.css`
+- [ ] Every slide includes `<script src="../js/navbridge.js"></script>` immediately before `</body>`
+- [ ] `js/navbridge.js` exists at the deck root
 - [ ] Every CDN library listed in DESIGN.md is loaded in the correct slide files
 - [ ] Motion scripts use `type="module"` and load from `cdn.jsdelivr.net/npm/motion@latest/+esm`
 - [ ] Code slides initialize highlight.js — either `hljs.highlightAll()` or `querySelectorAll('pre code').forEach(el => hljs.highlightElement(el))`
 - [ ] Markdown slides call `marked.parse()` on `[data-md]` elements
 - [ ] `<aside class="speaker-notes">` present in every slide
+- [ ] Image references use `../assets/filename` (not hardcoded absolute paths)
 
 ---
 
 ## Step 3 · Design review
 
-**Visual Slop Test (from SKILL.md)**
-Score the full deck:
-
-| # | Signal | Present? |
-|---|--------|----------|
-| 1 | Inter or Roboto as the only heading font | |
-| 2 | `background-clip: text` gradient on headings | |
-| 3 | Emoji leading every bullet or section | |
-| 4 | Every slide uses the same centered-stack layout | |
-| 5 | Cyan + magenta + purple / pink on dark bg | |
-| 6 | Animated glowing `box-shadow` on cards | |
-| 7 | Three-dot window chrome on every code block | |
-| 8 | Accent on more than 3 elements per slide | |
-
-**Score ≥ 2 → fix before continuing.**
+**Visual Slop Test** — run the 8-item checklist from `SKILL.md → Slop Test → Visual Slop`. Score ≥ 2 → fix before continuing.
 
 **Visual consistency check**
 - [ ] Accent color is used for the same purpose in every slide (e.g., heading only)
@@ -143,10 +135,10 @@ Score the full deck:
 
 ## Step 4 · Content & flow review
 
-Read `.content/slides/NN-slug.md` and compare to the implemented `slides/NN-slug.html`, and read the full title sequence:
+Read `.content/slides/slug.md` and compare to the implemented `slides/slug.html`, and read the full title sequence:
 
 **Per-slide spec completeness**
-- [ ] Every implemented slide has a matching `.content/slides/NN-slug.md` spec
+- [ ] Every implemented slide has a matching `.content/slides/slug.md` spec
 - [ ] Every spec includes `Title`, `Description`, `Reasoning`, `Content`, `Data`, `Widgets`, `Graphs`, `Images`, and `UX / UI`
 - [ ] No spec still says `Status: needs source`, `needs asset`, or `revisit` unless the slide intentionally ships a labeled placeholder
 - [ ] `Widgets`, `Graphs`, and `Images` in the spec match the implemented HTML and loaded libraries
@@ -162,21 +154,7 @@ Read `.content/slides/NN-slug.md` and compare to the implemented `slides/NN-slug
 - [ ] No slide body overflows (verify each layout fits within the 1280×720 stage; split or simplify any slide that would scroll)
 - [ ] No placeholder text (`{{…}}` tokens left un-replaced)
 
-**Content Slop Test (from SKILL.md)**
-Score the full deck:
-
-| # | Signal | Present? |
-|---|--------|----------|
-| 1 | A slide title is a noun phrase, not a claim sentence | |
-| 2 | A bullet contains filler language such as "seamless", "robust", or "cutting-edge" | |
-| 3 | A statistic appears without a source citation in the slide or speaker notes | |
-| 4 | A slide delivers no new information to the audience | |
-| 5 | The closing slide ends on "Thank you" or "Questions?" with no CTA | |
-| 6 | A claim is vague enough to apply to any product in any industry | |
-| 7 | A diagram or flow is approximate or invented rather than accurate | |
-| 8 | An image is decorative rather than informational | |
-
-**Score ≥ 1 → fix before continuing.**
+**Content Slop Test** — run the 8-item checklist from `SKILL.md → Slop Test → Content Slop`. Score ≥ 1 → fix before continuing.
 
 **Logical flow (slide-rules.md §5)**
 - [ ] Ghost outline test: reading only the slide titles tells the complete story (argument → evidence → conclusion)
@@ -232,15 +210,15 @@ If the user requests changes: make them, re-run the relevant checks from Steps 1
 Deck complete ✓
 
 .octocode/slides/{{slideName}}/
-├── .content/
-│   ├── brief.md
-│   ├── DESIGN.md
-│   ├── outline.md
-│   └── slides/ (N slide specs)
 ├── index.html
 ├── README.md
-├── css/ (base.css + theme.css)
-└── slides/ (N slide files)
+├── css/        (base.css + theme.css)
+├── js/         (navbridge.js)
+├── assets/     (images)
+├── slides/     (N slide HTML files)
+└── .content/
+    ├── brief.md · DESIGN.md · outline.md
+    └── slides/  (N slide specs)
 
 Serve: npx serve .octocode/slides/{{slideName}}
 Open:  http://localhost:3000

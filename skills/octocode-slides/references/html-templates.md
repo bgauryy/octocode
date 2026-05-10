@@ -6,7 +6,7 @@ Read during Phase 5 implementation, and consult during Phase 4 when a design cho
 
 ## Slide file shell
 
-Every `slides/NN-slug.html` uses this shell. Slides fill the iframe 100%×100% — the stage in `index.html` handles all scaling. Add CDN `<link>` / `<script>` tags inside `<head>` only when the slide needs them.
+Every `slides/slug.html` uses this shell. Slides fill the iframe 100%×100% — the stage in `index.html` handles all scaling. Add CDN `<link>` / `<script>` tags inside `<head>` only when the slide needs them.
 
 The `.slide` element uses `display: flex; flex-direction: column` (from `base.css`). Centered slide types (`title`, `section`, `quote`, `closing`, `stats`) add `justify-content: center` and optionally `align-items: center`. Content types (`content`, `two-col`, `code`, `chart`, `timeline`) use the default column flex so the header zone stacks above the body zone.
 

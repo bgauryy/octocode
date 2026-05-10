@@ -55,7 +55,7 @@ Write your analysis — 5–6 short answers. This drives your research direction
 
 ## Step 3b · Refine per-slide design specs
 
-Before writing HTML, each slide spec should describe the design plan at slide level. Update `.content/slides/NN-slug.md` for any slide whose visual treatment is not obvious.
+Before writing HTML, each slide spec should describe the design plan at slide level. Update `.content/slides/slug.md` for any slide whose visual treatment is not obvious.
 
 For each spec, ensure these sections are actionable:
 
@@ -181,7 +181,7 @@ Type scale (all clamp — no raw px or rem on text):
 
 ## Layout notes
 
-List only slides that need special design attention. Detailed per-slide choices live in `.content/slides/NN-slug.md`.
+List only slides that need special design attention. Detailed per-slide choices live in `.content/slides/slug.md`.
 
 | Slide | Special treatment |
 |-------|------------------|

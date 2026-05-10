@@ -65,40 +65,19 @@ If a slide exists to *fill time*, *look thorough*, or *pad the count* — cut it
 
 ## Bidirectional Slide Planning
 
-Every deck is planned in two passes before a single line of HTML is written. This is not optional ceremony — it is what separates a coherent argument from a collection of slides.
+Every deck is planned in two passes before HTML is written. Full protocol in `references/03-outline.md` Step 5b.
 
-### Pass 1 — Top-down (Goal → Slide)
+**Pass 1 — top-down:** Goal → Arc → Sections → Slides. At each level ask: *"Does this serve the level above it?"*
 
-Start at the highest level and work downward:
+**Pass 2 — bottom-up:** Read titles as a paragraph (Ghost Outline Test). Each slide's claim must trace back to the goal. If a section feels disconnected, fix the arc, not the section.
 
-1. **Goal** — What should the audience leave believing, knowing, or doing? (from `brief.md`)
-2. **Arc** — What narrative structure delivers that goal for this audience and depth level?
-3. **Sections** — What 2–4 major beats does the arc require? Name each section's claim sentence.
-4. **Slides** — What is the single idea each slide should deliver within each section?
+**Per-slide three-lens check** (run before every slide enters Phase 5):
 
-At each level, ask: *"Does this serve the level above it?"* If not, cut or reposition before going deeper.
-
-### Pass 2 — Bottom-up (Slide → Goal)
-
-After drafting the full slide-level plan, validate upward:
-
-1. Each **slide** → Does its single claim serve its section?
-2. Each **section** → Does its claim serve the narrative arc?
-3. The **arc** → Does it deliver the audience goal?
-
-If a slide cannot be traced back to the goal, cut it or reposition it. If a section feels disconnected from the arc, the arc is wrong — fix the arc, not the section. Run the Ghost Outline Test (read all titles aloud as a paragraph) to confirm the argument holds top-to-bottom and bottom-to-top.
-
-### Per-slide three-lens check
-
-Before locking any slide in the outline, reason through all three lenses. If a lens is weak, revise the plan or ask the user for the missing input before implementation.
-
-| Lens | Ask and reason |
+| Lens | Pass condition |
 |------|---------------|
-| **Content** | What is the single claim? What evidence supports it (cite `research.md` §)? Can anything be cut without losing the point? If no source exists, validate with Octocode/web when appropriate or mark `[NEEDS SOURCE]`. |
-| **UX** | What question does this slide answer (from the prior slide)? What question does it raise (for the next slide)? Is the cognitive load appropriate for the audience depth level? Does the slide earn its position — if removed, does the argument still flow? |
-| **UI** | What layout type delivers the point in ≤ 3 seconds without verbal explanation? What is the single dominant visual element? What reading order does the eye follow? Does the 3-second test pass? |
-
-All three lenses should be credible before Phase 5. If any lens fails, fix the outline or validate the missing content rather than patching around it in HTML.
+| **Content** | Single claim + evidence cited. Nothing cuttable without losing the point. |
+| **UX** | Q→A chain intact. Cognitive load fits depth level. Slide earns its position. |
+| **UI** | Layout type chosen. 3-second test passes. No type monotony with adjacent slides. |
 
 ---
 
@@ -368,7 +347,41 @@ Two tests. Run both before every delivery.
 
 ## Script files
 
-| File | Purpose |
-|------|---------|
-| `scripts/base.html` | Template for `index.html` — navigation controller with LLM instruction comments |
-| `scripts/slide.html` | Template for individual slide pages with LLM instruction comments |
+| File | Destination | When to include | Purpose |
+|------|-------------|-----------------|---------|
+| `scripts/base.html` | `index.html` | Always | Navigation controller template |
+| `scripts/slide.html` | `slides/*.html` | Always | Per-slide template |
+| `scripts/navbridge.js` | `js/navbridge.js` | **Always** — every slide must include it | Keyboard bridge: forwards arrow keys from focused iframe to parent via postMessage |
+| `scripts/presenter.js` | `js/presenter.js` | Optional — when user wants presenter mode | Presenter popup: P key opens speaker notes + elapsed timer in a separate window. Requires same-origin serving. |
+
+### Script decision guide
+
+**`navbridge.js`** — copy to `js/navbridge.js` and include `<script src="../js/navbridge.js"></script>` in every slide. Non-negotiable: without it, arrow-key navigation stops working after the user clicks inside a slide.
+
+**`presenter.js`** — copy to `js/presenter.js` and wire it in `index.html` when the user asks for presenter mode or speaker notes during live delivery. Not included by default to keep `index.html` lean.
+
+**Wire presenter.js in `index.html`:**
+```javascript
+// After go() is defined, add:
+const presenter = initPresenter(
+  () => stage.querySelector('.slide-frame[data-active]'),
+  playable,
+  () => current
+);
+
+// Call presenter.onSlideChange() inside go() after updating the active frame:
+// presenter.onSlideChange();
+
+// Add 'p'/'P' to the handleKey switch:
+// case 'p': case 'P': presenter.open(); break;
+```
+
+**Why other patterns don't belong in `scripts/`:**
+
+| Pattern | Why it stays inline |
+|---------|-------------------|
+| `hljs.highlightAll()` | 1 line; only code slides need it |
+| `marked.parse()` | 3 lines; only markdown slides need it |
+| Mermaid init | 1 line; only diagram slides need it |
+| Motion animations | Vary per slide; documented in `references/html-templates.md` |
+| `prefers-reduced-motion` | Handled by CSS `@media` in `base.css` — no JS needed |

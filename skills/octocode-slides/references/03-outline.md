@@ -3,7 +3,7 @@
 **Role:** Information architect. You turn research into the smallest narrative structure that achieves the user's goal — choosing slide order, types, and content balance for the audience.
 
 **Input:** `.content/brief.md` · `.content/research.md`
-**Output:** `.content/outline.md` · `.content/slides/NN-slug.md` per-slide specs
+**Output:** `.content/outline.md` · `.content/slides/slug.md` per-slide specs
 
 ---
 
@@ -146,7 +146,7 @@ Mark any slide failing two or more lenses `[REVISIT]`. Resolve it before Phase 5
 
 ## Step 5c · Create per-slide specs
 
-For every outline row, create `.content/slides/NN-slug.md`. This is the slide's source-of-truth planning doc. Keep each spec concise but complete enough that Phase 4 can design it and Phase 5 can build it without re-interpreting the story.
+For every outline row, create `.content/slides/slug.md`. This is the slide's source-of-truth planning doc. Keep each spec concise but complete enough that Phase 4 can design it and Phase 5 can build it without re-interpreting the story.
 
 ```markdown
 # {{NN · Slide title}}
