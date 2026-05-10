@@ -1,0 +1,353 @@
+/* base.css — layout, variables, all slide rules */
+
+:root {
+  /* --- Colors (defaults; theme.css overrides) --- */
+  --bg:        #0D1117;
+  --surface:   #161B22;
+  --border:    #30363D;
+  --accent:    #39D353;
+  --text:      #E6EDF3;
+  --muted:     #7D8590;
+  --code-bg:   #0D1117;
+  --code-text: #79C0FF;
+
+  /* --- Fonts (theme.css sets these) --- */
+  --font-head: system-ui, sans-serif;
+  --font-body: system-ui, sans-serif;
+  --font-mono: 'Courier New', monospace;
+
+  /* --- Type scale (responsive, no px overrides) --- */
+  --t-display:  clamp(2.75rem, 5.5vw, 4.25rem);  /* 44–68px — title/section */
+  --t-title:    clamp(1.6rem,  3.5vw, 2.5rem);   /* 26–40px — slide headings */
+  --t-sub:      clamp(1.15rem, 2.5vw, 1.65rem);  /* 18–26px — descriptions, sub-headings */
+  --t-body:     clamp(1rem,    1.8vw, 1.2rem);   /* 16–19px — bullets, paragraphs */
+  --t-small:    clamp(0.75rem, 1.2vw, 0.9rem);   /* 12–14px — captions, footers */
+  --t-code:     clamp(0.82rem, 1.4vw, 1rem);     /* 13–16px — code blocks */
+
+  /* --- Spacing (8px grid) --- */
+  --sp-1: 0.5rem;   --sp-2: 1rem;     --sp-3: 1.5rem;
+  --sp-4: 2rem;     --sp-6: 3rem;     --sp-8: 4rem;
+
+  /* --- Slide canvas --- */
+  --pad: var(--sp-8);
+
+  /* --- Radius --- */
+  --r-sm: 4px;  --r-md: 8px;  --r-lg: 16px;
+
+  /* --- Motion --- */
+  --fast: 150ms;  --base: 300ms;  --slow: 600ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Slide fills its iframe 100%×100% — scaling is on the stage wrapper */
+html { width: 100%; height: 100%; }
+body {
+  width: 100%; height: 100%;
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.6;
+  overflow: hidden; /* slides should never scroll — split content if it overflows */
+}
+
+/* ============================================================ */
+/* CANONICAL SLIDE SKELETON                                     */
+/* Every slide uses up to four regions, in this order:          */
+/*   .slide-logo     optional · brand mark, top-right (absolute) */
+/*   .slide-header   optional · .title + .description           */
+/*   .slide-content  REQUIRED · smart flex body                 */
+/*   .slide-footer   optional · source / page / link            */
+/* ============================================================ */
+
+.slide {
+  width: 100%; height: 100%;
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Region: logo (absolute top-right) */
+.slide-logo {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-4);
+  height: clamp(20px, 2.2vw, 30px);
+  display: flex;
+  align-items: center;
+  z-index: 2;
+  opacity: 0.85;
+}
+.slide-logo img,
+.slide-logo svg { height: 100%; width: auto; display: block; }
+
+/* Region: header (title + description, stacked) */
+.slide-header {
+  flex-shrink: 0;
+  margin-bottom: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Region: content (smart flex body, fills remaining height) */
+.slide-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* Region: footer (source, page number, link, attribution) */
+.slide-footer {
+  flex-shrink: 0;
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+.slide-footer a { color: var(--accent); text-decoration: none; }
+.slide-footer a:hover { text-decoration: underline; }
+
+/* Smart flex modifiers for .slide-content (opt-in when default isn't right) */
+.slide-content--center  { justify-content: center; align-items: center; text-align: center; }
+.slide-content--middle  { justify-content: center; }
+.slide-content--row     { flex-direction: row; align-items: stretch; gap: var(--sp-6); }
+.slide-content--grid-2  { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-6); }
+.slide-content--grid-3  { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }
+
+/* ---------- Typography classes ---------- */
+.display {
+  font-family: var(--font-head);
+  font-size: var(--t-display);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+.title {
+  font-family: var(--font-head);
+  font-size: var(--t-title);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+}
+.description {
+  font-family: var(--font-body);
+  font-size: var(--t-sub);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.subtitle { font-size: var(--t-sub); color: var(--muted); }
+.eyebrow {
+  font-size: var(--t-small);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: var(--sp-2);
+}
+.meta { font-size: var(--t-small); color: var(--muted); margin-top: var(--sp-4); }
+
+/* ---------- Slide type rules ---------- */
+
+/* Centered types: vertically center the entire region stack.
+   .slide-content stops being greedy so the stack sizes to its content. */
+.slide--title,
+.slide--section,
+.slide--quote,
+.slide--closing { justify-content: center; }
+
+.slide--title    .slide-content,
+.slide--section  .slide-content,
+.slide--quote    .slide-content,
+.slide--closing  .slide-content { flex: 0 0 auto; }
+
+/* Title and closing also center horizontally */
+.slide--title,
+.slide--closing { text-align: center; align-items: center; }
+.slide--title   .slide-header,
+.slide--title   .slide-content,
+.slide--closing .slide-header,
+.slide--closing .slide-content { align-items: center; }
+.slide--title   .meta { display: flex; justify-content: center; gap: var(--sp-2); }
+
+/* Stats and agenda: header sits above; content vertically centered in body */
+.slide--stats   .slide-content,
+.slide--agenda  .slide-content { justify-content: center; }
+
+/* Quote: extra horizontal padding for breathing room */
+.slide--quote { padding: var(--sp-8) calc(var(--sp-8) * 1.5); text-align: center; }
+.slide--quote .slide-content { align-items: center; }
+
+/* Section: vertically centered, left-aligned (default text-align) */
+.slide--section .slide-header { gap: var(--sp-3); }
+.section-num { font-size: var(--t-small); color: var(--accent); font-weight: 700; letter-spacing: 0.1em; }
+
+/* ---------- Component classes (used inside .slide-content) ---------- */
+
+/* agenda */
+.agenda-list { list-style: none; display: flex; flex-direction: column; gap: var(--sp-3); }
+.agenda-list li { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--t-body); }
+.num { font-size: var(--t-small); color: var(--accent); font-weight: 700; min-width: 2.5rem; }
+
+/* bullets (content slide) */
+.bullets { list-style: none; display: flex; flex-direction: column; gap: var(--sp-3); }
+.bullets li {
+  font-size: var(--t-body);
+  padding-left: var(--sp-4);
+  position: relative;
+}
+.bullets li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+
+/* two-column */
+.col-heading { font-size: var(--t-sub); font-weight: 700; color: var(--accent); margin-bottom: var(--sp-3); }
+.col ul { list-style: none; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--t-body); }
+
+/* quote */
+.quote-mark { font-size: 6rem; line-height: 0.8; color: var(--accent); opacity: 0.25; font-family: Georgia, serif; }
+.quote-text { font-size: var(--t-sub); font-style: italic; line-height: 1.5; margin: var(--sp-4) 0; }
+.quote-attr { font-size: var(--t-small); color: var(--muted); }
+
+/* code */
+.code-block {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--t-code);
+  color: var(--code-text);
+  line-height: 1.6;
+  overflow: hidden;
+  flex: 1;
+}
+.code-caption { font-size: var(--t-small); color: var(--muted); margin-top: var(--sp-2); }
+
+/* chart */
+.bar-chart { display: flex; flex-direction: column; gap: var(--sp-3); flex: 1; }
+.bar-row { display: flex; align-items: center; gap: var(--sp-3); }
+.bar-label { font-size: var(--t-small); min-width: 8rem; color: var(--muted); }
+.bar { flex: 1; height: 2.25rem; background: var(--surface); border-radius: var(--r-sm); position: relative; overflow: hidden; }
+.bar::after {
+  content: '';
+  position: absolute; left: 0; top: 0;
+  width: var(--pct, 0%); height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-sm);
+  transition: width var(--slow) var(--ease);
+}
+.bar span { position: absolute; right: var(--sp-2); top: 50%; transform: translateY(-50%); font-size: var(--t-small); font-weight: 700; z-index: 1; }
+.chart-insight { font-size: var(--t-body); color: var(--muted); font-style: italic; margin-top: var(--sp-3); }
+
+/* timeline */
+.timeline { list-style: none; display: flex; flex-direction: column; gap: 0; position: relative; }
+.timeline::before { content: ''; position: absolute; left: 0.55rem; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.tl-item { display: flex; gap: var(--sp-3); padding-bottom: var(--sp-4); position: relative; }
+.tl-dot { width: 1.1rem; height: 1.1rem; min-width: 1.1rem; border-radius: 50%; background: var(--accent); margin-top: 0.25rem; z-index: 1; }
+.tl-label { font-size: var(--t-small); color: var(--accent); font-weight: 700; display: block; }
+
+/* comparison */
+.comparison { display: grid; grid-template-columns: 1fr auto 1fr; gap: var(--sp-4); flex: 1; }
+.cmp-divider { width: 1px; background: var(--border); }
+.cmp-col h3 { font-size: var(--t-sub); font-weight: 700; margin-bottom: var(--sp-3); }
+.cmp-before h3 { color: var(--muted); }
+.cmp-after  h3 { color: var(--accent); }
+.cmp-col ul { list-style: none; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--t-body); }
+
+/* closing */
+.closing-links { display: flex; gap: var(--sp-4); justify-content: center; margin-top: var(--sp-4); }
+.closing-links a { color: var(--accent); font-size: var(--t-body); text-decoration: none; border-bottom: 1px solid currentColor; padding-bottom: 2px; }
+
+/* stats */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-6); padding: var(--sp-4) 0; flex: 1; align-items: center; }
+.stat-item { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
+.stat-value { font-family: var(--font-head); font-size: var(--t-display); font-weight: 700; color: var(--accent); line-height: 1; letter-spacing: -0.02em; }
+.stat-label { font-size: var(--t-body); color: var(--muted); text-align: center; }
+.stat-caption { font-size: var(--t-small); color: var(--muted); font-style: italic; margin-top: var(--sp-4); text-align: center; }
+
+/* image (full-bleed) */
+.slide--image { padding: 0; overflow: hidden; }
+.slide--image img,
+.slide--image video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.image-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.72) 100%); }
+.image-caption { position: absolute; bottom: var(--sp-8); left: var(--sp-8); right: var(--sp-8); }
+.slide--image .image-caption .display { color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+.slide--image .image-caption .description { color: rgba(255,255,255,0.78); margin-top: var(--sp-2); }
+
+/* image placeholder — used when user has not yet provided an image file */
+.image-ph {
+  flex: 1;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--r-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  min-height: 180px;
+  color: var(--muted);
+}
+.image-ph-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: center;
+  padding: var(--sp-4);
+}
+.image-ph-label { font-size: var(--t-small); max-width: 28ch; line-height: 1.4; }
+
+/* full-bleed placeholder — for slide--image type when image not yet provided */
+.image-ph-bleed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--t-small);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  border: 2px dashed var(--border);
+}
+
+/* Speaker notes — hidden in presentation */
+.speaker-notes { display: none; }
+
+/* ---------- Animations ---------- */
+@keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px) } to { opacity: 1; transform: none } }
+@keyframes popIn   { from { opacity: 0; transform: scale(0.94) } to { opacity: 1; transform: none } }
+
+.fade-in  { animation: fadeIn  var(--base) var(--ease) both; }
+.slide-up { animation: slideUp var(--base) var(--ease) both; }
+.pop-in   { animation: popIn   var(--fast) var(--ease) both; }
+
+.delay-1  { animation-delay: 100ms; }
+.delay-2  { animation-delay: 220ms; }
+.delay-3  { animation-delay: 340ms; }
+.delay-4  { animation-delay: 460ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Print / PDF export (headless Chrome: 1280×720 pages) */
+@media print {
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  .slide { width: 1280px; height: 720px; page-break-after: always; }
+  @page { size: 1280px 720px; margin: 0; }
+}

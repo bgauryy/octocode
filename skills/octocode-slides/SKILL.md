@@ -23,7 +23,7 @@ The heading is the single thing the audience carries away. Body content supports
 A well-built slide communicates its main point before the presenter speaks. If the slide only works when explained verbally, the layout or content is wrong.
 
 **Layout type communicates intent before the content is read.**
-Each slide type sends a signal the moment it appears. Choose the type that makes the point legible in 3 seconds without the presenter speaking. Full type → use-case mapping → `references/03-outline.md` Step 4.
+Each slide type sends a signal the moment it appears. Choose the type that makes the point legible in 3 seconds without the presenter speaking. Full content-signal → type table lives in `references/slide-rules.md` §4.11; wireframe-level layout selection in `references/wireframes.md`.
 
 **Know your audience before a single slide exists.**
 Audience profile (who, expertise, posture) determines depth level. Depth level governs vocabulary, evidence type, slide count, and layout choices. Read `references/slide-rules.md` §0 (Audience & Depth) before Phase 3. Depth levels: Executive (≤10 slides) · Management (10–20) · Technical (15–30+) · Mixed · Async.
@@ -81,24 +81,10 @@ Every deck is planned in two passes before HTML is written. Full protocol in `re
 
 ---
 
-## Visual Type Decision — When to Use What
+## Visual Type Decision — quick shortcuts
 
-Before assigning a slide type, ask: *"What is the fastest way for this audience to grasp this single idea?"* Then pick the type that answers that. Avoid picking a type because it looks impressive or fills space.
+Pick the type that makes the point legible in 3 seconds. Decision shortcuts:
 
-| The idea I need to communicate | Best type | Avoid |
-|-------------------------------|-----------|------------|
-| A single striking number or metric | `stats` | paragraph describing the number |
-| A sequence of steps or a process | `timeline` or Mermaid flow diagram | bullet list |
-| Two things that differ in important ways | `two-col` or `comparison` | bullet lists on one slide |
-| System architecture or spatial relationships | `image` (real diagram) | text description of the system |
-| Working proof — actual code | `code` with highlight.js | describing what the code does |
-| Quantitative trend, distribution, or change | `chart` (line/bar/donut) | table of raw numbers |
-| A strong external quote as evidence | `quote` full-bleed | inline mention in bullets |
-| Shifting to a new major topic | `section` (full-bleed reset) | heading on a content slide |
-| Before vs. after / problem vs. solution | sequential slides or `two-col` | single dense slide |
-| A photo or visual that communicates alone | `image` full-bleed | shrunk image beside bullets |
-
-**Decision shortcuts:**
 - Content has **sequence** → `timeline` or flow diagram
 - Content has **comparison** → `two-col` or `comparison`
 - Content has **magnitude** → `stats` or `chart`
@@ -106,11 +92,7 @@ Before assigning a slide type, ask: *"What is the fastest way for this audience 
 - Content is a **transition** → `section`
 - Content is **anything else** → `content`, but ask: could it be one of the above instead?
 
-**Flows and diagrams: add them only when structure cannot be spoken.**
-A Mermaid or SVG flow diagram earns its place when the relationships between components are non-obvious and would require several sentences to explain verbally. If the flow can be stated in one sentence, use a `content` or `two-col` slide instead. Validate diagrams against sources; avoid approximate or invented architecture.
-
-**Images: add them only when they carry meaning, not mood.**
-An image earns its place when it shows something that cannot be described — a UI screenshot, a real architecture diagram, a before/after comparison, a photo of the actual thing. Stock photography, decorative backgrounds, and vague "tech aesthetic" images fail the 3-second test. If an image is just mood, cut it.
+**Diagrams + images earn their place only when structure cannot be spoken / mood is not the point.** Full content-signal → type table, plus diagram and image guidance, lives in `references/slide-rules.md` §4.11. Wireframe-level layout selection is in `references/wireframes.md`.
 
 ---
 
@@ -123,8 +105,8 @@ All generated paths are relative to the deck root:
 ├── index.html                    ← navigation controller (from scripts/base.html)
 ├── README.md
 ├── css/
-│   ├── base.css                  ← layout, variables, all slide rules
-│   └── theme.css                 ← per-deck fonts, colors, tokens
+│   ├── base.css                  ← copied verbatim from scripts/base.css
+│   └── theme.css                 ← per-deck fonts, colors, tokens (overrides only)
 ├── js/
 │   ├── navbridge.js              ← keyboard bridge (required in every slide)
 │   └── presenter.js              ← presenter notes popup (wired by index.html)
@@ -140,17 +122,12 @@ All generated paths are relative to the deck root:
     └── DESIGN.md                 ← visual system: colors, fonts, libraries (phase 4)
 ```
 
-**`.content/` is three files — not a folder tree.** `request.md` captures everything the user asked for and everything research found. `outline.md` is the single source of truth for slide structure, and includes inline notes per slide. No `.content/slides/` subfolder. No per-slide spec files. Everything the implementation phase needs is in `outline.md` and `request.md`.
+**`.content/` is three files — not a folder tree.** `request.md` (Phases 1–2), `outline.md` (Phase 3 — single source of truth for slide structure + inline per-slide notes), `DESIGN.md` (Phase 4). No per-slide spec files; no `.content/slides/`.
 
-**Path contract (enforced by `scripts/slide.html`):**
-- Each slide lives in `slides/slug.html` — filenames use slug names, not numeric prefixes (order is controlled by the `slides` array in `index.html`, not filenames)
-- Each slide links CSS as `../css/base.css` and `../css/theme.css` — one level up
-- Each slide includes `<script src="../js/navbridge.js"></script>` before `</body>` — one level up
-- Each slide references images as `../assets/image.png` — one level up from `slides/`
-- `index.html` references slides via `const slides = [{ path, hidden, name }]` — see manifest format below
-
-- `index.html` is generated from `scripts/base.html`, loads `js/presenter.js`, and supports direct name hashes, overview grid, navbridge, and `P` presenter notes
-- **Avoid `slides/slides/` double-nesting.** The `slides/` folder contains HTML files directly.
+**Path contract (enforced by `scripts/slide.html` + `scripts/base.html`):**
+- Slides live in `slides/slug.html` (no double-nesting) and reference `../css/base.css`, `../css/theme.css`, `../js/navbridge.js`, `../assets/*` (one level up).
+- `index.html` references slides via `const slides = [{ path, hidden, name }]` — order is the array, not the filename.
+- `index.html` is generated from `scripts/base.html`, loads `js/presenter.js`, and supports direct name hashes, overview grid, navbridge, and `P` presenter notes.
 
 **Slide manifest format (in `index.html`):**
 ```javascript
@@ -324,25 +301,13 @@ Two tests. Run both before every delivery.
 
 ## Done means
 
-- `index.html` opens from the deck root and lists every slide in order
-- `js/navbridge.js` exists at the deck root
+The full handoff checklist lives in `references/06-review.md` Step 2 (technical) and Step 4 (content & flow). High-bar summary:
 
-- `js/presenter.js` exists at the deck root
-- Every slide file exists directly under `slides/`
-- Every slide HTML includes `<script src="../js/navbridge.js"></script>` immediately before `</body>`
-- `const slides = [...]` in `index.html` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
-- `.content/outline.md` has a row for every slide with a claim-sentence title, type, source, key content, and flow logic; special slides have matching `Slide notes`
-- No `{{…}}` placeholder tokens remain
-- No broken CSS, image, CDN, or iframe paths remain
-- Browser/render review passes with no visible overflow at 1280×720
-- Arrow-key navigation works after clicking inside a slide (navbridge active)
-
-- Direct name hashes (for example `#problem`) activate exactly one slide
-
-- `P` opens presenter notes and reads each slide's `<aside class="speaker-notes">`
-- Visual Slop score is 0/8 when possible and always ≤1/8
-- Content Slop score is 0/8 — no invented data, no filler language, no noun-phrase titles, no decorative images
-- Final response includes the deck path and serve command
+- Deck serves cleanly at `npx serve .octocode/slides/{{slideName}}` and renders without console errors
+- Every slide passes the no-scroll, navbridge-loaded, claim-title, no-`{{…}}` checks
+- Manifest in `index.html` uses `{ path, hidden, name }` objects with unique slug names
+- Visual Slop ≤1/8 and Content Slop = 0/8
+- Final response includes the deck path and the serve command
 
 ## Reference files
 
@@ -355,31 +320,22 @@ Two tests. Run both before every delivery.
 | `references/05-implementation.md` | Implementation: build slides from outline.md rows | Phase 5 |
 | `references/06-review.md` | Review: technical + design + content checks | Phase 6 |
 | `references/design-system.md` | CSS contract, design process, anti-slop guide, resources | Phase 4 |
-| `references/html-templates.md` | All slide type HTML + base.css boilerplate + Motion patterns | Phase 5 |
+| `references/html-templates.md` | All slide-type HTML templates + `<index.html>` patterns + Motion patterns (`scripts/base.css` is the source of truth for CSS) | Phase 5 |
 | `references/resources.md` | CDN libs with full URLs and usage examples | Phase 4 + 5 |
 | `references/slide-rules.md` | **Master rule set**: content, visual, layout, narrative, UX, delivery, anti-patterns, named formulas | Phase 3 + 4 + 5 |
 
 ## Script files
 
-| File | Destination | When to include | Purpose |
-|------|-------------|-----------------|---------|
-| `scripts/base.html` | `index.html` | Always | Navigation controller template |
-| `scripts/slide.html` | `slides/*.html` | Always | Per-slide template |
-| `scripts/navbridge.js` | `js/navbridge.js` | **Always** — every slide must include it | Keyboard bridge: forwards arrow keys from focused iframe to parent via postMessage |
-| `scripts/presenter.js` | `js/presenter.js` | **Always** — loaded by `scripts/base.html` | Presenter popup: P key opens speaker notes + elapsed timer in a separate window. Requires same-origin serving. |
+The `scripts/` folder holds the **copy-verbatim** templates. Every generated deck copies them as-is:
 
-### Script decision guide
+| File | Destination | Purpose |
+|------|-------------|---------|
+| `scripts/base.html` | `index.html` | Navigation controller (multi-iframe stage, name hashes, overview, presenter, HUD) |
+| `scripts/slide.html` | `slides/*.html` | Per-slide template (4-region skeleton + LLM placeholders) |
+| `scripts/base.css` | `css/base.css` | Layout primitives, type scale, slide-type rules, components, animations, print |
+| `scripts/navbridge.js` | `js/navbridge.js` | Forwards iframe key events to parent — required in every slide |
+| `scripts/presenter.js` | `js/presenter.js` | `P`-key speaker-notes popup, loaded by `scripts/base.html` |
 
-**`navbridge.js`** — copy to `js/navbridge.js` and include `<script src="../js/navbridge.js"></script>` in every slide. Non-negotiable: without it, arrow-key navigation stops working after the user clicks inside a slide.
+**Rule:** copy verbatim, never paraphrase. Theme overrides go in `css/theme.css`; one-off layout helpers live in the slide's local `<style>`. Never edit a copied script after the copy. Step-by-step in `references/05-implementation.md` Step 5.
 
-**`presenter.js`** — copy to `js/presenter.js` for every generated deck. `scripts/base.html` already loads it and wires `P` to speaker notes, so do not add a second presenter key handler or custom popup implementation.
-
-**Why other patterns don't belong in `scripts/`:**
-
-| Pattern | Why it stays inline |
-|---------|-------------------|
-| `hljs.highlightAll()` | 1 line; only code slides need it |
-| `marked.parse()` | 3 lines; only markdown slides need it |
-| Mermaid init | 1 line; only diagram slides need it |
-| Motion animations | Vary per slide; documented in `references/html-templates.md` |
-| `prefers-reduced-motion` | Handled by CSS `@media` in `base.css` — no JS needed |
+Per-slide library inits (`hljs.highlightAll()`, `marked.parse()`, `mermaid.initialize()`, Motion calls) stay inline in the slides that need them — they're 1–3 lines each and not every slide uses them.

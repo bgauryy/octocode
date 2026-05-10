@@ -136,6 +136,14 @@ All `.slide-cell` wrappers stack at `inset:0`. If any inactive cell still accept
 - [ ] `<aside class="speaker-notes">` present in every slide
 - [ ] Image references use `../assets/filename` (not hardcoded absolute paths)
 
+**Pointer chrome (only if `DESIGN.md → Pointer & click feedback` is present)**
+- [ ] `<click-spark>` and `cursor-effects` import live in `index.html` only — never inside any slide HTML
+- [ ] `<click-spark>` wrapper has `pointer-events: none` and `z-index` below HUD/progress (HUD = 50, progress = 10, spark ≤ 5)
+- [ ] HUD, progress bar, counter, and overview thumbnails remain clickable; spark fires on chrome clicks but does not block them
+- [ ] Custom cursor follows pointer with the lag described in DESIGN.md; OS cursor still appears on form fields, links, and during text selection
+- [ ] Touch device sanity: `pointer: coarse` short-circuit disables the custom cursor (verify in DevTools mobile emulation)
+- [ ] `prefers-reduced-motion: reduce` disables or flattens the spark animation
+
 ---
 
 ## Step 3 · Design review

@@ -5,29 +5,14 @@
 **Input:** `.content/request.md` · `.content/outline.md` · `.content/DESIGN.md` · `css/base.css` + `css/theme.css`
 **Output:** `slides/slug.html` (one per outline row)
 
-**Path contract — read before writing any file. All paths are inside `.octocode/slides/{{slideName}}/`:**
-```
-.octocode/slides/{{slideName}}/   ← deck root (serve from here)
-├── index.html                    ← navigation controller
-├── css/
-│   ├── base.css
-│   └── theme.css
-├── js/
-│   ├── navbridge.js              ← keyboard bridge (required)
-│   └── presenter.js              ← presenter popup (optional)
-├── assets/                       ← images and media referenced by slides
-│   └── (images go here)
-└── slides/
-    └── *.html                    ← one HTML file per slide
-```
-Each slide uses paths one level up: `../css/base.css`, `../js/navbridge.js`, `../assets/image.png`. `index.html` uses `slides/slug.html` (one level down). Keep slides out of `slides/slides/` — there is no double-nesting in this structure.
+**Path contract:** see `SKILL.md → Output structure`. All paths are inside `.octocode/slides/{{slideName}}/`. Slides reference `../css/*`, `../js/*`, `../assets/*`. `index.html` references `slides/*.html`. No `slides/slides/` nesting.
 
 ---
 
 ## Step 1 · Read references
 
 Read these files now (in parallel):
-- `references/html-templates.md` — all slide type HTML templates + base.css boilerplate + Motion patterns
+- `references/html-templates.md` — slide-type HTML templates + Motion patterns + `index.html` controller (the canonical CSS lives in `scripts/base.css`)
 - `references/resources.md` — CDN URLs for any library listed in DESIGN.md
 - `references/slide-rules.md` §§1, 5 — Content rules and Logical Flow rules (required by Global Rule 9)
 
@@ -142,11 +127,17 @@ This loop runs until all slides in the outline are implemented.
 
 Once all slides are implemented:
 
-### 5a · Create js/ scripts
+### 5a · Copy verbatim scripts
 
-**Required — `js/navbridge.js`:** Copy `scripts/navbridge.js` to `js/navbridge.js` at the deck root. Forwards keyboard events from the focused iframe to the parent navigation controller. Do not rewrite from memory.
+Run these copies; never paraphrase from memory:
 
-**Required — `js/presenter.js`:** Copy `scripts/presenter.js` to `js/presenter.js` at the deck root. The default `scripts/base.html` controller loads it and wires `P` to presenter notes. Do not hand-wire a second presenter implementation in generated decks.
+```bash
+cp scripts/navbridge.js js/navbridge.js
+cp scripts/presenter.js js/presenter.js
+# css/base.css was already copied by Phase 4 Step 7; verify it exists
+```
+
+If `css/base.css` is missing for any reason, copy it now: `cp scripts/base.css css/base.css`. Theme overrides remain in `css/theme.css`.
 
 ### 5b · Build index.html
 
@@ -171,36 +162,18 @@ const slides = [
 ];
 ```
 
-### 5b² · Wire pointer chrome on `index.html` (default: on)
+### 5c · Wire pointer chrome on `index.html` (default: on)
 
-If `DESIGN.md → Pointer & click feedback` is present (default for live presentations — see `references/04-design.md` Step 5b), wire the two libraries on the parent **only**. Skip this step when `DESIGN.md → Libraries` says `Pointer chrome: off`.
+If `DESIGN.md → Pointer & click feedback` is present, copy the wiring snippet from `references/resources.md → Pointer & Click Feedback → Wiring on index.html` into `index.html` (just before `</body>`). The snippet is the canonical implementation — do not paraphrase.
 
-Insert just before `</body>` in `index.html`:
+**Mandatory rules** (verified in Phase 6):
+- Loaded on `index.html` only — **never** inside a slide HTML (each slide is a separate iframe document).
+- `<click-spark>` wrapper: `pointer-events: none; z-index: 5` so HUD (z-index 50) and progress (z-index 10) stay clickable.
+- Keep the `pointer: coarse` and `prefers-reduced-motion` short-circuits in the snippet.
 
-```html
-<!-- ── Pointer chrome (parent only — never per slide) ─── -->
-<click-spark style="--click-spark-color: var(--accent); position: fixed; inset: 0; pointer-events: none; z-index: 5;"></click-spark>
-<script type="module">
-  import { followingDotCursor } from "https://unpkg.com/cursor-effects@latest/dist/esm.js";
-  import "https://cdn.jsdelivr.net/gh/hexagoncircle/click-spark/click-spark.js";
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  if (!matchMedia('(pointer: coarse)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    new followingDotCursor({ color: accent });
-  }
-</script>
-```
+Skip this step when `DESIGN.md → Libraries` says `Pointer chrome: off`.
 
-**Rules:**
-- Loaded on `index.html` **only** — never inside a slide HTML. Slides are separate iframe documents; loading there would spawn one cursor per slide and break continuity across transitions.
-- `z-index` must sit **above** the slide stage but **below** the HUD / progress bar / counter (which use `z-index: 10`+ in `scripts/base.html`). The example uses `z-index: 5`.
-- The HUD must stay clickable, so keep `pointer-events: none` on the `<click-spark>` wrapper — clicks pass through to the underlying element while still emitting a spark at the click point.
-- `pointer: coarse` short-circuit disables the custom cursor on touch devices.
-- `prefers-reduced-motion` short-circuit is defensive — the library already honours it, but the deck's policy is to respect it at every layer.
-- For offline-friendly delivery, vendor both files into `js/vendor/cursor-effects.esm.js` and `js/vendor/click-spark.js` and switch the imports to relative paths.
-
-Verification: open `index.html`, see the cursor follow with a small lag, click anywhere on the chrome — a 6-spoke spark should fire in `--accent`. Press `G` to enter overview; the custom cursor should disappear (or you can wrap the `new followingDotCursor(...)` in a `body.overview` guard if it interferes with thumbnail clicking).
-
-### 5c · Write README.md
+### 5d · Write README.md
 
 Write `README.md` (at deck root):
 
@@ -219,22 +192,13 @@ Reorder slides: edit the `slides` array in `index.html`
 
 ---
 
-## Step 6 · Final implementation check
+## Step 6 · Hand-off to Phase 6
 
-Before handing off to Phase 6:
+Quick sanity gate — only the items unique to Phase 5 (the structural deck shape). The full technical, design, and content review lives in `references/06-review.md`.
 
-- [ ] Every slide in `outline.md` has been implemented as `slides/slug.html`
-- [ ] No outline row remains `[NEEDS SOURCE]`, `needs asset`, or `revisit` unless the deck intentionally ships a labeled placeholder
-- [ ] Every slide in the outline has a `slides/*.html` file (not `slides/slides/`)
-- [ ] `js/navbridge.js` exists at the deck root (same level as `css/` and `slides/`)
-- [ ] `js/presenter.js` exists at the deck root (same level as `css/` and `slides/`)
-- [ ] Every slide HTML file contains `<script src="../js/navbridge.js"></script>` immediately before `</body>`
-- [ ] `const slides = [...]` in `index.html` uses `{ path, hidden, name }` objects — no plain strings, no numeric names
-- [ ] All `path` values in the manifest start with `slides/` (e.g. `'slides/problem.html'`)
-- [ ] All `name` values are unique slugs — not numbers, not filenames with extensions
-- [ ] `index.html` is at the deck root (same level as `css/`, `js/`, and `slides/`)
-- [ ] No slide HTML contains hardcoded colors, fonts, or pixel sizes
-- [ ] Every CDN library listed in DESIGN.md is actually loaded in the slides that need it
-- [ ] Each slide's `.slide` container uses flex layout (inherited from `base.css`); no slide content overflows at 1280×720
+- [ ] Every outline row has a matching `slides/slug.html` (no `slides/slides/`)
+- [ ] `js/navbridge.js`, `js/presenter.js`, `css/base.css`, `css/theme.css` all exist at the deck root
+- [ ] No `[NEEDS SOURCE]` / `needs asset` / `revisit` rows remain unless they ship as labeled placeholders
+- [ ] No slide HTML contains hardcoded colors, fonts, or pixel sizes (CSS variables only)
 
 Pass to Phase 6 → read `references/06-review.md`. Start with Step 0 (Self-review).

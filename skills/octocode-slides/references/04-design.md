@@ -263,8 +263,8 @@ Only list libraries actually needed. For each: which slide, and why this library
 
 ## Step 7 · Generate CSS files
 
-1. `css/base.css` at the deck root — copy the boilerplate from `references/html-templates.md` verbatim
-2. `css/theme.css` at the deck root — Google Fonts `@import` at top, then override every CSS variable using exact values from DESIGN.md
+1. `css/base.css` at the deck root — **copy `scripts/base.css` verbatim** (`cp scripts/base.css css/base.css`). Never paraphrase.
+2. `css/theme.css` at the deck root — Google Fonts `@import` at top, then override only the variables defined in `:root` of `scripts/base.css` (colors, fonts, type scale `clamp()` ranges) using the exact values from DESIGN.md. Layout rules stay in `base.css`.
 
 ---
 

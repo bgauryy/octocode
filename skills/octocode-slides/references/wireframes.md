@@ -26,7 +26,8 @@ Inside that root, `.slide` is already `display: flex; flex-direction: column`. L
 | File | Owns |
 |---|---|
 | `references/wireframes.md` (this) | Pick a layout from content. Region structure, flex/grid, DOM tree per slide type. |
-| `references/html-templates.md` | Full HTML templates per slide type, the canonical 4-region skeleton, and the `base.css` source of truth. |
+| `references/html-templates.md` | Full HTML templates per slide type and the canonical 4-region skeleton. |
+| `scripts/base.css` | Canonical CSS — copied verbatim to `css/base.css`. Layout primitives, slide-type rules, components, animations, print. |
 | `references/design-system.md` | Tokens, typography scale, palettes, slide density limits, title contract, anti-slop, methodology, external sources. |
 
 If a number, color, font, or density rule shows up here, it is a hint — `design-system.md` is canonical.

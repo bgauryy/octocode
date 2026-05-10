@@ -6,7 +6,7 @@ Read at Phase 4 start (before any design decisions).
 
 ## CSS Variable Contract
 
-`base.css` defines these variables. `theme.css` overrides them. Slide HTML uses them via `var(...)`. No slide ever sets a raw color, font-family, or font-size.
+`scripts/base.css` (copied verbatim to `css/base.css`) defines these variables. `theme.css` overrides them. Slide HTML uses them via `var(...)`. No slide ever sets a raw color, font-family, or font-size.
 
 ```
 --bg          slide background
