@@ -511,9 +511,10 @@ function handleKey(e) {
   }
 
   // ── Step-animation routing ──────────────────────────────────────────────
-  // When the parent window has focus (the default — user hasn't clicked inside
-  // the slide), nav keys fire here directly and bypass animation.js inside the
-  // iframe entirely. Fix: forward those keys into the active iframe so
+  // When the parent window has focus (initial load, browser chrome refocus,
+  // overview close, or other parent-level interaction), nav keys fire here
+  // directly and bypass animation.js inside the iframe entirely. Fix: forward
+  // those keys into the active iframe so
   // animation.js can intercept them in capture phase. animation.js consumes the
   // key (stopImmediatePropagation) if a step is pending; navbridge inside the
   // iframe then posts back only once all steps are exhausted, at which point

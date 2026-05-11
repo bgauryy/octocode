@@ -636,8 +636,9 @@ Key rules for the manifest:
 
 The parent `index.html` uses a **single `handleKey()` function** as the sole navigation handler:
 
-- When the **parent window** has focus → `document.addEventListener('keydown', handleKey, true)` fires directly.
-- When the **iframe** has focus (user clicked inside a slide) → `js/navbridge.js` inside the slide posts `{ type: 'octocode-slides:nav', key }` and the parent's `window.addEventListener('message', ...)` calls `handleKey()`.
+- When the **parent window** has focus → `document.addEventListener('keydown', handleKey, true)` fires directly. Step-aware nav keys (`→`, `↓`, Space, `←`, `↑`) are first posted into the active iframe as `{ type: 'octocode-slides:key', key }`, so `animation.js` can reveal or hide a step before slide navigation happens.
+- When the **iframe** has focus (user clicked inside a slide) → `js/navbridge.js` inside the slide posts `{ type: 'octocode-slides:nav', key }` only after the slide has no step left to consume in that direction.
+- The parent's message listener calls `handleKey({ key, passthrough: true })`; `passthrough:true` means the key already passed through the active iframe and should now advance or retreat the deck.
 
 Do NOT attach a second `keydown` listener to the iframe — that would double-fire and advance two slides per key press.
 
@@ -646,9 +647,11 @@ window.addEventListener('message', function (event) {
   var data = event.data;
   if (!data || typeof data !== 'object') return;
   if (data.type === 'octocode-slides:nav' && data.key) {
-    handleKey({ key: data.key, preventDefault: function () {} });
+    handleKey({ key: data.key, passthrough: true, preventDefault: function () {} });
   } else if (data.type === 'octocode-slides:activity') {
     showHud();
+  } else if (data.type === 'octocode-slides:presenter-goto') {
+    go(clampIndex(data.index));
   }
 });
 ```

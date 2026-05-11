@@ -13,7 +13,7 @@
 | `→` / `Space` / `↓` | Reveal the next step | Advance to the next slide |
 | `←` / `↑` | Hide the last visible step | Retreat to the previous slide |
 
-The slide never advances until all steps have been shown. The slide never retreats until all shown steps have been hidden. No parent-side code is changed — the intercept is entirely inside the slide iframe.
+The slide never advances until all steps have been shown. The slide never retreats until all shown steps have been hidden. Slide authors only opt in per slide; the deck-level controller already knows how to route step-aware keys through the active iframe.
 
 ---
 
@@ -23,53 +23,55 @@ The slide never advances until all steps have been shown. The slide never retrea
 
 When all steps are exhausted in the current direction, the key passes through normally to navbridge, which forwards it to the parent, and normal slide navigation resumes.
 
-### Full event flow (parent-window focus — the default state)
+### Full event flow (parent-window focus)
 
-Because the parent `index.html` normally has keyboard focus (the user hasn't clicked inside the slide), nav keys would bypass `animation.js` entirely and jump straight to `go()`. To fix this, `base.html` routes all nav keys through the active iframe first:
+When the parent `index.html` has keyboard focus — initial load, browser chrome refocus, overview close, or other parent-level interaction — raw nav keys would otherwise bypass `animation.js` and jump straight to `go()`. `base.html` avoids that by routing step-aware nav keys through the active iframe first:
 
 ```
-User presses → (parent window has focus)
+User presses → / ← (parent window has focus)
   │
   ▼
 index.html handleKey()  — no passthrough flag
-  └── postMessage {type:'octocode-slides:key', key:'→'} to active iframe
+  └── postMessage {type:'octocode-slides:key', key} to active iframe
           │
           ▼
       navbridge.js message listener  — dispatches synthetic keydown
               │
               ▼
           animation.js (capture, runs first)
-              ├── step available? → showNext() + stopImmediatePropagation
-              │       └── navbridge keydown listener NEVER fires
-              │               └── no postMessage back → parent stays on slide ✓
+              ├── step available in that direction?
+              │       └── showNext() / hideLast() + stopImmediatePropagation
+              │               └── navbridge keydown listener NEVER fires
+              │                       └── no postMessage back → parent stays on slide ✓
               │
-              └── no step left? → falls through
+              └── no step left in that direction? → falls through
                       │
                       ▼
                   navbridge.js keydown listener
-                      └── postMessage {type:'octocode-slides:nav', key:'→'} to parent
+                      └── postMessage {type:'octocode-slides:nav', key} to parent
                               │
                               ▼
                           index.html message handler
-                              └── handleKey({passthrough:true}) → go(next) ✓
+                              └── handleKey({passthrough:true}) → go(next/previous) ✓
 ```
 
 ### When the iframe already has focus (user clicked inside the slide)
 
-The existing mechanism is unchanged — `animation.js` intercepts real keystrokes in capture phase, navbridge forwards unconsumed keys to the parent:
+The same intercept still applies, but the first keydown is real instead of synthetic: `animation.js` intercepts in capture phase, and navbridge forwards only unconsumed keys to the parent.
 
 ```
-User presses → (iframe has focus)
+User presses → / ← (iframe has focus)
   │
   ▼
 animation.js (capture, runs first)
-  ├── step available? → consume + stopImmediatePropagation → done
-  └── no step? → fall through
+  ├── step available in that direction? → consume + stopImmediatePropagation → parent stays on slide
+  └── no step left in that direction? → fall through
           │
           ▼
       navbridge.js (capture, runs second)
-          └── postMessage → parent handleKey(passthrough:true) → slide changes
+          └── postMessage → parent handleKey({passthrough:true}) → go(next/previous)
 ```
+
 
 ---
 

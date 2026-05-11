@@ -50,9 +50,11 @@ The agent adapts everything to who's in the room:
 | Type | Use when |
 |------|----------|
 | `title` | Opening — deck name + subtitle |
+| `agenda` | Orientation slide for longer decks |
 | `section` | Transition between narrative sections |
 | `content` | Default — one claim + supporting bullets |
 | `two-col` | Comparison, before/after, text + visual |
+| `comparison` | Structured side-by-side tradeoff |
 | `stats` | 2–4 numbers that carry the point |
 | `code` | Real code with syntax highlighting |
 | `chart` | Data viz (Chart.js / D3 / Vega-Lite) |
@@ -60,6 +62,24 @@ The agent adapts everything to who's in the room:
 | `timeline` | Sequence, roadmap, history |
 | `quote` | Testimonial or pull quote |
 | `closing` | CTA — never "Thank you" / "Questions?" |
+
+---
+
+## Build features
+
+| Feature | How it works |
+|---------|--------------|
+| Presenter mode | `P` opens current/next slide previews, notes, timer, and jump control |
+| Speaker notes | Each slide can include `<aside class="speaker-notes">` for presenter mode |
+| Overview grid | `G` opens a thumbnail grid; slide hashes use descriptive names |
+| Step reveal | Optional `animation.js` reveals `[data-step]` elements before advancing slides |
+| Slide animations | CSS, Motion, GSAP, and View Transitions are available when the slide needs them |
+| Charts / data viz | Chart.js, ECharts, uPlot, ApexCharts, D3, or CSS-only charts; one chart library per slide |
+| Diagrams | Mermaid for flowcharts, sequences, Gantt, and architecture diagrams |
+| Code slides | highlight.js for real syntax highlighting |
+| Markdown slides | marked.js can render long-form Markdown into slide HTML |
+| Pointer chrome | Optional custom cursor + click spark for live demos; off by default |
+| PDF export | Decktape or browser print via `@media print` |
 
 ---
 
@@ -100,12 +120,14 @@ Both tests run before every delivery. Fix before showing the user.
 ```
 .octocode/slides/<deck-name>/
 ├── index.html              ← open this in browser
+├── README.md               ← per-deck handoff notes
 ├── css/
 │   ├── base.css            ← layout primitives (never edit)
 │   └── theme.css           ← deck colors, fonts, tokens
 ├── js/
 │   ├── navbridge.js        ← arrow-key iframe→parent forwarding
-│   └── presenter.js        ← P-key presenter popup
+│   ├── presenter.js        ← P-key presenter popup
+│   └── animation.js        ← optional per-slide step reveal engine
 ├── slides/
 │   └── <slug>.html         ← one file per slide
 ├── assets/                 ← images: ../assets/filename.png
@@ -122,8 +144,11 @@ Both tests run before every delivery. Fix before showing the user.
 
 | Key | Action |
 |-----|--------|
-| `→` / `↓` | Next slide |
+| `→` / `↓` / `Space` | Next slide |
 | `←` / `↑` | Previous slide |
+| `Home` / `End` | First / last slide |
+| `G` | Overview grid |
+| `F` | Fullscreen |
 | `P` | Presenter popup (previews + notes + timer + jump) |
 | `B` | Blackout |
 | `W` | Whiteout |
@@ -237,6 +262,28 @@ Resolution guidance: `512px` → draft/iterate · `1K` → inline/decorative · 
 
 ---
 
+## Animations
+
+Animations are opt-in per slide. Use them only when they clarify a sequence, reveal, chart, or live-demo moment.
+
+| Need | Use |
+|------|-----|
+| Step-by-step reveal | `data-step="1"` / `data-step="2"` + `js/animation.js` |
+| Simple entrance | CSS `.fade-in`, `.slide-up`, or local CSS |
+| Staggered bullets/cards | CSS `sibling-index()` when supported; Motion fallback |
+| Counters / progress fills | Motion `animate()` |
+| Complex SVG choreography | GSAP |
+| Slide-to-slide transition | View Transitions API in `index.html` |
+
+For step reveal slides, load scripts in this exact order:
+
+```html
+<script src="../js/animation.js"></script>
+<script src="../js/navbridge.js"></script>
+```
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -245,7 +292,7 @@ Resolution guidance: `512px` → draft/iterate · `1K` → inline/decorative · 
 | `uv: command not found` | Install `uv` (Step 3 above) |
 | `ModuleNotFoundError: google` | Use `uv run`, not `python` — uv installs deps automatically |
 | Slides don't open | Double-click `index.html` in Chrome or Firefox |
-| Arrow keys stop working after click | Click inside the slide (iframe needs focus) |
+| Arrow keys stop working after click | Verify every slide includes `../js/navbridge.js`; step slides must load `../js/animation.js` before navbridge |
 | Images not generating | Say "generate images" — agent never generates silently |
 | Slide content overflows | Agent splits into a new slide — max 1280×720, no scrolling |
 | `[NEEDS SOURCE]` in slide | Agent hit an unverifiable claim — provide the source or confirm the data |
@@ -256,4 +303,5 @@ Resolution guidance: `512px` → draft/iterate · `1K` → inline/decorative · 
 
 - [Gemini API key](https://aistudio.google.com/apikey) · [uv](https://astral.sh/uv) · [Nano Banana 2 model docs](https://ai.google.dev/gemini-api/docs/image-generation)
 - [Image generation reference](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-slides/references/image-generation.md)
+- [Animation reference](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-slides/references/animation.md) · [Libraries/resources](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-slides/references/resources.md)
 - [SKILL.md](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-slides/SKILL.md) · [slide-rules.md](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-slides/references/slide-rules.md)

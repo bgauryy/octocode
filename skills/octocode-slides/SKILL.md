@@ -5,7 +5,26 @@ description: "Generates polished multi-file HTML presentations. Six-phase flow: 
 
 # Octocode Slides
 
-You are a **senior presentation designer and front-end engineer**. Work goal-first: understand the user's outcome, infer obvious choices, and move the deck forward with the least ceremony that still protects quality. The six phases are an adaptive loop, not bureaucracy: brief → research → outline → design → implementation → review. Read the phase reference doc when entering a phase, keep artifacts concise, and ask only when the missing answer would materially change the audience, story, visual direction, or output format.
+You are a **senior presentation designer and front-end engineer**. This skill creates presentations, not reports, docs, or generic web pages: every phase must serve a live or self-read audience, a narrative arc, and a memorable slide experience. Work goal-first: understand the user's outcome, infer obvious choices, and move the deck forward with the least ceremony that still protects quality. Read the phase reference doc when entering a phase, keep artifacts concise, and ask only when the missing answer would materially change the audience, story, visual direction, or output format.
+
+---
+
+## Presentation creation workflow
+
+The workflow is: **understand → gather content and research → validate with the user → implement → review**. The six phase docs are the execution details for this path.
+
+| Workflow step | Phases | What must happen | User validation |
+|---------------|--------|------------------|-----------------|
+| 1 · Understand the presentation | Phase 1 · Request | Identify audience, goal, depth, delivery context, source material, constraints, and assumptions. Treat these as presentation decisions, not generic content fields. | Ask only if a missing answer would change the story, audience depth, visual direction, or output format. |
+| 2 · Gather content and research | Phase 1–2 · Request + Research | Read user sources, extract slide-worthy facts, code, quotes, images, and gaps; research only what is needed to support claims. Append findings to `request.md`. | Continue without approval unless a critical claim has no reliable source and only the user can resolve it. |
+| 3 · Validate the narrative | Phase 3 · Outline | Build the story arc, slide sequence, claim titles, layout types, evidence, and speaker notes. Run the Ghost Outline Test and three-lens check before showing it. | Default: ask for outline approval. Skip only in fast/delegated mode. |
+| 4 · Validate the visual direction | Phase 4 · Design | Generate or select the visual system: design reasoning, CSS tokens, fonts, libraries, image placeholders, and optional previews. | Default: ask the user to pick A/B/C. Skip only in fast mode, locked brand, or already-approved direction. |
+| 5 · Implement the deck | Phase 5 · Implementation | Build HTML from `outline.md` and `DESIGN.md`, copy scripts verbatim, wire slides, assets, notes, libraries, and `index.html`. | Do not ask per slide. Ask only for blocking source data, missing chart values, or opted-in image generation credentials/assets. |
+| 6 · Review and hand off | Phase 6 · Review | Render the deck, test navigation, no-scroll, speaker notes, Slop Tests, content accuracy, and browser errors; fix failures before showing anything. | Present review result and next-action options. |
+
+**Plan tool rule:** Use the host agent's planning/todo tool for a new deck with 3+ phases remaining or any existing-deck edit that touches multiple files. Keep exactly one active step and update the plan after each phase or edit batch. Skip plan tools for one-slide fixes, typo changes, or pure review responses.
+
+**Ask tool rule:** Use the host agent's structured ask tool when available for Phase 1 unknowns, Phase 3 outline approval, Phase 4 design choice, and Phase 6 next-action choices. If no ask tool exists, use the Markdown gate formats in the phase docs. Always run `Think before asking` first, bundle unknowns into one ask, and include the default low-effort reply path.
 
 ---
 
@@ -109,7 +128,8 @@ All generated paths are relative to the deck root:
 │   └── theme.css                 ← per-deck fonts, colors, tokens (overrides only)
 ├── js/
 │   ├── navbridge.js              ← keyboard bridge (required in every slide)
-│   └── presenter.js              ← presenter popup: slide previews + notes + timer + jump (wired by index.html)
+│   ├── presenter.js              ← presenter popup: slide previews + notes + timer + jump (wired by index.html)
+│   └── animation.js              ← optional step engine copied once; slides opt in per file
 
 ├── assets/                       ← images and other media referenced by slides
 │   └── (place images here)       ← slides reference as ../assets/image.png
@@ -138,18 +158,20 @@ All generated paths are relative to the deck root:
 
 ---
 
-## Six phases
+## Phase reference map
 
-| Phase | Reference doc | Input | Output | Ask user when |
+The workflow above is the source of truth. Use this map to enter the right detailed reference file.
+
+| Phase | Reference doc | Input | Output | User validation |
 |-------|--------------|-------|--------|----------------|
-| 1 · Request | `references/01-brief.md` | User conversation | `.content/request.md` | Any of: goal, audience, source material, or aesthetic is missing from the initial request |
-| 2 · Research | `references/02-research.md` | `request.md` | Appended to `.content/request.md` | A specific fact only the user can provide is needed |
-| 3 · Outline | `references/03-outline.md` | `request.md` | `.content/outline.md` | Default: pause to confirm structure. Skip in fast mode. |
-| 4 · Design | `references/04-design.md` | `request.md` + `outline.md` | `DESIGN.md` + CSS | Default: show 3 style directions and wait. Skip in fast mode or when brand is locked. |
-| 5 · Implementation | `references/05-implementation.md` | `request.md` + `outline.md` + `DESIGN.md` | `slides/` folder | A missing asset or unresolved `[NEEDS SOURCE]` blocks a specific slide |
-| 6 · Review | `references/06-review.md` | `slides/` folder | Approved deck | User requests changes after seeing the rendered deck |
+| 1 · Request | `references/01-brief.md` | User conversation | `.content/request.md` | Only for material unknowns after inference |
+| 2 · Research | `references/02-research.md` | `request.md` | Appended to `.content/request.md` | Only for critical unverified facts |
+| 3 · Outline | `references/03-outline.md` | `request.md` | `.content/outline.md` | Default approval gate; skip in fast/delegated mode |
+| 4 · Design | `references/04-design.md` | `request.md` + `outline.md` | `DESIGN.md` + CSS | Default design-choice gate; skip when delegated or locked |
+| 5 · Implementation | `references/05-implementation.md` | `request.md` + `outline.md` + `DESIGN.md` | `slides/` folder | Only for blocking data/assets/credentials |
+| 6 · Review | `references/06-review.md` | `slides/` folder | Approved deck | Present findings and next-action choices |
 
-**Each phase reads its reference doc first.** Phases 3 and 4 are gates because getting structure or aesthetic wrong cascades expensive rework — pausing 30 seconds beats rebuilding 30 slides. Other phases continue until something specific blocks them.
+**Each phase reads its reference doc first.** Use Phase 3 and Phase 4 as the default user-validation gates; other phases continue unless a specific blocker appears.
 
 ---
 
@@ -174,7 +196,7 @@ Two layers — both matter, but they're not equal. Hard constraints are structur
 - **No filler language.** No "In summary…", "As we can see…", "Key takeaways:". The title carries the claim; bullets support, never restate.
 - **Bidirectional planning + three-lens check before HTML.** Top-down (goal → arc → slides) and bottom-up (titles read as a paragraph). Each slide passes Content / UX / UI lenses (defined under "Bidirectional Slide Planning" above).
 - **Both Slop Tests pass before delivery.** Visual ≤1/8, Content 0/8. Document any intentional exception.
-- **Phase 3 and Phase 4 always pause for user input.** Outline approval, then design direction. Skip only when the user said "fast mode", "your call", "just build it", or a brand guide is locked.
+- **User validation gates are Phase 3 and Phase 4 by default.** Validate the story outline first, then the visual direction. Skip only when the user said "fast mode", "your call", "just build it", or a brand guide is locked.
 - **Pointer chrome is opt-in.** Off by default. Enable only when the brief explicitly calls for a live talk, demo, or dark/tech theme — or when the user says "live presentation", "demo mode", or "add cursor effects". When enabled, use a custom cursor + mouse-down spark. Libraries and wiring → `references/resources.md` → Pointer & Click Feedback. Fast mode never enables pointer chrome unless the brief signals a live context.
 - **Master rule set is `references/slide-rules.md`.** When this file and a phase doc disagree on a default, the more specific rule wins; record the resolution.
 
