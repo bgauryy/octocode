@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Octocode Research Protocol</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    /* Use flex so the buckets row claims all the space between header and footer. */
+    .slide--protocol {
+      display: flex;
+      flex-direction: column;
+      gap: 1.4rem;
+    }
+    .slide--protocol .slide-header { flex: 0 0 auto; }
+    .slide--protocol .title {
+      font-size: 2.05rem;
+      max-width: 38ch;
+      line-height: 1.18;
+    }
+    .slide--protocol .title em {
+      color: var(--accent);
+      font-style: normal;
+      font-weight: 600;
+    }
+    .protocol-subtitle {
+      font-size: 0.95rem;
+      line-height: 1.45;
+      color: var(--muted);
+      max-width: 60ch;
+      margin-top: 0.25rem;
+    }
+
+    .protocol-grid {
+      flex: 1 1 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.05fr;
+      gap: 1rem;
+      align-items: stretch;
+      width: 100%;
+    }
+
+    .bucket {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 1.05rem 1.25rem 1.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      min-width: 0;
+    }
+    .bucket::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--violet);
+      opacity: 0.95;
+    }
+    .bucket--during::before { background: var(--accent); }
+    .bucket--after::before  { background: var(--positive); }
+
+    .bucket-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.6rem;
+      padding-bottom: 0.7rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .bucket-head .act {
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .bucket-head h3 {
+      font-family: var(--font-head);
+      font-size: 1.05rem;
+      letter-spacing: -0.005em;
+      color: var(--violet);
+      margin: 0;
+    }
+    .bucket--during .bucket-head h3 { color: var(--accent); }
+    .bucket--after  .bucket-head h3 { color: var(--positive); }
+
+    .bucket-rules {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      flex: 1;
+      justify-content: flex-start;
+    }
+    .rule {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .rule-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    .bucket--during .rule-tag { color: var(--accent); }
+    .bucket--after  .rule-tag { color: var(--positive); }
+    .rule-tag .num {
+      font-weight: 600;
+      color: inherit;
+    }
+    .rule-tag .label {
+      color: var(--muted);
+      letter-spacing: 0.16em;
+    }
+    .rule h4 {
+      font-family: var(--font-head);
+      font-size: 0.94rem;
+      color: var(--text-strong);
+      letter-spacing: -0.005em;
+      margin: 0.05rem 0 0;
+    }
+    .rule p {
+      font-size: 0.78rem;
+      line-height: 1.42;
+      color: var(--muted);
+    }
+    .rule code {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent-2);
+      background: rgb(92 208 236 / 0.08);
+      padding: 0 0.25rem;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--protocol">
+  <div class="slide-header">
+    <h2 class="title">The Octocode protocol</h2>
+    <p class="protocol-subtitle">What the LLM reads, what it sends, what comes back &mdash; the same contract every call.</p>
+  </div>
+
+  <div class="protocol-grid">
+    <!-- BEFORE -->
+    <section class="bucket bucket--before" data-step="2">
+      <div class="bucket-head">
+        <h3>Context engineering</h3>
+        <span class="act">Before</span>
+      </div>
+      <ul class="bucket-rules">
+        <li class="rule">
+          <span class="rule-tag"><span class="num">01</span><span class="label">Descriptions</span></span>
+          <h4>When to use, what to avoid</h4>
+          <p>Each tool's prompt names its real use cases.</p>
+        </li>
+        <li class="rule">
+          <span class="rule-tag"><span class="num">02</span><span class="label">Schema</span></span>
+          <h4>Typed, concise, strong</h4>
+          <p>Inputs and outputs are predictable.</p>
+        </li>
+        <li class="rule">
+          <span class="rule-tag"><span class="num">03</span><span class="label">Instructions</span></span>
+          <h4>MCP instructions</h4>
+          <p>Server-level guidance shapes how tools get used.</p>
+        </li>
+      </ul>
+    </section>
+
+    <!-- DURING -->
+    <section class="bucket bucket--during" data-step="3">
+      <div class="bucket-head">
+        <h3>Execution</h3>
+        <span class="act">During</span>
+      </div>
+      <ul class="bucket-rules">
+        <li class="rule">
+          <span class="rule-tag"><span class="num">04</span><span class="label">Intent</span></span>
+          <h4>Every call carries a goal</h4>
+          <p>Each call ships <code>id</code>, <code>reasoning</code>, <code>goal</code>.</p>
+        </li>
+        <li class="rule">
+          <span class="rule-tag"><span class="num">05</span><span class="label">Parallel</span></span>
+          <h4>Many questions, one call</h4>
+          <p>One invocation can carry several queries.</p>
+        </li>
+      </ul>
+    </section>
+
+    <!-- AFTER -->
+    <section class="bucket bucket--after" data-step="4">
+      <div class="bucket-head">
+        <h3>Response</h3>
+        <span class="act">After</span>
+      </div>
+      <ul class="bucket-rules">
+        <li class="rule">
+          <span class="rule-tag"><span class="num">06</span><span class="label">Hints</span></span>
+          <h4>Every response guides the next move</h4>
+          <p>Results carry hints that point to the next call.</p>
+        </li>
+        <li class="rule">
+          <span class="rule-tag"><span class="num">07</span><span class="label">Pagination</span></span>
+          <h4>Octocode paginates any result</h4>
+          <p>Paginates results from any tool for a smarter flow.</p>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+</div>
+<aside class="speaker-notes">Land the headline first: seven rules, three acts. Walk left to right (Before / During / After). The next two slides zoom in on During (request envelope) and After (response with hints).</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

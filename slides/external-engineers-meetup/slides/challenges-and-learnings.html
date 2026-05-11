@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Challenges &amp; what we learned</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.1rem; }
+    .slide--wix .title { max-width: 38ch; }
+
+    .lessons-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: 1fr 1fr;
+      gap: 0.85rem;
+      width: 100%;
+    }
+    .lesson {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 0.95rem 1.1rem 1.05rem;
+      display: grid;
+      gap: 0.5rem;
+      align-content: start;
+      position: relative;
+      overflow: hidden;
+    }
+    .lesson::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .lesson.b::before { background: var(--warm); }
+    .lesson.c::before { background: var(--violet); }
+    .lesson.d::before { background: var(--positive); }
+
+    .lesson .head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.55rem;
+    }
+    .lesson .num {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .lesson.b .num { color: var(--warm); }
+    .lesson.c .num { color: var(--violet); }
+    .lesson.d .num { color: var(--positive); }
+    .lesson .icon {
+      width: 1.55rem;
+      height: 1.55rem;
+      stroke: var(--accent);
+      opacity: 0.9;
+    }
+    .lesson.b .icon { stroke: var(--warm); }
+    .lesson.c .icon { stroke: var(--violet); }
+    .lesson.d .icon { stroke: var(--positive); }
+
+    .lesson .label {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .lesson.b .label { color: var(--warm); }
+    .lesson.c .label { color: var(--violet); }
+    .lesson.d .label { color: var(--positive); }
+
+    .lesson .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1rem;
+      line-height: 1.22;
+      margin-top: -0.05rem;
+    }
+
+    .lesson ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.32rem;
+    }
+    .lesson li {
+      color: var(--text);
+      font-size: 0.76rem;
+      line-height: 1.4;
+      padding-left: 1rem;
+      position: relative;
+    }
+    .lesson li::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0.46rem;
+      width: 0.32rem; height: 0.32rem;
+      border-radius: 1px;
+      background: var(--accent);
+      transform: rotate(45deg);
+      opacity: 0.85;
+    }
+    .lesson.b li::before { background: var(--warm); }
+    .lesson.c li::before { background: var(--violet); }
+    .lesson.d li::before { background: var(--positive); }
+
+    .lesson li code {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0 0.3rem;
+    }
+    .lesson li strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+      font-weight: 600;
+    }
+
+    .closing-band {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 1rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.8rem 1.15rem;
+    }
+    .closing-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.68rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .closing-band p {
+      color: var(--text);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    .closing-band p strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+    .closing-band .verdict {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Four lessons that <em>bent the system into shape</em>.</h2>
+  </div>
+
+  <div class="lessons-grid">
+    <section class="lesson" data-step="1">
+      <div class="head">
+        <span class="num">Lesson 01</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 6h12a4 4 0 0 1 0 8H4z"/>
+          <path d="M4 6v14"/>
+          <path d="M8 14v6"/>
+        </svg>
+      </div>
+      <span class="label">Library choice</span>
+      <span class="name">The foundation decides your ceiling.</span>
+      <ul>
+        <li>Google ADK shipped only basic compaction and no <strong>parallel MCP tool calls</strong>.</li>
+        <li>We forked it and built our own compaction + parallelism layer.</li>
+      </ul>
+    </section>
+
+    <section class="lesson b" data-step="2">
+      <div class="head">
+        <span class="num">Lesson 02</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+          <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>
+          <circle cx="12" cy="12" r="3.5"/>
+        </svg>
+      </div>
+      <span class="label">Context engineering</span>
+      <span class="name">Every tool you add costs the agent.</span>
+      <ul>
+        <li>More tools = more prompt weight, slower convergence.</li>
+        <li><strong>Good prompts are written by humans</strong> &mdash; not generated by AI.</li>
+      </ul>
+    </section>
+
+    <section class="lesson c" data-step="3">
+      <div class="head">
+        <span class="num">Lesson 03</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="9" cy="8" r="3"/>
+          <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/>
+          <path d="m17 9 4 4-4 4"/>
+        </svg>
+      </div>
+      <span class="label">Human in the loop</span>
+      <span class="name">LLMs take the shortest path &mdash; not always the right one.</span>
+      <ul>
+        <li>Quality validation is constant, not a launch checkbox.</li>
+        <li>Context management is the lever: <strong>schemas, helpers, compaction</strong>.</li>
+      </ul>
+    </section>
+
+    <section class="lesson d" data-step="4">
+      <div class="head">
+        <span class="num">Lesson 04</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3a9 9 0 1 0 9 9"/>
+          <path d="M12 7v5l3 2"/>
+          <circle cx="12" cy="12" r="0.9" fill="currentColor"/>
+        </svg>
+      </div>
+      <span class="label">The LLM knows</span>
+      <span class="name">Audit your prompts with the model that runs them.</span>
+      <ul>
+        <li>Ask the model <strong>what it understood</strong> &mdash; gaps surface immediately.</li>
+        <li>Cheap iteration loop: write &rarr; ask &rarr; rewrite.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="closing-band" data-step="5">
+    <span class="stamp">Net</span>
+    <p>None of this is one-shot work. The system improves as the <strong>library, prompts, tools, and evals</strong> all improve together.</p>
+    <span class="verdict">&rarr; build to keep building</span>
+  </div>
+
+</div>
+<aside class="speaker-notes">Four lessons from the road. (1) Library choice: Google ADK shipped only basic compaction and could not fire parallel MCP tool calls — we forked it and built our own. The foundation decides your ceiling. (2) Context engineering: every tool you add costs the agent in prompt weight and decision pressure. Good prompts are not generated by AI; they are written, tested, and curated by humans. (3) Human in the loop: LLMs take the shortest path, which is not always the correct one. Quality validation is constant; evals and optimizations are ongoing; context management is the primary lever — schemas, helpers, compaction, smart prompts. (4) The LLM knows: ask the model what it understood from your prompts, use it to validate and polish content. Net: none of this is one-shot work; it improves as everything around it improves.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

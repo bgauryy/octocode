@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Why Bilbo</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.1rem; }
+    .slide--wix .title { max-width: 36ch; }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.55;
+      max-width: 70ch;
+      margin-top: 0.35rem;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em {
+      font-style: normal;
+      color: var(--warm);
+      font-weight: 600;
+    }
+
+    /* ── "The many" — question categories ─────────────────── */
+    .many-band {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 1rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--warm);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+    }
+    .many-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--warm);
+      white-space: nowrap;
+    }
+    .many-band .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.32rem;
+    }
+    .many-band .chip {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 0.22rem 0.55rem;
+      white-space: nowrap;
+    }
+    .many-band .chip strong {
+      color: var(--text-strong);
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    /* ── Funnel: many → one ──────────────────────────────── */
+    .funnel {
+      display: grid;
+      justify-items: center;
+      gap: 0.4rem;
+      margin: 0.3rem auto 0;
+    }
+    .funnel .tag {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .funnel .pipe {
+      width: 2px;
+      height: 0.95rem;
+      background: linear-gradient(180deg, var(--warm), var(--accent));
+      position: relative;
+    }
+    .funnel .pipe::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0; height: 0;
+      border-left: 0.35rem solid transparent;
+      border-right: 0.35rem solid transparent;
+      border-top: 0.42rem solid var(--accent);
+    }
+    .funnel .core {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.6rem 1.2rem;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--accent-strong);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-soft);
+    }
+    .funnel .core .core-label {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .funnel .core .core-name {
+      font-family: var(--font-head);
+      font-size: 1.1rem;
+      color: var(--text-strong);
+      font-weight: 700;
+    }
+    .funnel .core .core-divider {
+      width: 1px;
+      height: 1.1rem;
+      background: var(--border-strong);
+    }
+
+    /* ── Three audiences ──────────────────────────────────── */
+    .audiences {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.9rem;
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+    .aud-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 0.95rem 1.05rem 1rem;
+      display: grid;
+      gap: 0.4rem;
+      align-content: start;
+      position: relative;
+      overflow: hidden;
+      min-height: 9.5rem;
+    }
+    .aud-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .aud-card.b::before { background: var(--violet); }
+    .aud-card.c::before { background: var(--positive); }
+
+    .aud-card .head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .aud-card .label {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .aud-card.b .label { color: var(--violet); }
+    .aud-card.c .label { color: var(--positive); }
+    .aud-card .icon {
+      width: 1.5rem;
+      height: 1.5rem;
+      stroke: var(--accent);
+      opacity: 0.85;
+    }
+    .aud-card.b .icon { stroke: var(--violet); }
+    .aud-card.c .icon { stroke: var(--positive); }
+
+    .aud-card .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.15rem;
+      line-height: 1.2;
+      margin-top: 0.1rem;
+    }
+    .aud-card .summary {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+    .aud-card .summary strong { color: var(--text); font-weight: 600; }
+    .aud-card .channels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.1rem;
+    }
+    .aud-card .ch {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.04em;
+      color: var(--muted-2);
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      padding: 0.18rem 0.45rem;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">One unified research service powers all workflows.</h2>
+    <p class="lede"><em>Many</em> questions. <em>Many</em> issues. <em>Many</em> research needs &mdash; all converging on the same evidence. <strong>One unified research service</strong>, built for services, humans, and agents.</p>
+  </div>
+
+  <div class="many-band" data-step="1">
+    <span class="stamp">The many</span>
+    <div class="chips">
+      <span class="chip"><strong>code</strong> &middot; root cause</span>
+      <span class="chip"><strong>ownership</strong> &middot; FQDN / package</span>
+      <span class="chip"><strong>incident</strong> &middot; what changed</span>
+      <span class="chip"><strong>rollout</strong> &middot; experiments / placements</span>
+      <span class="chip"><strong>data</strong> &middot; Trino SQL</span>
+      <span class="chip"><strong>topology</strong> &middot; services / Kafka</span>
+      <span class="chip"><strong>logs</strong> &middot; by requestId</span>
+      <span class="chip"><strong>tickets</strong> &middot; Jira context</span>
+      <span class="chip"><strong>docs</strong> &middot; schemas / SDK</span>
+      <span class="chip"><strong>flows</strong> &middot; end-to-end</span>
+    </div>
+  </div>
+
+  <div class="funnel" data-step="2">
+    <span class="tag">one investigation pipeline</span>
+    <div class="pipe" aria-hidden="true"></div>
+    <div class="core">
+      <span class="core-label">Bilbo</span>
+      <span class="core-divider"></span>
+      <span class="core-name">Unified research service</span>
+    </div>
+  </div>
+
+  <div class="audiences">
+    <section class="aud-card" data-step="3">
+      <div class="head">
+        <span class="label">Audience 01</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="5" rx="1.2"/>
+          <rect x="3" y="11" width="18" height="5" rx="1.2"/>
+          <circle cx="6.5" cy="6.5" r="0.7" fill="currentColor"/>
+          <circle cx="6.5" cy="13.5" r="0.7" fill="currentColor"/>
+          <path d="M3 19h18"/>
+        </svg>
+      </div>
+      <span class="name">Services</span>
+      <p class="summary"><strong>Fire-and-forget</strong> research from any backend &mdash; async, programmable, result lands on Kafka.</p>
+      <div class="channels">
+        <span class="ch">async-research</span>
+        <span class="ch">gRPC</span>
+        <span class="ch">Kafka</span>
+      </div>
+    </section>
+
+    <section class="aud-card b" data-step="4">
+      <div class="head">
+        <span class="label">Audience 02</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8" r="3.4"/>
+          <path d="M4.5 20c1.4-3.8 4.4-5.8 7.5-5.8s6.1 2 7.5 5.8"/>
+        </svg>
+      </div>
+      <span class="name">Humans</span>
+      <p class="summary"><strong>Conversational</strong> investigation &mdash; debugger UI, chat, follow-ups, shared replays.</p>
+      <div class="channels">
+        <span class="ch">Debugger UI</span>
+        <span class="ch">chat</span>
+        <span class="ch">share</span>
+      </div>
+    </section>
+
+    <section class="aud-card c" data-step="5">
+      <div class="head">
+        <span class="label">Audience 03</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="6" width="16" height="12" rx="2"/>
+          <circle cx="9" cy="12" r="1.1" fill="currentColor"/>
+          <circle cx="15" cy="12" r="1.1" fill="currentColor"/>
+          <path d="M12 3v3"/>
+          <path d="M4 12H2"/>
+          <path d="M22 12h-2"/>
+        </svg>
+      </div>
+      <span class="name">Agents</span>
+      <p class="summary"><strong>Tool surface</strong> for coding agents &mdash; one MCP / HTTP call, cited evidence back.</p>
+      <div class="channels">
+        <span class="ch">MCP</span>
+        <span class="ch">HTTP</span>
+        <span class="ch">cited</span>
+      </div>
+    </section>
+  </div>
+
+</div>
+<aside class="speaker-notes">Why Bilbo? We run on many questions — code root cause, ownership, incident triage, rollouts, data lookups, topology, logs, tickets, docs, end-to-end flows — and they all reach for the same kinds of evidence: GitHub, service topology, API docs, Trino, Jira, experiments, placements, memory. Instead of N bespoke tools per team, Bilbo is one unified research service running one investigation pipeline. Three audiences call it: (1) Services — fire-and-forget async research over gRPC/Kafka; (2) Humans — the debugger UI and chat with follow-ups, sharing, forking; (3) Agents — MCP/HTTP for coding agents that need cited evidence, not guesses. Same planner, same researcher, same memory — different entry points. Next slide shows what the pipeline actually looks like.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

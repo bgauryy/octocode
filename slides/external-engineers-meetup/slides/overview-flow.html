@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overview</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 0.6rem; }
+    .slide--wix .title { max-width: 38ch; }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      max-width: 90ch;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+
+    /* ─── Stage ─────────────────────────────────────────── */
+    .stage {
+      position: relative;
+      width: 100%;
+      height: 540px;
+      margin-top: 0.2rem;
+    }
+
+    /* SVG layer for connectors and packets */
+    .wires {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      overflow: visible;
+    }
+
+    /* Default reveal — overrides animation.js base */
+    [data-step] {
+      opacity: 0;
+      transform: translateY(14px) scale(0.97);
+      transition: opacity 0.5s cubic-bezier(.4,0,.2,1),
+                  transform 0.5s cubic-bezier(.4,0,.2,1);
+    }
+    [data-step].step-visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    /* ─── Memory bank (top-center) ──────────────────────── */
+    .memory-bank {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 320px;
+      padding: 0.85rem 1.2rem;
+      background: linear-gradient(160deg, #1a1230, #0e0820);
+      border: 1px solid var(--violet);
+      border-radius: var(--radius);
+      box-shadow: 0 0 26px rgba(167, 139, 250, 0.3), inset 0 1px 0 rgba(255,255,255,0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      align-items: center;
+      z-index: 2;
+    }
+    .memory-bank[data-step] {
+      transform: translateX(-50%) translateY(-10px) scale(0.97);
+    }
+    .memory-bank[data-step].step-visible {
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+    .memory-bank .role {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    .memory-bank .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+    .memory-bank .tagline {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--muted);
+    }
+    .memory-bank::before {
+      content: '◉';
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 0.7rem;
+      color: var(--violet);
+      animation: blink 2s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    /* ─── Agent stations ────────────────────────────────── */
+    .station {
+      position: absolute;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+      padding: 0.9rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      z-index: 2;
+    }
+    .station::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+
+    /* Planner (left) */
+    .planner {
+      top: 175px;
+      left: 20px;
+      width: 230px;
+      height: 320px;
+    }
+    .planner::before { background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+    .planner .role { color: var(--accent); }
+
+    /* Researcher (center — HERO) */
+    .researcher {
+      top: 145px;
+      left: 50%;
+      width: 480px;
+      height: 380px;
+      box-shadow: 0 18px 44px rgba(0,0,0,0.55),
+                  0 0 32px rgba(240, 164, 92, 0.12),
+                  inset 0 1px 0 rgba(255,255,255,0.06);
+      border-color: rgba(240, 164, 92, 0.25);
+    }
+    .researcher[data-step] { transform: translateX(-50%) translateY(14px) scale(0.97); }
+    .researcher[data-step].step-visible { transform: translateX(-50%) translateY(0) scale(1); }
+    .researcher::before {
+      height: 4px;
+      background: var(--warm);
+      box-shadow: 0 0 20px var(--warm);
+    }
+    .researcher .role { color: var(--warm); }
+    .researcher .name { font-size: 1.55rem; }
+
+    /* Loop badge (researcher iterates) */
+    .loop-badge {
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.5rem;
+      background: rgba(240, 164, 92, 0.12);
+      border: 1px solid rgba(240, 164, 92, 0.35);
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      font-size: 0.55rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--warm);
+    }
+    .loop-badge .pulse {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--warm);
+      box-shadow: 0 0 6px var(--warm);
+      animation: blink 1.4s ease-in-out infinite;
+    }
+
+    /* Output (right) */
+    .output {
+      top: 175px;
+      right: 20px;
+      width: 230px;
+      height: 320px;
+    }
+    .output::before { background: var(--positive); box-shadow: 0 0 14px var(--positive); }
+    .output .role { color: var(--positive); }
+
+    .station .role {
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+    .station .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.15rem;
+      line-height: 1.1;
+    }
+    .station .tagline {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+
+    /* ─── Researcher 2-column tools grid ─────────────────── */
+    .research-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.8rem;
+      margin-top: 0.4rem;
+      flex: 1;
+    }
+
+    /* ─── Tool sections ─────────────────────────────────── */
+    .tools-group {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .tools-label {
+      font-family: var(--font-head);
+      font-size: 0.5rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      margin-bottom: 0.35rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .tools-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, var(--border), transparent);
+    }
+
+    .tool-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 0.32rem;
+    }
+
+    .tool-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.36rem 0.55rem;
+      background: rgba(0,0,0,0.32);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 5px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Pulse on activation */
+    .tool-pill[data-step] {
+      transform: translateX(-6px);
+    }
+    .tool-pill[data-step].step-visible {
+      transform: translateX(0);
+      animation: toolPulse 1.2s ease-out;
+    }
+    @keyframes toolPulse {
+      0%   { box-shadow: 0 0 0 0 var(--accent); }
+      30%  { box-shadow: 0 0 12px 2px var(--accent); border-color: var(--accent); }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    .tool-pill .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted-2);
+      flex-shrink: 0;
+    }
+    .planner .tool-pill .dot     { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .researcher .tool-pill.helper .dot { background: var(--warm); box-shadow: 0 0 6px var(--warm); }
+    .researcher .tool-pill.code   .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    .researcher .tool-pill.helper.step-visible { animation: toolPulseWarm 1.2s ease-out; }
+    @keyframes toolPulseWarm {
+      0%   { box-shadow: 0 0 0 0 var(--warm); }
+      30%  { box-shadow: 0 0 12px 2px var(--warm); border-color: var(--warm); }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    .tool-pill code {
+      color: var(--muted);
+      background: rgba(255,255,255,0.04);
+      padding: 0.08rem 0.36rem;
+      margin-left: auto;
+      font-size: 0.56rem;
+      letter-spacing: 0.06em;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.06);
+      text-transform: lowercase;
+    }
+    /* Domain-coded category tags (the right-side <code> chip) */
+    .tool-pill.cat-octocode  code { color: var(--accent);  border-color: rgba(92,208,236,0.3); }
+    .tool-pill.cat-memory    code { color: var(--violet);  border-color: rgba(167,139,250,0.3); }
+    .tool-pill.cat-docs      code { color: var(--accent-2); border-color: rgba(166,232,242,0.3); }
+    .tool-pill.cat-jira      code { color: var(--warm);    border-color: rgba(240,164,92,0.3); }
+    .tool-pill.cat-vision    code { color: var(--positive); border-color: rgba(110,231,167,0.3); }
+    .tool-pill.cat-db        code { color: var(--warm-soft); border-color: rgba(246,199,148,0.3); }
+    .tool-pill.cat-logs      code { color: var(--negative); border-color: rgba(240,133,133,0.3); }
+    .tool-pill.cat-services  code { color: var(--violet);  border-color: rgba(167,139,250,0.3); }
+    .tool-pill.cat-scoped    code { color: var(--text);    border-color: rgba(255,255,255,0.15); }
+
+    /* Output result block */
+    .output .result {
+      margin-top: auto;
+      padding: 0.7rem;
+      background: rgba(110, 231, 167, 0.06);
+      border: 1px dashed var(--positive);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .output .result strong {
+      color: var(--positive);
+      font-family: var(--font-head);
+      font-size: 0.55rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+    .output .result code {
+      color: var(--positive);
+      background: none;
+      padding: 0;
+    }
+
+    /* ─── SVG packets / connectors ───────────────────────── */
+    .wires path.conn {
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 5 5;
+    }
+    .wires path.conn.solid {
+      stroke-dasharray: none;
+      stroke-width: 2.4;
+    }
+    .wires .label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    /* Path reveal animations */
+    g[data-step] path.conn,
+    g[data-step] path.flow {
+      stroke-dashoffset: 120;
+      stroke-dasharray: 120;
+    }
+    g[data-step].step-visible path.conn,
+    g[data-step].step-visible path.flow {
+      animation: drawWire 0.7s ease-out forwards;
+    }
+    @keyframes drawWire { to { stroke-dashoffset: 0; } }
+
+    g[data-step] .label, g[data-step] .packet {
+      opacity: 0;
+      transition: opacity 0.4s ease-out 0.5s;
+    }
+    g[data-step].step-visible .label,
+    g[data-step].step-visible .packet { opacity: 1; }
+
+    .packet {
+      filter: drop-shadow(0 0 6px currentColor);
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Overview</h2>
+    <p class="lede">From request to answer: <strong>Memory</strong> seeds the <strong>Planner</strong>, the <strong>Researcher</strong> investigates via helpers and code tools, and <strong>Output</strong> writes the answer back into Memory.</p>
+  </div>
+
+  <div class="stage">
+
+    <!-- ─── SVG wires ──────────────────────────────────── -->
+    <!--
+      Coordinate map (HTML pixels ≈ SVG viewBox 1184×540 with preserveAspectRatio=none):
+        Memory bank:  centered, top=0   → left≈432, right≈752, bottom≈85, mid-y≈45
+        Planner:      x=20,    top=175  → right=250,  mid-y=335
+        Researcher:   centered top=145  → left=352, right=832, mid-y=335
+        Output:       right=20, top=175 → left=934,  mid-y=335
+    -->
+    <svg class="wires" viewBox="0 0 1184 540" preserveAspectRatio="none">
+      <defs>
+        <marker id="ar-violet" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--violet)"/>
+        </marker>
+        <marker id="ar-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="ar-warm" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--warm)"/>
+        </marker>
+        <marker id="ar-positive" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--positive)"/>
+        </marker>
+      </defs>
+
+      <!-- Memory → Planner (consume) -->
+      <g data-step="2">
+        <path id="mem-to-planner" class="conn flow" d="M 480 85 C 320 90, 160 110, 135 175"
+              stroke="var(--violet)" marker-end="url(#ar-violet)" />
+        <text class="label" x="260" y="78" fill="var(--violet)">memory.get</text>
+        <circle class="packet" r="4" fill="var(--violet)" color="#a78bfa">
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="2.2s" repeatCount="indefinite" begin="0.8s"/>
+          <animateMotion dur="2.2s" repeatCount="indefinite" begin="0.8s">
+            <mpath href="#mem-to-planner"/>
+          </animateMotion>
+        </circle>
+      </g>
+
+      <!-- Planner → Research (plan + scheme) -->
+      <g data-step="6">
+        <path id="planner-to-research" class="conn solid flow" d="M 250 335 L 348 335"
+              stroke="var(--accent)" marker-end="url(#ar-accent)" />
+        <text class="label" x="299" y="322" fill="var(--accent)" text-anchor="middle">plan + scheme</text>
+        <circle class="packet" r="4" fill="var(--accent)" color="#5cd0ec">
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1.8s" repeatCount="indefinite" begin="6s"/>
+          <animateMotion dur="1.8s" repeatCount="indefinite" begin="6s">
+            <mpath href="#planner-to-research"/>
+          </animateMotion>
+        </circle>
+      </g>
+
+      <!-- Research → Output (findings) -->
+      <g data-step="10">
+        <path id="research-to-output" class="conn solid flow" d="M 836 335 L 934 335"
+              stroke="var(--warm)" marker-end="url(#ar-warm)" />
+        <text class="label" x="885" y="322" fill="var(--warm)" text-anchor="middle">findings</text>
+        <circle class="packet" r="4" fill="var(--warm)" color="#f0a45c">
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1.8s" repeatCount="indefinite" begin="10s"/>
+          <animateMotion dur="1.8s" repeatCount="indefinite" begin="10s">
+            <mpath href="#research-to-output"/>
+          </animateMotion>
+        </circle>
+      </g>
+
+      <!-- Output → Memory (persist) -->
+      <g data-step="12">
+        <path id="output-to-mem" class="conn flow" d="M 1049 175 C 1080 110, 880 90, 704 85"
+              stroke="var(--positive)" marker-end="url(#ar-positive)" />
+        <text class="label" x="900" y="78" fill="var(--positive)">memory.save</text>
+        <circle class="packet" r="4" fill="var(--positive)" color="#6ee7a7">
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="2.2s" repeatCount="indefinite" begin="12s"/>
+          <animateMotion dur="2.2s" repeatCount="indefinite" begin="12s">
+            <mpath href="#output-to-mem"/>
+          </animateMotion>
+        </circle>
+      </g>
+    </svg>
+
+    <!-- ─── Memory bank (top) ───────────────────────────── -->
+    <div class="memory-bank" data-step="1">
+      <span class="role">Knowledge Base</span>
+      <span class="name">Memory · CloudStore</span>
+      <span class="tagline">prior context · learned patterns</span>
+    </div>
+
+    <!-- ─── Planner ─────────────────────────────────────── -->
+    <div class="station planner" data-step="3">
+      <span class="role">Step 1 · Planner</span>
+      <span class="name">Plan &amp; Scheme</span>
+      <span class="tagline">writes temp:plan_json</span>
+
+      <div class="tools-group" style="margin-top: 0.4rem; flex: 1;">
+        <div class="tools-label">Tool calls</div>
+        <div class="tool-pills">
+          <div class="tool-pill cat-memory" data-step="4"><span class="dot"></span>get_memory <code>memory</code></div>
+          <div class="tool-pill cat-docs"   data-step="4"><span class="dot"></span>getWixDocsData <code>docs</code></div>
+          <div class="tool-pill cat-jira"   data-step="5"><span class="dot"></span>getJiraContext <code>jira</code></div>
+          <div class="tool-pill cat-vision" data-step="5"><span class="dot"></span>imageToText <code>vision</code></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Researcher (HERO) ───────────────────────────── -->
+    <div class="station researcher" data-step="7">
+      <span class="loop-badge"><span class="pulse"></span>iterates</span>
+      <span class="role">Step 2 · Researcher</span>
+      <span class="name">Investigate &amp; Synthesize</span>
+      <span class="tagline">writes temp:research_output</span>
+
+      <div class="research-grid">
+        <div class="tools-group">
+          <div class="tools-label">Helpers (sub-agents)</div>
+          <div class="tool-pills">
+            <div class="tool-pill helper cat-octocode" data-step="8"><span class="dot"></span>research_helper <code>octocode</code></div>
+            <div class="tool-pill helper cat-db"       data-step="8"><span class="dot"></span>trino_helper <code>db</code></div>
+            <div class="tool-pill helper cat-logs"     data-step="8"><span class="dot"></span>grafana_helper <code>logs</code></div>
+            <div class="tool-pill helper cat-scoped"   data-step="8"><span class="dot"></span>adaptive_helper <code>scoped</code></div>
+          </div>
+        </div>
+
+        <div class="tools-group">
+          <div class="tools-label">Direct tool surfaces</div>
+          <div class="tool-pills">
+            <div class="tool-pill code cat-octocode" data-step="9"><span class="dot"></span>githubSearchCode <code>octocode</code></div>
+            <div class="tool-pill code cat-db"       data-step="9"><span class="dot"></span>queryTrino <code>db</code></div>
+            <div class="tool-pill code cat-services" data-step="9"><span class="dot"></span>getArtifactTopology <code>services</code></div>
+            <div class="tool-pill code cat-docs"     data-step="9"><span class="dot"></span>getWixFqdnData <code>docs</code></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Output ──────────────────────────────────────── -->
+    <div class="station output" data-step="11">
+      <span class="role">Step 3 · Output</span>
+      <span class="name">Grounded answer</span>
+      <span class="tagline">shaped by plan scheme</span>
+
+      <div class="result">
+        <strong>Envelope</strong>
+        {<br>
+        &nbsp;&nbsp;<code>output</code>: "…",<br>
+        &nbsp;&nbsp;<code>format</code>: "…",<br>
+        &nbsp;&nbsp;<code>citations</code>: […]<br>
+        }
+      </div>
+    </div>
+
+  </div>
+
+</div>
+<aside class="speaker-notes">Researcher is the hero — biggest card, glow halo, "iterates" badge. The loop story: (1) Memory holds prior knowledge. (2) Planner pulls context from Memory and calls docs/jira/image tools. (3) Plan flows to Researcher, who calls helpers + code-search tools in parallel and loops until evidence is sufficient. (4) Findings flow to Output, which writes the grounded envelope. (5) Output persists learnings back to Memory — closing the loop.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

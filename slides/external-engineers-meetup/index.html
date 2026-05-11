@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>From Code Search to AI-Powered Research Engine</title>
+
+  <style>
+    /* ── Reset ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Full-window letterbox ──────────────────────────── */
+    html, body {
+      width: 100%; height: 100%;
+      /* LLM: Change to theme --bg value (e.g., #0D1117 for Terminal, oklch(16% 0.02 290) for Midnight) */
+      background: #050914;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+
+    /* ── 1280×720 stage ─────────────────────────────────── */
+    /* JS scales this to fill the window while keeping 16:9. */
+    #stage {
+      width: 1280px;
+      height: 720px;
+      position: relative;
+      transform-origin: center center;
+    }
+
+    /* ── Slide cell wrapper ─────────────────────────────── */
+    /* All 25+ cells stack at inset:0; only the active one accepts pointer events
+       so clicks (and text selection) actually reach the active iframe instead of
+       being swallowed by the topmost stacked cell. */
+    .slide-cell {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .slide-cell.is-active { pointer-events: auto; }
+
+    /* ── Slide iframes ──────────────────────────────────── */
+    .slide-frame {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      border: none;
+      opacity: 0;
+      transition: opacity 150ms ease;
+      pointer-events: none;
+    }
+    /* Active frame is visible and accepts pointer events (enables navbridge). */
+    .slide-frame[data-active] { opacity: 1; pointer-events: auto; }
+
+    /* ── Progress bar ───────────────────────────────────── */
+    #progress {
+      position: fixed;
+      bottom: 0; left: 0;
+      height: 3px;
+      /* LLM: Set to theme --accent (e.g., #39D353 for Terminal, #C9B37A for Midnight) */
+      background: linear-gradient(90deg, #5cd0ec, #a78bfa);
+      transition: width 200ms ease;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ── Slide counter ──────────────────────────────────── */
+    #counter {
+      position: fixed;
+      bottom: 10px; right: 18px;
+      font: 11px/1 system-ui, sans-serif;
+      color: rgba(255,255,255,0.3);
+      letter-spacing: 0.06em;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ── HUD (keyboard hint pill) ───────────────────────── */
+    /* Fades in on activity, fades out after 1.6 s of idle. */
+    #hud {
+      position: fixed; right: 18px; top: 18px;
+      display: flex; align-items: center; gap: 10px;
+      font: 11px/1 system-ui, sans-serif; letter-spacing: 0.06em;
+      color: rgba(255,255,255,0.4);
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.1);
+      padding: 6px 12px; border-radius: 999px;
+      backdrop-filter: blur(4px);
+      opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+      z-index: 50;
+    }
+    #hud.show { opacity: 1; }
+    .hud-sep { color: rgba(255,255,255,0.15); }
+    #hud kbd {
+      font: inherit; background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15); border-radius: 3px;
+      padding: 1px 5px; font-size: 10px;
+    }
+
+    /* ════════════════════════════════════════════════════
+       OVERVIEW MODE  (body.overview)
+       Press G to open, press G or Escape to close.
+       Shows all slides as scaled thumbnails.
+       Click any thumbnail to jump to that slide.
+       ════════════════════════════════════════════════════ */
+
+    body.overview {
+      overflow-y: auto;
+      background: #0e0e0e;
+      display: block;
+    }
+
+    body.overview #stage {
+      width: 100%;
+      height: auto;
+      min-height: 100vh;
+      position: static;
+      transform: none !important;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 256px);
+      gap: 1.25rem;
+      padding: 2.5rem 2rem 4rem;
+      align-content: start;
+    }
+
+    body.overview .slide-cell {
+      position: relative;
+      width: 256px;
+      height: 144px;
+      overflow: hidden;
+      border-radius: 6px;
+      border: 2px solid rgba(255,255,255,0.08);
+      cursor: pointer;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    body.overview .slide-cell:hover {
+      border-color: rgba(255,255,255,0.4);
+    }
+    body.overview .slide-cell.is-active {
+      border-color: rgba(255,255,255,0.75);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
+    }
+
+    /* Scale 1280×720 iframe down to 256×144 (factor 0.2) */
+    body.overview .slide-frame {
+      position: absolute;
+      top: 0; left: 0;
+      width: 1280px !important;
+      height: 720px !important;
+      transform: scale(0.2);
+      transform-origin: top left;
+      opacity: 1;
+      pointer-events: none;
+      transition: none;
+    }
+
+    /* Slide number badge — only visible in overview */
+    .slide-cell .slide-num {
+      display: none;
+      position: absolute;
+      bottom: 4px; right: 6px;
+      font: 700 9px/1 system-ui, sans-serif;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 0.04em;
+      z-index: 10;
+      pointer-events: none;
+    }
+    body.overview .slide-cell .slide-num { display: block; }
+
+    /* Slide name label in overview — shows the slug under each thumbnail */
+    .slide-cell .slide-label {
+      display: none;
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 4px 6px 5px;
+      background: rgba(0,0,0,0.6);
+      font: 9px/1.3 system-ui, sans-serif;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+      z-index: 11;
+    }
+    body.overview .slide-cell .slide-label { display: block; }
+
+    /* Overview hint strip at top */
+    #overview-hint {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 0.5rem 1.5rem;
+      font: 10px/1.5 system-ui, sans-serif;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 0.08em;
+      text-align: right;
+      pointer-events: none;
+      z-index: 200;
+    }
+    body.overview #overview-hint { display: block; }
+
+    /* Progress bar, counter, and HUD hidden in overview */
+    body.overview #progress,
+    body.overview #counter,
+    body.overview #hud { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- ── Stage ────────────────────────────────────────────────────────────── -->
+<!-- All slide cells (each wrapping an iframe) are injected here by JS.      -->
+<div id="stage">
+</div>
+
+<!-- ── UI chrome ─────────────────────────────────────────────────────────── -->
+<div id="progress"></div>
+<div id="counter"></div>
+
+<!-- HUD: keyboard hint pill — fades in on activity, fades out after 1.6 s -->
+<div id="hud">
+  <span id="hud-count">— / —</span>
+  <span class="hud-sep">/</span>
+  <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd> nav</span>
+  <span class="hud-sep">/</span>
+  <kbd>G</kbd> grid
+  <span class="hud-sep">/</span>
+  <kbd>F</kbd> full
+  <span class="hud-sep">/</span>
+  <kbd>P</kbd> notes
+</div>
+
+<div id="overview-hint">Overview — click a slide to jump &nbsp;·&nbsp; G or Esc to close</div>
+
+<script src="js/presenter.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  SLIDE MANIFEST
+//
+//  Each entry: { path, hidden, name }
+//    path   – slide HTML path relative to this index.html (forward slashes)
+//    name   – unique slug for the URL hash (e.g. 'problem' → #problem)
+//             Do NOT use numbers — playback order is controlled by this array.
+//    hidden – true = skip during playback AND hide from overview grid
+//
+//  Filename numbers (01-, 02-…) do NOT drive playback order.
+//  This array is the single source of truth for slide order.
+//  LLM: Replace the placeholder entries below with the actual slide list.
+// ═══════════════════════════════════════════════════════════════════════════
+const slides = [
+    // ── Act I · Why agents fail without code context ────────────────────
+    { path: "slides/title.html",                                       hidden: false, name: "title" },
+    { path: "slides/ai-agents-need-code-context.html",                 hidden: false, name: "ai-agents-need-code-context" },
+    { path: "slides/real-code-intelligence-prevents-guessing.html",    hidden: false, name: "real-code-intelligence-prevents-guessing" },
+    { path: "slides/from-github-search-to-research-engine.html",       hidden: false, name: "from-github-search-to-research-engine" },
+
+    // ── Act II · Octocode is a research engine ──────────────────────────
+    { path: "slides/capabilities-map-to-questions.html",               hidden: false, name: "capabilities-map-to-questions" },
+    { path: "slides/octocode-mcp.html",                                hidden: false, name: "octocode-mcp" },
+    { path: "slides/research-loop.html",                               hidden: false, name: "research-loop" },
+    { path: "slides/octocode-research-protocol.html",                  hidden: false, name: "octocode-research-protocol" },
+    { path: "slides/protocol-request-envelope.html",                   hidden: false, name: "protocol-request-envelope" },
+    { path: "slides/protocol-response-hints.html",                     hidden: false, name: "protocol-response-hints" },
+    { path: "slides/octocode-harness.html",                            hidden: false, name: "octocode-harness" },
+
+    // ── Act III · Case study · scaling Octocode at Wix (Bilbo) ─────────
+    { path: "slides/wix-research-title.html",                          hidden: false, name: "wix-research-title" },
+    { path: "slides/wix-research-investigations-cross-boundaries.html",hidden: false, name: "wix-research-investigations-cross-boundaries" },
+    { path: "slides/wix-research-is-multi-agent-investigation.html",   hidden: false, name: "wix-research-is-multi-agent-investigation" },
+    { path: "slides/planner-researcher-contract.html",                 hidden: false, name: "planner-researcher-contract" },
+    { path: "slides/wix-research-planner-brief.html",                  hidden: false, name: "wix-research-planner-brief" },
+    { path: "slides/wix-researcher-follows-evidence.html",             hidden: false, name: "wix-researcher-follows-evidence" },
+    { path: "slides/wix-research-helpers-stay-isolated.html",          hidden: false, name: "wix-research-helpers-stay-isolated" },
+    { path: "slides/helper-isolation-prevents-context-fatigue.html",   hidden: false, name: "helper-isolation-prevents-context-fatigue" },
+    { path: "slides/helper-built-per-call.html",                       hidden: false, name: "helper-built-per-call" },
+    { path: "slides/tool-scope-reasoning-contract.html",               hidden: false, name: "tool-scope-reasoning-contract" },
+    { path: "slides/wix-research-memory-starts-ahead.html",            hidden: false, name: "wix-research-memory-starts-ahead" },
+    { path: "slides/wix-research-memory-pipeline.html",                hidden: false, name: "wix-research-memory-pipeline" },
+    { path: "slides/overview-flow.html",                               hidden: false, name: "overview-flow" },
+    { path: "slides/wix-research-grounded-answer.html",                hidden: false, name: "wix-research-grounded-answer" },
+
+    // ── Act IV · Lessons (what shipping Bilbo taught us) ───────────────
+    { path: "slides/researcher-writes-the-answer.html",                hidden: false, name: "researcher-writes-the-answer" },
+    { path: "slides/contracts-at-every-layer.html",                    hidden: false, name: "contracts-at-every-layer" },
+    { path: "slides/coding-agent-build-vs-buy.html",                   hidden: false, name: "coding-agent-build-vs-buy" },
+    { path: "slides/framework-fork-google-adk.html",                   hidden: false, name: "framework-fork-google-adk" },
+    { path: "slides/tools-as-mcps.html",                               hidden: false, name: "tools-as-mcps" },
+    { path: "slides/missing-piece-context.html",                       hidden: false, name: "missing-piece-context" },
+    { path: "slides/human-in-the-loop-decisions.html",                 hidden: false, name: "human-in-the-loop-decisions" },
+    { path: "slides/context-engineering-lessons.html",                 hidden: false, name: "context-engineering-lessons" },
+    { path: "slides/evals-quality-kpis.html",                          hidden: false, name: "evals-quality-kpis" },
+
+    // ── Act V · Close ──────────────────────────────────────────────────
+    { path: "slides/better-context-makes-better-agents.html",          hidden: false, name: "better-context-makes-better-agents" },
+
+    // ── Appendix · alternates (hidden from playback) ───────────────────
+    { path: "slides/evidence-behavior-evals.html",                     hidden: true,  name: "evidence-behavior-evals" },
+    { path: "slides/challenges-and-learnings.html",                    hidden: true,  name: "challenges-and-learnings" },
+    { path: "slides/ai-agents-need-context.html",                      hidden: true,  name: "ai-agents-need-context" },
+    { path: "slides/code-research-loop.html",                          hidden: true,  name: "code-research-loop" },
+    { path: "slides/wix-research-one-loop-many-roles.html",            hidden: true,  name: "wix-research-one-loop-many-roles" },
+    { path: "slides/wix-research-skills-encode-playbooks.html",        hidden: true,  name: "wix-research-skills-encode-playbooks" },
+    { path: "slides/wix-research-same-tools-for-humans-ai.html",       hidden: true,  name: "wix-research-same-tools-for-humans-ai" },
+    { path: "slides/wix-research-three-things-to-remember.html",       hidden: true,  name: "wix-research-three-things-to-remember" },
+    { path: "slides/daily-research-companion.html",                    hidden: true,  name: "daily-research-companion" },
+    { path: "slides/six-code-intelligence-moves.html",                 hidden: true,  name: "six-code-intelligence-moves" },
+    { path: "slides/research-branches-on-evidence.html",               hidden: true,  name: "research-branches-on-evidence" },
+    { path: "slides/ai-powered-research-engine.html",                  hidden: true,  name: "ai-powered-research-engine" },
+    { path: "slides/cited-code-map-output.html",                       hidden: true,  name: "cited-code-map-output" },
+    { path: "slides/interface-serves-agents-and-humans.html",          hidden: true,  name: "interface-serves-agents-and-humans" },
+    { path: "slides/helpers-return-typed-findings.html",               hidden: true,  name: "helpers-return-typed-findings" },
+    { path: "slides/portable-research-engine.html",                    hidden: true,  name: "portable-research-engine" },
+    { path: "slides/typed-findings-at-agent-boundaries.html",          hidden: true,  name: "typed-findings-at-agent-boundaries" },
+    { path: "slides/context-compaction-correctness.html",              hidden: true,  name: "context-compaction-correctness" },
+    { path: "slides/wix-research-context-stays-sharp.html",            hidden: true,  name: "wix-research-context-stays-sharp" },
+    { path: "slides/inspectable-research-trail.html",                  hidden: true,  name: "inspectable-research-trail" },
+    { path: "slides/follow-ups-continue-context.html",                 hidden: true,  name: "follow-ups-continue-context" }
+  ];
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  DERIVED STATE — do not edit below this line
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Visible playlist — what nav, grid, HUD, and URL hash all index into. */
+const playable   = slides.filter(s => !s.hidden);
+const total      = playable.length;
+const nameToIdx  = Object.fromEntries(playable.map((s, i) => [s.name, i]));
+
+let current    = 0;
+let inOverview = false;
+let presenter  = null;
+
+const stage   = document.getElementById('stage');
+const bar     = document.getElementById('progress');
+const counter = document.getElementById('counter');
+const hud     = document.getElementById('hud');
+const hudCount= document.getElementById('hud-count');
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BUILD SLIDE CELLS
+//  Each visible iframe is wrapped in a .slide-cell div.
+//  Normal mode : cells are absolute overlays stacked on the stage.
+//  Overview mode: cells become 256×144 grid items (iframe scaled 0.2×).
+// ═══════════════════════════════════════════════════════════════════════════
+playable.forEach((slide, i) => {
+  const cell = document.createElement('div');
+  cell.className = 'slide-cell';
+  cell.addEventListener('click', () => {
+    if (inOverview) { closeOverview(); go(i); }
+  });
+
+  const f = document.createElement('iframe');
+  f.src       = slide.path;
+  f.className = 'slide-frame';
+  f.setAttribute('tabindex', '-1');
+  f.setAttribute('title', `Slide ${i + 1}: ${slide.name}`);
+
+  // When this iframe finishes loading, activate its animations if it is the
+  // current slide. This handles the initial slide (go(0) fires before load).
+  f.addEventListener('load', () => {
+    if (Array.prototype.indexOf.call(frames(), f) === current) {
+      try { f.contentWindow.postMessage({ type: 'octocode-slides:activate' }, '*'); } catch (_) {}
+    }
+  });
+
+  // Slide number badge (overview only)
+  const num = document.createElement('span');
+  num.className   = 'slide-num';
+  num.textContent = String(i + 1).padStart(2, '0');
+
+  // Name label (overview only)
+  const label = document.createElement('span');
+  label.className   = 'slide-label';
+  label.textContent = slide.name.replaceAll('-', ' ');
+
+  cell.appendChild(f);
+  cell.appendChild(num);
+  cell.appendChild(label);
+  stage.appendChild(cell);
+});
+
+const frames = () => stage.querySelectorAll('.slide-frame');
+const cells  = () => stage.querySelectorAll('.slide-cell');
+
+if (typeof initPresenter === 'function') {
+  presenter = initPresenter(
+    () => stage.querySelector('.slide-frame[data-active]'),
+    playable,
+    () => current
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SCALE STAGE TO WINDOW
+//  Maintains 1280×720 (16:9) at any window size.
+// ═══════════════════════════════════════════════════════════════════════════
+function scaleStage() {
+  if (inOverview) return;
+  const s = Math.min(
+    window.innerWidth  / 1280,
+    window.innerHeight / 720
+  );
+  stage.style.transform = `scale(${s})`;
+}
+
+const ro = new ResizeObserver(scaleStage);
+ro.observe(document.documentElement);
+scaleStage();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  URL HASH → INDEX
+//  Accepts a slide name (#problem) or a legacy 1-based number (#5).
+// ═══════════════════════════════════════════════════════════════════════════
+function indexFromHash(h) {
+  const raw = (h || '').replace(/^#/, '');
+  if (!raw) return 0;
+  const decoded = (() => { try { return decodeURIComponent(raw); } catch (_) { return raw; } })();
+  if (Object.prototype.hasOwnProperty.call(nameToIdx, decoded)) return nameToIdx[decoded];
+  const n = parseInt(decoded, 10);
+  if (Number.isFinite(n) && n >= 1) return n - 1;
+  return 0;
+}
+
+function clampIndex(n) {
+  if (total === 0) return 0;
+  return Math.max(0, Math.min(total - 1, n));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════════════════════════════════
+function go(idx) {
+  const allFrames = frames();
+  const allCells  = cells();
+  if (idx < 0 || idx >= total || !allFrames.length) return;
+
+  allFrames[current]?.removeAttribute('data-active');
+  allCells[current]?.classList.remove('is-active');
+
+  current = idx;
+
+  allFrames[current].setAttribute('data-active', '');
+  allCells[current].classList.add('is-active');
+
+  // Move keyboard focus to the new active iframe element so subsequent key
+  // presses fire on the parent document (not inside a stale old iframe).
+  // This prevents old-slide animation.js from consuming keys invisibly.
+  try { allFrames[current].focus(); } catch (_) {}
+
+  // Tell the incoming slide to start (or restart) its animations.
+  try { allFrames[current].contentWindow?.postMessage({ type: 'octocode-slides:activate' }, '*'); } catch (_) {}
+
+  const slide = playable[current];
+  const pct = ((current + 1) / total) * 100;
+  bar.style.width     = pct + '%';
+  counter.textContent = `${current + 1} / ${total}`;
+  if (hudCount) hudCount.textContent = `${String(current + 1).padStart(2, '0')} / ${total}`;
+
+  // Name-based hash — stable across slide reorders
+  history.replaceState(null, '', '#' + encodeURIComponent(slide.name));
+  presenter?.onSlideChange();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  HUD — auto-hide keyboard hint pill
+//  Show on any activity; fade after 1.6 s of idle.
+// ═══════════════════════════════════════════════════════════════════════════
+let hudTimer;
+function showHud() {
+  hud.classList.add('show');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => hud.classList.remove('show'), 1600);
+}
+window.addEventListener('mousemove', showHud);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  OVERVIEW MODE
+//  G key opens the thumbnail grid. G or Escape closes it.
+//  Clicking a thumbnail closes overview and jumps to that slide.
+// ═══════════════════════════════════════════════════════════════════════════
+function openOverview() {
+  inOverview = true;
+  document.body.classList.add('overview');
+  document.body.style.overflow = '';
+}
+
+function closeOverview() {
+  inOverview = false;
+  document.body.classList.remove('overview');
+  requestAnimationFrame(scaleStage);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  KEYBOARD — single point of truth
+//  • Parent window focused: keydown listener below fires directly.
+//  • Iframe focused: js/navbridge.js inside the slide posts a message,
+//    which the window message listener converts into a handleKey() call.
+//  Do NOT attach a second keydown listener to the iframe — that would
+//  double-fire and advance two slides per key press.
+// ═══════════════════════════════════════════════════════════════════════════
+function handleKey(e) {
+  if (inOverview) {
+    if (e.key === 'Escape' || e.key === 'g' || e.key === 'G') closeOverview();
+    return;
+  }
+
+  let handled = true;
+  switch (e.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+    case ' ':
+      go(current + 1);
+      break;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      go(current - 1);
+      break;
+    case 'Home':  go(0); break;
+    case 'End':   go(total - 1); break;
+    case 'f':
+    case 'F':
+      document.fullscreenElement
+        ? document.exitFullscreen?.()
+        : document.documentElement.requestFullscreen?.();
+      break;
+    case 'g':
+    case 'G':
+      openOverview();
+      break;
+    case 'p':
+    case 'P':
+      presenter?.open();
+      break;
+    default:
+      handled = false;
+  }
+
+  if (handled) {
+    showHud();
+    if (e.preventDefault) e.preventDefault();
+  }
+}
+
+// Nav keys are delegated to the active iframe so animation.js can consume
+// a step before slide navigation happens. The iframe's navbridge posts back
+// when all steps are exhausted and the slide should actually advance.
+// Non-nav keys (G, P, F, Home, End …) are handled directly as before.
+var NAV_TO_IFRAME = { ArrowRight: 1, ArrowDown: 1, ' ': 1, ArrowLeft: 1, ArrowUp: 1 };
+
+document.addEventListener('keydown', function (e) {
+  if (!inOverview && NAV_TO_IFRAME[e.key]) {
+    var activeFrame = stage.querySelector('.slide-frame[data-active]');
+    if (activeFrame && activeFrame.contentWindow) {
+      e.preventDefault();
+      showHud();
+      activeFrame.contentWindow.postMessage(
+        { type: 'octocode-slides:key', key: e.key },
+        '*'
+      );
+      return;
+    }
+  }
+  handleKey(e);
+}, true);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  NAVBRIDGE — postMessage receiver
+//  js/navbridge.js inside each slide iframe forwards nav keys via postMessage
+//  when the iframe has focus (user clicked inside the slide).
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('message', function (event) {
+  var data = event.data;
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'octocode-slides:nav' && data.key) {
+    handleKey({ key: data.key, preventDefault: function () {} });
+  } else if (data.type === 'octocode-slides:activity') {
+    showHud();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TOUCH / SWIPE  (left swipe = next, right swipe = previous)
+// ═══════════════════════════════════════════════════════════════════════════
+let touchStartX = null;
+
+document.addEventListener('touchstart', e => {
+  if (!inOverview) touchStartX = e.touches[0].clientX;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  if (touchStartX === null || inOverview) return;
+  const diff = touchStartX - e.changedTouches[0].clientX;
+  if (Math.abs(diff) > 40) go(current + (diff > 0 ? 1 : -1));
+  touchStartX = null;
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  HASH NAVIGATION
+//  index.html#my-slide jumps to that slide directly.
+//  Accepts name slugs (#problem) and legacy 1-based numbers (#5).
+//  URL is updated automatically on every slide change via history.replaceState.
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('hashchange', function () {
+  const next = clampIndex(indexFromHash(location.hash));
+  if (next !== current) go(next);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INIT — respect hash on first load, else start at slide 1
+// ═══════════════════════════════════════════════════════════════════════════
+// Do not pre-mark slide 1 active; go() is the single activation path so
+// direct hash loads (#problem) never leave two visible iframes.
+go(clampIndex(indexFromHash(location.hash)));
+showHud();
+</script>
+
+</body>
+</html>

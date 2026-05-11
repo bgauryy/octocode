@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Give the agent a brain</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 0.85rem; }
+    .slide--wix .title { max-width: 38ch; }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.94rem;
+      line-height: 1.5;
+      max-width: 80ch;
+      margin-top: 0.3rem;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em { font-style: normal; color: var(--violet); font-weight: 600; }
+
+    .phase-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+    .badge-vespa {
+      font-family: var(--font-mono);
+      font-size: 0.56rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--violet);
+      border: 1px solid var(--violet);
+      border-radius: 999px;
+      padding: 0.12rem 0.5rem;
+      background: rgba(167, 139, 250, 0.08);
+      white-space: nowrap;
+    }
+    .phase .meta-line {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--muted-2);
+      letter-spacing: 0.04em;
+      margin-top: 0.15rem;
+    }
+    .phase .meta-line em {
+      font-style: normal;
+      color: var(--muted);
+    }
+
+    .why-band {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.95rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--violet);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.95rem;
+    }
+    .why-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--violet);
+      white-space: nowrap;
+    }
+    .why-band p {
+      color: var(--text);
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    .why-band strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+
+    /* Memory loop — 3 phases */
+    .loop-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0.55rem;
+      align-items: stretch;
+    }
+    .phase {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.85rem 0.95rem 0.95rem;
+      display: grid;
+      gap: 0.45rem;
+      align-content: start;
+      position: relative;
+      min-height: 11.5rem;
+    }
+    .phase::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--positive);
+    }
+    .phase.b::before { background: var(--violet); }
+    .phase.c::before { background: var(--accent); }
+    .phase .num {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      color: var(--positive);
+      text-transform: uppercase;
+    }
+    .phase.b .num { color: var(--violet); }
+    .phase.c .num { color: var(--accent); }
+    .phase .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1rem;
+      line-height: 1.2;
+    }
+    .phase p {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.4;
+    }
+    .phase .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.32rem;
+      margin-top: 0.2rem;
+    }
+    .phase .chip {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.18rem 0.5rem;
+    }
+    .phase.b .chip { border-left: 2px solid var(--violet); }
+    .phase.c .chip { border-left: 2px solid var(--accent); }
+    .phase   .chip { border-left: 2px solid var(--positive); }
+    .phase .stat-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+      margin-top: 0.25rem;
+    }
+    .phase .stat {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.4rem 0.55rem;
+      display: grid;
+      gap: 0.06rem;
+    }
+    .phase .stat .lab {
+      font-family: var(--font-head);
+      font-size: 0.54rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .phase .stat .val {
+      font-family: var(--font-head);
+      font-weight: 700;
+      font-size: 0.82rem;
+      color: var(--text-strong);
+      line-height: 1.1;
+    }
+    .phase.c .stat .val { color: var(--accent); }
+    .phase.b .stat .val { color: var(--violet); }
+
+    .arrow-col {
+      align-self: center;
+      display: grid;
+      gap: 0.3rem;
+      justify-items: center;
+      color: var(--muted-2);
+      font-family: var(--font-mono);
+      font-size: 0.56rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .arrow-col svg {
+      width: 1.5rem;
+      height: 1.5rem;
+      stroke: var(--violet);
+    }
+
+    /* Bottom band — hint rule */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 2fr 3fr;
+      gap: 0.7rem;
+      align-items: stretch;
+    }
+    .rule-band {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--negative);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.9rem 0.8rem;
+      display: grid;
+      gap: 0.35rem;
+      align-content: start;
+    }
+    .rule-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--negative);
+    }
+    .rule-band strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.92rem;
+      line-height: 1.2;
+    }
+    .rule-band p {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.4;
+    }
+
+    .knobs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+    .knob {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.7rem 0.6rem;
+      display: grid;
+      gap: 0.1rem;
+      border-left: 3px solid var(--accent);
+    }
+    .knob .lab {
+      font-family: var(--font-head);
+      font-size: 0.55rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .knob .val {
+      font-family: var(--font-head);
+      font-weight: 700;
+      font-size: 0.86rem;
+      color: var(--text-strong);
+      line-height: 1.1;
+    }
+    .knob .sub {
+      font-family: var(--font-mono);
+      font-size: 0.58rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Agent memory turns past answers into future hints.</h2>
+    <p class="lede">Agent memory from content is the foundation of <strong>organizational memory</strong>, <strong>quality</strong>, and <strong>learning</strong>. Every run carries forward the right anchors, repos, and gotchas as <strong>hints</strong> &mdash; and lets the agent <em>review its own instructions and best flows</em>.</p>
+  </div>
+
+  <div class="loop-row">
+    <section class="phase" data-step="2">
+      <span class="num">01 &middot; Save</span>
+      <span class="name">Chunk what was learned</span>
+      <p>At the end of a successful run, the researcher emits one compact record &mdash; the question, the plan, the findings, the best-practices it picked up.</p>
+      <div class="chips">
+        <span class="chip">query</span>
+        <span class="chip">plan</span>
+        <span class="chip">findings</span>
+        <span class="chip">best_practices</span>
+      </div>
+      <p class="meta-line">Skip: <em>errored runs &middot; too short &middot; low-signal</em>.</p>
+    </section>
+
+    <div class="arrow-col" data-step="2">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>
+      </svg>
+      <span>embed</span>
+    </div>
+
+    <section class="phase b" data-step="3">
+      <div class="phase-head">
+        <span class="num">02 &middot; Index</span>
+        <span class="badge-vespa">Vespa &middot; OSS</span>
+      </div>
+      <span class="name">Embed into a vector KB</span>
+      <p>Each chunk becomes a vector in <strong>Vespa</strong> &mdash; the open-source engine behind Yahoo Search. Approximate-nearest-neighbor retrieval, partitioned per scope, fast at any corpus size.</p>
+      <div class="chips">
+        <span class="chip">embeddings</span>
+        <span class="chip">ANN search</span>
+        <span class="chip">partitioned</span>
+      </div>
+    </section>
+
+    <div class="arrow-col" data-step="3">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>
+      </svg>
+      <span>recall</span>
+    </div>
+
+    <section class="phase c" data-step="4">
+      <span class="num">03 &middot; Recall</span>
+      <span class="name">Hints to the planner</span>
+      <p>At the start of a new run, the planner queries the KB with the new question. Top hits are surfaced as <strong>memoryContext</strong> &mdash; leads to verify, never claims to repeat.</p>
+      <div class="stat-row">
+        <div class="stat">
+          <span class="lab">Top-K</span>
+          <span class="val">3</span>
+        </div>
+        <div class="stat">
+          <span class="lab">Min relevance</span>
+          <span class="val">0.70</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="bottom-row" data-step="5">
+    <div class="rule-band">
+      <span class="stamp">Self-Review</span>
+      <strong>The agent reviews its own instructions and best flows.</strong>
+      <p>Memory captures not just findings, but the <em>plans and best-practices</em> that worked. Each run can re-read what previously succeeded &mdash; and refine its own protocol.</p>
+    </div>
+    <div class="rule-band" style="border-left-color: var(--accent);">
+      <span class="stamp" style="color: var(--accent);">Continuous Improvement</span>
+      <strong>Results from the research flow drive measurement &amp; learning.</strong>
+      <p>We follow research outcomes as the signal: which hints helped, which plans converged, which flows wasted tokens. That feedback loop tunes prompts, tools, and protocols &mdash; the agent gets sharper every run.</p>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">Memory matters — it's the foundation of organizational memory, quality, and learning. Three phases. (1) Save: at end of a clean run we emit one record — query, plan, findings, best-practices. Errored, too-short, and low-signal runs are skipped so the corpus stays clean. (2) Index: chunks are embedded and stored in Vespa — open-source vector DB, the same engine behind Yahoo Search; ANN retrieval makes recall fast regardless of corpus size, and partitioning keeps scopes separate. (3) Recall: the planner queries the KB with the new question and surfaces top-3 chunks above 0.70 relevance as `memoryContext`. The hard rule: memory is hints, not evidence — the org changes daily (services rename, contracts shift, owners move), so every recalled identifier or claim must be re-grounded in current code, runtime, or docs before it shapes the answer. Two more things matter at this layer. Self-review: because we save plans and best-practices alongside findings, the agent can re-read what previously worked and refine its own instructions and flows — it's not just remembering facts, it's remembering how to work. Continuous improvement: we follow results from the research flow as the measurement signal — which hints helped, which plans converged, which tool sequences wasted tokens — and that feedback tunes prompts, tools, and protocols. The agent gets sharper every run.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

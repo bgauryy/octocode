@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Why an organization needs Wix Research</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.3rem; }
+    .slide--wix .title { max-width: 38ch; }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.55;
+      max-width: 72ch;
+      margin-top: 0.45rem;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+
+    /* Scale grid */
+    .scale-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.95rem;
+      width: 100%;
+    }
+    .scale-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 1.05rem 1.15rem 1.15rem;
+      display: grid;
+      gap: 0.55rem;
+      align-content: start;
+      min-height: 14.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .scale-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--warm);
+    }
+    .scale-card.b::before { background: var(--accent); }
+    .scale-card.c::before { background: var(--violet); }
+
+    .scale-card .head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .scale-card .label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--warm);
+    }
+    .scale-card.b .label { color: var(--accent); }
+    .scale-card.c .label { color: var(--violet); }
+    .scale-card .label .dot {
+      width: 0.35rem; height: 0.35rem;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .scale-card .icon {
+      width: 1.7rem;
+      height: 1.7rem;
+      stroke: var(--warm);
+      opacity: 0.85;
+    }
+    .scale-card.b .icon { stroke: var(--accent); }
+    .scale-card.c .icon { stroke: var(--violet); }
+
+    .scale-card .number {
+      font-family: var(--font-head);
+      font-weight: 700;
+      font-size: 2.4rem;
+      line-height: 0.95;
+      color: var(--text-strong);
+      letter-spacing: -0.01em;
+      margin-top: 0.2rem;
+    }
+    .scale-card .number .unit {
+      font-size: 0.92rem;
+      color: var(--warm);
+      margin-left: 0.3rem;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+    }
+    .scale-card.b .number .unit { color: var(--accent); }
+    .scale-card.c .number .unit { color: var(--violet); }
+
+    .scale-card .of {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      margin-top: -0.25rem;
+    }
+
+    .scale-card .headline {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1rem;
+      line-height: 1.22;
+      margin-top: 0.15rem;
+    }
+    .scale-card p {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.42;
+    }
+    .scale-card .pieces {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.32rem;
+      margin-top: 0.05rem;
+    }
+    .scale-card .piece {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.04em;
+      color: var(--muted-2);
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      padding: 0.2rem 0.5rem;
+    }
+
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">The Enterprise issues: finding A needle in a haystack</h2>
+    <p class="lede">An answer must scale across <strong>thousands of services</strong>, against <strong>a codebase changing daily</strong>, safe for <strong>millions of users</strong> &mdash; all at once.</p>
+  </div>
+
+  <div class="scale-grid">
+    <section class="scale-card" data-step="1">
+      <div class="head">
+        <span class="label"><span class="dot"></span>Production surface</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="5" rx="1.2"/>
+          <rect x="3" y="10.5" width="18" height="5" rx="1.2"/>
+          <rect x="3" y="17" width="18" height="3" rx="1.2"/>
+          <circle cx="6.5" cy="6.5" r="0.7" fill="currentColor"/>
+          <circle cx="6.5" cy="13" r="0.7" fill="currentColor"/>
+        </svg>
+      </div>
+      <div class="number">1,000s<span class="unit">services</span></div>
+      <span class="of">+ 10,000s repos</span>
+      <span class="headline">A different system every direction you turn</span>
+      <p>Production lives in microservices, queues, schemas, dashboards, contracts &mdash; each owned somewhere, deployed somewhere, logged somewhere.</p>
+      <div class="pieces">
+        <span class="piece">repos</span><span class="piece">services</span><span class="piece">kafka</span><span class="piece">grafana</span>
+      </div>
+    </section>
+
+    <section class="scale-card b" data-step="2">
+      <div class="head">
+        <span class="label"><span class="dot"></span>Agentic velocity</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13 3 5 14h6l-1 7 8-11h-6l1-7z"/>
+        </svg>
+      </div>
+      <div class="number">1,000s<span class="unit">shippers</span></div>
+      <span class="of">developers + cloud agents</span>
+      <span class="headline">Code lands faster than humans can review it</span>
+      <p>Thousands of engineers ship in parallel &mdash; and AI agents now ship alongside them. The codebase moves daily; investigations chase a moving target.</p>
+      <div class="pieces">
+        <span class="piece">PRs</span><span class="piece">deploys</span><span class="piece">AI agents</span><span class="piece">drift</span>
+      </div>
+    </section>
+
+    <section class="scale-card c" data-step="3">
+      <div class="head">
+        <span class="label"><span class="dot"></span>Blast radius</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <circle cx="12" cy="12" r="6.5" opacity="0.55"/>
+          <circle cx="12" cy="12" r="10" opacity="0.3"/>
+        </svg>
+      </div>
+      <div class="number">millions<span class="unit">of users</span></div>
+      <span class="of">every change reaches them</span>
+      <span class="headline">Every wrong answer ships to real people</span>
+      <p>Behind every ticket sits a real merchant, a real shopper, a real site. Investigations cannot afford plausible guesses &mdash; the cost of being wrong is paid by users.</p>
+      <div class="pieces">
+        <span class="piece">tenants</span><span class="piece">sites</span><span class="piece">merchants</span><span class="piece">shoppers</span>
+      </div>
+    </section>
+  </div>
+
+</div>
+<aside class="speaker-notes">Three intersecting axes of pressure — and you cannot ease one without aggravating another. Production surface: thousands of services and tens of thousands of repos, each with its own ownership, runtime, and observability. (This is the real enterprise gap: moving from workspace-only agents to org-wide, cross-repo indexing and permissions). Agentic velocity: thousands of engineers shipping in parallel, and now AI agents shipping alongside them — the target moves daily. Blast radius: millions of users — wrong answers ship to real people. The squeeze is the intersection: an answer that holds across all three. That is why we built an agentic research system.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

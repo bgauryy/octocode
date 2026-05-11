@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protocol — every call carries the question</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--proto-req { grid-template-rows: auto 1fr; gap: 1.3rem; }
+    .req-grid {
+      align-self: center;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 1.3rem;
+      align-items: stretch;
+      width: 100%;
+    }
+    .req-codes { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; }
+    .req-codes .code-panel { box-shadow: var(--shadow-soft); }
+    .req-codes pre.code-block {
+      padding: 1rem 1.1rem 1rem;
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+    .req-side { display: flex; flex-direction: column; gap: 0.85rem; }
+    .req-side .opt-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.95rem 1.1rem 0.9rem;
+      box-shadow: var(--shadow-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .req-side .opt-card.opt-warm   { border-left-color: var(--warm); }
+    .req-side .opt-card.opt-violet { border-left-color: var(--violet); }
+    .req-side .kicker {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .req-side .opt-warm   .kicker { color: var(--warm); }
+    .req-side .opt-violet .kicker { color: var(--violet); }
+    .req-side strong {
+      font-family: var(--font-head);
+      font-size: 0.95rem;
+      color: var(--text-strong);
+      letter-spacing: -0.005em;
+    }
+    .req-side p {
+      font-size: 0.78rem;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--proto-req">
+  <div class="slide-header">
+    <h2 class="title">Octocode <em>tool calls</em> examples</h2>
+    <p class="description">The request envelope: typed intent, parallel queries, no fire-and-forget.</p>
+  </div>
+
+  <div class="req-grid">
+    <div class="req-codes">
+      <div class="code-panel" data-step="1" data-label="01 / intent &middot; single query">
+        <pre class="code-block"><code><span class="tk-pn">{</span>
+  <span class="tk-key">"id"</span><span class="tk-pn">:</span> <span class="tk-str">"find-auth-middleware"</span><span class="tk-pn">,</span>
+  <span class="tk-key">"mainResearchGoal"</span><span class="tk-pn">:</span> <span class="tk-str">"Understand request authentication"</span><span class="tk-pn">,</span>
+  <span class="tk-key">"researchGoal"</span><span class="tk-pn">:</span> <span class="tk-str">"Find the middleware entry point"</span><span class="tk-pn">,</span>
+  <span class="tk-key">"reasoning"</span><span class="tk-pn">:</span> <span class="tk-str">"Locate the narrowest entry before reading files"</span>
+<span class="tk-pn">}</span></code></pre>
+      </div>
+      <div class="code-panel" data-step="2" data-label="05 / parallel &middot; many queries, one call">
+        <pre class="code-block"><code><span class="tk-pn">{</span>
+  <span class="tk-key">"queries"</span><span class="tk-pn">:</span> <span class="tk-pn">[</span>
+    <span class="tk-pn">{</span> <span class="tk-key">"id"</span><span class="tk-pn">:</span> <span class="tk-str">"find-auth-middleware"</span><span class="tk-pn">,</span> <span class="tk-key">"researchGoal"</span><span class="tk-pn">:</span> <span class="tk-str">"entry point"</span> <span class="tk-pn">},</span>
+    <span class="tk-pn">{</span> <span class="tk-key">"id"</span><span class="tk-pn">:</span> <span class="tk-str">"find-session-store"</span><span class="tk-pn">,</span>  <span class="tk-key">"researchGoal"</span><span class="tk-pn">:</span> <span class="tk-str">"where session lives"</span> <span class="tk-pn">},</span>
+    <span class="tk-pn">{</span> <span class="tk-key">"id"</span><span class="tk-pn">:</span> <span class="tk-str">"find-token-verifier"</span><span class="tk-pn">,</span> <span class="tk-key">"researchGoal"</span><span class="tk-pn">:</span> <span class="tk-str">"verifier impl"</span> <span class="tk-pn">}</span>
+  <span class="tk-pn">]</span>
+<span class="tk-pn">}</span></code></pre>
+      </div>
+    </div>
+
+    <div class="req-side">
+      <div class="opt-card" data-step="2">
+        <span class="kicker">Rule 01 / Intent</span>
+        <strong>Goal, subgoal, why</strong>
+        <p>The agent commits to <em>what</em> it's investigating before the call goes out &mdash; the result stays narrow instead of becoming a repo dump.</p>
+      </div>
+      <div class="opt-card opt-warm" data-step="3">
+        <span class="kicker">Rule 04 / Schema</span>
+        <strong>Typed inputs, no ambiguity</strong>
+        <p>Strict zod-style schemas catch malformed calls before the network &mdash; the LLM can't accidentally ship junk.</p>
+      </div>
+      <div class="opt-card opt-violet" data-step="4">
+        <span class="kicker">Rule 05 / Parallel</span>
+        <strong>Fan out per call</strong>
+        <p>One invocation, many queries &mdash; explore branches in parallel without paying for extra round-trips.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">The request envelope is where intent lives. Read the JSON aloud once, then explain how schema (rule 4) and parallel (rule 5) shape that same envelope.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

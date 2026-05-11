@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One coding question becomes a research chain</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+</head>
+<body>
+<div class="slide slide--flow">
+  <div class="slide-header">
+    <h2 class="title">One coding question. Six code-intelligence moves.</h2>
+  </div>
+  <div class="flow-anchor" data-step="1"><span class="label">Question</span>Where is this behavior implemented, who calls it, and is this change safe?</div>
+  <div class="flow">
+    <div class="node" data-step="2">Org search<small>find candidate repos</small></div>
+    <div class="arrow" data-step="2"></div>
+    <div class="node" data-step="3">Repo map<small>understand structure</small></div>
+    <div class="arrow" data-step="3"></div>
+    <div class="node" data-step="4">Definition<small>resolve the symbol</small></div>
+    <div class="arrow" data-step="4"></div>
+    <div class="node" data-step="5">Call graph<small>find callers</small></div>
+    <div class="arrow" data-step="5"></div>
+    <div class="node" data-step="6">PR history<small>why it changed</small></div>
+    <div class="arrow" data-step="6"></div>
+    <div class="node node--positive" data-step="7">Review plan<small>risk + next checks</small></div>
+  </div>
+  <p class="flow-outcome" data-step="7">That is the demo: context first, then coding decisions.</p>
+</div>
+<aside class="speaker-notes">This is the demo promise from the abstract. Walk it as a daily use case, not an internal incident story.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

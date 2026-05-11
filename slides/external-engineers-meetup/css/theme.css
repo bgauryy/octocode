@@ -1,0 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Surfaces */
+  --bg: #07101f;
+  --bg-2: #0a1628;
+  --surface: #0f1d35;
+  --surface-2: #142847;
+  --surface-3: #1a325a;
+  --border: #1f3358;
+  --border-strong: #2c4778;
+
+  /* Text */
+  --text: #e3ecf7;
+  --text-strong: #ffffff;
+  --muted: #8aa6cd;
+  --muted-2: #5f7da6;
+
+  /* Accents */
+  --accent: #5cd0ec;        /* primary cyan — focal element */
+  --accent-2: #a6e8f2;       /* lighter cyan */
+  --accent-strong: #38b9da;  /* stronger cyan for borders */
+  --warm: #f0a45c;           /* amber — discomfort / problem signals */
+  --warm-soft: #f6c794;
+  --positive: #6ee7a7;       /* mint — verified / held / success */
+  --negative: #f08585;       /* rose — failure / unverified */
+  --violet: #a78bfa;         /* secondary accent */
+
+  /* Code panel */
+  --code-bg: #050d1c;
+  --code-text: #d7ecff;
+  --code-comment: #5b7ba8;
+  --code-string: #a3e6c2;
+  --code-key: #5cd0ec;
+  --code-num: #f6c794;
+  --code-keyword: #a78bfa;
+  --code-punct: #6f8bb5;
+
+  /* Type */
+  --font-head: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'IBM Plex Sans', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}

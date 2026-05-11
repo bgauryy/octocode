@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real code research branches on evidence</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+</head>
+<body>
+<div class="slide slide--code">
+  <div class="slide-header">
+    <h2 class="title">Real code research branches on evidence.</h2>
+  </div>
+  <div class="code-panel" data-step="1" data-label="branching pseudo-flow">
+    <pre class="code-block"><code><span class="tk-cmt"># Each branch depends on what the previous step revealed</span>
+<span class="tk-kw">if</span> exception      <span class="tk-pn">&rarr;</span> <span class="tk-fn">inspect_stack_traces_and_source</span>()
+<span class="tk-kw">if</span> consumer_lag   <span class="tk-pn">&rarr;</span> <span class="tk-fn">inspect_topology_and_stream_owner</span>()
+<span class="tk-kw">if</span> ticket_exists  <span class="tk-pn">&rarr;</span> <span class="tk-fn">inspect_product_and_rollout</span>()
+<span class="tk-kw">if</span> data_anomaly   <span class="tk-pn">&rarr;</span> <span class="tk-fn">inspect_warehouse_evidence</span>()
+<span class="tk-kw">if</span> auth_failure   <span class="tk-pn">&rarr;</span> <span class="tk-fn">inspect_recent_config_changes</span>()
+<span class="tk-cmt">#                ... and the next step depends on what we just found</span></code></pre>
+  </div>
+  <p class="code-caption" data-step="2">You cannot enumerate every path through an unfamiliar codebase. Evidence at each step decides the next move. <strong style="color: var(--accent);">That is where agents become useful.</strong></p>
+</div>
+<aside class="speaker-notes">This bridges capability demos into the engine design: the agent needs to choose the next evidence path dynamically.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compaction keeps long investigations readable</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1rem; }
+    .slide--wix .title { max-width: 38ch; }
+
+    .why-band {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.95rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.95rem;
+    }
+    .why-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .why-band p {
+      color: var(--text);
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    .why-band strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+
+    /* Two-column rule comparison */
+    .compare-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+      align-items: stretch;
+    }
+    .col {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem 0.95rem;
+      display: grid;
+      gap: 0.55rem;
+      align-content: start;
+      position: relative;
+    }
+    .col::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--negative);
+    }
+    .col.good::before { background: var(--positive); }
+    .col .role {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--negative);
+    }
+    .col.good .role { color: var(--positive); }
+    .col h3 {
+      margin: 0;
+      font-family: var(--font-head);
+      font-size: 0.95rem;
+      color: var(--text-strong);
+      line-height: 1.2;
+    }
+    .col ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.4rem;
+    }
+    .col li {
+      color: var(--text);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      padding-left: 1rem;
+      position: relative;
+    }
+    .col li::before {
+      position: absolute;
+      left: 0; top: 0;
+      font-family: var(--font-mono);
+      font-size: 0.86rem;
+      line-height: 1.2;
+      color: var(--negative);
+      content: '\00d7';
+    }
+    .col.good li::before {
+      content: '\2713';
+      color: var(--positive);
+      font-size: 0.78rem;
+      top: 0.05rem;
+    }
+    .col li code {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0 0.3rem;
+    }
+
+    /* Sections strip */
+    .sections-band {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.85rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .sections-band .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.6rem;
+    }
+    .sections-band .head .stamp {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .sections-band .head .meta {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--muted-2);
+    }
+    .sections-band .sections {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 0.4rem;
+    }
+    .sections-band .sec {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--accent);
+      border-radius: 4px;
+      padding: 0.45rem 0.55rem;
+      display: grid;
+      gap: 0.18rem;
+      min-height: 3.4rem;
+    }
+    .sections-band .sec .num {
+      font-family: var(--font-mono);
+      font-size: 0.55rem;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .sections-band .sec .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.72rem;
+      line-height: 1.18;
+    }
+
+    /* Numbers strip */
+    .numbers {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+    .num-card {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--warm);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.85rem 0.6rem;
+      display: grid;
+      gap: 0.1rem;
+    }
+    .num-card .label {
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--warm);
+    }
+    .num-card .value {
+      font-family: var(--font-head);
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--text-strong);
+      line-height: 1.1;
+      letter-spacing: -0.005em;
+    }
+    .num-card .sub {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Compaction built for research, not for chat.</h2>
+  </div>
+
+  <div class="why-band" data-step="1">
+    <span class="stamp">Why custom</span>
+    <p>Generic compaction drops the things research depends on: <strong>file:line anchors, request IDs, failed searches, open gaps</strong>. Our compactor enforces a 7-heading structure that preserves them.</p>
+  </div>
+
+  <div class="compare-row">
+    <section class="col" data-step="1">
+      <span class="role">Generic chat compaction</span>
+      <h3>Drops what research needs</h3>
+      <ul>
+        <li>Loses exact anchors: <code>owner/repo:path:line</code>, <code>requestId</code>, <code>artifactId</code></li>
+        <li>Forgets failed searches &mdash; the same dead end gets retried</li>
+        <li>Overwrites prior summary instead of merging</li>
+        <li>Fits chat tone, not investigation state</li>
+      </ul>
+    </section>
+    <section class="col good" data-step="2">
+      <span class="role">Research-aware compaction</span>
+      <h3>Resumable research state</h3>
+      <ul>
+        <li>Preserves anchors verbatim &mdash; <code>file:line</code>, URLs, FQDNs, package@version</li>
+        <li>Keeps no-result searches and open gaps explicitly</li>
+        <li>Re-compacts: merges previous summary with new history, drops superseded claims</li>
+        <li>Tasks persist across compactions via <code>task_ops</code></li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="sections-band" data-step="3">
+    <div class="head">
+      <span class="stamp">7 mandated headings &middot; same order, every time</span>
+      <span class="meta">strict markdown · model: Haiku · max 2048 tokens</span>
+    </div>
+    <div class="sections">
+      <div class="sec"><span class="num">01</span><span class="name">Research Progress</span></div>
+      <div class="sec"><span class="num">02</span><span class="name">Repositories</span></div>
+      <div class="sec"><span class="num">03</span><span class="name">Files Examined</span></div>
+      <div class="sec"><span class="num">04</span><span class="name">Extracted Details</span></div>
+      <div class="sec"><span class="num">05</span><span class="name">Connections</span></div>
+      <div class="sec"><span class="num">06</span><span class="name">Artifacts Discovered</span></div>
+      <div class="sec"><span class="num">07</span><span class="name">Searches Performed</span></div>
+    </div>
+  </div>
+
+  <div class="numbers">
+    <div class="num-card" data-step="4">
+      <span class="label">Researcher trigger</span>
+      <span class="value">455 K chars</span>
+      <span class="sub">char-budget threshold</span>
+    </div>
+    <div class="num-card" data-step="4">
+      <span class="label">Helper trigger</span>
+      <span class="value">120 K chars</span>
+      <span class="sub">earlier &mdash; gateway limit</span>
+    </div>
+    <div class="num-card" data-step="5">
+      <span class="label">Keep recent</span>
+      <span class="value">last 8 turns</span>
+      <span class="sub">never compacted</span>
+    </div>
+    <div class="num-card" data-step="5">
+      <span class="label">Evidence policy</span>
+      <span class="value">always kept</span>
+      <span class="sub">citations · tool outputs</span>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">Why we built it: generic chat-style compaction is wrong for research. Anchors (file:line, request IDs, artifact IDs, URLs) must survive verbatim; failed searches must be remembered so the same dead end is not retried; re-compaction must merge previous summary with new history rather than overwrite. The compactor enforces a strict 7-heading markdown structure (Research Progress → Searches Performed) every time. Triggers are size-based — 455K chars for the researcher (gateway-aware), 120K for helpers. Last 8 turns are always kept intact. Tasks persist across compactions through task_ops, so the researcher resumes with full state.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

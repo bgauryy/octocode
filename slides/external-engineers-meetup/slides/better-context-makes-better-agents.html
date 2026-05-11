@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Better context makes better agents</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--end {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr auto;
+      gap: 0;
+      padding: clamp(3rem, 5vw, 4.6rem);
+      align-content: stretch;
+      background:
+        radial-gradient(circle at 78% 18%, rgb(92 208 236 / 0.22), transparent 48%),
+        radial-gradient(circle at 18% 88%, rgb(110 231 167 / 0.16), transparent 46%),
+        radial-gradient(circle at 50% 50%, rgb(167 139 250 / 0.06), transparent 60%),
+        linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
+    }
+
+    .end-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.5rem;
+      color: var(--muted);
+    }
+    .end-stamp {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--muted-2);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    .end-stamp .dot { color: var(--accent); margin: 0 0.55rem; }
+    .end-stamp .live { color: var(--positive); }
+
+    .end-center {
+      align-self: center;
+      justify-self: center;
+      display: grid;
+      gap: 2rem;
+      text-align: center;
+      width: 100%;
+      max-width: 60rem;
+    }
+
+    .end-headline {
+      font-family: var(--font-head);
+      font-weight: 700;
+      font-size: clamp(3.8rem, 7vw, 6.5rem);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      color: var(--text-strong);
+      margin: 0;
+    }
+    .end-headline .period {
+      color: var(--accent);
+    }
+
+    .end-divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin: 0.5rem 0;
+    }
+    .end-divider .line {
+      height: 1px;
+      width: clamp(4rem, 10vw, 9rem);
+      background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+    }
+    .end-divider .glyph {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--muted-2);
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+    }
+
+    .end-qa {
+      display: inline-grid;
+      justify-self: center;
+      grid-auto-flow: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.9rem 1.6rem;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      box-shadow: var(--shadow-soft);
+    }
+    .end-qa .qa-label {
+      font-family: var(--font-head);
+      font-size: 1.45rem;
+      font-weight: 600;
+      color: var(--text-strong);
+      letter-spacing: 0.04em;
+    }
+    .end-qa .qa-sub {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      border-left: 1px solid var(--border-strong);
+      padding-left: 1rem;
+    }
+
+    .end-bottom {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 2rem;
+    }
+    .end-author {
+      display: grid;
+      gap: 0.25rem;
+    }
+    .end-author strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: var(--t-body);
+      font-weight: 600;
+      letter-spacing: -0.005em;
+    }
+    .end-author span {
+      font-family: var(--font-head);
+      font-size: 0.78rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .end-thanks {
+      font-family: var(--font-head);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      align-self: end;
+    }
+    .end-thanks .heart { color: var(--accent); margin-right: 0.4rem; }
+  </style>
+</head>
+<body>
+<div class="slide slide--end">
+  <div class="end-top"></div>
+
+  <div class="end-center">
+    <h1 class="end-headline">Better context makes<br>better agents<span class="period">.</span></h1>
+
+    <div class="end-divider">
+      <span class="line"></span>
+      <span class="glyph">build yours</span>
+      <span class="line"></span>
+    </div>
+
+    <div class="end-qa">
+      <a href="https://octocode.ai" target="_blank" class="qa-label" style="text-decoration: none; color: inherit;">octocode.ai</a>
+    </div>
+    
+    <div style="margin-top: -1rem;">
+      <a href="https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-slides" target="_blank" style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-2); text-decoration: none; border-bottom: 1px dashed var(--muted-2); letter-spacing: 0.05em; transition: color 0.2s;">Bonus: octocode-slides skill</a>
+    </div>
+  </div>
+
+  <div class="end-bottom">
+    <div class="end-author">
+      <strong>Guy Bary</strong>
+      <span>Wix Engineering</span>
+    </div>
+    <div class="end-thanks"><span class="heart">&#x2756;</span> thanks for listening</div>
+  </div>
+</div>
+<aside class="speaker-notes">Land the talk on the core takeaway: Better context makes better agents. Point them to the open-source MCP to try it themselves, then open the floor for questions.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

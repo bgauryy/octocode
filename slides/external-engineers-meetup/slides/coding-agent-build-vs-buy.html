@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom flow vs. CLI agent</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.1rem; }
+    .slide--wix .title { max-width: 42ch; }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.55;
+      max-width: 84ch;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em { font-style: normal; color: var(--accent); font-weight: 600; }
+
+    .lesson-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+
+    /* Two-card build-vs-buy comparison */
+    .choice-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.1rem;
+      width: 100%;
+    }
+    .choice {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 1.25rem 1.4rem 1.35rem;
+      display: grid;
+      gap: 0.6rem;
+      align-content: start;
+      position: relative;
+      overflow: hidden;
+    }
+    .choice::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: var(--muted);
+      opacity: 0.45;
+    }
+    .choice.picked::before { background: var(--positive); opacity: 1; }
+
+    .choice .head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.55rem;
+    }
+    .choice .tag {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .choice.picked .tag { color: var(--positive); }
+
+    .choice .badge {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      color: var(--muted);
+    }
+    .choice.picked .badge {
+      color: var(--positive);
+      border-color: var(--positive);
+    }
+
+    .choice .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.1rem;
+      line-height: 1.25;
+    }
+
+    .choice .desc {
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.55;
+    }
+    .choice .desc strong { color: var(--text-strong); font-family: var(--font-head); font-weight: 600; }
+
+    .net-band {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 1rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--positive);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem 1.2rem;
+    }
+    .net-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+    .net-band p {
+      color: var(--text);
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+    .net-band p strong { color: var(--text-strong); font-family: var(--font-head); }
+
+    /* Pros / cons mini-strip inside a choice card */
+    .tradeoffs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-top: 0.15rem;
+    }
+    .tradeoff {
+      display: grid;
+      gap: 0.15rem;
+      padding: 0.5rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--code-bg);
+    }
+    .tradeoff .lbl {
+      font-family: var(--font-mono);
+      font-size: 0.58rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .tradeoff.pro { border-left: 2px solid var(--positive); }
+    .tradeoff.con { border-left: 2px solid var(--accent); }
+    .tradeoff.pro .lbl { color: var(--positive); }
+    .tradeoff.con .lbl { color: var(--accent); }
+    .tradeoff .val {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.85rem;
+      line-height: 1.25;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Custom flow vs. CLI agent.</h2>
+    <p class="lede">We could have run on top of an existing CLI agent &mdash; Claude Code, Codex, and friends. We chose a <em>custom flow</em> so the model stays a config choice, not a vendor lock-in.</p>
+  </div>
+
+  <div class="choice-grid">
+    <section class="choice" data-step="2">
+      <div class="head">
+        <span class="tag">Option A &mdash; CLI agent</span>
+        <span class="badge">e.g. Claude Code / Codex</span>
+      </div>
+      <span class="name">Run on top of a vendor CLI.</span>
+      <p class="desc">Plug into a ready-made coding agent and ship fast. The trade-off: the loop, prompts, and tool surface live <strong>inside someone else&rsquo;s product</strong> &mdash; when the CLI changes its behavior, pricing, or model, our flow changes with it.</p>
+    </section>
+
+    <section class="choice picked" data-step="3">
+      <div class="head">
+        <span class="tag">Option B &mdash; custom flow</span>
+        <span class="badge">What we chose</span>
+      </div>
+      <span class="name">Own the planner, researcher, and tools.</span>
+      <p class="desc">Planner, researcher, helpers, and tool contracts are ours. Models &mdash; Claude, GPT, Gemini &mdash; slot in behind a stable interface, so we can <strong>evaluate vendors side-by-side</strong> and swap without rewriting the system.</p>
+      <div class="tradeoffs">
+        <div class="tradeoff pro">
+          <span class="lbl">Pro</span>
+          <span class="val">Customizability</span>
+        </div>
+        <div class="tradeoff con">
+          <span class="lbl">Con</span>
+          <span class="val">Maintainability</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="net-band" data-step="4">
+    <span class="stamp">Why it pays off</span>
+    <p><strong>The model is a config choice, not a dependency.</strong> When Claude Code, Codex, or any CLI shifts, our loop keeps running &mdash; we just point it at a different model.</p>
+  </div>
+
+</div>
+<aside class="speaker-notes">Third lesson: the coding agent itself. Two real options. Option A &mdash; run on top of an existing CLI agent like Claude Code or Codex. Fast to start, but the loop, prompts, and tool surface all live inside someone else&rsquo;s product. When that CLI changes its behavior, pricing, or model, our flow changes with it. Option B &mdash; build a custom flow. We own the planner, researcher, helpers, and tool contracts. Models &mdash; Claude, GPT, Gemini &mdash; slot in behind a stable interface, so we can evaluate vendors side-by-side and switch without rewriting the system. Why it pays off: the model is a config choice, not a dependency. When any CLI shifts, our loop keeps running &mdash; we just point it at a different model.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

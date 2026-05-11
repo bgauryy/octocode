@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>We built our tools as MCPs — so engineers and agents share the same surface</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 0.85rem; }
+    .slide--wix .title { max-width: 44ch; }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      max-width: 84ch;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em { font-style: normal; color: var(--accent); font-weight: 600; }
+
+    .lesson-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+
+    /* ───────────────────────────────────────────────────────────────
+       Row 1 — Two consumers converge on one MCP layer
+       ─────────────────────────────────────────────────────────────── */
+    .converge-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0.7rem;
+      align-items: stretch;
+    }
+    .consumer-card {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.9rem;
+      display: grid;
+      gap: 0.18rem;
+      align-content: center;
+    }
+    .consumer-card.a { border-left: 3px solid var(--accent); }
+    .consumer-card.b { border-left: 3px solid var(--violet); }
+    .consumer-card .lab {
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .consumer-card.b .lab { color: var(--violet); }
+    .consumer-card .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.88rem;
+      line-height: 1.2;
+    }
+    .consumer-card .why {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--muted);
+    }
+
+    .arrow {
+      align-self: center;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--muted-2);
+      letter-spacing: 0.04em;
+    }
+
+    .mcp-core {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--positive);
+      border-right: 3px solid var(--positive);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.9rem;
+      display: grid;
+      gap: 0.18rem;
+      align-content: center;
+      text-align: center;
+    }
+    .mcp-core .lab {
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--positive);
+    }
+    .mcp-core .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.88rem;
+      line-height: 1.2;
+    }
+    .mcp-core .why {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--muted);
+    }
+
+    /* ───────────────────────────────────────────────────────────────
+       Row 2 — The ten MCPs, uniform compact cards in a 5×2 grid
+       ─────────────────────────────────────────────────────────────── */
+    .mcp-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    .mcp-col {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.5rem;
+    }
+    .mcp-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 0.55rem 0.65rem 0.6rem;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 0.28rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .mcp-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .mcp-card.b::before { background: var(--violet); }
+    .mcp-card.c::before { background: var(--warm); }
+    .mcp-card.d::before { background: var(--positive); }
+    .mcp-card.e::before { background: var(--accent-strong); }
+
+    .mcp-card .num {
+      font-family: var(--font-mono);
+      font-size: 0.54rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .mcp-card.b .num { color: var(--violet); }
+    .mcp-card.c .num { color: var(--warm); }
+    .mcp-card.d .num { color: var(--positive); }
+    .mcp-card.e .num { color: var(--accent-strong); }
+
+    .mcp-card h3 {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.78rem;
+      line-height: 1.2;
+      margin: 0;
+    }
+    .mcp-card p {
+      color: var(--muted);
+      font-size: 0.66rem;
+      line-height: 1.38;
+    }
+    .mcp-card .target {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.35rem;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.25rem 0.45rem;
+      color: var(--text);
+    }
+    .mcp-card .target .k { color: var(--muted-2); }
+    .mcp-card.b .target .k { color: var(--violet); }
+    .mcp-card.c .target .k { color: var(--warm); }
+    .mcp-card.d .target .k { color: var(--positive); }
+    .mcp-card.e .target .k { color: var(--accent-strong); }
+
+    /* ───────────────────────────────────────────────────────────────
+       Row 3 — Net band: continuous improvement loop
+       ─────────────────────────────────────────────────────────────── */
+    .net-band {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 1rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 1.05rem;
+    }
+    .net-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.64rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .net-band p {
+      color: var(--text);
+      font-size: 0.78rem;
+      line-height: 1.42;
+    }
+    .net-band p strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+    .net-band .verdict {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Tools as <em>MCPs</em> &mdash; one surface, two consumers.</h2>
+    <p class="description">Every tool the agent uses, an engineer can run by hand. Same auth, same outputs &mdash; tools never stagnate.</p>
+  </div>
+
+  <div class="converge-row" data-step="2">
+    <div class="consumer-card a">
+      <span class="lab">Consumer A</span>
+      <span class="name">Bilbo &middot; agents</span>
+      <span class="why">planner &middot; researcher &middot; helpers</span>
+    </div>
+    <span class="arrow">&rarr;</span>
+    <div class="mcp-core">
+      <span class="lab">Shared MCP layer</span>
+      <span class="name">One contract. Same auth. Same outputs.</span>
+      <span class="why">tool list &middot; schemas &middot; structured hints</span>
+    </div>
+    <span class="arrow">&larr;</span>
+    <div class="consumer-card b">
+      <span class="lab">Consumer B</span>
+      <span class="name">Wix engineers</span>
+      <span class="why">IDE &middot; CLI &middot; manual triage</span>
+    </div>
+  </div>
+
+    <div class="mcp-grid">
+      <div class="mcp-col">
+        <section class="mcp-card" data-step="3">
+          <span class="num">MCP 01</span>
+          <h3>octocode</h3>
+          <p>Code forensics &mdash; repos, symbols, callers, PRs.</p>
+        </section>
+        <section class="mcp-card b" data-step="3">
+          <span class="num">MCP 02</span>
+          <h3>service-topology</h3>
+          <p>Live topology &mdash; pods, Kafka, gRPC reflection.</p>
+        </section>
+        <section class="mcp-card c" data-step="3">
+          <span class="num">MCP 03</span>
+          <h3>grafana</h3>
+          <p>Dashboards, panel execution, log queries, deploys.</p>
+        </section>
+        <section class="mcp-card d" data-step="3">
+          <span class="num">MCP 04</span>
+          <h3>error-tracking</h3>
+          <p>Exception clusters and error traces.</p>
+        </section>
+        <section class="mcp-card e" data-step="3">
+          <span class="num">MCP 05</span>
+          <h3>trino</h3>
+          <p>SQL on Trino &mdash; schemas, tables, stats, partitions.</p>
+        </section>
+      </div>
+      <div class="mcp-col">
+        <section class="mcp-card" data-step="4">
+          <span class="num">MCP 06</span>
+          <h3>jira</h3>
+          <p>Issue context &mdash; tickets, comments, history.</p>
+        </section>
+        <section class="mcp-card b" data-step="4">
+          <span class="num">MCP 07</span>
+          <h3>api-docs</h3>
+          <p>FQDN lookup, SDK package resolution, knowledge base.</p>
+        </section>
+        <section class="mcp-card c" data-step="4">
+          <span class="num">MCP 08</span>
+          <h3>memory</h3>
+          <p>Session-scoped vector recall &mdash; prior investigations.</p>
+        </section>
+        <section class="mcp-card d" data-step="4">
+          <span class="num">MCP 09</span>
+          <h3>users-data</h3>
+          <p>Experiment management &mdash; search, specs, state.</p>
+        </section>
+        <section class="mcp-card e" data-step="4">
+          <span class="num">MCP 10</span>
+          <h3>personalization</h3>
+          <p>Placements, offers, targeting.</p>
+        </section>
+      </div>
+    </div>
+
+  <div class="net-band" data-step="5">
+    <span class="stamp">Continuous loop</span>
+    <p>Engineers hit a missing hint or vague schema, file it &mdash; the <strong>next agent run gets it for free</strong>. Daily human usage keeps the tools sharp.</p>
+    <span class="verdict">tools never stagnate</span>
+  </div>
+
+</div>
+<aside class="speaker-notes">We made a deliberate decision early: every tool the agent uses is built as an MCP &mdash; not a hand-rolled SDK call inside the agent process. Two reasons. First, MCP gives us a clean protocol (tool list, schemas, structured hints) that maps directly onto the agent&rsquo;s reasoning loop. Second, and this is the bigger one: the same MCPs are usable by Wix engineers in their IDE or CLI for manual investigation. So we ended up with one shared surface and two consumers. Bilbo&rsquo;s planner, researcher, and helpers call MCP tools through the agent loop. Engineers call the same MCPs by hand to triage incidents, validate findings, or just look something up. That dual usage created a continuous-improvement loop: when an engineer hits a missing hint, a vague schema, or a sharper output they want, they file it &mdash; and the next agent run gets it for free. Tools never stagnate, because humans are using them every day. The full set, all wired through one resolver: octocode for code, PRs and symbols across GitHub; service-topology for live runtime topology, pods, Kafka and gRPC reflection; grafana for dashboards, logs and deployment annotations; error-tracking for exception clusters; trino for SQL exploration over data warehouses; jira for ticket context including screenshots; api-docs for FQDN lookup and SDK packages; memory for session-scoped vector recall of prior investigations; users-data for experiments; personalization for placements. Helpers narrow this set per-call &mdash; the trino helper only sees trino, the grafana helper only sees grafana &mdash; so each subagent reasons inside a tight tool budget.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

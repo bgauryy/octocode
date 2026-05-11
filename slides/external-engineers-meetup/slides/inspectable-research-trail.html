@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Long research should leave an inspectable trail</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+</head>
+<body>
+<div class="slide slide--flow">
+  <div class="slide-header">
+    <h2 class="title">Long research should leave an <em>inspectable trail</em>.</h2>
+  </div>
+  <div class="flow">
+    <div class="node" data-step="1">Start job<small>POST /research</small></div>
+    <div class="arrow" data-step="1"></div>
+    <div class="node" data-step="2">Job id<small>returned immediately</small></div>
+    <div class="arrow" data-step="2"></div>
+    <div class="node node--accent" data-step="3">Stream events<small>plan ready &middot; tool started</small></div>
+    <div class="arrow" data-step="3"></div>
+    <div class="node node--accent" data-step="4">Findings<small>helper launched &middot; recorded</small></div>
+    <div class="arrow" data-step="4"></div>
+    <div class="node node--positive" data-step="5">Final answer<small>cited envelope</small></div>
+  </div>
+  <p class="flow-outcome" data-step="6">For hard questions, the path matters as much as the final answer.</p>
+</div>
+<aside class="speaker-notes">Reframe async as user value: if research takes time, engineers need to inspect the evidence trail, not stare at a spinner.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

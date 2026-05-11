@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What the researcher reaches for</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.1rem; }
+    .slide--wix .title { max-width: 36ch; }
+    .slide--wix .title .role-tag {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--warm);
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.98rem;
+      line-height: 1.55;
+      max-width: 76ch;
+      margin-top: 0.35rem;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em { font-style: normal; color: var(--warm); font-weight: 600; }
+    .slide--wix .purpose {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      font-size: 0.92rem;
+      line-height: 1.4;
+      margin-top: 0.35rem;
+      color: var(--text);
+    }
+    .slide--wix .purpose .tag {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      padding: 0.18rem 0.55rem;
+      white-space: nowrap;
+    }
+
+    /* Section labels */
+    .section-tag {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 0.7rem;
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      margin: 0.05rem auto 0.3rem;
+      width: 100%;
+      max-width: 980px;
+    }
+    .section-tag .line { height: 1px; background: var(--border-strong); }
+    .section-tag .accent { color: var(--accent); }
+    .section-tag .accent.violet { color: var(--violet); }
+    .section-tag .accent.warm   { color: var(--warm); }
+    .section-tag .meta {
+      font-family: var(--font-mono);
+      letter-spacing: 0.08em;
+      text-transform: none;
+      color: var(--muted-2);
+    }
+
+    /* Planner handoff input strip */
+    .input-strip {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.85rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--violet);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.85rem;
+    }
+    .input-strip .stamp {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--violet);
+      white-space: nowrap;
+    }
+    .input-strip .fields {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+    }
+    .input-strip .field {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--code-text);
+      background: rgba(167, 139, 250, 0.08);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.18rem 0.5rem;
+    }
+    .input-strip .field.opt {
+      color: var(--muted);
+      background: transparent;
+      border-style: dashed;
+    }
+
+    /* MCP chip strip */
+    .mcp-strip {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0.55rem;
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+    .mcp-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 0.22rem;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.65rem 0.65rem;
+      font-family: var(--font-mono);
+      color: var(--text);
+      min-height: 3.4rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .mcp-chip::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+    }
+    .mcp-chip.warm::before     { background: var(--warm); }
+    .mcp-chip.positive::before { background: var(--positive); }
+    .mcp-chip.violet::before   { background: var(--violet); }
+    .mcp-chip strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-weight: 600;
+      font-size: 0.88rem;
+      letter-spacing: 0.01em;
+      line-height: 1.1;
+    }
+    .mcp-chip span {
+      color: var(--muted-2);
+      font-size: 0.64rem;
+      letter-spacing: 0.06em;
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
+
+    /* Helpers row — 4 columns */
+    .helper-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.6rem;
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
+      align-items: stretch;
+      justify-content: center;
+      text-align: left;
+    }
+    .helper {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem 0.7rem;
+      display: grid;
+      gap: 0.3rem;
+      position: relative;
+      align-content: start;
+      min-height: 9.4rem;
+    }
+    .helper::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+    }
+    .helper.code::before     { background: var(--accent); }
+    .helper.data::before     { background: var(--positive); }
+    .helper.mon::before      { background: var(--warm); }
+    .helper.adaptive::before { background: var(--violet); }
+    .helper .lead {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .helper .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.84rem;
+      letter-spacing: 0.02em;
+    }
+    .helper .scope {
+      font-family: var(--font-mono);
+      font-size: 0.56rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .helper.data .scope     { color: var(--positive); }
+    .helper.mon  .scope     { color: var(--warm); }
+    .helper.adaptive .scope { color: var(--violet); }
+
+    .helper .when {
+      font-family: var(--font-head);
+      font-size: 0.55rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      margin-top: 0.05rem;
+    }
+    .helper ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.18rem;
+    }
+    .helper li {
+      color: var(--text);
+      font-size: 0.66rem;
+      line-height: 1.3;
+      padding-left: 0.7rem;
+      position: relative;
+    }
+    .helper li::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0.42rem;
+      width: 0.26rem; height: 0.26rem;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .helper.data li::before     { background: var(--positive); }
+    .helper.mon li::before      { background: var(--warm); }
+    .helper.adaptive li::before { background: var(--violet); }
+
+    /* Output strip — mirrors input-strip but keyed to output side */
+    .output-strip {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 0.85rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--positive);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.85rem;
+    }
+    .output-strip .stamp {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+    .output-strip .fields {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+    }
+    .output-strip .field {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--code-text);
+      background: rgba(110, 231, 183, 0.08);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.18rem 0.5rem;
+    }
+    .output-strip .verdict {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--positive);
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    /* Tighten existing components for the longer slide */
+    .helper { min-height: 8.2rem; padding: 0.55rem 0.7rem 0.65rem; }
+    .helper li { font-size: 0.64rem; }
+    .helper .name { font-size: 0.8rem; }
+    .section-tag { margin: 0 auto 0.2rem; }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">The Researcher orchestrates the smart research flow.</h2>
+    <p class="purpose"><span class="tag">Purpose</span>Orchestrate smart research flow.</p>
+    <p class="lede">Runs <em>plan &rarr; call &rarr; observe</em> across tools and helpers &mdash; returns a grounded, cited answer in the contract&rsquo;s shape.</p>
+  </div>
+
+  <div class="mcp-strip" data-step="1">
+    <span class="mcp-chip"><strong>Code</strong> <span>octocode</span></span>
+    <span class="mcp-chip warm"><strong>Runtime</strong> <span>service-topology</span></span>
+    <span class="mcp-chip warm"><strong>Logs</strong> <span>grafana</span></span>
+    <span class="mcp-chip warm"><strong>Errors</strong> <span>error-tracking</span></span>
+    <span class="mcp-chip positive"><strong>Data</strong> <span>trino</span></span>
+    <span class="mcp-chip"><strong>Docs</strong> <span>api-docs</span></span>
+    <span class="mcp-chip"><strong>Tickets</strong> <span>jira</span></span>
+    <span class="mcp-chip positive"><strong>Experiments</strong> <span>users-data</span></span>
+    <span class="mcp-chip positive"><strong>Placements</strong> <span>personalization</span></span>
+    <span class="mcp-chip violet"><strong>Memory</strong> <span>vector KB</span></span>
+    <span class="mcp-chip"><strong>Tasks</strong> <span>task_ops</span></span>
+  </div>
+
+  <div class="helper-row">
+    <article class="helper code" data-step="2">
+      <div class="lead"><span class="name">research_helper</span><span class="scope">octocode</span></div>
+      <span class="when">Used for</span>
+      <ul>
+        <li>Cross-repo chains</li>
+      </ul>
+    </article>
+    <article class="helper data" data-step="2">
+      <div class="lead"><span class="name">trino_helper</span><span class="scope">trino</span></div>
+      <span class="when">Used for</span>
+      <ul>
+        <li>SQL with 3+ joins</li>
+      </ul>
+    </article>
+    <article class="helper mon" data-step="3">
+      <div class="lead"><span class="name">grafana_helper</span><span class="scope">grafana</span></div>
+      <span class="when">Used for</span>
+      <ul>
+        <li>Multi-panel incidents</li>
+      </ul>
+    </article>
+    <article class="helper adaptive" data-step="3">
+      <div class="lead"><span class="name">adaptive_helper</span><span class="scope">tools[] at call</span></div>
+      <span class="when">Used for</span>
+      <ul>
+        <li>Cross-domain combos</li>
+      </ul>
+    </article>
+  </div>
+
+
+</div>
+<aside class="speaker-notes">Two bands. (1) Tools: the full MCP toolbelt the researcher calls directly for cheap, single-call decisions — code, runtime, logs, errors, data, docs, tickets, experiments, placements, memory, tasks. (2) Helpers: four isolated sub-agents, each scoped to a strict tool subset (or built per-call for adaptive); each card lists the trigger conditions. Helpers run in fresh sessions and return typed findings, not transcripts — that is what keeps the parent context lean.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

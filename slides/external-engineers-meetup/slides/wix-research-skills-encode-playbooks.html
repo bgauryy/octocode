@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context Driven Development</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1rem; }
+    .slide--wix .title { max-width: 38ch; }
+
+    .why-band {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.95rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.95rem;
+    }
+    .why-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .why-band p {
+      color: var(--text);
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    .why-band strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+
+    /* Three pillars of CDD */
+    .pillar-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.85rem;
+      align-items: stretch;
+    }
+    .pillar {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.95rem 1.05rem 1.05rem;
+      display: grid;
+      gap: 0.55rem;
+      align-content: start;
+      position: relative;
+      min-height: 13.5rem;
+    }
+    .pillar::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .pillar.b::before { background: var(--violet); }
+    .pillar.c::before { background: var(--positive); }
+
+    .pillar .head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pillar .num {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .pillar.b .num { color: var(--violet); }
+    .pillar.c .num { color: var(--positive); }
+
+    .pillar .icon {
+      width: 1.4rem;
+      height: 1.4rem;
+      stroke: var(--accent);
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+    .pillar.b .icon { stroke: var(--violet); }
+    .pillar.c .icon { stroke: var(--positive); }
+
+    .pillar .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.05rem;
+      line-height: 1.2;
+    }
+    .pillar p {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.42;
+    }
+
+    .pillar .examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.1rem;
+    }
+    .pillar .ex {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      padding: 0.22rem 0.5rem;
+    }
+
+    /* Bottom band — teams + agent loop */
+    .bridge {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0.6rem;
+      align-items: stretch;
+    }
+    .bridge .side {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.9rem 0.8rem;
+      display: grid;
+      gap: 0.25rem;
+      align-content: start;
+    }
+    .bridge .side.a { border-left: 3px solid var(--warm); }
+    .bridge .side.b { border-left: 3px solid var(--violet); }
+    .bridge .side .label {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--warm);
+    }
+    .bridge .side.b .label { color: var(--violet); }
+    .bridge .side strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.92rem;
+      line-height: 1.2;
+    }
+    .bridge .side p {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.4;
+    }
+    .bridge .arrow {
+      align-self: center;
+      display: grid;
+      gap: 0.2rem;
+      justify-items: center;
+      color: var(--muted-2);
+      font-family: var(--font-mono);
+      font-size: 0.56rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .bridge .arrow svg {
+      width: 1.5rem;
+      height: 1.5rem;
+      stroke: var(--accent);
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">An organization is more than its code.</h2>
+  </div>
+
+  <div class="pillar-row">
+    <section class="pillar" data-step="1">
+      <div class="head">
+        <span class="num">Pillar 01</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+      </div>
+      <span class="name">Know what we&rsquo;re searching</span>
+      <p>Identify the team, feature, and domain before opening the first file.</p>
+      <div class="examples">
+        <span class="ex">team</span><span class="ex">feature</span><span class="ex">domain</span>
+      </div>
+    </section>
+
+    <section class="pillar b" data-step="2">
+      <div class="head">
+        <span class="num">Pillar 02</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 8v5l3 2"/>
+        </svg>
+      </div>
+      <span class="name">Understand its meaning</span>
+      <p>Ownership, vocabulary, and conventions live outside the repo.</p>
+      <div class="examples">
+        <span class="ex">ownership</span><span class="ex">vocab</span><span class="ex">conventions</span>
+      </div>
+    </section>
+
+    <section class="pillar c" data-step="3">
+      <div class="head">
+        <span class="num">Pillar 03</span>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="2"/>
+          <circle cx="5" cy="6" r="1.6"/><circle cx="19" cy="6" r="1.6"/>
+          <circle cx="5" cy="18" r="1.6"/><circle cx="19" cy="18" r="1.6"/>
+          <path d="M12 12 5 6M12 12l7-6M12 12 5 18M12 12l7 6"/>
+        </svg>
+      </div>
+      <span class="name">Linked resources that help</span>
+      <p>Each domain ships with the resources that close its questions.</p>
+      <div class="examples">
+        <span class="ex">tables</span><span class="ex">repos</span><span class="ex">dashboards</span><span class="ex">runbooks</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="bridge">
+    <div class="side a" data-step="4">
+      <span class="label">Teams maintain</span>
+      <strong>Skills</strong>
+      <p>Each team encodes its CDD as a skill.</p>
+    </div>
+    <div class="arrow" data-step="4">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>
+      </svg>
+      <span>+ data</span>
+    </div>
+    <div class="side b" data-step="5">
+      <span class="label">Agent reads</span>
+      <strong>Skills + live data</strong>
+      <p>Picks the relevant skill, combines it with live MCP signals.</p>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">Context Driven Development — the working name for how we extend the agent beyond code. The organization carries meaning that no repo or dashboard captures alone: which team owns this, what the vocabulary actually means, which DB tables and runbooks close which questions. Teams already maintain skills that encode their domain — the agent reads those skills + live data so it investigates with the same context a human teammate would.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The aim: an agent that searches like a human</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.1rem; }
+    .slide--wix .title { max-width: 38ch; }
+
+    .why-band {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.95rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--positive);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.95rem;
+    }
+    .why-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+    .why-band p {
+      color: var(--text);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+    .why-band strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+
+    .three-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0.55rem;
+      align-items: stretch;
+    }
+    .pane {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.95rem 1.05rem 1.05rem;
+      display: grid;
+      gap: 0.55rem;
+      align-content: start;
+      position: relative;
+      min-height: 12rem;
+    }
+    .pane::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--violet);
+    }
+    .pane.b::before { border-radius: 0; background: var(--warm); }
+    .pane.c::before { background: var(--positive); }
+
+    .pane .num {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      color: var(--violet);
+      text-transform: uppercase;
+    }
+    .pane.b .num { color: var(--warm); }
+    .pane.c .num { color: var(--positive); }
+
+    .pane .name {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.05rem;
+      line-height: 1.2;
+    }
+    .pane p {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.42;
+    }
+    .pane .key {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      padding: 0.35rem 0.6rem;
+    }
+
+    .arrow-col {
+      align-self: center;
+      display: grid;
+      gap: 0.25rem;
+      justify-items: center;
+      color: var(--muted-2);
+      font-family: var(--font-mono);
+      font-size: 0.56rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .arrow-col svg {
+      width: 1.5rem;
+      height: 1.5rem;
+      stroke: var(--accent);
+    }
+
+    /* Final takeaway */
+    .takeaway {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 1rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem 1.1rem;
+    }
+    .takeaway .stamp {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .takeaway p {
+      color: var(--text);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+    .takeaway p strong {
+      color: var(--text-strong);
+      font-family: var(--font-head);
+    }
+    .takeaway .rule {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--cards slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Search like a human &mdash; by reusing what humans already maintain.</h2>
+  </div>
+
+  <div class="why-band" data-step="1">
+    <span class="stamp">North star</span>
+    <p>Eventually, an agent should <strong>search and reason the way a teammate does</strong>. Until then, we build and validate by reusing the skills and context that <strong>teams already maintain manually</strong>.</p>
+  </div>
+
+  <div class="three-row">
+    <section class="pane" data-step="1">
+      <span class="num">01 &middot; Aim</span>
+      <span class="name">Search like a human</span>
+      <p>Pick the right context, follow the evidence, ask the right next question. No shortcuts that humans wouldn&rsquo;t take.</p>
+      <span class="key">human-grade investigation</span>
+    </section>
+
+    <div class="arrow-col" data-step="2">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>
+      </svg>
+      <span>bridge</span>
+    </div>
+
+    <section class="pane b" data-step="2">
+      <span class="num">02 &middot; Today</span>
+      <span class="name">Reuse what teams maintain</span>
+      <p>While building and checking the system, the agent reads the skills, vocabulary, and linked resources that teams already keep up to date manually.</p>
+      <span class="key">skills + context · already current</span>
+    </section>
+
+    <div class="arrow-col" data-step="3">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>
+      </svg>
+      <span>check</span>
+    </div>
+
+    <section class="pane c" data-step="3">
+      <span class="num">03 &middot; Alignment</span>
+      <span class="name">Agent path = human path</span>
+      <p>The test we hold ourselves to: the agent&rsquo;s investigation should land on the same evidence a teammate would land on. Same skill, same anchors, same answer.</p>
+      <span class="key">clean correspondence</span>
+    </section>
+  </div>
+
+  <div class="takeaway" data-step="4">
+    <span class="stamp">Takeaway</span>
+    <p>Build the agent on top of the <strong>same playbooks humans already trust</strong> &mdash; then alignment becomes a measurable property, not a hope.</p>
+    <span class="rule">aim &equiv; alignment</span>
+  </div>
+
+</div>
+<aside class="speaker-notes">Closing thought: the long-term goal is an agent that investigates the way a human teammate would. The path there is not to invent a parallel agent-only playbook — it is to reuse the skills and context the teams already maintain manually for their own work. That gives us two things at once: the agent stays current as teams update their skills, and we get a measurable alignment test — does the agent's investigation land on the same evidence a human would?</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

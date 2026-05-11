@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helpers you build per call</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 0.85rem; }
+    .slide--wix .title { max-width: 42ch; }
+    .slide--wix .title .role-tag {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--violet);
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.94rem;
+      line-height: 1.5;
+      max-width: 86ch;
+      margin-top: 0.3rem;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em { font-style: normal; color: var(--violet); font-weight: 600; }
+
+    /* Purpose pill — matches Planner / Researcher / Helpers slides */
+    .slide--wix .purpose {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      font-size: 0.92rem;
+      line-height: 1.4;
+      margin-top: 0.35rem;
+      color: var(--text);
+    }
+    .slide--wix .purpose .tag {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+      border: 1px solid var(--violet);
+      border-radius: 999px;
+      padding: 0.18rem 0.55rem;
+      white-space: nowrap;
+    }
+
+    /* Status badge — experimental / under research */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--warm);
+      border: 1px solid var(--warm);
+      border-radius: 999px;
+      padding: 0.2rem 0.6rem;
+      margin-left: 0.55rem;
+      vertical-align: 0.15em;
+    }
+    .status-badge::before {
+      content: '';
+      width: 0.42rem; height: 0.42rem;
+      border-radius: 50%;
+      background: var(--warm);
+      box-shadow: 0 0 8px var(--warm);
+    }
+
+    /* Why-row — three reason cards */
+    .why-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.7rem;
+    }
+    .why-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.85rem 0.75rem;
+      display: grid;
+      gap: 0.3rem;
+      position: relative;
+      align-content: start;
+    }
+    .why-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--violet);
+    }
+    .why-card .why-label {
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    .why-card strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.86rem;
+      line-height: 1.25;
+      font-weight: 600;
+    }
+    .why-card p {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.4;
+    }
+    .why-card p code {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.02rem 0.3rem;
+    }
+
+    /* Fixed-helpers strip — sets the contrast above the adaptive band */
+    .fixed-strip {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 0.85rem;
+      align-items: center;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.9rem;
+    }
+    .fixed-strip .stamp {
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .fixed-strip .pairs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.85rem;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .fixed-strip .pairs strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .fixed-strip .pairs span { white-space: nowrap; }
+    .fixed-strip .pairs .arr { color: var(--muted-2); }
+    .fixed-strip .verdict {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--warm);
+      white-space: nowrap;
+    }
+
+    /* Adaptive schema band — borrowed shape from tool-scope-reasoning-contract,
+       re-keyed to violet to mark this as helper territory. */
+    .schema-band {
+      display: grid;
+      grid-template-columns: minmax(11rem, auto) 1fr;
+      gap: 1rem;
+      align-items: stretch;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--violet);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem 0.95rem;
+    }
+    .schema-band .stamp-col {
+      display: grid;
+      gap: 0.4rem;
+      align-content: center;
+    }
+    .schema-band .stamp {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    .schema-band strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1rem;
+      line-height: 1.25;
+    }
+    .schema-band p {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.45;
+      max-width: 30ch;
+    }
+    .schema-band pre {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      line-height: 1.55;
+      color: var(--code-text);
+      margin: 0;
+      padding-left: 0.4rem;
+      border-left: 1px solid var(--border);
+    }
+    .schema-band pre .row { display: block; }
+    .schema-band pre .row.hot {
+      background: linear-gradient(90deg, rgba(167,139,250,0.12), transparent 70%);
+    }
+
+    /* Two example cards — wider than tool-scope-reasoning-contract's 3-grid */
+    .example-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.7rem;
+    }
+    .example-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.7rem 0.9rem 0.85rem;
+      display: grid;
+      gap: 0.45rem;
+      position: relative;
+      align-content: start;
+    }
+    .example-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--violet);
+    }
+    .example-card.b::before { background: var(--positive); }
+    .example-card .head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .example-card .label {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    .example-card.b .label { color: var(--positive); }
+    .example-card .when {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--muted-2);
+    }
+    .example-card pre {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      line-height: 1.55;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.55rem 0.7rem;
+      margin: 0;
+      white-space: pre-wrap;
+      overflow: hidden;
+    }
+    .example-card pre .row { display: block; }
+
+    /* Skip-rule callout */
+    .skip-rule {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 1rem;
+      align-items: center;
+      padding: 0.7rem 1.05rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--warm);
+      border-radius: var(--radius-sm);
+    }
+    .skip-rule .t-tag {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--warm);
+      white-space: nowrap;
+    }
+    .skip-rule .t-text {
+      font-size: 0.9rem;
+      color: var(--text);
+      line-height: 1.4;
+    }
+    .skip-rule .t-text strong { color: var(--text-strong); }
+    .skip-rule .t-rule {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--positive);
+      white-space: nowrap;
+    }
+
+    /* Token classes (reuse base palette) */
+    .tk-pn  { color: var(--code-punct); }
+    .tk-key { color: var(--code-key); }
+    .tk-str { color: var(--code-string); }
+    .tk-kw  { color: var(--code-keyword); }
+    .tk-cm  { color: var(--code-comment); font-style: italic; }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Dynamic helpers<span class="status-badge">Under research</span></h2>
+    <p class="purpose"><span class="tag">Purpose</span>The researcher builds its own helper &mdash; with the tools <em>this</em> question needs.</p>
+  </div>
+
+  <div class="flow" data-step="1">
+    <div class="flow-step">
+      <span class="step-num">1</span>
+      <strong>Researcher picks tools</strong>
+      <p>Names the MCPs this question needs.</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step">
+      <span class="step-num">2</span>
+      <strong>Helper built on the fly</strong>
+      <p>Fresh agent, scoped to those tools only.</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step">
+      <span class="step-num">3</span>
+      <strong>One finding back</strong>
+      <p>Helper runs, returns, throws away.</p>
+    </div>
+  </div>
+
+  <div class="example-row" data-step="2">
+    <span class="example-label">Example</span>
+    <div class="example-question">&ldquo;Trace this 500 to the line that throws.&rdquo;</div>
+    <div class="example-tools">
+      <span class="tool-pill">grafana</span>
+      <span class="tool-sep">+</span>
+      <span class="tool-pill">octocode</span>
+    </div>
+  </div>
+
+  <div class="why-simple" data-step="3">
+    <div class="why-item">
+      <span class="why-num">01</span>
+      <p>Real questions need <strong>multiple tools at once</strong> &mdash; logs &amp; code, topology &amp; code.</p>
+    </div>
+    <div class="why-item">
+      <span class="why-num">02</span>
+      <p>Pre-building every combo doesn&rsquo;t scale &mdash; <strong>build it just-in-time</strong>.</p>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">Simplified: title "Dynamic helpers" with the "Under research" badge. Three-step flow — researcher picks tools, helper built on the fly, one finding back. One concrete example: tracing a 500 error needs grafana AND code, so the researcher names both MCPs and we spin up a fresh helper scoped to exactly those. Two plain-language reasons: real questions need multiple tools at once, and pre-building every combination doesn't scale — so we build the helper just-in-time. Implementation note (for questions): ADK's LlmAgent has tools fixed at construction, so we build the agent inside the FunctionTool's execute callback. Honest status: per-call construction has real overhead, still measuring when it earns its cost vs. routing to a fixed helper.</aside>
+
+<style>
+  /* Flow row — 3 steps with arrows */
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 0.7rem;
+    align-items: stretch;
+  }
+  .flow-step {
+    background: linear-gradient(160deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem 0.9rem;
+    display: grid;
+    gap: 0.35rem;
+    position: relative;
+    align-content: start;
+  }
+  .flow-step::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--violet);
+  }
+  .step-num {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--violet);
+    letter-spacing: 0.08em;
+  }
+  .flow-step strong {
+    font-family: var(--font-head);
+    color: var(--text-strong);
+    font-size: 1rem;
+    line-height: 1.2;
+  }
+  .flow-step p {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+  .flow-arrow {
+    display: grid;
+    place-items: center;
+    color: var(--muted-2);
+    font-size: 1.6rem;
+    font-family: var(--font-mono);
+  }
+
+  /* Example row */
+  .example-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 1rem;
+    align-items: center;
+    background: var(--code-bg);
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--positive);
+    border-radius: var(--radius-sm);
+    padding: 0.7rem 1rem;
+  }
+  .example-label {
+    font-family: var(--font-head);
+    font-size: 0.62rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--positive);
+    white-space: nowrap;
+  }
+  .example-question {
+    font-family: var(--font-mono);
+    font-size: 0.92rem;
+    color: var(--text-strong);
+    line-height: 1.4;
+  }
+  .example-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .tool-pill {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--code-text);
+    background: rgba(167, 139, 250, 0.1);
+    border: 1px solid var(--violet);
+    border-radius: 999px;
+    padding: 0.22rem 0.65rem;
+    white-space: nowrap;
+  }
+  .tool-sep {
+    color: var(--muted-2);
+    font-family: var(--font-mono);
+  }
+
+  /* Simplified why */
+  .why-simple {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.7rem;
+  }
+  .why-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.7rem;
+    align-items: center;
+    background: transparent;
+    border-left: 2px solid var(--violet);
+    padding: 0.4rem 0.85rem;
+  }
+  .why-num {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--violet);
+    letter-spacing: 0.08em;
+  }
+  .why-item p {
+    color: var(--text);
+    font-size: 0.88rem;
+    line-height: 1.4;
+  }
+  .why-item p strong { color: var(--text-strong); font-weight: 600; }
+</style>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

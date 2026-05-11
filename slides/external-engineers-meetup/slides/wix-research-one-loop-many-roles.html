@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One research loop serves many engineering roles</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 1.25rem; }
+    .slide--wix .title { max-width: 28ch; }
+    .wix-body {
+      align-self: center;
+      width: 100%;
+      display: grid;
+      gap: 1rem;
+    }
+    .wix-card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.9rem;
+      width: 100%;
+    }
+    .wix-card-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wix-card-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .wix-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 1rem 1.1rem;
+      display: grid;
+      gap: 0.45rem;
+      min-height: 8.4rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .wix-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .wix-card.warm::before { background: var(--warm); }
+    .wix-card.positive::before { background: var(--positive); }
+    .wix-card.violet::before { background: var(--violet); }
+    .wix-card .label {
+      font-family: var(--font-head);
+      font-size: 0.68rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .wix-card.warm .label { color: var(--warm); }
+    .wix-card.positive .label { color: var(--positive); }
+    .wix-card.violet .label { color: var(--violet); }
+    .wix-card strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.03rem;
+      line-height: 1.2;
+    }
+    .wix-card p, .wix-note {
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.42;
+    }
+    .wix-flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.65rem;
+      align-items: stretch;
+      width: 100%;
+    }
+    .wix-step {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem;
+      min-height: 7.2rem;
+      display: grid;
+      gap: 0.35rem;
+      align-content: start;
+      position: relative;
+    }
+    .wix-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      right: -0.48rem;
+      top: 50%;
+      width: 0.55rem;
+      height: 0.55rem;
+      border-top: 2px solid var(--accent);
+      border-right: 2px solid var(--accent);
+      transform: translateY(-50%) rotate(45deg);
+    }
+    .wix-step .num {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .wix-step strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.98rem;
+    }
+    .wix-step small {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.35;
+    }
+    .wix-split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.1rem;
+      align-items: stretch;
+    }
+    .wix-panel {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 1.1rem 1.2rem;
+      display: grid;
+      gap: 0.7rem;
+      align-content: start;
+    }
+    .wix-panel h3 {
+      margin: 0;
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 1.12rem;
+    }
+    .wix-panel ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.42rem;
+    }
+    .wix-panel li {
+      color: var(--text);
+      font-size: 0.86rem;
+      line-height: 1.35;
+      padding-left: 1rem;
+      position: relative;
+    }
+    .wix-panel li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.48rem;
+      width: 0.36rem;
+      height: 0.36rem;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .wix-hero-line {
+      align-self: end;
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--positive);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 0.95rem;
+      color: var(--code-text);
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+    .wix-title-stack {
+      display: grid;
+      gap: 1rem;
+      align-content: center;
+      max-width: 48rem;
+    }
+    .wix-title-stack .display { max-width: 15ch; }
+    .wix-title-stack .subtitle { max-width: 44ch; }
+  </style>
+</head>
+<body>
+<div class="slide slide--cards slide--wix">
+  <div class="slide-header"><h2 class="title">One research loop serves many engineering roles.</h2></div>
+  <div class="wix-body">
+    <div class="wix-card-grid four">
+      <section class="wix-card" data-step="1"><span class="label">Developers</span><strong>Root cause and archaeology</strong><p>Understand how a system actually works.</p></section>
+      <section class="wix-card positive" data-step="2"><span class="label">QA</span><strong>Workflow validation</strong><p>Investigate regressions and contract drift.</p></section>
+      <section class="wix-card warm" data-step="3"><span class="label">Infra</span><strong>Incident correlation</strong><p>Connect service health, logs, and deploys.</p></section>
+      <section class="wix-card violet" data-step="4"><span class="label">Product</span><strong>Experiment impact</strong><p>Query adoption and feature behavior.</p></section>
+    </div>
+  </div>
+</div>
+<aside class="speaker-notes">Avoid making this a table; the role cards make the breadth legible faster.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

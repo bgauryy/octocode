@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Research sub-agents offload the context</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--wix { gap: 0.85rem; }
+    .slide--wix .title { max-width: 38ch; }
+    .slide--wix .title .role-tag {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--violet);
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+    .slide--wix .lede {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      max-width: 78ch;
+      margin-top: 0.3rem;
+    }
+    .slide--wix .lede strong { color: var(--text-strong); font-weight: 600; }
+    .slide--wix .lede em { font-style: normal; color: var(--violet); font-weight: 600; }
+    .slide--wix .purpose {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      font-size: 0.92rem;
+      line-height: 1.4;
+      margin-top: 0.35rem;
+      color: var(--text);
+    }
+    .slide--wix .purpose .tag {
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+      border: 1px solid var(--violet);
+      border-radius: 999px;
+      padding: 0.18rem 0.55rem;
+      white-space: nowrap;
+    }
+
+    /* Section labels */
+    .section-tag {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 0.7rem;
+      font-family: var(--font-head);
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      margin: 0.05rem 0 0.25rem;
+    }
+    .section-tag .line { height: 1px; background: var(--border-strong); }
+    .section-tag .accent { color: var(--violet); }
+    .section-tag .meta {
+      font-family: var(--font-mono);
+      letter-spacing: 0.08em;
+      text-transform: none;
+      color: var(--muted-2);
+    }
+
+    /* Helper → MCP cards */
+    .agent-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+    .agent {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.95rem 0.9rem 0.85rem;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 0.55rem;
+      position: relative;
+      overflow: hidden;
+      min-height: 11rem;
+    }
+    .agent::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .agent.code::before     { background: var(--accent); }
+    .agent.data::before     { background: var(--positive); }
+    .agent.mon::before      { background: var(--warm); }
+    .agent.adaptive::before { background: var(--violet); }
+
+    .agent .head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .agent .name {
+      font-family: var(--font-mono);
+      color: var(--text-strong);
+      font-size: 0.85rem;
+      letter-spacing: 0.01em;
+      line-height: 1.1;
+    }
+    .agent .badge {
+      font-family: var(--font-head);
+      font-size: 0.56rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      padding: 0.15rem 0.5rem;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .agent.data .badge     { color: var(--positive); border-color: var(--positive); }
+    .agent.mon  .badge     { color: var(--warm);     border-color: var(--warm); }
+    .agent.adaptive .badge { color: var(--violet);   border-color: var(--violet); }
+
+    .agent .scope-label {
+      font-family: var(--font-head);
+      font-size: 0.56rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .agent .mcp-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .agent .mcp-tag {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--accent);
+      border-radius: 4px;
+      padding: 0.25rem 0.55rem;
+      line-height: 1.15;
+    }
+    .agent.data .mcp-tag     { border-left-color: var(--positive); }
+    .agent.mon  .mcp-tag     { border-left-color: var(--warm); }
+    .agent.adaptive .mcp-tag { border-left-color: var(--violet); }
+    .agent .mcp-tag.dyn {
+      border-style: dashed;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .agent .note {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.45;
+      align-self: end;
+    }
+    .agent .note em {
+      font-style: normal;
+      color: var(--text-strong);
+      font-weight: 600;
+      display: block;
+      margin-bottom: 0.2rem;
+    }
+    .agent .note code {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.05rem 0.3rem;
+    }
+
+    /* Reason cards */
+    .reason-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+    .reason {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.8rem 1rem 0.85rem;
+      display: grid;
+      gap: 0.3rem;
+      align-content: start;
+    }
+    .reason.warm     { border-left-color: var(--warm); }
+    .reason.positive { border-left-color: var(--positive); }
+    .reason .label {
+      font-family: var(--font-head);
+      font-size: 0.58rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .reason.warm     .label { color: var(--warm); }
+    .reason.positive .label { color: var(--positive); }
+    .reason strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.92rem;
+      line-height: 1.25;
+      font-weight: 600;
+    }
+    .reason p {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.45;
+      margin-top: 0.15rem;
+    }
+    .reason p code {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--code-text);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.05rem 0.3rem;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--content slide--wix">
+  <div class="slide-header">
+    <h2 class="title">Isolated helpers protect the parent context.</h2>
+    <p class="purpose"><span class="tag">Purpose</span>Absorb deep-read cost &mdash; keep the researcher&rsquo;s context sharp.</p>
+    <p class="lede">Each sub-agent runs <strong>isolated</strong>, absorbs the <em>heavy reads</em> in its own MCP scope, and reports back through a <strong>typed finding</strong>. The parent's context grows by one verdict &mdash; not a transcript.</p>
+  </div>
+
+  <div class="agent-row">
+    <article class="agent code" data-step="2">
+      <div class="head">
+        <span class="name">research_helper</span>
+        <span class="badge">Code</span>
+      </div>
+      <span class="scope-label">MCP scope</span>
+      <div class="mcp-tags">
+        <span class="mcp-tag">octocode</span>
+      </div>
+      <p class="note"><em>Cross-repo &amp; root-cause chains.</em> Reads code, traces references, follows imports.</p>
+    </article>
+
+    <article class="agent data" data-step="2">
+      <div class="head">
+        <span class="name">trino_helper</span>
+        <span class="badge">Data</span>
+      </div>
+      <span class="scope-label">MCP scope</span>
+      <div class="mcp-tags">
+        <span class="mcp-tag">trino</span>
+      </div>
+      <p class="note"><em>SQL with 3+ joins.</em> Multi-table lineage, freshness, data &times; code lookups.</p>
+    </article>
+
+    <article class="agent mon" data-step="3">
+      <div class="head">
+        <span class="name">grafana_helper</span>
+        <span class="badge">Runtime</span>
+      </div>
+      <span class="scope-label">MCP scope</span>
+      <div class="mcp-tags">
+        <span class="mcp-tag">grafana</span>
+      </div>
+      <p class="note"><em>Multi-step incident chains.</em> Errors &rarr; traces &rarr; deploy correlation.</p>
+    </article>
+
+    <article class="agent adaptive" data-step="3">
+      <div class="head">
+        <span class="name">adaptive_helper</span>
+        <span class="badge">Custom</span>
+      </div>
+      <span class="scope-label">MCP scope &middot; per call</span>
+      <div class="mcp-tags">
+        <span class="mcp-tag dyn">tools[ ] @ call</span>
+      </div>
+      <p class="note"><em>Cross-MCP combos.</em> Caller passes the scope &mdash; e.g. <code>octocode</code> + <code>service-topology</code>.</p>
+    </article>
+  </div>
+
+  <div class="reason-row">
+    <div class="reason" data-step="4">
+      <span class="label">Reason 01</span>
+      <strong>Clean authority</strong>
+      <p>Each helper sees only its own tools &mdash; cannot recurse, cannot widen scope.</p>
+    </div>
+    <div class="reason warm" data-step="4">
+      <span class="label">Reason 02</span>
+      <strong>Context budget protected</strong>
+      <p>Tool calls, file reads, retries stay in the helper. Parent grows by one finding.</p>
+    </div>
+    <div class="reason positive" data-step="5">
+      <span class="label">Reason 03</span>
+      <strong>Decision-grade artifacts</strong>
+      <p>Researcher ingests <code>verified / likely / unverified</code> + cited evidence + named gaps.</p>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">The point is not "helpers do work the researcher cannot do" — it is "helpers absorb the heavy reads so the researcher's context stays sharp." Each helper is locked to a single MCP scope: research_helper → octocode, trino_helper → trino, grafana_helper → grafana, adaptive_helper → caller-specified tools[] at call time. That isolation gives three outcomes: clean authority (no recursion, no scope widening), protected context budget (parent grows by one typed finding), and decision-grade artifacts (verified/likely/unverified + cited evidence + named gaps).</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

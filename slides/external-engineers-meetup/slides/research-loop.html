@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code research is a loop</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--loop { grid-template-rows: auto auto auto; gap: 1.4rem; align-content: start; }
+
+    /* --- flow stage ----------------------------------------------------- */
+    .flow-stage {
+      position: relative;
+      width: 100%;
+      height: 268px;
+      align-self: center;
+    }
+    .flow-paths {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .flow-paths .conn {
+      stroke: var(--accent);
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      opacity: 0.75;
+      stroke-dasharray: 60;
+      stroke-dashoffset: 60;
+      animation: drawConn 0.55s ease-out forwards;
+    }
+    .flow-paths .c1 { animation-delay: 0.45s; }
+    .flow-paths .c2 { animation-delay: 0.6s; }
+    .flow-paths .c3 { animation-delay: 0.75s; }
+    .flow-paths .c4 { animation-delay: 0.9s; }
+    .flow-paths .c5 { animation-delay: 1.05s; }
+
+    .flow-paths .loop-arc {
+      stroke: var(--violet);
+      stroke-width: 1.7;
+      fill: none;
+      stroke-linecap: round;
+      stroke-dasharray: 1300;
+      stroke-dashoffset: 1300;
+      opacity: 0;
+      animation: drawArc 1.4s ease-out forwards;
+      animation-delay: 1.35s;
+    }
+    .flow-paths .loop-label {
+      font-family: var(--font-head);
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      fill: var(--violet);
+      opacity: 0;
+      animation: fadeIn 0.5s ease-out forwards;
+      animation-delay: 2.4s;
+    }
+    .flow-paths .arrow-head { fill: var(--accent); }
+    .flow-paths .arrow-head-violet { fill: var(--violet); }
+    .flow-paths .comet {
+      fill: var(--accent-2);
+      filter: drop-shadow(0 0 8px var(--accent));
+    }
+    .flow-paths .comet-trail {
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-linecap: round;
+      opacity: 0;
+    }
+
+    @keyframes drawConn { to { stroke-dashoffset: 0; } }
+    @keyframes drawArc  { to { stroke-dashoffset: 0; opacity: 0.85; } }
+    @keyframes fadeIn   { to { opacity: 1; } }
+
+    /* --- nodes (HTML overlay) ------------------------------------------- */
+    .flow-nodes {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .flow-node {
+      position: absolute;
+      width: 154px;
+      height: 88px;
+      top: 96px;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-soft);
+      padding: 0.6rem 0.8rem;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 0.18rem;
+      opacity: 0;
+      animation: nodeIn 0.5s ease-out forwards;
+      overflow: hidden;
+    }
+    .flow-node::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+      opacity: 0.9;
+    }
+    .flow-node.fn-loop::before { background: var(--violet); }
+
+    .flow-node:nth-child(1) { left: 40px;   animation-delay: 0.0s; }
+    .flow-node:nth-child(2) { left: 230px;  animation-delay: 0.15s; }
+    .flow-node:nth-child(3) { left: 420px;  animation-delay: 0.30s; }
+    .flow-node:nth-child(4) { left: 610px;  animation-delay: 0.45s; }
+    .flow-node:nth-child(5) { left: 800px;  animation-delay: 0.60s; }
+    .flow-node:nth-child(6) { left: 990px;  animation-delay: 0.75s; }
+
+    .flow-node .step {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .flow-node.fn-loop .step { color: var(--violet); }
+    .flow-node strong {
+      font-family: var(--font-head);
+      color: var(--text-strong);
+      font-size: 0.95rem;
+      line-height: 1.18;
+      letter-spacing: -0.005em;
+    }
+    .flow-node small {
+      display: block;
+      margin-top: 0.18rem;
+      color: var(--muted);
+      font-size: 0.7rem;
+      line-height: 1.3;
+    }
+
+    @keyframes nodeIn {
+      from { opacity: 0; transform: translateY(0.5rem); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* --- optimizations row --------------------------------------------- */
+    .opt-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.95rem;
+    }
+    .opt-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem 1.05rem 0.9rem;
+      display: grid;
+      gap: 0.25rem;
+      box-shadow: var(--shadow-soft);
+      opacity: 0;
+      animation: nodeIn 0.5s ease-out forwards;
+    }
+    .opt-card.opt-1 { border-left-color: var(--accent); }
+    .opt-card.opt-2 { border-left-color: var(--positive); }
+    .opt-card.opt-3 { border-left-color: var(--violet); }
+    /* Override CSS auto-play — animation.js reveals these as steps */
+    [data-step].opt-card { animation: none; }
+    .opt-card .kicker {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .opt-card.opt-2 .kicker { color: var(--positive); }
+    .opt-card.opt-3 .kicker { color: var(--violet); }
+    .opt-card strong {
+      font-family: var(--font-head);
+      font-size: 0.98rem;
+      color: var(--text-strong);
+      letter-spacing: -0.005em;
+    }
+    .opt-card p {
+      font-size: 0.78rem;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .flow-paths .conn,
+      .flow-paths .loop-arc,
+      .flow-paths .loop-label,
+      .flow-node,
+      .opt-card {
+        animation: none !important;
+        opacity: 1 !important;
+        stroke-dashoffset: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--loop">
+  <div class="slide-header">
+    <h2 class="title">Octocode <em>flow</em></h2>
+    <p class="description">Six steps, three optimizations &mdash; every iteration asks: do I have enough evidence yet?</p>
+  </div>
+
+  <div class="flow-stage">
+    <svg class="flow-paths" viewBox="0 0 1184 268" preserveAspectRatio="none">
+      <defs>
+        <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" class="arrow-head"/>
+        </marker>
+        <marker id="arrow-violet" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" class="arrow-head-violet"/>
+        </marker>
+      </defs>
+
+      <!-- Connectors between nodes (each gap is x:[node_right..next_node_left]) -->
+      <line class="conn c1" x1="194" y1="140" x2="222" y2="140" marker-end="url(#arrow-cyan)"/>
+      <line class="conn c2" x1="384" y1="140" x2="412" y2="140" marker-end="url(#arrow-cyan)"/>
+      <line class="conn c3" x1="574" y1="140" x2="602" y2="140" marker-end="url(#arrow-cyan)"/>
+      <line class="conn c4" x1="764" y1="140" x2="792" y2="140" marker-end="url(#arrow-cyan)"/>
+      <line class="conn c5" x1="954" y1="140" x2="982" y2="140" marker-end="url(#arrow-cyan)"/>
+
+      <!-- Loop arc: top of node 6 (1067,96) -> top of node 3 (497,96) -->
+      <path class="loop-arc"
+            d="M 1067 96 C 1067 10, 497 10, 497 96"
+            marker-end="url(#arrow-violet)"/>
+      <text class="loop-label" x="782" y="42" text-anchor="middle">
+        Loop &middot; call next tool
+      </text>
+
+      <!-- Hidden path for the comet motion -->
+      <path id="cometpath" d="M 40 140 L 1144 140" fill="none" stroke="none"/>
+
+      <!-- Comet -->
+      <circle class="comet" r="5" cx="0" cy="0" opacity="0">
+        <animate attributeName="opacity"
+                 values="0;1;1;1;0"
+                 keyTimes="0;0.05;0.92;0.97;1"
+                 dur="3.6s" begin="1.6s" repeatCount="indefinite"/>
+        <animateMotion dur="3.6s" begin="1.6s" repeatCount="indefinite">
+          <mpath href="#cometpath"/>
+        </animateMotion>
+      </circle>
+    </svg>
+
+    <div class="flow-nodes">
+      <div class="flow-node">
+        <span class="step">01 &middot; Goal</span>
+        <div>
+          <strong>Research goal</strong>
+          <small>Frame the question precisely.</small>
+        </div>
+      </div>
+      <div class="flow-node">
+        <span class="step">02 &middot; Setup</span>
+        <div>
+          <strong>Understand context</strong>
+          <small>Read the surroundings first.</small>
+        </div>
+      </div>
+      <div class="flow-node fn-loop">
+        <span class="step">03 &middot; Loop</span>
+        <div>
+          <strong>Choose the tool</strong>
+          <small>Cheapest evidence first.</small>
+        </div>
+      </div>
+      <div class="flow-node fn-loop">
+        <span class="step">04 &middot; Loop</span>
+        <div>
+          <strong>Get research data</strong>
+          <small>Cite paths and lines.</small>
+        </div>
+      </div>
+      <div class="flow-node fn-loop">
+        <span class="step">05 &middot; Loop</span>
+        <div>
+          <strong>Reason</strong>
+          <small>What does it actually prove?</small>
+        </div>
+      </div>
+      <div class="flow-node fn-loop">
+        <span class="step">06 &middot; Decide</span>
+        <div>
+          <strong>Plan next step</strong>
+          <small>Output, or call next tool.</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="opt-row">
+    <div class="opt-card opt-1" data-step="1">
+      <span class="kicker">01 / Concurrency</span>
+      <strong>Parallel tool calls</strong>
+      <p>Independent tools execute concurrently.</p>
+    </div>
+    <div class="opt-card opt-2" data-step="2">
+      <span class="kicker">02 / Batching</span>
+      <strong>Bulk queries per call</strong>
+      <p>One invocation carries many queries.</p>
+    </div>
+    <div class="opt-card opt-3" data-step="3">
+      <span class="kicker">03 / Reuse</span>
+      <strong>Smart local cache</strong>
+      <p>Large files cache locally &mdash; re-reads are free.</p>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">Walk the six steps once, name the loop (3 -> 4 -> 5 -> 6 -> 3), then land the three optimizations: concurrency, batching, cache. The comet animates the cadence; the violet arc tells the looping story.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

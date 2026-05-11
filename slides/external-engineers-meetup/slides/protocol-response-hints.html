@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protocol — every response guides the next move</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    .slide--proto-res { grid-template-rows: auto 1fr; gap: 1.3rem; }
+    .res-grid {
+      align-self: center;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 1.3rem;
+      align-items: stretch;
+      width: 100%;
+    }
+    .res-codes { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; }
+    .res-codes .code-panel { box-shadow: var(--shadow-soft); }
+    .res-codes pre.code-block {
+      padding: 1rem 1.1rem 1rem;
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+    .res-side { display: flex; flex-direction: column; gap: 0.85rem; }
+    .res-side .opt-card {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--positive);
+      border-radius: var(--radius-sm);
+      padding: 0.95rem 1.1rem 0.9rem;
+      box-shadow: var(--shadow-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .res-side .opt-card.opt-violet { border-left-color: var(--violet); }
+    .res-side .opt-card.opt-warm   { border-left-color: var(--warm); }
+    .res-side .kicker {
+      font-family: var(--font-head);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--positive);
+    }
+    .res-side .opt-violet .kicker { color: var(--violet); }
+    .res-side .opt-warm   .kicker { color: var(--warm); }
+    .res-side strong {
+      font-family: var(--font-head);
+      font-size: 0.95rem;
+      color: var(--text-strong);
+      letter-spacing: -0.005em;
+    }
+    .res-side p {
+      font-size: 0.78rem;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--proto-res">
+  <div class="slide-header">
+    <h2 class="title">Octocode <em>response</em> examples</h2>
+    <p class="description">Every response guides the next move &mdash; hints turn raw results into a recommended next call, even when the lookup came back empty.</p>
+  </div>
+
+  <div class="res-grid">
+    <div class="res-codes">
+      <div class="code-panel" data-step="1" data-label="02 / hints &middot; on success">
+        <pre class="code-block"><code><span class="tk-pn">{</span>
+  <span class="tk-key">"results"</span><span class="tk-pn">:</span> <span class="tk-pn">[</span> <span class="tk-cmt">/* matches with file:line */</span> <span class="tk-pn">],</span>
+  <span class="tk-key">"hints"</span><span class="tk-pn">:</span> <span class="tk-pn">[</span>
+    <span class="tk-str">"fetch relevant content from search results to get more context"</span><span class="tk-pn">,</span>
+    <span class="tk-str">"narrow with --type ts and an exported-symbol filter"</span>
+  <span class="tk-pn">]</span>
+<span class="tk-pn">}</span></code></pre>
+      </div>
+      <div class="code-panel" data-step="2" data-label="02 / hints &middot; on empty &mdash; smart fallback">
+        <pre class="code-block"><code><span class="tk-pn">{</span>
+  <span class="tk-key">"results"</span><span class="tk-pn">:</span> <span class="tk-pn">[],</span>
+  <span class="tk-key">"hints"</span><span class="tk-pn">:</span> <span class="tk-pn">[</span>
+    <span class="tk-str">"Try a similar query with semantically close terms"</span><span class="tk-pn">,</span>
+    <span class="tk-str">"Drop the file-type filter; broaden to repo-wide search"</span>
+  <span class="tk-pn">]</span>
+<span class="tk-pn">}</span></code></pre>
+      </div>
+    </div>
+
+    <div class="res-side">
+      <div class="opt-card" data-step="2">
+        <span class="kicker">Rule 02 / Hints</span>
+        <strong>Next call, or recovery</strong>
+        <p>Hints translate raw results into a recommended next step &mdash; the agent doesn't have to invent the loop on its own.</p>
+      </div>
+      <div class="opt-card opt-violet" data-step="3">
+        <span class="kicker">Rule 03 / Descriptions</span>
+        <strong>When to use, what to avoid</strong>
+        <p>Tool descriptions teach the LLM the right entry point and the gotchas before it ever picks a tool.</p>
+      </div>
+      <div class="opt-card opt-warm" data-step="4">
+        <span class="kicker">Rule 06 / Cache &middot; Rule 07 / Pagination</span>
+        <strong>Cheap re-reads, safe big payloads</strong>
+        <p>Large files and PRs come back paginated and cache locally &mdash; the loop stays fast and the context window stays whole.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+<aside class="speaker-notes">Hints turn a raw result into a next step. Read both shapes: success-with-results and the empty-with-fallback case. Close on cache + pagination as the platform-side guarantees that keep the loop cheap.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>

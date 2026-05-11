@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The researcher fans out to helpers so its own context stays clean</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  <style>
+    /* Fan-out flow: researcher in the middle, helpers radiating, findings returning. */
+    .fanout {
+      align-self: center;
+      display: grid;
+      grid-template-columns: 1fr 1.05fr 1.25fr;
+      gap: 0.95rem;
+      align-items: center;
+      width: 100%;
+    }
+    .fanout .col-label {
+      font-family: var(--font-head);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      margin-bottom: 0.7rem;
+      text-align: center;
+    }
+    .researcher-box {
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--accent-strong);
+      border-radius: var(--radius);
+      padding: 0.95rem 1rem;
+      box-shadow: 0 0 0 1px rgb(92 208 236 / 0.25), var(--shadow-soft);
+      text-align: center;
+      position: relative;
+    }
+    .researcher-box::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: var(--radius);
+      background: linear-gradient(160deg, rgb(92 208 236 / 0.08), transparent 60%);
+      pointer-events: none;
+    }
+    .researcher-box strong {
+      font-family: var(--font-head);
+      font-size: var(--t-sub);
+      color: var(--text-strong);
+      display: block;
+      margin-bottom: 0.4rem;
+    }
+    .researcher-box small {
+      color: var(--muted);
+      font-size: var(--t-small);
+      line-height: 1.4;
+      display: block;
+    }
+    .ctx-meter {
+      margin-top: 0.65rem;
+      height: 6px;
+      background: var(--code-bg);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+    }
+    .ctx-meter::after {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 28%;
+      background: linear-gradient(90deg, var(--positive), var(--accent));
+    }
+    .ctx-meter-label {
+      margin-top: 0.4rem;
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--positive);
+    }
+
+    .helpers {
+      display: grid;
+      gap: 0.45rem;
+    }
+    .helper {
+      display: grid;
+      grid-template-columns: 1fr;
+      background: linear-gradient(160deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.75rem;
+      box-shadow: var(--shadow-soft);
+    }
+    .helper.h-data { border-left-color: var(--positive); }
+    .helper.h-runtime { border-left-color: var(--warm); }
+    .helper.h-adaptive { border-left-color: var(--violet); }
+    .helper .h-name {
+      font-family: var(--font-head);
+      font-size: 0.95rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .helper.h-data .h-name { color: var(--positive); }
+    .helper.h-runtime .h-name { color: var(--warm); }
+    .helper.h-adaptive .h-name { color: var(--violet); }
+    .helper .h-meta {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      margin-top: 0.18rem;
+    }
+
+    .why-panel {
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      padding: 0.8rem 0.95rem;
+      box-shadow: var(--shadow-soft);
+      display: grid;
+      gap: 0.45rem;
+    }
+    .why-panel h4 {
+      font-family: var(--font-head);
+      font-size: 0.74rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0;
+    }
+    .why-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.7rem;
+      align-items: baseline;
+      font-size: 0.84rem;
+      line-height: 1.25;
+    }
+    .why-row .num {
+      font-family: var(--font-head);
+      color: var(--accent);
+      font-weight: 600;
+      min-width: 1.3rem;
+    }
+    .why-row strong { color: var(--text-strong); font-weight: 600; }
+    .why-row span { color: var(--text); }
+
+    .fan-arrow {
+      display: grid;
+      gap: 0.4rem;
+      justify-items: center;
+    }
+    .fan-arrow .out {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .fan-arrow .ret {
+      font-family: var(--font-head);
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--positive);
+    }
+    .fan-arrow .line {
+      width: 100%; height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--positive));
+      opacity: 0.5;
+      border-radius: 999px;
+    }
+  </style>
+</head>
+<body>
+<div class="slide slide--flow">
+  <div class="slide-header">
+    <h2 class="title">Helpers run in fresh sessions. The researcher only ever sees their <em>typed findings</em>.</h2>
+  </div>
+  <div class="fanout">
+    <div data-step="1">
+      <p class="col-label">Main agent</p>
+      <div class="researcher-box">
+        <strong>Researcher</strong>
+        <small>Plans the next sub-question, picks a helper, waits for the typed finding.</small>
+        <div class="ctx-meter"></div>
+        <p class="ctx-meter-label">~28% context used</p>
+      </div>
+    </div>
+
+    <div class="fan-arrow" data-step="2">
+      <span class="out">briefing &rarr;</span>
+      <div class="line"></div>
+      <span class="ret">&larr; finding</span>
+    </div>
+
+    <div data-step="3">
+      <p class="col-label">Helpers &middot; isolated sessions, scoped tools</p>
+      <div class="helpers">
+        <div class="helper">
+          <span class="h-name">research_helper</span>
+          <span class="h-meta">code tools &middot; many calls &rarr; finding</span>
+        </div>
+        <div class="helper h-data">
+          <span class="h-name">trino_helper</span>
+          <span class="h-meta">SQL + lineage &middot; queries &rarr; finding</span>
+        </div>
+        <div class="helper h-runtime">
+          <span class="h-name">grafana_helper</span>
+          <span class="h-meta">logs + traces &middot; queries &rarr; finding</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="why-panel" data-step="5" style="margin-top: 0.8rem;">
+    <h4>Why fan out at all &middot; <span style="color: var(--muted); letter-spacing: 0.05em; text-transform: none; font-family: var(--font-body);">context is correctness</span></h4>
+    <div class="why-row">
+      <span class="num">01</span>
+      <span><strong>Deep work stays in the helper's session.</strong> 50 raw tool results never reach the researcher.</span>
+    </div>
+    <div class="why-row">
+      <span class="num">02</span>
+      <span><strong>Tool scope is enforced, not negotiated.</strong> A data agent can't reach runtime tools &mdash; wrong-tool drift is impossible.</span>
+    </div>
+    <div class="why-row">
+      <span class="num">03</span>
+      <span><strong>Helpers run in parallel.</strong> Three lanes finish in the wall-clock of one.</span>
+    </div>
+  </div>
+</div>
+<aside class="speaker-notes">This is the slide where the audience sees the actual call pattern. Drive the point: the researcher delegates so its context stays clean — the typed finding, not the trail, is what comes back.</aside>
+  <script src="../js/animation.js"></script>
+  <script src="../js/navbridge.js"></script>
+</body>
+</html>
