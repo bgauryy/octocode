@@ -442,6 +442,20 @@ function go(idx) {
   allFrames[current].setAttribute('data-active', '');
   allCells[current].classList.add('is-active');
 
+  // ── Transfer focus to the newly active slide ────────────────────────────
+  // Without this, focus stays on the last-clicked iframe. Two failure modes:
+  //   1. Stale animation.js on the old (invisible) slide silently consumes
+  //      keystrokes — the user sees nothing happen.
+  //   2. Stale navbridge on the old slide forwards keys straight to the parent
+  //      (passthrough:true), bypassing the new slide's animation.js entirely.
+  // requestAnimationFrame lets the opacity transition start before we steal
+  // focus; the try/catch handles the initial go(0) call before iframes load.
+  ;(function (f) {
+    requestAnimationFrame(function () {
+      try { if (f.contentWindow) f.contentWindow.focus(); } catch (_) {}
+    });
+  })(allFrames[current]);
+
   const slide = playable[current];
   const pct = ((current + 1) / total) * 100;
   bar.style.width     = pct + '%';
