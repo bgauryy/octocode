@@ -103,7 +103,6 @@
   "devDependencies": {
     "@gitbeaker/rest": "^43.8.0",
     "@modelcontextprotocol/sdk": "^1.27.0",
-    "@octocode/security": "workspace:^",
     "@octokit/core": "^7.0.6",
     "@octokit/openapi-types": "^27.0.0",
     "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
@@ -121,6 +120,7 @@
     "html-minifier-terser": "^7.2.0",
     "js-yaml": "^4.1.1",
     "node-cache": "^5.1.2",
+    "octocode-security-utils": "workspace:^",
     "octocode-shared": "workspace:^",
     "octokit": "^5.0.5",
     "picomatch": "^4.0.3",

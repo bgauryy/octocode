@@ -36,7 +36,7 @@ vi.mock('../../src/utils/http/cache.js', () => ({
   withDataCache: mockWithDataCache,
 }));
 
-vi.mock('@octocode/security/contentSanitizer', () => ({
+vi.mock('octocode-security-utils/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 

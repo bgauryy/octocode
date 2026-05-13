@@ -1,5 +1,5 @@
 /**
- * WHITE-HAT PENETRATION TEST: @octocode/security
+ * WHITE-HAT PENETRATION TEST: octocode-security-utils
  *
  * Attacker model: A malicious LLM or prompt-injection attack tries to:
  *   1. Exfiltrate secrets from tool outputs
@@ -12,23 +12,23 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
-import { maskSensitiveData } from '@octocode/security/mask';
-import { validateCommand } from '@octocode/security/commandValidator';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { maskSensitiveData } from 'octocode-security-utils/mask';
+import { validateCommand } from 'octocode-security-utils/commandValidator';
 import {
   PathValidator,
   reinitializePathValidator,
-} from '@octocode/security/pathValidator';
-import { validateExecutionContext } from '@octocode/security/executionContextValidator';
+} from 'octocode-security-utils/pathValidator';
+import { validateExecutionContext } from 'octocode-security-utils/executionContextValidator';
 import {
   shouldIgnore,
   shouldIgnorePath,
   shouldIgnoreFile,
-} from '@octocode/security/ignoredPathFilter';
+} from 'octocode-security-utils/ignoredPathFilter';
 import {
   withSecurityValidation,
   withBasicSecurityValidation,
-} from '@octocode/security/withSecurityValidation';
+} from 'octocode-security-utils/withSecurityValidation';
 import {
   createResponseFormat,
   sanitizeStructuredContent,
@@ -1087,7 +1087,7 @@ export default calculateTotal;
 
 describe('EXTENSIBILITY: SecurityRegistry export', () => {
   it('should export SecurityRegistry class and securityRegistry singleton', async () => {
-    const mod = await import('@octocode/security');
+    const mod = await import('octocode-security-utils');
     expect(mod.SecurityRegistry).toBeDefined();
     expect(mod.securityRegistry).toBeDefined();
     expect(mod.securityRegistry.constructor.name).toBe('SecurityRegistry');

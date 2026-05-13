@@ -10,7 +10,7 @@ import {
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
-import { maskSensitiveData } from '@octocode/security/mask';
+import { maskSensitiveData } from 'octocode-security-utils/mask';
 import {
   getGitLabConfig as resolveGitLabConfig,
   getGitLabToken,

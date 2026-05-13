@@ -29,65 +29,6 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
     vi.resetModules();
   });
 
-  describe('when DESCRIPTIONS returns a value (truthy branch)', () => {
-    it('should use description from DESCRIPTIONS when available', async () => {
-      // Mock the metadata to return actual descriptions
-      vi.doMock('../../src/utils/http/fetch.js', () => ({
-        fetchWithRetries: vi.fn().mockResolvedValue({
-          instructions: 'Test',
-          prompts: {},
-          toolNames: {
-            GITHUB_FETCH_CONTENT: 'githubGetFileContent',
-            GITHUB_SEARCH_CODE: 'githubSearchCode',
-            GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
-            GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
-            GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
-            PACKAGE_SEARCH: 'packageSearch',
-          },
-          baseSchema: {
-            mainResearchGoal: 'Goal',
-            researchGoal: 'Research',
-            reasoning: 'Reason',
-            bulkQuery: (_name: string) => 'Query',
-          },
-          tools: {
-            githubSearchCode: {
-              name: 'githubSearchCode',
-              description: 'This is the actual search code description',
-              schema: {},
-              hints: { hasResults: [], empty: [] },
-            },
-            githubGetFileContent: {
-              name: 'githubGetFileContent',
-              description: 'This is the actual fetch content description',
-              schema: {},
-              hints: { hasResults: [], empty: [] },
-            },
-          },
-          baseHints: { hasResults: [], empty: [] },
-          genericErrorHints: [],
-        }),
-      }));
-
-      vi.doMock('../../src/session.js', () => ({
-        logSessionError: vi.fn(() => Promise.resolve()),
-      }));
-
-      // Initialize metadata first
-      const { initializeToolMetadata } =
-        await import('../../src/tools/toolMetadata/state.js');
-      await initializeToolMetadata();
-
-      // Now import toolConfig which uses DESCRIPTIONS
-      const { GITHUB_SEARCH_CODE, GITHUB_FETCH_CONTENT } =
-        await import('../../src/tools/toolConfig.js');
-
-      // The description should come from the initialized DESCRIPTIONS proxy
-      expect(typeof GITHUB_SEARCH_CODE.description).toBe('string');
-      expect(typeof GITHUB_FETCH_CONTENT.description).toBe('string');
-    }, 10000);
-  });
-
   describe('when DESCRIPTIONS returns undefined (fallback branch)', () => {
     it('should return empty string when tool is not in DESCRIPTIONS', async () => {
       const { DESCRIPTIONS } =

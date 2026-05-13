@@ -49,9 +49,9 @@ describe('GitHub Client Race Conditions', () => {
     vi.clearAllMocks();
     clearOctokitInstances();
 
-    // Simulate async token retrieval delay to exacerbate race conditions
+    // Simulate async token retrieval without a real timer.
     mockGetGitHubToken.mockImplementation(async () => {
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await Promise.resolve();
       return 'default-token';
     });
   });

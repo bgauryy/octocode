@@ -19,7 +19,7 @@ const SECURITY_VALIDATION_FAILED_CODE = 'TOOL_SECURITY_VALIDATION_FAILED';
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 
 /**
- * Dependency injection interface for @octocode/security.
+ * Dependency injection interface for octocode-security-utils.
  * Call configureSecurity() once at application startup to inject these deps.
  */
 export interface SecurityDepsConfig {

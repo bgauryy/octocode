@@ -41,7 +41,7 @@ const config = {
   versionGroups: [
     {
       label: 'Use workspace protocol for internal packages',
-      dependencies: ['octocode-shared', '@octocode/security'],
+      dependencies: ['octocode-shared', 'octocode-security-utils'],
       pinVersion: 'workspace:^',
     },
     {

@@ -6,6 +6,9 @@ import {
   GitHubSearchCodeOutputSchema,
 } from '@octocodeai/octocode-core';
 import { registerTools } from '../../src/tools/toolsManager.js';
+import type { ToolConfig } from '../../src/tools/toolConfig.js';
+import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
+import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';
 import {
   createMockMcpServer,
   type MockMcpServer,
@@ -38,6 +41,32 @@ vi.mock('../../src/serverConfig.js', () => ({
   isCloneEnabled: vi.fn(() => false),
   isLoggingEnabled: vi.fn(() => false),
 }));
+
+const remoteFlowToolLoader = (): ToolConfig[] => [
+  {
+    name: 'githubSearchCode',
+    description: 'Flow test description',
+    isDefault: true,
+    isLocal: false,
+    type: 'search',
+    fn: registerGitHubSearchCodeTool,
+  },
+  {
+    name: 'githubGetFileContent',
+    description: 'Flow test description',
+    isDefault: true,
+    isLocal: false,
+    type: 'content',
+    fn: registerFetchGitHubFileContentTool,
+  },
+];
+
+async function registerRemoteFlowTools(server: MockMcpServer['server']) {
+  return registerTools(server, undefined, {
+    toolLoader: remoteFlowToolLoader,
+    metadataGateway: { hasTool: mockIsToolInMetadata },
+  });
+}
 
 vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
   const actual = await vi.importActual<
@@ -148,7 +177,7 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
     'chains remote search->fetch for %s provider',
     async providerCase => {
       setupActiveProvider(providerCase);
-      const result = await registerTools(mockServer.server);
+      const result = await registerRemoteFlowTools(mockServer.server);
       expect(result.successCount).toBe(2);
       expect(result.failedTools).toEqual([]);
 
@@ -284,7 +313,7 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
     'rejects dangerous payload keys before provider execution for %s provider',
     async providerCase => {
       setupActiveProvider(providerCase);
-      const result = await registerTools(mockServer.server);
+      const result = await registerRemoteFlowTools(mockServer.server);
       expect(result.successCount).toBe(2);
       expect(result.failedTools).toEqual([]);
 
@@ -322,7 +351,7 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
     'reuses handed-off branch without default-branch lookups for %s provider',
     async providerCase => {
       setupActiveProvider(providerCase);
-      const result = await registerTools(mockServer.server);
+      const result = await registerRemoteFlowTools(mockServer.server);
       expect(result.successCount).toBe(2);
       expect(result.failedTools).toEqual([]);
 
@@ -424,7 +453,7 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
     'continues remote search->fetch across query-level output pagination for %s provider',
     async providerCase => {
       setupActiveProvider(providerCase);
-      const result = await registerTools(mockServer.server);
+      const result = await registerRemoteFlowTools(mockServer.server);
       expect(result.successCount).toBe(2);
       expect(result.failedTools).toEqual([]);
 
@@ -580,7 +609,7 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
     'continues remote search->fetch across bulk response pagination for %s provider',
     async providerCase => {
       setupActiveProvider(providerCase);
-      const result = await registerTools(mockServer.server);
+      const result = await registerRemoteFlowTools(mockServer.server);
       expect(result.successCount).toBe(2);
       expect(result.failedTools).toEqual([]);
 

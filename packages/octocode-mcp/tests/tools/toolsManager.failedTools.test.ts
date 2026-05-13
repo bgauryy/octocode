@@ -1,11 +1,42 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
+import type { ToolConfig } from '../../src/tools/toolConfig.js';
 import { initialize, cleanup } from '../../src/serverConfig.js';
 import {
   _setTokenResolvers,
   _resetTokenResolvers,
 } from '../../src/serverConfig.js';
+
+const createTestTool = (name: string): ToolConfig => ({
+  name,
+  description: `${name} test tool`,
+  isDefault: true,
+  isLocal: false,
+  type: 'debug',
+  fn: server =>
+    server.registerTool(
+      name,
+      { description: `${name} test tool` },
+      async () => ({ content: [{ type: 'text', text: 'ok' }] })
+    ),
+});
+
+const createThrowingTool = (name: string): ToolConfig => ({
+  ...createTestTool(name),
+  fn: () => {
+    throw new Error('registration failed');
+  },
+});
+
+const registerTestTools = (
+  server: McpServer,
+  tools: ToolConfig[] = [createTestTool('testTool')]
+) =>
+  registerTools(server, undefined, {
+    toolLoader: () => tools,
+    metadataGateway: { hasTool: () => true },
+  });
 
 describe('Tool Registration - Failed Tools Reporting', () => {
   const originalEnv = { ...process.env };
@@ -38,7 +69,7 @@ describe('Tool Registration - Failed Tools Reporting', () => {
       { capabilities: { tools: { listChanged: false } } }
     );
 
-    const result = await registerTools(server);
+    const result = await registerTestTools(server);
 
     expect(result).toHaveProperty('successCount');
     expect(result).toHaveProperty('failedTools');
@@ -51,7 +82,7 @@ describe('Tool Registration - Failed Tools Reporting', () => {
       { capabilities: { tools: { listChanged: false } } }
     );
 
-    const { successCount } = await registerTools(server);
+    const { successCount } = await registerTestTools(server);
     expect(successCount).toBeGreaterThan(0);
   });
 
@@ -61,7 +92,7 @@ describe('Tool Registration - Failed Tools Reporting', () => {
       { capabilities: { tools: { listChanged: false } } }
     );
 
-    const { successCount, failedTools } = await registerTools(server);
+    const { successCount, failedTools } = await registerTestTools(server);
     expect(successCount).toBeGreaterThan(failedTools.length);
     for (const name of failedTools) {
       expect(typeof name).toBe('string');
@@ -75,15 +106,19 @@ describe('Tool Registration - Failed Tools Reporting', () => {
     );
 
     // Register once normally
-    const firstResult = await registerTools(server);
+    const firstResult = await registerTestTools(server);
     expect(firstResult.successCount).toBeGreaterThan(0);
 
-    // Register again on the same server -- duplicate registration will fail for tools
-    // that the MCP SDK doesn't allow to be re-registered
-    const secondResult = await registerTools(server);
+    // Register a deterministic failure so the failedTools contract is covered
+    // without importing the full production tool catalog.
+    const secondResult = await registerTestTools(server, [
+      createTestTool('duplicateTool'),
+      createThrowingTool('failingTool'),
+    ]);
 
-    // Either all succeed (SDK allows re-registration) or some fail
-    // The key contract: failedTools contains string names, never undefined
+    expect(secondResult.failedTools).toContain('failingTool');
+
+    // The key contract: failedTools contains string names, never undefined.
     for (const name of secondResult.failedTools) {
       expect(typeof name).toBe('string');
       expect(name.length).toBeGreaterThan(0);
@@ -97,7 +132,7 @@ describe('Tool Registration - Failed Tools Reporting', () => {
         { capabilities: { tools: { listChanged: false } } }
       );
 
-      const { successCount, failedTools } = await registerTools(server);
+      const { successCount, failedTools } = await registerTestTools(server);
 
       // At least the counts should be non-negative integers
       expect(Number.isInteger(successCount)).toBe(true);

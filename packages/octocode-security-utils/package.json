@@ -1,5 +1,5 @@
 {
-  "name": "@octocode/security",
+  "name": "octocode-security-utils",
   "version": "1.0.0",
   "description": "Security module for Octocode — path validation, sanitization, masking, sensitive-data detection",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bgauryy/octocode-mcp.git",
-    "directory": "packages/@octocode/security"
+    "directory": "packages/octocode-security-utils"
   },
   "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
   "license": "MIT",

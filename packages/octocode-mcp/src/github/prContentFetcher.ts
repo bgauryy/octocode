@@ -16,7 +16,7 @@ import {
 } from './githubAPI';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { logSessionError } from '../session.js';
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { getOctokit, OctokitWithThrottling } from './client';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import {

@@ -11,7 +11,7 @@
  *
  * @example
  * ```ts
- * import { securityRegistry } from '@octocode/security';
+ * import { securityRegistry } from 'octocode-security-utils';
  *
  * // Add a custom secret pattern
  * securityRegistry.addSecretPatterns([{

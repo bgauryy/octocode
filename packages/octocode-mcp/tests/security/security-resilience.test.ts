@@ -525,7 +525,7 @@ describe('[SECURITY] Environment variable leakage prevention', () => {
 //    Tests call validateCommand() directly — no mocks
 // ═══════════════════════════════════════════════════════════════════════
 
-import { validateCommand } from '@octocode/security/commandValidator';
+import { validateCommand } from 'octocode-security-utils/commandValidator';
 
 describe('[SECURITY] Command injection via rg flags', () => {
   it('rg --pre should be blocked (arbitrary command execution)', () => {
@@ -709,7 +709,7 @@ describe('[RESILIENCE] validateArgs edge cases', () => {
 //    Tests call ContentSanitizer methods directly — no mocks
 // ═══════════════════════════════════════════════════════════════════════
 
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 
 describe('[RESILIENCE] ContentSanitizer edge cases', () => {
   it('sanitizeContent with null input should not crash', () => {
@@ -1066,7 +1066,7 @@ describe('[RESILIENCE] LSPDocumentManager state management', () => {
 //     Tests use real PathValidator with real filesystem
 // ═══════════════════════════════════════════════════════════════════════
 
-import { PathValidator } from '@octocode/security/pathValidator';
+import { PathValidator } from 'octocode-security-utils/pathValidator';
 
 describe('[SECURITY] PathValidator edge cases', () => {
   const testTmpDir = join(tmpdir(), `octocode-path-sec-${Date.now()}`);

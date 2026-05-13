@@ -105,11 +105,11 @@ export default tseslint.config(
     },
   },
 
-  // octocode-security specific rules
+  // octocode-security-utils specific rules
   {
     files: [
-      'packages/octocode-security/src/**/*.ts',
-      'packages/octocode-security/tests/**/*.ts',
+      'packages/octocode-security-utils/src/**/*.ts',
+      'packages/octocode-security-utils/tests/**/*.ts',
     ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',

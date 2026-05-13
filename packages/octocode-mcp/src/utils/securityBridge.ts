@@ -1,7 +1,7 @@
 /**
- * MCP-typed bridge for @octocode/security withSecurityValidation.
+ * MCP-typed bridge for octocode-security-utils withSecurityValidation.
  *
- * @octocode/security returns the framework-agnostic `ToolResult` type.
+ * octocode-security-utils returns the framework-agnostic `ToolResult` type.
  * The MCP SDK's server.tool() expects `CallToolResult`.  These two types
  * are structurally equivalent at runtime but TypeScript cannot infer the
  * relationship because MCP uses string-literal discriminants.
@@ -16,7 +16,7 @@ import {
   withSecurityValidation as _wsv,
   withBasicSecurityValidation as _wbsv,
   configureSecurity,
-} from '@octocode/security';
+} from 'octocode-security-utils';
 
 export { configureSecurity };
 

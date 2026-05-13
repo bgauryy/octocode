@@ -21,9 +21,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   PathValidator,
   reinitializePathValidator,
-} from '@octocode/security/pathValidator';
-import { validateCommand } from '@octocode/security/commandValidator';
-import { validateExecutionContext } from '@octocode/security/executionContextValidator';
+} from 'octocode-security-utils/pathValidator';
+import { validateCommand } from 'octocode-security-utils/commandValidator';
+import { validateExecutionContext } from 'octocode-security-utils/executionContextValidator';
 import { validateToolPath } from '../../src/utils/file/toolHelpers.js';
 import path from 'path';
 import fs from 'fs';

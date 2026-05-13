@@ -37,7 +37,7 @@ vi.mock('../src/session.js', () => ({
   logSessionError: vi.fn().mockResolvedValue(undefined),
   logToolCall: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@octocode/security/withSecurityValidation', () => ({
+vi.mock('octocode-security-utils/withSecurityValidation', () => ({
   configureSecurity: vi.fn(),
 }));
 vi.mock('../src/tools/toolMetadata/proxies.js', async importOriginal => ({
@@ -277,9 +277,10 @@ describe('Index Module', () => {
     // uncork spies removed — uncork calls were removed from index.ts (stdio safety)
   });
 
-  // Helper function to wait for async operations to complete
-  const waitForAsyncOperations = () =>
-    new Promise(resolve => setTimeout(resolve, 50));
+  // Helper function to wait for startup promises to settle without real timers.
+  const waitForAsyncOperations = async () => {
+    for (let i = 0; i < 25; i++) await Promise.resolve();
+  };
 
   describe('Basic Module Import', () => {
     it('should create server with correct configuration', async () => {
@@ -385,8 +386,7 @@ describe('Index Module', () => {
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
-        // Give extra time for async operations
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await waitForAsyncOperations();
       } catch {
         // Ignore any errors from module loading
       }
@@ -446,8 +446,7 @@ describe('Index Module', () => {
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
-        // Give extra time for the catch block to execute
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await waitForAsyncOperations();
       } catch {
         // Ignore any errors from module loading
       }
@@ -512,8 +511,7 @@ describe('Index Module', () => {
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
-        // Give extra time for the catch block to execute
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await waitForAsyncOperations();
       } catch {
         // Ignore any errors from module loading
       }
@@ -548,8 +546,7 @@ describe('Index Module', () => {
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
-        // Give extra time for the catch block to execute
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await waitForAsyncOperations();
       } catch {
         // Ignore any errors from module loading
       }
@@ -570,7 +567,7 @@ describe('Index Module', () => {
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await waitForAsyncOperations();
       } catch {
         // Ignore
       }
@@ -906,8 +903,7 @@ describe('Index Module', () => {
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
-        // Give extra time for the catch block to execute
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await waitForAsyncOperations();
       } catch {
         // Ignore any errors from module loading
       }

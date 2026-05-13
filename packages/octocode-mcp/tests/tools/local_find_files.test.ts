@@ -11,7 +11,7 @@ import {
   checkCommandAvailability,
   getMissingCommandError,
 } from '../../src/utils/exec/commandAvailability.js';
-import * as pathValidator from '@octocode/security/pathValidator';
+import * as pathValidator from 'octocode-security-utils/pathValidator';
 
 // Mock dependencies
 vi.mock('../../src/utils/exec/safe.js', () => ({
@@ -25,7 +25,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
   getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
 }));
 
-vi.mock('@octocode/security/pathValidator', () => ({
+vi.mock('octocode-security-utils/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },

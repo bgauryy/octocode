@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
 import { FetchContentQuerySchema } from '@octocodeai/octocode-core';
-import * as pathValidator from '@octocode/security/pathValidator';
+import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
 
 // Mock fs/promises
@@ -17,7 +17,7 @@ vi.mock('fs/promises', () => ({
 }));
 
 // Mock pathValidator
-vi.mock('@octocode/security/pathValidator', () => ({
+vi.mock('octocode-security-utils/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },

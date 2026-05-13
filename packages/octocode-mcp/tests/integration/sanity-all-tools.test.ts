@@ -8,7 +8,7 @@ import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
 import { searchContentRipgrep } from '../../src/tools/local_ripgrep/searchContentRipgrep.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
-import * as pathValidator from '@octocode/security/pathValidator';
+import * as pathValidator from 'octocode-security-utils/pathValidator';
 import type { Stats } from 'fs';
 
 // Mocks
@@ -22,7 +22,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
     .mockResolvedValue({ available: true, command: 'ls' }),
   getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
 }));
-vi.mock('@octocode/security/pathValidator', () => ({
+vi.mock('octocode-security-utils/pathValidator', () => ({
   pathValidator: { validate: vi.fn() },
 }));
 

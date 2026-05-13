@@ -24,8 +24,8 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         shutdownInProgress = true;
         shutdownCount++;
 
-        // Simulate async shutdown work
-        await new Promise(resolve => setTimeout(resolve, 10));
+        // Simulate async shutdown work without a real timer.
+        await Promise.resolve();
       };
 
       // Call shutdown twice in parallel
@@ -87,13 +87,7 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       // Verify timeout was cleared
       expect(shutdownTimeout).toBeNull();
 
-      // Wait to ensure timeout doesn't fire
-      return new Promise(resolve => {
-        setTimeout(() => {
-          expect(forcedExitCalled).toBe(false);
-          resolve(undefined);
-        }, 100);
-      });
+      expect(forcedExitCalled).toBe(false);
     });
 
     it('should handle timeout in both try and catch blocks', () => {

@@ -11,8 +11,8 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ContentSanitizer } from '@octocode/security';
-import { maskSensitiveData } from '@octocode/security/mask';
+import { ContentSanitizer } from 'octocode-security-utils';
+import { maskSensitiveData } from 'octocode-security-utils/mask';
 import { sanitizeStructuredContent } from '../responses.js';
 
 /**

@@ -23,8 +23,8 @@ import {
   createRoleBasedResult,
 } from '../../src/responses.js';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
-import { maskSensitiveData } from '@octocode/security/mask';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { maskSensitiveData } from 'octocode-security-utils/mask';
 import type { ProcessedBulkResult } from '../../src/types.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

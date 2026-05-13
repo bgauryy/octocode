@@ -1,5 +1,5 @@
 /**
- * Core security types for @octocode/security package.
+ * Core security types for octocode-security-utils package.
  */
 
 /** Pattern definition for detecting sensitive data */

@@ -13,7 +13,7 @@ import { executeViewStructure } from '../../src/tools/local_view_structure/execu
 import { executeRipgrepSearch } from '../../src/tools/local_ripgrep/execution.js';
 import { executeFetchContent } from '../../src/tools/local_fetch_content/execution.js';
 
-vi.mock('@octocode/security/pathValidator', () => ({
+vi.mock('octocode-security-utils/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn().mockReturnValue({ isValid: true }),
   },

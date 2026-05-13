@@ -43,7 +43,7 @@ jobs:
         run: yarn workspace octocode-shared run build:dev
 
       - name: Build security package types
-        run: yarn workspace @octocode/security run build:dev
+        run: yarn workspace octocode-security-utils run build:dev
 
       - name: Build MCP package types
         run: yarn workspace octocode-mcp run build:dev

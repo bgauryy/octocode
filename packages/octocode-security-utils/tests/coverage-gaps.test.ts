@@ -1,5 +1,5 @@
 /**
- * TDD coverage gap tests for @octocode/security
+ * TDD coverage gap tests for octocode-security-utils
  *
  * Targets every uncovered line/branch identified in coverage report:
  *   - contentSanitizer.ts: lines 89, 203-249, 286 (chunked detection, error paths)

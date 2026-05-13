@@ -4,7 +4,7 @@
  */
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
 import { getConfigSync } from 'octocode-shared';
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { minifyContent } from '../utils/minifier/minifier.js';
 import {
   applyPagination,

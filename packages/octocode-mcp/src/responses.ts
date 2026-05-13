@@ -1,6 +1,6 @@
 import { CallToolResult } from '@modelcontextprotocol/sdk/types';
-import { maskSensitiveData } from '@octocode/security/mask';
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
+import { maskSensitiveData } from 'octocode-security-utils/mask';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { jsonToYamlString } from './utils/minifier/jsonToYamlString.js';
 import { getConfigSync } from 'octocode-shared';
 import type { BulkToolResponse, StructuredToolResponse } from './types.js';

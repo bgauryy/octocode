@@ -20,7 +20,7 @@ import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
 import { getHints } from '../../hints/index.js';
 import { RipgrepMatchOnlySchema } from '../../utils/parsers/schemas.js';
 import { matchesFilePatterns } from './lspReferencesCore.js';
-import { validateCommand } from '@octocode/security/commandValidator';
+import { validateCommand } from 'octocode-security-utils/commandValidator';
 import { TOOL_NAME } from './constants.js';
 const DEFAULT_GREP_EXTENSIONS = [
   'ts',

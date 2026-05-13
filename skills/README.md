@@ -1,6 +1,6 @@
 # OctoCode Skills
 
-Specialized AI agent skills extending OctoCode. 16 skills live under `skills/`.
+Specialized AI agent skills extending OctoCode. 18 skills live under `skills/`.
 
 ---
 
@@ -24,6 +24,7 @@ Specialized AI agent skills extending OctoCode. 16 skills live under `skills/`.
 | **News** | `octocode-news/` | Research recent AI, DevTools, web, and security updates. |
 | **Search Skill** | `octocode-search-skill/` | Find, preview, and download agent skills. |
 | **Chrome DevTools** | `octocode-chrome-devtools/` | Open Chrome via CDP, generate inspection scripts, trace errors to source. |
+| **Agentic Flow Best Practices** | `agentic-flow-best-practices/` | Design agentic workflows with caching, memory/state passing, Zod contracts, framework mapping, gates, and verification. |
 
 ---
 
@@ -76,3 +77,6 @@ Searches GitHub for `SKILL.md` files, scores relevance, previews results, and do
 
 ### Chrome DevTools
 Opens Chrome with CDP WebSocket debugging, generates a custom inspection script per task, runs it live, and traces errors back to source code using Octocode local tools. Covers network, console, performance, DOM, CSS, screenshots, iframes, service workers, and any CDP domain. Includes script self-review, CDP error retry, and multi-target routing.
+
+### Agentic Flow Best Practices
+Designs flexible agentic workflows with explicit state maps, incremental LLM caching, short-term vs long-term memory policy, Zod schemas, framework guidance for ADK/LangChain/LangGraph, gates, and verification.

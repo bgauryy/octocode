@@ -7,7 +7,7 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { viewStructure } from '../../src/tools/local_view_structure/local_view_structure.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
-import * as pathValidator from '@octocode/security/pathValidator';
+import * as pathValidator from 'octocode-security-utils/pathValidator';
 import type { Stats } from 'fs';
 
 // Mock dependencies
@@ -22,7 +22,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
   getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
 }));
 
-vi.mock('@octocode/security/pathValidator', () => ({
+vi.mock('octocode-security-utils/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },
@@ -1300,9 +1300,12 @@ describe('localViewStructure', () => {
     it('should return error with clear message when root path does not exist (ENOENT)', async () => {
       // BUG-FIX: Previously returned status "empty" with "1 entries skipped due
       // to permission errors" — misleading because ENOENT is not a permissions error.
-      const enoentErr = Object.assign(new Error('ENOENT: no such file or directory'), {
-        code: 'ENOENT',
-      });
+      const enoentErr = Object.assign(
+        new Error('ENOENT: no such file or directory'),
+        {
+          code: 'ENOENT',
+        }
+      );
       mockReaddir.mockRejectedValue(enoentErr);
 
       const result = await viewStructure({

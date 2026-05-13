@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 import path from 'path';
 
-import { resolveWorkspaceRoot } from '@octocode/security/workspaceRoot';
+import { resolveWorkspaceRoot } from 'octocode-security-utils/workspaceRoot';
 
 const WORKSPACE_MARKERS = [
   'package.json',

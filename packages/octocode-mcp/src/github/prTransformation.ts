@@ -8,7 +8,7 @@ import {
   DiffEntry,
   CommitFileInfo,
 } from './githubAPI';
-import { ContentSanitizer } from '@octocode/security/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { filterPatch } from '../utils/parsers/diff.js';
 
 /**

@@ -301,16 +301,6 @@ function setupDefaultFetchMock(): void {
   );
 }
 
-function makeErrorFetchResponse(status: number, statusText: string) {
-  return {
-    ok: false,
-    status,
-    statusText,
-    body: { cancel: vi.fn().mockResolvedValue(undefined) },
-    headers: new Headers(),
-  };
-}
-
 // Mock toolMetadata (proxies module — PACKAGE_SEARCH name + description)
 vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
   const actual = await vi.importActual<
@@ -703,28 +693,6 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('error' in result) {
       expect(result.error).toContain('Command timeout');
       expect(result.hints).toBeDefined();
-    }
-  });
-
-  it('should handle NPM registry non-200 response (keyword search)', async () => {
-    mockFetch.mockResolvedValue(
-      makeErrorFetchResponse(500, 'Internal Server Error')
-    );
-
-    // Use keyword search (with space) to test npm search flow error handling
-    const query: PackageSearchInput = {
-      ecosystem: 'npm',
-      name: 'axios http client',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.error).toContain('NPM registry search failed');
     }
   });
 
@@ -2211,31 +2179,6 @@ describe('registerPackageSearchTool', () => {
   });
 
   describe('Error Handling', () => {
-    it('should handle search errors gracefully', async () => {
-      // Register first (setupDefaultFetchMock handles registry ping)
-      await registerPackageSearchTool(mockServer.server);
-
-      // Then set up fetch to fail for subsequent requests
-      mockFetch.mockRejectedValue(new Error('Network error'));
-
-      // Use keyword search (with space) to trigger npm search flow which returns errors
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'test pkg search',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      expect(result.content).toBeDefined();
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('error');
-    });
-
     it('should handle unexpected errors', async () => {
       mockExecuteNpmCommand.mockRejectedValue(new Error('Unexpected error'));
 

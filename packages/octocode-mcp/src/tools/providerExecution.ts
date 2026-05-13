@@ -9,7 +9,7 @@ import {
   type ProviderType,
 } from '../providers/types.js';
 import { getActiveProvider, getActiveProviderConfig } from '../serverConfig.js';
-import { maskSensitiveData } from '@octocode/security/mask';
+import { maskSensitiveData } from 'octocode-security-utils/mask';
 import { handleProviderError } from './utils.js';
 
 interface ProviderExecutionContext {

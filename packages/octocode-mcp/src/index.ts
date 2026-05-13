@@ -32,7 +32,7 @@ import { STARTUP_ERRORS } from './errors/domainErrors.js';
 import { startCacheGC, stopCacheGC } from './tools/github_clone_repo/cache.js';
 import { getOctocodeDir } from 'octocode-shared';
 import { configureSecurity } from './utils/securityBridge.js';
-import { securityRegistry } from '@octocode/security';
+import { securityRegistry } from 'octocode-security-utils';
 import { isLocalTool } from './tools/toolNames.js';
 
 interface ShutdownState {
