@@ -42,13 +42,6 @@ describe('commandAvailability', () => {
       expect(typeof result.available).toBe('boolean');
     });
 
-    it('should check grep availability', async () => {
-      const result = await checkCommandAvailability('grep');
-
-      expect(result.command).toBe('grep');
-      expect(typeof result.available).toBe('boolean');
-    });
-
     it('should cache results by default', async () => {
       const result1 = await checkCommandAvailability('ls');
       const result2 = await checkCommandAvailability('ls');
@@ -122,7 +115,6 @@ describe('commandAvailability', () => {
       const results = await checkAllCommandsAvailability();
 
       expect(results.has('rg')).toBe(true);
-      expect(results.has('grep')).toBe(true);
       expect(results.has('find')).toBe(true);
       expect(results.has('ls')).toBe(true);
 
@@ -137,7 +129,6 @@ describe('commandAvailability', () => {
       const results = await checkAllCommandsAvailability();
 
       expect(results.get('rg')?.command).toBe('rg');
-      expect(results.get('grep')?.command).toBe('grep');
       expect(results.get('find')?.command).toBe('find');
       expect(results.get('ls')?.command).toBe('ls');
     });
@@ -151,25 +142,19 @@ describe('commandAvailability', () => {
       expect(error).toContain('brew install ripgrep');
     });
 
-    it('should return install instructions for grep', () => {
-      const error = getMissingCommandError('grep');
-
-      expect(error).toContain('grep');
-      expect(error).toContain('PATH');
-    });
-
     it('should return install instructions for find', () => {
       const error = getMissingCommandError('find');
 
       expect(error).toContain('find');
-      expect(error).toContain('PATH');
+      // Cross-platform message: PATH on Unix, Git Bash / WSL on Windows.
+      expect(error).toMatch(/PATH|Git Bash|WSL|Unix/);
     });
 
     it('should return install instructions for ls', () => {
       const error = getMissingCommandError('ls');
 
       expect(error).toContain('ls');
-      expect(error).toContain('PATH');
+      expect(error).toMatch(/PATH|Git Bash|WSL|Unix/);
     });
   });
 
@@ -225,22 +210,6 @@ describe('commandAvailability', () => {
       spawnSpy.mockRestore();
     });
 
-    it('should return available for grep without calling spawnCheckSuccess on non-Windows', async () => {
-      const spawnModule = await import('../../src/utils/exec/spawn.js');
-      const spawnSpy = vi.spyOn(spawnModule, 'spawnCheckSuccess');
-
-      clearAvailabilityCache();
-
-      const result = await checkCommandAvailability('grep', true);
-
-      if (process.platform !== 'win32') {
-        expect(result.available).toBe(true);
-        expect(spawnSpy).not.toHaveBeenCalled();
-      }
-
-      spawnSpy.mockRestore();
-    });
-
     it('should still call spawnCheckSuccess for rg (not POSIX)', async () => {
       const spawnModule = await import('../../src/utils/exec/spawn.js');
       const spawnSpy = vi
@@ -260,28 +229,30 @@ describe('commandAvailability', () => {
   describe('REQUIRED_COMMANDS', () => {
     it('should have required commands defined', () => {
       expect(REQUIRED_COMMANDS.rg).toBeDefined();
-      expect(REQUIRED_COMMANDS.grep).toBeDefined();
       expect(REQUIRED_COMMANDS.find).toBeDefined();
       expect(REQUIRED_COMMANDS.ls).toBeDefined();
     });
 
+    it('should not include grep (fallback removed)', () => {
+      expect(
+        Object.prototype.hasOwnProperty.call(REQUIRED_COMMANDS, 'grep')
+      ).toBe(false);
+    });
+
     it('should have correct tool names', () => {
       expect(REQUIRED_COMMANDS.rg.tool).toBe('localSearchCode');
-      expect(REQUIRED_COMMANDS.grep.tool).toBe('localSearchCode (fallback)');
       expect(REQUIRED_COMMANDS.find.tool).toBe('localFindFiles');
       expect(REQUIRED_COMMANDS.ls.tool).toBe('localViewStructure');
     });
 
     it('should have correct command names', () => {
       expect(REQUIRED_COMMANDS.rg.name).toBe('ripgrep');
-      expect(REQUIRED_COMMANDS.grep.name).toBe('grep');
       expect(REQUIRED_COMMANDS.find.name).toBe('find');
       expect(REQUIRED_COMMANDS.ls.name).toBe('ls');
     });
 
     it('should have version flags', () => {
       expect(REQUIRED_COMMANDS.rg.versionFlag).toBe('--version');
-      expect(REQUIRED_COMMANDS.grep.versionFlag).toBe('--version');
       expect(REQUIRED_COMMANDS.find.versionFlag).toBe('--version');
       expect(REQUIRED_COMMANDS.ls.versionFlag).toBe('--version');
     });

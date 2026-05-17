@@ -16,14 +16,11 @@ import type {
 import { getGitlab } from './client.js';
 import { handleGitLabAPIError, createGitLabError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
-
-type SearchAPI = {
-  all: (
-    scope: string,
-    query: string,
-    options: Record<string, unknown>
-  ) => Promise<unknown>;
-};
+import {
+  hasGitLabSearchApi,
+  isGitLabCodeSearchItem,
+  parseGitLabArray,
+} from './responseGuards.js';
 
 interface GitLabCodeSearchOptions {
   searchText: string;
@@ -129,7 +126,11 @@ async function searchGitLabCodeAPIInternal(
       extension: params.extension,
     });
 
-    const search = (gitlab as unknown as { Search: SearchAPI }).Search;
+    if (!hasGitLabSearchApi(gitlab)) {
+      return createGitLabError('GitLab search API is unavailable', 500);
+    }
+
+    const search = gitlab.Search;
     const searchOptions = {
       perPage,
       page,
@@ -149,13 +150,18 @@ async function searchGitLabCodeAPIInternal(
       scope.groupId = params.groupId;
     }
 
-    // Global search when no project/group scope is provided
     const results = await search.all('blobs', searchQuery, {
       ...scope,
       ...searchOptions,
     });
 
-    const items = results as unknown as GitLabCodeSearchItem[];
+    const items = parseGitLabArray(results, isGitLabCodeSearchItem);
+    if (!items) {
+      return createGitLabError(
+        'Unexpected GitLab code search response shape',
+        502
+      );
+    }
 
     const hasMore = items.length === perPage;
 

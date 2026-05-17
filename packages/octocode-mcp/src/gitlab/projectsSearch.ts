@@ -13,8 +13,9 @@ import type {
   GitLabProject,
 } from './types.js';
 import { getGitlab } from './client.js';
-import { handleGitLabAPIError } from './errors.js';
+import { handleGitLabAPIError, createGitLabError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import { isGitLabProject, parseGitLabArray } from './responseGuards.js';
 
 /**
  * Projects search result.
@@ -96,9 +97,16 @@ async function searchGitLabProjectsAPIInternal(
       }
     });
 
-    const rawProjects = (await gitlab.Projects.all(
-      queryOptions
-    )) as unknown as GitLabProject[];
+    const rawProjects = parseGitLabArray(
+      await gitlab.Projects.all(queryOptions),
+      isGitLabProject
+    );
+    if (!rawProjects) {
+      return createGitLabError(
+        'Unexpected GitLab projects response shape',
+        502
+      );
+    }
     let projects = rawProjects;
 
     // Apply client-side filters (GitLab API doesn't support these)
@@ -167,9 +175,10 @@ export async function getGitLabProject(
 ): Promise<GitLabAPIResponse<GitLabProject>> {
   try {
     const gitlab = await getGitlab();
-    const project = (await gitlab.Projects.show(
-      projectId
-    )) as unknown as GitLabProject;
+    const project = await gitlab.Projects.show(projectId);
+    if (!isGitLabProject(project)) {
+      return createGitLabError('Unexpected GitLab project response shape', 502);
+    }
 
     return {
       data: project,

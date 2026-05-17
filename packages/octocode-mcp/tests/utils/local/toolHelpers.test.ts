@@ -19,6 +19,7 @@ describe('toolHelpers', () => {
       it('should return valid result with sanitizedPath for valid paths', () => {
         const query = {
           path: process.cwd(),
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -33,6 +34,7 @@ describe('toolHelpers', () => {
       it('should accept paths within workspace using relative notation', () => {
         const query = {
           path: '.',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -48,6 +50,7 @@ describe('toolHelpers', () => {
       it('should strip file:// protocol and validate the underlying path', () => {
         const query = {
           path: `file://${process.cwd()}`,
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -61,6 +64,7 @@ describe('toolHelpers', () => {
       it('should strip file:/// (triple slash) and validate correctly', () => {
         const query = {
           path: `file:///${process.cwd().slice(1)}`,
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -74,6 +78,7 @@ describe('toolHelpers', () => {
       it('should leave non-file:// paths unchanged', () => {
         const query = {
           path: process.cwd(),
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -89,6 +94,7 @@ describe('toolHelpers', () => {
       it('should include CWD in error result for invalid paths', () => {
         const query = {
           path: '/some/invalid/outside/path',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -103,6 +109,7 @@ describe('toolHelpers', () => {
       it('should include resolvedPath in error result', () => {
         const query = {
           path: '/some/invalid/outside/path',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -119,6 +126,7 @@ describe('toolHelpers', () => {
         // Use a path that resolves outside home directory (truly invalid)
         const query = {
           path: '/var/log/system.log',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -137,6 +145,7 @@ describe('toolHelpers', () => {
         // Absolute path - input equals resolved
         const query = {
           path: '/etc/passwd',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -168,6 +177,7 @@ describe('toolHelpers', () => {
       it('should provide fix suggestions for path outside allowed directories', () => {
         const query = {
           path: '/etc/passwd',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -185,6 +195,7 @@ describe('toolHelpers', () => {
         // We need to mock pathValidator to return a permission denied error
         const query = {
           path: '/root/secret',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -200,6 +211,7 @@ describe('toolHelpers', () => {
         // Use a path that doesn't exist but is within allowed directories
         const query = {
           path: `${process.cwd()}/nonexistent_path_xyz_123`,
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -219,6 +231,7 @@ describe('toolHelpers', () => {
         // Use a path that's truly outside allowed directories
         const query = {
           path: '/var/tmp/test',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -237,6 +250,7 @@ describe('toolHelpers', () => {
       it('should include example fix syntax', () => {
         const query = {
           path: '/outside/path',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -255,6 +269,7 @@ describe('toolHelpers', () => {
       it('should include errorCode in error result', () => {
         const query = {
           path: '/invalid/path',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };
@@ -268,6 +283,7 @@ describe('toolHelpers', () => {
       it('should set status to error', () => {
         const query = {
           path: '/invalid/path',
+          id: 'test',
           researchGoal: 'test',
           reasoning: 'test reasoning',
         };

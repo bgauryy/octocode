@@ -168,7 +168,7 @@ For full authentication details (token creation, auth modes, troubleshooting), s
 
 ## Octocode Home Directory
 
-Octocode stores local state under `~/.octocode` by default (credentials, config, session, clone cache, logs).
+Octocode stores local state under `~/.octocode` by default (credentials, config, session identity, usage stats, clone cache, logs).
 
 You can override the root directory with `OCTOCODE_HOME`:
 
@@ -181,9 +181,109 @@ When set, these paths move under the new root:
 - `.octocoderc` -> `${OCTOCODE_HOME}/.octocoderc`
 - credentials -> `${OCTOCODE_HOME}/credentials.json`
 - session -> `${OCTOCODE_HOME}/session.json`
+- usage stats -> `${OCTOCODE_HOME}/stats.json`
 - clone cache -> `${OCTOCODE_HOME}/repos/`
 - logs -> `${OCTOCODE_HOME}/logs/`
 - LSP user config -> `${OCTOCODE_HOME}/lsp-servers.json`
+
+---
+
+## Usage Stats and Savings
+
+Octocode automatically tracks local usage counters in `stats.json` under the Octocode home directory. This file is separate from `session.json`: the session file stores identity and timestamps, while `stats.json` stores cumulative counters that can be shown to users.
+
+Default path:
+
+```bash
+~/.octocode/stats.json
+```
+
+With `OCTOCODE_HOME`:
+
+```bash
+${OCTOCODE_HOME}/stats.json
+```
+
+Example:
+
+```json
+{
+  "version": 1,
+  "stats": {
+    "toolCalls": 142,
+    "promptCalls": 3,
+    "errors": 2,
+    "rateLimits": 3,
+    "rateLimitsByProvider": {
+      "github": 1,
+      "gitlab": 1,
+      "bitbucket": 1
+    },
+    "charsSavedByTool": {
+      "githubSearchCode": {
+        "rawChars": 120000,
+        "responseChars": 18000,
+        "savedChars": 102000,
+        "calls": 6
+      }
+    },
+    "githubCacheHits": {
+      "hits": {
+        "gh-api-code": 12,
+        "gh-api-prs": 3
+      },
+      "rateLimits": 1
+    },
+    "packageRegistryFailures": {
+      "npm": 2
+    },
+    "totalUsage": {
+      "toolCalls": 142,
+      "promptCalls": 3,
+      "errors": 2,
+      "rateLimits": 3,
+      "rateLimitsByProvider": {
+        "github": 1,
+        "gitlab": 1,
+        "bitbucket": 1
+      },
+      "rawChars": 120000,
+      "responseChars": 18000,
+      "savedChars": 102000,
+      "charSavingsCalls": 6,
+      "githubCacheHits": 15,
+      "githubCacheRateLimits": 1,
+      "packageRegistryFailures": 2,
+      "packageRegistryFailuresByRegistry": {
+        "npm": 2
+      }
+    }
+  }
+}
+```
+
+Tracked stats:
+
+| Field | Description |
+|-------|-------------|
+| `toolCalls` | Total MCP tool calls handled by Octocode. |
+| `promptCalls` | Total MCP prompt calls handled by Octocode. |
+| `errors` | Total logged Octocode errors. |
+| `rateLimits` | Total provider API rate-limit encounters. Package registry failures are tracked separately. |
+| `rateLimitsByProvider` | Provider API rate-limit encounters by provider, including `github`, `gitlab`, and `bitbucket`. |
+| `charsSavedByTool` | Per-tool source/raw character count, final returned character count, saved character count, and call count. |
+| `githubCacheHits.hits` | Per GitHub cache bucket hit counts, such as `gh-api-code`, `gh-api-prs`, and `gh-repo-structure-api`. |
+| `githubCacheHits.rateLimits` | GitHub-specific rate-limit encounters stored alongside GitHub cache stats, including API errors and Octokit retry-throttle hits from any GitHub-backed tool. |
+| `packageRegistryFailures` | Package registry HTTP failures by registry, such as `npm` and `pypi`. These are not counted as provider API rate limits. |
+| `totalUsage` | Derived aggregate totals for display: overall counters, provider rate-limit breakdown, total raw characters, total returned characters, total saved characters, char-savings call count, total GitHub cache hits, GitHub cache rate-limit count, and package-registry failure totals. |
+
+For every registered tool, Octocode records source/raw characters before Octocode-specific trimming, filtering, verbosity reduction, and bulk response pagination when that source size is available. The returned character count is the final MCP tool text response. Bulk and parallel calls are aggregated once per tool invocation, including mixed success/error query results.
+
+`totalUsage` is recalculated whenever stats are read or written, so dashboards can read a single object without separately summing `charsSavedByTool` and `githubCacheHits`. The per-tool and per-cache counters remain the source of truth for detailed breakdowns.
+
+These counters are written locally regardless of remote telemetry logging. Setting `LOG=false` disables remote telemetry, but it does not disable local `stats.json` updates.
+
+For implementation details, see [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/SESSION_PERSISTENCE.md).
 
 ---
 
@@ -228,7 +328,7 @@ When set, these paths move under the new root:
 | 25 | `OCTOCODE_BULK_QUERY_TIMEOUT_MS` | — | number | `60000` | Timeout for bulk/multi-query tool calls (ms). |
 | 26 | `OCTOCODE_COMMAND_CHECK_TIMEOUT_MS` | — | number | `5000` | Timeout for checking system command availability (ms). |
 | 27 | `OCTOCODE_CACHE_TTL_MS` | — | number | `86400000` | Cache TTL for cloned repos (ms). Default is 24 hours. Must be a positive integer. |
-| 28 | `OCTOCODE_HOME` | — | string | `~/.octocode` | Override Octocode home directory for all local state (config, credentials, repos, logs, session). |
+| 28 | `OCTOCODE_HOME` | — | string | `~/.octocode` | Override Octocode home directory for all local state (config, credentials, repos, logs, session, stats). |
 | 29 | `OCTOCODE_MAX_CACHE_SIZE` | — | number | `2147483648` | Maximum clone cache disk usage in bytes (default 2 GB). Evicts oldest clones when exceeded. |
 | 30 | `OCTOCODE_MAX_CLONES` | — | number | `50` | Maximum number of cached clones. Evicts oldest clones when exceeded. |
 
@@ -479,6 +579,7 @@ The env values override `.octocoderc` where they overlap; `.octocoderc` fills in
 | Tool not available | Check if `TOOLS_TO_RUN` or `DISABLE_TOOLS` is filtering it out |
 | Config file ignored | Env variables always override `.octocoderc` — check your MCP `"env"` block |
 | Config changes not applied | Restart the MCP server (config is read at startup) |
+| Usage stats missing | Run at least one Octocode tool, then check `${OCTOCODE_HOME:-~/.octocode}/stats.json`. |
 
 ### Verify Your Setup
 
@@ -491,6 +592,9 @@ echo "LOG: ${LOG:-not set}"
 
 ls -la ~/.octocode/.octocoderc
 cat ~/.octocode/.octocoderc | python3 -c "import sys,json; json.load(sys.stdin)"
+if [ -f "${OCTOCODE_HOME:-$HOME/.octocode}/stats.json" ]; then
+  cat "${OCTOCODE_HOME:-$HOME/.octocode}/stats.json" | python3 -c "import sys,json; json.load(sys.stdin)"
+fi
 ```
 
 ---

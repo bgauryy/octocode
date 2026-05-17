@@ -50,6 +50,7 @@ vi.mock('octocode-shared', () => ({
   })),
   incrementToolCalls: vi.fn(() => ({ success: true })),
   incrementErrors: vi.fn(() => ({ success: true })),
+  incrementToolCharSavings: vi.fn(() => ({ success: true })),
 }));
 
 const SECRETS = {

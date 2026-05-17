@@ -1,10 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import {
-  BulkViewStructureSchema,
-  LOCAL_VIEW_STRUCTURE_DESCRIPTION,
-} from '@octocodeai/octocode-core';
+import { LOCAL_VIEW_STRUCTURE_DESCRIPTION } from '@octocodeai/octocode-core';
+import { BulkViewStructureSchema } from '../../scheme/localSchemaOverlay.js';
 import { executeViewStructure } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LocalViewStructureOutputSchema } from '@octocodeai/octocode-core';

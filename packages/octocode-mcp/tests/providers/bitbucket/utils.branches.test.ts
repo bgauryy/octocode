@@ -1,9 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+
+const mockLogRateLimit = vi.hoisted(() => vi.fn());
+vi.mock('../../../src/session.js', () => ({
+  logRateLimit: mockLogRateLimit,
+}));
+
 import {
   extractBitbucketRateLimit,
   handleBitbucketAPIResponse,
 } from '../../../src/providers/bitbucket/utils.js';
 import type { BitbucketAPIError } from '../../../src/bitbucket/types.js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('extractBitbucketRateLimit - branch coverage', () => {
   it('should return undefined when no rate limit fields present', () => {
@@ -95,6 +105,13 @@ describe('handleBitbucketAPIResponse - branch coverage', () => {
     expect(result.error).toBe('Rate limited');
     expect(result.rateLimit).toBeDefined();
     expect(result.hints).toEqual(['Try again later']);
+    expect(mockLogRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'bitbucket',
+        retry_after_seconds: 60,
+        rate_limit_remaining: 0,
+      })
+    );
   });
 
   it('should handle missing data field', () => {

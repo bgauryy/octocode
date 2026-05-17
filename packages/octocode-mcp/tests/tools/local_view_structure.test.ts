@@ -2747,4 +2747,102 @@ describe('localViewStructure', () => {
       expect(result.entries!.length).toBeLessThanOrEqual(20); // Default page size
     });
   });
+
+  /**
+   * RFC `.octocode/rfc/rtk-token-techniques/RFC.md` §4.7.2 — `verbosity:"ultra"`
+   * drops `entries[]` and returns the one-line summary. RFC §3.1 — omitted
+   * verbosity is byte-identical to current behavior. RFC §4.7.9 — the response
+   * carries an explicit drill-back breadcrumb so the agent never lands in a
+   * dead end.
+   */
+  describe('verbosity:"ultra" — RFC §4.7.2 (less tokens, more quality research)', () => {
+    beforeEach(() => {
+      mockSafeExec.mockResolvedValue({
+        success: true,
+        code: 0,
+        stdout: 'file1.txt\nfile2.js\ndir1\nfile3.md\nfile4.ts',
+        stderr: '',
+      });
+      mockLstat.mockImplementation(
+        async (pathArg: string | Buffer | URL): Promise<Stats> =>
+          ({
+            isDirectory: () => pathArg.toString().includes('dir'),
+            isFile: () => !pathArg.toString().includes('dir'),
+            isSymbolicLink: () => false,
+            size: 1024,
+            mtime: new Date('2024-01-01'),
+          }) as Stats
+      );
+    });
+
+    it('drops entries[] when verbosity:"ultra" is requested', async () => {
+      const result = await viewStructure({
+        path: '/test/path',
+        verbosity: 'ultra',
+      });
+
+      expect(result.status).toBe('hasResults');
+      expect(result.entries).toEqual([]);
+      expect(result.summary).toMatch(/entries.*files.*dirs/);
+    });
+
+    it('keeps pagination so the agent still sees totalEntries', async () => {
+      const result = await viewStructure({
+        path: '/test/path',
+        verbosity: 'ultra',
+      });
+
+      expect(result.status).toBe('hasResults');
+      expect(result.pagination?.totalEntries).toBeGreaterThan(0);
+    });
+
+    it('includes a drill-back breadcrumb in hints', async () => {
+      const result = await viewStructure({
+        path: '/test/path',
+        verbosity: 'ultra',
+      });
+
+      expect(result.status).toBe('hasResults');
+      const hintsBlob = (result.hints ?? []).join('\n');
+      expect(hintsBlob).toMatch(/drill-back/i);
+      expect(hintsBlob).toMatch(/verbosity:"compact"|re-call/i);
+    });
+
+    it('byte-equivalent default — omitted verbosity returns full entries', async () => {
+      const result = await viewStructure({
+        path: '/test/path',
+      });
+
+      expect(result.status).toBe('hasResults');
+      expect(result.entries).toBeDefined();
+      expect(result.entries!.length).toBeGreaterThan(0);
+    });
+
+    it('verbosity:"compact" is also byte-equivalent to omitted (current behavior)', async () => {
+      const result = await viewStructure({
+        path: '/test/path',
+        verbosity: 'compact',
+      });
+
+      expect(result.status).toBe('hasResults');
+      expect(result.entries).toBeDefined();
+      expect(result.entries!.length).toBeGreaterThan(0);
+    });
+
+    it('does not transform the empty status (nothing to compress)', async () => {
+      mockSafeExec.mockResolvedValue({
+        success: true,
+        code: 0,
+        stdout: '',
+        stderr: '',
+      });
+
+      const result = await viewStructure({
+        path: '/test/path',
+        verbosity: 'ultra',
+      });
+
+      expect(result.status).toBe('empty');
+    });
+  });
 });

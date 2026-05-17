@@ -9,6 +9,7 @@ import { isCloneEnabled } from '../../serverConfig.js';
 import { fetchDirectoryContents } from '../../github/directoryFetch.js';
 import { resolveDefaultBranch } from '../../github/client.js';
 import { LOCAL_TOOL_LIST } from '../../hints/localToolUsageHints.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 import {
   mapFileContentProviderResult,
   mapFileContentToolQuery,
@@ -155,7 +156,10 @@ async function handleDirectoryFetch(
     resultData,
     true,
     TOOL_NAMES.GITHUB_FETCH_CONTENT,
-    { extraHints: hints }
+    {
+      extraHints: hints,
+      rawResponse: result.totalSize || countSerializedChars(result),
+    }
   );
 }
 
@@ -194,6 +198,7 @@ async function handleFileFetch(
     {
       hintContext: { isLarge, isPartial, endLine },
       extraHints: paginationHints,
+      rawResponse: providerResult.response.rawResponseChars,
     }
   );
 }

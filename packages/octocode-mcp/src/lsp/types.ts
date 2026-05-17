@@ -220,8 +220,13 @@ interface LSPToolResultBase {
   status: 'hasResults' | 'empty' | 'error';
   /** Error message if status is 'error' */
   error?: string;
-  /** Error type for hint generation */
+  /** Error type for hint generation (lowercase, internal) */
   errorType?: LSPErrorType;
+  /**
+   * Stable agent-facing error code (SCREAMING_SNAKE_CASE). Wire-stable
+   * across releases; safe to switch on. See {@link ../lsp/lspErrorCodes}.
+   */
+  errorCode?: string;
   /** Hints for next steps */
   hints?: string[];
   /**

@@ -32,7 +32,10 @@ export class LSPDocumentManager {
   /**
    * Set the connection and initialization status
    */
-  setConnection(connection: MessageConnection, initialized: boolean): void {
+  setConnection(
+    connection: MessageConnection | null,
+    initialized: boolean
+  ): void {
     this.connection = connection;
     this.initialized = initialized;
     // Clear tracked documents when disconnecting to prevent stale state.

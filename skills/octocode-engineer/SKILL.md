@@ -12,7 +12,7 @@ Understand, change, and verify a codebase with system awareness. Single-file rea
 A structured **understanding artifact**, grounded in evidence, every claim cited `file:line`:
 
 - **System summary** (what/who/invariants) · **Control flows** (numbered call paths) · **Data flows** (writers/readers/txn/cache per entity) · **Types & protocols** (DTOs, schemas, wire contracts, compat)
-- **Boundaries & ownership** (owners, ports, contract tests) · **Duplication inventory** (near-clones, missing abstraction) · **Execution profile** (hot paths, async/sync, retries/timeouts/lifecycles)
+- **Boundaries & ownership** (owners, ports, contract tests) · **Structure health** (folder bloat, file/folder naming, project-fit) · **Duplication inventory** (near-clones, missing abstraction) · **Execution profile** (hot paths, async/sync, retries/timeouts/lifecycles)
 - **Architecture health** (per-principle + per-dimension, `confirmed|likely|uncertain`) · **Clean-code hotspots** · **Next step** (1 sentence)
 
 For a change: change flow, data-flow impact, contract impact, blast radius, risk vector. **Safety built in** — hard gates stop for your decision before public-contract changes, cross-layer edits, destructive actions, or large blast radius.
@@ -34,6 +34,7 @@ Use this first to pick the cheapest proof path. Every LSP call needs a `lineHint
 | Is this pattern duplicated? | `scripts/ast/search.js --pattern` → scanner `duplicate-*` findings |
 | Is this shape an antipattern? | `scripts/ast/search.js --preset <name>` (list: `--list-presets`) |
 | Is this module structurally unhealthy? | `scripts/run.js --graph --scope=<path>` → read `scan.json` |
+| Is the project structure healthy? | `localViewStructure` + `localFindFiles` → `scripts/run.js --scope=<path> --graph` → inspect `qualityRating` folder/naming/consistency signals + `mega-folder` findings |
 | Which layer/boundary does this cross? | Scanner layer output + `lspGotoDefinition` across packages |
 | What breaks if I change Y? | `lspFindReferences(Y)` → label consumers by layer |
 | Find files by name / churn / size | `localFindFiles` |
@@ -154,7 +155,7 @@ If the task involves a change, also include:
 
 #### Artifact self-check — before closing
 
-A good artifact answers all of: ownership/boundary; blast radius (consumers, layers); contract safety (types/schemas/protocols); local vs structural vs architectural; build/config involvement; reliability under failure/retry/concurrency; observability sufficiency; rollout/migration reversibility; modularity trajectory; documented assumptions; safest next move. If the answer only explains one file, it is usually incomplete.
+A good artifact answers all of: ownership/boundary; blast radius (consumers, layers); contract safety (types/schemas/protocols); local vs structural vs architectural; build/config involvement; reliability under failure/retry/concurrency; observability sufficiency; rollout/migration reversibility; folder bloat and file/folder naming fitness; modularity trajectory; documented assumptions; safest next move. If the answer only explains one file, it is usually incomplete.
 
 ## Tool Families And Their Jobs
 
@@ -238,6 +239,7 @@ The Clean-Architecture principles and the six analytic dimensions already cover 
 | Observability & operability | logging quality, metric/tracing coverage, diagnosability, alert/runbook readiness |
 | Rollout & migration | feature flags, backward-compatibility windows, rollback path, migration sequencing |
 | Build & config | ESM/CJS mismatch, module resolution, script wiring, runtime assumptions |
+| Structure health | leaf-folder bloat, vague shared/helper buckets, depth balance, source spread, file and folder naming consistency for the project |
 | Docs | whether critical assumptions, contracts, flows, setup, migrations, and risks are documented |
 | CSS hygiene | selector scope, token reuse, naming clarity, dead styles (when frontend styling is touched) |
 | `knip` | unused exports, files, dependencies, dead integration edges (run on refactors) |

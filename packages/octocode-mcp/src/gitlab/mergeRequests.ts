@@ -14,8 +14,14 @@ import type {
   GitLabMRNote,
 } from './types.js';
 import { getGitlab } from './client.js';
-import { handleGitLabAPIError } from './errors.js';
+import { handleGitLabAPIError, createGitLabError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import {
+  hasGitLabAllDiffs,
+  isGitLabMRNote,
+  isGitLabMergeRequest,
+  parseGitLabArray,
+} from './responseGuards.js';
 
 /**
  * Merge request search result.
@@ -84,10 +90,13 @@ async function searchGitLabMergeRequestsAPIInternal(
 
     // If fetching a specific MR by iid
     if (params.projectId && params.iid) {
-      const mr = (await gitlab.MergeRequests.show(
-        params.projectId,
-        params.iid
-      )) as unknown as GitLabMergeRequest;
+      const mr = await gitlab.MergeRequests.show(params.projectId, params.iid);
+      if (!isGitLabMergeRequest(mr)) {
+        return createGitLabError(
+          'Unexpected GitLab merge request response shape',
+          502
+        );
+      }
 
       return {
         data: {
@@ -129,15 +138,35 @@ async function searchGitLabMergeRequestsAPIInternal(
 
     if (params.projectId) {
       // Project-scoped search
-      mergeRequests = (await gitlab.MergeRequests.all({
+      const rawMergeRequests = await gitlab.MergeRequests.all({
         projectId: params.projectId,
         ...queryOptions,
-      })) as unknown as GitLabMergeRequest[];
+      });
+      const parsedMergeRequests = parseGitLabArray(
+        rawMergeRequests,
+        isGitLabMergeRequest
+      );
+      if (!parsedMergeRequests) {
+        return createGitLabError(
+          'Unexpected GitLab merge request list response shape',
+          502
+        );
+      }
+      mergeRequests = parsedMergeRequests;
     } else {
       // Global search
-      mergeRequests = (await gitlab.MergeRequests.all(
-        queryOptions
-      )) as unknown as GitLabMergeRequest[];
+      const rawMergeRequests = await gitlab.MergeRequests.all(queryOptions);
+      const parsedMergeRequests = parseGitLabArray(
+        rawMergeRequests,
+        isGitLabMergeRequest
+      );
+      if (!parsedMergeRequests) {
+        return createGitLabError(
+          'Unexpected GitLab merge request list response shape',
+          502
+        );
+      }
+      mergeRequests = parsedMergeRequests;
     }
 
     const hasMore = mergeRequests.length === perPage;
@@ -174,9 +203,18 @@ export async function getGitLabMRNotes(
   try {
     const gitlab = await getGitlab();
 
-    const notes = (await gitlab.MergeRequestNotes.all(projectId, mrIid, {
-      perPage: 100,
-    })) as unknown as GitLabMRNote[];
+    const notes = parseGitLabArray(
+      await gitlab.MergeRequestNotes.all(projectId, mrIid, {
+        perPage: 100,
+      }),
+      isGitLabMRNote
+    );
+    if (!notes) {
+      return createGitLabError(
+        'Unexpected GitLab merge request notes response shape',
+        502
+      );
+    }
 
     // Filter out system notes
     const userNotes = notes.filter(note => !note.system);
@@ -203,18 +241,16 @@ export async function getGitLabMRChanges(
 ): Promise<GitLabAPIResponse<{ changes: unknown[] }>> {
   try {
     const gitlab = await getGitlab();
+    if (!hasGitLabAllDiffs(gitlab.MergeRequests)) {
+      return createGitLabError(
+        'GitLab merge request diff API is unavailable',
+        500
+      );
+    }
 
-    const changes = (await (
-      gitlab.MergeRequests as unknown as {
-        allDiffs: (
-          projectId: number | string,
-          mrIid: number,
-          options?: { perPage?: number }
-        ) => Promise<unknown>;
-      }
-    ).allDiffs(projectId, mrIid, {
+    const changes = await gitlab.MergeRequests.allDiffs(projectId, mrIid, {
       perPage: 100,
-    })) as unknown;
+    });
 
     return {
       data: { changes: Array.isArray(changes) ? changes : [] },

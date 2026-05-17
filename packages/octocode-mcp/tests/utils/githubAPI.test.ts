@@ -669,6 +669,7 @@ describe('GitHub API Utils', () => {
           },
           status: 200,
           headers: undefined,
+          rawResponseChars: expect.any(Number),
         });
       });
 

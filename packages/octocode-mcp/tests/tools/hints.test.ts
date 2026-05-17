@@ -57,6 +57,20 @@ describe('Hints Module', () => {
         });
     });
 
+    it('keeps GitHub carry-forward hints on GitHub tools', () => {
+      const hints = getToolHints(TOOL_NAMES.GITHUB_SEARCH_CODE, 'hasResults');
+      expect(hints).toContain('Base hint for hasResults');
+    });
+
+    it('filters GitHub-only and mainResearchGoal base hints from local tools', () => {
+      const hints = getToolHints(TOOL_NAMES.LOCAL_RIPGREP, 'hasResults');
+      expect(hints).not.toContain(
+        "Use 'owner', 'repo', 'branch', 'path' fields directly in next tool calls"
+      );
+      expect(hints.join('\n')).not.toMatch(/mainResearchGoal/);
+      expect(hints).toContain('Base hint for hasResults');
+    });
+
     describe('GITHUB_SEARCH_CODE hints', () => {
       it('should have appropriate hasResults hints', () => {
         const hints = TOOL_HINTS[TOOL_NAMES.GITHUB_SEARCH_CODE]!.hasResults;

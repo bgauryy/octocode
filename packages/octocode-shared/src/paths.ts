@@ -17,6 +17,7 @@ export const paths = {
   credentials: join(OCTOCODE_HOME, 'credentials.json'),
   key: join(OCTOCODE_HOME, '.key'),
   session: join(OCTOCODE_HOME, 'session.json'),
+  stats: join(OCTOCODE_HOME, 'stats.json'),
   repos: join(OCTOCODE_HOME, 'repos'),
   logs: join(OCTOCODE_HOME, 'logs'),
   cliConfig: join(OCTOCODE_HOME, 'config.json'),

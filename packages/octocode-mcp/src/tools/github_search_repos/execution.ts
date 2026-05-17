@@ -25,6 +25,7 @@ import {
   executeProviderOperations,
   type ProviderOperationResult,
 } from '../providerExecution.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 
 type RepoSearchVariantLabel = 'combined' | 'topics' | 'keywords';
 
@@ -150,6 +151,18 @@ function createVariantFailureHints(
     const error = failure.response.error || 'Provider error';
     return `${label} failed: ${error}`;
   });
+}
+
+function sumVariantRawResponseChars(
+  variants: RepoSearchVariantExecution[]
+): number {
+  return variants.reduce(
+    (sum, variant) =>
+      sum +
+      (variant.response.rawResponseChars ??
+        countSerializedChars(variant.response.data ?? variant.response)),
+    0
+  );
 }
 
 function generateSearchSpecificHints(
@@ -282,6 +295,10 @@ export async function searchMultipleGitHubRepos(
               ...paginationHints,
               ...(searchHints || []),
             ],
+            rawResponse: sumVariantRawResponseChars([
+              ...successfulVariants,
+              ...failedVariants,
+            ]),
           }
         );
       } catch (error) {

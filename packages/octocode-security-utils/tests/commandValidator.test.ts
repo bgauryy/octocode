@@ -38,6 +38,50 @@ describe('commandValidator', () => {
         expect(result.isValid).toBe(false);
         expect(result.error).toContain("Command 'curl' is not allowed");
       });
+
+      // Regression: bundled-ripgrep contract.
+      // resolveRipgrepBinary() returns an absolute path to the
+      // @vscode/ripgrep binary (POSIX `.../bin/rg`, Windows `...\\bin\\rg.exe`).
+      // The validator MUST allow that, otherwise localSearchCode 500s in
+      // every real MCP invocation even though unit-test mocks pass.
+      it('allows an absolute POSIX path whose basename is whitelisted (rg)', () => {
+        const result = validateCommand(
+          '/Users/me/proj/node_modules/@vscode/ripgrep-darwin-arm64/bin/rg',
+          ['--json', 'pattern', './src']
+        );
+
+        expect(result.isValid).toBe(true);
+      });
+
+      it('allows an absolute Windows path whose basename is whitelisted (rg.exe)', () => {
+        const result = validateCommand(
+          'C\\Users\\me\\proj\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe',
+          ['--json', 'pattern', './src']
+        );
+
+        expect(result.isValid).toBe(true);
+      });
+
+      it('still rejects absolute paths whose basename is NOT whitelisted', () => {
+        const result = validateCommand('/usr/bin/curl', ['http://example.com']);
+
+        expect(result.isValid).toBe(false);
+        expect(result.error).toContain('not allowed');
+      });
+
+      it('still applies per-command flag rules to absolute paths', () => {
+        // `-x` (line-regexp) is on the rg allow-list, but a bogus flag like
+        // `--banana` must still be rejected even when the command is given
+        // as an absolute path.
+        const result = validateCommand('/opt/homebrew/bin/rg', [
+          '--banana',
+          'pattern',
+          './src',
+        ]);
+
+        expect(result.isValid).toBe(false);
+        expect(result.error).toContain("'--banana'");
+      });
     });
 
     describe('ripgrep pattern detection', () => {

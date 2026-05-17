@@ -15,6 +15,8 @@ import type {
   BitbucketFileContentResult,
 } from './types.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import { fallbackOnBestEffortFailure } from '../utils/core/bestEffort.js';
+import { parseBitbucketDefaultBranch } from './responseGuards.js';
 
 interface BitbucketFileContentQuery {
   workspace: string;
@@ -58,7 +60,11 @@ export async function fetchBitbucketFileContentAPI(
         });
 
         if (!response.ok) {
-          const errorBody = await response.text().catch(() => '');
+          const errorBody = await response
+            .text()
+            .catch(
+              fallbackOnBestEffortFailure('bitbucket error body read', '')
+            );
           throw Object.assign(
             new Error(errorBody || `HTTP ${response.status}`),
             {
@@ -114,10 +120,9 @@ export async function getBitbucketDefaultBranch(
       return 'main';
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
-    const mainbranch = data.mainbranch as { name?: string } | undefined;
+    const branch = parseBitbucketDefaultBranch(await response.json());
 
-    return mainbranch?.name || 'main';
+    return branch || 'main';
   } catch {
     return 'main';
   }

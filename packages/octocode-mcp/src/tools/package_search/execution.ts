@@ -81,7 +81,9 @@ export async function searchPackages(
         const apiResult = await searchPackage(validatedQuery);
 
         if (isPackageSearchError(apiResult)) {
-          return createErrorResult(apiResult.error, query);
+          return createErrorResult(apiResult.error, query, {
+            rawResponse: apiResult,
+          });
         }
 
         const packages = (apiResult.packages as PackageResult[]).map(pkg => {
@@ -114,7 +116,7 @@ export async function searchPackages(
           result,
           hasContent,
           TOOL_NAMES.PACKAGE_SEARCH,
-          { extraHints }
+          { extraHints, rawResponse: apiResult.rawResponseChars ?? apiResult }
         );
       } catch (error) {
         return handleCatchError(error, query);

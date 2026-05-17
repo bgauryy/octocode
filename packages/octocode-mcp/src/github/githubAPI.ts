@@ -88,6 +88,7 @@ export interface GitHubAPISuccess<T> {
   data: T;
   status: number;
   headers?: Record<string, string>;
+  rawResponseChars?: number;
 }
 
 export type GitHubAPIResponse<T> = GitHubAPISuccess<T> | GitHubAPIError;

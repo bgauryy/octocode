@@ -98,6 +98,8 @@ export interface ProviderResponse<T> {
     reset: number;
     retryAfter?: number;
   };
+  /** Character count of the raw provider/source response before Octocode trimming. */
+  rawResponseChars?: number;
 }
 
 /**

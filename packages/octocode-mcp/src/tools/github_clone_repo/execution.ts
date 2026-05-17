@@ -7,6 +7,7 @@
 
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { CloneRepoQuery } from '@octocodeai/octocode-core';
+import { getDirectorySizeBytes } from 'octocode-shared';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
@@ -98,7 +99,10 @@ export async function executeCloneRepo(
             resultData,
             true,
             TOOL_NAMES.GITHUB_CLONE_REPO,
-            { extraHints: baseHints }
+            {
+              extraHints: baseHints,
+              rawResponse: getDirectorySizeBytes(result.localPath),
+            }
           );
         },
       }),

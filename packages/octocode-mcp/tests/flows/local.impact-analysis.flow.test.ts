@@ -61,7 +61,7 @@ vi.mock('../../src/lsp/manager.js', async () => {
 
   return {
     ...actual,
-    createClient: vi.fn().mockResolvedValue(null),
+    acquirePooledClient: vi.fn().mockResolvedValue(null),
     isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
   };
 });
@@ -380,7 +380,7 @@ describe(FLOW_CATALOG.localImpactAnalysis.id, () => {
     expect(impactedFileResult.content).toContain('computeScore');
   });
 
-  it('continues impact-analysis flow across query-level output pagination', async () => {
+  it('continues impact-analysis flow across reference pagination', async () => {
     const searchResponse = await harness.callTool('localSearchCode', {
       queries: [
         {
@@ -413,10 +413,10 @@ describe(FLOW_CATALOG.localImpactAnalysis.id, () => {
             symbolName: 'computeScore',
             lineHint: definitionMatch!.line,
             includeDeclaration: false,
-            charLength: 250,
+            referencesPerPage: 1,
+            page: 1,
             researchGoal: 'Read the first output page of impacted call sites',
-            reasoning:
-              'Verify query-level output pagination on semantic references',
+            reasoning: 'Verify reference pagination on semantic references',
           },
         ],
       }
@@ -428,7 +428,7 @@ describe(FLOW_CATALOG.localImpactAnalysis.id, () => {
       firstReferencesResponse
     );
 
-    expect(firstReferences.outputPagination?.hasMore).toBe(true);
+    expect(firstReferences.pagination?.hasMore).toBe(true);
     expect(firstReferences.locations?.length).toBe(1);
 
     const secondReferencesResponse = await harness.callTool(
@@ -441,13 +441,11 @@ describe(FLOW_CATALOG.localImpactAnalysis.id, () => {
             symbolName: 'computeScore',
             lineHint: definitionMatch!.line,
             includeDeclaration: false,
-            charLength: 250,
-            charOffset:
-              (firstReferences.outputPagination?.charOffset ?? 0) +
-              (firstReferences.outputPagination?.charLength ?? 0),
+            referencesPerPage: 1,
+            page: 2,
             researchGoal: 'Read the next output page of impacted call sites',
             reasoning:
-              'Resume the same reference query from outputPagination metadata',
+              'Resume the same reference query from pagination metadata',
           },
         ],
       }
@@ -477,7 +475,7 @@ describe(FLOW_CATALOG.localImpactAnalysis.id, () => {
           researchGoal:
             'Trace impacted callers after resuming paginated references',
           reasoning:
-            'Verify outputPagination does not break downstream hierarchy analysis',
+            'Verify reference pagination does not break downstream hierarchy analysis',
         },
       ],
     });
@@ -530,7 +528,7 @@ function configureImpactFlowRuntime(repoPath: string): void {
   flowRuntime.safeExec.mockReset();
   flowRuntime.safeExec.mockImplementation(
     async (command: string, args: string[]) => {
-      if (command !== 'rg') {
+      if (!/rg$/.test(command)) {
         throw new Error(`Unexpected command: ${command}`);
       }
 
@@ -558,7 +556,7 @@ function configureImpactFlowRuntime(repoPath: string): void {
 
   flowRuntime.spawn.mockReset();
   flowRuntime.spawn.mockImplementation((command: string, args: string[]) => {
-    if (command !== 'rg') {
+    if (!/rg$/.test(command)) {
       throw new Error(`Unexpected spawn command: ${command}`);
     }
 

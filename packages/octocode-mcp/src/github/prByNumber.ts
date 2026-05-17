@@ -2,20 +2,42 @@
  * Fetch a single pull request by number — public API + internal implementation.
  * Extracted from pullRequestSearch.ts.
  */
-import {
+import type {
+  GitHubAPIError,
   GitHubPullRequestItem,
   GitHubPullRequestsSearchParams,
-} from './githubAPI';
+} from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
-import { getOctokit } from './client';
-import { handleGitHubAPIError } from './errors';
-import { generateCacheKey, withDataCache } from '../utils/http/cache';
+import { getOctokit } from './client.js';
+import { handleGitHubAPIError } from './errors.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { formatPRForResponse } from './prTransformation.js';
 import { transformPullRequestItemFromREST } from './prContentFetcher.js';
+import {
+  countSerializedChars,
+  getRawResponseChars,
+} from '../utils/response/charSavings.js';
+
+function createPullRequestByNumberErrorResult(
+  apiError: GitHubAPIError,
+  error: string,
+  hints: string[]
+): GitHubPullRequestSearchApiResult {
+  return {
+    pull_requests: [],
+    total_count: 0,
+    error,
+    status: apiError.status,
+    hints,
+    rateLimitRemaining: apiError.rateLimitRemaining,
+    rateLimitReset: apiError.rateLimitReset,
+    retryAfter: apiError.retryAfter,
+  };
+}
 
 export async function fetchGitHubPullRequestByNumberAPI(
   params: GitHubPullRequestsSearchParams,
@@ -99,6 +121,8 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
     return {
       pull_requests: [formattedPR],
       total_count: 1,
+      rawResponseChars:
+        countSerializedChars(result.data) + (getRawResponseChars(transformedPR) ?? 0),
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);
@@ -107,18 +131,14 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       SEARCH_ERRORS.PULL_REQUEST_FETCH_FAILED.code
     );
-    return {
-      pull_requests: [],
-      total_count: 0,
-      error: SEARCH_ERRORS.PULL_REQUEST_FETCH_FAILED.message(
-        prNumber,
-        apiError.error
-      ),
-      hints: [
+    return createPullRequestByNumberErrorResult(
+      apiError,
+      SEARCH_ERRORS.PULL_REQUEST_FETCH_FAILED.message(prNumber, apiError.error),
+      [
         `Verify that pull request #${prNumber} exists in ${owner}/${repo}`,
         'Check if you have access to this repository',
         'Ensure the PR number is correct',
-      ],
-    };
+      ]
+    );
   }
 }

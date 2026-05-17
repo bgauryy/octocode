@@ -1,10 +1,14 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
 import { RESOURCE_LIMITS } from '../utils/core/constants.js';
 import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import { resolveRipgrepBinary } from '../utils/exec/ripgrepBinary.js';
 
 export class RipgrepCommandBuilder extends BaseCommandBuilder {
   constructor() {
-    super('rg');
+    // T3.3 — prefer the bundled @vscode/ripgrep binary so the tool
+    // works out-of-the-box without a system-wide ripgrep install.
+    // Falls back to 'rg' (PATH lookup) when bundling failed.
+    super(resolveRipgrepBinary());
   }
 
   /**

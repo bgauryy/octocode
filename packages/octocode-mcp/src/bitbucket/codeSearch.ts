@@ -16,6 +16,7 @@ import type {
 } from './types.js';
 import { getBitbucketRepositoryIdentity } from './searchUtils.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import { parseBitbucketCodeSearchPage } from './responseGuards.js';
 
 interface BitbucketCodeSearchQuery {
   workspace: string;
@@ -123,51 +124,26 @@ export async function searchBitbucketCodeAPI(
             },
           }
         );
+        const pageData = parseBitbucketCodeSearchPage(data);
+        if (!pageData) {
+          return createBitbucketError(
+            'Unexpected Bitbucket code search response shape.',
+            502
+          );
+        }
 
-        const rawValues = (data as Record<string, unknown>)?.values;
-        const values = Array.isArray(rawValues) ? rawValues : [];
-        const rawSize = (data as Record<string, unknown>)?.size;
-        const size = typeof rawSize === 'number' ? rawSize : values.length;
-        const rawNext = (data as Record<string, unknown>)?.next;
-        const next = typeof rawNext === 'string' ? rawNext : undefined;
-        const rawPage = (data as Record<string, unknown>)?.page;
-        const page = typeof rawPage === 'number' ? rawPage : params.page || 1;
         const pagelen = params.limit || 20;
-
-        let items: BitbucketCodeSearchItem[] = values.map(
-          (item: Record<string, unknown>) => {
-            const file = (item.file || {}) as Record<string, unknown>;
-            const contentMatches = Array.isArray(item.content_matches)
-              ? item.content_matches
-              : [];
-            const pathMatches = Array.isArray(item.path_matches)
-              ? item.path_matches
-              : [];
-
-            return {
-              type: String(item.type || ''),
-              content_matches: contentMatches,
-              path_matches: pathMatches.length > 0 ? pathMatches : undefined,
-              file: {
-                path: String(file.path || ''),
-                type: String(file.type || ''),
-                links: file.links as BitbucketCodeSearchItem['file']['links'],
-              },
-            };
-          }
-        );
-
-        items = filterSearchResults(items, params);
+        const items = filterSearchResults(pageData.values, params);
 
         return {
           data: {
             items,
-            totalCount: size,
+            totalCount: pageData.size,
             pagination: {
-              currentPage: page,
-              totalPages: Math.ceil(size / pagelen),
-              hasMore: !!next,
-              totalMatches: size,
+              currentPage: pageData.page,
+              totalPages: Math.ceil(pageData.size / pagelen),
+              hasMore: !!pageData.next,
+              totalMatches: pageData.size,
             },
           },
           status: 200,

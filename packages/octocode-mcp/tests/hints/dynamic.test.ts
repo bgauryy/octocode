@@ -52,19 +52,7 @@ describe('Dynamic Hints', () => {
   });
 
   describe('LOCAL_RIPGREP hints', () => {
-    it('should return hints for grep engine', () => {
-      const hints = getDynamicHints(
-        STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-        'hasResults',
-        {
-          searchEngine: 'grep',
-        }
-      );
-      // Should return hints from grepFallback metadata
-      expect(hints.length).toBeGreaterThanOrEqual(0);
-    });
-
-    it('should NOT include grep hint when searchEngine is rg', () => {
+    it('should never emit grep-fallback hints (single-engine: ripgrep)', () => {
       const hints = getDynamicHints(
         STATIC_TOOL_NAMES.LOCAL_RIPGREP,
         'hasResults',
@@ -72,7 +60,7 @@ describe('Dynamic Hints', () => {
           searchEngine: 'rg',
         }
       );
-      // Grep fallback hint should not appear for rg engine
+      // The grep fallback was removed; no hint may mention it.
       expect(hints.some(h => h.toLowerCase().includes('grep fallback'))).toBe(
         false
       );

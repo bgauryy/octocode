@@ -8,6 +8,7 @@ import {
   fetchBitbucketPRSupplementalData,
   searchBitbucketPRsAPI,
 } from '../../bitbucket/pullRequestSearch.js';
+import { handleBitbucketAPIError } from '../../bitbucket/errors.js';
 import type {
   BitbucketDiffstatEntry,
   BitbucketPRComment,
@@ -273,7 +274,11 @@ export async function searchPullRequests(
             _diffstat: supplementalData.diffstat,
             _diff: supplementalData.diff,
           };
-        } catch {
+        } catch (error) {
+          handleBitbucketAPIResponse(
+            handleBitbucketAPIError(error),
+            data => data
+          );
           return pullRequest;
         }
       })

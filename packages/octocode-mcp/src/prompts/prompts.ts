@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { logPromptCall } from '../session.js';
+import { withOutputSanitization } from '../utils/secureServer.js';
 import type { CompleteMetadata } from '@octocodeai/octocode-core';
 
 type PromptHandler = (args: unknown) => Promise<{
@@ -23,6 +24,11 @@ export function registerPrompts(
   if (!prompts) {
     return;
   }
+
+  // Wrap with output-sanitization + crash-isolation layer so a throwing
+  // prompt handler can never crash the MCP server and any secrets in error
+  // messages are redacted before reaching the JSON-RPC error channel.
+  const secureServer = withOutputSanitization(server);
 
   for (const prompt of Object.values(prompts)) {
     if (
@@ -82,6 +88,6 @@ export function registerPrompts(
       description: prompt.description,
       ...(Object.keys(argsShape).length > 0 ? { argsSchema: argsShape } : {}),
     };
-    server.registerPrompt(prompt.name, promptOptions, handler);
+    secureServer.registerPrompt(prompt.name, promptOptions, handler);
   }
 }

@@ -1,24 +1,21 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import {
-  BulkFetchContentSchema,
-  LOCAL_FETCH_CONTENT_DESCRIPTION,
-} from '@octocodeai/octocode-core';
+import { LOCAL_FETCH_CONTENT_DESCRIPTION } from '@octocodeai/octocode-core';
+import { BulkFetchContentQuerySchema } from '../../scheme/localSchemaOverlay.js';
 import { executeFetchContent } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LocalGetFileContentOutputSchema } from '@octocodeai/octocode-core';
 
 /**
  * Register the local fetch content tool with the MCP server.
- * Follows the same pattern as GitHub tools for consistency.
  */
 export function registerLocalFetchContentTool(server: McpServer) {
   return server.registerTool(
     TOOL_NAMES.LOCAL_FETCH_CONTENT,
     {
       description: LOCAL_FETCH_CONTENT_DESCRIPTION,
-      inputSchema: toMCPSchema(BulkFetchContentSchema),
+      inputSchema: toMCPSchema(BulkFetchContentQuerySchema),
       outputSchema: toMCPSchema(LocalGetFileContentOutputSchema),
       annotations: {
         title: 'Local Fetch Content',

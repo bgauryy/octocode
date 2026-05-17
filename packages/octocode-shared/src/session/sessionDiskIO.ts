@@ -1,7 +1,7 @@
 /**
  * Session Disk I/O
  *
- * File read/write/flush operations for session storage.
+ * File read/write/flush operations for session and stats storage.
  * Uses atomic writes (temp file + rename) to prevent corruption.
  */
 
@@ -15,13 +15,76 @@ import {
 import { ensureOctocodeDir } from '../credentials/storage.js';
 import { paths } from '../paths.js';
 import { createLogger } from '../logger/index.js';
-import { PersistedSessionSchema } from './schemas.js';
-import type { PersistedSession } from './types.js';
+import {
+  PersistedSessionSchema,
+  PersistedStatsSchema,
+  SessionStatsSchema,
+} from './schemas.js';
+import { createDefaultStats, withDerivedUsageTotals } from './statsDefaults.js';
+import type { PersistedSession, SessionStats } from './types.js';
 
 const logger = createLogger('session');
 
 // Storage constants
 export const SESSION_FILE = paths.session;
+export const STATS_FILE = paths.stats;
+
+type SessionDiskPayload = Omit<PersistedSession, 'stats'> & {
+  stats?: SessionStats;
+};
+
+function writeJsonAtomic(file: string, data: unknown): void {
+  const tempFile = `${file}.tmp`;
+
+  writeFileSync(tempFile, JSON.stringify(data, null, 2), {
+    mode: 0o600,
+  });
+
+  renameSync(tempFile, file);
+}
+
+function toSessionDiskPayload(session: PersistedSession): SessionDiskPayload {
+  const { stats: _stats, ...sessionWithoutStats } = session;
+  return sessionWithoutStats;
+}
+
+function parseStatsFileContent(content: string): SessionStats | null {
+  const parsed = JSON.parse(content);
+
+  const persistedStatsResult = PersistedStatsSchema.safeParse(parsed);
+  if (persistedStatsResult.success) {
+    return withDerivedUsageTotals(persistedStatsResult.data.stats);
+  }
+
+  const rawStatsResult = SessionStatsSchema.safeParse(parsed);
+  if (rawStatsResult.success) {
+    return withDerivedUsageTotals(rawStatsResult.data);
+  }
+
+  return null;
+}
+
+function readStatsFromDisk(fallbackStats?: SessionStats): SessionStats {
+  const fallback = fallbackStats
+    ? withDerivedUsageTotals(fallbackStats)
+    : createDefaultStats();
+
+  if (!existsSync(STATS_FILE)) {
+    return fallback;
+  }
+
+  try {
+    const content = readFileSync(STATS_FILE, 'utf8');
+    const stats = parseStatsFileContent(content);
+    if (!stats) {
+      logger.warn('Stats file has invalid format', { file: STATS_FILE });
+      return fallback;
+    }
+    return stats;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Write session directly to disk (internal)
@@ -30,15 +93,11 @@ export const SESSION_FILE = paths.session;
 export function writeSessionToDisk(session: PersistedSession): void {
   ensureOctocodeDir();
 
-  const tempFile = `${SESSION_FILE}.tmp`;
-
-  // Write to temp file first
-  writeFileSync(tempFile, JSON.stringify(session, null, 2), {
-    mode: 0o600,
+  writeJsonAtomic(STATS_FILE, {
+    version: session.version,
+    stats: withDerivedUsageTotals(session.stats),
   });
-
-  // Atomic rename (POSIX guarantees atomicity)
-  renameSync(tempFile, SESSION_FILE);
+  writeJsonAtomic(SESSION_FILE, toSessionDiskPayload(session));
 }
 
 /**
@@ -57,7 +116,11 @@ export function readSessionFromDisk(): PersistedSession | null {
       logger.warn('Session file has invalid format', { file: SESSION_FILE });
       return null;
     }
-    return result.data;
+
+    return {
+      ...result.data,
+      stats: readStatsFromDisk(result.data.stats),
+    };
   } catch {
     // Invalid JSON or read error - return null to create new session
     return null;
@@ -68,14 +131,18 @@ export function readSessionFromDisk(): PersistedSession | null {
  * Delete session file from disk
  */
 export function deleteSessionFile(): boolean {
-  if (!existsSync(SESSION_FILE)) {
-    return false;
+  let deleted = false;
+
+  for (const file of [SESSION_FILE, STATS_FILE]) {
+    if (!existsSync(file)) continue;
+
+    try {
+      unlinkSync(file);
+      deleted = true;
+    } catch {
+      return false;
+    }
   }
 
-  try {
-    unlinkSync(SESSION_FILE);
-    return true;
-  } catch {
-    return false;
-  }
+  return deleted;
 }

@@ -7,10 +7,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 
-import {
-  BulkLSPGotoDefinitionSchema,
-  LSP_GOTO_DEFINITION_DESCRIPTION,
-} from '@octocodeai/octocode-core';
+import { LSP_GOTO_DEFINITION_DESCRIPTION } from '@octocodeai/octocode-core';
+import { BulkLSPGotoDefinitionQuerySchema } from '../../scheme/lspSchemaOverlay.js';
 import { executeGotoDefinition, TOOL_NAME } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LspGotoDefinitionOutputSchema } from '@octocodeai/octocode-core';
@@ -23,7 +21,7 @@ export function registerLSPGotoDefinitionTool(server: McpServer) {
     TOOL_NAME,
     {
       description: LSP_GOTO_DEFINITION_DESCRIPTION,
-      inputSchema: toMCPSchema(BulkLSPGotoDefinitionSchema),
+      inputSchema: toMCPSchema(BulkLSPGotoDefinitionQuerySchema),
       outputSchema: toMCPSchema(LspGotoDefinitionOutputSchema),
       annotations: {
         title: 'Go To Definition',

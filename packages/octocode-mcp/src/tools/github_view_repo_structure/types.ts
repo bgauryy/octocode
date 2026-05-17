@@ -22,6 +22,7 @@ export interface GitHubRepositoryStructureResult {
   pagination?: PaginationInfo;
   hints?: string[];
   _cachedItems?: { path: string; type: 'file' | 'dir' }[];
+  rawResponseChars?: number;
 }
 
 export interface GitHubRepositoryStructureError {
@@ -31,4 +32,6 @@ export interface GitHubRepositoryStructureError {
   defaultBranch?: string;
   rateLimitRemaining?: number;
   rateLimitReset?: number;
+  retryAfter?: number;
+  hints?: string[];
 }

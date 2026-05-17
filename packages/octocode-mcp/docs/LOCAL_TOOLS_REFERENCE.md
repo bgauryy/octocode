@@ -60,6 +60,22 @@ If a language server is not installed, the tool returns a helpful error with ins
 
 ---
 
+## Platform Support
+
+Octocode ships its own ripgrep binary via `@vscode/ripgrep`, so `localSearchCode`
+works the same on macOS, Linux, and Windows with no extra installation. There is
+**no `grep` fallback** — if the bundled binary fails to load, the tool returns a
+single, actionable error pointing at reinstall / system `rg` install steps.
+
+LSP tools (`lspGotoDefinition`, `lspFindReferences`, `lspCallHierarchy`) and
+`localGetFileContent` are pure Node.js and run on all three platforms. LSP
+clients are managed by a per-project pool that keeps language servers warm
+across requests — callers never spawn or stop a client directly.
+
+`localFindFiles` and `localViewStructure` use POSIX `find` and `ls`. They work
+on macOS and Linux out of the box; on Windows install Git Bash or WSL, or use
+`localSearchCode` instead (e.g. `localSearchCode(filesOnly=true, ...)`).
+
 ## Overview
 
 Octocode MCP provides **7 tools** across 2 categories for code research and exploration:
@@ -122,24 +138,47 @@ All local and LSP tools support the same size-aware continuation contract.
   - `responsePagination`: top-level bulk response pagination metadata
 - Default budget: oversized responses auto-page at `output.pagination.defaultCharLength`, which defaults to `8000` unless overridden in config or per request.
 
+## Universal `verbosity`
+
+Every local and LSP tool accepts `verbosity`. Choose it by cost:
+
+| Value | Use when | Returns | Drops |
+|---|---|---|---|
+| _omitted_ / `"compact"` | Default for normal work and follow-up `lineHint`s. | Actionable paths, lines, snippets/entries, metadata, pagination, and `lspMode` where relevant. | Nothing. |
+| `"verbose"` | Rarely. Currently only for future expansion. | Same as `compact` today. | Nothing, but it does not add value yet. |
+| `"ultra"` | First pass over broad or large scopes. | Counts, summary, top path/line or graph edge hints, plus drill-back guidance. | Heavy arrays/content such as `files[]`, `entries[]`, snippets, node content, or call arrays. |
+
+Default strategy: probe with `ultra`; if the signal matters, re-call with `compact` scoped to the returned path, line, file page, or include pattern.
+
+```jsonc
+// Cheap existence probe
+{ "queries": [{ "pattern": "parseHints", "path": "./", "verbosity": "ultra" }] }
+// -> "5 matches in 3 files (top: src/hints/parseHints.ts:12)"
+
+// Drill back for exact matches and line hints
+{ "queries": [{ "pattern": "parseHints", "path": "src/hints/parseHints.ts", "verbosity": "compact" }] }
+```
+
+For the longer design rationale, see [RFC §3.1](https://github.com/bgauryy/octocode-mcp/blob/main/.octocode/rfc/rtk-token-techniques/RFC.md#31-what-this-rfc-costs--friction-lossy-modes-and-the-agent-decides-design).
+
 ## Tools at a Glance
 
 ### Local Tools
 
-| Tool | Description |
-|------|-------------|
-| **`localSearchCode`** | Fast pattern search across files using ripgrep. Returns matches with line numbers and context. Produces `lineHint` for LSP tools. |
-| **`localViewStructure`** | Lists directory contents with metadata (size, type, time). Supports depth control and sorting. |
-| **`localFindFiles`** | Finds files by name, type, size, or modification time using recursive metadata search. |
-| **`localGetFileContent`** | Reads file content with line ranges or match-based extraction. **Use as LAST step.** |
+| Tool | Description | `verbosity:"ultra"` payload |
+|------|-------------|------------------------------|
+| **`localSearchCode`** | Fast pattern search across files using ripgrep. Returns matches with line numbers and context. Produces `lineHint` for LSP tools. | `"N matches in M files (top: path:line)"` |
+| **`localViewStructure`** | Lists directory contents with metadata (size, type, time). Supports depth control and sorting. | `"X entries (Y files, Z dirs, size)"` |
+| **`localFindFiles`** | Finds files by name, type, size, or modification time using recursive metadata search. | `"N files in M dirs (newest: path)"` |
+| **`localGetFileContent`** | Reads file content with line ranges or match-based extraction. **Use as LAST step.** | `"path: N lines, ~T tokens raw"` |
 
 ### LSP Tools
 
-| Tool | Description |
-|------|-------------|
-| **`lspGotoDefinition`** | Jumps to where a symbol is defined. Requires `lineHint` from search. |
-| **`lspFindReferences`** | Finds all usages of a symbol (types, variables, constants). Requires `lineHint`. |
-| **`lspCallHierarchy`** | Traces function call relationships (incoming/outgoing callers). Requires `lineHint`. |
+| Tool | Description | `verbosity:"ultra"` payload |
+|------|-------------|------------------------------|
+| **`lspGotoDefinition`** | Jumps to where a symbol is defined. Requires `lineHint` from search. | `"N definition(s) (top: file:line:col)"` |
+| **`lspFindReferences`** | Finds all usages of a symbol (types, variables, constants). Requires `lineHint`. | `"N refs in M files"` + flat `refs[]` (< 500) or `topFiles` rollup (≥ 500). Force rollup any fanout with `groupByFile:true`. |
+| **`lspCallHierarchy`** | Traces function call relationships (incoming/outgoing callers). Requires `lineHint`. | `"N incoming/outgoing edge(s) for symbol"` + `edges: a → b (×n); …` |
 
 ### Quick Decision Guide
 
@@ -348,109 +387,40 @@ Cannot combine `matchString` with `startLine`/`endLine`, or `fullContent` with e
 
 ## LSP Tools (Detailed)
 
-Semantic code intelligence tools that understand language structure. **All require `lineHint` from `localSearchCode`.**
+Semantic tools understand imports, definitions, references, and call graphs. Always run `localSearchCode` first to get a 1-indexed `lineHint`; then call the LSP tool with the exact `symbolName`.
 
-Local tools must be enabled (`ENABLE_LOCAL` / `local.enabled`) for LSP tools to be available.
+TypeScript/JavaScript works out of the box in standard Octocode installs. Other languages need their language server installed. Project root selection is automatic: files inside `WORKSPACE_ROOT` use it; external paths infer the nearest project root.
 
-### How LSP Works
+### LSP Tool Ratings
 
-```
-MCP Client → Octocode MCP → Language Server (spawned)
-               │                    │
-               └── JSON-RPC over stdio ──┘
-```
+| Tool | Rating | Best for | Output shape | Caveat |
+|---|---:|---|---|---|
+| `lspGotoDefinition` | 10/10 | Jumping from a symbol usage/import to the real definition. | Definition `locations[]`, ranges, snippets in `compact`, `lspMode`. `ultra` keeps count + top path:line:column and empties content. | Needs exact symbol + `lineHint`. |
+| `lspFindReferences` | 10/10 | All usages of types, interfaces, variables, constants, and functions. | Reference `locations[]`, `isDefinition`, pagination, `lspMode`. `ultra` returns ref counts + path:line refs or `groupByFile` rollup. | Use `lspCallHierarchy` for true call relationships. |
+| `lspCallHierarchy` | 8/10 | Function/method flow: who calls X, what X calls. | Target item + incoming/outgoing calls and call ranges. `ultra` returns compact `A -> B` edges and empties node content. | `compact` can be large for module-level callers; prefer `ultra` first, then drill back. |
 
-- **No IDE required** - Works standalone via spawned language servers
-- **TypeScript/JavaScript bundled** - Works out-of-box in standard Octocode installs; otherwise set `OCTOCODE_TS_SERVER_PATH` or install the server on `PATH`
-- **30+ languages supported** - Python, Go, Rust, Java, etc. (requires server installation)
-- **Automatic project root selection** - Uses `WORKSPACE_ROOT` when the file is inside it, otherwise infers the nearest project root from the target file path
+### Choosing the Right LSP Tool
 
-### `lspGotoDefinition`
+| Question | Tool | Direction / option |
+|---|---|---|
+| Where is X defined? | `lspGotoDefinition` | n/a |
+| Everywhere X is used? | `lspFindReferences` | `includeDeclaration=true` if you want the definition too |
+| Who calls function X? | `lspCallHierarchy` | `direction="incoming"` |
+| What does function X call? | `lspCallHierarchy` | `direction="outgoing"` |
 
-**What it does:** Jump to where a symbol is defined.
+### Required Parameters
 
-| Feature | Description |
-|---------|-------------|
-| **Semantic accuracy** | Ignores comments, strings, similar names |
-| **Cross-file** | Traces imports and definitions |
-| **Context** | Returns surrounding code |
+All LSP tools require:
 
-**Key parameters:**
-- `uri` (required): File containing the symbol
-- `symbolName` (required): Exact symbol name (case-sensitive, max 255 chars)
-- `lineHint` (required): Line number from `localSearchCode` (1-indexed)
-- `orderHint`: Which code occurrence on the exact line if multiple (0-indexed, default: 0). String/comment text matches are ignored.
-- `contextLines`: Lines of context around definition (default: 5, max: 20)
-- `charOffset`: Character offset for output pagination (min: 0)
-- `charLength`: Character length for output pagination window (min: 1, max: 50000)
+- `uri`: file containing the symbol
+- `symbolName`: exact, case-sensitive symbol text
+- `lineHint`: 1-indexed line from `localSearchCode`
 
-**Use when:** "Where is this function/class/variable defined?"
+Use `orderHint` only when the same symbol appears multiple times on the same line. Use pagination fields (`page`, `referencesPerPage`, `callsPerPage`, `charOffset`, `charLength`) when results are large.
 
----
+### Security
 
-### `lspFindReferences`
-
-**What it does:** Find all usages of a symbol across the codebase.
-
-| Feature | Description |
-|---------|-------------|
-| **Complete coverage** | All usages, not just text matches |
-| **Pagination** | Handle large result sets |
-| **Include declaration** | Optionally include the definition |
-
-**Key parameters:**
-- `uri` (required): File containing the symbol
-- `symbolName` (required): Exact symbol name (max 255 chars)
-- `lineHint` (required): Line number from search
-- `orderHint`: Which occurrence on line if multiple (0-indexed, default: 0)
-- `includeDeclaration`: Include definition in results (default: true)
-- `contextLines`: Lines of context (default: 2, max: 10)
-- `referencesPerPage`: Results per page (default: 20, max: 50)
-- `page`: Page number (default: 1)
-- `includePattern`: Filter results to files matching these glob patterns (array)
-- `excludePattern`: Exclude results from files matching these glob patterns (array)
-
-**Use when:** "Who uses this type/interface/variable/constant?"
-
----
-
-### `lspCallHierarchy`
-
-**What it does:** Trace function call relationships (call graph).
-
-| Feature | Description |
-|---------|-------------|
-| **Incoming calls** | "Who calls this function?" |
-| **Outgoing calls** | "What does this function call?" |
-| **Recursive depth** | Traverse 1-3 levels deep |
-
-**Key parameters:**
-- `uri` (required): File containing the function
-- `symbolName` (required): Function name (max 255 chars)
-- `lineHint` (required): Line number from search
-- `direction` (required): `incoming` or `outgoing`
-- `orderHint`: Which occurrence on line if multiple (0-indexed, default: 0)
-- `depth`: Recursion depth (1-3, default: 1)
-- `contextLines`: Lines of context (default: 2, max: 10)
-- `callsPerPage`: Results per page (default: 15, max: 30)
-- `page`: Page number (default: 1)
-- `charOffset`: Character offset for pagination (min: 0)
-- `charLength`: Character length for pagination (min: 1, max: 50000)
-
-**Use when:** "Trace the call flow" / "Who calls X?" / "What does X call?"
-
-### LSP Security
-
-- **Symlink Resolution**: Paths resolved before access to prevent traversal attacks
-- **Allowed Roots**: Workspace directory + `~/.octocode/` (for cloned repos) are the allowed path roots
-- **Symbol Name Length**: Limited to 255 characters
-- **Depth Parameter**: Capped at 3 to prevent resource exhaustion
-- **Path Redaction**: Paths are always redacted in errors for security
-- **Workspace Root Resolution**: LSP tools keep `WORKSPACE_ROOT` for files inside it, and otherwise infer the nearest project root from the target file path before spawning language servers or running fallback search
-
-> LSP tools work standalone - no IDE required. TypeScript/JavaScript bundled; other languages need server installation.
-
----
+LSP file reads stay inside allowed roots, resolve symlinks before access, redact paths in errors, cap symbol length, and cap call hierarchy depth at 3.
 
 ## LSP Troubleshooting
 

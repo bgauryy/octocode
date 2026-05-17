@@ -14,7 +14,7 @@ vi.mock('fs/promises', () => ({
 // Mock LSP client creation
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn(),
+  acquirePooledClient: vi.fn(),
 }));
 
 // Mock hints
@@ -80,7 +80,7 @@ vi.mock(
 
 // Import after mocks
 import * as fs from 'fs/promises';
-import { createClient } from '../../src/lsp/manager.js';
+import { acquirePooledClient } from '../../src/lsp/manager.js';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { findReferencesWithLSP } from '../../src/tools/lsp_find_references/lspReferencesCore.js';
 import { executeCallHierarchy } from '../../src/tools/lsp_call_hierarchy/execution.js';
@@ -106,7 +106,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
         stop: vi.fn().mockResolvedValue(undefined),
       };
 
-      vi.mocked(createClient).mockResolvedValue(mockClient as any);
+      vi.mocked(acquirePooledClient).mockResolvedValue(mockClient as any);
 
       const query: LSPFindReferencesQuery = {
         uri: '/workspace/src/file.ts',
@@ -126,7 +126,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(result).not.toBeNull();
       expect(result?.status).toBe('empty');
       expect(mockClient.findReferences).toHaveBeenCalled();
-      expect(mockClient.stop).toHaveBeenCalled();
+      expect(mockClient.stop).not.toHaveBeenCalled();
     });
 
     it('should return empty result when LSP returns null locations (line 47)', async () => {
@@ -135,7 +135,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
         stop: vi.fn().mockResolvedValue(undefined),
       };
 
-      vi.mocked(createClient).mockResolvedValue(mockClient as any);
+      vi.mocked(acquirePooledClient).mockResolvedValue(mockClient as any);
 
       const query: LSPFindReferencesQuery = {
         uri: '/workspace/src/file.ts',
@@ -154,7 +154,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       expect(result).not.toBeNull();
       expect(result?.status).toBe('empty');
-      expect(mockClient.stop).toHaveBeenCalled();
+      expect(mockClient.stop).not.toHaveBeenCalled();
     });
 
     it('should set hasMultipleFiles from the full result set even when page 1 has one reference', async () => {
@@ -180,7 +180,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
         stop: vi.fn().mockResolvedValue(undefined),
       };
 
-      vi.mocked(createClient).mockResolvedValue(mockClient as any);
+      vi.mocked(acquirePooledClient).mockResolvedValue(mockClient as any);
       vi.mocked(fs.readFile).mockResolvedValue('test content');
 
       const query: LSPFindReferencesQuery = {
@@ -207,7 +207,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(result?.hints).toContainEqual(
         expect.stringContaining('References span 2 files')
       );
-      expect(mockClient.stop).toHaveBeenCalled();
+      expect(mockClient.stop).not.toHaveBeenCalled();
     });
 
     it('should filter out definition when includeDeclaration is false (line 139)', async () => {
@@ -235,7 +235,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
         stop: vi.fn().mockResolvedValue(undefined),
       };
 
-      vi.mocked(createClient).mockResolvedValue(mockClient as any);
+      vi.mocked(acquirePooledClient).mockResolvedValue(mockClient as any);
       vi.mocked(fs.readFile).mockResolvedValue('test content');
 
       const query: LSPFindReferencesQuery = {

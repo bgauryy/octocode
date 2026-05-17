@@ -8,12 +8,12 @@
 
 import { getBitbucketClient } from './client.js';
 import { handleBitbucketAPIError, createBitbucketError } from './errors.js';
-import type {
-  BitbucketAPIResponse,
-  BitbucketPaginatedResponse,
-  BitbucketRepository,
-} from './types.js';
+import type { BitbucketAPIResponse, BitbucketRepository } from './types.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import {
+  isBitbucketRepository,
+  parseBitbucketPaginatedResponse,
+} from './responseGuards.js';
 
 interface BitbucketRepoSearchQuery {
   workspace: string;
@@ -101,9 +101,17 @@ export async function searchBitbucketReposAPI(
           },
         });
 
-        const paginated =
-          data as unknown as BitbucketPaginatedResponse<BitbucketRepository>;
-        const repos = paginated?.values || [];
+        const paginated = parseBitbucketPaginatedResponse(
+          data,
+          isBitbucketRepository
+        );
+        if (!paginated) {
+          return createBitbucketError(
+            'Unexpected Bitbucket repository response shape.',
+            502
+          );
+        }
+        const repos = paginated.values;
         const size = paginated?.size || repos.length;
         const pagelen = params.limit || 10;
 

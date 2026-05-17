@@ -1,6 +1,6 @@
 {
   "name": "octocode-mcp",
-  "version": "14.1.2",
+  "version": "14.2.0",
   "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
   "keywords": [
     "ai-tools",
@@ -59,8 +59,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "yarn clean && node build.mjs && (tsc --emitDeclarationOnly -p tsconfig.build.json || true)",
-    "build:dev": "node build.mjs && (tsc --emitDeclarationOnly -p tsconfig.build.json || true)",
+    "build": "yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:dev": "node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
     "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64",
@@ -97,6 +97,7 @@
   "dependencies": {
     "@coderabbitai/bitbucket": "^1.1.4",
     "@octocodeai/octocode-core": "^1.0.2",
+    "@vscode/ripgrep": "^1.18.0",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.1.3"
   },

@@ -76,6 +76,13 @@ export const RESOURCE_LIMITS = {
   MAX_FILE_COUNT_FOR_SEARCH: 1000,
   /** Estimated average file size in bytes for directory size estimation (50KB) */
   ESTIMATED_AVG_FILE_SIZE_BYTES: 50 * 1024,
+  /**
+   * Post-flight (ripgrep stdout length) threshold for emitting the
+   * "narrow your search" hint. Picked at 1.5MB so we stay below
+   * MAX_LOCAL_TOOL_OUTPUT_BYTES (10MB) while still nudging agents to
+   * paginate before the response gets unwieldy.
+   */
+  LARGE_RESULT_BYTES_HINT: 1.5 * 1024 * 1024,
 
   /** Maximum bytes to process in binary operations */
   BINARY_MAX_BYTES: 10 * 1024,

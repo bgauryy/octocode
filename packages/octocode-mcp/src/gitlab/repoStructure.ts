@@ -11,12 +11,16 @@ import type {
   GitLabAPIResponse,
   GitLabTreeQuery,
   GitLabTreeItem,
-  GitLabProject,
 } from './types.js';
 import { getGitlab } from './client.js';
 import { handleGitLabAPIError, createGitLabError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { shouldIgnoreDir, shouldIgnoreFile } from '../utils/file/filters.js';
+import {
+  isGitLabProject,
+  isGitLabTreeItem,
+  parseGitLabArray,
+} from './responseGuards.js';
 
 /**
  * Repository structure result.
@@ -93,9 +97,10 @@ async function fetchGitLabTreeFull(
   try {
     const gitlab = await getGitlab();
 
-    const project = (await gitlab.Projects.show(
-      params.projectId
-    )) as unknown as GitLabProject;
+    const project = await gitlab.Projects.show(params.projectId);
+    if (!isGitLabProject(project)) {
+      return createGitLabError('Unexpected GitLab project response shape', 502);
+    }
     const workingRef = params.ref || project.default_branch || 'main';
 
     const treeOptions: Record<string, unknown> = {
@@ -111,10 +116,19 @@ async function fetchGitLabTreeFull(
       }
     });
 
-    const allItems = (await gitlab.Repositories.allRepositoryTrees(
-      params.projectId,
-      treeOptions
-    )) as unknown as GitLabTreeItem[];
+    const allItems = parseGitLabArray(
+      await gitlab.Repositories.allRepositoryTrees(
+        params.projectId,
+        treeOptions
+      ),
+      isGitLabTreeItem
+    );
+    if (!allItems) {
+      return createGitLabError(
+        'Unexpected GitLab repository tree response shape',
+        502
+      );
+    }
 
     const filteredItems = allItems.filter(item => {
       if (item.type === 'tree') {

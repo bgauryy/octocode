@@ -39,7 +39,7 @@ vi.mock('../../src/lsp/resolver.js', () => {
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn().mockResolvedValue(null),
+  acquirePooledClient: vi.fn().mockResolvedValue(null),
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
@@ -78,7 +78,7 @@ export interface Config {
 
     // Default: LSP not available
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
-    vi.mocked(managerModule.createClient).mockResolvedValue(null);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
     // Restore SymbolResolver mock (reset by vi.resetAllMocks in afterEach)
     // Must use regular function (not arrow) because it's called with `new`
@@ -338,7 +338,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockResolvedValue([]),
       } as any);
@@ -391,7 +391,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockResolvedValue([
           {
@@ -443,7 +443,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockResolvedValue([
           {
@@ -520,6 +520,34 @@ export interface Config {
 
       expect(result).toBeDefined();
       expect(result.content?.length).toBeGreaterThan(0);
+    });
+
+    it('should explain fallback when available LSP throws', async () => {
+      process.env.WORKSPACE_ROOT = process.cwd();
+      const testPath = `${process.cwd()}/src/test.ts`;
+      vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
+        true
+      );
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
+        gotoDefinition: vi.fn().mockRejectedValue(new Error('tsserver boom')),
+      } as any);
+
+      const handler = createHandler();
+      const result = await handler({
+        queries: [
+          {
+            uri: testPath,
+            symbolName: 'testFunction',
+            lineHint: 4,
+            researchGoal: 'Find def',
+            reasoning: 'Testing observable LSP fallback',
+          },
+        ],
+      });
+
+      const text = result.content?.[0]?.text ?? '';
+      expect(text).toContain('lspMode: "fallback"');
+      expect(text).toContain('LSP semantic lookup failed; using text fallback');
     });
   });
 
@@ -618,7 +646,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -676,7 +704,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockResolvedValue([]),
       } as any);
@@ -807,7 +835,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -868,7 +896,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -920,7 +948,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -971,7 +999,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -1024,7 +1052,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -1085,7 +1113,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -1151,7 +1179,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);
@@ -1221,7 +1249,7 @@ export interface Config {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: mockGotoDefinition,
       } as any);

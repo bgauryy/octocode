@@ -40,7 +40,7 @@ vi.mock('../../src/lsp/resolver.js', () => {
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn().mockResolvedValue(null),
+  acquirePooledClient: vi.fn().mockResolvedValue(null),
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
@@ -664,7 +664,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         false
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue(null);
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
       // Default SymbolResolver mock
       vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
@@ -755,8 +755,8 @@ describe('LSP Goto Definition Coverage Tests', () => {
         true
       );
 
-      // Make createClient return a client that throws on gotoDefinition
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      // Make acquirePooledClient return a client that throws on gotoDefinition
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockRejectedValue(new Error('LSP timeout')),
       } as any);
@@ -789,8 +789,8 @@ describe('LSP Goto Definition Coverage Tests', () => {
         true
       );
 
-      // Make createClient return a client that returns empty locations
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      // Make acquirePooledClient return a client that returns empty locations
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockResolvedValue([]),
       } as any);
@@ -825,7 +825,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
         true
       );
 
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         gotoDefinition: vi.fn().mockResolvedValue(null),
       } as any);
@@ -848,7 +848,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
       expect(text).toContain('empty');
     });
 
-    it('should fallback to text resolution when createClient returns null', async () => {
+    it('should fallback to text resolution when acquirePooledClient returns null', async () => {
       // gotoDefinitionWithLSP returns null when client is null (line 218)
       process.env.WORKSPACE_ROOT = process.cwd();
       const testPath = `${process.cwd()}/src/test.ts`;
@@ -857,7 +857,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue(null);
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
       const handler = await createHandler();
       const result = await handler({
@@ -867,7 +867,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
             symbolName: 'test',
             lineHint: 1,
             researchGoal: 'Find def',
-            reasoning: 'Test createClient null fallback',
+            reasoning: 'Test acquirePooledClient null fallback',
           },
         ],
       });

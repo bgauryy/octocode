@@ -7,8 +7,8 @@ import { toMCPSchema } from '../../types/toolTypes.js';
 import { withSecurityValidation } from '../../utils/securityBridge.js';
 import type { ToolInvocationCallback } from '../../types.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
-import { PackageSearchBulkQuerySchema } from '@octocodeai/octocode-core';
 import type { PackageSearchQuery } from '@octocodeai/octocode-core';
+import { PackageSearchBulkQueryLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
 import { invokeCallbackSafely } from '../utils.js';
 import { checkNpmAvailability } from '../../utils/exec/npm.js';
 import { checkNpmRegistryReachable } from '../../utils/package/npm.js';
@@ -33,7 +33,7 @@ export async function registerPackageSearchTool(
     TOOL_NAMES.PACKAGE_SEARCH,
     {
       description: DESCRIPTIONS[TOOL_NAMES.PACKAGE_SEARCH],
-      inputSchema: toMCPSchema(PackageSearchBulkQuerySchema),
+      inputSchema: toMCPSchema(PackageSearchBulkQueryLocalSchema),
       outputSchema: toMCPSchema(PackageSearchOutputSchema),
       annotations: {
         title: 'Package Search',

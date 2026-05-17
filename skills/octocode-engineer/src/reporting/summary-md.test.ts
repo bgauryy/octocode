@@ -629,6 +629,54 @@ describe('computeQualityAspectRatings', () => {
     expect(folderAspect!.score).toBeGreaterThanOrEqual(85);
   });
 
+  it('penalizes leaf folders that accumulate too many files', () => {
+    const result = computeQualityAspectRatings([], {
+      fileInventory: [
+        ...Array.from({ length: 30 }, (_, index) =>
+          makeFileEntry({ file: `src/core/module-${index}.ts` })
+        ),
+        ...Array.from({ length: 5 }, (_, index) =>
+          makeFileEntry({ file: `src/api/route-${index}.ts` })
+        ),
+      ],
+    });
+
+    const folderAspect = result.aspects.find(
+      aspect => aspect.aspect === 'folder-topology'
+    );
+    expect(folderAspect).toBeDefined();
+    expect(folderAspect!.score).toBeLessThan(85);
+    expect(folderAspect!.signals).toContainEqual(
+      expect.objectContaining({
+        label: 'Bloated folders',
+        value: '1/2',
+        effect: 'negative',
+      })
+    );
+  });
+
+  it('includes folder naming consistency in codebase consistency', () => {
+    const result = computeQualityAspectRatings([], {
+      fileInventory: [
+        makeFileEntry({ file: 'src/user-profile/loadUser.ts' }),
+        makeFileEntry({ file: 'src/user_profile/saveUser.ts' }),
+        makeFileEntry({ file: 'src/UserProfile/listUser.ts' }),
+      ],
+    });
+
+    const consistencyAspect = result.aspects.find(
+      aspect => aspect.aspect === 'codebase-consistency'
+    );
+    expect(consistencyAspect).toBeDefined();
+    expect(consistencyAspect!.signals).toContainEqual(
+      expect.objectContaining({
+        label: 'Dominant folder naming style',
+        value: '33%',
+        effect: 'negative',
+      })
+    );
+  });
+
   it('ignores generated and minified paths in hybrid quality rating by default', () => {
     const result = computeQualityAspectRatings(
       [

@@ -4,7 +4,9 @@
 
 import { readFile } from 'node:fs/promises';
 import { getHints } from '../../hints/index.js';
-import { createClient } from '../../lsp/manager.js';
+import { acquirePooledClient } from '../../lsp/manager.js';
+import type { LSPClient } from '../../lsp/client.js';
+import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
 import type {
   CallHierarchyResult,
   CallHierarchyItem,
@@ -33,7 +35,9 @@ export async function callHierarchyWithLSP(
   query: LSPCallHierarchyQuery,
   content: string
 ): Promise<CallHierarchyResult | null> {
-  const client = await createClient(workspaceRoot, filePath);
+  // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it
+  // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).
+  const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
   try {
@@ -55,6 +59,7 @@ export async function callHierarchyWithLSP(
         status: 'empty',
         error: 'No callable symbol found at position',
         errorType: 'symbol_not_found',
+        errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
         direction: query.direction,
         depth: query.depth ?? 1,
         hints: [
@@ -100,10 +105,7 @@ export async function callHierarchyWithLSP(
           depth,
           incomingCalls: [],
           hints: [
-            ...getHints(TOOL_NAME, 'empty', { direction: 'incoming' } as Record<
-              string,
-              unknown
-            >),
+            ...getHints(TOOL_NAME, 'empty', { direction: 'incoming' }),
             `No callers found for '${query.symbolName}' via Language Server`,
             'The function may not be called directly in the workspace',
             'Check if it is called via alias or dynamic invocation',
@@ -130,7 +132,7 @@ export async function callHierarchyWithLSP(
           hints: [
             ...getHints(TOOL_NAME, 'empty', {
               direction: 'incoming',
-            } as Record<string, unknown>),
+            }),
             `Requested page ${page} is outside available range (1-${totalPages}).`,
             `Use page=${totalPages} for the last available page.`,
           ],
@@ -163,7 +165,7 @@ export async function callHierarchyWithLSP(
             hasMorePages: pagination ? pagination.totalPages > 1 : false,
             currentPage: pagination?.currentPage,
             totalPages: pagination?.totalPages,
-          } as Record<string, unknown>),
+          }),
           `Found ${allIncomingCalls.length} caller(s) via Language Server (depth ${depth})`,
           'Each incomingCall.from = a function that calls this symbol; fromRanges = exact call sites',
           'Use lspGotoDefinition to navigate to each caller',
@@ -190,10 +192,7 @@ export async function callHierarchyWithLSP(
           depth,
           outgoingCalls: [],
           hints: [
-            ...getHints(TOOL_NAME, 'empty', { direction: 'outgoing' } as Record<
-              string,
-              unknown
-            >),
+            ...getHints(TOOL_NAME, 'empty', { direction: 'outgoing' }),
             `No callees found in '${query.symbolName}' via Language Server`,
             'The function may only contain primitive operations',
             'Check if calls use dynamic invocation patterns',
@@ -219,7 +218,7 @@ export async function callHierarchyWithLSP(
           hints: [
             ...getHints(TOOL_NAME, 'empty', {
               direction: 'outgoing',
-            } as Record<string, unknown>),
+            }),
             `Requested page ${page} is outside available range (1-${totalPages}).`,
             `Use page=${totalPages} for the last available page.`,
           ],
@@ -252,7 +251,7 @@ export async function callHierarchyWithLSP(
             hasMorePages: pagination ? pagination.totalPages > 1 : false,
             currentPage: pagination?.currentPage,
             totalPages: pagination?.totalPages,
-          } as Record<string, unknown>),
+          }),
           `Found ${allOutgoingCalls.length} callee(s) via Language Server (depth ${depth})`,
           'Each outgoingCall.to = a function called by this symbol; fromRanges = exact call sites',
           'Use lspGotoDefinition to navigate to each callee',
@@ -261,10 +260,9 @@ export async function callHierarchyWithLSP(
     }
   } catch {
     // Preserve existing fallback contract: caller falls back to pattern matching
-    // when LSP path fails for any reason.
+    // when LSP path fails for any reason. The pool owns lifecycle, so no
+    // stop() call here — idle eviction handles teardown.
     return null;
-  } finally {
-    await client.stop();
   }
 }
 
@@ -273,7 +271,7 @@ export async function callHierarchyWithLSP(
  * Returns a flattened list of all callers up to the specified depth.
  */
 export async function gatherIncomingCallsRecursive(
-  client: Awaited<ReturnType<typeof createClient>>,
+  client: LSPClient | null,
   item: CallHierarchyItem,
   remainingDepth: number,
   visited: Set<string>,
@@ -324,7 +322,7 @@ export async function gatherIncomingCallsRecursive(
  * Returns a flattened list of all callees up to the specified depth.
  */
 export async function gatherOutgoingCallsRecursive(
-  client: Awaited<ReturnType<typeof createClient>>,
+  client: LSPClient | null,
   item: CallHierarchyItem,
   remainingDepth: number,
   visited: Set<string>,
@@ -375,7 +373,7 @@ export async function gatherOutgoingCallsRecursive(
  * try gotoDefinition to follow to the actual declaration and retry.
  */
 async function tryFollowToDefinition(
-  client: NonNullable<Awaited<ReturnType<typeof createClient>>>,
+  client: LSPClient,
   filePath: string,
   position: ExactPosition
 ): Promise<{
@@ -424,8 +422,8 @@ function stripCallHierarchyInternalFields(
   result: CallHierarchyResult
 ): CallHierarchyResult {
   const stripItem = (item: CallHierarchyItem): CallHierarchyItem => {
-    const { selectionRange, displayRange, ...rest } = item;
-    return rest as CallHierarchyItem;
+    const { selectionRange: _sel, displayRange: _disp, ...rest } = item;
+    return rest;
   };
 
   return {

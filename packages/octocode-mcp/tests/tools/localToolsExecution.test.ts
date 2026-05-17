@@ -50,9 +50,30 @@ const mockSafeParse = (query: object) => ({
 vi.mock('@octocodeai/octocode-core', async importOriginal => ({
   ...(await importOriginal<object>()),
   FetchContentQuerySchema: { safeParse: mockSafeParse },
-  FindFilesQuerySchema: { safeParse: mockSafeParse },
+}));
+
+// localSchemaOverlay re-publishes the ripgrep/find/view schemas with relaxed
+// caps. Stub the overlay so tests can verify orchestration without exercising Zod.
+vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   RipgrepQuerySchema: { safeParse: mockSafeParse },
+  FindFilesQuerySchema: { safeParse: mockSafeParse },
   ViewStructureQuerySchema: { safeParse: mockSafeParse },
+  FetchContentQuerySchema: { safeParse: mockSafeParse },
+  BulkRipgrepQuerySchema: {},
+  BulkFindFilesSchema: {},
+  BulkViewStructureSchema: {},
+  BulkFetchContentQuerySchema: {},
+  VERBOSITY_VALUES: ['compact', 'verbose', 'ultra'] as const,
+  verbosityField: {},
+  isUltra: (_v: unknown) => false,
+  ultraDrillBackHint: (_s: string) => [] as string[],
+}));
+
+// Verbosity helper module — stub `isUltra` so handler stays on default path
+// when tests don't pass verbosity (preserves byte-identical behaviour).
+vi.mock('../../src/scheme/verbosity.js', () => ({
+  isUltra: (v: unknown) => v === 'ultra',
+  ultraDrillBackHint: (s: string) => [`Drill-back: ${s}`],
 }));
 
 describe('Local Tools Execution', () => {

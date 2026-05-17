@@ -1344,6 +1344,56 @@ describe('GitLabProvider', () => {
         expect(result.data!.items[0]!.comments).toBeUndefined();
       });
 
+      it('should log rate limits from optional comments enrichment', async () => {
+        const mockMRResponse = {
+          data: {
+            mergeRequests: [
+              {
+                iid: 1,
+                title: 'MR',
+                description: 'Test',
+                web_url: 'https://gitlab.com/mr/1',
+                state: 'opened',
+                author: { username: 'dev' },
+                source_branch: 'feature',
+                target_branch: 'main',
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+              },
+            ],
+            pagination: { hasMore: false },
+          },
+          status: 200,
+        } as MockMRResponse;
+
+        vi.mocked(searchGitLabMergeRequestsAPI).mockResolvedValue(
+          mockMRResponse
+        );
+        vi.mocked(getGitLabMRNotes).mockResolvedValue({
+          error: 'Rate limited',
+          status: 429,
+          type: 'http',
+          rateLimitRemaining: 0,
+          rateLimitReset: 1700000000,
+          retryAfter: 30,
+        } as any);
+
+        const result = await provider.searchPullRequests({
+          projectId: '123',
+          withComments: true,
+        });
+
+        expect(result.status).toBe(200);
+        expect(result.data!.items[0]!.comments).toBeUndefined();
+        expect(mockLogRateLimit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            provider: 'gitlab',
+            retry_after_seconds: 30,
+            rate_limit_remaining: 0,
+          })
+        );
+      });
+
       it('should handle notes response without data', async () => {
         const mockMRResponse = {
           data: {

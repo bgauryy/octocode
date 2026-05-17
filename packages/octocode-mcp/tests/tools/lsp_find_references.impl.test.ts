@@ -53,7 +53,7 @@ vi.mock('../../src/lsp/resolver.js', () => {
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn().mockResolvedValue(null),
+  acquirePooledClient: vi.fn().mockResolvedValue(null),
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
@@ -93,7 +93,7 @@ export function anotherFunction() {
 
     // Default: LSP not available
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
-    vi.mocked(managerModule.createClient).mockResolvedValue(null);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
     // Restore SymbolResolver mock (reset by vi.resetAllMocks in afterEach)
     // Must use regular function (not arrow) because it's called with `new`
@@ -377,7 +377,7 @@ export function anotherFunction() {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue(
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(
         mockClient as any
       );
 
@@ -397,6 +397,37 @@ export function anotherFunction() {
       expect(result).toBeDefined();
     });
 
+    it('should explain fallback when available LSP returns no references', async () => {
+      process.env.WORKSPACE_ROOT = process.cwd();
+      const testPath = `${process.cwd()}/src/test.ts`;
+      vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
+        true
+      );
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
+        stop: vi.fn(),
+        findReferences: vi.fn().mockResolvedValue([]),
+      } as any);
+
+      const handler = createHandler();
+      const result = await handler({
+        queries: [
+          {
+            uri: testPath,
+            symbolName: 'testFunction',
+            lineHint: 4,
+            researchGoal: 'Find refs',
+            reasoning: 'Testing observable LSP fallback',
+          },
+        ],
+      });
+
+      const text = result.content?.[0]?.text ?? '';
+      expect(text).toContain('lspMode: "fallback"');
+      expect(text).toContain(
+        'LSP semantic references returned no result; using text fallback'
+      );
+    });
+
     it('should paginate and enhance locations when LSP returns references', async () => {
       process.env.WORKSPACE_ROOT = process.cwd();
       const testPath = `${process.cwd()}/src/test.ts`;
@@ -405,7 +436,7 @@ export function anotherFunction() {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue({
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue({
         stop: vi.fn(),
         findReferences: vi.fn().mockResolvedValue([
           {

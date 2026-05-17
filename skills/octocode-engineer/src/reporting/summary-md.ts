@@ -703,13 +703,16 @@ export function computeQualityAspectRatings(
   );
   const avgDepth = average(depthValues);
   const topLevelCounts = new Map<string, number>();
+  const folderCounts = new Map<string, number>();
   const dirSegments = new Set<string>();
   const vagueDirPattern = /^(util|utils|common|shared|misc|helper|helpers|tmp|temp)$/i;
   for (const file of topologyPaths) {
     const normalized = normalizeScanPath(file);
     const parts = normalized.split('/').filter(Boolean);
     const top = parts[0] || '.';
+    const folder = parts.length <= 1 ? '.' : parts.slice(0, -1).join('/');
     topLevelCounts.set(top, (topLevelCounts.get(top) || 0) + 1);
+    folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
     for (const segment of parts.slice(0, -1)) dirSegments.add(segment);
   }
   const dominantRootRatio =
@@ -721,11 +724,23 @@ export function computeQualityAspectRatings(
       ? 0
       : [...dirSegments].filter(segment => vagueDirPattern.test(segment)).length
         / dirSegments.size;
+  const maxFolderFileCount =
+    folderCounts.size === 0 ? 0 : Math.max(...folderCounts.values());
+  const maxFolderShare = maxFolderFileCount / totalFiles;
+  const folderBloatPressure =
+    maxFolderFileCount < 12 ? 0 : Math.max(0, maxFolderShare - 0.35);
+  const bloatedFolderCount = [...folderCounts.values()].filter(
+    count => count >= 20 || (count >= 12 && count / totalFiles >= 0.35)
+  ).length;
+  const folderBucketCount = Math.max(1, folderCounts.size);
+  const bloatedFolderRatio = bloatedFolderCount / folderBucketCount;
   const folderScore = clampScore(
     100
     - softPenalty(Math.max(0, (avgDepth - 4) / 3), 20, 1.3)
     - softPenalty(Math.max(0, dominantRootRatio - 0.55), 18, 2.0)
     - softPenalty(vagueDirRatio, 24, 2.2)
+    - softPenalty(folderBloatPressure, 18, 2.0)
+    - softPenalty(bloatedFolderRatio, 14, 1.8)
   );
   aspects.push({
     aspect: 'folder-topology',
@@ -735,7 +750,7 @@ export function computeQualityAspectRatings(
     grade: gradeScore(folderScore),
     confidence: confidenceFromSample(filePaths.length),
     rationale:
-      'Rates how navigable the folder model is by blending depth balance, top-level concentration, and reliance on vague utility/common directories.',
+      'Rates how navigable the folder model is by blending depth balance, top-level concentration, leaf-folder bloat, and reliance on vague utility/common directories.',
     signals: [
       {
         label: 'Average path depth',
@@ -751,6 +766,16 @@ export function computeQualityAspectRatings(
         label: 'Vague directory ratio',
         value: `${Math.round(vagueDirRatio * 100)}%`,
         effect: vagueDirRatio > 0.2 ? 'negative' : 'neutral',
+      },
+      {
+        label: 'Largest folder file count',
+        value: String(maxFolderFileCount),
+        effect: maxFolderFileCount >= 20 ? 'negative' : 'neutral',
+      },
+      {
+        label: 'Bloated folders',
+        value: `${bloatedFolderCount}/${folderBucketCount}`,
+        effect: bloatedFolderCount > 0 ? 'negative' : 'neutral',
       },
     ],
   });
@@ -940,14 +965,25 @@ export function computeQualityAspectRatings(
     const style = classifyFileNameStyle(baseName);
     styleCounts.set(style, (styleCounts.get(style) || 0) + 1);
   }
+  const folderStyleCounts = new Map<string, number>();
+  for (const segment of dirSegments) {
+    const style = classifyFileNameStyle(segment);
+    folderStyleCounts.set(style, (folderStyleCounts.get(style) || 0) + 1);
+  }
   const dominantStyleRatio =
     styleCounts.size === 0 ? 1 : Math.max(...styleCounts.values()) / totalFiles;
+  const folderSegmentCount = Math.max(1, dirSegments.size);
+  const dominantFolderStyleRatio =
+    folderStyleCounts.size === 0
+      ? 1
+      : Math.max(...folderStyleCounts.values()) / folderSegmentCount;
   const tsFileCount = filePaths.filter(file => /\.(ts|tsx)$/i.test(file)).length;
   const jsFileCount = filePaths.filter(file => /\.(js|jsx|mjs|cjs)$/i.test(file)).length;
   const mixedExtensionRatio = (Math.min(tsFileCount, jsFileCount) / totalFiles) * 2;
   const consistencyScore = clampScore(
     100
     - softPenalty(1 - dominantStyleRatio, 24, 2.0)
+    - softPenalty(1 - dominantFolderStyleRatio, 12, 1.8)
     - softPenalty(mixedExtensionRatio, 12, 1.6)
     - softPenalty(genericFileCount / totalFiles, 10, 1.6)
   );
@@ -959,12 +995,17 @@ export function computeQualityAspectRatings(
     grade: gradeScore(consistencyScore),
     confidence: confidenceFromSample(filePaths.length),
     rationale:
-      'Rates naming/structure consistency with soft penalties for mixed filename styles, mixed TS/JS surface area, and generic file naming concentration.',
+      'Rates naming/structure consistency with soft penalties for mixed file and folder naming styles, mixed TS/JS surface area, and generic file naming concentration.',
     signals: [
       {
         label: 'Dominant naming style',
         value: `${Math.round(dominantStyleRatio * 100)}%`,
         effect: dominantStyleRatio >= 0.7 ? 'positive' : 'negative',
+      },
+      {
+        label: 'Dominant folder naming style',
+        value: `${Math.round(dominantFolderStyleRatio * 100)}%`,
+        effect: dominantFolderStyleRatio >= 0.7 ? 'positive' : 'negative',
       },
       {
         label: 'TS/JS mix ratio',

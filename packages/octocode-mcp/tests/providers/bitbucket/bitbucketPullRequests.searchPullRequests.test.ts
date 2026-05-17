@@ -5,6 +5,11 @@ vi.mock('../../../src/bitbucket/pullRequestSearch.js', () => ({
   fetchBitbucketPRSupplementalData: vi.fn(),
 }));
 
+const mockLogRateLimit = vi.hoisted(() => vi.fn());
+vi.mock('../../../src/session.js', () => ({
+  logRateLimit: mockLogRateLimit,
+}));
+
 vi.mock('../../../src/providers/bitbucket/utils.js', async importOriginal => {
   const actual =
     await importOriginal<
@@ -252,6 +257,55 @@ describe('searchPullRequests (provider delegate)', () => {
 
     expect(result.data).toBeDefined();
     expect(result.data!.items).toHaveLength(1);
+  });
+
+  it('should log rate limits from supplemental data fetch failures', async () => {
+    mockSearchAPI.mockResolvedValue({
+      data: {
+        pullRequests: [
+          {
+            id: 1,
+            title: 'PR',
+            state: 'OPEN',
+            author: { display_name: 'user' },
+            source: { branch: { name: 'feat' } },
+            destination: { branch: { name: 'main' } },
+            created_on: '2024-01-01',
+            updated_on: '2024-01-01',
+            comment_count: 0,
+          },
+        ],
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          hasMore: false,
+        },
+      },
+      status: 200,
+    });
+
+    const headers = new Headers();
+    headers.set('retry-after', '42');
+    mockSupplementalData.mockRejectedValue(
+      Object.assign(new Error('Rate limited'), {
+        status: 429,
+        response: { headers },
+      })
+    );
+
+    const result = await searchPullRequests({
+      projectId: 'ws/repo',
+      withComments: true,
+    });
+
+    expect(result.data).toBeDefined();
+    expect(result.data!.items).toHaveLength(1);
+    expect(mockLogRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'bitbucket',
+        retry_after_seconds: 42,
+      })
+    );
   });
 
   it('should skip supplemental data for single PR fetch (prNumber set)', async () => {

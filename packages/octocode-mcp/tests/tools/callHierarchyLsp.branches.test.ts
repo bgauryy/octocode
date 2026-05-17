@@ -21,7 +21,7 @@ vi.mock('node:fs/promises', () => ({
 // Mock LSP client creation
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn(),
+  acquirePooledClient: vi.fn(),
 }));
 
 // Mock helper functions
@@ -96,7 +96,9 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
     process.env.WORKSPACE_ROOT = '/workspace';
 
     // Default: client available
-    vi.mocked(lspModule.createClient).mockResolvedValue(mockClient as any);
+    vi.mocked(lspModule.acquirePooledClient).mockResolvedValue(
+      mockClient as any
+    );
     vi.mocked(mockClient.prepareCallHierarchy).mockResolvedValue([
       mockCallHierarchyItem,
     ]);
@@ -172,7 +174,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
     });
 
     it('should return null when no client available', async () => {
-      vi.mocked(lspModule.createClient).mockResolvedValue(null);
+      vi.mocked(lspModule.acquirePooledClient).mockResolvedValue(null);
 
       const result = await callHierarchyWithLSP(
         '/workspace/src/file.ts',

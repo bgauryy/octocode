@@ -29,11 +29,10 @@ import * as githubContent from './githubContent.js';
 import * as githubPullRequests from './githubPullRequests.js';
 import * as githubStructure from './githubStructure.js';
 
-import type { GitHubAPIError } from '../../github/githubAPI.js';
 import { handleGitHubAPIError } from '../../github/errors.js';
 import { resolveDefaultBranch as resolveGitHubDefaultBranch } from '../../github/client.js';
 import { PROVIDER_CAPABILITIES } from '../capabilities.js';
-import { parseGitHubProjectId } from './utils.js';
+import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 
 /**
  * GitHub Provider implementation.
@@ -139,42 +138,6 @@ export class GitHubProvider implements ICodeHostProvider {
    */
   private handleError(error: unknown): ProviderResponse<never> {
     const apiError = handleGitHubAPIError(error);
-
-    return {
-      error: apiError.error,
-      status: apiError.status || 500,
-      provider: 'github',
-      hints: apiError.hints,
-      rateLimit: this.extractRateLimit(apiError),
-    };
-  }
-
-  /**
-   * Extract rate limit information from GitHubAPIError.
-   * Converts the error's rate limit fields to the ProviderResponse format.
-   */
-  private extractRateLimit(
-    apiError: GitHubAPIError
-  ): ProviderResponse<never>['rateLimit'] {
-    // Only return rateLimit if we have relevant information
-    if (
-      apiError.rateLimitRemaining === undefined &&
-      apiError.retryAfter === undefined &&
-      apiError.rateLimitReset === undefined
-    ) {
-      return undefined;
-    }
-
-    const resetMs = apiError.rateLimitReset;
-    const reset =
-      resetMs && !isNaN(resetMs)
-        ? Math.floor(resetMs / 1000)
-        : Math.floor(Date.now() / 1000) + (apiError.retryAfter ?? 3600);
-
-    return {
-      remaining: apiError.rateLimitRemaining ?? 0,
-      reset,
-      retryAfter: apiError.retryAfter,
-    };
+    return createGitHubProviderError(apiError);
   }
 }

@@ -64,6 +64,7 @@ export interface PackageSearchAPIResult {
   packages: PackageResult[];
   ecosystem: 'npm' | 'python';
   totalFound: number;
+  rawResponseChars?: number;
 }
 
 export interface PackageSearchError {

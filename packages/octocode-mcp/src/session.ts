@@ -6,6 +6,8 @@ import {
   incrementPromptCalls,
   incrementErrors,
   incrementRateLimits,
+  incrementGitHubCacheRateLimits,
+  updateSessionStats,
   type PersistedSession,
 } from 'octocode-shared';
 import type {
@@ -23,7 +25,7 @@ import { isLocalTool } from './tools/toolNames.js';
  * 2. Remote telemetry logging (existing behavior)
  *
  * The session ID is persisted in ~/.octocode/session.json and reused
- * across server restarts. Statistics are also tracked persistently.
+ * across server restarts. Statistics are tracked in ~/.octocode/stats.json.
  */
 class SessionManager {
   private session: PersistedSession;
@@ -89,12 +91,37 @@ class SessionManager {
 
   async logRateLimit(data: RateLimitData): Promise<void> {
     // Update persistent stats
-    const result = incrementRateLimits(1);
+    const result = data.provider
+      ? updateSessionStats({
+          rateLimits: 1,
+          rateLimitsByProvider: {
+            [data.provider]: 1,
+          },
+        } as Parameters<typeof updateSessionStats>[0])
+      : incrementRateLimits(1);
     if (result.session) {
       this.session = result.session;
     }
 
+    if (data.provider === 'github') {
+      const githubCacheResult = incrementGitHubCacheRateLimits(1);
+      if (githubCacheResult.session) {
+        this.session = githubCacheResult.session;
+      }
+    }
+
     await this.sendLog('rate_limit', data);
+  }
+
+  logPackageRegistryFailure(registry: string): void {
+    const result = updateSessionStats({
+      packageRegistryFailures: {
+        [registry]: 1,
+      },
+    } as Parameters<typeof updateSessionStats>[0]);
+    if (result.session) {
+      this.session = result.session;
+    }
   }
 
   private async sendLog(
@@ -191,6 +218,13 @@ export async function logRateLimit(data: RateLimitData): Promise<void> {
   const session = getSessionManager();
   if (session) {
     await session.logRateLimit(data);
+  }
+}
+
+export function logPackageRegistryFailure(registry: string): void {
+  const session = getSessionManager();
+  if (session) {
+    session.logPackageRegistryFailure(registry);
   }
 }
 

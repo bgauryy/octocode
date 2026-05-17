@@ -1,321 +1,304 @@
 ---
 name: octocode-search-skill
-description: Search for, preview, and install agent skills (SKILL.md files) from GitHub. Use when the user asks to find, browse, preview, or install skills.
+description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns.
 ---
 
 # Octocode Search Skill
 
-A skill is a folder with a required `SKILL.md`. The file must have frontmatter with `name` and `description`, then usage instructions, workflow, gates, examples, and any supporting files.
+Find, evaluate, improve, install, or synthesize Agent Skills by inspecting real skill files, comparing workflow quality, and gating every write or install action.
 
-Flow: `BROWSE -> SEARCH -> PREVIEW -> INSTALL`
+Agent Skills are folders with required `SKILL.md` frontmatter (`name`, `description`) plus instructions. They may include `scripts/`, `references/`, `assets/`, or other support files. Agents load them by progressive disclosure: metadata first, full `SKILL.md` on activation, bundled resources only when needed.
 
-## Tool Rules
+## Operating Model
 
-Use Octocode MCP only. Do not use web browsing for GitHub.
-
-- Search by keyword: `githubSearchCode`
-- Discover skill repos: `githubSearchRepositories`
-- Browse repo skills: `githubViewRepoStructure`, then `githubGetFileContent`
-- Preview a skill: `githubGetFileContent`
-- Download a skill folder: `githubGetFileContent(type="directory")`
-
-Quality rules:
-- Identify skills by `(owner/repo, path-to-SKILL.md)`, not repo alone.
-- Treat stars as context and a tiebreaker, not proof of quality.
-- Recommend only skills whose `name`, `description`, path, or visible body matches the request.
-- Dedup by `(owner/repo, path)`.
-- Skip files without valid `name:` and `description:` frontmatter.
-- Aggregate all confirmed results before ranking. Do not stop at the first good match.
-- Search exact names, related subjects, and semantic capability terms.
-
-## Discover Marketplaces
-
-Never use a hardcoded list. Discover live:
+Default flow:
 
 ```text
-githubSearchRepositories(queries: [
-  { id: "mkts_topic", topicsToSearch: ["agent-skills"], sort: "stars", limit: 20 },
-  { id: "mkts_keyword", keywordsToSearch: ["agent", "skills", "SKILL.md"], sort: "stars", limit: 20 }
-])
+UNDERSTAND -> DISCOVER -> INSPECT -> JUDGE -> RECOMMEND -> USER GATE -> ACT -> VERIFY
 ```
 
-Find repos with `skills/` or root-level `SKILL.md` files. Present ranked results with repo, stars, description, and why to browse it. Let the user pick.
+Compress steps when the user names a specific source (`owner/repo path-to-SKILL.md` or a local path). Repeat steps when discovery returns weak or conflicting candidates.
 
-Fallback seeds only if discovery returns nothing: `bgauryy/octocode-mcp`, `addyosmani/agent-skills`, `anthropics/skills`.
+Hard rules:
 
-## Browse A Repo
+Recommend
+- MUST recommend by task fit, workflow quality, safety gates, and portability; use stars or popularity only as a tiebreaker.
+- MUST identify every remote candidate by `(owner/repo, path-to-SKILL.md)` and every local candidate by absolute or workspace-relative path.
 
-Use when the user names a marketplace or repo.
+Inspect
+- MUST inspect actual `SKILL.md` content before recommending, adapting, installing, or quoting a candidate as a pattern.
+- MUST inspect referenced files that affect behavior for strong, risky, or unclear candidates.
+- MUST skip candidates lacking valid `name` and `description` frontmatter.
 
-Step 1: list skill folders.
+Gate
+- MUST gate installs, file writes, local skill creation, target selection, config changes, overwrite decisions, and symlink decisions.
+
+Forbidden
+- FORBIDDEN: handing the user a raw search dump to rank. Filter first, explain tradeoffs, recommend a next step.
+- FORBIDDEN: copying another skill wholesale unless the license and the user explicitly allow it.
+
+Stop when any of these is true:
+
+- One recommendation is justified by inspected content.
+- Further search is unlikely to change the recommendation.
+- A user gate is awaiting an answer.
+
+## Tool Routing
+
+Use Octocode MCP for all research — locally and externally — and let user intent decide which side leads. Octocode MCP already documents its own tools and query schemas; rely on the active descriptors instead of duplicating them here.
+
+- Lead local when the question is about the user's workspace: existing skills, custom paths, draft skills, repo conventions.
+- Lead GitHub when the user is shopping for a skill, comparing options, or asking about something not present locally.
+- Read code or files: `localGetFileContent` or `githubGetFileContent`.
+- Download a remote skill folder before writing it locally: `githubGetFileContent(type="directory")` or `githubCloneRepo`.
+
+Fallbacks:
+
+- IF the runtime lacks Octocode MCP, map each verb (search, read, list, download) to the equivalent runtime tool and continue.
+- IF GitHub research is required and unavailable, stop and ask whether to use a public web fallback.
+- IF a marketplace surface (`skills.sh`, `claude-plugins.dev`, `aiskillstore.io`, `agentskills.me`) is unreachable or rate-limited, switch to GitHub topic search and `llms.txt` catalog snapshots (see `references/discovery-surfaces.md`); lower confidence and continue.
+- IF the user requested local-only work, do not query remote sources.
+
+## Local References
+
+All reference material lives under `references/`.
+
+- Read `references/agent-skills-guide.md` when evaluating, improving, rating, or creating a skill, optimizing a description, deciding what belongs in `SKILL.md`, designing progressive references, or adding scripts/assets.
+- Read `references/discovery-surfaces.md` when the user wants to shop for skills beyond raw GitHub search — marketplaces, leaderboards, registry REST APIs, manifest formats, and CLI installers.
+- Read `references/install-reference.md` when the user chooses to install a skill or asks about install targets, destinations, scopes, or conflict behavior.
+- Read `references/fetch-and-create-locally.md` when fetching a remote skill via Octocode into a local folder — whether to install verbatim or to adapt into a new local skill.
+
+## Understand
+
+Extract these facts before searching or editing:
+
+- User goal: find, compare, preview, install, deep-dive, rate, improve, or create.
+- Task/domain: coding, docs, data, design, security, research, planning, review, operations, or other.
+- Target ecosystem: Claude Code, Claude Desktop, Cursor, Codex, OpenCode, custom agent, or unspecified.
+- Source scope: local folders, named repo, marketplace, broad public search, or user-provided skill path.
+- Constraints: language, framework, IDE, license, local-only, security posture, install target, no-web, org/repo limits.
+- Quality preference: battle-tested, small, script-backed, enterprise-safe, example-rich, low-dependency, or strict-gated.
+
+Ask one focused question only when the answer changes search scope, target ecosystem, or write/install behavior. Otherwise proceed with stated assumptions.
+
+## Discover And Inspect
+
+Set depth before searching:
+
+- Quick answer: inspect enough to recommend one best candidate with caveats.
+- Research request: compare broadly, preserve confirmed sources, stop when more search is unlikely to change the recommendation.
+- Install request: inspect source, support files, target destinations, and conflict behavior before asking for approval.
+- Improve, rate, or create request: inspect the target skill, adjacent local examples, and `references/agent-skills-guide.md` before writing.
+- Weak results: broaden once, then report the gap and the next best action.
+
+Search angles:
+
+- Name: exact phrase, lowercase, hyphenated folder name, aliases.
+- Subject: core domain terms.
+- Workflow verbs: analyze, review, migrate, generate, install, optimize, debug, audit, benchmark, plan.
+- Ecosystem: agent, IDE, language, framework, MCP server, CLI, or platform named by the user.
+- Safety: gate, validation, rollback, verify, tests, prompt, scripts, permissions.
+
+Useful GitHub patterns:
+
+- Search body and frontmatter with `filename: "SKILL.md"` and `match: "file"`.
+- Search likely folder names with `filename: "SKILL.md"` and `match: "path"`.
+- Search composite filenames `*.skill.md` for skills that do not use the canonical `SKILL.md` name.
+- Search frontmatter content with `filename: "SKILL.md" "name:" "description:"` to bias toward well-formatted skills.
+- Discover repos via topics: `topicsToSearch: ["agent-skills"]`, `["claude-code-skills"]`, `["claude-skill"]`, `["cursor-skills"]`, `["codex-skills"]`. Combine with keywords like `agent`, `skills`, and `SKILL.md`.
+- Inspect likely paths: `skills/<name>/SKILL.md`, `skills/<category>/<name>/SKILL.md`, `<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md`, `.cursor/skills/<name>/SKILL.md`, `.codex/skills/<name>/SKILL.md`, `.opencode/skills/<name>/SKILL.md`, `.agents/skills/<name>/SKILL.md`.
+- Probe plugin manifests: `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`, and per-catalog `llms.txt` / `llms-full.txt` files for batch discovery.
+
+Marketplace and registry surfaces (see `references/discovery-surfaces.md` for the full list and APIs):
+
+- Per-skill check: `https://www.skills.sh/<owner>/<repo>/<skill-name>` — confirm a skill exists in the public index, see its install count, install command, and security audit status. Common shape when the repo is named `skills`: `https://www.skills.sh/<org>/skills/<skill-name>`.
+- Leaderboard: `https://www.skills.sh` — install-count ranked, agent-filtered.
+- Registry APIs: `agentskills.io/llms.txt`, `aiskillstore.io/llms.txt`, `microsoft.github.io/skills/llms-full.txt` for catalog snapshots; `claude-plugins.dev` REST for sortable Claude Code plugin search.
+
+Seed only when discovery is sparse. Start from `topic:agent-skills` (or the narrower `topic:claude-code-skills`) on GitHub, then sample well-maintained collections such as `anthropics/skills`, `ComposioHQ/awesome-claude-skills`, `addyosmani/agent-skills`, `vercel-labs/skills`, `alirezarezvani/claude-skills`, `microsoft/skills`, `obra/superpowers`, `trailofbits/skills`, `wshobson/claude-code-workflows`, or any author-curated marketplace the user trusts.
+
+## Judge Quality
+
+For every plausible candidate, inspect enough `SKILL.md` content to understand behavior. For strong, risky, or ambiguous candidates, inspect full `SKILL.md` plus referenced scripts, templates, install docs, evals, or reference files that affect execution.
+
+Evaluate:
+
+- Trigger: clear activation conditions and non-activation boundaries.
+- Workflow: ordered steps, decision points, recovery paths, and stop conditions.
+- Evidence: real file contents, referenced resources, tests, examples, or scripts.
+- Gates: validation, approval, preview, review, permissions, rollback, and install conflict handling.
+- Output UX: concise results, useful comparison cards, explicit next-step gate.
+- Specificity: domain knowledge an agent would not know by default.
+- Portability: agent/runtime assumptions, hardcoded paths, external services, dependencies, secrets.
+- Risk: unsafe commands, hidden network actions, missing referenced files, license ambiguity, stale docs, broad triggers.
+
+Quality labels:
+
+- `High`: direct match, clear trigger, executable workflow, useful resources and gates, and no obvious safety or portability red flags.
+- `Medium`: partial match or adaptable, but missing some validation, UX, or domain detail.
+- `Low`: keyword-only match, generic workflow, unclear trigger, stale pattern, or meaningful caveat.
+
+For evidence-based quality signals beyond stars (install counts, recency, audit badges, capability overlap, demand signals), load `references/agent-skills-guide.md` §Quality Signals Beyond Stars and `references/discovery-surfaces.md` §Quality Signals Beyond Stars.
+
+## Self-Improvement Mode
+
+Use this mode when the user asks to rate, review, score, improve, or refactor a `SKILL.md` — yours or someone else's. Read `references/agent-skills-guide.md` before rating or rewriting.
+
+Modes — pick one before starting and confirm with the user if ambiguous:
+
+- `Rate-only` (rate, review, score, audit): stop after the REPORT step. MUST NOT edit files. End with a numbered next-action gate (apply fixes, show diff, cancel).
+- `Improve` / `refactor` / `rewrite`: full flow including REWRITE and VALIDATE; gate before writing.
+- `Fix all` / `apply fixes`: skip MAP INTENT and RATE ISSUES if a prior rating exists in the conversation; go straight to REWRITE → VALIDATE → REPORT.
+
+Flow:
 
 ```text
-githubViewRepoStructure(queries: [{
-  id: "browse",
-  owner,
-  repo,
-  path: "<skills-path>",
-  depth: 1,
-  entriesPerPage: 200
-}])
+READ -> MAP INTENT -> RATE ISSUES -> [REWRITE -> VALIDATE] -> REPORT
 ```
 
-Step 2: fetch frontmatter in batches of 3 to 5.
+Read:
+
+- Read the full target `SKILL.md` and all referenced files that affect behavior.
+- Note purpose, line count, resources, gates, and output format.
+
+Map intent:
+
+- Preserve the skill's core job, trigger domain, and user-facing promises.
+- Identify what behavior must become more reliable: activation, research quality, safety gates, tool routing, output shape, or recovery.
+
+Rate issues:
+
+- Check for weak rules in critical sections, vague actions, raw-search handoff, missing gates, unsafe writes, missing verification, stale references, and line-count bloat.
+- Group findings by severity: `Critical`, `High`, `Medium`, `Low`. Cite `file:line` for each.
+- Score per dimension using the §Judge Quality rubric (`High` / `Medium` / `Low`).
+
+Rewrite (skip in Rate-only mode):
+
+- Fix Critical and High issues first.
+- Keep `SKILL.md` concise; target 300 lines or less unless the domain justifies more.
+- Move long examples, schemas, or static references into `references/` only when that reduces active-context load.
+- Keep `description` trigger-rich without keyword stuffing.
+
+Validate (skip in Rate-only mode):
+
+- Frontmatter has valid `name` and `description`.
+- Workflow has clear steps, gates, recovery, and output UX.
+- Referenced files exist or missing files are documented as risks.
+- Critical actions use MUST/NEVER/FORBIDDEN where needed.
+- No write/install action bypasses an explicit user gate.
+
+Report — required output shape for `Rate-only`:
 
 ```text
-githubGetFileContent(queries: [
-  {
-    id: "desc_1",
-    owner,
-    repo,
-    path: "<skills-path>/<name>/SKILL.md",
-    matchString: "---",
-    matchStringContextLines: 6
-  }
-])
+Overall:        <score>/10 — <letter grade> (one-sentence summary).
+Score card:     per-dimension High/Medium/Low using §Judge Quality.
+Issues:         grouped Critical / High / Medium / Low, each with file:line.
+Validation:     pass/fail per checklist item above.
+Strengths:      2-4 bullets worth preserving.
+Residual risk:  1-3 bullets.
+Next action:    numbered choices ending with "Cancel".
 ```
 
-Show a clean numbered list ordered by fit rating, then stars descending. Include skill name, repo, exact path, stars, description, one short fit note, and a concrete reason the skill relates to the user's request. Then ask the user what to do next:
+Report — for `Improve` / `Fix all`:
+
+- Summarize intent preserved, major fixes applied, validation result, and any residual risk.
+
+## Present Results
+
+Lead with the recommendation in one sentence. Then group results only when useful:
+
+- `Best matches`
+- `Useful alternatives`
+- `Explore if...`
+
+If results are few, show compact cards. If results are many, list confirmed names and sources compactly and provide detailed cards only for the strongest candidates.
+
+Card shape (label layout, not literal Markdown):
 
 ```text
-Choose next step:
-1. Search again with a new query
-2. Preview or deep-dive into a skill
-3. Install a skill
+Name:            <skill-name>  - fit: High | Medium | Low
+Source:          <owner/repo path-to-SKILL.md> or <local path>
+What it does:    <one sentence in your own words>
+Actual flow:     <2-4 short steps from inspected content>
+Quality signals: <specific evidence>
+Why it matches:  <tie to user's request>
+Caveat:          <real risk, or "None obvious from inspected files">
 ```
 
-## Search By Keyword
+Keep prose short. Do not paste raw search dumps or large excerpts.
 
-Search is a loop: understand intent, fan out, confirm, aggregate, show all, ask next step.
+End with a user gate that offers the real next branches — not just "install or cancel". Use a structured ask tool when the runtime provides one; otherwise present concise numbered choices and wait.
 
-1. Understand what the user needs to find.
-
-Extract:
-- Exact skill name or phrase, if provided.
-- Core task or capability.
-- Related subjects and adjacent workflows.
-- Tools, frameworks, agents, or domains mentioned.
-- Constraints such as language, IDE, security, docs, design, install, or review.
-
-If intent is usable, search immediately. Ask a clarifying question only when the request is too vague to form search angles.
-
-2. Build search angles.
-
-Create 4 groups:
-- Name: exact phrase, lowercase, hyphenated, likely folder name.
-- Subject: core domain keywords.
-- Related: synonyms, adjacent tasks, common workflow names.
-- Semantic: capability words that may appear in descriptions, such as audit, review, install, generate, migrate, document, debug, optimize.
-
-For each group, keep 1 to 3 concise queries. Prefer recall first; rank later.
-
-3. Run discovery in parallel.
-
-A. Exact name and path search. Use `filename: "SKILL.md"`, not a keyword.
+Gate example:
 
 ```text
-githubSearchCode(queries: [
-  {
-    id: "name_content",
-    filename: "SKILL.md",
-    keywordsToSearch: ["<exact-or-name-query>"],
-    match: "file",
-    limit: 30
-  },
-  {
-    id: "name_path",
-    filename: "SKILL.md",
-    keywordsToSearch: ["<hyphenated-or-folder-query>"],
-    match: "path",
-    limit: 30
-  }
-])
+Recommended: <skill-name> from <source>
+
+Choose:
+1. Install — fetch into one or more agent destinations the user picks (see references/install-reference.md and references/fetch-and-create-locally.md).
+2. Create a local skill — adapt patterns from this candidate into a new local SKILL.md.
+3. Explain — break down trigger, workflow, gates, and risks.
+4. Show link — return the source URL or local path only, no write.
+5. Compare — line up against another candidate.
+6. Keep researching.
+7. Cancel.
 ```
 
-If the query looks like a GitHub username, add:
+## Deep-Dive
 
-```text
-{ id: "owner", filename: "SKILL.md", owner: "<query>", match: "file", limit: 30 }
-```
+When the user picks a skill:
 
-B. Subject and semantic search. Run several concise queries from the Subject, Related, and Semantic groups.
+1. Fetch full `SKILL.md`.
+2. Fetch directly referenced files that affect behavior.
+3. Summarize trigger, workflow, support files, validation and safety gates, strengths, gaps, and adaptation ideas.
+4. Ask whether to install, adapt into a local skill, compare, or keep researching.
 
-```text
-githubSearchCode(queries: [
-  {
-    id: "subject_1",
-    filename: "SKILL.md",
-    keywordsToSearch: ["<subject-query>"],
-    match: "file",
-    limit: 30
-  },
-  {
-    id: "related_1",
-    filename: "SKILL.md",
-    keywordsToSearch: ["<related-query>"],
-    match: "file",
-    limit: 30
-  },
-  {
-    id: "semantic_1",
-    filename: "SKILL.md",
-    keywordsToSearch: ["<semantic-capability-query>"],
-    match: "file",
-    limit: 30
-  }
-])
-```
+## Create A Local Skill From Research
 
-C. Repo discovery.
+Use this when the user chooses to create a skill from findings or asks to synthesize one. Read `references/agent-skills-guide.md` before planning. If the source is a remote skill being fetched into a local folder, also read `references/fetch-and-create-locally.md`.
 
-```text
-githubSearchRepositories(queries: [{
-  id: "repos",
-  keywordsToSearch: ["<query>"],
-  topicsToSearch: ["agent-skills"],
-  sort: "stars",
-  limit: 20
-}])
-```
+Before writing files:
 
-4. Confirm candidates.
+1. Build a research synthesis:
+   - User need and constraints.
+   - Inspected source skills and useful patterns.
+   - Quality and UX gates to include.
+   - Resources to create, if any.
+   - Exclusions: copied, generic, risky, or unnecessary pieces.
+2. Present a short plan:
+   - Skill name and destination.
+   - Trigger description draft.
+   - Workflow outline.
+   - Resources and validation plan.
+3. Ask for approval with create, adjust, inspect more, or cancel options.
 
-Merge all candidates from A, B, and C. Dedup by `(owner/repo, path)`. For repo discovery results, inspect likely skill paths with `githubViewRepoStructure` before fetching frontmatter.
+After approval, write the skill with concise purpose, workflow, tool and resource rules, gates, output UX, and recovery paths. Add `references/`, `scripts/`, or `assets/` only when they reduce repeated work or keep `SKILL.md` lean. Defer to a dedicated skill-creation skill when one is available.
 
-Fetch frontmatter in batches of 3 to 5:
+## Install
 
-```text
-githubGetFileContent(queries: [
-  {
-    id: "skill_1",
-    owner,
-    repo,
-    path: "<path-from-search>",
-    matchString: "---",
-    matchStringContextLines: 6
-  }
-])
-```
+Read `references/install-reference.md` before installing. Keep install behavior gated and verified. The reference is provider-agnostic; do not hardcode a destination.
 
-If a candidate looks strong but frontmatter is missing from the fetched window, preview a small body window once. If still invalid, skip it.
+Minimum install gates:
 
-Ranking:
-- Exact skill name match: +3000
-- Partial skill name match: +1000
-- Subject/domain match: +300
-- Description match: +150
-- Related workflow match: +100
-- Semantic capability match: +75
-- Body or visible text match: +50
-- Stars tiebreaker: `sqrt(stars) * 30`
+1. Normalize input to a skill folder containing a valid `SKILL.md`.
+2. MUST ask the user where to install before writing anything. Cover all four destination questions: provider(s), scope per provider (user vs project vs custom path), project root if project scope, and install mode (copy vs symlink). Never assume one answer applies to every provider.
+3. Inspect `scripts/`, install hooks, or executable helpers before copying third-party skills.
+4. Per-destination conflict check; ask `Overwrite`, `Skip`, `Rename`, `Diff`, or `Cancel` for each conflict.
+5. Show source, description, every resolved destination path, install mode, and conflict plan; require explicit confirmation.
+6. Prefer copy; use symlink only for stable local sources when the user wants live source-tracking.
+7. Verify installed `SKILL.md` exists in each destination and report per-destination success or failure.
 
-Common paths: `skills/<name>/SKILL.md`, `skills/<ns>/<name>/SKILL.md`, `<name>/SKILL.md`.
-
-5. Show all confirmed results.
-
-Show every confirmed skill from the search cycle. Group by `Strong matches`, `Partial matches`, and `Explore`. Within each group, sort by fit rating first (`High` > `Medium` > `Low`), then stars descending, then relevance. Do not rank a lower-rated skill above a higher-rated skill because it has more stars.
-
-Use compact, readable cards. Keep the output nicely formatted: short headings, consistent field order, concise prose, and no raw search dumps. Every card MUST include a `Why this matches` field that ties the skill back to the user's exact request, using evidence from the skill name, description, path, frontmatter, or visible body.
-
-```text
-## <skill-name> [<stars> stars, <owner>/<repo>]
-
-What it does: <description>
-When to use it: <trigger/use case>
-How it works: <workflow/tools/gates>
-Why this matches: <specific reason this skill is related to the user's request, citing the matching capability/trigger>
-Source: <owner>/<repo> <path-to-SKILL.md>
-Fit score: High|Medium|Low - <short reason>
-```
-
-If there are many results, still show all names and sources. Keep cards short and preserve the rating-then-stars ordering.
-
-6. Ask what to do next.
-
-```text
-Choose next step:
-1. Search again with a new query
-2. Preview or deep-dive into a skill
-3. Install a skill
-4. Keep researching related skills
-```
-
-If results are weak or sparse, say why and continue one more search pass with broader related or semantic terms before giving up.
-
-## Install Gates
-
-Do not skip gates.
-
-Install input is a skill path, not just a name.
-
-Reference: `INSTALL_REFERENCE.md`.
-
-1. Normalize input.
-
-Accept `owner/repo/path/to/skill`, `owner/repo/path/to/skill/SKILL.md`, GitHub `tree` URLs, and GitHub `blob` URLs. Convert `.../SKILL.md` to the containing folder. Derive `<skill-name>` from the final folder name.
-
-2. Confirm install.
-
-```text
-Install this skill?
-description: <frontmatter description>
-source: <owner>/<repo>/<path-to-skill-folder>
-y / n
-```
-
-3. Ask targets.
-
-```text
-1. Claude only: claude-code, claude-desktop
-2. All agents: claude-code, claude-desktop, cursor, codex, opencode
-3. Pick one agent
-4. Custom path
-```
-
-4. Ask install mode. Default to copy. Use symlink only for stable source paths.
-
-```text
-1. Copy
-2. Symlink
-3. Cancel
-```
-
-5. Check conflicts.
-
-Run `ls "<dest>/<skill-name>"`. If it exists, ask: `Overwrite`, `Skip`, or `Cancel`.
-
-6. Download.
-
-```text
-githubGetFileContent(queries: [{
-  id: "download",
-  owner,
-  repo,
-  path: "<path-to-skill-folder>",
-  type: "directory"
-}])
-```
-
-7. Verify download and install.
-
-Confirm `SKILL.md` exists in the returned folder, then copy or symlink that exact folder:
-
-```bash
-ls "<localPath>/SKILL.md"
-cp -r "<localPath>" "<dest>/<skill-name>"
-```
-
-8. Verify each destination.
-
-```bash
-ls "<dest>/<skill-name>/SKILL.md"
-```
-
-Report success or failure per target.
+For remote sources, follow the fetch-and-write workflow in `references/fetch-and-create-locally.md`.
 
 ## Recovery
 
-- Zero MCP search results: try synonyms, add owner scope, or use `githubSearchRepositories`.
-- Skill path not found: run `githubViewRepoStructure` at repo root.
-- Download fails: verify owner, repo, branch, and path; retry directory download.
-- Octocode MCP unavailable: stop and say Octocode MCP is required.
+- No results: broaden terms once, inspect repo roots, or fall back to seed collections.
+- Too many generic results: narrow by domain, agent, tool, workflow verb, or safety requirement.
+- Strong repo but no skill path: browse root, `skills/`, `.claude/skills/`, `.cursor/skills/`, then category folders.
+- Missing frontmatter: skip the candidate.
+- Missing referenced files: lower confidence and mention the gap.
+- Unsafe behavior: do not recommend install; explain the risk and offer a safer adaptation.
+- Marketplace per-skill URL 404 (e.g. `https://www.skills.sh/<owner>/<repo>/<skill-name>`): the skill is not in that public index. Fall back to the source repo and lower confidence.
+- Registry API rate-limit or 5xx: switch to `llms.txt` / `llms-full.txt` snapshot or to GitHub topic search; see `references/discovery-surfaces.md` §Recovery.
+- Manifest file expected but missing (`.claude-plugin/marketplace.json`, `llms.txt`): note the gap as a quality signal and continue from raw `SKILL.md` evidence.
+- Tool or API unavailable: state what evidence is missing, map the failed verb to an alternative runtime tool when one exists, and ask the user whether to switch source, drop to a fallback, or stop.

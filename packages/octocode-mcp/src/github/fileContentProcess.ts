@@ -11,7 +11,7 @@ import {
   createPaginationInfo,
 } from '../utils/pagination/core.js';
 import { generateGitHubPaginationHints } from '../utils/pagination/hints.js';
-import { OctokitWithThrottling } from './client';
+import { OctokitWithThrottling } from './client.js';
 
 function readConfiguredDefaultCharLength(): number {
   const config = getConfigSync() as {

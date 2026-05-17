@@ -1,7 +1,8 @@
 /**
  * Session Storage
  *
- * Persistent session storage in ~/.octocode/session.json
+ * Persistent session storage in ~/.octocode/session.json and stats in
+ * ~/.octocode/stats.json
  * Cross-platform support for Windows, Linux, and macOS.
  *
  * Uses batch saving to reduce disk I/O - changes are buffered in memory
@@ -10,12 +11,16 @@
 
 import { randomUUID } from 'node:crypto';
 import type {
+  GitHubCacheHitStats,
   PersistedSession,
   SessionStats,
   SessionUpdateResult,
   SessionOptions,
+  StatsCounterMap,
+  ToolCharSavingsStats,
 } from './types.js';
 import { deleteSessionFile } from './sessionDiskIO.js';
+import { createDefaultStats, withDerivedUsageTotals } from './statsDefaults.js';
 import {
   readSession as readSessionFromCache,
   writeSession as writeSessionToCache,
@@ -30,15 +35,61 @@ import {
 // Current schema version
 const CURRENT_VERSION = 1 as const;
 
-/**
- * Default session statistics
- */
-function createDefaultStats(): SessionStats {
+function normalizeStats(stats: SessionStats): Required<SessionStats> {
+  return withDerivedUsageTotals(stats) as Required<SessionStats>;
+}
+
+function mergeCharSavingsStats(
+  current: Record<string, ToolCharSavingsStats>,
+  updates?: Record<string, ToolCharSavingsStats>
+): Record<string, ToolCharSavingsStats> {
+  if (!updates) return current;
+
+  const merged = { ...current };
+  for (const [toolName, update] of Object.entries(updates)) {
+    const existing = merged[toolName] ?? {
+      rawChars: 0,
+      responseChars: 0,
+      savedChars: 0,
+      calls: 0,
+    };
+    merged[toolName] = {
+      rawChars: existing.rawChars + update.rawChars,
+      responseChars: existing.responseChars + update.responseChars,
+      savedChars: existing.savedChars + update.savedChars,
+      calls: existing.calls + update.calls,
+    };
+  }
+  return merged;
+}
+
+function mergeCounterMapStats(
+  current: StatsCounterMap,
+  updates?: StatsCounterMap
+): StatsCounterMap {
+  if (!updates) return current;
+
+  const merged = { ...current };
+  for (const [name, count] of Object.entries(updates)) {
+    merged[name] = (merged[name] ?? 0) + count;
+  }
+  return merged;
+}
+
+function mergeGitHubCacheHitStats(
+  current: GitHubCacheHitStats,
+  updates?: GitHubCacheHitStats
+): GitHubCacheHitStats {
+  if (!updates) return current;
+
+  const hits = { ...current.hits };
+  for (const [cacheName, count] of Object.entries(updates.hits ?? {})) {
+    hits[cacheName] = (hits[cacheName] ?? 0) + count;
+  }
+
   return {
-    toolCalls: 0,
-    promptCalls: 0,
-    errors: 0,
-    rateLimits: 0,
+    hits,
+    rateLimits: current.rateLimits + (updates.rateLimits ?? 0),
   };
 }
 
@@ -151,13 +202,31 @@ export function updateSessionStats(
     return { success: false, session: null };
   }
 
+  const currentStats = normalizeStats(session.stats);
+
   // Increment stats
-  const updatedStats: SessionStats = {
-    toolCalls: session.stats.toolCalls + (updates.toolCalls ?? 0),
-    promptCalls: session.stats.promptCalls + (updates.promptCalls ?? 0),
-    errors: session.stats.errors + (updates.errors ?? 0),
-    rateLimits: session.stats.rateLimits + (updates.rateLimits ?? 0),
-  };
+  const updatedStats: SessionStats = withDerivedUsageTotals({
+    toolCalls: currentStats.toolCalls + (updates.toolCalls ?? 0),
+    promptCalls: currentStats.promptCalls + (updates.promptCalls ?? 0),
+    errors: currentStats.errors + (updates.errors ?? 0),
+    rateLimits: currentStats.rateLimits + (updates.rateLimits ?? 0),
+    rateLimitsByProvider: mergeCounterMapStats(
+      currentStats.rateLimitsByProvider,
+      updates.rateLimitsByProvider
+    ),
+    charsSavedByTool: mergeCharSavingsStats(
+      currentStats.charsSavedByTool,
+      updates.charsSavedByTool
+    ),
+    githubCacheHits: mergeGitHubCacheHitStats(
+      currentStats.githubCacheHits,
+      updates.githubCacheHits
+    ),
+    packageRegistryFailures: mergeCounterMapStats(
+      currentStats.packageRegistryFailures,
+      updates.packageRegistryFailures
+    ),
+  });
 
   const updatedSession: PersistedSession = {
     ...session,
@@ -196,6 +265,93 @@ export function incrementErrors(count: number = 1): SessionUpdateResult {
  */
 export function incrementRateLimits(count: number = 1): SessionUpdateResult {
   return updateSessionStats({ rateLimits: count });
+}
+
+/**
+ * Increment provider rate-limit counters. This updates both the global
+ * rate-limit total and the per-provider breakdown.
+ */
+export function incrementRateLimitByProvider(
+  provider: string,
+  count: number = 1
+): SessionUpdateResult {
+  return updateSessionStats({
+    rateLimits: count,
+    rateLimitsByProvider: {
+      [provider]: count,
+    },
+  });
+}
+
+/**
+ * Increment per-tool character savings statistics.
+ */
+export function incrementToolCharSavings(
+  toolName: string,
+  rawChars: number,
+  responseChars: number
+): SessionUpdateResult {
+  const safeRawChars = Number.isFinite(rawChars) ? Math.max(0, rawChars) : 0;
+  const safeResponseChars = Number.isFinite(responseChars)
+    ? Math.max(0, responseChars)
+    : 0;
+
+  return updateSessionStats({
+    charsSavedByTool: {
+      [toolName]: {
+        rawChars: safeRawChars,
+        responseChars: safeResponseChars,
+        savedChars: Math.max(0, safeRawChars - safeResponseChars),
+        calls: 1,
+      },
+    },
+  });
+}
+
+/**
+ * Increment the hit counter for a GitHub cache bucket.
+ */
+export function incrementGitHubCacheHits(
+  cacheName: string,
+  count: number = 1
+): SessionUpdateResult {
+  return updateSessionStats({
+    githubCacheHits: {
+      hits: {
+        [cacheName]: count,
+      },
+      rateLimits: 0,
+    },
+  });
+}
+
+/**
+ * Increment the GitHub rate limit counter stored next to cache hit stats.
+ */
+export function incrementGitHubCacheRateLimits(
+  count: number = 1
+): SessionUpdateResult {
+  return updateSessionStats({
+    githubCacheHits: {
+      hits: {},
+      rateLimits: count,
+    },
+  });
+}
+
+/**
+ * Increment package registry failure counters. These are intentionally
+ * separate from provider API rate limits.
+ */
+export function incrementPackageRegistryFailures(
+  registry: string,
+  count: number = 1
+): SessionUpdateResult {
+  return updateSessionStats({
+    packageRegistryFailures: {
+      [registry]: count,
+    },
+  });
 }
 
 /**
@@ -243,4 +399,4 @@ export function _resetSessionState(): void {
   resetCacheState();
 }
 
-export { SESSION_FILE } from './sessionDiskIO.js';
+export { SESSION_FILE, STATS_FILE } from './sessionDiskIO.js';

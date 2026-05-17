@@ -10,6 +10,7 @@ import { getHints } from '../hints/index.js';
 import { logSessionError } from '../session.js';
 import { TOOL_ERRORS } from '../errors/domainErrors.js';
 import { createErrorResult } from '../utils/response/error.js';
+import { attachRawResponseChars } from '../utils/response/charSavings.js';
 
 export { createErrorResult };
 
@@ -43,6 +44,8 @@ interface SuccessResultOptions {
   prefixHints?: string[];
   /** Additional custom hints to append (e.g., pagination hints) */
   extraHints?: string[];
+  /** Raw source response or character count used for local savings stats */
+  rawResponse?: unknown;
 }
 
 /**
@@ -73,7 +76,7 @@ interface SuccessResultOptions {
  *   extraHints: ['Page 1/5', 'Next: page=2']
  * });
  */
-export function createSuccessResult<T extends Record<string, unknown>>(
+export function createSuccessResult<T extends object>(
   _query: {
     mainResearchGoal?: string;
     researchGoal?: string;
@@ -86,7 +89,7 @@ export function createSuccessResult<T extends Record<string, unknown>>(
 ): ToolSuccessResult & T {
   const status = hasContent ? ('hasResults' as const) : ('empty' as const);
 
-  const result: Record<string, unknown> = {
+  const result: ToolSuccessResult & T = {
     status,
     ...data,
   };
@@ -105,7 +108,9 @@ export function createSuccessResult<T extends Record<string, unknown>>(
     result.hints = allHints;
   }
 
-  return result as ToolSuccessResult & T;
+  return options?.rawResponse === undefined
+    ? result
+    : attachRawResponseChars(result, options.rawResponse);
 }
 
 /**
@@ -140,6 +145,10 @@ export function handleProviderError(
   const errorResult = createErrorResult(apiError, query, {
     hintSourceError: apiError,
     customHints: externalHints,
+    rawResponse:
+      apiResult.rawResponseChars ??
+      apiResult.data ??
+      (apiResult.error ? apiResult : undefined),
   });
 
   return errorResult as ToolErrorResult;

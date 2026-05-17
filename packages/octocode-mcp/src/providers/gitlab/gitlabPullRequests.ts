@@ -234,20 +234,30 @@ export async function searchPullRequests(
         try {
           if (query.withComments) {
             const notesResult = await getGitLabMRNotes(projectId, mr.iid);
-            if ('data' in notesResult && notesResult.data) {
+            const notesProviderResult = handleGitLabAPIResponse(
+              notesResult,
+              'gitlab',
+              data => data
+            );
+            if (notesProviderResult.data) {
               enrichedMergeRequest = {
                 ...enrichedMergeRequest,
-                _notes: notesResult.data,
+                _notes: notesProviderResult.data,
               };
             }
           }
 
           if (query.type) {
             const changesResult = await getGitLabMRChanges(projectId, mr.iid);
-            if ('data' in changesResult && changesResult.data) {
+            const changesProviderResult = handleGitLabAPIResponse(
+              changesResult,
+              'gitlab',
+              data => data
+            );
+            if (changesProviderResult.data) {
               enrichedMergeRequest = {
                 ...enrichedMergeRequest,
-                _changes: (changesResult.data.changes ||
+                _changes: (changesProviderResult.data.changes ||
                   []) as GitLabMRChange[],
               };
             }

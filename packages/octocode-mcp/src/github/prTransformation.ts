@@ -7,7 +7,7 @@ import {
   GitHubPullRequestItem,
   DiffEntry,
   CommitFileInfo,
-} from './githubAPI';
+} from './githubAPI.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { filterPatch } from '../utils/parsers/diff.js';
 

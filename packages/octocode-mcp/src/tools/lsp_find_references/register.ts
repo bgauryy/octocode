@@ -1,9 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import {
-  BulkLSPFindReferencesSchema,
-  LSP_FIND_REFERENCES_DESCRIPTION,
-} from '@octocodeai/octocode-core';
+import { LSP_FIND_REFERENCES_DESCRIPTION } from '@octocodeai/octocode-core';
+import { BulkLSPFindReferencesQuerySchema } from '../../scheme/lspSchemaOverlay.js';
 import { executeFindReferences } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LspFindReferencesOutputSchema } from '@octocodeai/octocode-core';
@@ -14,7 +12,7 @@ export function registerLSPFindReferencesTool(server: McpServer) {
     TOOL_NAME,
     {
       description: LSP_FIND_REFERENCES_DESCRIPTION,
-      inputSchema: toMCPSchema(BulkLSPFindReferencesSchema),
+      inputSchema: toMCPSchema(BulkLSPFindReferencesQuerySchema),
       outputSchema: toMCPSchema(LspFindReferencesOutputSchema),
       annotations: {
         title: 'Find References',

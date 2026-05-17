@@ -39,7 +39,7 @@ vi.mock('../../src/lsp/manager.js', async () => {
 
   return {
     ...actual,
-    createClient: vi.fn().mockResolvedValue(null),
+    acquirePooledClient: vi.fn().mockResolvedValue(null),
     isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
   };
 });
@@ -159,10 +159,13 @@ describe(`${FLOW_CATALOG.localImpactAnalysis.id}.execution`, () => {
 
     const impactedLocation = referencesPageOne.locations?.[0];
     expect(impactedLocation).toBeDefined();
+    const impactedPath = path.isAbsolute(impactedLocation!.uri)
+      ? impactedLocation!.uri
+      : path.join(fixtureRepoPath, impactedLocation!.uri);
 
     const impactedFile = await fetchContent({
       id: 'inspect_impacted_call_site',
-      path: path.join(fixtureRepoPath, impactedLocation!.uri),
+      path: impactedPath,
       matchString: 'computeScore',
       fullContent: false,
       matchStringContextLines: 5,
@@ -247,7 +250,7 @@ function configureExecutionFlowRuntime(repoPath: string): void {
   flowRuntime.safeExec.mockReset();
   flowRuntime.safeExec.mockImplementation(
     async (command: string, args: string[]) => {
-      if (command !== 'rg') {
+      if (!/rg$/.test(command)) {
         throw new Error(`Unexpected command: ${command}`);
       }
 
@@ -275,7 +278,7 @@ function configureExecutionFlowRuntime(repoPath: string): void {
 
   flowRuntime.spawn.mockReset();
   flowRuntime.spawn.mockImplementation((command: string, args: string[]) => {
-    if (command !== 'rg') {
+    if (!/rg$/.test(command)) {
       throw new Error(`Unexpected spawn command: ${command}`);
     }
 

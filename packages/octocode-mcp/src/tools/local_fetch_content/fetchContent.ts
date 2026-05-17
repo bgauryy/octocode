@@ -15,11 +15,17 @@ import {
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
 import type {
-  FetchContentQuery,
+  FetchContentQuery as UpstreamFetchContentQuery,
   LocalGetFileContentToolResult,
 } from '@octocodeai/octocode-core';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
+import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import { attachRawResponseChars } from '../../utils/response/charSavings.js';
+
+type FetchContentQuery = UpstreamFetchContentQuery & { verbosity?: Verbosity };
 
 const DEFAULT_OUTPUT_CHAR_LENGTH = 8000;
 const MAX_MATCH_LINES = 50;
@@ -216,7 +222,11 @@ async function isLikelyBinaryFile(filePath: string): Promise<boolean> {
   } catch {
     return false;
   } finally {
-    await handle?.close().catch(() => undefined);
+    await handle
+      ?.close()
+      .catch(
+        fallbackOnBestEffortFailure('binary sample handle close', undefined)
+      );
   }
 }
 
@@ -511,10 +521,11 @@ function buildSuccessResult(
     pagination.hasMore ||
     (extraction.actualEndLine !== undefined &&
       extraction.actualEndLine < totalLines);
+  const isPartial = extraction.isPartial || pagination.hasMore;
 
   const baseHints = getHints(TOOL_NAMES.LOCAL_FETCH_CONTENT, 'hasResults', {
     hasMoreContent,
-    isPartial: extraction.isPartial,
+    isPartial,
     endLine: extraction.actualEndLine,
     totalLines,
     nextCharOffset: pagination.nextCharOffset,
@@ -531,7 +542,7 @@ function buildSuccessResult(
   return {
     status: 'hasResults',
     content: pagination.paginatedContent,
-    isPartial: extraction.isPartial,
+    isPartial,
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
       extraction.actualEndLine !== undefined && {
@@ -583,11 +594,17 @@ export async function fetchContent(
         : fileStats.size;
     const fileSizeKB = fileSizeBytes / 1024;
     if (await isLikelyBinaryFile(absolutePath)) {
-      return createBinaryFileErrorResult(query, absolutePath);
+      return attachRawResponseChars(
+        createBinaryFileErrorResult(query, absolutePath),
+        fileSizeBytes
+      );
     }
 
     if (shouldFailForLargeFile(query, fileSizeKB)) {
-      return createLargeFileErrorResult(query, absolutePath, fileSizeKB);
+      return attachRawResponseChars(
+        createLargeFileErrorResult(query, absolutePath, fileSizeKB),
+        fileSizeBytes
+      );
     }
 
     const { content, errorResult: readError } = await readFileContentOrError(
@@ -606,19 +623,58 @@ export async function fetchContent(
     );
 
     if (extraction.earlyResult) {
-      return extraction.earlyResult;
+      return attachRawResponseChars(
+        applyFetchContentVerbosity(extraction.earlyResult, query, totalLines),
+        content.length
+      );
     }
 
-    return buildSuccessResult(
+    const fullResult = buildSuccessResult(
       query,
       extraction,
       fileStats,
       totalLines,
       defaultOutputCharLength
     );
+    return attachRawResponseChars(
+      applyFetchContentVerbosity(fullResult, query, totalLines),
+      content.length
+    );
   } catch (error) {
     return createErrorResult(error, query, {
       toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
     }) as LocalGetFileContentToolResult;
   }
+}
+
+/**
+ * RFC §4.7.4: when `verbosity:"ultra"` is requested, drop the file `content`
+ * field and return a `{filePath, summary}` line only. Compact / verbose /
+ * omitted behave identically to today (default-invariance contract).
+ *
+ * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ */
+export function applyFetchContentVerbosity(
+  result: LocalGetFileContentToolResult,
+  query: FetchContentQuery,
+  totalLines: number
+): LocalGetFileContentToolResult {
+  if (!isUltra(query.verbosity)) return result;
+  if (result.status !== 'hasResults') return result;
+
+  const contentLen = result.content?.length ?? 0;
+  const approxTokens = Math.ceil(contentLen / 4);
+  const filePath = result.filePath ?? query.path;
+  const summary = `${filePath}: ${totalLines} lines, ~${approxTokens} tokens raw`;
+
+  return {
+    ...result,
+    content: '',
+    hints: [
+      summary,
+      ...ultraDrillBackHint(
+        're-call with verbosity:"compact" (default) for content, or use matchString/lineRange for a slice'
+      ),
+    ],
+  };
 }

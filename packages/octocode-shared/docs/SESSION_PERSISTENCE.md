@@ -24,8 +24,8 @@ The session module provides persistent session state with deferred writes, in-me
 │  └─────────────────┘      │                                                  │
 │                           ▼                                                  │
 │                    ┌──────────────┐     ┌──────────────┐                    │
-│                    │ In-Memory    │◀───▶│  Disk File   │                    │
-│                    │   Cache      │     │ session.json │                    │
+│                    │ In-Memory    │◀───▶│  Disk Files  │                    │
+│                    │   Cache      │     │ session/stats│                    │
 │                    └──────┬───────┘     └──────────────┘                    │
 │                           │                    ▲                             │
 │                           │                    │                             │
@@ -53,6 +53,7 @@ The session module provides persistent session state with deferred writes, in-me
 
 ```
 ~/.octocode/session.json
+~/.octocode/stats.json
 ```
 
 ### Schema
@@ -63,6 +64,10 @@ interface PersistedSession {
   sessionId: string;       // UUID v4 identifier
   createdAt: string;       // ISO 8601 timestamp
   lastActiveAt: string;    // Updated on every interaction
+}
+
+interface PersistedStats {
+  version: 1;              // Schema version for migrations
   stats: SessionStats;
 }
 
@@ -70,7 +75,15 @@ interface SessionStats {
   toolCalls: number;       // MCP tool invocations
   promptCalls: number;     // MCP prompt invocations  
   errors: number;          // Error count
-  rateLimits: number;      // Rate limit encounters
+  rateLimits: number;      // Provider API rate-limit encounters
+  rateLimitsByProvider?: Record<string, number>;
+  charsSavedByTool?: Record<string, ToolCharSavingsStats>;
+  githubCacheHits?: {
+    hits: Record<string, number>;
+    rateLimits: number;
+  };
+  packageRegistryFailures?: Record<string, number>;
+  totalUsage?: SessionTotalUsageStats;
 }
 ```
 
@@ -81,12 +94,42 @@ interface SessionStats {
   "version": 1,
   "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "createdAt": "2025-01-11T10:00:00.000Z",
-  "lastActiveAt": "2025-01-11T15:30:45.123Z",
+  "lastActiveAt": "2025-01-11T15:30:45.123Z"
+}
+```
+
+### Example Stats File
+
+```json
+{
+  "version": 1,
   "stats": {
     "toolCalls": 142,
     "promptCalls": 3,
     "errors": 2,
-    "rateLimits": 0
+    "rateLimits": 0,
+    "rateLimitsByProvider": {},
+    "charsSavedByTool": {},
+    "githubCacheHits": {
+      "hits": {},
+      "rateLimits": 0
+    },
+    "packageRegistryFailures": {},
+    "totalUsage": {
+      "toolCalls": 142,
+      "promptCalls": 3,
+      "errors": 2,
+      "rateLimits": 0,
+      "rateLimitsByProvider": {},
+      "rawChars": 0,
+      "responseChars": 0,
+      "savedChars": 0,
+      "charSavingsCalls": 0,
+      "githubCacheHits": 0,
+      "githubCacheRateLimits": 0,
+      "packageRegistryFailures": 0,
+      "packageRegistryFailuresByRegistry": {}
+    }
   }
 }
 ```
@@ -119,8 +162,8 @@ Writing to disk on every stat increment would:
                           │ Every 60 seconds OR on exit
                           ▼
 ┌─────────────────────────────────────────────────────┐
-│                 Single Disk Write                   │
-│             (~/.octocode/session.json)              │
+│                 Batched Disk Write                  │
+│        session.json + stats.json under ~/.octocode    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -252,6 +295,8 @@ incrementToolCalls();
 incrementPromptCalls();
 incrementErrors();
 incrementRateLimits();
+incrementRateLimitByProvider('gitlab');
+incrementPackageRegistryFailures('npm');
 
 // Increment by N
 incrementToolCalls(5);
@@ -303,7 +348,9 @@ resetSessionStats();
 | `incrementToolCalls(n?)` | Increment tool calls | `SessionUpdateResult` |
 | `incrementPromptCalls(n?)` | Increment prompt calls | `SessionUpdateResult` |
 | `incrementErrors(n?)` | Increment error count | `SessionUpdateResult` |
-| `incrementRateLimits(n?)` | Increment rate limits | `SessionUpdateResult` |
+| `incrementRateLimits(n?)` | Increment global provider rate-limit count | `SessionUpdateResult` |
+| `incrementRateLimitByProvider(provider, n?)` | Increment global and per-provider rate-limit counts | `SessionUpdateResult` |
+| `incrementPackageRegistryFailures(registry, n?)` | Increment package-registry failure counts separately from rate limits | `SessionUpdateResult` |
 | `resetSessionStats()` | Reset all stats to 0 | `SessionUpdateResult` |
 
 ### Constants
@@ -311,6 +358,7 @@ resetSessionStats();
 | Export | Value | Purpose |
 |--------|-------|---------|
 | `SESSION_FILE` | `~/.octocode/session.json` | Session file path |
+| `STATS_FILE` | `~/.octocode/stats.json` | Stats file path |
 
 ---
 

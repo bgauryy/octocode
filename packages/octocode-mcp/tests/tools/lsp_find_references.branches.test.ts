@@ -40,7 +40,7 @@ vi.mock('../../src/lsp/resolver.js', () => {
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
-  createClient: vi.fn().mockResolvedValue(null),
+  acquirePooledClient: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock pattern matching module
@@ -132,7 +132,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       'function testFunction() {}\nexport { testFunction };'
     );
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
-    vi.mocked(managerModule.createClient).mockResolvedValue(null);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
     // Must use regular function (not arrow) because it's called with `new`
     vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {

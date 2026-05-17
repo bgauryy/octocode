@@ -189,15 +189,15 @@ export function withSecurityValidation<
         string,
         unknown
       >;
-      if (_deps.isLoggingEnabled?.()) {
-        handleBulk(toolName, sanitizedParams);
-      }
       const rawResult = await withToolTimeout(
         toolName,
         toolHandler(validation.sanitizedParams as T, authInfo, sessionId),
         signal,
         toolTimeoutMs
       );
+      if (_deps.isLoggingEnabled?.()) {
+        handleBulk(toolName, sanitizedParams);
+      }
       return rawResult;
     } catch (error) {
       _deps
@@ -258,6 +258,12 @@ export function withBasicSecurityValidation<T extends object>(
         );
       }
 
+      const rawResult = await withToolTimeout(
+        toolName || 'tool',
+        toolHandler(validation.sanitizedParams as T),
+        signal,
+        toolTimeoutMs
+      );
       if (
         toolName &&
         _deps.isLocalTool?.(toolName) &&
@@ -270,13 +276,6 @@ export function withBasicSecurityValidation<T extends object>(
           validation.sanitizedParams as Record<string, unknown>
         );
       }
-
-      const rawResult = await withToolTimeout(
-        toolName || 'tool',
-        toolHandler(validation.sanitizedParams as T),
-        signal,
-        toolTimeoutMs
-      );
       return rawResult;
     } catch (error) {
       _deps
@@ -302,9 +301,6 @@ function handleBulk(toolName: string, params: Record<string, unknown>): void {
 
   for (const item of items) {
     const repos = extractRepoOwnerFromParams(item);
-    if (repos.length === 0 && !_deps.isLocalTool?.(toolName)) {
-      continue;
-    }
     const fields = extractResearchFields(item);
     _deps
       .logToolCall?.(

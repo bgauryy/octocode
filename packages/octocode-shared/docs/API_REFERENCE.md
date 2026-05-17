@@ -588,6 +588,19 @@ interface PersistedSession {
   sessionId: string;     // UUID v4
   createdAt: string;     // ISO 8601
   lastActiveAt: string;  // ISO 8601
+  stats: SessionStats;   // Hydrated from stats.json at runtime
+}
+```
+
+---
+
+#### `PersistedStats`
+
+Stats data structure stored in `~/.octocode/stats.json`.
+
+```typescript
+interface PersistedStats {
+  version: 1;            // Schema version
   stats: SessionStats;
 }
 ```
@@ -604,6 +617,14 @@ interface SessionStats {
   promptCalls: number;
   errors: number;
   rateLimits: number;
+  rateLimitsByProvider?: Record<string, number>;
+  charsSavedByTool?: Record<string, ToolCharSavingsStats>;
+  githubCacheHits?: {
+    hits: Record<string, number>;
+    rateLimits: number;
+  };
+  packageRegistryFailures?: Record<string, number>;
+  totalUsage?: SessionTotalUsageStats;
 }
 ```
 
@@ -756,10 +777,36 @@ function incrementErrors(count?: number): SessionUpdateResult
 
 #### `incrementRateLimits(count?)`
 
-Increment rate limit counter.
+Increment global provider rate-limit counter.
 
 ```typescript
 function incrementRateLimits(count?: number): SessionUpdateResult
+```
+
+---
+
+#### `incrementRateLimitByProvider(provider, count?)`
+
+Increment global and per-provider rate-limit counters.
+
+```typescript
+function incrementRateLimitByProvider(
+  provider: string,
+  count?: number
+): SessionUpdateResult
+```
+
+---
+
+#### `incrementPackageRegistryFailures(registry, count?)`
+
+Increment package-registry failure counters. These are separate from provider API rate limits.
+
+```typescript
+function incrementPackageRegistryFailures(
+  registry: string,
+  count?: number
+): SessionUpdateResult
 ```
 
 ---
@@ -779,6 +826,7 @@ function resetSessionStats(): SessionUpdateResult
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | `SESSION_FILE` | `~/.octocode/session.json` | Session file path |
+| `STATS_FILE` | `~/.octocode/stats.json` | Stats file path |
 
 ---
 

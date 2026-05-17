@@ -7,8 +7,6 @@ export interface ToolMetadataGateway {
   getToolName<TKey extends keyof ToolNames>(key: TKey): ToolNames[TKey];
 }
 
-type ToolNamesRecord = Record<string, string>;
-
 export const DEFAULT_TOOL_METADATA_GATEWAY: ToolMetadataGateway = {
   hasTool(toolName: string): boolean {
     return isToolInMetadata(toolName);
@@ -17,7 +15,7 @@ export const DEFAULT_TOOL_METADATA_GATEWAY: ToolMetadataGateway = {
     return DESCRIPTIONS[toolName] ?? '';
   },
   getToolName<TKey extends keyof ToolNames>(key: TKey): ToolNames[TKey] {
-    const value = (TOOL_NAMES as unknown as ToolNamesRecord)[key as string];
-    return (value ?? String(key)) as ToolNames[TKey];
+    const value = TOOL_NAMES[key];
+    return value ?? String(key);
   },
 };

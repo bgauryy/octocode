@@ -1,6 +1,11 @@
 /**
- * LSP Client lifecycle management
- * Handles client creation and availability checks
+ * LSP Client lifecycle management.
+ *
+ * All LSP tools acquire clients through the shared pool below. The legacy
+ * spawn-per-request `createClient` was removed in May-2026 cleanup — every
+ * call site now uses `acquirePooledClient` so tsserver stays warm across
+ * agent bursts.
+ *
  * @module lsp/manager
  */
 
@@ -14,49 +19,7 @@ import {
   resolveLanguageServer,
   LANGUAGE_SERVER_COMMANDS,
 } from './config.js';
-
-/**
- * Create a new LSP client for a workspace and file type.
- * A new client is created for each call - caller is responsible for stopping it.
- *
- * @param workspaceRoot - Workspace root directory
- * @param filePath - Path to a source file (used to determine language server)
- * @returns LSP client or null if no server available
- *
- * @example
- * const client = await createClient('/path/to/project', '/path/to/project/src/index.ts');
- * if (client) {
- *   try {
- *     const definitions = await client.gotoDefinition(filePath, position);
- *   } finally {
- *     await client.stop();
- *   }
- * }
- */
-export async function createClient(
-  workspaceRoot: string,
-  filePath: string
-): Promise<LSPClient | null> {
-  const serverConfig = await getLanguageServerForFile(filePath, workspaceRoot);
-  if (!serverConfig) {
-    return null;
-  }
-
-  const client = new LSPClient(serverConfig);
-
-  try {
-    await client.start();
-    return client;
-  } catch {
-    // LSP start failed; belt-and-suspenders stop() in case init cleanup missed the process.
-    try {
-      await client.stop();
-    } catch {
-      // stop() after a failed start may throw; secondary cleanup errors are safe to ignore.
-    }
-    return null;
-  }
-}
+import { LspClientPool, type PoolKey } from './lspClientPool.js';
 
 /**
  * Check if a command exists in the system PATH.
@@ -165,3 +128,97 @@ export const LSP_UNAVAILABLE_HINT =
   'LSP unavailable for this file; returned a text-based fallback. ' +
   'For semantic results (cross-file refs, import chasing), install typescript-language-server: ' +
   '`npm i -g typescript-language-server typescript` or set OCTOCODE_TS_SERVER_PATH.';
+
+/**
+ * Default idle timeout for the shared LSP client pool (T3.2).
+ * Tuned for typical agent burst patterns: several requests in a row,
+ * then long pauses. Override via env for benchmarking.
+ */
+const POOL_IDLE_TIMEOUT_MS = parseInt(
+  process.env.OCTOCODE_LSP_POOL_IDLE_MS || '60000',
+  10
+);
+
+/**
+ * Process-wide LSP client pool. Keyed on (workspaceRoot, languageId)
+ * so different projects / languages don't share a tsserver. All LSP
+ * tools acquire through this pool — there is no spawn-per-request path.
+ */
+const sharedPool = new LspClientPool<LSPClient>({
+  idleTimeoutMs: POOL_IDLE_TIMEOUT_MS,
+  factory: async key => {
+    const serverConfig = await getLanguageServerForFile(
+      // `factory` only knows the key (workspaceRoot + languageId);
+      // resolve a synthetic filename so the config layer picks the
+      // right server. The languageId is the LSP one (e.g. 'typescript'),
+      // not a file extension, so we delegate to the explicit mapping
+      // below for an extension hint.
+      synthesizeFilePathForKey(key),
+      key.workspaceRoot
+    );
+    if (!serverConfig) return null;
+    const client = new LSPClient(serverConfig);
+    try {
+      await client.start();
+      return client;
+    } catch {
+      try {
+        await client.stop();
+      } catch {
+        // ignore secondary cleanup errors
+      }
+      return null;
+    }
+  },
+});
+
+/**
+ * Acquire (and pin) a pooled LSP client for the given file. Caller MUST
+ * NOT stop the client — the pool owns its lifecycle.
+ */
+export async function acquirePooledClient(
+  workspaceRoot: string,
+  filePath: string
+): Promise<LSPClient | null> {
+  const languageId = languageIdForFile(filePath);
+  if (!languageId) return null;
+  return sharedPool.acquire({ workspaceRoot, languageId });
+}
+
+/**
+ * Tear down every pooled client. Used by the upcoming `lspRestart`
+ * tool to recover from confused server state.
+ */
+export async function releaseAllPooledClients(): Promise<void> {
+  await sharedPool.clearAll();
+}
+
+/** Internal: surface pool size for diagnostics / metrics. */
+export function pooledClientCount(): number {
+  return sharedPool.size();
+}
+
+const LANGUAGE_ID_FOR_EXT: Record<string, string> = {
+  '.ts': 'typescript',
+  '.tsx': 'typescriptreact',
+  '.js': 'javascript',
+  '.jsx': 'javascriptreact',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.java': 'java',
+};
+
+function languageIdForFile(filePath: string): string | null {
+  return LANGUAGE_ID_FOR_EXT[path.extname(filePath).toLowerCase()] ?? null;
+}
+
+function synthesizeFilePathForKey(key: PoolKey): string {
+  const ext =
+    Object.entries(LANGUAGE_ID_FOR_EXT).find(
+      ([, id]) => id === key.languageId
+    )?.[0] ?? '.ts';
+  return path.join(key.workspaceRoot, `__octocode_pool_probe${ext}`);
+}

@@ -13,8 +13,8 @@ import type { AnySchema } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 /**
  * Casts a Zod schema to MCP's AnySchema for tool registration.
  * MCP SDK expects Zod v3/v4 compatible schemas; this centralizes the cast
- * instead of scattering "as unknown as AnySchema" across tool registrations.
+ * instead of scattering schema compatibility casts across tool registrations.
  */
 export function toMCPSchema<T extends object>(schema: T): AnySchema {
-  return schema as unknown as AnySchema;
+  return schema as AnySchema;
 }

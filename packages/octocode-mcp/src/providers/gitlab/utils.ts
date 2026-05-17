@@ -6,6 +6,8 @@
 
 import type { ProviderResponse } from '../types.js';
 import type { GitLabAPIError, GitLabAPIResponse } from '../../gitlab/types.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
+import { logRateLimit } from '../../session.js';
 
 type GitLabRepoSortField =
   | 'id'
@@ -104,6 +106,18 @@ function extractGitLabRateLimit(result: {
   };
 }
 
+function recordGitLabRateLimit(
+  rateLimit: NonNullable<ProviderResponse<never>['rateLimit']>
+): void {
+  void logRateLimit({
+    limit_type: 'primary',
+    retry_after_seconds: rateLimit.retryAfter,
+    rate_limit_remaining: rateLimit.remaining,
+    rate_limit_reset_ms: rateLimit.reset * 1000,
+    provider: 'gitlab',
+  });
+}
+
 /**
  * Convert raw GitLab API responses into the shared provider response shape.
  */
@@ -114,6 +128,11 @@ export function handleGitLabAPIResponse<TData, TRaw>(
   options: HandleGitLabAPIResponseOptions = {}
 ): ProviderResponse<TData> {
   if ('error' in result && result.error) {
+    const rateLimit = extractGitLabRateLimit(result as GitLabAPIError);
+    if (rateLimit) {
+      recordGitLabRateLimit(rateLimit);
+    }
+
     const errorMessage =
       options.stringifyError || typeof result.error !== 'string'
         ? String(result.error)
@@ -124,7 +143,7 @@ export function handleGitLabAPIResponse<TData, TRaw>(
       status: result.status || 500,
       provider,
       hints: 'hints' in result ? (result as GitLabAPIError).hints : undefined,
-      rateLimit: extractGitLabRateLimit(result as GitLabAPIError),
+      rateLimit,
     };
   }
 
@@ -140,5 +159,6 @@ export function handleGitLabAPIResponse<TData, TRaw>(
     data: transform(result.data),
     status: 'status' in result ? result.status : 200,
     provider,
+    rawResponseChars: countSerializedChars(result.data),
   };
 }

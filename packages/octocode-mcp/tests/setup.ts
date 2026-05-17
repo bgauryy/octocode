@@ -212,6 +212,12 @@ vi.mock('octocode-shared', () => ({
   incrementPromptCalls: vi.fn(() => ({ success: true })),
   incrementErrors: vi.fn(() => ({ success: true })),
   incrementRateLimits: vi.fn(() => ({ success: true })),
+  updateSessionStats: vi.fn(() => ({ success: true })),
+  incrementRateLimitByProvider: vi.fn(() => ({ success: true })),
+  incrementToolCharSavings: vi.fn(() => ({ success: true })),
+  incrementGitHubCacheHits: vi.fn(() => ({ success: true })),
+  incrementGitHubCacheRateLimits: vi.fn(() => ({ success: true })),
+  incrementPackageRegistryFailures: vi.fn(() => ({ success: true })),
   deleteSession: vi.fn(() => {
     sessionMockState.deleted = true;
     return true;

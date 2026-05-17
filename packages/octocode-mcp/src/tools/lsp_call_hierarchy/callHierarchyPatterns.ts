@@ -6,7 +6,7 @@ import { getHints } from '../../hints/index.js';
 import { SymbolResolver } from '../../lsp/resolver.js';
 import { RipgrepMatchOnlySchema } from '../../utils/parsers/schemas.js';
 import { safeExec } from '../../utils/exec/safe.js';
-import { checkCommandAvailability } from '../../utils/exec/commandAvailability.js';
+import { resolveRipgrepBinary } from '../../utils/exec/ripgrepBinary.js';
 import type {
   CallHierarchyResult,
   CallHierarchyItem,
@@ -94,7 +94,7 @@ export async function callHierarchyWithPatternMatching(
 }
 
 /**
- * Find incoming calls using grep/ripgrep (fallback)
+ * Find incoming calls using ripgrep (LSP-unavailable fallback path)
  */
 async function findIncomingCallsWithPatternMatching(
   options: IncomingPatternSearchOptions
@@ -113,35 +113,28 @@ async function findIncomingCallsWithPatternMatching(
 
   const searchPattern = `\\b${escapeRegex(symbolName)}\\s*\\(`;
 
-  const rgAvailable = await checkCommandAvailability('rg');
   let searchResults: CallSite[] = [];
 
   try {
-    if (rgAvailable.available) {
-      searchResults = await searchWithRipgrep(
-        workspaceRoot,
-        searchPattern,
-        targetFilePath,
-        contextLines
-      );
-    } else {
-      searchResults = await searchWithGrep(
-        workspaceRoot,
-        searchPattern,
-        targetFilePath,
-        contextLines
-      );
-    }
+    searchResults = await searchWithRipgrep(
+      workspaceRoot,
+      searchPattern,
+      targetFilePath,
+      contextLines
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    // Error responses must match the closed `error.data` schema. Keep
+    // ONLY error + hints; contextual fields (item, direction, depth,
+    // lspMode) belong on hasResults/empty responses. Squeeze useful
+    // context into the hints[] array so the agent still gets it.
     return {
       status: 'error',
       error: `Search failed: ${errorMessage}`,
-      item: targetItem,
-      direction: 'incoming',
-      depth,
       hints: [
         'Search for callers failed',
+        `Symbol: ${symbolName} (incoming, depth=${depth})`,
+        `Target: ${targetItem.uri}:${targetItem.range.start.line + 1}`,
         'Try using localSearchCode to find calls manually',
         `Pattern: ${symbolName}(`,
       ],
@@ -450,30 +443,26 @@ async function searchWithRipgrep(
   _excludeFile: string,
   contextLines: number
 ): Promise<CallSite[]> {
+  // Flags must stay inside the security validator's RG allow-list
+  // (octocode-security-utils/commandValidator):
+  //   - `-n` (not `--line-number`)
+  //   - pattern as positional (`-e` is not allow-listed)
+  //   - `--glob` to filter TS/JS family (`--type-add` is not allow-listed,
+  //     and default `--type ts` doesn't cover all variants on older rg).
   const args = [
     '--json',
-    '--line-number',
+    '-n',
     '--column',
-    '-e',
-    pattern,
-    '--type',
-    'ts',
-    '--type',
-    'js',
-    '--type',
-    'tsx',
-    '--type',
-    'jsx',
-    '--type-add',
-    'tsx:*.tsx',
-    '--type-add',
-    'jsx:*.jsx',
+    '--glob',
+    '*.{ts,tsx,js,jsx,mjs,cjs}',
     '-C',
     String(contextLines),
+    '--',
+    pattern,
     workspaceRoot,
   ];
 
-  const result = await safeExec('rg', args, {
+  const result = await safeExec(resolveRipgrepBinary(), args, {
     cwd: workspaceRoot,
     timeout: 30000,
   });
@@ -483,39 +472,6 @@ async function searchWithRipgrep(
   }
 
   return parseRipgrepJsonOutput(result.stdout);
-}
-
-/**
- * Search for pattern using grep (fallback)
- */
-async function searchWithGrep(
-  workspaceRoot: string,
-  pattern: string,
-  _excludeFile: string,
-  _contextLines: number
-): Promise<CallSite[]> {
-  const args = [
-    '-r',
-    '-n',
-    '-E',
-    '--include=*.ts',
-    '--include=*.js',
-    '--include=*.tsx',
-    '--include=*.jsx',
-    pattern,
-    workspaceRoot,
-  ];
-
-  const result = await safeExec('grep', args, {
-    cwd: workspaceRoot,
-    timeout: 30000,
-  });
-
-  if (!result.success && result.code !== 1) {
-    throw new Error(result.stderr || 'grep search failed');
-  }
-
-  return parseGrepOutput(result.stdout);
 }
 
 /**
@@ -540,32 +496,6 @@ export function parseRipgrepJsonOutput(output: string): CallSite[] {
       });
     } catch {
       // Malformed JSON line from ripgrep; skip this line.
-    }
-  }
-
-  return results;
-}
-
-/**
- * Parse grep output (file:line:content format)
- * @internal Exported for testing
- */
-export function parseGrepOutput(output: string): CallSite[] {
-  const results: CallSite[] = [];
-  const lines = output.split('\n').filter(line => line.trim());
-
-  for (const line of lines) {
-    const match = line.match(/:(\d+):/);
-    if (match?.index && match.index > 0) {
-      const filePath = line.substring(0, match.index);
-      const lineNum = match[1]!;
-      const content = line.substring(match.index + match[0].length);
-      results.push({
-        filePath,
-        lineNumber: parseInt(lineNum, 10),
-        column: 0,
-        lineContent: content,
-      });
     }
   }
 

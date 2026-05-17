@@ -6,7 +6,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseRipgrepJsonOutput,
-  parseGrepOutput,
   extractFunctionBody,
   inferSymbolKind,
   createRange,
@@ -437,65 +436,6 @@ describe('LSP Call Hierarchy Tool', () => {
 
       const results = parseRipgrepJsonOutput(output);
       expect(results.length).toBe(3);
-    });
-  });
-
-  describe('parseGrepOutput', () => {
-    it('should parse valid grep output', () => {
-      const output = '/test.ts:5:  myFunc();';
-
-      const results = parseGrepOutput(output);
-
-      expect(results.length).toBe(1);
-      expect(results[0]!.filePath).toBe('/test.ts');
-      expect(results[0]!.lineNumber).toBe(5);
-      expect(results[0]!.lineContent).toBe('  myFunc();');
-    });
-
-    it('should handle multiple results', () => {
-      const output = `/test.ts:5:  myFunc();
-/other.ts:10:  myFunc();
-/another.ts:15:myFunc();`;
-
-      const results = parseGrepOutput(output);
-      expect(results.length).toBe(3);
-    });
-
-    it('should handle empty output', () => {
-      const results = parseGrepOutput('');
-      expect(results.length).toBe(0);
-    });
-
-    it('should skip invalid lines', () => {
-      const output = `invalid
-/test.ts:5:valid`;
-
-      const results = parseGrepOutput(output);
-      expect(results.length).toBe(1);
-      expect(results[0]!.filePath).toBe('/test.ts');
-    });
-
-    it('should not hang on ReDoS input with repeated a:0:a pattern', () => {
-      const start = Date.now();
-      const malicious = 'a:0:a'.repeat(500);
-      parseGrepOutput(malicious);
-      expect(Date.now() - start).toBeLessThan(50);
-    });
-
-    it('should handle colons in filepath', () => {
-      const output = '/test:dir/file.ts:10:test content';
-      const results = parseGrepOutput(output);
-      expect(results.length).toBe(1);
-      expect(results[0]!.filePath).toBe('/test:dir/file.ts');
-      expect(results[0]!.lineNumber).toBe(10);
-      expect(results[0]!.lineContent).toBe('test content');
-    });
-
-    it('should handle colons in content', () => {
-      const output = '/file.ts:5:a ? b : c';
-      const results = parseGrepOutput(output);
-      expect(results.length).toBe(1);
-      expect(results[0]!.lineContent).toBe('a ? b : c');
     });
   });
 

@@ -52,12 +52,13 @@ import { safeReadFile } from '../../src/lsp/validation.js';
 import { validateCommand } from 'octocode-security-utils/commandValidator';
 
 import {
-  buildGrepFilterArgsArray,
-  buildGrepSearchArgs,
   buildRipgrepSearchArgs,
   findWorkspaceRoot,
   isLikelyDefinition,
   findReferencesWithPatternMatching,
+  buildGrepFilterArgs,
+  buildGrepFilterArgsArray,
+  buildGrepSearchArgs,
 } from '../../src/tools/lsp_find_references/lspReferencesPatterns.js';
 
 describe('lspReferencesPatterns - Branch Coverage', () => {
@@ -68,63 +69,6 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  describe('buildGrepFilterArgsArray', () => {
-    it('should use --exclude-dir for patterns containing /', () => {
-      const args = buildGrepFilterArgsArray(undefined, [
-        '**/node_modules/**',
-        '**/dist/**',
-      ]);
-      expect(args).toContain('--exclude-dir=node_modules');
-      expect(args).toContain('--exclude-dir=dist');
-    });
-
-    it('should use --exclude for patterns without /', () => {
-      const args = buildGrepFilterArgsArray(undefined, ['*.snap', '*.min.js']);
-      expect(args).toContain('--exclude=*.snap');
-      expect(args).toContain('--exclude=*.min.js');
-    });
-
-    it('should handle mix of include and exclude patterns', () => {
-      const args = buildGrepFilterArgsArray(
-        ['**/*.ts', '**/*.tsx'],
-        ['**/node_modules/**', '*.snap']
-      );
-      expect(args).toContain('--include=*.ts');
-      expect(args).toContain('--include=*.tsx');
-      expect(args).toContain('--exclude-dir=node_modules');
-      expect(args).toContain('--exclude=*.snap');
-    });
-
-    it('should return empty for no patterns', () => {
-      expect(buildGrepFilterArgsArray()).toEqual([]);
-      expect(buildGrepFilterArgsArray([], [])).toEqual([]);
-    });
-  });
-
-  describe('buildGrepSearchArgs - exclude only', () => {
-    it('should include default extensions when only excludePattern is provided', () => {
-      const args = buildGrepSearchArgs('/workspace', 'myFunc', undefined, [
-        '**/node_modules/**',
-      ]);
-      expect(args.some(a => a.startsWith('--include=*.'))).toBe(true);
-      expect(args.some(a => a.startsWith('--exclude-dir='))).toBe(true);
-    });
-
-    it('should not add default extensions when includePattern is provided', () => {
-      const args = buildGrepSearchArgs(
-        '/workspace',
-        'myFunc',
-        ['**/*.py'],
-        ['**/node_modules/**']
-      );
-      expect(args).toContain('--include=*.py');
-      const defaultExtArgs = args.filter(
-        a => a.startsWith('--include=*.') && a !== '--include=*.py'
-      );
-      expect(defaultExtArgs.length).toBe(0);
-    });
   });
 
   describe('findWorkspaceRoot', () => {
@@ -574,57 +518,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
       expect(result.locations![0]!.content).toBe('const x = myFunc();');
     });
 
-    it('should fallback to grep when ripgrep fails with non-1 exit code and skip malformed grep lines', async () => {
-      let spawnCallCount = 0;
-      mockStdoutOn.mockImplementation(
-        (event: string, cb: (data: Buffer) => void) => {
-          if (event === 'data' && spawnCallCount > 0) {
-            // Grep output: valid line + malformed lines (no second colon, no colon)
-            cb(
-              Buffer.from(
-                [
-                  '/workspace/src/valid.ts:5:const x = myFunc();',
-                  'malformed-no-colon',
-                  'path:onlyonecolon',
-                ].join('\n')
-              )
-            );
-          }
-        }
-      );
-      mockSpawnOn.mockImplementation(
-        (event: string, cb: (code: number) => void) => {
-          if (event === 'close') {
-            spawnCallCount++;
-            setTimeout(() => cb(spawnCallCount === 1 ? 2 : 0), 0);
-          }
-        }
-      );
-
-      const result = await findReferencesWithPatternMatching(
-        '/workspace/src/file.ts',
-        '/workspace',
-        {
-          id: 'pattern_query_grep',
-          uri: '/workspace/src/file.ts',
-          symbolName: 'myFunc',
-          lineHint: 5,
-          includeDeclaration: true,
-          contextLines: 0,
-          orderHint: 0,
-          page: 1,
-          referencesPerPage: 20,
-          researchGoal: 'test',
-          reasoning: 'test',
-        }
-      );
-
-      expect(result.status).toBe('hasResults');
-      expect(result.locations!.length).toBe(1);
-      expect(result.locations![0]!.uri).toContain('valid');
-    });
-
-    it('should return empty when both ripgrep and grep fail (grep catch block)', async () => {
+    it('should return empty when ripgrep fails (non-1 exit code)', async () => {
       let spawnCallCount = 0;
       mockSpawnOn.mockImplementation(
         (event: string, cb: (code: number) => void) => {
@@ -750,48 +644,26 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
   describe('Cross-language extension coverage (regression)', () => {
     // Regression: ripgrep/grep fallbacks only matched ts/tsx/js/jsx/py/go/rs/java/c/cpp/h
     // so Kotlin/Swift/Dart/Ruby/PHP/C#/Scala/Lua users got zero references.
-    it('buildRipgrepSearchArgs registers a code type covering Kotlin/Swift/Dart/Ruby/PHP/C#/Scala/Lua', () => {
+    it('buildRipgrepSearchArgs uses built-in code type flags for major languages', () => {
       const args = buildRipgrepSearchArgs('/ws', 'foo');
-      const typeAddIndex = args.indexOf('--type-add');
-      expect(typeAddIndex).toBeGreaterThanOrEqual(0);
-      const typeDef = args[typeAddIndex + 1]!;
-      for (const ext of [
-        'kt',
-        'kts',
+      const typeValues = args.flatMap((arg, index) =>
+        arg === '-t' ? [args[index + 1]] : []
+      );
+      for (const type of [
+        'kotlin',
         'swift',
         'dart',
-        'rb',
+        'ruby',
         'php',
         'cs',
         'scala',
         'lua',
-        'mjs',
-        'cjs',
-        'pyi',
-        'cc',
-        'cxx',
-        'hpp',
+        'ts',
+        'js',
+        'py',
+        'cpp',
       ]) {
-        expect(typeDef).toContain(ext);
-      }
-    });
-
-    it('buildGrepSearchArgs --include matches the same extension set when no patterns provided', () => {
-      const args = buildGrepSearchArgs('/ws', 'foo');
-      const includes = args.filter(a => a.startsWith('--include='));
-      const exts = includes.map(a => a.replace('--include=*.', ''));
-      for (const ext of [
-        'kt',
-        'kts',
-        'swift',
-        'dart',
-        'rb',
-        'php',
-        'cs',
-        'scala',
-        'lua',
-      ]) {
-        expect(exts).toContain(ext);
+        expect(typeValues).toContain(type);
       }
     });
   });
@@ -815,6 +687,201 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
       expect(isLikelyDefinition('func (s *Server) Handle() {', 'Handle')).toBe(
         true
       );
+    });
+  });
+
+  describe('grep fallback (searchReferencesWithGrep)', () => {
+    it('falls back to grep when ripgrep exits with code 2, covers grep parsing branches', async () => {
+      vi.mocked(validateCommand).mockReturnValue({ isValid: true });
+
+      const sourceFile = '/workspace/src/file.ts';
+
+      const grepOutput = [
+        // valid definition in same file → isDefinition=true
+        `${sourceFile}:5:const mySymbol = 'value';`,
+        // valid usage in different file → isDefinition=false
+        `/workspace/src/other.ts:10:const x = mySymbol + 1;`,
+        // no colons at all → colonIndex === -1 branch (skip)
+        `malformed_no_colon`,
+        // one colon but no second colon → secondColon === -1 branch (skip)
+        `${sourceFile}:malformed_single_colon`,
+        // non-numeric line number → isNaN(lineNumber) branch (skip)
+        `${sourceFile}:abc:content with mySymbol here`,
+      ].join('\n');
+
+      // First spawn: ripgrep fails with exit code 2 (triggers grep fallback)
+      mockStdoutOn.mockImplementationOnce(() => {});
+      mockSpawnOn.mockImplementationOnce(
+        (event: string, cb: (code: number) => void) => {
+          if (event === 'close') setTimeout(() => cb(2), 0);
+        }
+      );
+
+      // Second spawn: grep succeeds with output
+      mockStdoutOn.mockImplementationOnce(
+        (event: string, cb: (data: Buffer) => void) => {
+          if (event === 'data') cb(Buffer.from(grepOutput));
+        }
+      );
+      mockSpawnOn.mockImplementationOnce(
+        (event: string, cb: (code: number) => void) => {
+          if (event === 'close') setTimeout(() => cb(0), 0);
+        }
+      );
+
+      const result = await findReferencesWithPatternMatching(
+        sourceFile,
+        '/workspace',
+        {
+          id: 'grep_fallback_test',
+          uri: sourceFile,
+          symbolName: 'mySymbol',
+          lineHint: 5,
+          researchGoal: 'test grep fallback',
+          reasoning: 'branch coverage',
+          page: 1,
+          contextLines: 0,
+          orderHint: 0,
+          includeDeclaration: true,
+          referencesPerPage: 20,
+        }
+      );
+
+      expect(result.status).toBe('hasResults');
+      if (result.status === 'hasResults') {
+        expect(result.locations?.length).toBeGreaterThan(0);
+        const hasDefinition = result.locations?.some(r => r.isDefinition);
+        expect(hasDefinition).toBe(true);
+      }
+    });
+
+    it('ripgrep exits with code 1 (no match) — does NOT fall back to grep', async () => {
+      vi.mocked(validateCommand).mockReturnValue({ isValid: true });
+
+      // ripgrep exits with code 1 (no-match exit, treated as success with empty results)
+      mockStdoutOn.mockImplementation(() => {});
+      mockSpawnOn.mockImplementation(
+        (event: string, cb: (code: number) => void) => {
+          if (event === 'close') setTimeout(() => cb(1), 0);
+        }
+      );
+
+      const result = await findReferencesWithPatternMatching(
+        '/workspace/src/file.ts',
+        '/workspace',
+        {
+          id: 'ripgrep_code1',
+          uri: '/workspace/src/file.ts',
+          symbolName: 'nonExistentSymbol',
+          lineHint: 1,
+          researchGoal: 'test no-match',
+          reasoning: 'branch coverage',
+          page: 1,
+          contextLines: 0,
+          orderHint: 0,
+          includeDeclaration: true,
+          referencesPerPage: 20,
+        }
+      );
+
+      expect(result.status).toBe('empty');
+    });
+  });
+
+  describe('buildGrepFilterArgs', () => {
+    it('returns empty string when no patterns provided', () => {
+      expect(buildGrepFilterArgs()).toBe('');
+      expect(buildGrepFilterArgs([], [])).toBe('');
+    });
+
+    it('builds --include flags from includePattern', () => {
+      const result = buildGrepFilterArgs(['**/*.ts', '*.js']);
+      expect(result).toContain('--include="*.ts"');
+      expect(result).toContain('--include="*.js"');
+    });
+
+    it('builds --exclude-dir when excludePattern contains a slash', () => {
+      const result = buildGrepFilterArgs(undefined, ['**/node_modules/**']);
+      expect(result).toContain('--exclude-dir="node_modules"');
+    });
+
+    it('builds --exclude when excludePattern has no slash', () => {
+      const result = buildGrepFilterArgs(undefined, ['*.min.js']);
+      expect(result).toContain('--exclude="*.min.js"');
+    });
+
+    it('combines include and exclude patterns', () => {
+      const result = buildGrepFilterArgs(['**/*.ts'], ['**/dist/**', '*.test.ts']);
+      expect(result).toContain('--include="*.ts"');
+      expect(result).toContain('--exclude-dir="dist"');
+      expect(result).toContain('--exclude="*.test.ts"');
+    });
+  });
+
+  describe('buildGrepFilterArgsArray', () => {
+    it('returns empty array when no patterns provided', () => {
+      expect(buildGrepFilterArgsArray()).toEqual([]);
+    });
+
+    it('builds --include= entries from includePattern', () => {
+      const result = buildGrepFilterArgsArray(['**/*.ts', '*.js']);
+      expect(result).toContain('--include=*.ts');
+      expect(result).toContain('--include=*.js');
+    });
+
+    it('builds --exclude-dir= when excludePattern contains a slash', () => {
+      const result = buildGrepFilterArgsArray(undefined, ['**/node_modules/**']);
+      expect(result).toContain('--exclude-dir=node_modules');
+    });
+
+    it('builds --exclude= when excludePattern has no slash', () => {
+      const result = buildGrepFilterArgsArray(undefined, ['*.min.js']);
+      expect(result).toContain('--exclude=*.min.js');
+    });
+
+    it('combines include and exclude in array form', () => {
+      const result = buildGrepFilterArgsArray(['**/*.ts'], ['**/dist/**', '*.snap']);
+      expect(result).toContain('--include=*.ts');
+      expect(result).toContain('--exclude-dir=dist');
+      expect(result).toContain('--exclude=*.snap');
+    });
+  });
+
+  describe('buildGrepSearchArgs', () => {
+    it('adds default --include=*.ext flags when no patterns provided', () => {
+      const result = buildGrepSearchArgs('/workspace', 'mySymbol');
+      expect(result).toContain('--include=*.ts');
+      expect(result).toContain('--include=*.py');
+      expect(result).toContain('mySymbol');
+      expect(result).toContain('/workspace');
+    });
+
+    it('uses custom includePattern when provided', () => {
+      const result = buildGrepSearchArgs('/workspace', 'myFn', ['**/*.ts']);
+      expect(result).toContain('--include=*.ts');
+      expect(result).not.toContain('--include=*.py');
+    });
+
+    it('adds default extensions when only excludePattern is provided (no include)', () => {
+      const result = buildGrepSearchArgs(
+        '/workspace',
+        'myFn',
+        undefined,
+        ['**/dist/**']
+      );
+      expect(result).toContain('--exclude-dir=dist');
+      expect(result).toContain('--include=*.ts');
+    });
+
+    it('does not add default extensions when includePattern is also provided', () => {
+      const result = buildGrepSearchArgs(
+        '/workspace',
+        'myFn',
+        ['**/*.ts'],
+        ['**/dist/**']
+      );
+      expect(result).toContain('--include=*.ts');
+      expect(result).not.toContain('--include=*.py');
     });
   });
 });

@@ -4,19 +4,20 @@ import type {
   CodeSearchResultItem,
   GitHubAPIResponse,
   OptimizedCodeSearchResult,
-} from './githubAPI';
+} from './githubAPI.js';
 import type { GitHubCodeSearchQuery } from '@octocodeai/octocode-core';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { minifyContent } from '../utils/minifier/minifier.js';
-import { getOctokit } from './client';
-import { handleGitHubAPIError } from './errors';
-import { buildCodeSearchQuery } from './queryBuilders';
-import { generateCacheKey, withDataCache } from '../utils/http/cache';
+import { getOctokit } from './client.js';
+import { handleGitHubAPIError } from './errors.js';
+import { buildCodeSearchQuery } from './queryBuilders.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
-import { shouldIgnoreFile } from '../utils/file/filters';
+import { shouldIgnoreFile } from '../utils/file/filters.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
+import { countSerializedChars } from '../utils/response/charSavings.js';
 
 export async function searchGitHubCodeAPI(
   params: GitHubCodeSearchQuery,
@@ -140,6 +141,7 @@ async function searchGitHubCodeAPIInternal(
       },
       status: 200,
       headers: result.headers,
+      rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);

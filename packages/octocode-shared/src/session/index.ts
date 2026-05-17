@@ -2,19 +2,25 @@
  * Session Module
  *
  * Persistent session management for Octocode packages.
- * Stores session data in ~/.octocode/session.json with cross-platform support.
+ * Stores session identity in ~/.octocode/session.json and statistics in
+ * ~/.octocode/stats.json with cross-platform support.
  */
 
 // Types
 export type {
+  GitHubCacheHitStats,
+  PersistedStats,
   PersistedSession,
   SessionStats,
+  SessionTotalUsageStats,
   SessionUpdateResult,
   SessionOptions,
+  StatsCounterMap,
+  ToolCharSavingsStats,
 } from './types.js';
 
 // Storage constants
-export { SESSION_FILE } from './storage.js';
+export { SESSION_FILE, STATS_FILE } from './storage.js';
 
 // Core operations
 export {
@@ -34,6 +40,11 @@ export {
   incrementPromptCalls,
   incrementErrors,
   incrementRateLimits,
+  incrementRateLimitByProvider,
+  incrementToolCharSavings,
+  incrementGitHubCacheHits,
+  incrementGitHubCacheRateLimits,
+  incrementPackageRegistryFailures,
   resetSessionStats,
 } from './storage.js';
 

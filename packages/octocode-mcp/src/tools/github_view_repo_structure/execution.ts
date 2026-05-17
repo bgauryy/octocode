@@ -105,6 +105,7 @@ export async function exploreMultipleRepositoryStructures(
             hintContext: { entryCount },
             prefixHints: branchHints,
             extraHints: apiHints,
+            rawResponse: providerResult.response.rawResponseChars,
           }
         );
       } catch (error) {

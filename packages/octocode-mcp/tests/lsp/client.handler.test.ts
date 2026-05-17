@@ -83,27 +83,33 @@ describe('LSP Client Handler Tests', () => {
     });
   });
 
-  describe('createClient function', () => {
+  describe('acquirePooledClient function', () => {
     it('should return null for unsupported extension .txt', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/file.txt');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/file.txt'
+      );
 
       expect(result).toBeNull();
     });
 
     it('should return null for unsupported extension .md', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/README.md');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/README.md'
+      );
 
       expect(result).toBeNull();
     });
 
     it('should return null for unsupported extension .json', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient(
+      const result = await acquirePooledClient(
         '/workspace',
         '/workspace/package.json'
       );
@@ -112,41 +118,56 @@ describe('LSP Client Handler Tests', () => {
     });
 
     it('should return null for unsupported extension .yaml', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/config.yaml');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/config.yaml'
+      );
 
       expect(result).toBeNull();
     });
 
     it('should return null for unsupported extension .html', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/index.html');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/index.html'
+      );
 
       expect(result).toBeNull();
     });
 
     it('should return null for unsupported extension .css', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/styles.css');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/styles.css'
+      );
 
       expect(result).toBeNull();
     });
 
     it('should return null for files without extension', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/Dockerfile');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/Dockerfile'
+      );
 
       expect(result).toBeNull();
     });
 
     it('should return null for hidden files', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/.gitignore');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/.gitignore'
+      );
 
       expect(result).toBeNull();
     });

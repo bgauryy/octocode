@@ -115,7 +115,10 @@ describe('localSearchCode', () => {
       });
 
       const result = await runRipgrep({
-        pattern: '[',
+        // Use a valid regex; T1.6 pre-flight now rejects '[' before
+        // safeExec ever runs (which is the more correct behaviour and
+        // is covered by tests/tools/local_ripgrep_best_practices.test.ts).
+        pattern: 'someValidPattern',
         path: '/test/path',
       });
 
@@ -142,7 +145,7 @@ describe('localSearchCode', () => {
       expect(result.status).toBe('hasResults');
       // Discovery mode sets count=true (uses -c flag for per-file match counts)
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-c'])
       );
     });
@@ -182,7 +185,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-F'])
       );
     });
@@ -203,7 +206,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-P'])
       );
     });
@@ -226,7 +229,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-t', 'ts'])
       );
     });
@@ -247,7 +250,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-g', '!node_modules/', '-g', '!.git/'])
       );
     });
@@ -270,7 +273,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-l'])
       );
     });
@@ -315,7 +318,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-C', '1'])
       );
     });
@@ -525,7 +528,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-S'])
       );
     });
@@ -555,7 +558,7 @@ describe('localSearchCode', () => {
 
       expect(result.status).toBe('hasResults');
       expect(mockSafeExec).toHaveBeenCalledWith(
-        'rg',
+        expect.stringMatching(/rg$/),
         expect.arrayContaining(['-i'])
       );
     });
@@ -2103,442 +2106,6 @@ describe('localSearchCode', () => {
         );
         expect(usesSchemaParams).toBe(true);
       }
-    });
-  });
-
-  describe('Grep fallback', () => {
-    const mockCheckCommandAvailability = vi.mocked(checkCommandAvailability);
-
-    it('should fall back to grep when ripgrep is unavailable', async () => {
-      // Mock rg unavailable, grep available
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout:
-          '/test/path/file1.ts:10:function test() {\n/test/path/file2.ts:20:const test = 1;',
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('hasResults');
-      expect(result.warnings).toContain(
-        'Using grep fallback (ripgrep not available). Some features may be limited.'
-      );
-    });
-
-    it('should return error when both rg and grep are unavailable', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: false, command: 'grep' });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('error');
-      expect(result.errorCode).toBe(
-        LOCAL_TOOL_ERROR_CODES.COMMAND_NOT_AVAILABLE
-      );
-    });
-
-    it('should warn about unsupported grep features', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.ts:10:match',
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-        smartCase: true,
-      });
-
-      expect(result.status).toBe('hasResults');
-      expect(result.warnings).toContainEqual(
-        expect.stringContaining('smartCase not supported by grep')
-      );
-    });
-
-    it('should reject multiline patterns when using grep', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      const result = await runRipgrep({
-        pattern: 'test.*\\nmore',
-        path: '/test/path',
-        multiline: true,
-      });
-
-      expect(result.status).toBe('error');
-    });
-
-    it('should parse grep files-only output correctly', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.ts\n/test/path/file2.ts\n/test/path/file3.ts',
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-        filesOnly: true,
-      });
-
-      expect(result.status).toBe('hasResults');
-      expect(result.files).toHaveLength(3);
-      expect(result.files?.[0]?.path).toBe('/test/path/file1.ts');
-    });
-
-    it('should handle empty grep results', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: 1, // grep returns 1 when no matches
-        stdout: '',
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'nonexistent',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('empty');
-    });
-
-    it('should handle grep timeout (code null)', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: null, // Timeout indicator
-        stdout: '',
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('error');
-      expect(result.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.COMMAND_TIMEOUT);
-      expect(result.hints).toBeDefined();
-    });
-
-    it('should handle grep failure with exit code > 1', async () => {
-      mockCheckCommandAvailability
-        .mockResolvedValueOnce({ available: false, command: 'rg' })
-        .mockResolvedValueOnce({ available: true, command: 'grep' });
-
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: 2, // Error exit code
-        stdout: '',
-        stderr: 'grep: invalid option',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('error');
-      expect(result.errorCode).toBeDefined();
-    });
-
-    it('should use ripgrep when available (preferred)', async () => {
-      mockCheckCommandAvailability.mockResolvedValue({
-        available: true,
-        command: 'rg',
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: JSON.stringify({
-          type: 'match',
-          data: {
-            path: { text: '/test/file.ts' },
-            lines: { text: 'test match' },
-            line_number: 10,
-            absolute_offset: 100,
-            submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-          },
-        }),
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('hasResults');
-    });
-  });
-
-  describe('estimateDirectoryStats', () => {
-    it('should detect large directory with many files', async () => {
-      // Mock a large directory with many files
-      mockFsReaddir.mockResolvedValueOnce(
-        Array.from({ length: 100 }, (_, i) => ({
-          name: `file${i}.ts`,
-          isFile: () => true,
-          isDirectory: () => false,
-        }))
-      );
-
-      // Mock stat to return large file size (50MB total)
-      mockFsStat.mockResolvedValue({
-        size: 500000, // ~500KB per file
-        mtime: new Date(),
-      } as unknown as Awaited<ReturnType<typeof fs.stat>>);
-
-      const jsonOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/file.ts' },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      // Should succeed but may include large directory warning
-      expect(result.status).toBe('hasResults');
-    });
-
-    it('should handle directory with subdirectories', async () => {
-      // Mock directory with files and subdirs
-      mockFsReaddir
-        .mockResolvedValueOnce([
-          { name: 'file.ts', isFile: () => true, isDirectory: () => false },
-          { name: 'subdir', isFile: () => false, isDirectory: () => true },
-        ])
-        // Mock subdirectory contents
-        .mockResolvedValueOnce([
-          { name: 'sub1.ts', isFile: () => true, isDirectory: () => false },
-          { name: 'sub2.ts', isFile: () => true, isDirectory: () => false },
-        ]);
-
-      mockFsStat.mockResolvedValue({
-        size: 1024,
-        mtime: new Date(),
-      } as unknown as Awaited<ReturnType<typeof fs.stat>>);
-
-      const jsonOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/file.ts' },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('hasResults');
-    });
-
-    it('should skip hidden directories when estimating', async () => {
-      // Mock directory with hidden dir
-      mockFsReaddir.mockResolvedValueOnce([
-        { name: '.hidden', isFile: () => false, isDirectory: () => true },
-        { name: 'visible', isFile: () => false, isDirectory: () => true },
-      ]);
-
-      mockFsStat.mockResolvedValue({
-        size: 1024,
-        mtime: new Date(),
-      } as unknown as Awaited<ReturnType<typeof fs.stat>>);
-
-      const jsonOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/file.ts' },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('hasResults');
-    });
-
-    it('should handle readdir errors gracefully', async () => {
-      // Mock readdir to fail
-      mockFsReaddir.mockRejectedValueOnce(new Error('Permission denied'));
-
-      const jsonOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/file.ts' },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      // Should still succeed - errors in estimateDirectoryStats don't block search
-      expect(result.status).toBe('hasResults');
-    });
-
-    it('should handle stat errors for individual files', async () => {
-      // Mock directory with file
-      mockFsReaddir.mockResolvedValueOnce([
-        { name: 'file.ts', isFile: () => true, isDirectory: () => false },
-      ]);
-
-      // Mock stat to fail for estimation but succeed for result processing
-      mockFsStat
-        .mockRejectedValueOnce(new Error('Permission denied')) // For estimation
-        .mockResolvedValue({
-          mtime: new Date(),
-        } as unknown as Awaited<ReturnType<typeof fs.stat>>); // For result processing
-
-      const jsonOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/file.ts' },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('hasResults');
-    });
-
-    it('should handle subdirectory readdir errors', async () => {
-      // Mock directory with subdir
-      mockFsReaddir
-        .mockResolvedValueOnce([
-          { name: 'subdir', isFile: () => false, isDirectory: () => true },
-        ])
-        // Subdirectory readdir fails
-        .mockRejectedValueOnce(new Error('Permission denied'));
-
-      mockFsStat.mockResolvedValue({
-        size: 1024,
-        mtime: new Date(),
-      } as unknown as Awaited<ReturnType<typeof fs.stat>>);
-
-      const jsonOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/file.ts' },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      });
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('hasResults');
     });
   });
 

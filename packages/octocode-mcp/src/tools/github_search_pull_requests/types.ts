@@ -79,5 +79,10 @@ export interface GitHubPullRequestSearchApiData {
 
 export interface GitHubPullRequestSearchApiResult extends GitHubPullRequestSearchApiData {
   error?: string;
+  status?: number;
   hints?: string[];
+  rateLimitRemaining?: number;
+  rateLimitReset?: number;
+  retryAfter?: number;
+  rawResponseChars?: number;
 }

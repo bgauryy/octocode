@@ -31,8 +31,6 @@ import {
 import {
   escapeForRegex,
   buildRipgrepSearchArgs,
-  buildGrepSearchArgs,
-  buildGrepFilterArgsArray,
 } from '../../src/tools/lsp_find_references/lspReferencesPatterns.js';
 
 describe('Finding 1 — escapeForRegex + command args safety', () => {
@@ -72,20 +70,6 @@ describe('Finding 1 — escapeForRegex + command args safety', () => {
     // Malicious payload is ONE element, not shell-split
     const hits = args.filter(a => a.includes('rm'));
     expect(hits).toHaveLength(1);
-  });
-
-  it('buildGrepSearchArgs returns an array (safe for spawn)', () => {
-    const args = buildGrepSearchArgs('/workspace', '$(cat /etc/passwd)');
-
-    expect(Array.isArray(args)).toBe(true);
-    args.forEach(a => expect(typeof a).toBe('string'));
-  });
-
-  it('buildGrepFilterArgsArray returns a flat string array', () => {
-    const args = buildGrepFilterArgsArray(['.ts', '.js']);
-
-    expect(Array.isArray(args)).toBe(true);
-    args.forEach(a => expect(typeof a).toBe('string'));
   });
 
   it('pipe in malicious input is regex-escaped inside the rg pattern arg', () => {

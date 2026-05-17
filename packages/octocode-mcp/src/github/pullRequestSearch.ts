@@ -6,24 +6,29 @@
  *   - prContentFetcher.ts: comments, commits, file changes, item transforms
  *   - prByNumber.ts: fetch single PR by number
  */
-import {
+import type {
+  GitHubAPIError,
   GitHubPullRequestsSearchParams,
   GitHubPullRequestItem,
   IssueSearchResultItem,
   PullRequestSimple,
-} from './githubAPI';
+} from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
-import { getOctokit, OctokitWithThrottling } from './client';
-import { handleGitHubAPIError } from './errors';
+import { getOctokit, OctokitWithThrottling } from './client.js';
+import { handleGitHubAPIError } from './errors.js';
 import {
   buildPullRequestSearchQuery,
   shouldUseSearchForPRs,
-} from './queryBuilders';
-import { generateCacheKey, withDataCache } from '../utils/http/cache';
+} from './queryBuilders.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
+import {
+  countSerializedChars,
+  getRawResponseChars,
+} from '../utils/response/charSavings.js';
 
 import { formatPRForResponse } from './prTransformation.js';
 import {
@@ -31,6 +36,23 @@ import {
   transformPullRequestItemFromREST,
 } from './prContentFetcher.js';
 import { fetchGitHubPullRequestByNumberAPIInternal } from './prByNumber.js';
+
+function createPullRequestErrorResult(
+  apiError: GitHubAPIError,
+  error: string,
+  hints: string[]
+): GitHubPullRequestSearchApiResult {
+  return {
+    pull_requests: [],
+    total_count: 0,
+    error,
+    status: apiError.status,
+    hints,
+    rateLimitRemaining: apiError.rateLimitRemaining,
+    rateLimitReset: apiError.rateLimitReset,
+    retryAfter: apiError.retryAfter,
+  };
+}
 
 export async function searchGitHubPullRequestsAPI(
   params: GitHubPullRequestsSearchParams,
@@ -174,6 +196,10 @@ async function searchGitHubPullRequestsAPIInternal(
       })
     );
 
+    const transformedRawResponseChars = transformedPRs.reduce(
+      (sum, pr) => sum + (getRawResponseChars(pr) ?? 0),
+      0
+    );
     const formattedPRs = transformedPRs.map(formatPRForResponse);
 
     const totalMatches = Math.min(searchResult.data.total_count, 1000);
@@ -192,6 +218,8 @@ async function searchGitHubPullRequestsAPIInternal(
         totalMatches,
         hasMore,
       },
+      rawResponseChars:
+        countSerializedChars(searchResult.data) + transformedRawResponseChars,
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);
@@ -199,12 +227,11 @@ async function searchGitHubPullRequestsAPIInternal(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       SEARCH_ERRORS.PULL_REQUEST_SEARCH_FAILED.code
     );
-    return {
-      pull_requests: [],
-      total_count: 0,
-      error: SEARCH_ERRORS.PULL_REQUEST_SEARCH_FAILED.message(apiError.error),
-      hints: ['Verify authentication and search parameters'],
-    };
+    return createPullRequestErrorResult(
+      apiError,
+      SEARCH_ERRORS.PULL_REQUEST_SEARCH_FAILED.message(apiError.error),
+      ['Verify authentication and search parameters']
+    );
   }
 }
 
@@ -237,6 +264,10 @@ async function searchPullRequestsWithREST(
       })
     );
 
+    const transformedRawResponseChars = transformedPRs.reduce(
+      (sum, pr) => sum + (getRawResponseChars(pr) ?? 0),
+      0
+    );
     const formattedPRs = transformedPRs.map(formatPRForResponse);
 
     const hasMore = result.data.length === perPage;
@@ -251,6 +282,8 @@ async function searchPullRequestsWithREST(
         totalMatches: formattedPRs.length,
         hasMore,
       },
+      rawResponseChars:
+        countSerializedChars(result.data) + transformedRawResponseChars,
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);
@@ -258,11 +291,10 @@ async function searchPullRequestsWithREST(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       SEARCH_ERRORS.PULL_REQUEST_LIST_FAILED.code
     );
-    return {
-      pull_requests: [],
-      total_count: 0,
-      error: SEARCH_ERRORS.PULL_REQUEST_LIST_FAILED.message(apiError.error),
-      hints: ['Verify repository access and authentication'],
-    };
+    return createPullRequestErrorResult(
+      apiError,
+      SEARCH_ERRORS.PULL_REQUEST_LIST_FAILED.message(apiError.error),
+      ['Verify repository access and authentication']
+    );
   }
 }

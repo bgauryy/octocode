@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { LSPClient } from '../../src/lsp/client.js';
 import {
-  createClient,
+  acquirePooledClient,
   isLanguageServerAvailable,
 } from '../../src/lsp/manager.js';
 import * as cp from 'child_process';
@@ -33,6 +33,16 @@ vi.mock('vscode-jsonrpc/node.js', () => ({
   createMessageConnection: vi.fn(),
   StreamMessageReader: vi.fn(),
   StreamMessageWriter: vi.fn(),
+  // CancellationTokenSource is required for the LSP request wrapper
+  // (T1.3 — $/cancelRequest on timeout). Stub as a constructible class.
+  CancellationTokenSource: class {
+    token = {
+      isCancellationRequested: false,
+      onCancellationRequested: vi.fn(),
+    };
+    cancel = vi.fn();
+    dispose = vi.fn();
+  },
 }));
 
 describe('LSPClient Coverage', () => {
@@ -115,6 +125,97 @@ describe('LSPClient Coverage', () => {
         'initialized',
         {}
       );
+    });
+
+    it('should register server-initiated protocol request handlers before initialize', async () => {
+      mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+
+      await client.start();
+
+      expect(mockConnection.onRequest).toHaveBeenCalledWith(
+        'workspace/configuration',
+        expect.any(Function)
+      );
+      expect(mockConnection.onRequest).toHaveBeenCalledWith(
+        'workspace/workspaceFolders',
+        expect.any(Function)
+      );
+      expect(mockConnection.onRequest).toHaveBeenCalledWith(
+        'client/registerCapability',
+        expect.any(Function)
+      );
+      expect(mockConnection.onRequest).toHaveBeenCalledWith(
+        'client/unregisterCapability',
+        expect.any(Function)
+      );
+      expect(mockConnection.onRequest).toHaveBeenCalledWith(
+        'window/workDoneProgress/create',
+        expect.any(Function)
+      );
+    });
+
+    it('should answer workspace/configuration with one result per requested item', async () => {
+      mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+
+      await client.start();
+
+      const registration = mockConnection.onRequest.mock.calls.find(
+        call => call[0] === 'workspace/configuration'
+      );
+      expect(registration).toBeDefined();
+      const handler = registration![1] as (params: {
+        items: Array<{ section?: string }>;
+      }) => unknown[];
+
+      expect(
+        handler({
+          items: [
+            { section: 'formattingOptions' },
+            { section: 'typescript.preferences' },
+          ],
+        })
+      ).toEqual([{}, {}]);
+    });
+
+    it('should answer workspace/workspaceFolders from client config', async () => {
+      mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+
+      await client.start();
+
+      const registration = mockConnection.onRequest.mock.calls.find(
+        call => call[0] === 'workspace/workspaceFolders'
+      );
+      expect(registration).toBeDefined();
+      const handler = registration![1] as () => Array<{
+        uri: string;
+        name: string;
+      }>;
+
+      expect(handler()).toEqual([
+        {
+          uri: 'file:///workspace',
+          name: 'workspace',
+        },
+      ]);
+    });
+
+    it('should no-op dynamic registration and progress creation requests', async () => {
+      mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+
+      await client.start();
+
+      for (const method of [
+        'client/registerCapability',
+        'client/unregisterCapability',
+        'window/workDoneProgress/create',
+      ]) {
+        const registration = mockConnection.onRequest.mock.calls.find(
+          call => call[0] === method
+        );
+        expect(registration).toBeDefined();
+        const handler = registration![1] as () => null;
+        expect(handler()).toBeNull();
+      }
     });
 
     it('should throw if process pipes are missing', async () => {
@@ -246,7 +347,8 @@ describe('LSPClient Coverage', () => {
         expect.objectContaining({
           textDocument: { uri: expect.stringContaining('file:///') },
           position: { line: 1, character: 1 },
-        })
+        }),
+        expect.anything() // CancellationToken (T1.3)
       );
 
       expect(snippets).toHaveLength(1);
@@ -362,7 +464,8 @@ describe('LSPClient Coverage', () => {
         'textDocument/references',
         expect.objectContaining({
           context: { includeDeclaration: true },
-        })
+        }),
+        expect.anything() // CancellationToken (T1.3)
       );
       expect(snippets).toHaveLength(1);
     });
@@ -415,7 +518,8 @@ describe('LSPClient Coverage', () => {
 
       expect(mockConnection.sendRequest).toHaveBeenCalledWith(
         'textDocument/prepareCallHierarchy',
-        expect.anything()
+        expect.anything(),
+        expect.anything() // CancellationToken (T1.3)
       );
       expect(result).toHaveLength(1);
       expect(result[0]!.name).toBe('func');
@@ -605,28 +709,38 @@ describe('LSPClient Coverage', () => {
   });
 
   describe('Utility Functions', () => {
-    it('createClient should create new client each time (no caching)', async () => {
+    it('acquirePooledClient should reuse pooled client for the same (root, language)', async () => {
       mockConnection.sendRequest.mockResolvedValue({});
 
-      const client1 = await createClient('/workspace', '/workspace/file.ts');
+      const client1 = await acquirePooledClient(
+        '/workspace',
+        '/workspace/file.ts'
+      );
       expect(client1).toBeDefined();
 
-      const client2 = await createClient('/workspace', '/workspace/file.ts');
+      const client2 = await acquirePooledClient(
+        '/workspace',
+        '/workspace/file.ts'
+      );
       expect(client2).toBeDefined();
-      // Caching removed - each call creates a new client
-      expect(client2).not.toBe(client1);
+      // Pool keeps tsserver warm across requests for the same project,
+      // so the second acquire MUST return the same client instance.
+      expect(client2).toBe(client1);
     });
 
-    it('createClient should return null for unsupported file', async () => {
-      const client = await createClient('/workspace', '/workspace/file.txt');
+    it('acquirePooledClient should return null for unsupported file', async () => {
+      const client = await acquirePooledClient(
+        '/workspace',
+        '/workspace/file.txt'
+      );
       expect(client).toBeNull();
     });
 
-    it('createClient should handle start failure', async () => {
+    it('acquirePooledClient should handle start failure', async () => {
       (cp.spawn as Mock).mockImplementationOnce(() => {
         throw new Error('Spawn failed');
       });
-      const client = await createClient(
+      const client = await acquirePooledClient(
         '/workspace-fail',
         '/workspace-fail/file.ts'
       );

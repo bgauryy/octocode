@@ -28,8 +28,9 @@ import type {
 } from '@octocodeai/octocode-core';
 import type { OptimizedCodeSearchResult } from '../../github/githubAPI.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 
-import { parseGitHubProjectId } from './utils.js';
+import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
 /**
@@ -138,12 +139,7 @@ export async function searchCode(
   const result = await searchGitHubCodeAPI(githubQuery, authInfo);
 
   if (isGitHubAPIError(result)) {
-    return {
-      error: result.error,
-      status: result.status || 500,
-      provider: 'github',
-      hints: result.hints,
-    };
+    return createGitHubProviderError(result);
   }
 
   if (!result.data) {
@@ -158,6 +154,8 @@ export async function searchCode(
     data: transformCodeSearchResult(result.data),
     status: 200,
     provider: 'github',
+    rawResponseChars:
+      result.rawResponseChars ?? countSerializedChars(result.data),
   };
 }
 
@@ -195,16 +193,21 @@ export async function searchRepos(
       error: string | { toString(): string };
       status?: number;
       hints?: string[];
+      rateLimitRemaining?: number;
+      rateLimitReset?: number;
+      retryAfter?: number;
     };
-    return {
+    return createGitHubProviderError({
       error:
         typeof errorResult.error === 'string'
           ? errorResult.error
           : String(errorResult.error),
       status: errorResult.status || 500,
-      provider: 'github',
       hints: errorResult.hints,
-    };
+      rateLimitRemaining: errorResult.rateLimitRemaining,
+      rateLimitReset: errorResult.rateLimitReset,
+      retryAfter: errorResult.retryAfter,
+    });
   }
 
   if (!('data' in result) || !result.data) {
@@ -219,5 +222,7 @@ export async function searchRepos(
     data: transformRepoSearchResult(result.data),
     status: 200,
     provider: 'github',
+    rawResponseChars:
+      result.rawResponseChars ?? countSerializedChars(result.data),
   };
 }

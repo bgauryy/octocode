@@ -14,15 +14,15 @@ const TOOL_NAME = 'lspCallHierarchy';
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
     const hints: (string | undefined)[] = [];
-    const direction = (ctx as Record<string, unknown>).direction;
-    const callCount = (ctx as Record<string, unknown>).callCount;
-    const depth = (ctx as Record<string, unknown>).depth as number | undefined;
-    const currentPage = (ctx as Record<string, unknown>).currentPage as
-      | number
-      | undefined;
-    const totalPages = (ctx as Record<string, unknown>).totalPages;
+    const {
+      direction,
+      callCount,
+      depth,
+      currentPage,
+      totalPages,
+      hasMorePages,
+    } = ctx;
 
-    // Direction-based hints
     if (direction === 'incoming') {
       hints.push(`Found ${callCount || 'multiple'} callers.`);
       hints.push(...getMetadataDynamicHints(TOOL_NAME, 'incomingResults'));
@@ -31,13 +31,11 @@ export const hints: ToolHintGenerators = {
       hints.push(...getMetadataDynamicHints(TOOL_NAME, 'outgoingResults'));
     }
 
-    // Depth inline hint (no API key available)
     if (depth && depth > 1) {
       hints.push(`Depth=${depth} showing ${depth}-level call chain.`);
     }
 
-    // Pagination inline hint (no API key available)
-    if ((ctx as Record<string, unknown>).hasMorePages) {
+    if (hasMorePages) {
       hints.push(`Page ${currentPage}/${totalPages}.`);
     }
 
@@ -47,12 +45,12 @@ export const hints: ToolHintGenerators = {
   empty: (_ctx: HintContext = {}) => [],
 
   error: (ctx: HintContext = {}) => {
-    const depth = (ctx as Record<string, unknown>).depth;
+    const { depth, errorType } = ctx;
 
-    if ((ctx as Record<string, unknown>).errorType === 'not_a_function') {
+    if (errorType === 'not_a_function') {
       return [...getMetadataDynamicHints(TOOL_NAME, 'notAFunction')];
     }
-    if ((ctx as Record<string, unknown>).errorType === 'timeout') {
+    if (errorType === 'timeout') {
       return [
         `Depth=${depth} caused timeout.`,
         ...getMetadataDynamicHints(TOOL_NAME, 'timeout'),

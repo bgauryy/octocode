@@ -249,8 +249,7 @@ src/
 │
 ├── commands/                # 🖥️ CLI command builders
 │   ├── BaseCommandBuilder.ts    # Abstract command builder
-│   ├── RipgrepCommandBuilder.ts # ripgrep (rg) command builder
-│   ├── GrepCommandBuilder.ts    # grep fallback builder
+│   ├── RipgrepCommandBuilder.ts # ripgrep (rg) command builder — single search engine, bundled via @vscode/ripgrep
 │   ├── FindCommandBuilder.ts    # find command builder
 │   └── LsCommandBuilder.ts      # ls command builder
 │
@@ -423,7 +422,8 @@ Tools return `structuredContent` validated by the SDK against `outputSchema`. `R
 - **Bulk Queries**: All tools accept 1-5 queries per request
 - **Research Context**: Every query requires `mainResearchGoal`, `researchGoal`, `reasoning`
 - **Security First**: All I/O sanitized, secrets redacted, paths validated
-- **Graceful Fallback**: `ripgrep → grep`, errors isolated per query
+- **Single-Engine Search**: `localSearchCode` uses bundled `@vscode/ripgrep` only — no grep fallback. Errors are isolated per query and surface actionable install hints when the bundled binary is missing.
+- **Pooled LSP Clients**: All LSP tools acquire clients through `LspClientPool` so tsserver stays warm across requests; callers MUST NOT call `client.stop()`.
 - **Token Efficiency**: Content minification, YAML output, response prioritization
 
 ---

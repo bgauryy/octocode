@@ -36,6 +36,7 @@ vi.mock('octocode-shared', () => ({
       workspaceRoot: '/tmp',
     },
   })),
+  incrementToolCharSavings: vi.fn(() => ({ success: true })),
 }));
 
 const mockIsCloneEnabled = vi.hoisted(() => vi.fn().mockReturnValue(true));

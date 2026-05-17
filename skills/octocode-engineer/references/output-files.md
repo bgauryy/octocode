@@ -40,7 +40,7 @@ Use `summary.json` to drive the first decision:
 
 - Use `agentOutput.topRecommendations[]` and `filesWithIssues[]` to decide where to drill in first
 - Use `featureScores[]` to rank worst categories across the currently active feature set
-- Use `qualityRating.aspects[]` for non-rigid repo-shape scoring (architecture/folder/naming/common/shared/maintainability/consistency)
+- Use `qualityRating.aspects[]` for non-rigid repo-shape scoring (architecture/folder structure health/naming/common/shared/maintainability/consistency)
 - Use `summary.md` or `architecture.json` for graph-specific detail such as `cycles`, `criticalPaths`, and hotspots
 - If top recommendations are mostly complexity, duplication, or side-effect findings, switch to AST-first investigation
 - If graph-heavy recommendations and AST-heavy recommendations appear together, plan a combined investigation before proposing refactors
@@ -53,11 +53,11 @@ Use `summary.json` to drive the first decision:
 - Feature context penalties: hotspot overlap lowers category scores (`hotspotHits`, `hotspotMaxRisk`, `contextPenalty`)
 - Hybrid quality model (`qualityRating`): weighted soft-signal scoring, not rigid checks:
   - Architecture & Structure (30%)
-  - Folder Topology (15%)
+  - Folder Topology / Structure Health (15%): depth balance, source spread, vague buckets, and leaf-folder bloat
   - Naming Quality (15%)
   - Common/Shared Layer Health (15%)
   - Maintainability & Evolvability (15%)
-  - Codebase Consistency (10%)
+  - Codebase Consistency (10%): file and folder naming style consistency, plus mixed TS/JS surface area
 
 ### `findings.json`
 

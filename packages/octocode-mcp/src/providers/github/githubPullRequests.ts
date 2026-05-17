@@ -22,8 +22,9 @@ import type {
   GitHubPullRequestApiItem,
   GitHubPullRequestSearchApiData,
 } from '../../tools/github_search_pull_requests/types.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 
-import { parseGitHubProjectId } from './utils.js';
+import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
 /**
@@ -164,18 +165,21 @@ export async function searchPullRequests(
   const result = await searchGitHubPullRequestsAPI(githubParams, authInfo);
 
   if (result.error) {
-    return {
+    return createGitHubProviderError({
       error:
         typeof result.error === 'string' ? result.error : String(result.error),
-      status: 500,
-      provider: 'github',
+      status: result.status || 500,
       hints: result.hints,
-    };
+      rateLimitRemaining: result.rateLimitRemaining,
+      rateLimitReset: result.rateLimitReset,
+      retryAfter: result.retryAfter,
+    });
   }
 
   return {
     data: transformPullRequestResult(result, query, parseProjectId),
     status: 200,
     provider: 'github',
+    rawResponseChars: result.rawResponseChars ?? countSerializedChars(result),
   };
 }

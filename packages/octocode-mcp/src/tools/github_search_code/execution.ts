@@ -52,12 +52,13 @@ export async function searchMultipleGitHubCode(
 
         return createSuccessResult(
           query,
-          result as unknown as Record<string, unknown>,
+          result,
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_CODE,
           {
             hintContext: { hasOwnerRepo, match: query.match },
             extraHints: paginationHints,
+            rawResponse: providerResult.response.rawResponseChars,
           }
         );
       } catch (error) {

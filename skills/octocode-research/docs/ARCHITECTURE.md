@@ -63,7 +63,7 @@ The `octocode-research` skill is an HTTP API server that provides code research 
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    External Systems                              │
-│  • Local filesystem (ripgrep, grep, fs)                         │
+│  • Local filesystem (bundled ripgrep, fs)                       │
 │  • GitHub API (via Octokit)                                     │
 │  • NPM Registry API                                             │
 │  • PyPI API                                                     │

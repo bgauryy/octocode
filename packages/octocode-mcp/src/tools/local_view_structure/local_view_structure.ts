@@ -1,4 +1,5 @@
 import { LsCommandBuilder } from '../../commands/LsCommandBuilder.js';
+import { parseFileSize } from '../../utils/file/size.js';
 import { safeExec } from '../../utils/exec/safe.js';
 import {
   checkCommandAvailability,
@@ -10,12 +11,21 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import { parseFileSize, formatFileSize } from '../../utils/file/size.js';
-import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import type {
   LocalViewStructureToolResult,
-  ViewStructureQuery,
+  ViewStructureQuery as UpstreamViewStructureQuery,
 } from '@octocodeai/octocode-core';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+
+/**
+ * Handler-side query type: upstream input shape plus the overlay's `verbosity`
+ * field. Augmenting locally (vs. importing the overlay's output type alias)
+ * preserves the existing input-shape contract — callers that pass partial
+ * queries continue to type-check while the handler still sees `verbosity`.
+ */
+type ViewStructureQuery = UpstreamViewStructureQuery & {
+  verbosity?: Verbosity;
+};
 import { ToolErrors } from '../../errors/errorFactories.js';
 import {
   applyEntryFilters,
@@ -24,6 +34,16 @@ import {
 } from './structureFilters.js';
 import { parseLsSimple, parseLsLongFormat } from './structureParser.js';
 import { walkDirectory, type WalkStats } from './structureWalker.js';
+import {
+  buildEntryPaginationHints,
+  buildWalkWarnings,
+  paginateEntries,
+  summarizeEntries,
+} from './structureResponse.js';
+import {
+  attachRawResponseChars,
+  countSerializedChars,
+} from '../../utils/response/charSavings.js';
 
 export async function viewStructure(
   query: ViewStructureQuery
@@ -82,6 +102,7 @@ export async function viewStructure(
         customHints: stderrMsg
           ? [`Error: ${stderrMsg}`]
           : ['ls command failed'],
+        rawResponse: result.stdout.length + result.stderr.length,
       }) as LocalViewStructureToolResult;
     }
 
@@ -100,76 +121,40 @@ export async function viewStructure(
     }
 
     const totalEntries = filteredEntries.length;
-    const totalFiles = filteredEntries.filter(e => e.type === 'file').length;
-    const totalDirectories = filteredEntries.filter(
-      e => e.type === 'directory'
-    ).length;
-
-    let totalSizeBytes = 0;
-    for (const entry of filteredEntries) {
-      if (entry.type === 'file' && entry.size) {
-        totalSizeBytes += parseFileSize(entry.size);
-      }
-    }
-
-    const entriesPerPage =
-      query.entriesPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
-    const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-    const entryPageNumber = Math.min(query.entryPageNumber || 1, totalPages);
-    const startIdx = (entryPageNumber - 1) * entriesPerPage;
-    const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
-
-    const paginatedEntries = filteredEntries.slice(startIdx, endIdx);
-
-    const entryPaginationInfo = {
-      currentPage: entryPageNumber,
-      totalPages,
-      entriesPerPage,
-      totalEntries,
-      hasMore: entryPageNumber < totalPages,
-    };
-
+    const { paginatedEntries, endIdx, pagination } = paginateEntries(
+      filteredEntries,
+      query
+    );
     const outputEntries = paginatedEntries.map(entry => toEntryObject(entry));
     const warnings: string[] = [];
-
     const status = totalEntries > 0 ? 'hasResults' : 'empty';
-    const entryPaginationHints = [
-      `Page ${entryPageNumber}/${totalPages} (showing ${paginatedEntries.length} of ${totalEntries})`,
-    ];
-
-    if (entryPaginationInfo.hasMore) {
-      const nextPagePreview = filteredEntries
-        .slice(endIdx, endIdx + 3)
-        .map(e => e.name)
-        .join(', ');
-      entryPaginationHints.push(
-        `Next: entryPageNumber=${entryPageNumber + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`
-      );
-    } else {
-      entryPaginationHints.push('Final page');
-    }
-
-    const pagination = {
-      currentPage: entryPaginationInfo.currentPage,
-      totalPages: entryPaginationInfo.totalPages,
-      entriesPerPage: entryPaginationInfo.entriesPerPage,
-      totalEntries: entryPaginationInfo.totalEntries,
-      hasMore: entryPaginationInfo.hasMore,
-    };
-
-    return {
-      status,
-      entries: outputEntries,
-      summary: `${totalEntries} entries (${totalFiles} files, ${totalDirectories} dirs, ${formatFileSize(totalSizeBytes)})`,
+    const entryPaginationHints = buildEntryPaginationHints(
+      filteredEntries,
+      paginatedEntries.length,
       pagination,
-      ...(warnings.length > 0 && { warnings }),
-      hints: [
-        ...entryPaginationHints,
-        ...getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, status, {
-          entryCount: totalEntries,
-        }),
-      ],
-    };
+      endIdx
+    );
+    const summary = summarizeEntries(filteredEntries);
+
+    return attachRawResponseChars(
+      applyVerbosity(
+        {
+          status,
+          entries: outputEntries,
+          summary,
+          pagination,
+          ...(warnings.length > 0 && { warnings }),
+          hints: [
+            ...entryPaginationHints,
+            ...getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, status, {
+              entryCount: totalEntries,
+            }),
+          ],
+        },
+        query.verbosity
+      ),
+      result.stdout.length
+    );
   } catch (error) {
     const toolError = ToolErrors.toolExecutionFailed(
       'LOCAL_VIEW_STRUCTURE',
@@ -272,90 +257,62 @@ async function viewStructureRecursive(
     filteredEntries = filteredEntries.slice(0, query.limit);
   }
 
-  const totalFiles = filteredEntries.filter(e => e.type === 'file').length;
-  const totalDirectories = filteredEntries.filter(
-    e => e.type === 'directory'
-  ).length;
-
-  let totalSizeBytes = 0;
-  for (const entry of filteredEntries) {
-    if (entry.type === 'file' && entry.size) {
-      totalSizeBytes += parseFileSize(entry.size);
-    }
-  }
-
   const totalEntries = filteredEntries.length;
-
-  const entriesPerPage =
-    query.entriesPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
-  const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-  const entryPageNumber = Math.min(query.entryPageNumber || 1, totalPages);
-  const startIdx = (entryPageNumber - 1) * entriesPerPage;
-  const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
-
-  const paginatedEntries = filteredEntries.slice(startIdx, endIdx);
-
-  const entryPaginationInfo = {
-    currentPage: entryPageNumber,
-    totalPages,
-    entriesPerPage,
-    totalEntries,
-    hasMore: entryPageNumber < totalPages,
-  };
-
+  const { paginatedEntries, endIdx, pagination } = paginateEntries(
+    filteredEntries,
+    query
+  );
   const outputEntries = paginatedEntries.map(entry => toEntryObject(entry));
-  const warnings: string[] = [];
-
-  if (walkStats.skipped > 0) {
-    const otherSkipped = walkStats.skipped - walkStats.permissionDenied;
-    if (walkStats.permissionDenied > 0 && otherSkipped > 0) {
-      warnings.push(
-        `${walkStats.skipped} entries skipped (${walkStats.permissionDenied} permission denied, ${otherSkipped} other errors)`
-      );
-    } else if (walkStats.permissionDenied > 0) {
-      warnings.push(
-        `${walkStats.permissionDenied} ${walkStats.permissionDenied === 1 ? 'entry' : 'entries'} skipped due to permission denied`
-      );
-    } else {
-      warnings.push(
-        `${walkStats.skipped} ${walkStats.skipped === 1 ? 'entry' : 'entries'} skipped due to access errors`
-      );
-    }
-  }
-
+  const warnings = buildWalkWarnings(walkStats);
   const status = totalEntries > 0 ? 'hasResults' : 'empty';
   const baseHints = getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, status);
+  const entryPaginationHints = buildEntryPaginationHints(
+    filteredEntries,
+    paginatedEntries.length,
+    pagination,
+    endIdx
+  );
+  const summary = summarizeEntries(filteredEntries);
 
-  const entryPaginationHints = [
-    `Page ${entryPageNumber}/${totalPages} (showing ${paginatedEntries.length} of ${totalEntries})`,
-  ];
+  return attachRawResponseChars(
+    applyVerbosity(
+      {
+        status,
+        entries: outputEntries,
+        summary,
+        pagination,
+        ...(warnings.length > 0 && { warnings }),
+        hints: [...baseHints, ...entryPaginationHints],
+      },
+      query.verbosity
+    ),
+    countSerializedChars(entries)
+  );
+}
 
-  if (entryPaginationInfo.hasMore) {
-    const nextPagePreview = filteredEntries
-      .slice(endIdx, endIdx + 3)
-      .map(e => e.name)
-      .join(', ');
-    entryPaginationHints.push(
-      `Next: entryPageNumber=${entryPageNumber + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`
-    );
-  } else {
-    entryPaginationHints.push('Final page');
-  }
-
-  const pagination = {
-    currentPage: entryPaginationInfo.currentPage,
-    totalPages: entryPaginationInfo.totalPages,
-    entriesPerPage: entryPaginationInfo.entriesPerPage,
-    totalEntries: entryPaginationInfo.totalEntries,
-    hasMore: entryPaginationInfo.hasMore,
-  };
+/**
+ * Shape the result for the requested verbosity.
+ *
+ * RFC §4.7.2 + §4.7.9: when the agent opts into `verbosity: "ultra"`, drop
+ * `entries[]` and return the one-line `summary` only. `pagination` is kept so
+ * the agent still sees `totalEntries` and can decide whether to drill in.
+ *
+ * Compact / verbose / omitted → byte-identical to today (§3.1 contract).
+ */
+function applyVerbosity(
+  result: LocalViewStructureToolResult,
+  verbosity: ViewStructureQuery['verbosity']
+): LocalViewStructureToolResult {
+  if (verbosity !== 'ultra') return result;
+  if (result.status === 'error' || result.status === 'empty') return result;
 
   return {
-    status,
-    entries: outputEntries,
-    summary: `${totalEntries} entries (${totalFiles} files, ${totalDirectories} dirs, ${formatFileSize(totalSizeBytes)})`,
-    pagination,
-    ...(warnings.length > 0 && { warnings }),
-    hints: [...baseHints, ...entryPaginationHints],
+    ...result,
+    entries: [],
+    hints: [
+      `verbosity:"ultra" — entries[] dropped. summary: ${result.summary ?? ''}`,
+      'Drill-back: re-call with verbosity:"compact" (default) to see entries; ' +
+        'use entryPageNumber + entriesPerPage if there are many.',
+    ],
   };
 }

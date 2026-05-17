@@ -55,9 +55,25 @@ export async function resolveWorkspaceRootForFile(
   const absoluteFilePath = path.resolve(filePath);
   const configuredRoot = resolveWorkspaceRoot();
 
-  if (isPathInsideRoot(absoluteFilePath, configuredRoot)) {
+  // Prefer the *tightest* root: marker-based discovery from the file's own
+  // directory. We only fall back to the configured root (typically
+  // `process.cwd()` or `$WORKSPACE_ROOT`) when:
+  //   • no marker is found anywhere above the file, OR
+  //   • the configured root is itself a tighter match (i.e. lives between the
+  //     marker-based root and the file).
+  // This avoids the failure mode where MCP servers spawned from `$HOME`
+  // accidentally treat the entire home directory as the workspace and pull
+  // ripgrep into protected macOS Library paths.
+  const markerRoot = await findWorkspaceRoot(absoluteFilePath);
+
+  if (
+    isPathInsideRoot(absoluteFilePath, configuredRoot) &&
+    isPathInsideRoot(configuredRoot, markerRoot) &&
+    configuredRoot !== markerRoot
+  ) {
+    // configuredRoot is a subdirectory of markerRoot — use the tighter one.
     return configuredRoot;
   }
 
-  return findWorkspaceRoot(absoluteFilePath);
+  return markerRoot;
 }

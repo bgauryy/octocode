@@ -6,6 +6,7 @@ import { getGitHubToken } from '../serverConfig.js';
 import { getServerConfig } from '../serverConfig.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { version } from '../../package.json';
+import { logRateLimit } from '../session.js';
 
 /**
  * Hash a token for use as a Map key.
@@ -114,13 +115,29 @@ const MAX_RATE_LIMIT_RETRIES = 3;
  */
 const MAX_RETRY_AFTER_SECONDS = 60;
 
+function recordThrottleRateLimit(
+  limitType: 'primary' | 'secondary',
+  retryAfter: number,
+  options: { method: string; url: string }
+): void {
+  void logRateLimit({
+    limit_type: limitType,
+    retry_after_seconds: retryAfter,
+    api_method: options.method,
+    api_url: options.url,
+    provider: 'github',
+  });
+}
+
 const createThrottleOptions = () => ({
   onRateLimit: (
     retryAfter: number,
-    _options: { method: string; url: string },
+    options: { method: string; url: string },
     _octokit: Octokit,
     retryCount: number
   ) => {
+    recordThrottleRateLimit('primary', retryAfter, options);
+
     // Retry if under max retries and wait is reasonable
     return (
       retryCount < MAX_RATE_LIMIT_RETRIES &&
@@ -129,10 +146,12 @@ const createThrottleOptions = () => ({
   },
   onSecondaryRateLimit: (
     retryAfter: number,
-    _options: { method: string; url: string },
+    options: { method: string; url: string },
     _octokit: Octokit,
     retryCount: number
   ) => {
+    recordThrottleRateLimit('secondary', retryAfter, options);
+
     return (
       retryCount < MAX_RATE_LIMIT_RETRIES &&
       retryAfter < MAX_RETRY_AFTER_SECONDS

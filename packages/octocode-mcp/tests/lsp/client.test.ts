@@ -17,9 +17,9 @@ describe('LSP Client Module', () => {
       expect(typeof LSPClient).toBe('function');
     });
 
-    it('should export createClient function', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
-      expect(typeof createClient).toBe('function');
+    it('should export acquirePooledClient function', async () => {
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
+      expect(typeof acquirePooledClient).toBe('function');
     });
 
     it('should export isLanguageServerAvailable function', async () => {
@@ -79,18 +79,24 @@ describe('LSP Client Module', () => {
     });
   });
 
-  describe('createClient', () => {
+  describe('acquirePooledClient', () => {
     it('should return null for unsupported file types', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/file.txt');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/file.txt'
+      );
       expect(result).toBeNull();
     });
 
     it('should return null for unknown extensions', async () => {
-      const { createClient } = await import('../../src/lsp/manager.js');
+      const { acquirePooledClient } = await import('../../src/lsp/manager.js');
 
-      const result = await createClient('/workspace', '/workspace/file.xyz');
+      const result = await acquirePooledClient(
+        '/workspace',
+        '/workspace/file.xyz'
+      );
       expect(result).toBeNull();
     });
   });

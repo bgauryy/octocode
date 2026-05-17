@@ -62,7 +62,7 @@ vi.mock('../../src/lsp/resolver.js', () => {
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn(),
+  acquirePooledClient: vi.fn(),
   isLanguageServerAvailable: vi.fn().mockResolvedValue(true),
 }));
 
@@ -96,7 +96,9 @@ describe('LSP Goto Definition - Branch Coverage', () => {
         }),
       };
     });
-    vi.mocked(managerModule.createClient).mockResolvedValue(mockClient as any);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(
+      mockClient as any
+    );
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(true);
     vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
     const sampleContent = 'line1\nline2\nconst myFunc = () => {};\nline4';

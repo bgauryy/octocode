@@ -37,7 +37,7 @@ describe('LSP workspace root routing', () => {
     vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
       true
     );
-    vi.spyOn(managerModule, 'createClient').mockResolvedValue(null);
+    vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
 
     const { executeGotoDefinition } =
       await import('../../src/tools/lsp_goto_definition/execution.js');
@@ -58,7 +58,7 @@ describe('LSP workspace root routing', () => {
       externalFile,
       inferredWorkspaceRoot
     );
-    expect(managerModule.createClient).toHaveBeenCalledWith(
+    expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
       inferredWorkspaceRoot,
       externalFile
     );
@@ -72,7 +72,7 @@ describe('LSP workspace root routing', () => {
     vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
       true
     );
-    vi.spyOn(managerModule, 'createClient').mockResolvedValue(null);
+    vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
     vi.spyOn(
       referencePatternsModule,
       'findReferencesWithPatternMatching'
@@ -97,7 +97,7 @@ describe('LSP workspace root routing', () => {
       externalFile,
       inferredWorkspaceRoot
     );
-    expect(managerModule.createClient).toHaveBeenCalledWith(
+    expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
       inferredWorkspaceRoot,
       externalFile
     );
@@ -118,7 +118,7 @@ describe('LSP workspace root routing', () => {
     vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
       true
     );
-    vi.spyOn(managerModule, 'createClient').mockResolvedValue(null);
+    vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
     vi.spyOn(
       callHierarchyPatternsModule,
       'callHierarchyWithPatternMatching'
@@ -146,7 +146,7 @@ describe('LSP workspace root routing', () => {
       externalFile,
       inferredWorkspaceRoot
     );
-    expect(managerModule.createClient).toHaveBeenCalledWith(
+    expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
       inferredWorkspaceRoot,
       externalFile
     );

@@ -1,5 +1,5 @@
 import { getHints } from '../../hints/index.js';
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import type { RipgrepQuery as UpstreamRipgrepQuery } from '@octocodeai/octocode-core';
 import type {
   LocalSearchCodeFile,
   LocalSearchCodeToolResult,
@@ -8,6 +8,10 @@ import type { SearchStats } from '../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { promises as fs } from 'fs';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+
+type RipgrepQuery = UpstreamRipgrepQuery & { verbosity?: Verbosity };
 
 /**
  * Build the final search result with pagination and metadata
@@ -15,7 +19,7 @@ import { promises as fs } from 'fs';
 export async function buildSearchResult(
   parsedFiles: LocalSearchCodeFile[],
   configuredQuery: RipgrepQuery,
-  _searchEngine: 'rg' | 'grep',
+  _searchEngine: 'rg',
   warnings: string[],
   stats?: SearchStats
 ): Promise<LocalSearchCodeToolResult> {
@@ -138,7 +142,7 @@ export async function buildSearchResult(
     totalMatches
   );
 
-  return {
+  const fullResult: LocalSearchCodeToolResult = {
     status: 'hasResults',
     files: finalFiles,
     searchEngine: _searchEngine,
@@ -155,6 +159,49 @@ export async function buildSearchResult(
       ...refinementHints,
       ...getHints(TOOL_NAMES.LOCAL_RIPGREP, 'hasResults'),
       'files[].matches[].line = use as lineHint for LSP tools',
+    ],
+  };
+
+  return applyRipgrepVerbosity(fullResult, configuredQuery, {
+    totalMatches,
+    totalFiles,
+  });
+}
+
+/**
+ * RFC §4.7.1: when `verbosity:"ultra"` is requested, drop `files[]` and emit
+ * a one-line summary plus a path:line drill-back hint pointing at the first
+ * matching file. `compact` (default) and `verbose` remain byte-identical to
+ * today's behaviour — only `ultra` is lossy.
+ *
+ * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ */
+export function applyRipgrepVerbosity(
+  result: LocalSearchCodeToolResult,
+  query: RipgrepQuery,
+  totals: { totalMatches: number; totalFiles: number }
+): LocalSearchCodeToolResult {
+  if (!isUltra(query.verbosity)) return result;
+  if (result.status !== 'hasResults') return result;
+
+  const topFile = result.files?.[0];
+  const topMatch = topFile?.matches?.[0];
+  const topHint =
+    topFile && topMatch
+      ? `${topFile.path}:${topMatch.line}`
+      : (topFile?.path ?? '');
+  const summary =
+    `${totals.totalMatches} matches in ${totals.totalFiles} files` +
+    (topHint ? ` (top: ${topHint})` : '');
+
+  return {
+    ...result,
+    files: [],
+    hints: [
+      summary,
+      ...ultraDrillBackHint(
+        're-call with verbosity:"compact" (default) or scope the pattern to the top path'
+      ),
     ],
   };
 }
@@ -185,7 +232,7 @@ function _getStructuredResultSizeHints(
   return hints;
 }
 
-export async function getFileModifiedTime(
+async function getFileModifiedTime(
   filePath: string
 ): Promise<string | undefined> {
   try {

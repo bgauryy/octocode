@@ -1,5 +1,6 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
 import { getMetadataOrNull } from './state.js';
+import { isLocalTool } from '../toolNames.js';
 
 type ToolHintsType = Record<
   string,
@@ -47,9 +48,18 @@ export function getToolHintsSync(
 ): readonly string[] {
   const metadata = getMetadataOrNull() ?? completeMetadata;
   if (!metadata.tools[toolName]) return [];
-  const baseHints = metadata.baseHints?.[resultType] ?? [];
+  const rawBaseHints = metadata.baseHints?.[resultType] ?? [];
+  const baseHints = isLocalTool(toolName)
+    ? rawBaseHints.filter(isLocalRelevantBaseHint)
+    : rawBaseHints;
   const toolHints = metadata.tools[toolName]?.hints[resultType] ?? [];
   return [...baseHints, ...toolHints];
+}
+
+function isLocalRelevantBaseHint(hint: string): boolean {
+  if (hint.includes("'owner', 'repo', 'branch', 'path'")) return false;
+  if (hint.includes("'mainResearchGoal'")) return false;
+  return true;
 }
 
 export function getGenericErrorHintsSync(): readonly string[] {

@@ -20,7 +20,7 @@ import type {
 } from '../../lsp/types.js';
 import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
 import type { SymbolKind } from '../../lsp/types.js';
-import { createClient } from '../../lsp/manager.js';
+import { acquirePooledClient } from '../../lsp/manager.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAME } from './constants.js';
 
@@ -83,174 +83,171 @@ export async function findReferencesWithLSP(
   position: ExactPosition,
   query: LSPFindReferencesQuery
 ): Promise<FindReferencesResult | null> {
-  const client = await createClient(workspaceRoot, filePath);
+  // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it
+  // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).
+  const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
+  // Warm-up: prepareCallHierarchy forces tsserver to load the project graph.
+  // Without this, a freshly-spawned language server may only return references
+  // from the single opened file because it hasn't finished indexing.
+  // Pooled clients stay warm across calls, so this only really pays its
+  // cost on the cold spawn.
   try {
-    // Warm-up: prepareCallHierarchy forces tsserver to load the project graph.
-    // Without this, a freshly-spawned language server may only return references
-    // from the single opened file because it hasn't finished indexing.
-    // This adds ~200ms but dramatically improves cross-file reference coverage.
-    try {
-      await client.prepareCallHierarchy(filePath, position);
-    } catch {
-      // prepareCallHierarchy warm-up is optional; findReferences still runs without project preload.
-    }
+    await client.prepareCallHierarchy(filePath, position);
+  } catch {
+    // prepareCallHierarchy warm-up is optional; findReferences still runs without project preload.
+  }
 
-    const includeDeclaration = query.includeDeclaration ?? true;
-    const locations = await client.findReferences(
-      filePath,
-      position,
-      includeDeclaration
-    );
+  const includeDeclaration = query.includeDeclaration ?? true;
+  const locations = await client.findReferences(
+    filePath,
+    position,
+    includeDeclaration
+  );
 
-    if (!locations || locations.length === 0) {
-      return {
-        status: 'empty',
-        hints: [
-          ...getHints(TOOL_NAME, 'empty'),
-          'Language server found no references',
-          'Symbol may be unused or only referenced dynamically',
-          'Try localSearchCode for text-based search as fallback',
-        ],
-      };
-    }
-
-    let rawLocations: RawReferenceLocation[] = locations.map(loc => {
-      const relativeUri = path.relative(workspaceRoot, loc.uri);
-      const isDefinition =
-        loc.uri === filePath &&
-        loc.range.start.line === position.line &&
-        loc.range.start.character === position.character;
-
-      return {
-        uri: relativeUri || loc.uri,
-        absoluteUri: loc.uri,
-        range: loc.range,
-        content: loc.content,
-        isDefinition,
-      };
-    });
-
-    // Post-filter: Remove definitions when includeDeclaration is false
-    // Some LSP servers (e.g., TypeScript) don't always honor the flag
-    if (!includeDeclaration) {
-      rawLocations = rawLocations.filter(loc => !loc.isDefinition);
-    }
-
-    const totalUnfiltered = rawLocations.length;
-
-    const hasFilters =
-      query.includePattern?.length || query.excludePattern?.length;
-    const filteredLocations = hasFilters
-      ? rawLocations.filter(loc =>
-          matchesFilePatterns(
-            loc.uri,
-            query.includePattern,
-            query.excludePattern
-          )
-        )
-      : rawLocations;
-
-    if (filteredLocations.length === 0) {
-      return {
-        status: 'empty',
-        hints: [
-          ...getHints(TOOL_NAME, 'empty'),
-          `Found ${totalUnfiltered} reference(s) but none matched the file patterns`,
-          query.includePattern?.length
-            ? `Include patterns: ${query.includePattern.join(', ')}`
-            : '',
-          query.excludePattern?.length
-            ? `Exclude patterns: ${query.excludePattern.join(', ')}`
-            : '',
-          'Try broader patterns or remove filtering to see all results',
-        ].filter(Boolean),
-      };
-    }
-
-    const referencesPerPage = query.referencesPerPage ?? 20;
-    const page = query.page ?? 1;
-    const totalReferences = filteredLocations.length;
-    const totalPages = Math.ceil(totalReferences / referencesPerPage);
-
-    if (totalReferences > 0 && page > totalPages) {
-      return {
-        status: 'empty',
-        pagination: {
-          currentPage: page,
-          totalPages,
-          totalResults: totalReferences,
-          hasMore: false,
-          resultsPerPage: referencesPerPage,
-        },
-        hasMultipleFiles:
-          new Set(filteredLocations.map(ref => ref.uri)).size > 1,
-        hints: [
-          ...getHints(TOOL_NAME, 'empty'),
-          `Requested page ${page} is outside available range (1-${totalPages}).`,
-          `Use page=${totalPages} for the last available page.`,
-        ],
-      };
-    }
-
-    const startIndex = (page - 1) * referencesPerPage;
-    const endIndex = Math.min(startIndex + referencesPerPage, totalReferences);
-    const paginatedRaw = filteredLocations.slice(startIndex, endIndex);
-
-    const contextLines = query.contextLines ?? 2;
-    const paginatedReferences = await Promise.all(
-      paginatedRaw.map(raw => enhanceReferenceLocation(raw, contextLines))
-    );
-
-    const uniqueFiles = new Set(filteredLocations.map(ref => ref.uri));
-    const hasMultipleFiles = uniqueFiles.size > 1;
-
-    const pagination: LSPPaginationInfo = {
-      currentPage: page,
-      totalPages,
-      totalResults: totalReferences,
-      hasMore: page < totalPages,
-      resultsPerPage: referencesPerPage,
+  if (!locations || locations.length === 0) {
+    return {
+      status: 'empty',
+      hints: [
+        ...getHints(TOOL_NAME, 'empty'),
+        'Language server found no references',
+        'Symbol may be unused or only referenced dynamically',
+        'Try localSearchCode for text-based search as fallback',
+      ],
     };
+  }
 
-    const hints = [
-      ...getHints(TOOL_NAME, 'hasResults'),
-      `Found ${totalReferences} reference(s) via Language Server`,
-      'Each location = a usage of this symbol; isDefinition=true marks the declaration',
-    ];
-
-    if (hasFilters && totalUnfiltered !== totalReferences) {
-      hints.push(
-        `Filtered: ${totalReferences} of ${totalUnfiltered} total references match patterns.`
-      );
-    }
-
-    if (pagination.hasMore) {
-      hints.push(
-        `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
-      );
-    }
-
-    if (hasMultipleFiles) {
-      hints.push(`References span ${uniqueFiles.size} files.`);
-    }
+  let rawLocations: RawReferenceLocation[] = locations.map(loc => {
+    const relativeUri = path.relative(workspaceRoot, loc.uri);
+    const isDefinition =
+      loc.uri === filePath &&
+      loc.range.start.line === position.line &&
+      loc.range.start.character === position.character;
 
     return {
-      status: 'hasResults',
-      locations: paginatedReferences,
-      pagination,
-      hasMultipleFiles,
-      hints,
+      uri: relativeUri || loc.uri,
+      absoluteUri: loc.uri,
+      range: loc.range,
+      content: loc.content,
+      isDefinition,
     };
-  } finally {
-    await client.stop();
+  });
+
+  // Post-filter: Remove definitions when includeDeclaration is false
+  // Some LSP servers (e.g., TypeScript) don't always honor the flag
+  if (!includeDeclaration) {
+    rawLocations = rawLocations.filter(loc => !loc.isDefinition);
   }
+
+  const totalUnfiltered = rawLocations.length;
+
+  const hasFilters =
+    query.includePattern?.length || query.excludePattern?.length;
+  const filteredLocations = hasFilters
+    ? rawLocations.filter(loc =>
+        matchesFilePatterns(loc.uri, query.includePattern, query.excludePattern)
+      )
+    : rawLocations;
+
+  if (filteredLocations.length === 0) {
+    return {
+      status: 'empty',
+      hints: [
+        ...getHints(TOOL_NAME, 'empty'),
+        `Found ${totalUnfiltered} reference(s) but none matched the file patterns`,
+        query.includePattern?.length
+          ? `Include patterns: ${query.includePattern.join(', ')}`
+          : '',
+        query.excludePattern?.length
+          ? `Exclude patterns: ${query.excludePattern.join(', ')}`
+          : '',
+        'Try broader patterns or remove filtering to see all results',
+      ].filter(Boolean),
+    };
+  }
+
+  const referencesPerPage = query.referencesPerPage ?? 20;
+  const page = query.page ?? 1;
+  const totalReferences = filteredLocations.length;
+  const totalPages = Math.ceil(totalReferences / referencesPerPage);
+
+  if (totalReferences > 0 && page > totalPages) {
+    return {
+      status: 'empty',
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalResults: totalReferences,
+        hasMore: false,
+        resultsPerPage: referencesPerPage,
+      },
+      hasMultipleFiles: new Set(filteredLocations.map(ref => ref.uri)).size > 1,
+      hints: [
+        ...getHints(TOOL_NAME, 'empty'),
+        `Requested page ${page} is outside available range (1-${totalPages}).`,
+        `Use page=${totalPages} for the last available page.`,
+      ],
+    };
+  }
+
+  const startIndex = (page - 1) * referencesPerPage;
+  const endIndex = Math.min(startIndex + referencesPerPage, totalReferences);
+  const paginatedRaw = filteredLocations.slice(startIndex, endIndex);
+
+  const contextLines = query.contextLines ?? 2;
+  const paginatedReferences = await Promise.all(
+    paginatedRaw.map(raw => enhanceReferenceLocation(raw, contextLines))
+  );
+
+  const uniqueFiles = new Set(filteredLocations.map(ref => ref.uri));
+  const hasMultipleFiles = uniqueFiles.size > 1;
+
+  const pagination: LSPPaginationInfo = {
+    currentPage: page,
+    totalPages,
+    totalResults: totalReferences,
+    hasMore: page < totalPages,
+    resultsPerPage: referencesPerPage,
+  };
+
+  const hints = [
+    ...getHints(TOOL_NAME, 'hasResults'),
+    `Found ${totalReferences} reference(s) via Language Server`,
+    'Each location = a usage of this symbol; isDefinition=true marks the declaration',
+  ];
+
+  if (hasFilters && totalUnfiltered !== totalReferences) {
+    hints.push(
+      `Filtered: ${totalReferences} of ${totalUnfiltered} total references match patterns.`
+    );
+  }
+
+  if (pagination.hasMore) {
+    hints.push(
+      `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
+    );
+  }
+
+  if (hasMultipleFiles) {
+    hints.push(`References span ${uniqueFiles.size} files.`);
+  }
+
+  return {
+    status: 'hasResults',
+    locations: paginatedReferences,
+    pagination,
+    hasMultipleFiles,
+    hints,
+  };
 }
 
 /**
  * Raw reference location before content enhancement.
- * Keeps the absolute URI for file reading while using relative for output.
+ *
+ * `uri` stays workspace-relative for include/exclude glob matching; the
+ * agent-facing output uses `absoluteUri` so drill-back calls can pass the
+ * returned value directly as an LSP/local file path.
  */
 interface RawReferenceLocation {
   uri: string;
@@ -296,7 +293,7 @@ async function enhanceReferenceLocation(
   }
 
   return {
-    uri: raw.uri,
+    uri: raw.absoluteUri,
     range: raw.range,
     content,
     isDefinition: raw.isDefinition,

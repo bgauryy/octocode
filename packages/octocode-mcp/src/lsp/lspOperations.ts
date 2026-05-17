@@ -11,8 +11,6 @@ import {
   ReferenceParams,
   Location,
   LocationLink,
-  Position,
-  TextDocumentIdentifier,
   CallHierarchyPrepareParams,
   CallHierarchyItem as LSPCallHierarchyItem,
   CallHierarchyIncomingCallsParams,
@@ -32,44 +30,7 @@ import type {
 } from './types.js';
 import { LSPDocumentManager } from './lspDocumentManager.js';
 import { PathValidator } from 'octocode-security-utils/pathValidator';
-
-/** Default timeout for LSP requests (30 seconds) */
-const LSP_REQUEST_TIMEOUT_MS = 30_000;
-
-/**
- * Wraps an LSP sendRequest with a timeout to prevent indefinite hangs.
- * Language servers can become unresponsive; this ensures we always reject within a bounded time.
- *
- * Uses proper timer cleanup to prevent the "dangling setTimeout" leak
- * that plain Promise.race + setTimeout causes.
- */
-async function sendRequestWithTimeout<T>(
-  connection: MessageConnection,
-  method: string,
-  params: unknown,
-  timeoutMs: number = LSP_REQUEST_TIMEOUT_MS
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(
-      () =>
-        reject(
-          new Error(`LSP request '${method}' timed out after ${timeoutMs}ms`)
-        ),
-      timeoutMs
-    );
-  });
-  try {
-    return await Promise.race([
-      connection.sendRequest(method, params) as Promise<T>,
-      timeoutPromise,
-    ]);
-  } finally {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
+import { sendRequestWithCancellationOnTimeout } from './cancellableRequest.js';
 
 /**
  * LSP operations handler
@@ -94,7 +55,10 @@ export class LSPOperations {
   /**
    * Set the connection and initialization status
    */
-  setConnection(connection: MessageConnection, initialized: boolean): void {
+  setConnection(
+    connection: MessageConnection | null,
+    initialized: boolean
+  ): void {
     this.connection = connection;
     this.initialized = initialized;
   }
@@ -136,14 +100,14 @@ export class LSPOperations {
   ): Promise<CodeSnippet[]> {
     return this.withDocument(filePath, async connection => {
       const params: DefinitionParams = {
-        textDocument: { uri: toUri(filePath) } as TextDocumentIdentifier,
+        textDocument: { uri: toUri(filePath) },
         position: {
           line: position.line,
           character: position.character,
-        } as Position,
+        },
       };
 
-      const result = await sendRequestWithTimeout<
+      const result = await sendRequestWithCancellationOnTimeout<
         Location | Location[] | LocationLink[] | null
       >(connection, 'textDocument/definition', params);
 
@@ -161,19 +125,17 @@ export class LSPOperations {
   ): Promise<CodeSnippet[]> {
     return this.withDocument(filePath, async connection => {
       const params: ReferenceParams = {
-        textDocument: { uri: toUri(filePath) } as TextDocumentIdentifier,
+        textDocument: { uri: toUri(filePath) },
         position: {
           line: position.line,
           character: position.character,
-        } as Position,
+        },
         context: { includeDeclaration },
       };
 
-      const result = await sendRequestWithTimeout<Location[] | null>(
-        connection,
-        'textDocument/references',
-        params
-      );
+      const result = await sendRequestWithCancellationOnTimeout<
+        Location[] | null
+      >(connection, 'textDocument/references', params);
 
       return this.locationsToSnippets(result);
     });
@@ -188,14 +150,14 @@ export class LSPOperations {
   ): Promise<CallHierarchyItem[]> {
     return this.withDocument(filePath, async connection => {
       const params: CallHierarchyPrepareParams = {
-        textDocument: { uri: toUri(filePath) } as TextDocumentIdentifier,
+        textDocument: { uri: toUri(filePath) },
         position: {
           line: position.line,
           character: position.character,
-        } as Position,
+        },
       };
 
-      const result = await sendRequestWithTimeout<
+      const result = await sendRequestWithCancellationOnTimeout<
         LSPCallHierarchyItem[] | null
       >(connection, 'textDocument/prepareCallHierarchy', params);
 
@@ -217,7 +179,7 @@ export class LSPOperations {
       item: this.toProtocolCallHierarchyItem(item),
     };
 
-    const result = await sendRequestWithTimeout<
+    const result = await sendRequestWithCancellationOnTimeout<
       CallHierarchyIncomingCall[] | null
     >(connection, 'callHierarchy/incomingCalls', params);
 
@@ -249,7 +211,7 @@ export class LSPOperations {
       item: this.toProtocolCallHierarchyItem(item),
     };
 
-    const result = await sendRequestWithTimeout<
+    const result = await sendRequestWithCancellationOnTimeout<
       CallHierarchyOutgoingCall[] | null
     >(connection, 'callHierarchy/outgoingCalls', params);
 

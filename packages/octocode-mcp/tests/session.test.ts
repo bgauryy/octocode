@@ -55,6 +55,42 @@ vi.mock('octocode-shared', async importOriginal => {
         stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: count },
       },
     })),
+    updateSessionStats: vi.fn(updates => ({
+      success: true,
+      session: {
+        version: 1,
+        sessionId: '12345678-1234-4123-8123-123456789012',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        lastActiveAt: new Date().toISOString(),
+        stats: {
+          toolCalls: 0,
+          promptCalls: 0,
+          errors: 0,
+          rateLimits: updates.rateLimits ?? 0,
+          ...updates,
+        },
+      },
+    })),
+    incrementRateLimitByProvider: vi.fn((provider, count) => ({
+      success: true,
+      session: {
+        version: 1,
+        sessionId: '12345678-1234-4123-8123-123456789012',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        lastActiveAt: new Date().toISOString(),
+        stats: {
+          toolCalls: 0,
+          promptCalls: 0,
+          errors: 0,
+          rateLimits: count,
+          rateLimitsByProvider: { [provider]: count },
+        },
+      },
+    })),
+    incrementToolCharSavings: vi.fn(() => ({ success: true })),
+    incrementGitHubCacheHits: vi.fn(() => ({ success: true })),
+    incrementGitHubCacheRateLimits: vi.fn(() => ({ success: true })),
+    incrementPackageRegistryFailures: vi.fn(() => ({ success: true })),
   };
 });
 

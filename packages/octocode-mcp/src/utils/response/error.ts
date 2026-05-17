@@ -14,6 +14,7 @@ import {
 } from '../../errors/ToolError.js';
 import { getHints } from '../../hints/index.js';
 import type { BaseQueryLocal } from '@octocodeai/octocode-core';
+import { attachRawResponseChars } from './charSavings.js';
 
 type PartialBaseQuery = Partial<BaseQueryLocal>;
 
@@ -44,6 +45,8 @@ interface CreateErrorResultOptions {
    * The main error is still used as the error value.
    */
   hintSourceError?: GitHubAPIError;
+  /** Raw source response or character count used for local savings stats */
+  rawResponse?: unknown;
 }
 
 function extractProviderApiHints(apiError: GitHubAPIError): string[] {
@@ -159,7 +162,9 @@ export function createErrorResult(
     Object.assign(result, restExtra);
   }
 
-  return result;
+  return options.rawResponse === undefined
+    ? result
+    : attachRawResponseChars(result, options.rawResponse);
 }
 
 function getErrorTypeFromToolError(

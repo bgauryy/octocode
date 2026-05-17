@@ -13,17 +13,22 @@ import {
   PullRequestSimple,
   PullRequestItem,
   IssueComment,
-} from './githubAPI';
+} from './githubAPI.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { logSessionError } from '../session.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
-import { getOctokit, OctokitWithThrottling } from './client';
+import { getOctokit, OctokitWithThrottling } from './client.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import {
   createBasePRTransformation,
   normalizeOwnerRepo,
   applyPartialContentFilter,
 } from './prTransformation.js';
+import {
+  attachRawResponseChars,
+  countSerializedChars,
+  getRawResponseChars,
+} from '../utils/response/charSavings.js';
 
 async function fetchPRComments(
   octokit: InstanceType<typeof OctokitWithThrottling>,
@@ -38,7 +43,7 @@ async function fetchPRComments(
       issue_number: prNumber,
     });
 
-    return commentsResult.data.map(
+    const comments = commentsResult.data.map(
       (comment: IssueComment): PRCommentItem => ({
         id: String(comment.id),
         user: comment.user?.login ?? 'unknown',
@@ -47,8 +52,9 @@ async function fetchPRComments(
         updated_at: comment.updated_at ?? '',
       })
     );
+    return attachRawResponseChars(comments, commentsResult.data);
   } catch {
-    return [];
+    return attachRawResponseChars([], 0);
   }
 }
 
@@ -66,6 +72,7 @@ export async function transformPullRequestItemFromSearch(
     result._sanitization_warnings = Array.from(sanitizationWarnings);
   }
 
+  let rawResponseChars = 0;
   const type = params.type || 'metadata';
   const shouldFetchContent =
     type === 'fullContent' || type === 'partialContent' || type === 'metadata';
@@ -82,6 +89,7 @@ export async function transformPullRequestItemFromSearch(
         });
 
         if (prDetails.data) {
+          rawResponseChars += countSerializedChars(prDetails.data);
           result.head = prDetails.data.head?.ref;
           result.head_sha = prDetails.data.head?.sha;
           result.base = prDetails.data.base?.ref;
@@ -100,6 +108,7 @@ export async function transformPullRequestItemFromSearch(
             );
 
             if (fileChanges) {
+              rawResponseChars += getRawResponseChars(fileChanges) ?? 0;
               fileChanges.files = applyPartialContentFilter(
                 fileChanges.files,
                 params
@@ -128,6 +137,7 @@ export async function transformPullRequestItemFromSearch(
         repo,
         item.number
       );
+      rawResponseChars += getRawResponseChars(result.comments) ?? 0;
     }
   }
 
@@ -142,6 +152,7 @@ export async function transformPullRequestItemFromSearch(
           params
         );
         if (commits) {
+          rawResponseChars += getRawResponseChars(commits) ?? 0;
           result.commits = commits;
         }
       }
@@ -154,7 +165,7 @@ export async function transformPullRequestItemFromSearch(
     }
   }
 
-  return result;
+  return attachRawResponseChars(result, rawResponseChars);
 }
 
 async function fetchPRFileChangesAPI(
@@ -165,6 +176,7 @@ async function fetchPRFileChangesAPI(
 ): Promise<{ total_count: number; files: DiffEntry[] } | null> {
   const octokit = await getOctokit(authInfo);
   const allFiles: DiffEntry[] = [];
+  let rawResponseChars = 0;
   let page = 1;
   let keepFetching = true;
 
@@ -177,15 +189,19 @@ async function fetchPRFileChangesAPI(
       page: page,
     });
 
+    rawResponseChars += countSerializedChars(result.data);
     allFiles.push(...result.data);
     keepFetching = result.data.length === 100;
     page++;
   } while (keepFetching);
 
-  return {
-    total_count: allFiles.length,
-    files: allFiles,
-  };
+  return attachRawResponseChars(
+    {
+      total_count: allFiles.length,
+      files: allFiles,
+    },
+    rawResponseChars
+  );
 }
 
 interface CommitListItem {
@@ -212,7 +228,10 @@ async function fetchPRCommitsAPI(
     pull_number: prNumber,
   });
 
-  return result.data as CommitListItem[];
+  return attachRawResponseChars(
+    result.data as CommitListItem[],
+    result.data
+  );
 }
 
 async function fetchCommitFilesAPI(
@@ -229,7 +248,10 @@ async function fetchCommitFilesAPI(
       ref: sha,
     });
 
-    return (result.data.files || []) as CommitFileInfo[];
+    return attachRawResponseChars(
+      (result.data.files || []) as CommitFileInfo[],
+      result.data
+    );
   } catch {
     return null;
   }
@@ -245,6 +267,7 @@ async function fetchPRCommitsWithFiles(
   const commits = await fetchPRCommitsAPI(owner, repo, prNumber, authInfo);
   if (!commits) return null;
 
+  let rawResponseChars = getRawResponseChars(commits) ?? 0;
   const sortedCommits = [...commits].sort((a, b) => {
     const dateA = a.commit.author?.date
       ? new Date(a.commit.author.date).getTime()
@@ -267,6 +290,7 @@ async function fetchPRCommitsWithFiles(
       let processedFiles: CommitInfo['files'] = [];
 
       if (files) {
+        rawResponseChars += getRawResponseChars(files) ?? 0;
         processedFiles = applyPartialContentFilter(
           files,
           params
@@ -283,7 +307,7 @@ async function fetchPRCommitsWithFiles(
     })
   );
 
-  return commitInfos;
+  return attachRawResponseChars(commitInfos, rawResponseChars);
 }
 
 export async function transformPullRequestItemFromREST(
@@ -299,6 +323,7 @@ export async function transformPullRequestItemFromREST(
     result._sanitization_warnings = Array.from(sanitizationWarnings);
   }
 
+  let rawResponseChars = 0;
   const type = params.type || 'metadata';
   const shouldFetchContent =
     type === 'fullContent' || type === 'partialContent' || type === 'metadata';
@@ -316,6 +341,7 @@ export async function transformPullRequestItemFromREST(
         authInfo
       );
       if (fileChanges) {
+        rawResponseChars += getRawResponseChars(fileChanges) ?? 0;
         fileChanges.files = applyPartialContentFilter(
           fileChanges.files,
           params
@@ -333,6 +359,7 @@ export async function transformPullRequestItemFromREST(
 
   if (params.withComments) {
     result.comments = await fetchPRComments(octokit, owner, repo, item.number);
+    rawResponseChars += getRawResponseChars(result.comments) ?? 0;
   }
 
   if (params.withCommits) {
@@ -345,6 +372,7 @@ export async function transformPullRequestItemFromREST(
         authInfo
       );
       if (commits) {
+        rawResponseChars += getRawResponseChars(commits) ?? 0;
         result.commits = commits;
       }
     } catch (error: unknown) {
@@ -356,5 +384,5 @@ export async function transformPullRequestItemFromREST(
     }
   }
 
-  return result;
+  return attachRawResponseChars(result, rawResponseChars);
 }

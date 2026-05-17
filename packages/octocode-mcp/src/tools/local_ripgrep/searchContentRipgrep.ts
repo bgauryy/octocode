@@ -1,3 +1,9 @@
+/**
+ * Main entry point for ripgrep search.
+ *
+ * Bundled `@vscode/ripgrep` is the only engine. The historical grep
+ * fallback was removed in May-2026 cleanup — see `cleanup_contract.test.ts`.
+ */
 import {
   checkCommandAvailability,
   getMissingCommandError,
@@ -11,14 +17,8 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core';
 import { ToolErrors } from '../../errors/errorFactories.js';
-import {
-  executeRipgrepSearchInternal,
-  executeGrepSearch,
-} from './ripgrepExecutor.js';
+import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 
-/**
- * Main entry point for ripgrep/grep search
- */
 export async function searchContentRipgrep(
   query: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
@@ -27,33 +27,17 @@ export async function searchContentRipgrep(
   try {
     const rgAvailability = await checkCommandAvailability('rg');
 
-    if (rgAvailability.available) {
-      return await executeRipgrepSearchInternal(configuredQuery);
-    }
-
-    const grepAvailability = await checkCommandAvailability('grep');
-    if (!grepAvailability.available) {
+    if (!rgAvailability.available) {
       const toolError = ToolErrors.commandNotAvailable(
-        'rg or grep',
-        `${getMissingCommandError('rg')} Alternatively, ensure grep is in PATH.`
+        'rg',
+        getMissingCommandError('rg')
       );
       return createErrorResult(toolError, configuredQuery, {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
       }) as LocalSearchCodeToolResult;
     }
 
-    // Check for features that don't work with grep
-    if (configuredQuery.multiline) {
-      return createErrorResult(
-        new Error(
-          'multiline patterns require ripgrep (rg). Install ripgrep or remove multiline option.'
-        ),
-        configuredQuery,
-        { toolName: TOOL_NAMES.LOCAL_RIPGREP }
-      ) as LocalSearchCodeToolResult;
-    }
-
-    return await executeGrepSearch(configuredQuery);
+    return await executeRipgrepSearchInternal(configuredQuery);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 

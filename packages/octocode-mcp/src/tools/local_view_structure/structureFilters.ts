@@ -139,7 +139,7 @@ export function formatEntryString(
   }
 }
 
-interface EntryOutput {
+export interface EntryOutput {
   name: string;
   type: 'file' | 'dir' | 'link';
   depth?: number;

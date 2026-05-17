@@ -1,5 +1,5 @@
 import { RequestError } from 'octokit';
-import type { GitHubAPIError } from './githubAPI';
+import type { GitHubAPIError } from './githubAPI.js';
 import {
   ERROR_CODES,
   ERROR_MESSAGES,
@@ -36,6 +36,10 @@ function handleRequestError(error: RequestError): GitHubAPIError {
     return handle403Error(message, response);
   }
 
+  if (status === 429) {
+    return handle429RateLimit(message, response);
+  }
+
   const errorCode = STATUS_TO_ERROR_CODE[status];
   if (errorCode) {
     return handleKnownHttpError(errorCode, status);
@@ -44,6 +48,54 @@ function handleRequestError(error: RequestError): GitHubAPIError {
   return createErrorResponse(ERROR_CODES.UNKNOWN, {
     error: message || ERROR_MESSAGES[ERROR_CODES.UNKNOWN].message,
     status,
+  });
+}
+
+function parseHeaderInteger(
+  headers: Record<string, unknown> | undefined,
+  key: string
+): number | undefined {
+  const rawValue = headers?.[key];
+  const parsed = rawValue === undefined ? NaN : parseInt(String(rawValue), 10);
+  return !isNaN(parsed) ? parsed : undefined;
+}
+
+function handle429RateLimit(
+  message: string,
+  response?: RequestError['response']
+): GitHubAPIError {
+  const headers = response?.headers;
+  const retryAfter = parseHeaderInteger(headers, 'retry-after');
+  const resetValue = parseHeaderInteger(headers, 'x-ratelimit-reset');
+  const remaining = parseHeaderInteger(headers, 'x-ratelimit-remaining') ?? 0;
+  const resetTime = resetValue ? new Date(resetValue * 1000) : null;
+  const retryAfterSeconds =
+    retryAfter ??
+    (resetTime
+      ? Math.max(
+          Math.ceil((resetTime.getTime() - Date.now()) / 1000) +
+            RATE_LIMIT_CONFIG.RESET_BUFFER_SECONDS,
+          0
+        )
+      : undefined);
+
+  void logRateLimit({
+    limit_type: 'primary',
+    retry_after_seconds: retryAfterSeconds,
+    rate_limit_remaining: remaining,
+    rate_limit_reset_ms: resetTime ? resetTime.getTime() : undefined,
+    provider: 'github',
+  });
+
+  return createErrorResponse(ERROR_CODES.RATE_LIMIT_PRIMARY, {
+    error:
+      message ||
+      ERROR_MESSAGES[ERROR_CODES.RATE_LIMIT_PRIMARY].messageWithoutTime,
+    status: 429,
+    rateLimitRemaining: remaining,
+    rateLimitReset: resetTime ? resetTime.getTime() : undefined,
+    retryAfter: retryAfterSeconds,
+    scopesSuggestion: ERROR_MESSAGES[ERROR_CODES.RATE_LIMIT_PRIMARY].suggestion,
   });
 }
 
@@ -78,6 +130,7 @@ function handleSecondaryRateLimit(
   void logRateLimit({
     limit_type: 'secondary',
     retry_after_seconds: retryAfter,
+    provider: 'github',
   });
 
   return createErrorResponse(ERROR_CODES.RATE_LIMIT_SECONDARY, {
@@ -117,6 +170,7 @@ function handlePrimaryRateLimit(
     retry_after_seconds: retryAfterSeconds,
     rate_limit_remaining: 0,
     rate_limit_reset_ms: resetTime ? resetTime.getTime() : undefined,
+    provider: 'github',
   });
 
   return createErrorResponse(ERROR_CODES.RATE_LIMIT_PRIMARY, {

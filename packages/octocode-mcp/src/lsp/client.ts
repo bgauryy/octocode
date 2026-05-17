@@ -5,7 +5,6 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
-import * as path from 'path';
 import {
   createMessageConnection,
   MessageConnection,
@@ -13,7 +12,6 @@ import {
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node.js';
 import {
-  InitializeParams,
   InitializeResult,
   InitializedParams,
 } from 'vscode-languageserver-protocol';
@@ -25,13 +23,21 @@ import type {
   OutgoingCall,
   LanguageServerConfig,
 } from './types.js';
-import { toUri } from './uri.js';
 import { LSPDocumentManager } from './lspDocumentManager.js';
 import { LSPOperations } from './lspOperations.js';
 import {
   buildChildProcessEnv,
   TOOLING_ALLOWED_ENV_VARS,
 } from '../utils/exec/spawn.js';
+import { buildInitializeParams } from './initParams.js';
+import { toUri } from './uri.js';
+
+/**
+ * Max stderr lines we retain per LSP client. Bounded to keep memory low
+ * — last N lines are enough to surface the cause of an initialize/spawn
+ * failure (T1.4 — stop silently swallowing stderr).
+ */
+const STDERR_RETENTION_LINES = 200;
 
 /**
  * Race a promise against a timeout, properly cleaning up the timer
@@ -56,6 +62,10 @@ async function raceWithTimeout<T>(
   }
 }
 
+type WorkspaceConfigurationRequest = {
+  items?: Array<{ section?: string; scopeUri?: string }>;
+};
+
 /**
  * LSP Client class
  * Manages connection to a language server process
@@ -68,6 +78,7 @@ export class LSPClient {
   private initializeResult: InitializeResult | null = null;
   private documentManager: LSPDocumentManager;
   private operations: LSPOperations;
+  private stderrBuffer: string[] = [];
 
   constructor(config: LanguageServerConfig) {
     this.config = config;
@@ -110,8 +121,23 @@ export class LSPClient {
       // Errors are handled by the connection layer
     });
 
-    // Ignore stderr - language servers often write debug info there
-    this.process.stderr?.on('data', () => {});
+    // Capture (but cap) stderr — surfaces real failures in error messages
+    // without bloating memory. See STDERR_RETENTION_LINES. Guarded so
+    // partial/mock streams (e.g. in unit tests) don't blow up the spawn.
+    if (typeof this.process.stderr?.setEncoding === 'function') {
+      this.process.stderr.setEncoding('utf8');
+    }
+    this.process.stderr?.on('data', (chunk: string | Buffer) => {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      const lines = text.split(/\r?\n/);
+      for (const line of lines) {
+        if (!line) continue;
+        this.stderrBuffer.push(line);
+        if (this.stderrBuffer.length > STDERR_RETENTION_LINES) {
+          this.stderrBuffer.shift();
+        }
+      }
+    });
 
     // Create JSON-RPC connection and initialize — clean up on any failure
     try {
@@ -120,6 +146,7 @@ export class LSPClient {
         new StreamMessageWriter(this.process.stdin)
       );
 
+      this.registerServerInitiatedHandlers(this.connection);
       this.connection.listen();
 
       await this.initialize();
@@ -131,6 +158,36 @@ export class LSPClient {
   }
 
   /**
+   * Register handlers for requests/notifications initiated by language servers.
+   * TypeScript's language server asks clients for workspace configuration when
+   * we advertise `workspace.configuration`; returning empty settings keeps the
+   * headless client protocol-compliant without adding user-facing schema knobs.
+   */
+  private registerServerInitiatedHandlers(connection: MessageConnection): void {
+    connection.onRequest('workspace/configuration', params => {
+      const request = params as WorkspaceConfigurationRequest;
+      return (request.items ?? []).map(() => ({}));
+    });
+
+    connection.onRequest('workspace/workspaceFolders', () => [
+      {
+        uri: toUri(this.config.workspaceRoot),
+        name:
+          this.config.workspaceRoot.split(/\//).filter(Boolean).pop() ??
+          this.config.workspaceRoot,
+      },
+    ]);
+
+    connection.onRequest('client/registerCapability', () => null);
+    connection.onRequest('client/unregisterCapability', () => null);
+    connection.onRequest('window/workDoneProgress/create', () => null);
+
+    connection.onNotification('window/logMessage', () => undefined);
+    connection.onNotification('window/showMessage', () => undefined);
+    connection.onNotification('$/progress', () => undefined);
+  }
+
+  /**
    * Initialize the language server
    */
   private async initialize(): Promise<void> {
@@ -138,43 +195,7 @@ export class LSPClient {
       throw new Error('Connection not established');
     }
 
-    const initParams: InitializeParams = {
-      processId: process.pid,
-      rootUri: toUri(this.config.workspaceRoot),
-      capabilities: {
-        textDocument: {
-          synchronization: {
-            dynamicRegistration: true,
-            willSave: false,
-            willSaveWaitUntil: false,
-            didSave: true,
-          },
-          definition: {
-            dynamicRegistration: true,
-            linkSupport: true,
-          },
-          references: {
-            dynamicRegistration: true,
-          },
-          callHierarchy: {
-            dynamicRegistration: true,
-          },
-          publishDiagnostics: {
-            relatedInformation: true,
-          },
-        },
-        workspace: {
-          workspaceFolders: true,
-          configuration: true,
-        },
-      },
-      workspaceFolders: [
-        {
-          uri: toUri(this.config.workspaceRoot),
-          name: path.basename(this.config.workspaceRoot),
-        },
-      ],
-    };
+    const initParams = buildInitializeParams(this.config);
 
     this.initializeResult = (await raceWithTimeout(
       this.connection.sendRequest('initialize', initParams),
@@ -257,6 +278,15 @@ export class LSPClient {
   }
 
   /**
+   * Return the last N stderr lines emitted by the language server.
+   * Useful for surfacing the real cause of an initialize/spawn failure.
+   * Buffer is capped at {@link STDERR_RETENTION_LINES} to bound memory.
+   */
+  getRecentStderr(): string[] {
+    return [...this.stderrBuffer];
+  }
+
+  /**
    * Check if server supports a capability
    */
   hasCapability(capability: string): boolean {
@@ -306,14 +336,8 @@ export class LSPClient {
       this.initialized = false;
 
       // Clear connection from managers
-      this.documentManager.setConnection(
-        null as unknown as MessageConnection,
-        false
-      );
-      this.operations.setConnection(
-        null as unknown as MessageConnection,
-        false
-      );
+      this.documentManager.setConnection(null, false);
+      this.operations.setConnection(null, false);
     }
   }
 }

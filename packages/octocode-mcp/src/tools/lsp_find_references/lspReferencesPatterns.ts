@@ -21,8 +21,9 @@ import { getHints } from '../../hints/index.js';
 import { RipgrepMatchOnlySchema } from '../../utils/parsers/schemas.js';
 import { matchesFilePatterns } from './lspReferencesCore.js';
 import { validateCommand } from 'octocode-security-utils/commandValidator';
+import { resolveRipgrepBinary } from '../../utils/exec/ripgrepBinary.js';
 import { TOOL_NAME } from './constants.js';
-const DEFAULT_GREP_EXTENSIONS = [
+const DEFAULT_CODE_EXTENSIONS = [
   'ts',
   'tsx',
   'js',
@@ -48,6 +49,25 @@ const DEFAULT_GREP_EXTENSIONS = [
   'cxx',
   'h',
   'hpp',
+  'lua',
+] as const;
+
+const RIPGREP_BUILTIN_CODE_TYPES = [
+  'ts',
+  'js',
+  'py',
+  'go',
+  'rust',
+  'java',
+  'kotlin',
+  'swift',
+  'dart',
+  'ruby',
+  'php',
+  'cs',
+  'scala',
+  'c',
+  'cpp',
   'lua',
 ] as const;
 
@@ -172,7 +192,7 @@ async function enhancePatternReference(
   }
 
   return {
-    uri: raw.uri,
+    uri: raw.absolutePath,
     range: raw.range,
     content,
     isDefinition: raw.isDefinition,
@@ -337,15 +357,13 @@ export function buildRipgrepSearchArgs(
   excludePattern?: string[]
 ): string[] {
   const escapedSymbol = escapeForRegex(symbolName);
+  const typeFlags = RIPGREP_BUILTIN_CODE_TYPES.flatMap(type => ['-t', type]);
   return [
     '--json',
     '--line-number',
     '--column',
     '-w',
-    '--type-add',
-    'code:*.{ts,tsx,js,jsx,mjs,cjs,py,pyi,go,rs,java,kt,kts,swift,dart,rb,php,cs,scala,c,cpp,cc,cxx,h,hpp,lua}',
-    '-t',
-    'code',
+    ...typeFlags,
     ...buildRipgrepGlobArgs(includePattern, excludePattern),
     '--',
     escapedSymbol,
@@ -427,12 +445,12 @@ export function buildGrepSearchArgs(
   if (includePattern?.length || excludePattern?.length) {
     grepArgs.push(...buildGrepFilterArgsArray(includePattern, excludePattern));
     if (!includePattern?.length) {
-      for (const ext of DEFAULT_GREP_EXTENSIONS) {
+      for (const ext of DEFAULT_CODE_EXTENSIONS) {
         grepArgs.push(`--include=*.${ext}`);
       }
     }
   } else {
-    for (const ext of DEFAULT_GREP_EXTENSIONS) {
+    for (const ext of DEFAULT_CODE_EXTENSIONS) {
       grepArgs.push(`--include=*.${ext}`);
     }
   }
@@ -462,10 +480,14 @@ async function searchReferencesInWorkspace(
   );
 
   try {
-    const { stdout } = await spawnCollectOutput('rg', rgArgs, {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 30000,
-    });
+    const { stdout } = await spawnCollectOutput(
+      resolveRipgrepBinary(),
+      rgArgs,
+      {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 30000,
+      }
+    );
 
     const lines = stdout.trim().split('\n').filter(Boolean);
 

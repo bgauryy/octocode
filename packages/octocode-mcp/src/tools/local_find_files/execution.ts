@@ -1,9 +1,11 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { FindFilesQuery } from '@octocodeai/octocode-core';
+import {
+  type FindFilesQuery,
+  FindFilesQuerySchema,
+} from '../../scheme/localSchemaOverlay.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { findFiles } from './findFiles.js';
-import { FindFilesQuerySchema } from '@octocodeai/octocode-core';
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';

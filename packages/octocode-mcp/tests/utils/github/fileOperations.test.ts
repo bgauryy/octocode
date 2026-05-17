@@ -193,6 +193,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result).toEqual({
         status: 200,
+        rawResponseChars: expect.any(Number),
         data: {
           owner: 'test',
           repo: 'repo',
@@ -210,6 +211,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result).toEqual({
         status: 200,
+        rawResponseChars: expect.any(Number),
         data: {
           owner: 'test',
           repo: 'repo',
@@ -229,6 +231,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result).toEqual({
         status: 200,
+        rawResponseChars: expect.any(Number),
         data: {
           owner: 'test',
           repo: 'repo',
@@ -249,6 +252,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result).toEqual({
         status: 200,
+        rawResponseChars: expect.any(Number),
         data: {
           owner: 'test',
           repo: 'repo',
@@ -270,6 +274,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       );
       expect(result).toEqual({
         status: 200,
+        rawResponseChars: expect.any(Number),
         data: {
           owner: 'test',
           repo: 'repo',
@@ -291,6 +296,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result).toEqual({
         status: 200,
+        rawResponseChars: expect.any(Number),
         data: {
           owner: 'test',
           repo: 'repo',

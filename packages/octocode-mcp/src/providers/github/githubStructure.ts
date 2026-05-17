@@ -17,8 +17,9 @@ import { viewGitHubRepositoryStructureAPI } from '../../github/repoStructure.js'
 
 import type { GitHubViewRepoStructureQuery } from '@octocodeai/octocode-core';
 import type { GitHubRepositoryStructureResult } from '../../tools/github_view_repo_structure/types.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 
-import { parseGitHubProjectId } from './utils.js';
+import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
 /**
@@ -86,21 +87,27 @@ export async function getRepoStructure(
       error: string | { toString(): string };
       status?: number;
       hints?: string[];
+      rateLimitRemaining?: number;
+      rateLimitReset?: number;
+      retryAfter?: number;
     };
-    return {
+    return createGitHubProviderError({
       error:
         typeof errorResult.error === 'string'
           ? errorResult.error
           : String(errorResult.error),
       status: errorResult.status || 500,
-      provider: 'github',
       hints: errorResult.hints,
-    };
+      rateLimitRemaining: errorResult.rateLimitRemaining,
+      rateLimitReset: errorResult.rateLimitReset,
+      retryAfter: errorResult.retryAfter,
+    });
   }
 
   return {
     data: transformRepoStructureResult(result),
     status: 200,
     provider: 'github',
+    rawResponseChars: result.rawResponseChars ?? countSerializedChars(result),
   };
 }

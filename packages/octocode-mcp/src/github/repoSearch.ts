@@ -2,19 +2,20 @@ import type {
   SearchReposParameters,
   RepoSearchResultItem,
   GitHubAPIResponse,
-} from './githubAPI';
+} from './githubAPI.js';
 import type {
   GitHubReposSearchQuery,
   GitHubRepositoryOutput,
 } from '@octocodeai/octocode-core';
-import { getOctokit } from './client';
-import { handleGitHubAPIError } from './errors';
-import { buildRepoSearchQuery } from './queryBuilders';
-import { generateCacheKey, withDataCache } from '../utils/http/cache';
+import { getOctokit } from './client.js';
+import { handleGitHubAPIError } from './errors.js';
+import { buildRepoSearchQuery } from './queryBuilders.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
+import { countSerializedChars } from '../utils/response/charSavings.js';
 
 /** Pagination info for repository search results */
 interface RepoSearchPagination {
@@ -167,6 +168,7 @@ async function searchGitHubReposAPIInternal(
       },
       status: 200,
       headers: result.headers,
+      rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
     return handleGitHubAPIError(error);

@@ -29,7 +29,7 @@ export function configureLocalResearchFlowRuntime(repoPath: string): void {
   mockSafeExec.mockReset();
   mockSafeExec.mockImplementation(
     async (command: string, args: string[]): Promise<MockExecResult> => {
-      if (command !== 'rg') {
+      if (!/rg$/.test(command)) {
         throw new Error(`Unexpected command: ${command}`);
       }
 
@@ -57,7 +57,7 @@ export function configureLocalResearchFlowRuntime(repoPath: string): void {
 
   mockSpawn.mockReset();
   mockSpawn.mockImplementation((command: string, args: string[]) => {
-    if (command !== 'rg') {
+    if (!/rg$/.test(command)) {
       throw new Error(`Unexpected spawn command: ${command}`);
     }
 

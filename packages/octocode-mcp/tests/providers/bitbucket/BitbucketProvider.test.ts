@@ -567,6 +567,30 @@ describe('BitbucketProvider', () => {
       expect(result.rateLimit).toBeUndefined();
     });
 
+    it('should log rate limit and return rateLimit info when 429 with retry-after header', async () => {
+      const rateLimitError = Object.assign(new Error('Too Many Requests'), {
+        status: 429,
+        response: {
+          headers: {
+            get: (key: string) => (key === 'retry-after' ? '30' : null),
+          },
+        },
+      });
+
+      vi.mocked(searchBitbucketCodeAPI).mockRejectedValue(rateLimitError);
+
+      const result = await provider.searchCode({
+        keywords: ['test'],
+        projectId: 'ws/repo',
+      });
+
+      expect(result.error).toBeDefined();
+      expect(result.status).toBe(429);
+      expect(mockLogRateLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ limit_type: 'primary' })
+      );
+    });
+
     it('should not include rateLimit for non-rate-limit errors', async () => {
       vi.mocked(searchBitbucketCodeAPI).mockRejectedValue(
         new Error('generic error')
@@ -1095,6 +1119,129 @@ describe('mapPRState', () => {
 
   it('should throw for empty-after-trim state', () => {
     expect(() => mapPRState('  ')).toThrow(/Invalid Bitbucket PR state/);
+  });
+});
+
+describe('transformFileContentResult — fallback branches', () => {
+  it('uses query.path when data.path is undefined', () => {
+    const result = transformFileContentResult(
+      {
+        content: 'some content',
+        path: undefined as unknown as string,
+        size: 12,
+        ref: 'main',
+        encoding: 'utf-8',
+      },
+      { projectId: 'ws/repo', path: 'fallback/path.ts' }
+    );
+
+    expect(result.path).toBe('fallback/path.ts');
+  });
+
+  it('uses 0 when data.size is undefined', () => {
+    const result = transformFileContentResult(
+      {
+        content: 'some content',
+        path: 'file.ts',
+        size: undefined as unknown as number,
+        ref: 'main',
+        encoding: 'utf-8',
+      },
+      { projectId: 'ws/repo', path: 'file.ts' }
+    );
+
+    expect(result.size).toBe(0);
+  });
+
+  it('uses query.ref when data.ref is undefined', () => {
+    const result = transformFileContentResult(
+      {
+        content: 'some content',
+        path: 'file.ts',
+        size: 12,
+        ref: undefined as unknown as string,
+        encoding: 'utf-8',
+      },
+      { projectId: 'ws/repo', path: 'file.ts', ref: 'develop' }
+    );
+
+    expect(result.ref).toBe('develop');
+  });
+
+  it('uses empty string when both data.ref and query.ref are absent', () => {
+    const result = transformFileContentResult(
+      {
+        content: 'some content',
+        path: 'file.ts',
+        size: 12,
+        ref: undefined as unknown as string,
+        encoding: 'utf-8',
+      },
+      { projectId: 'ws/repo', path: 'file.ts' }
+    );
+
+    expect(result.ref).toBe('');
+  });
+});
+
+describe('buildStructureFromEntries — basePath branches', () => {
+  it('strips the basePath prefix from entry paths', async () => {
+    vi.mocked(viewBitbucketRepoStructureAPI).mockResolvedValue({
+      data: {
+        entries: [
+          { type: 'commit_file', path: 'src/index.ts' },
+          { type: 'commit_directory', path: 'src/utils' },
+          { type: 'commit_file', path: 'src/utils/helper.ts' },
+        ],
+        branch: 'main',
+        path: 'src',
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          hasMore: false,
+          totalMatches: 3,
+        },
+      },
+      status: 200,
+    });
+
+    const provider = new BitbucketProvider();
+    const result = await provider.getRepoStructure({
+      projectId: 'ws/repo',
+      path: 'src',
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.data?.structure).toBeDefined();
+  });
+
+  it('handles path with leading slash after stripping basePath', async () => {
+    vi.mocked(viewBitbucketRepoStructureAPI).mockResolvedValue({
+      data: {
+        entries: [
+          { type: 'commit_file', path: 'src/index.ts' },
+          { type: 'commit_file', path: 'src/other.ts' },
+        ],
+        branch: 'main',
+        path: 'src/',
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          hasMore: false,
+          totalMatches: 2,
+        },
+      },
+      status: 200,
+    });
+
+    const provider = new BitbucketProvider();
+    const result = await provider.getRepoStructure({
+      projectId: 'ws/repo',
+      path: 'src/',
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.data?.structure).toBeDefined();
   });
 });
 

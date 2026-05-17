@@ -157,6 +157,7 @@ export async function searchMultipleGitHubPullRequests(
               ...fileChangeHints,
               "file_changes[].patch = diff hunks; use prNumber + type='partialContent' for full file diffs",
             ],
+            rawResponse: providerResult.response.rawResponseChars,
           }
         );
       } catch (error) {

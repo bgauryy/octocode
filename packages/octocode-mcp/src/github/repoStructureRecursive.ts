@@ -3,7 +3,12 @@
  * Extracted from repoStructure.ts.
  */
 import type { GitHubApiFileItem } from '../tools/github_view_repo_structure/types.js';
-import { OctokitWithThrottling } from './client';
+import {
+  attachRawResponseChars,
+  countSerializedChars,
+  getRawResponseChars,
+} from '../utils/response/charSavings.js';
+import { OctokitWithThrottling } from './client.js';
 
 /**
  * Recursively fetch directory contents using API
@@ -19,7 +24,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
   visitedPaths: Set<string> = new Set()
 ): Promise<GitHubApiFileItem[]> {
   if (currentDepth > maxDepth || visitedPaths.has(path)) {
-    return [];
+    return attachRawResponseChars([], 0);
   }
 
   visitedPaths.add(path);
@@ -32,6 +37,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
       ref: branch,
     });
 
+    let rawResponseChars = countSerializedChars(result.data);
     const items = Array.isArray(result.data) ? result.data : [result.data];
     const apiItems: GitHubApiFileItem[] = items.map(
       (item: GitHubApiFileItem) => ({
@@ -68,6 +74,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
               maxDepth,
               visitedPaths // Pass reference, not copy
             );
+            rawResponseChars += getRawResponseChars(subItems) ?? 0;
             return subItems;
           } catch {
             return [];
@@ -81,8 +88,8 @@ export async function fetchDirectoryContentsRecursivelyAPI(
       }
     }
 
-    return allItems;
+    return attachRawResponseChars(allItems, rawResponseChars);
   } catch {
-    return [];
+    return attachRawResponseChars([], 0);
   }
 }

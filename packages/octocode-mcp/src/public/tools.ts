@@ -139,7 +139,6 @@ export { executeCallHierarchy } from '../tools/lsp_call_hierarchy/execution.js';
 export {
   processCallHierarchy,
   parseRipgrepJsonOutput,
-  parseGrepOutput,
   extractFunctionBody,
   inferSymbolKind,
   createRange,

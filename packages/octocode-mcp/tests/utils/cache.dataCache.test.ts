@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { incrementGitHubCacheHits } from 'octocode-shared';
 import {
   generateCacheKey,
   withDataCache,
@@ -29,6 +30,7 @@ describe('withDataCache typed data cache', () => {
     expect(stats.hits).toBe(1);
     expect(stats.misses).toBe(1);
     expect(stats.sets).toBe(1);
+    expect(incrementGitHubCacheHits).toHaveBeenCalledWith('gh-api-code', 1);
   });
 
   it('respects skipCache and forceRefresh options', async () => {

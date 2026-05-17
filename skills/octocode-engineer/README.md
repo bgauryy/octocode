@@ -36,7 +36,7 @@ The skill runs a scan + validation workflow:
 - **Security checks**: secrets, injection risks, traversal risks, unsafe sinks.
 - **Test quality checks**: assertion density, mocking hygiene, cleanup issues.
 - **AST tools**: 35 structural search presets (22 JS/TS + 13 Python) and AST tree exploration.
-- **Hybrid quality ratings** (AI + structure): Architecture & Structure, Folder Topology, Naming Quality, Common/Shared Layer Health, Maintainability & Evolvability, Codebase Consistency.
+- **Hybrid quality ratings** (AI + structure): Architecture & Structure, Folder Topology/Structure Health, Naming Quality, Common/Shared Layer Health, Maintainability & Evolvability, Codebase Consistency.
 - **Output format template**: standardized finding presentation with evidence chains, confidence levels, and impact assessment.
 
 ## Rating model behavior

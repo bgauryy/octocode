@@ -4,7 +4,12 @@
 
 import { version } from '../../../package.json';
 import { FETCH_ERRORS } from '../../errors/domainErrors.js';
-import { logSessionError } from '../../session.js';
+import {
+  logPackageRegistryFailure,
+  logRateLimit,
+  logSessionError,
+} from '../../session.js';
+import { ignoreBestEffortFailure } from '../core/bestEffort.js';
 
 interface ExtendedError extends Error {
   status?: number;
@@ -50,6 +55,40 @@ interface FetchWithRetriesOptions {
    * When aborted, the function throws immediately without retrying
    */
   signal?: AbortSignal;
+  /**
+   * Provider name used when HTTP 429 responses should count in local rate-limit stats.
+   */
+  rateLimitProvider?: string;
+  /**
+   * Package registry name used when non-404 registry HTTP failures should be
+   * counted separately from provider API rate limits.
+   */
+  packageRegistry?: string;
+}
+
+function parseRetryAfterSeconds(headers: Headers): number | undefined {
+  const retryAfter = headers.get('Retry-After');
+  if (!retryAfter) return undefined;
+
+  const seconds = parseInt(retryAfter, 10);
+  return !isNaN(seconds) ? seconds : undefined;
+}
+
+function recordFetchRateLimit(
+  provider: string | undefined,
+  method: string,
+  url: string,
+  headers: Headers
+): void {
+  if (!provider) return;
+
+  void logRateLimit({
+    limit_type: 'primary',
+    retry_after_seconds: parseRetryAfterSeconds(headers),
+    api_method: method,
+    api_url: url,
+    provider,
+  }).catch(ignoreBestEffortFailure('fetch rate-limit session logging'));
 }
 
 /**
@@ -86,6 +125,8 @@ export async function fetchWithRetries(
     method = 'GET',
     includeVersion = false,
     signal,
+    rateLimitProvider,
+    packageRegistry,
   } = options;
 
   let finalUrl = url;
@@ -99,12 +140,12 @@ export async function fetchWithRetries(
     ...headers,
   };
 
-  const f = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+  const f = globalThis.fetch;
   if (!f) {
     logSessionError(
       'fetchWithRetries',
       FETCH_ERRORS.FETCH_NOT_AVAILABLE.code
-    ).catch(() => {});
+    ).catch(ignoreBestEffortFailure('fetch retry session logging'));
     throw new Error(FETCH_ERRORS.FETCH_NOT_AVAILABLE.message);
   }
 
@@ -126,18 +167,33 @@ export async function fetchWithRetries(
       if (!res.ok) {
         // Release the underlying TCP socket immediately.
         // An unconsumed body keeps the socket allocated until GC.
-        res.body?.cancel?.().catch(() => {});
+        res.body
+          ?.cancel?.()
+          .catch(ignoreBestEffortFailure('response body cancellation'));
 
         logSessionError(
           'fetchWithRetries',
           FETCH_ERRORS.FETCH_HTTP_ERROR.code
-        ).catch(() => {});
+        ).catch(ignoreBestEffortFailure('fetch retry session logging'));
         const error = new Error(
           FETCH_ERRORS.FETCH_HTTP_ERROR.message(res.status, res.statusText)
         ) as ExtendedError;
 
         error.status = res.status;
         error.headers = res.headers;
+
+        if (packageRegistry && res.status !== 404) {
+          logPackageRegistryFailure(packageRegistry);
+        }
+
+        if (res.status === 429) {
+          recordFetchRateLimit(
+            rateLimitProvider,
+            method,
+            finalUrl,
+            res.headers
+          );
+        }
 
         // Retry on rate limits (429), request timeouts (408), and server errors (5xx)
         const isRetryable =

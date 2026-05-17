@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
+  buildToolErrorResult,
   sanitizeCallToolResult,
   withOutputSanitization,
 } from '../../src/utils/secureServer.js';
@@ -257,6 +258,251 @@ describe('secureServer', () => {
       expect((p as unknown as { someOtherProp: number }).someOtherProp).toBe(
         42
       );
+    });
+
+    describe('prompt + resource registration', () => {
+      let server: McpServer;
+      let captured: Record<string, (...args: unknown[]) => Promise<unknown>> =
+        {};
+      let proxy: McpServer;
+
+      beforeEach(() => {
+        captured = {};
+        server = {
+          registerTool: vi.fn(),
+          registerPrompt: vi.fn(
+            (_name: string, _config: unknown, cb: unknown) => {
+              captured.prompt = cb as (...a: unknown[]) => Promise<unknown>;
+              return {} as never;
+            }
+          ),
+          registerResource: vi.fn(
+            (
+              _name: string,
+              _uriOrTemplate: unknown,
+              _config: unknown,
+              cb: unknown
+            ) => {
+              captured.resource = cb as (...a: unknown[]) => Promise<unknown>;
+              return {} as never;
+            }
+          ),
+        } as unknown as McpServer;
+        proxy = withOutputSanitization(server);
+      });
+
+      it('forwards a successful prompt result unchanged', async () => {
+        const ok = {
+          messages: [
+            {
+              role: 'user' as const,
+              content: { type: 'text' as const, text: 'hi' },
+            },
+          ],
+        };
+        const handler = vi.fn().mockResolvedValue(ok);
+        proxy.registerPrompt('greet', {} as never, handler as never);
+        const result = await captured.prompt!({});
+        expect(result).toEqual(ok);
+      });
+
+      it('re-throws a sanitized McpError when a prompt handler throws', async () => {
+        const handler = vi
+          .fn()
+          .mockRejectedValue(
+            new Error('leak ghp_abc123xyz456789012345678901234567890 oh no')
+          );
+        proxy.registerPrompt('boom', {} as never, handler as never);
+
+        await expect(captured.prompt!({})).rejects.toMatchObject({
+          code: expect.any(Number),
+          message: expect.stringContaining('prompt "boom" failed'),
+        });
+
+        try {
+          await captured.prompt!({});
+        } catch (err) {
+          const message = (err as { message: string }).message;
+          expect(message).not.toContain(
+            'ghp_abc123xyz456789012345678901234567890'
+          );
+        }
+      });
+
+      it('forwards a successful resource result unchanged', async () => {
+        const ok = {
+          contents: [
+            { uri: 'file:///x', mimeType: 'text/plain', text: 'hello' },
+          ],
+        };
+        const handler = vi.fn().mockResolvedValue(ok);
+        proxy.registerResource(
+          'doc',
+          'file:///x',
+          {} as never,
+          handler as never
+        );
+        const result = await captured.resource!(new URL('file:///x'), {});
+        expect(result).toEqual(ok);
+      });
+
+      it('re-throws a sanitized McpError when a resource handler throws', async () => {
+        const handler = vi.fn().mockRejectedValue(new Error('disk on fire'));
+        proxy.registerResource(
+          'doc',
+          'file:///x',
+          {} as never,
+          handler as never
+        );
+
+        await expect(
+          captured.resource!(new URL('file:///x'), {})
+        ).rejects.toMatchObject({
+          message: expect.stringContaining('resource "doc" failed'),
+        });
+      });
+
+      it('handles non-Error throws from prompt handlers', async () => {
+        const handler = vi.fn().mockRejectedValue('string error');
+        proxy.registerPrompt('boom', {} as never, handler as never);
+        await expect(captured.prompt!({})).rejects.toMatchObject({
+          message: expect.stringContaining('string error'),
+        });
+      });
+    });
+
+    describe('crash isolation', () => {
+      it('should convert an async-thrown Error into isError response', async () => {
+        const failing = vi
+          .fn()
+          .mockRejectedValue(new Error('boom: things went sideways'));
+
+        proxy.registerTool('failingTool', {} as never, failing as never);
+        const result = await capturedCb({ query: 'x' });
+
+        expect(result.isError).toBe(true);
+        expect(
+          (result.content[0] as { type: 'text'; text: string }).text
+        ).toContain('failingTool');
+        expect(
+          (result.content[0] as { type: 'text'; text: string }).text
+        ).toContain('boom: things went sideways');
+        const structured = result.structuredContent as Record<string, unknown>;
+        expect(structured.status).toBe('error');
+        expect(structured.tool).toBe('failingTool');
+        expect(structured.code).toBe('TOOL_CALLBACK_EXCEPTION');
+      });
+
+      it('should catch a synchronously-thrown Error', async () => {
+        const failing = vi.fn().mockImplementation(() => {
+          throw new TypeError('sync explode');
+        });
+
+        proxy.registerTool('syncFail', {} as never, failing as never);
+        const result = await capturedCb({});
+
+        expect(result.isError).toBe(true);
+        const structured = result.structuredContent as {
+          error: { name: string; message: string };
+        };
+        expect(structured.error.name).toBe('TypeError');
+        expect(structured.error.message).toBe('sync explode');
+      });
+
+      it('should handle non-Error rejections (string)', async () => {
+        const failing = vi.fn().mockRejectedValue('bare string failure');
+
+        proxy.registerTool('stringThrow', {} as never, failing as never);
+        const result = await capturedCb({});
+
+        expect(result.isError).toBe(true);
+        const structured = result.structuredContent as {
+          error: { message: string };
+        };
+        expect(structured.error.message).toBe('bare string failure');
+      });
+
+      it('should handle non-Error rejections (plain object with message)', async () => {
+        const failing = vi
+          .fn()
+          .mockRejectedValue({ message: 'object failure', code: 'E_OBJ' });
+
+        proxy.registerTool('objThrow', {} as never, failing as never);
+        const result = await capturedCb({});
+
+        expect(result.isError).toBe(true);
+        const structured = result.structuredContent as {
+          error: { message: string; code?: string };
+        };
+        expect(structured.error.message).toBe('object failure');
+        expect(structured.error.code).toBe('E_OBJ');
+      });
+
+      it('should handle null/undefined rejections', async () => {
+        const failing = vi.fn().mockRejectedValue(undefined);
+
+        proxy.registerTool('undefThrow', {} as never, failing as never);
+        const result = await capturedCb({});
+
+        expect(result.isError).toBe(true);
+        const structured = result.structuredContent as {
+          error: { message: string };
+        };
+        expect(typeof structured.error.message).toBe('string');
+      });
+
+      it('should redact secrets present in the thrown error message', async () => {
+        const failing = vi
+          .fn()
+          .mockRejectedValue(
+            new Error('token=ghp_abc123xyz456789012345678901234567890 leaked')
+          );
+
+        proxy.registerTool('leakyFail', {} as never, failing as never);
+        const result = await capturedCb({});
+
+        expect(result.isError).toBe(true);
+        const text = (result.content[0] as { type: 'text'; text: string }).text;
+        expect(text).not.toContain('ghp_abc123xyz456789012345678901234567890');
+      });
+
+      it('should never re-throw — MCP transport receives a CallToolResult', async () => {
+        const failing = vi.fn().mockRejectedValue(new Error('still safe'));
+
+        proxy.registerTool('safeFail', {} as never, failing as never);
+        await expect(capturedCb({})).resolves.toBeDefined();
+      });
+    });
+  });
+
+  describe('buildToolErrorResult', () => {
+    it('should produce a sanitized error result for arbitrary throws', () => {
+      const result = buildToolErrorResult(
+        'someTool',
+        new Error('with token ghp_abc123xyz456789012345678901234567890')
+      );
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+      expect(text).toContain('someTool');
+      expect(text).not.toContain('ghp_abc123xyz456789012345678901234567890');
+      const structured = result.structuredContent as {
+        status: string;
+        tool: string;
+        code: string;
+      };
+      expect(structured.status).toBe('error');
+      expect(structured.tool).toBe('someTool');
+      expect(structured.code).toBe('TOOL_CALLBACK_EXCEPTION');
+    });
+
+    it('should normalize numeric throws into a message', () => {
+      const result = buildToolErrorResult('t', 42);
+      expect(result.isError).toBe(true);
+      const structured = result.structuredContent as {
+        error: { message: string };
+      };
+      expect(structured.error.message).toBe('42');
     });
   });
 });

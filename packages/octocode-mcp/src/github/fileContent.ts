@@ -5,13 +5,13 @@
  *   - fileContentRaw.ts: raw API fetching, branch fallback, base64 decode
  *   - fileContentProcess.ts: line extraction, match search, sanitization, minification
  */
-import type { GitHubAPIResponse } from './githubAPI';
+import type { GitHubAPIResponse } from './githubAPI.js';
 import type {
   FileContentExecutionQuery,
   GitHubFileContentApiResult,
 } from '../tools/github_fetch_content/types.js';
-import { getOctokit } from './client';
-import { generateCacheKey, withDataCache } from '../utils/http/cache';
+import { getOctokit } from './client.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 
 import {
@@ -107,11 +107,13 @@ export async function fetchGitHubFileContentAPI(
     return {
       data: paginatedResult,
       status: 200,
+      rawResponseChars: rawResult.rawResponseChars,
     };
   }
 
   return {
     data: processedResult,
     status: 200,
+    rawResponseChars: rawResult.rawResponseChars,
   };
 }

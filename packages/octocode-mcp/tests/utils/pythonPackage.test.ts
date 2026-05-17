@@ -42,6 +42,32 @@ describe('pythonPackage - branch coverage', () => {
   });
 
   describe('lastPublished extraction from releases', () => {
+
+    it('should report rawResponseChars from the successful PyPI response body', async () => {
+      const payload = {
+        info: {
+          name: 'test-pkg',
+          version: '1.0.0',
+          summary: 'Test package',
+          keywords: '',
+          project_urls: {},
+        },
+      };
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await searchPythonPackage('test-pkg', false);
+
+      expect('packages' in result).toBe(true);
+      if ('packages' in result) {
+        expect(result.rawResponseChars).toBe(JSON.stringify(payload).length);
+      }
+    });
+
     it('should extract lastPublished from releases when available', async () => {
       vi.mocked(fetch).mockResolvedValue(
         pypiOk({

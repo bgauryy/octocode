@@ -19,6 +19,10 @@ import {
 } from './client.js';
 import { handleGitLabAPIError, createGitLabError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import {
+  parseGitLabDefaultBranch,
+  parseGitLabFileContent,
+} from './responseGuards.js';
 
 /**
  * Fetch file content from GitLab.
@@ -72,17 +76,15 @@ async function fetchGitLabFileContentAPIInternal(
     // URL-encode the file path as required by GitLab API
     const encodedPath = encodeURIComponent(params.path);
 
-    const file = (await gitlab.RepositoryFiles.show(
-      params.projectId,
-      encodedPath,
+    const file = parseGitLabFileContent(
+      await gitlab.RepositoryFiles.show(params.projectId, encodedPath, ref),
       ref
-    )) as unknown as Record<string, unknown>;
-
-    // Decode base64 content
-    let content = String(file.content || '');
-    if (file.encoding === 'base64') {
-      content = Buffer.from(content, 'base64').toString('utf-8');
+    );
+    if (!file) {
+      return createGitLabError('Unexpected GitLab file response shape', 502);
     }
+
+    let { content } = file;
 
     // Apply line filtering if requested
     if (params.startLine !== undefined || params.endLine !== undefined) {
@@ -94,17 +96,8 @@ async function fetchGitLabFileContentAPIInternal(
 
     return {
       data: {
-        file_name: String(file.file_name || ''),
-        file_path: String(file.file_path || ''),
-        size: Number(file.size || 0),
-        encoding: 'utf-8', // We decoded it
+        ...file,
         content,
-        content_sha256: String(file.content_sha256 || ''),
-        ref: String(file.ref || ref),
-        blob_id: String(file.blob_id || ''),
-        commit_id: String(file.commit_id || ''),
-        last_commit_id: String(file.last_commit_id || ''),
-        execute_filemode: Boolean(file.execute_filemode),
       },
       status: 200,
     };
@@ -128,10 +121,8 @@ export async function getGitLabDefaultBranch(
 
   try {
     const gitlab = await getGitlab();
-    const project = (await gitlab.Projects.show(
-      projectId
-    )) as unknown as Record<string, unknown>;
-    const branch = String(project.default_branch || 'main');
+    const branch =
+      parseGitLabDefaultBranch(await gitlab.Projects.show(projectId)) || 'main';
     cacheDefaultBranch(cacheKey, branch);
     return branch;
   } catch {

@@ -133,6 +133,31 @@ describe('Rate Limit Integration Tests', () => {
       expect(result.rateLimit?.retryAfter).toBe(60);
     });
 
+    it('should preserve rate limit info returned by GitHub API helpers', async () => {
+      const resetMs = Date.now() + 60_000;
+      mockSearchGitHubCodeAPI.mockResolvedValue({
+        error: 'API rate limit exceeded',
+        status: 403,
+        type: 'http',
+        rateLimitRemaining: 0,
+        rateLimitReset: resetMs,
+        retryAfter: 60,
+      });
+
+      const result = await provider.searchCode({
+        keywords: ['test'],
+        projectId: 'owner/repo',
+      });
+
+      expect(result.status).toBe(403);
+      expect(result.provider).toBe('github');
+      expect(result.rateLimit).toEqual({
+        remaining: 0,
+        reset: Math.floor(resetMs / 1000),
+        retryAfter: 60,
+      });
+    });
+
     it('should NOT include rateLimit for non-rate-limit errors', async () => {
       const notFoundError = new RequestError('Not Found', 404, {
         response: {

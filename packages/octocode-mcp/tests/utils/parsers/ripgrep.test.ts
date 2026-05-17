@@ -3,10 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  parseRipgrepJson,
-  parseGrepOutput,
-} from '../../../src/utils/parsers/ripgrep.js';
+import { parseRipgrepJson } from '../../../src/utils/parsers/ripgrep.js';
 import {
   parseCountOutput,
   parseFilesOnlyOutput,
@@ -275,6 +272,28 @@ describe('parseRipgrepJson', () => {
     expect(stats).toEqual({});
   });
 
+  it('should skip valid JSON that fails schema validation (line 46 branch)', () => {
+    // Valid JSON but type is not known to RipgrepJsonMessageSchema → validation fails
+    const jsonOutput = [
+      JSON.stringify({ type: 'unknown_ripgrep_event', data: { path: {} } }),
+      JSON.stringify({
+        type: 'match',
+        data: {
+          path: { text: '/test/file.ts' },
+          lines: { text: 'test' },
+          line_number: 1,
+          absolute_offset: 0,
+          submatches: [{ match: { text: 'test' }, start: 0, end: 4 }],
+        },
+      }),
+    ].join('\n');
+
+    const { files } = parseRipgrepJson(jsonOutput, baseQuery);
+
+    // The invalid schema line should be skipped, only the valid match parsed
+    expect(files).toHaveLength(1);
+  });
+
   it('should use contextLines when specific before/after not set', () => {
     const jsonOutput = [
       JSON.stringify({
@@ -341,133 +360,6 @@ describe('parseRipgrepJson', () => {
     const { files } = parseRipgrepJson(jsonOutput, baseQuery);
 
     expect(files).toHaveLength(1);
-  });
-});
-
-describe('parseGrepOutput', () => {
-  it('should parse basic grep output', () => {
-    const output = '/test/file.ts:10:const test = 1;';
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    expect(files).toHaveLength(1);
-    expect(files[0]!.path).toBe('/test/file.ts');
-    expect(files[0]!.matchCount).toBe(1);
-    expect(files[0]!.matches[0]!.line).toBe(10);
-    expect(files[0]!.matches[0]!.value).toBe('const test = 1;');
-  });
-
-  it('should parse multiple matches', () => {
-    const output = [
-      '/test/file.ts:10:test line 1',
-      '/test/file.ts:20:test line 2',
-      '/test/file2.ts:5:test line 3',
-    ].join('\n');
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    expect(files).toHaveLength(2);
-    expect(files.find(f => f.path === '/test/file.ts')?.matchCount).toBe(2);
-    expect(files.find(f => f.path === '/test/file2.ts')?.matchCount).toBe(1);
-  });
-
-  it('should handle files-only mode', () => {
-    const output = ['/test/file1.ts', '/test/file2.ts', '/test/file3.ts'].join(
-      '\n'
-    );
-
-    const files = parseGrepOutput(output, { ...baseQuery, filesOnly: true });
-
-    expect(files).toHaveLength(3);
-    expect(files[0]!.path).toBe('/test/file1.ts');
-    expect(files[0]!.matchCount).toBe(0);
-    expect(files[0]!.matches).toHaveLength(0);
-  });
-
-  it('should handle lines without line numbers (fallback format)', () => {
-    const output = '/test/file.ts:match content without line number';
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    expect(files).toHaveLength(1);
-    expect(files[0]!.matches[0]!.line).toBe(0);
-    expect(files[0]!.matches[0]!.value).toBe(
-      'match content without line number'
-    );
-  });
-
-  it('should handle empty output', () => {
-    const files = parseGrepOutput('', baseQuery);
-
-    expect(files).toHaveLength(0);
-  });
-
-  it('should truncate long match values', () => {
-    const longContent = 'x'.repeat(500);
-    const output = `/test/file.ts:10:${longContent}`;
-
-    const files = parseGrepOutput(output, {
-      ...baseQuery,
-      matchContentLength: 100,
-    });
-
-    expect(files[0]!.matches[0]!.value.length).toBeLessThanOrEqual(100);
-    expect(files[0]!.matches[0]!.value).toMatch(/\.\.\.$/);
-  });
-
-  it('should handle colon in file path', () => {
-    // On some systems, files might have colons (though rare)
-    // The parser should handle the first colon as the path delimiter
-    const output = '/test:dir/file.ts:10:test content';
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    // Should parse correctly - first colon after digits is the line number
-    expect(files).toHaveLength(1);
-  });
-
-  it('should skip lines with null bytes in path', () => {
-    const output = '/test/file\x00path.ts:test content';
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    expect(files).toHaveLength(0);
-  });
-
-  it('should provide zero byte offsets for grep output', () => {
-    const output = '/test/file.ts:10:test content';
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    expect(files[0]!.matches[0]!.column).toBeDefined();
-  });
-
-  it('should deduplicate files in files-only mode', () => {
-    const output = [
-      '/test/file1.ts',
-      '/test/file1.ts', // Duplicate
-      '/test/file2.ts',
-    ].join('\n');
-
-    const files = parseGrepOutput(output, { ...baseQuery, filesOnly: true });
-
-    expect(files).toHaveLength(2);
-  });
-
-  it('should not hang on ReDoS input with repeated a:0:a pattern', () => {
-    const start = Date.now();
-    const malicious = 'a:0:a'.repeat(500);
-    parseGrepOutput(malicious, baseQuery);
-    expect(Date.now() - start).toBeLessThan(50);
-  });
-
-  it('should handle colons in content after line number', () => {
-    const output = '/test/file.ts:10:obj.key ? a : b';
-
-    const files = parseGrepOutput(output, baseQuery);
-
-    expect(files).toHaveLength(1);
-    expect(files[0]!.matches[0]!.value).toBe('obj.key ? a : b');
   });
 });
 

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
+import { incrementToolCharSavings } from 'octocode-shared';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
+import { attachRawResponseChars } from '../../src/utils/response/charSavings.js';
 import type { QueryStatus } from '../../src/types';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
@@ -125,6 +127,45 @@ describe('executeBulkOperation', () => {
   });
 
   describe('Multiple queries - same status', () => {
+
+    it('records responseChars after top-level response pagination is applied', async () => {
+      const queries = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
+      const processor = vi
+        .fn()
+        .mockImplementation(async (query: { id: string }) =>
+          attachRawResponseChars(
+            {
+              status: 'hasResults' as const,
+              repositories: [
+                { name: `${query.id}-repository-with-a-very-long-name` },
+              ],
+            },
+            1_000
+          )
+        );
+
+      const result = await executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+        responseCharLength: 120,
+      });
+
+      const responseText = getTextContent(result.content);
+      const structured = result.structuredContent as {
+        results: Array<{ id: string }>;
+        responsePagination?: { hasMore: boolean };
+      };
+      const [toolName, rawChars, responseChars] = vi.mocked(
+        incrementToolCharSavings
+      ).mock.calls.at(-1) ?? [];
+
+      expect(toolName).toBe(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES);
+      expect(rawChars).toBe(3_000);
+      expect(responseChars).toBe(responseText.length);
+      expect(structured.results.length).toBeLessThan(queries.length);
+      expect(structured.responsePagination?.hasMore).toBe(true);
+      expect(responseText).toContain('responsePagination');
+    });
+
     it('adds top-level responsePagination with structured bulk subsets', async () => {
       const queries = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
       const processor = vi
@@ -238,6 +279,63 @@ describe('executeBulkOperation', () => {
   });
 
   describe('Multiple queries - mixed statuses (2 types)', () => {
+    it('should record aggregate char savings for parallel mixed responses', async () => {
+      vi.mocked(incrementToolCharSavings).mockClear();
+      const queries = [
+        { id: 'q1', delayMs: 20, type: 'success' },
+        { id: 'q2', delayMs: 5, type: 'throw' },
+        { id: 'q3', delayMs: 0, type: 'success' },
+      ];
+      const largePayload = 'x'.repeat(2000);
+
+      const processor = vi
+        .fn()
+        .mockImplementation(
+          async (query: {
+            id: string;
+            delayMs: number;
+            type: 'success' | 'throw';
+          }) => {
+            await new Promise(resolve => setTimeout(resolve, query.delayMs));
+
+            if (query.type === 'throw') {
+              throw new Error(`processor failed for ${query.id}`);
+            }
+
+            return attachRawResponseChars(
+              {
+                status: 'hasResults' as const,
+                payload: `${query.id}:${largePayload}`,
+              },
+              5000
+            );
+          }
+        );
+
+      const result = await executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        concurrency: 3,
+        responseCharLength: 180,
+      });
+
+      const responseText = getTextContent(result.content);
+      expect(incrementToolCharSavings).toHaveBeenCalledTimes(1);
+      expect(incrementToolCharSavings).toHaveBeenCalledWith(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        expect.any(Number),
+        responseText.length
+      );
+      const [, rawChars, responseChars] = vi.mocked(incrementToolCharSavings)
+        .mock.calls[0]!;
+      expect(rawChars).toBeGreaterThanOrEqual(10000);
+      expect(rawChars).toBeGreaterThan(responseChars);
+      expect(responseText).toContain('responsePagination:');
+      expect(responseText).not.toContain('octocode.rawResponseChars');
+      expect(result.structuredContent).not.toHaveProperty(
+        'octocode.rawResponseChars'
+      );
+    });
+
     it('should preserve input query order when thrown errors are mixed with successes', async () => {
       const queries = [
         { id: 'q1', delayMs: 25, type: 'success' },

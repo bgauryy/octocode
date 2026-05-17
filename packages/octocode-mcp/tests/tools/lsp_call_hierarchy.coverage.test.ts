@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { registerLSPCallHierarchyTool } from '../../src/tools/lsp_call_hierarchy/register.js';
 import {
   parseRipgrepJsonOutput,
-  parseGrepOutput,
   extractFunctionBody,
   inferSymbolKind,
   createRange,
@@ -34,7 +33,7 @@ vi.mock('../../src/lsp/resolver.js', () => ({
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn(),
+  acquirePooledClient: vi.fn(),
   isLanguageServerAvailable: vi.fn(),
 }));
 
@@ -103,7 +102,9 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       getIncomingCalls: vi.fn(),
       getOutgoingCalls: vi.fn(),
     };
-    (managerModule.createClient as Mock).mockResolvedValue(mockLSPClient);
+    (managerModule.acquirePooledClient as Mock).mockResolvedValue(
+      mockLSPClient
+    );
 
     // Register tool to get handler
     registerLSPCallHierarchyTool(mockServer);
@@ -382,10 +383,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         );
       });
 
-      it('should use ripgrep for incoming calls if available', async () => {
-        (checkCommandAvailability as Mock).mockResolvedValue({
-          available: true,
-        });
+      it('should use ripgrep for incoming calls', async () => {
         (safeExec as Mock).mockResolvedValue({
           success: true,
           stdout: JSON.stringify({
@@ -403,7 +401,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         const results = JSON.parse(result.content[0].text);
 
         expect(safeExec).toHaveBeenCalledWith(
-          'rg',
+          expect.stringMatching(/(^|\/)rg$/),
           expect.any(Array),
           expect.any(Object)
         );
@@ -411,30 +409,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         expect(results[0].incomingCalls).toHaveLength(1);
       });
 
-      it('should use grep for incoming calls if rg unavailable', async () => {
-        (checkCommandAvailability as Mock).mockResolvedValue({
-          available: false,
-        });
-        (safeExec as Mock).mockResolvedValue({
-          success: true,
-          stdout: '/workspace/caller.ts:5:myFunc();',
-        });
-
-        const result = await toolHandler({ queries: [baseQuery] });
-        const results = JSON.parse(result.content[0].text);
-
-        expect(safeExec).toHaveBeenCalledWith(
-          'grep',
-          expect.any(Array),
-          expect.any(Object)
-        );
-        expect(results[0].status).toBe('hasResults');
-      });
-
       it('should handle search errors', async () => {
-        (checkCommandAvailability as Mock).mockResolvedValue({
-          available: true,
-        });
         (safeExec as Mock).mockResolvedValue({
           success: false,
           code: 2,
@@ -499,14 +474,11 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         expect(results[0].hints?.length).toBeGreaterThan(0);
       });
 
-      it('should handle grep failure when rg unavailable (searchWithGrep code !== 1)', async () => {
-        (checkCommandAvailability as Mock).mockResolvedValue({
-          available: false,
-        });
+      it('should report search error from ripgrep failure (code !== 1)', async () => {
         (safeExec as Mock).mockResolvedValue({
           success: false,
           code: 2,
-          stderr: 'grep: invalid option',
+          stderr: 'rg: invalid option',
         });
 
         const result = await toolHandler({ queries: [baseQuery] });
@@ -536,37 +508,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
 
     it('should skip invalid lines', () => {
       const results = parseRipgrepJsonOutput('invalid json');
-      expect(results).toHaveLength(0);
-    });
-  });
-
-  describe('parseGrepOutput', () => {
-    it('should parse grep output', () => {
-      const results = parseGrepOutput('/file.ts:1:content');
-      expect(results).toHaveLength(1);
-      expect(results[0]!.filePath).toBe('/file.ts');
-      expect(results[0]!.lineNumber).toBe(1);
-      expect(results[0]!.lineContent).toBe('content');
-    });
-
-    it('should skip invalid lines', () => {
-      const results = parseGrepOutput('invalid line');
-      expect(results).toHaveLength(0);
-    });
-
-    it('should skip lines with no colon separator', () => {
-      const results = parseGrepOutput('nocolonheredigit');
-      expect(results).toHaveLength(0);
-    });
-
-    it('should skip lines where match.index is 0 (no file path before colon)', () => {
-      // ":5:content" - match exists but index is 0, so we skip (match.index > 0 fails)
-      const results = parseGrepOutput(':5:content');
-      expect(results).toHaveLength(0);
-    });
-
-    it('should skip lines with only one colon (no line:content pattern)', () => {
-      const results = parseGrepOutput('file:onlyonecolon');
       expect(results).toHaveLength(0);
     });
   });
@@ -859,11 +800,19 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         false
       );
       (checkCommandAvailability as Mock).mockResolvedValue({
-        available: false,
+        available: true,
       });
       (safeExec as Mock).mockResolvedValue({
         success: true,
-        stdout: '/workspace/caller.ts:3:    this.myFunc();',
+        stdout: JSON.stringify({
+          type: 'match',
+          data: {
+            path: { text: '/workspace/caller.ts' },
+            line_number: 3,
+            lines: { text: '    this.myFunc();' },
+            submatches: [{ start: 9, end: 15 }],
+          },
+        }),
       });
 
       const query = {
@@ -903,11 +852,19 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         false
       );
       (checkCommandAvailability as Mock).mockResolvedValue({
-        available: false,
+        available: true,
       });
       (safeExec as Mock).mockResolvedValue({
         success: true,
-        stdout: '/workspace/caller.ts:3:    await myFunc();',
+        stdout: JSON.stringify({
+          type: 'match',
+          data: {
+            path: { text: '/workspace/caller.ts' },
+            line_number: 3,
+            lines: { text: '    await myFunc();' },
+            submatches: [{ start: 10, end: 16 }],
+          },
+        }),
       });
 
       const query = {
@@ -943,11 +900,19 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         false
       );
       (checkCommandAvailability as Mock).mockResolvedValue({
-        available: false,
+        available: true,
       });
       (safeExec as Mock).mockResolvedValue({
         success: true,
-        stdout: '/workspace/caller.ts:5:myFunc();',
+        stdout: JSON.stringify({
+          type: 'match',
+          data: {
+            path: { text: '/workspace/caller.ts' },
+            line_number: 5,
+            lines: { text: 'myFunc();' },
+            submatches: [{ start: 0, end: 6 }],
+          },
+        }),
       });
 
       const query = {

@@ -324,4 +324,73 @@ describe('searchBitbucketCodeAPI', () => {
     expect(data.items[0]!.content_matches).toEqual([]);
     expect(data.items[0]!.path_matches).toBeUndefined();
   });
+
+  function makeItem(filePath: string) {
+    return {
+      type: 'code_search_result',
+      content_matches: [],
+      file: { path: filePath, type: 'commit_file' },
+    };
+  }
+
+  it('should filter by path prefix', async () => {
+    mockGET.mockResolvedValue({
+      data: {
+        values: [makeItem('src/index.ts'), makeItem('lib/utils.ts')],
+        size: 2,
+        page: 1,
+      },
+    });
+    const result = await searchBitbucketCodeAPI({
+      workspace: 'myws',
+      searchQuery: 'test',
+      path: 'src/',
+    });
+    const data = (result as { data: { items: unknown[] } }).data;
+    expect(data.items).toHaveLength(1);
+  });
+
+  it('should filter by filename', async () => {
+    mockGET.mockResolvedValue({
+      data: {
+        values: [makeItem('src/index.ts'), makeItem('src/utils.ts')],
+        size: 2,
+        page: 1,
+      },
+    });
+    const result = await searchBitbucketCodeAPI({
+      workspace: 'myws',
+      searchQuery: 'test',
+      filename: 'index.ts',
+    });
+    const data = (result as { data: { items: unknown[] } }).data;
+    expect(data.items).toHaveLength(1);
+  });
+
+  it('should filter by extension', async () => {
+    mockGET.mockResolvedValue({
+      data: {
+        values: [makeItem('src/index.ts'), makeItem('src/utils.js')],
+        size: 2,
+        page: 1,
+      },
+    });
+    const result = await searchBitbucketCodeAPI({
+      workspace: 'myws',
+      searchQuery: 'test',
+      extension: 'ts',
+    });
+    const data = (result as { data: { items: unknown[] } }).data;
+    expect(data.items).toHaveLength(1);
+  });
+
+  it('should return 502 error when API response has unexpected shape (null data)', async () => {
+    mockGET.mockResolvedValue({ data: null });
+    const result = await searchBitbucketCodeAPI({
+      workspace: 'myws',
+      searchQuery: 'test',
+    });
+    expect(result).toHaveProperty('error');
+    expect((result as { status: number }).status).toBe(502);
+  });
 });

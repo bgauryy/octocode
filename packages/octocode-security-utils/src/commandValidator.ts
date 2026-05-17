@@ -9,6 +9,27 @@ import {
 } from './securityConstants.js';
 import { securityRegistry } from './registry.js';
 
+/**
+ * Normalize a command identifier to its base name for allow-list matching.
+ *
+ * Callers may pass either a bare command (e.g. `rg`) or an absolute path
+ * to a bundled binary (e.g. `/.../node_modules/@vscode/ripgrep/bin/rg` or
+ * `...\\bin\\rg.exe` on Windows). The allow-list and arg-dispatch logic
+ * only know bare names, so we strip directories and the Windows `.exe`
+ * suffix before matching. We deliberately do NOT lowercase the whole name
+ * because POSIX command names are case-sensitive — but `.exe` is matched
+ * case-insensitively so `RG.EXE` from Windows shells still resolves.
+ */
+export function normalizeCommandName(command: string): string {
+  if (!command || typeof command !== 'string') return command;
+  // Strip BOTH POSIX and Windows separators regardless of the host OS, so
+  // a Windows-style path (`...\\bin\\rg.exe`) inspected on a POSIX host
+  // (e.g. CI on Linux validating a Windows binary record) still normalizes.
+  const lastSep = Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\'));
+  const base = lastSep >= 0 ? command.slice(lastSep + 1) : command;
+  return base.replace(/\.exe$/i, '');
+}
+
 const RG_ALLOWED_FLAGS = new Set([
   '-F',
   '-P',
@@ -22,6 +43,7 @@ const RG_ALLOWED_FLAGS = new Set([
   '--binary',
   '-L',
   '-n',
+  '--line-number',
   '--column',
   '-l',
   '--files-without-match',
@@ -59,6 +81,7 @@ const RG_ALLOWED_FLAGS_WITH_VALUES = new Set([
   '--type',
   '-T',
   '--type-not',
+  '--type-add',
   '-j',
   '--threads',
   '--sort',
@@ -233,11 +256,16 @@ export function validateCommand(
     };
   }
 
+  // Allow callers to pass an absolute path to a bundled binary
+  // (e.g. @vscode/ripgrep's `rgPath`). We allow-list the *basename*, then
+  // pass the basename to arg-dispatch so per-command rules still fire.
+  const normalized = normalizeCommandName(command);
+
   const extraCmds = securityRegistry.extraAllowedCommands;
   const isBuiltinAllowed = ALLOWED_COMMANDS.includes(
-    command as (typeof ALLOWED_COMMANDS)[number]
+    normalized as (typeof ALLOWED_COMMANDS)[number]
   );
-  const isExtraAllowed = extraCmds.includes(command);
+  const isExtraAllowed = extraCmds.includes(normalized);
   if (!isBuiltinAllowed && !isExtraAllowed) {
     const all = [...ALLOWED_COMMANDS, ...extraCmds];
     return {
@@ -246,8 +274,9 @@ export function validateCommand(
     };
   }
 
-  // Command-aware validation
-  return validateCommandArgs(command, args);
+  // Command-aware validation (uses the normalized name so absolute paths
+  // still get the right per-command flag/arg rules).
+  return validateCommandArgs(normalized, args);
 }
 
 /**

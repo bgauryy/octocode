@@ -51,3 +51,79 @@ export function fromUri(uri: string): string {
   // Parse and return filesystem path
   return URI.parse(uri).fsPath;
 }
+
+/**
+ * Result of a safe URI parse — never throws on bad input by default.
+ */
+export interface SafeUriResult {
+  isValid: boolean;
+  /** Filesystem path; only meaningful when isValid=true. */
+  path: string | null;
+  /** Human-readable reason for rejection. */
+  error?: string;
+}
+
+/** Thrown by `fromUriSafe(uri, { throwOnInvalid: true })`. */
+export class UnsafeUriError extends Error {
+  constructor(uri: string, reason: string) {
+    super(`Unsafe URI rejected (${reason}): ${uri}`);
+    this.name = 'UnsafeUriError';
+  }
+}
+
+/**
+ * Defensive variant of {@link fromUri}. Rejects non-`file:` schemes,
+ * bare paths, embedded null bytes, and anything `vscode-uri` can't
+ * parse. Used to harden the boundary between untrusted LSP server
+ * output and our filesystem operations (T1.5 — fromUri hardening).
+ *
+ * @example
+ *   const r = fromUriSafe(serverProvidedUri);
+ *   if (!r.isValid) return rejectWithHint(r.error);
+ *   const filePath = r.path!;
+ */
+export function fromUriSafe(
+  uri: string,
+  options: { throwOnInvalid?: boolean } = {}
+): SafeUriResult {
+  const reject = (reason: string): SafeUriResult => {
+    if (options.throwOnInvalid) {
+      throw new UnsafeUriError(uri, reason);
+    }
+    return { isValid: false, path: null, error: reason };
+  };
+
+  if (typeof uri !== 'string' || uri.length === 0) {
+    return reject('uri must be a non-empty string');
+  }
+
+  if (uri.includes('\u0000')) {
+    return reject('uri contains null byte');
+  }
+
+  // Bare path (no scheme) — caller probably had a bug; refuse so we don't
+  // accidentally swallow attacker-controlled bytes from the LSP wire.
+  if (!/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(uri)) {
+    return reject('uri is missing a scheme');
+  }
+
+  if (!uri.startsWith('file://')) {
+    return reject('unsupported scheme (only file:// is allowed)');
+  }
+
+  try {
+    const parsed = URI.parse(uri);
+    if (parsed.scheme !== 'file') {
+      return reject('parsed scheme is not file');
+    }
+    const fsPath = parsed.fsPath;
+    if (!fsPath || fsPath.includes('\u0000')) {
+      return reject('parsed fsPath is empty or contains null byte');
+    }
+    return { isValid: true, path: fsPath };
+  } catch (err) {
+    return reject(
+      err instanceof Error ? `parse failed: ${err.message}` : 'parse failed'
+    );
+  }
+}

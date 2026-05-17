@@ -198,65 +198,6 @@ describe('File Pattern Filtering - Unit Tests', () => {
       expect(args[separatorIndex + 2]).toBe('/workspace');
     });
   });
-
-  describe('buildGrepFilterArgs', () => {
-    let buildGrepFilterArgs: typeof import('../../src/tools/lsp_find_references/lspReferencesPatterns.js').buildGrepFilterArgs;
-
-    beforeEach(async () => {
-      const mod =
-        await import('../../src/tools/lsp_find_references/lspReferencesPatterns.js');
-      buildGrepFilterArgs = mod.buildGrepFilterArgs;
-    });
-
-    it('should return empty string when no patterns', () => {
-      expect(buildGrepFilterArgs()).toBe('');
-      expect(buildGrepFilterArgs([], [])).toBe('');
-    });
-
-    it('should convert include patterns to --include flags', () => {
-      const result = buildGrepFilterArgs(['**/*.test.ts']);
-      expect(result).toBe('--include="*.test.ts"');
-    });
-
-    it('should strip leading **/ from include patterns', () => {
-      const result = buildGrepFilterArgs(['**/*.ts', '**/*.tsx']);
-      expect(result).toBe('--include="*.ts" --include="*.tsx"');
-    });
-
-    it('should convert directory exclude patterns to --exclude-dir', () => {
-      const result = buildGrepFilterArgs(undefined, ['**/node_modules/**']);
-      expect(result).toBe('--exclude-dir="node_modules"');
-    });
-
-    it('should convert file exclude patterns to --exclude', () => {
-      const result = buildGrepFilterArgs(undefined, ['*.snap']);
-      expect(result).toBe('--exclude="*.snap"');
-    });
-
-    it('should combine include and exclude', () => {
-      const result = buildGrepFilterArgs(['**/*.ts'], ['**/node_modules/**']);
-      expect(result).toBe('--include="*.ts" --exclude-dir="node_modules"');
-    });
-  });
-
-  describe('buildGrepSearchArgs', () => {
-    let buildGrepSearchArgs: typeof import('../../src/tools/lsp_find_references/lspReferencesPatterns.js').buildGrepSearchArgs;
-
-    beforeEach(async () => {
-      const mod =
-        await import('../../src/tools/lsp_find_references/lspReferencesPatterns.js');
-      buildGrepSearchArgs = mod.buildGrepSearchArgs;
-    });
-
-    it('should add -- separator before symbol and workspace root', () => {
-      const args = buildGrepSearchArgs('/workspace', '--include=*');
-      const separatorIndex = args.indexOf('--');
-
-      expect(separatorIndex).toBeGreaterThan(-1);
-      expect(args[separatorIndex + 1]).toBe('--include=\\*');
-      expect(args[separatorIndex + 2]).toBe('/workspace');
-    });
-  });
 });
 
 vi.mock('fs/promises', () => ({
@@ -293,7 +234,7 @@ vi.mock('../../src/lsp/resolver.js', () => ({
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn(),
+  acquirePooledClient: vi.fn(),
   isLanguageServerAvailable: vi.fn(),
 }));
 
@@ -328,7 +269,9 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(managerModule.createClient).mockResolvedValue(mockClient as any);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(
+      mockClient as any
+    );
     const defaultContent =
       'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10';
     vi.mocked(fs.readFile).mockResolvedValue(defaultContent);
@@ -611,7 +554,7 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
   });
 
   it('should return null when client creation fails', async () => {
-    vi.mocked(managerModule.createClient).mockResolvedValue(null);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
     const result = await findReferencesWithLSP(
       '/workspace/src/file.ts',
@@ -627,7 +570,11 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
     expect(result).toBeNull();
   });
 
-  it('should stop client in finally block', async () => {
+  it('must NOT stop the pooled client when the LSP call throws', async () => {
+    // Regression: the pre-pool implementation stopped the client in a finally
+    // block. With the shared pool, the caller MUST NOT touch lifecycle —
+    // idle eviction handles teardown. Stopping here would kill warm
+    // tsserver state for every other caller of the same project.
     mockClient.findReferences.mockRejectedValue(new Error('LSP error'));
 
     try {
@@ -642,10 +589,11 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
         })
       );
     } catch {
-      // Expected
+      // findReferencesWithLSP currently rethrows when the LSP call errors;
+      // accept that — the contract under test is the no-stop guarantee.
     }
 
-    expect(mockClient.stop).toHaveBeenCalled();
+    expect(mockClient.stop).not.toHaveBeenCalled();
   });
 
   it('should combine includePattern and excludePattern', async () => {
@@ -691,7 +639,9 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
 
     expect(result).not.toBeNull();
     expect(result!.locations).toHaveLength(1);
-    expect(result!.locations![0]!.uri).toBe('src/utils/helper.test.ts');
+    expect(result!.locations![0]!.uri).toBe(
+      '/workspace/src/utils/helper.test.ts'
+    );
   });
 
   it('should return all results when no patterns specified', async () => {

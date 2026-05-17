@@ -557,6 +557,7 @@ describe('localGetFileContent', () => {
       expect(result.status).toBe('hasResults');
       expect(result.content?.length).toBeLessThanOrEqual(5000);
       expect(result.pagination?.hasMore).toBe(true);
+      expect(result.isPartial).toBe(true);
     });
 
     it('should return first chunk when charOffset = 0', async () => {

@@ -1,4 +1,5 @@
 import { CallToolResult } from '@modelcontextprotocol/sdk/types';
+import { incrementToolCharSavings } from 'octocode-shared';
 import { executeWithErrorIsolation } from '../core/promise.js';
 import {
   createResponseFormat,
@@ -16,6 +17,7 @@ import {
   applyBulkResponsePagination,
   applyQueryOutputPagination,
 } from './structuredPagination.js';
+import { countSerializedChars, getRawResponseChars } from './charSavings.js';
 
 /** Default concurrency for bulk operations */
 const DEFAULT_BULK_CONCURRENCY = 3;
@@ -147,6 +149,7 @@ function createBulkResponse<TQuery extends object>(
     config.toolName
   );
   const text = createResponseFormat(responseData, fullKeysPriority);
+  recordBulkCharSavings(config.toolName, results, errors, text.length);
 
   return {
     content: [
@@ -163,6 +166,32 @@ function createBulkResponse<TQuery extends object>(
       flatQueries.length > 0 &&
       flatQueries.every(queryResult => queryResult.status === 'error'),
   };
+}
+
+function recordBulkCharSavings(
+  toolName: string,
+  results: Array<{
+    result: ProcessedBulkResult;
+    queryIndex: number;
+    originalQuery: unknown;
+  }>,
+  errors: QueryError[],
+  responseChars: number
+): void {
+  const rawChars =
+    results.reduce(
+      (sum, entry) =>
+        sum +
+        (getRawResponseChars(entry.result) ??
+          countSerializedChars(entry.result)),
+      0
+    ) + errors.reduce((sum, error) => sum + countSerializedChars(error), 0);
+
+  try {
+    incrementToolCharSavings(toolName, rawChars, responseChars);
+  } catch {
+    // Local stats are best-effort and must never affect tool responses.
+  }
 }
 
 /**

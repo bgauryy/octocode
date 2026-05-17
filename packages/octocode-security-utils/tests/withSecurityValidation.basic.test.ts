@@ -292,7 +292,7 @@ describe('withSecurityValidation - Additional Coverage', () => {
       expect(mockLogToolCall).not.toHaveBeenCalled();
     });
 
-    it('should not log when no repos are found in parameters', async () => {
+    it('should log with an empty repo list when no repos are found in parameters', async () => {
       const mockHandler = vi.fn().mockResolvedValue({
         content: [{ type: 'text' as const, text: 'success' }],
         isError: false,
@@ -319,7 +319,13 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'test-session', signal: new AbortController().signal }
       );
 
-      expect(mockLogToolCall).not.toHaveBeenCalled();
+      expect(mockLogToolCall).toHaveBeenCalledWith(
+        'test-tool',
+        [],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should ignore logging errors and continue execution', async () => {

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseRipgrepJsonOutput,
-  parseGrepOutput,
   extractFunctionBody,
 } from '../../src/tools/lsp_call_hierarchy/callHierarchyPatterns.js';
 
@@ -29,21 +28,6 @@ describe('lsp_call_hierarchy/callHierarchyPatterns', () => {
       column: 4,
       lineContent: 'foo(bar)\n',
     });
-  });
-
-  it('parses grep output in file:line:content format', () => {
-    const input = [
-      '/workspace/src/a.ts:8:const x = run();',
-      '/workspace/src/b.ts:15:return x;',
-      'malformed-line',
-    ].join('\n');
-
-    const results = parseGrepOutput(input);
-    expect(results).toHaveLength(2);
-    expect(results[0]?.filePath).toBe('/workspace/src/a.ts');
-    expect(results[0]?.lineNumber).toBe(8);
-    expect(results[1]?.filePath).toBe('/workspace/src/b.ts');
-    expect(results[1]?.lineNumber).toBe(15);
   });
 
   it('extracts function body and handles nested braces', () => {

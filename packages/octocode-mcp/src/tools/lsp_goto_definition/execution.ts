@@ -7,10 +7,16 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { readFile } from 'fs/promises';
 import { dirname, resolve as resolvePath } from 'path';
 
-import type { LSPGotoDefinitionQuery } from '@octocodeai/octocode-core';
+import type { LSPGotoDefinitionQuery as UpstreamLSPGotoDefinitionQuery } from '@octocodeai/octocode-core';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+
+type LSPGotoDefinitionQuery = UpstreamLSPGotoDefinitionQuery & {
+  verbosity?: Verbosity;
+};
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import {
-  createClient,
+  acquirePooledClient,
   isLanguageServerAvailable,
   LSP_UNAVAILABLE_HINT,
 } from '../../lsp/manager.js';
@@ -32,6 +38,11 @@ import { serializeForPagination } from '../../utils/pagination/core.js';
 import { safeReadFile } from '../../lsp/validation.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
+import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
+import {
+  attachRawResponseChars,
+  countSerializedChars,
+} from '../../utils/response/charSavings.js';
 
 export const TOOL_NAME = TOOL_NAMES.LSP_GOTO_DEFINITION;
 
@@ -65,7 +76,7 @@ export async function executeGotoDefinition(
 /**
  * Execute goto definition for a single query
  */
-async function gotoDefinition(
+export async function gotoDefinition(
   query: LSPGotoDefinitionQuery
 ): Promise<GotoDefinitionResult> {
   try {
@@ -103,28 +114,32 @@ async function gotoDefinition(
       });
     } catch (error) {
       if (error instanceof SymbolResolutionError) {
-        return {
-          status: 'empty',
-          error: error.message,
-          errorType: 'symbol_not_found',
-          searchRadius: error.searchRadius,
-          hints: [
-            ...getHints(TOOL_NAME, 'empty'),
-            `Symbol "${query.symbolName}" not found at or near line ${query.lineHint}`,
-            `Searched lines ${Math.max(1, query.lineHint - error.searchRadius)} to ${query.lineHint + error.searchRadius}`,
-            'Verify the exact symbol name (case-sensitive, no partial matches)',
-            'Adjust lineHint if the symbol moved due to code changes',
-            query.orderHint && query.orderHint > 0
-              ? `orderHint=${query.orderHint} targets the ${query.orderHint + 1}th code occurrence on the exact line`
-              : undefined,
-            query.orderHint && query.orderHint > 0
-              ? 'orderHint skips string/comment text matches and does not apply to nearby fallback lines'
-              : undefined,
-            query.orderHint && query.orderHint > 0
-              ? 'Try orderHint=0 if the symbol appears once in code on that line'
-              : undefined,
-          ].filter(Boolean) as string[],
-        };
+        return attachRawResponseChars(
+          {
+            status: 'empty',
+            error: error.message,
+            errorType: 'symbol_not_found',
+            errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
+            searchRadius: error.searchRadius,
+            hints: [
+              ...getHints(TOOL_NAME, 'empty'),
+              `Symbol "${query.symbolName}" not found at or near line ${query.lineHint}`,
+              `Searched lines ${Math.max(1, query.lineHint - error.searchRadius)} to ${query.lineHint + error.searchRadius}`,
+              'Verify the exact symbol name (case-sensitive, no partial matches)',
+              'Adjust lineHint if the symbol moved due to code changes',
+              query.orderHint && query.orderHint > 0
+                ? `orderHint=${query.orderHint} targets the ${query.orderHint + 1}th code occurrence on the exact line`
+                : undefined,
+              query.orderHint && query.orderHint > 0
+                ? 'orderHint skips string/comment text matches and does not apply to nearby fallback lines'
+                : undefined,
+              query.orderHint && query.orderHint > 0
+                ? 'Try orderHint=0 if the symbol appears once in code on that line'
+                : undefined,
+            ].filter(Boolean) as string[],
+          },
+          content.length
+        );
       }
       throw error;
     }
@@ -135,6 +150,7 @@ async function gotoDefinition(
       workspaceRoot
     );
 
+    let semanticFallbackHint: string | undefined;
     if (lspAvailable) {
       try {
         const result = await gotoDefinitionWithLSP(
@@ -144,29 +160,44 @@ async function gotoDefinition(
           query,
           content
         );
-        if (result)
-          return applyGotoDefinitionOutputLimit(
-            { ...result, lspMode: 'semantic' },
-            query
+        if (result) {
+          const semanticResult = { ...result, lspMode: 'semantic' } as const;
+          return attachRawResponseChars(
+            applyGotoDefinitionVerbosity(
+              applyGotoDefinitionOutputLimit(semanticResult, query),
+              query
+            ),
+            content.length + countSerializedChars(semanticResult)
           );
+        }
+        semanticFallbackHint =
+          'LSP semantic lookup returned no result; using text fallback';
       } catch {
-        // LSP goto-definition failed; fall back to heuristic resolver below.
+        semanticFallbackHint =
+          'LSP semantic lookup failed; using text fallback';
       }
     }
 
-    return applyGotoDefinitionOutputLimit(
-      {
-        ...createFallbackResult(
-          query,
-          absolutePath,
-          content,
-          resolver,
-          resolvedSymbol,
-          { lspUnavailable: !lspAvailable }
-        ),
-        lspMode: 'fallback',
-      },
-      query
+    const fallback = createFallbackResult(
+      query,
+      absolutePath,
+      content,
+      resolver,
+      resolvedSymbol,
+      { lspUnavailable: !lspAvailable, semanticFallbackHint }
+    );
+    // `lspMode` is only valid on hasResults/empty per the published
+    // output schema. Skip it on error so MCP schema validation passes.
+    const tagged: GotoDefinitionResult =
+      fallback.status === 'error'
+        ? fallback
+        : { ...fallback, lspMode: 'fallback' };
+    return attachRawResponseChars(
+      applyGotoDefinitionVerbosity(
+        applyGotoDefinitionOutputLimit(tagged, query),
+        query
+      ),
+      content.length + countSerializedChars(tagged)
     );
   } catch (error) {
     return createErrorResult(error, query, {
@@ -250,176 +281,173 @@ async function gotoDefinitionWithLSP(
   query: LSPGotoDefinitionQuery,
   _content: string
 ): Promise<GotoDefinitionResult | null> {
-  const client = await createClient(workspaceRoot, filePath);
+  // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it
+  // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).
+  const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
-  try {
-    let locations = await client.gotoDefinition(filePath, _position);
+  let locations = await client.gotoDefinition(filePath, _position);
 
-    if (!locations || locations.length === 0) {
-      // Before giving up, check if the position is on a dynamic import line.
-      // LSP often can't resolve destructured bindings from dynamic imports.
-      const lines = _content.split(/\r?\n/);
-      const targetLine = lines[_position.line];
-      if (targetLine && isDynamicImport(targetLine)) {
-        const manualLocation = await resolveDefinitionViaModulePath(
-          targetLine,
-          filePath,
-          query.symbolName
+  if (!locations || locations.length === 0) {
+    // Before giving up, check if the position is on a dynamic import line.
+    // LSP often can't resolve destructured bindings from dynamic imports.
+    const lines = _content.split(/\r?\n/);
+    const targetLine = lines[_position.line];
+    if (targetLine && isDynamicImport(targetLine)) {
+      const manualLocation = await resolveDefinitionViaModulePath(
+        targetLine,
+        filePath,
+        query.symbolName
+      );
+      if (manualLocation) {
+        return applyGotoDefinitionOutputLimit(
+          {
+            status: 'hasResults',
+            locations: [manualLocation],
+            resolvedPosition: _position,
+            searchRadius: 5,
+            hints: [
+              ...getHints(TOOL_NAME, 'hasResults'),
+              'Resolved via dynamic import module path (.js → .ts)',
+              'Use lspFindReferences to find all usages',
+            ],
+          },
+          query
         );
-        if (manualLocation) {
-          return applyGotoDefinitionOutputLimit(
-            {
-              status: 'hasResults',
-              locations: [manualLocation],
-              resolvedPosition: _position,
-              searchRadius: 5,
-              hints: [
-                ...getHints(TOOL_NAME, 'hasResults'),
-                'Resolved via dynamic import module path (.js → .ts)',
-                'Use lspFindReferences to find all usages',
-              ],
-            },
-            query
-          );
-        }
-      }
-
-      return {
-        status: 'empty',
-        error: 'No definition found by language server',
-        errorType: 'symbol_not_found',
-        hints: [
-          ...getHints(TOOL_NAME, 'empty'),
-          'Language server could not find definition',
-          'Symbol may be a built-in or from external library',
-          'Try packageSearch to find library source code',
-        ],
-      };
-    }
-
-    let followedImport = false;
-    if (locations.length === 1) {
-      const loc = locations[0]!;
-      const isSameFile = loc.uri === filePath;
-
-      if (isSameFile) {
-        try {
-          const locContent = await safeReadFile(loc.uri);
-          if (!locContent) throw new Error('Cannot read file');
-          const lines = locContent.split(/\r?\n/);
-          const targetLine = lines[loc.range.start.line];
-
-          if (
-            targetLine &&
-            (isImportOrReExport(targetLine) || isDynamicImport(targetLine))
-          ) {
-            const importPosition: ExactPosition = {
-              line: loc.range.start.line,
-              character: resolveImportSymbolCharacter(
-                targetLine,
-                query.symbolName,
-                loc.range.start.character
-              ),
-            };
-
-            let chainedToSource = false;
-            const chainedLocations = await client.gotoDefinition(
-              loc.uri,
-              importPosition
-            );
-            if (chainedLocations && chainedLocations.length > 0) {
-              const resolvedToDifferentFile = chainedLocations.some(
-                cl => cl.uri !== filePath
-              );
-              if (resolvedToDifferentFile) {
-                locations = chainedLocations.filter(cl => cl.uri !== filePath);
-                followedImport = true;
-                chainedToSource = true;
-              }
-            }
-
-            if (!chainedToSource) {
-              const manualLocation = await resolveDefinitionViaModulePath(
-                targetLine,
-                loc.uri,
-                query.symbolName
-              );
-              if (manualLocation) {
-                locations = [manualLocation];
-                followedImport = true;
-              }
-            }
-          }
-        } catch {
-          // Import-chain or module-path resolution failed; keep original LSP locations.
-        }
       }
     }
 
-    const contextLines = query.contextLines ?? 5;
-    const enhancedLocations = await Promise.all(
-      locations.map(async loc => {
-        try {
-          const locContent = await safeReadFile(loc.uri);
-          if (!locContent) {
-            return loc;
-          }
-          const lines = locContent.split(/\r?\n/);
-          const startLine = Math.max(0, loc.range.start.line - contextLines);
-          const endLine = Math.min(
-            lines.length - 1,
-            loc.range.end.line + contextLines
-          );
+    return {
+      status: 'empty',
+      error: 'No definition found by language server',
+      errorType: 'symbol_not_found',
+      errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
+      hints: [
+        ...getHints(TOOL_NAME, 'empty'),
+        'Language server could not find definition',
+        'Symbol may be a built-in or from external library',
+        'Try packageSearch to find library source code',
+      ],
+    };
+  }
 
-          const snippetLines = lines.slice(startLine, endLine + 1);
-          const numberedContent = snippetLines
-            .map((line, i) => {
-              const lineNum = startLine + i + 1;
-              const isTarget =
-                lineNum > loc.range.start.line &&
-                lineNum <= loc.range.end.line + 1;
-              const marker = isTarget ? '>' : ' ';
-              return `${marker}${String(lineNum).padStart(4, ' ')}| ${line}`;
-            })
-            .join('\n');
+  let followedImport = false;
+  if (locations.length === 1) {
+    const loc = locations[0]!;
+    const isSameFile = loc.uri === filePath;
 
-          return {
-            ...loc,
-            content: numberedContent,
+    if (isSameFile) {
+      try {
+        const locContent = await safeReadFile(loc.uri);
+        if (!locContent) throw new Error('Cannot read file');
+        const lines = locContent.split(/\r?\n/);
+        const targetLine = lines[loc.range.start.line];
+
+        if (
+          targetLine &&
+          (isImportOrReExport(targetLine) || isDynamicImport(targetLine))
+        ) {
+          const importPosition: ExactPosition = {
+            line: loc.range.start.line,
+            character: resolveImportSymbolCharacter(
+              targetLine,
+              query.symbolName,
+              loc.range.start.character
+            ),
           };
-        } catch {
-          // Snippet enhancement failed; keep raw LSP location.
+
+          let chainedToSource = false;
+          const chainedLocations = await client.gotoDefinition(
+            loc.uri,
+            importPosition
+          );
+          if (chainedLocations && chainedLocations.length > 0) {
+            const resolvedToDifferentFile = chainedLocations.some(
+              cl => cl.uri !== filePath
+            );
+            if (resolvedToDifferentFile) {
+              locations = chainedLocations.filter(cl => cl.uri !== filePath);
+              followedImport = true;
+              chainedToSource = true;
+            }
+          }
+
+          if (!chainedToSource) {
+            const manualLocation = await resolveDefinitionViaModulePath(
+              targetLine,
+              loc.uri,
+              query.symbolName
+            );
+            if (manualLocation) {
+              locations = [manualLocation];
+              followedImport = true;
+            }
+          }
+        }
+      } catch {
+        // Import-chain or module-path resolution failed; keep original LSP locations.
+      }
+    }
+  }
+
+  const contextLines = query.contextLines ?? 5;
+  const enhancedLocations = await Promise.all(
+    locations.map(async loc => {
+      try {
+        const locContent = await safeReadFile(loc.uri);
+        if (!locContent) {
           return loc;
         }
-      })
-    );
+        const lines = locContent.split(/\r?\n/);
+        const startLine = Math.max(0, loc.range.start.line - contextLines);
+        const endLine = Math.min(
+          lines.length - 1,
+          loc.range.end.line + contextLines
+        );
 
-    const strippedLocations = enhancedLocations.map(
-      ({ displayRange: _, ...rest }) => rest
-    );
-    return {
-      status: 'hasResults',
-      locations: strippedLocations,
-      resolvedPosition: _position,
-      searchRadius: 5,
-      hints: [
-        ...getHints(TOOL_NAME, 'hasResults'),
-        `Found ${locations.length} definition(s) via Language Server`,
-        'Each location = a definition site; use range.start.line+1 as lineHint for follow-up LSP calls',
-        followedImport
-          ? 'Followed import chain to source definition'
-          : undefined,
-        locations.length > 1
-          ? 'Multiple definitions - check overloads or re-exports'
-          : undefined,
-        'Use lspFindReferences to find all usages',
-        'Use lspCallHierarchy to trace call graph',
-      ].filter(Boolean) as string[],
-    };
-  } finally {
-    await client.stop();
-  }
+        const snippetLines = lines.slice(startLine, endLine + 1);
+        const numberedContent = snippetLines
+          .map((line, i) => {
+            const lineNum = startLine + i + 1;
+            const isTarget =
+              lineNum > loc.range.start.line &&
+              lineNum <= loc.range.end.line + 1;
+            const marker = isTarget ? '>' : ' ';
+            return `${marker}${String(lineNum).padStart(4, ' ')}| ${line}`;
+          })
+          .join('\n');
+
+        return {
+          ...loc,
+          content: numberedContent,
+        };
+      } catch {
+        // Snippet enhancement failed; keep raw LSP location.
+        return loc;
+      }
+    })
+  );
+
+  const strippedLocations = enhancedLocations.map(
+    ({ displayRange: _, ...rest }) => rest
+  );
+  return {
+    status: 'hasResults',
+    locations: strippedLocations,
+    resolvedPosition: _position,
+    searchRadius: 5,
+    hints: [
+      ...getHints(TOOL_NAME, 'hasResults'),
+      `Found ${locations.length} definition(s) via Language Server`,
+      'Each location = a definition site; use range.start.line+1 as lineHint for follow-up LSP calls',
+      followedImport ? 'Followed import chain to source definition' : undefined,
+      locations.length > 1
+        ? 'Multiple definitions - check overloads or re-exports'
+        : undefined,
+      'Use lspFindReferences to find all usages',
+      'Use lspCallHierarchy to trace call graph',
+    ].filter(Boolean) as string[],
+  };
 }
 
 /**
@@ -492,7 +520,7 @@ function createFallbackResult(
   content: string,
   resolver: SymbolResolver,
   resolvedSymbol: { position: ExactPosition; foundAtLine: number },
-  options: { lspUnavailable?: boolean } = {}
+  options: { lspUnavailable?: boolean; semanticFallbackHint?: string } = {}
 ): GotoDefinitionResult {
   const contextLines = query.contextLines ?? 5;
   const context = resolver.extractContext(
@@ -526,6 +554,7 @@ function createFallbackResult(
     searchRadius: 5,
     hints: [
       options.lspUnavailable ? LSP_UNAVAILABLE_HINT : undefined,
+      options.semanticFallbackHint,
       ...getHints(TOOL_NAME, 'hasResults'),
       'Each location = a definition site; use range.start.line+1 as lineHint for follow-up LSP calls',
       resolvedSymbol.foundAtLine !== query.lineHint
@@ -533,6 +562,44 @@ function createFallbackResult(
         : undefined,
       'Use lspFindReferences to find all usages',
     ].filter(Boolean) as string[],
+  };
+}
+
+/**
+ * RFC §4.7.5: when `verbosity:"ultra"` is requested, collapse each location
+ * to a `file:line:col` string (drop `content` snippets) and emit a single
+ * summary hint. Compact / verbose / omitted behave identically to today.
+ *
+ * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ */
+export function applyGotoDefinitionVerbosity(
+  result: GotoDefinitionResult,
+  query: LSPGotoDefinitionQuery
+): GotoDefinitionResult {
+  if (!isUltra(query.verbosity)) return result;
+  if (result.status !== 'hasResults') return result;
+
+  const refs = (result.locations ?? []).map(loc => {
+    const line = loc.range?.start?.line ?? 0;
+    const col = loc.range?.start?.character ?? 0;
+    return `${loc.uri}:${line + 1}:${col + 1}`;
+  });
+  const top = refs[0] ?? '';
+  const summary = `${refs.length} definition(s)${top ? ` (top: ${top})` : ''}`;
+
+  return {
+    ...result,
+    locations: (result.locations ?? []).map(loc => ({
+      uri: loc.uri,
+      range: loc.range,
+      content: '',
+    })),
+    hints: [
+      summary,
+      ...ultraDrillBackHint(
+        're-call with verbosity:"compact" (default) for snippets around the location'
+      ),
+    ],
   };
 }
 

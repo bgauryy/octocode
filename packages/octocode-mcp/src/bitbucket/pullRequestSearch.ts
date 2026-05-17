@@ -18,6 +18,11 @@ import type {
   BitbucketDiffstatEntry,
 } from './types.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import {
+  isBitbucketDiffstatEntry,
+  isBitbucketPullRequest,
+  parseBitbucketPaginatedResponse,
+} from './responseGuards.js';
 
 interface BitbucketPRSearchQuery {
   workspace: string;
@@ -126,7 +131,14 @@ async function fetchSinglePR(
     }
   );
 
-  const pr = data as unknown as BitbucketPullRequest;
+  if (!isBitbucketPullRequest(data)) {
+    return createBitbucketError(
+      'Unexpected Bitbucket pull request response shape.',
+      502
+    );
+  }
+
+  const pr = data;
   const result: BitbucketPRSearchResult = {
     pullRequests: [pr],
     pagination: {
@@ -200,9 +212,17 @@ async function listPRs(
     }
   );
 
-  const paginated =
-    data as unknown as BitbucketPaginatedResponse<BitbucketPullRequest>;
-  const prs = paginated?.values || [];
+  const paginated = parseBitbucketPaginatedResponse(
+    data,
+    isBitbucketPullRequest
+  );
+  if (!paginated) {
+    return createBitbucketError(
+      'Unexpected Bitbucket pull request list response shape.',
+      502
+    );
+  }
+  const prs = paginated.values;
   const size = paginated?.size || prs.length;
   const pagelen = params.limit || 10;
 
@@ -285,10 +305,14 @@ async function fetchPRDiffstat(
     const host = getBitbucketHost();
     const authHeader = getAuthHeader();
     const url = `${host}/repositories/${encodeURIComponent(params.workspace)}/${encodeURIComponent(params.repoSlug)}/pullrequests/${params.prNumber}/diffstat`;
-    return await fetchPaginatedCollection<BitbucketDiffstatEntry>(url, {
-      Authorization: authHeader,
-      Accept: 'application/json',
-    });
+    return await fetchPaginatedCollection(
+      url,
+      {
+        Authorization: authHeader,
+        Accept: 'application/json',
+      },
+      isBitbucketDiffstatEntry
+    );
   } catch (error) {
     if (
       error instanceof Error &&
@@ -303,13 +327,14 @@ async function fetchPRDiffstat(
 
 async function fetchPaginatedCollection<T>(
   initialUrl: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  itemGuard?: (item: unknown) => item is T
 ): Promise<T[]> {
   const items: T[] = [];
   let nextUrl: string | undefined = initialUrl;
 
   while (nextUrl) {
-    const response = await fetch(nextUrl, { headers });
+    const response: Response = await fetch(nextUrl, { headers });
 
     if (!response.ok) {
       if (response.status === 429) {
@@ -322,9 +347,15 @@ async function fetchPaginatedCollection<T>(
       return [];
     }
 
-    const data = (await response.json()) as BitbucketPaginatedResponse<T>;
-    items.push(...(data?.values || []));
-    nextUrl = typeof data?.next === 'string' ? data.next : undefined;
+    const paginated: BitbucketPaginatedResponse<T> | null =
+      parseBitbucketPaginatedResponse(
+        await response.json(),
+        itemGuard ??
+          ((item: unknown): item is T => item !== null && item !== undefined)
+      );
+    if (!paginated) break;
+    items.push(...paginated.values);
+    nextUrl = paginated.next;
   }
 
   return items;

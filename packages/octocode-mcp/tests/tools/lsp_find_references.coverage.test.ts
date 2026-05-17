@@ -63,7 +63,7 @@ vi.mock('../../src/lsp/resolver.js', () => {
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn().mockResolvedValue(null),
+  acquirePooledClient: vi.fn().mockResolvedValue(null),
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
@@ -638,7 +638,7 @@ export function testFunction(param: string): string {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         false
       );
-      vi.mocked(managerModule.createClient).mockResolvedValue(null);
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
       // Default SymbolResolver mock
       vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
@@ -825,138 +825,6 @@ export function testFunction(param: string): string {
 
       expect(result).toBeDefined();
     });
-
-    it('should hit lines 699-702: grep fallback sort branches', async () => {
-      // This tests the sort comparison at lines 698-703 in searchReferencesWithGrep
-      // Need to make ripgrep fail with non-1 exit code to trigger grep fallback
-      const testPath = `${process.cwd()}/src/test.ts`;
-      const aPath = `${process.cwd()}/src/aaa.ts`;
-      const zPath = `${process.cwd()}/src/zzz.ts`;
-
-      vi.mocked(childProcess.exec).mockImplementation((cmd: string) => {
-        if (cmd.startsWith('rg ')) {
-          const err: any = new Error('rg failed');
-          err.code = 2; // Non-1 exit code triggers grep fallback
-          return Promise.reject(err) as any;
-        }
-        if (cmd.startsWith('grep -rn')) {
-          // Return results out of order to test sorting
-          return Promise.resolve({
-            stdout: [
-              `${zPath}:20:const z = testFunction();`,
-              `${testPath}:4:export function testFunction() {}`, // Definition
-              `${aPath}:10:const a = testFunction();`,
-              `${testPath}:30:return testFunction();`, // Same file, different line
-            ].join('\n'),
-          }) as any;
-        }
-        return Promise.resolve({ stdout: '' }) as any;
-      });
-
-      vi.mocked(fs.readFile).mockResolvedValue(sampleTypeScriptContent);
-
-      const handler = await createHandler();
-      const result = await handler({
-        queries: [
-          {
-            uri: testPath,
-            symbolName: 'testFunction',
-            lineHint: 4,
-            contextLines: 0,
-            researchGoal: 'Find refs',
-            reasoning: 'Testing grep fallback sort branches',
-          },
-        ],
-      });
-
-      expect(result).toBeDefined();
-      const text = result.content?.[0]?.text ?? '';
-      expect(text).toContain('status: "empty"');
-    });
-
-    it('should hit lines 699-702: grep sort definition vs non-definition', async () => {
-      // Test the specific branch: a.isDefinition && !b.isDefinition
-      const testPath = `${process.cwd()}/src/test.ts`;
-      const otherPath = `${process.cwd()}/src/other.ts`;
-
-      vi.mocked(childProcess.exec).mockImplementation((cmd: string) => {
-        if (cmd.startsWith('rg ')) {
-          const err: any = new Error('rg failed');
-          err.code = 2;
-          return Promise.reject(err) as any;
-        }
-        if (cmd.startsWith('grep -rn')) {
-          // Non-definition before definition (will be reordered by sort)
-          return Promise.resolve({
-            stdout: [
-              `${otherPath}:15:const x = testFunction();`,
-              `${testPath}:4:export function testFunction() {}`,
-            ].join('\n'),
-          }) as any;
-        }
-        return Promise.resolve({ stdout: '' }) as any;
-      });
-
-      vi.mocked(fs.readFile).mockResolvedValue(sampleTypeScriptContent);
-
-      const handler = await createHandler();
-      const result = await handler({
-        queries: [
-          {
-            uri: testPath,
-            symbolName: 'testFunction',
-            lineHint: 4,
-            contextLines: 0,
-            researchGoal: 'Find refs',
-            reasoning: 'Testing grep definition sort priority',
-          },
-        ],
-      });
-
-      expect(result).toBeDefined();
-    });
-
-    it('should hit lines 699-702: grep sort by URI then line', async () => {
-      // Test the URI comparison and line comparison branches
-      const testPath = `${process.cwd()}/src/test.ts`;
-
-      vi.mocked(childProcess.exec).mockImplementation((cmd: string) => {
-        if (cmd.startsWith('rg ')) {
-          const err: any = new Error('rg failed');
-          err.code = 2;
-          return Promise.reject(err) as any;
-        }
-        if (cmd.startsWith('grep -rn')) {
-          // Same file, different lines out of order
-          return Promise.resolve({
-            stdout: [
-              `${testPath}:50:const e = testFunction();`,
-              `${testPath}:10:const a = testFunction();`,
-              `${testPath}:30:const c = testFunction();`,
-            ].join('\n'),
-          }) as any;
-        }
-        return Promise.resolve({ stdout: '' }) as any;
-      });
-
-      vi.mocked(fs.readFile).mockResolvedValue(sampleTypeScriptContent);
-
-      const handler = await createHandler();
-      const result = await handler({
-        queries: [
-          {
-            uri: testPath,
-            symbolName: 'testFunction',
-            lineHint: 4,
-            contextLines: 0,
-            researchGoal: 'Find refs',
-            reasoning: 'Testing grep line number sort',
-          },
-        ],
-      });
-
-      expect(result).toBeDefined();
-    });
   });
 
   describe('Tool registration', () => {
@@ -1051,8 +919,8 @@ export function testFunction(param: string): string {
       expect(sortFn(fileZ, fileA)).toBeGreaterThan(0);
     });
 
-    it('should handle all sorting branches in searchReferencesWithGrep', () => {
-      // Same sort function is used in grep fallback
+    it('should handle all sorting branches in pattern-matching ripgrep search', () => {
+      // The same comparator runs over rg results once the grep fallback is gone.
       const sortFn = (a: any, b: any) => {
         if (a.isDefinition && !b.isDefinition) return -1;
         if (!a.isDefinition && b.isDefinition) return 1;

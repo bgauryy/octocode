@@ -16,7 +16,9 @@ describe('RipgrepCommandBuilder', () => {
       const builder = new RipgrepCommandBuilder();
       const { command, args } = builder.simple('pattern', '/path').build();
 
-      expect(command).toBe('rg');
+      // T3.3 — command is now the bundled @vscode/ripgrep absolute
+      // path (or 'rg' fallback). Either way it ends in 'rg'.
+      expect(command).toMatch(/rg$/);
       expect(args).toContain('-n'); // Line numbers
       expect(args).toContain('-S'); // Smart case
       expect(args).toContain('pattern');
@@ -474,7 +476,7 @@ describe('RipgrepCommandBuilder', () => {
         .fromQuery(query)
         .build();
 
-      expect(command).toBe('rg');
+      expect(command).toMatch(/rg$/);
 
       // Pattern mode
       expect(args).toContain('-S'); // Smart case

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import { dirname } from 'node:path';
 import {
   SESSION_FILE,
+  STATS_FILE,
   readSession,
   writeSession,
   getOrCreateSession,
@@ -12,12 +13,48 @@ import {
   incrementPromptCalls,
   incrementErrors,
   incrementRateLimits,
+  incrementRateLimitByProvider,
+  incrementToolCharSavings,
+  incrementGitHubCacheHits,
+  incrementGitHubCacheRateLimits,
+  incrementPackageRegistryFailures,
   resetSessionStats,
   deleteSession,
   flushSession,
   _resetSessionState,
 } from '../../src/session/storage.js';
 import type { PersistedSession } from '../../src/session/types.js';
+
+const zeroTotalUsageStats = () => ({
+  toolCalls: 0,
+  promptCalls: 0,
+  errors: 0,
+  rateLimits: 0,
+  rateLimitsByProvider: {},
+  rawChars: 0,
+  responseChars: 0,
+  savedChars: 0,
+  charSavingsCalls: 0,
+  githubCacheHits: 0,
+  githubCacheRateLimits: 0,
+  packageRegistryFailures: 0,
+  packageRegistryFailuresByRegistry: {},
+});
+
+const defaultStats = () => ({
+  toolCalls: 0,
+  promptCalls: 0,
+  errors: 0,
+  rateLimits: 0,
+  rateLimitsByProvider: {},
+  charsSavedByTool: {},
+  githubCacheHits: {
+    hits: {},
+    rateLimits: 0,
+  },
+  packageRegistryFailures: {},
+  totalUsage: zeroTotalUsageStats(),
+});
 
 // Mock node:fs to prevent tests from touching real filesystem
 vi.mock('node:fs', () => ({
@@ -104,6 +141,11 @@ describe('Session Storage', () => {
       expect(SESSION_FILE).toContain('.octocode');
       expect(SESSION_FILE).toContain('session.json');
     });
+
+    it('should point to stats.json in the octocode directory', () => {
+      expect(STATS_FILE).toContain('.octocode');
+      expect(STATS_FILE).toContain('stats.json');
+    });
   });
 
   describe('getOrCreateSession', () => {
@@ -116,12 +158,7 @@ describe('Session Storage', () => {
       expect(session.sessionId.length).toBeGreaterThan(0);
       expect(session.createdAt).toBeDefined();
       expect(session.lastActiveAt).toBeDefined();
-      expect(session.stats).toEqual({
-        toolCalls: 0,
-        promptCalls: 0,
-        errors: 0,
-        rateLimits: 0,
-      });
+      expect(session.stats).toEqual(defaultStats());
     });
 
     it('should return the same session ID across multiple calls', () => {
@@ -211,13 +248,16 @@ describe('Session Storage', () => {
       writeSession(testSession);
       flushSession();
 
-      // Read from mock file store
-      const content = mockFileStore.get(SESSION_FILE);
-      expect(content).toBeDefined();
-      const diskSession = JSON.parse(content!);
+      const sessionContent = mockFileStore.get(SESSION_FILE);
+      const statsContent = mockFileStore.get(STATS_FILE);
+      expect(sessionContent).toBeDefined();
+      expect(statsContent).toBeDefined();
+      const diskSession = JSON.parse(sessionContent!);
+      const diskStats = JSON.parse(statsContent!);
 
       expect(diskSession.sessionId).toBe('test-uuid-flush');
-      expect(diskSession.stats.toolCalls).toBe(5);
+      expect(diskSession.stats).toBeUndefined();
+      expect(diskStats.stats.toolCalls).toBe(5);
     });
 
     it('should return null for invalid JSON on disk', () => {
@@ -283,6 +323,40 @@ describe('Session Storage', () => {
       const session = readSession();
       expect(session).toBeNull();
     });
+
+    it('should add default extended stats when reading older sessions', () => {
+      mockFileStore.set(
+        SESSION_FILE,
+        JSON.stringify({
+          version: 1,
+          sessionId: 'test-id',
+          createdAt: '2026-01-09T10:00:00.000Z',
+          lastActiveAt: '2026-01-09T10:00:00.000Z',
+          stats: {
+            toolCalls: 1,
+            promptCalls: 2,
+            errors: 3,
+            rateLimits: 4,
+          },
+        })
+      );
+
+      _resetSessionState();
+
+      const session = readSession();
+      expect(session?.stats.charsSavedByTool).toEqual({});
+      expect(session?.stats.githubCacheHits).toEqual({
+        hits: {},
+        rateLimits: 0,
+      });
+      expect(session?.stats.totalUsage).toEqual({
+        ...zeroTotalUsageStats(),
+        toolCalls: 1,
+        promptCalls: 2,
+        errors: 3,
+        rateLimits: 4,
+      });
+    });
   });
 
   describe('incrementToolCalls', () => {
@@ -342,6 +416,93 @@ describe('Session Storage', () => {
       expect(result.success).toBe(true);
       expect(result.session?.stats.rateLimits).toBe(1);
     });
+
+    it('should increment provider-specific rate limit counts', () => {
+      getOrCreateSession();
+
+      incrementRateLimitByProvider('gitlab');
+      const result = incrementRateLimitByProvider('bitbucket', 2);
+
+      expect(result.success).toBe(true);
+      expect(result.session?.stats.rateLimits).toBe(3);
+      expect(result.session?.stats.rateLimitsByProvider).toEqual({
+        gitlab: 1,
+        bitbucket: 2,
+      });
+      expect(result.session?.stats.totalUsage?.rateLimitsByProvider).toEqual({
+        gitlab: 1,
+        bitbucket: 2,
+      });
+    });
+  });
+
+  describe('extended session stats', () => {
+    it('should increment character savings by tool', () => {
+      getOrCreateSession();
+
+      incrementToolCharSavings('githubSearchCode', 1000, 250);
+      const result = incrementToolCharSavings('githubSearchCode', 500, 700);
+
+      expect(result.success).toBe(true);
+      expect(result.session?.stats.charsSavedByTool).toEqual({
+        githubSearchCode: {
+          rawChars: 1500,
+          responseChars: 950,
+          savedChars: 750,
+          calls: 2,
+        },
+      });
+      expect(result.session?.stats.totalUsage).toEqual({
+        ...zeroTotalUsageStats(),
+        rawChars: 1500,
+        responseChars: 950,
+        savedChars: 750,
+        charSavingsCalls: 2,
+      });
+    });
+
+    it('should increment GitHub cache hits and rate limits together', () => {
+      getOrCreateSession();
+
+      incrementGitHubCacheHits('gh-api-code');
+      incrementGitHubCacheHits('gh-api-code', 2);
+      const result = incrementGitHubCacheRateLimits();
+
+      expect(result.success).toBe(true);
+      expect(result.session?.stats.githubCacheHits).toEqual({
+        hits: {
+          'gh-api-code': 3,
+        },
+        rateLimits: 1,
+      });
+      expect(result.session?.stats.totalUsage).toEqual({
+        ...zeroTotalUsageStats(),
+        githubCacheHits: 3,
+        githubCacheRateLimits: 1,
+      });
+    });
+
+    it('should increment package registry failures separately from rate limits', () => {
+      getOrCreateSession();
+
+      incrementPackageRegistryFailures('npm');
+      const result = incrementPackageRegistryFailures('pypi', 2);
+
+      expect(result.success).toBe(true);
+      expect(result.session?.stats.rateLimits).toBe(0);
+      expect(result.session?.stats.packageRegistryFailures).toEqual({
+        npm: 1,
+        pypi: 2,
+      });
+      expect(result.session?.stats.totalUsage).toEqual({
+        ...zeroTotalUsageStats(),
+        packageRegistryFailures: 3,
+        packageRegistryFailuresByRegistry: {
+          npm: 1,
+          pypi: 2,
+        },
+      });
+    });
   });
 
   describe('updateSessionStats', () => {
@@ -358,6 +519,11 @@ describe('Session Storage', () => {
       expect(result.session?.stats.errors).toBe(2);
       expect(result.session?.stats.promptCalls).toBe(0);
       expect(result.session?.stats.rateLimits).toBe(0);
+      expect(result.session?.stats.totalUsage).toEqual({
+        ...zeroTotalUsageStats(),
+        toolCalls: 10,
+        errors: 2,
+      });
     });
   });
 
@@ -370,12 +536,7 @@ describe('Session Storage', () => {
       const result = resetSessionStats();
 
       expect(result.success).toBe(true);
-      expect(result.session?.stats).toEqual({
-        toolCalls: 0,
-        promptCalls: 0,
-        errors: 0,
-        rateLimits: 0,
-      });
+      expect(result.session?.stats).toEqual(defaultStats());
     });
 
     it('should preserve session ID and createdAt', () => {
@@ -405,6 +566,7 @@ describe('Session Storage', () => {
       expect(deleted).toBe(true);
       expect(readSession()).toBeNull();
       expect(mockFileStore.has(SESSION_FILE)).toBe(false);
+      expect(mockFileStore.has(STATS_FILE)).toBe(false);
     });
 
     it('should return false when no session exists', () => {
@@ -445,12 +607,16 @@ describe('Session Storage', () => {
 
       // Read from mock file store (bypass cache)
       const persistedContent = mockFileStore.get(SESSION_FILE);
+      const persistedStatsContent = mockFileStore.get(STATS_FILE);
       expect(persistedContent).toBeDefined();
+      expect(persistedStatsContent).toBeDefined();
       const persistedSession = JSON.parse(persistedContent!);
+      const persistedStats = JSON.parse(persistedStatsContent!);
 
       expect(persistedSession.sessionId).toBe(session.sessionId);
-      expect(persistedSession.stats.toolCalls).toBe(5);
-      expect(persistedSession.stats.errors).toBe(2);
+      expect(persistedSession.stats).toBeUndefined();
+      expect(persistedStats.stats.toolCalls).toBe(5);
+      expect(persistedStats.stats.errors).toBe(2);
     });
 
     it('should format JSON with indentation for readability', () => {
@@ -458,11 +624,15 @@ describe('Session Storage', () => {
       flushSession();
 
       const content = mockFileStore.get(SESSION_FILE);
+      const statsContent = mockFileStore.get(STATS_FILE);
       expect(content).toBeDefined();
+      expect(statsContent).toBeDefined();
 
       // Should contain newlines (formatted JSON)
       expect(content).toContain('\n');
       expect(content).toContain('  ');
+      expect(statsContent).toContain('\n');
+      expect(statsContent).toContain('  ');
     });
   });
 
@@ -481,9 +651,13 @@ describe('Session Storage', () => {
       flushSession();
 
       const content = mockFileStore.get(SESSION_FILE);
+      const statsContent = mockFileStore.get(STATS_FILE);
       expect(content).toBeDefined();
+      expect(statsContent).toBeDefined();
       const session = JSON.parse(content!);
-      expect(session.stats.toolCalls).toBe(5);
+      const stats = JSON.parse(statsContent!);
+      expect(session.stats).toBeUndefined();
+      expect(stats.stats.toolCalls).toBe(5);
     });
   });
 });

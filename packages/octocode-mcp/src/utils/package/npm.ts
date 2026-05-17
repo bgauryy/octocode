@@ -12,6 +12,7 @@ import {
   NpmRegistrySearchSchema,
   NpmDeprecationOutputSchema,
 } from './schemas.js';
+import { countSerializedChars } from '../response/charSavings.js';
 
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
@@ -62,7 +63,7 @@ export function _resetNpmRegistryUrlCache(): void {
 export async function checkNpmRegistryReachable(): Promise<boolean> {
   try {
     const registryUrl = await getNpmRegistryUrl();
-    const f = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+    const f = globalThis.fetch;
     if (!f) return false;
     const res = await f(registryUrl, {
       method: 'HEAD',
@@ -115,9 +116,13 @@ function cleanRepoUrl(url: string): string {
 
 const NPM_DOWNLOADS_API = 'https://api.npmjs.org/downloads/point/last-week';
 
+function countRawPayloadChars(raw: unknown): number {
+  return raw === undefined ? 0 : countSerializedChars(raw);
+}
+
 async function fetchWeeklyDownloads(
   packageName: string
-): Promise<number | undefined> {
+): Promise<{ downloads?: number; rawResponseChars: number }> {
   try {
     const url = `${NPM_DOWNLOADS_API}/${encodeURIComponent(packageName)}`;
     const data = (await fetchWithRetries(url, {
@@ -125,10 +130,14 @@ async function fetchWeeklyDownloads(
       initialDelayMs: 300,
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(8000),
+      packageRegistry: 'npm',
     })) as { downloads?: number } | null;
-    return typeof data?.downloads === 'number' ? data.downloads : undefined;
+    return {
+      downloads: typeof data?.downloads === 'number' ? data.downloads : undefined,
+      rawResponseChars: countRawPayloadChars(data),
+    };
   } catch {
-    return undefined;
+    return { rawResponseChars: 0 };
   }
 }
 
@@ -229,7 +238,7 @@ function encodeRegistryPackageName(packageName: string): string {
 
 async function fetchLastPublished(
   packageName: string
-): Promise<string | undefined> {
+): Promise<{ lastPublished?: string; rawResponseChars: number }> {
   try {
     const registryUrl = await getNpmRegistryUrl();
     const urlName = encodeRegistryPackageName(packageName);
@@ -243,8 +252,10 @@ async function fetchLastPublished(
         initialDelayMs: 300,
         headers: { Accept: 'application/vnd.npm.install-v1+json' },
         signal,
+        packageRegistry: 'npm',
       })) as { modified?: string } | null;
-      if (data?.modified) return data.modified;
+      const rawResponseChars = countRawPayloadChars(data);
+      if (data?.modified) return { lastPublished: data.modified, rawResponseChars };
     } catch {
       // install-v1+json abbreviated fetch failed; fall back to full JSON metadata below.
     }
@@ -255,17 +266,25 @@ async function fetchLastPublished(
       initialDelayMs: 300,
       headers: { Accept: 'application/json' },
       signal,
+      packageRegistry: 'npm',
     })) as { time?: { modified?: string } } | null;
-    return data?.time?.modified || undefined;
+    return {
+      lastPublished: data?.time?.modified || undefined,
+      rawResponseChars: countRawPayloadChars(data),
+    };
   } catch {
-    return undefined;
+    return { rawResponseChars: 0 };
   }
 }
 
 async function fetchPackageDetailsWithError(
   packageName: string,
   includeExtendedMetadata: boolean = false
-): Promise<{ pkg: NpmPackageResult | null; errorDetail?: string }> {
+): Promise<{
+  pkg: NpmPackageResult | null;
+  errorDetail?: string;
+  rawResponseChars: number;
+}> {
   try {
     const registryUrl = await getNpmRegistryUrl();
     const urlName = encodeRegistryPackageName(packageName);
@@ -277,23 +296,30 @@ async function fetchPackageDetailsWithError(
         maxRetries: 1,
         initialDelayMs: 500,
         headers: { Accept: 'application/json' },
+        packageRegistry: 'npm',
       });
     } catch (fetchErr) {
       const msg =
         fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
       if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
-        return { pkg: null };
+        return { pkg: null, rawResponseChars: 0 };
       }
-      return { pkg: null, errorDetail: msg };
+      return { pkg: null, errorDetail: msg, rawResponseChars: 0 };
     }
 
+    const rawResponseChars = countRawPayloadChars(raw);
+
     if (!raw || typeof raw !== 'object') {
-      return { pkg: null };
+      return { pkg: null, rawResponseChars };
     }
 
     const validation = NpmViewResultSchema.safeParse(raw);
     if (!validation.success) {
-      return { pkg: null, errorDetail: 'Invalid npm registry response format' };
+      return {
+        pkg: null,
+        errorDetail: 'Invalid npm registry response format',
+        rawResponseChars,
+      };
     }
 
     const pkg = mapToResult(
@@ -301,42 +327,37 @@ async function fetchPackageDetailsWithError(
       includeExtendedMetadata
     );
 
-    const [downloads, lastPublished] = await Promise.all([
+    const [downloadsResult, lastPublishedResult] = await Promise.all([
       fetchWeeklyDownloads(packageName),
       pkg.lastPublished
-        ? Promise.resolve(undefined)
+        ? Promise.resolve({ lastPublished: undefined, rawResponseChars: 0 })
         : fetchLastPublished(packageName),
     ]);
-    if (downloads !== undefined) {
-      pkg.weeklyDownloads = downloads;
+    if (downloadsResult.downloads !== undefined) {
+      pkg.weeklyDownloads = downloadsResult.downloads;
     }
-    if (lastPublished && !pkg.lastPublished) {
-      pkg.lastPublished = lastPublished;
+    if (lastPublishedResult.lastPublished && !pkg.lastPublished) {
+      pkg.lastPublished = lastPublishedResult.lastPublished;
     }
 
-    return { pkg };
+    return {
+      pkg,
+      rawResponseChars:
+        rawResponseChars +
+        downloadsResult.rawResponseChars +
+        lastPublishedResult.rawResponseChars,
+    };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return { pkg: null, errorDetail: msg };
+    return { pkg: null, errorDetail: msg, rawResponseChars: 0 };
   }
-}
-
-async function fetchPackageDetails(
-  packageName: string,
-  includeExtendedMetadata: boolean = false
-): Promise<NpmPackageResult | null> {
-  const { pkg } = await fetchPackageDetailsWithError(
-    packageName,
-    includeExtendedMetadata
-  );
-  return pkg;
 }
 
 async function fetchNpmPackageByView(
   packageName: string,
   fetchMetadata: boolean
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
-  const { pkg, errorDetail } = await fetchPackageDetailsWithError(
+  const { pkg, errorDetail, rawResponseChars } = await fetchPackageDetailsWithError(
     packageName,
     fetchMetadata
   );
@@ -345,6 +366,7 @@ async function fetchNpmPackageByView(
     if (errorDetail) {
       return {
         error: `NPM view failed for '${packageName}': ${errorDetail}`,
+        rawResponseChars,
         hints: [
           'Ensure npm is installed and available in PATH',
           'Check package name for typos',
@@ -356,6 +378,7 @@ async function fetchNpmPackageByView(
       packages: [],
       ecosystem: 'npm',
       totalFound: 0,
+      rawResponseChars,
     };
   }
 
@@ -363,6 +386,7 @@ async function fetchNpmPackageByView(
     packages: [pkg],
     ecosystem: 'npm',
     totalFound: 1,
+    rawResponseChars,
   };
 }
 
@@ -380,6 +404,7 @@ async function searchNpmPackageViaSearch(
       raw = await fetchWithRetries(url, {
         maxRetries: 1,
         initialDelayMs: 500,
+        packageRegistry: 'npm',
       });
     } catch (fetchErr) {
       const msg =
@@ -393,8 +418,15 @@ async function searchNpmPackageViaSearch(
       };
     }
 
+    const searchRawResponseChars = countRawPayloadChars(raw);
+
     if (!raw || typeof raw !== 'object') {
-      return { packages: [], ecosystem: 'npm', totalFound: 0 };
+      return {
+        packages: [],
+        ecosystem: 'npm',
+        totalFound: 0,
+        rawResponseChars: searchRawResponseChars,
+      };
     }
 
     const validation = NpmRegistrySearchSchema.safeParse(raw);
@@ -402,6 +434,7 @@ async function searchNpmPackageViaSearch(
       const issues = validation.error.issues.map(i => i.message).join('; ');
       return {
         error: `Invalid npm registry search response format: ${issues}`,
+        rawResponseChars: searchRawResponseChars,
         hints: [
           'Try a different search term',
           'Try searchLimit=1 for an exact package lookup',
@@ -418,30 +451,44 @@ async function searchNpmPackageViaSearch(
         ) as (NpmRegistrySearchItem & { name: string })[]
     ).slice(0, limit);
 
-    const packages = await Promise.all(
+    const packageResults = await Promise.all(
       searchResults.map(async item => {
         if (fetchMetadata) {
-          const details = await fetchPackageDetails(item.name, true);
-          if (details) return details;
+          const detailsResult = await fetchPackageDetailsWithError(
+            item.name,
+            true
+          );
+          if (detailsResult.pkg) return detailsResult;
         }
 
         return {
-          repoUrl:
-            item.links?.repository && typeof item.links.repository === 'string'
-              ? cleanRepoUrl(item.links.repository)
-              : null,
-          path: item.name,
-          version: item.version ?? 'unknown',
-          mainEntry: null,
-          typeDefinitions: null,
-        } as NpmPackageResult;
+          pkg: {
+            repoUrl:
+              item.links?.repository && typeof item.links.repository === 'string'
+                ? cleanRepoUrl(item.links.repository)
+                : null,
+            path: item.name,
+            version: item.version ?? 'unknown',
+            mainEntry: null,
+            typeDefinitions: null,
+          } as NpmPackageResult,
+          rawResponseChars: 0,
+        };
       })
+    );
+    const packages = packageResults
+      .map(result => result.pkg)
+      .filter((pkg): pkg is NpmPackageResult => Boolean(pkg));
+    const detailRawResponseChars = packageResults.reduce(
+      (sum, result) => sum + result.rawResponseChars,
+      0
     );
 
     return {
       packages,
       ecosystem: 'npm',
       totalFound: packages.length,
+      rawResponseChars: searchRawResponseChars + detailRawResponseChars,
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

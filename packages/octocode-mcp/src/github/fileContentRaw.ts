@@ -1,17 +1,18 @@
 import { RequestError } from 'octokit';
-import type { GetContentParameters, GitHubAPIResponse } from './githubAPI';
+import type { GetContentParameters, GitHubAPIResponse } from './githubAPI.js';
 import type { FileContentQuery } from '@octocodeai/octocode-core';
 import type { GitHubApiFileItem } from '../tools/github_view_repo_structure/types.js';
 import {
   getOctokit,
   OctokitWithThrottling,
   resolveDefaultBranch,
-} from './client';
-import { handleGitHubAPIError } from './errors';
+} from './client.js';
+import { handleGitHubAPIError } from './errors.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { FILE_OPERATION_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
+import { countSerializedChars } from '../utils/response/charSavings.js';
 
 export interface RawContentResult {
   rawContent: string;
@@ -251,6 +252,7 @@ export async function fetchRawGitHubFileContent(
           resolvedRef: actualBranch || branch || 'HEAD',
         },
         status: 200,
+        rawResponseChars: countSerializedChars(data),
       };
     }
 

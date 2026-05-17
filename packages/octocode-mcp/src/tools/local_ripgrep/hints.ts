@@ -9,11 +9,6 @@
 import { getMetadataDynamicHints } from '../../hints/static.js';
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
-export const LOCAL_BASE_HINTS = {
-  hasResults: [] as readonly string[],
-  empty: [] as readonly string[],
-} as const;
-
 const TOOL_NAME = 'localSearchCode';
 
 /**

@@ -24,7 +24,7 @@ vi.mock('../../src/lsp/resolver.js', () => ({
 
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
-  createClient: vi.fn(),
+  acquirePooledClient: vi.fn(),
   isLanguageServerAvailable: vi.fn(),
 }));
 
@@ -139,7 +139,9 @@ describe('lspCallHierarchy output size limits', () => {
       getIncomingCalls: vi.fn().mockResolvedValue([]),
       getOutgoingCalls: vi.fn().mockResolvedValue([]),
     };
-    (managerModule.createClient as Mock).mockResolvedValue(mockLSPClient);
+    (managerModule.acquirePooledClient as Mock).mockResolvedValue(
+      mockLSPClient
+    );
 
     // Default path and file mocks
     (toolHelpers.validateToolPath as Mock).mockReturnValue({
@@ -361,7 +363,7 @@ describe('lspCallHierarchy output size limits', () => {
       );
       (checkCommandAvailability as Mock).mockResolvedValue({
         available: true,
-        command: 'rg',
+        command: expect.stringMatching(/rg$/),
       });
       (safeExec as Mock).mockResolvedValue({
         success: true,
@@ -460,7 +462,7 @@ describe('lspCallHierarchy output size limits', () => {
 
     it('should NOT apply output limit when LSP returns null and pattern matching has empty results', async () => {
       // Make LSP return null (prepareCallHierarchy returns null)
-      (managerModule.createClient as Mock).mockResolvedValue(null);
+      (managerModule.acquirePooledClient as Mock).mockResolvedValue(null);
 
       // Pattern matching fallback: mock rg as unavailable, grep returns no matches
       (checkCommandAvailability as Mock).mockResolvedValue({
@@ -494,6 +496,42 @@ describe('lspCallHierarchy output size limits', () => {
 
       expect(firstResult.status).toBe('empty');
       expect(firstResult.outputPagination).toBeUndefined();
+    });
+
+    it('should strip item content for ultra empty fallback results', async () => {
+      (managerModule.acquirePooledClient as Mock).mockResolvedValue(null);
+      (checkCommandAvailability as Mock).mockResolvedValue({
+        available: false,
+      });
+      (safeExec as Mock).mockResolvedValue({
+        success: true,
+        code: 0,
+        stdout: '',
+        stderr: '',
+      });
+
+      const result = await toolHandler({
+        queries: [
+          {
+            uri: '/workspace/file.ts',
+            symbolName: 'targetFunction',
+            lineHint: 6,
+            direction: 'outgoing',
+            depth: 1,
+            contextLines: 0,
+            verbosity: 'ultra',
+            researchGoal: 'test',
+            reasoning: 'test',
+            mainResearchGoal: 'test',
+          },
+        ],
+      });
+
+      const results = JSON.parse(result.content[0]!.text);
+      const firstResult = results[0];
+
+      expect(firstResult.status).toBe('empty');
+      expect(firstResult.item?.content).toBe('');
     });
   });
 

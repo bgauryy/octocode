@@ -31,6 +31,7 @@ import * as gitlabStructure from './gitlabStructure.js';
 import { handleGitLabAPIError } from '../../gitlab/errors.js';
 import type { GitLabAPIError } from '../../gitlab/types.js';
 import { getGitlab } from '../../gitlab/client.js';
+import { parseGitLabDefaultBranch } from '../../gitlab/responseGuards.js';
 import { logRateLimit } from '../../session.js';
 import { PROVIDER_CAPABILITIES } from '../capabilities.js';
 import {
@@ -118,10 +119,10 @@ export class GitLabProvider implements ICodeHostProvider {
           : undefined
       );
       const parsedId = parseGitLabProjectId(projectId);
-      const project = (await gitlab.Projects.show(
-        parsedId
-      )) as unknown as Record<string, unknown>;
-      return String(project.default_branch || 'main');
+      const branch = parseGitLabDefaultBranch(
+        await gitlab.Projects.show(parsedId)
+      );
+      return branch || 'main';
     } catch {
       return 'main';
     }

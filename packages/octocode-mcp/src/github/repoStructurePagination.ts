@@ -137,5 +137,6 @@ export function applyStructurePagination(
     structure: sortedStructure,
     pagination: paginationInfo,
     hints,
+    rawResponseChars: cachedResult.rawResponseChars,
   };
 }

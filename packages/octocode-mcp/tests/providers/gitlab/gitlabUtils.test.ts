@@ -1,7 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockLogRateLimit = vi.hoisted(() => vi.fn());
+vi.mock('../../../src/session.js', () => ({
+  logRateLimit: mockLogRateLimit,
+}));
+
 import { handleGitLabAPIResponse } from '../../../src/providers/gitlab/utils.js';
 
 describe('GitLab provider utils', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   describe('handleGitLabAPIResponse', () => {
     it('should transform successful API responses', () => {
       const result = handleGitLabAPIResponse(
@@ -17,6 +27,7 @@ describe('GitLab provider utils', () => {
         data: { doubled: 4 },
         status: 200,
         provider: 'gitlab',
+        rawResponseChars: 11,
       });
     });
 
@@ -46,6 +57,13 @@ describe('GitLab provider utils', () => {
           retryAfter: 60,
         },
       });
+      expect(mockLogRateLimit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'gitlab',
+          retry_after_seconds: 60,
+          rate_limit_remaining: 0,
+        })
+      );
     });
 
     it('should string-coerce errors when requested', () => {

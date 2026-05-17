@@ -9,7 +9,14 @@
 
 import { readFile, stat } from 'fs/promises';
 
-import { type LSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import { type LSPFindReferencesQuery as UpstreamLSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+
+type LSPFindReferencesQuery = UpstreamLSPFindReferencesQuery & {
+  verbosity?: Verbosity;
+  groupByFile?: boolean;
+};
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import {
   isLanguageServerAvailable,
@@ -29,11 +36,32 @@ import { TOOL_NAME } from './constants.js';
 import { findReferencesWithLSP } from './lspReferencesCore.js';
 import { findReferencesWithPatternMatching } from './lspReferencesPatterns.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
+import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
+import {
+  attachRawResponseChars,
+  countSerializedChars,
+  getRawResponseChars,
+} from '../../utils/response/charSavings.js';
 
 /**
- * Find all references to a symbol
+ * Find all references to a symbol.
+ *
+ * Wraps the internal core logic with the RFC §4.7.6 verbosity transformer so
+ * that `verbosity:"ultra"` shrinks the payload to a flat `refs[]` array of
+ * `file:line` strings (≤ 500 refs) or a `byFile` rollup (≥ 500 refs).
  */
 export async function findReferences(
+  query: LSPFindReferencesQuery
+): Promise<FindReferencesResult> {
+  const result = await findReferencesInternal(query);
+  const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
+  return attachRawResponseChars(
+    applyFindReferencesVerbosity(result, query),
+    rawChars
+  );
+}
+
+async function findReferencesInternal(
   query: LSPFindReferencesQuery
 ): Promise<FindReferencesResult> {
   try {
@@ -84,18 +112,22 @@ export async function findReferences(
       });
     } catch (error) {
       if (error instanceof SymbolResolutionError) {
-        return {
-          status: 'empty',
-          error: error.message,
-          errorType: 'symbol_not_found',
-          hints: [
-            `Symbol '${query.symbolName}' not found at or near line ${query.lineHint}`,
-            `Searched +/-${error.searchRadius} lines from line ${query.lineHint}`,
-            'Verify the exact symbol name (case-sensitive, no partial matches)',
-            'Use localGetFileContent to check the file content around that line',
-            'TIP: Use localSearchCode to find the correct line number first',
-          ],
-        };
+        return attachRawResponseChars(
+          {
+            status: 'empty',
+            error: error.message,
+            errorType: 'symbol_not_found',
+            errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
+            hints: [
+              `Symbol '${query.symbolName}' not found at or near line ${query.lineHint}`,
+              `Searched +/-${error.searchRadius} lines from line ${query.lineHint}`,
+              'Verify the exact symbol name (case-sensitive, no partial matches)',
+              'Use localGetFileContent to check the file content around that line',
+              'TIP: Use localSearchCode to find the correct line number first',
+            ],
+          },
+          content.length
+        );
       }
       throw error;
     }
@@ -104,6 +136,7 @@ export async function findReferences(
     const globalMergeQuery = createGlobalMergeQuery(query);
 
     let lspResult: FindReferencesResult | null = null;
+    let semanticFallbackHint: string | undefined;
     const lspAvailable = await isLanguageServerAvailable(
       absolutePath,
       workspaceRoot
@@ -117,7 +150,8 @@ export async function findReferences(
           globalMergeQuery
         );
       } catch {
-        // LSP find-references failed; pattern matching still returns full text coverage.
+        semanticFallbackHint =
+          'LSP semantic references failed; using text fallback';
       }
     }
 
@@ -138,27 +172,45 @@ export async function findReferences(
     if (!lspHasLocations) {
       // Pattern-only branch — locations did not come from semantic LSP,
       // even when isLanguageServerAvailable=true (LSP returned empty or
-      // threw). Tag fallback so agents do not treat results as authoritative.
-      return paginateGlobalBranchResult(
-        {
-          ...withLspUnavailableHint(patternResult, lspAvailable),
-          lspMode: 'fallback',
-        },
-        query
+      // threw). Tag fallback so agents do not treat results as
+      // authoritative — but only when the result shape allows it.
+      // `lspMode` is only valid on hasResults/empty per the published
+      // output schema; injecting it on error would fail MCP validation.
+      if (lspAvailable && !semanticFallbackHint) {
+        semanticFallbackHint =
+          'LSP semantic references returned no result; using text fallback';
+      }
+      const hintedPattern = withLspUnavailableHint(
+        patternResult,
+        lspAvailable,
+        semanticFallbackHint
+      );
+      const tagged: FindReferencesResult =
+        hintedPattern.status === 'error'
+          ? hintedPattern
+          : { ...hintedPattern, lspMode: 'fallback' };
+      return attachRawResponseChars(
+        paginateGlobalBranchResult(tagged, query),
+        content.length + countSerializedChars(tagged)
       );
     }
 
     if (!patternHasLocations) {
-      return paginateGlobalBranchResult(
-        { ...lspResult!, lspMode: 'semantic' },
-        query
+      const semanticResult = { ...lspResult!, lspMode: 'semantic' } as const;
+      return attachRawResponseChars(
+        paginateGlobalBranchResult(semanticResult, query),
+        content.length + countSerializedChars(semanticResult)
       );
     }
 
-    return {
+    const mergedResult = {
       ...mergeReferenceResults(lspResult, patternResult, query),
-      lspMode: 'semantic',
+      lspMode: 'semantic' as const,
     };
+    return attachRawResponseChars(
+      mergedResult,
+      content.length + countSerializedChars(mergedResult)
+    );
   } catch (error) {
     return createErrorResult(error, query, {
       toolName: TOOL_NAME,
@@ -281,8 +333,15 @@ export function mergeReferenceResults(
  */
 function withLspUnavailableHint(
   result: FindReferencesResult,
-  lspAvailable: boolean
+  lspAvailable: boolean,
+  semanticFallbackHint?: string
 ): FindReferencesResult {
+  if (semanticFallbackHint) {
+    return {
+      ...result,
+      hints: [semanticFallbackHint, ...(result.hints || [])],
+    };
+  }
   if (lspAvailable) return result;
   return {
     ...result,
@@ -357,6 +416,91 @@ function paginateGlobalBranchResult(
     },
     hasMultipleFiles,
     hints,
+  };
+}
+
+/**
+ * RFC §4.7.6 adaptive ultra threshold. Below this fanout the response is a
+ * flat `refs[]` of "file:line" strings (still fits one 8 KB page); at or above
+ * it the response auto-degrades to a `byFile` rollup so the payload is
+ * bounded regardless of fanout. Validated by `measure.mjs::demo9` (≤ 443
+ * chars at 10,000 refs).
+ */
+const ULTRA_REFS_FLAT_THRESHOLD = 500;
+
+/**
+ * RFC §4.7.6 + §4.7.9: shape the response according to `verbosity` /
+ * `groupByFile`. Compact and verbose are unchanged from today; ultra is
+ * lossy by design and carries an explicit drill-back hint.
+ */
+export function applyFindReferencesVerbosity(
+  result: FindReferencesResult,
+  query: LSPFindReferencesQuery
+): FindReferencesResult {
+  if (result.status !== 'hasResults' || !result.locations?.length)
+    return result;
+
+  if (query.groupByFile) {
+    const byFile: Record<string, number> = {};
+    for (const loc of result.locations) {
+      byFile[loc.uri] = (byFile[loc.uri] ?? 0) + 1;
+    }
+    const summary = `${result.locations.length} refs in ${Object.keys(byFile).length} files`;
+    return {
+      ...result,
+      locations: [],
+      hints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with includePattern scoped to the top file(s) for individual line numbers'
+        ),
+      ],
+    };
+  }
+
+  if (!isUltra(query.verbosity)) return result;
+
+  const refs = result.locations.map(
+    loc => `${loc.uri}:${loc.range.start.line + 1}`
+  );
+  const uniqueFiles = new Set(result.locations.map(l => l.uri));
+
+  if (refs.length < ULTRA_REFS_FLAT_THRESHOLD) {
+    const summary = `${refs.length} refs in ${uniqueFiles.size} files`;
+    return {
+      ...result,
+      locations: [],
+      hints: [
+        summary,
+        `refs: ${refs.join(', ')}`,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"compact" (default) for full context per ref'
+        ),
+      ],
+    };
+  }
+
+  const byFile: Record<string, number> = {};
+  for (const loc of result.locations) {
+    byFile[loc.uri] = (byFile[loc.uri] ?? 0) + 1;
+  }
+  const topFiles = Object.entries(byFile)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 20);
+  const topFilesStr = topFiles.map(([f, n]) => `${f}(${n})`).join(', ');
+  const summary =
+    `${refs.length} refs in ${uniqueFiles.size} files; ` +
+    `top-20: ${topFilesStr}`;
+
+  return {
+    ...result,
+    locations: [],
+    hints: [
+      summary,
+      ...ultraDrillBackHint(
+        're-call with groupByFile:true for the full per-file map, or includePattern to scope to one file'
+      ),
+    ],
   };
 }
 

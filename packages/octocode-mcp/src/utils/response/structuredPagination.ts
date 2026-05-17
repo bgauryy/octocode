@@ -975,6 +975,12 @@ function paginateFlatQueryResult(
     return null;
   }
 
+  // Same guard as applyQueryOutputPagination: outputPagination is only valid
+  // on the hasResults branch of each tool's discriminated output schema.
+  if (value.status !== 'hasResults') {
+    return null;
+  }
+
   const baseValue = {
     ...value,
     data: {},
@@ -1013,38 +1019,33 @@ function paginateFlatQueryResult(
     };
   }
 
+  const shouldExposeQueryOutputPagination =
+    toolName !== TOOL_NAMES.LSP_FIND_REFERENCES;
+  const dataPagination = createOutputPagination(
+    dataPage.actualOffset,
+    Math.max(0, dataPage.pageEnd - dataPage.actualOffset),
+    dataPage.totalChars,
+    request.length
+  );
   const dataValue =
     dataPage.paginated && isPlainObject(dataPage.value)
-      ? withPaginationHints(
-          {
-            ...dataPage.value,
-            outputPagination: createOutputPagination(
-              dataPage.actualOffset,
-              Math.max(0, dataPage.pageEnd - dataPage.actualOffset),
-              dataPage.totalChars,
-              request.length
-            ),
-            ...(toolName === TOOL_NAMES.LOCAL_FIND_FILES && {
-              charPagination: createOutputPagination(
-                dataPage.actualOffset,
-                Math.max(0, dataPage.pageEnd - dataPage.actualOffset),
-                dataPage.totalChars,
-                request.length
-              ),
-            }),
-          },
-          createOutputPagination(
-            dataPage.actualOffset,
-            Math.max(0, dataPage.pageEnd - dataPage.actualOffset),
-            dataPage.totalChars,
-            request.length
-          ),
-          'output',
-          {
-            autoPaginated: false,
-            requestedLength: request.length,
-          }
-        )
+      ? shouldExposeQueryOutputPagination
+        ? withPaginationHints(
+            {
+              ...dataPage.value,
+              outputPagination: dataPagination,
+              ...(toolName === TOOL_NAMES.LOCAL_FIND_FILES && {
+                charPagination: dataPagination,
+              }),
+            },
+            dataPagination,
+            'output',
+            {
+              autoPaginated: false,
+              requestedLength: request.length,
+            }
+          )
+        : dataPage.value
       : dataPage.value;
 
   return {
@@ -1066,6 +1067,19 @@ export function applyQueryOutputPagination(
   toolName: string
 ): FlatQueryResult {
   if (!isPlainObject(queryResult.data)) {
+    return queryResult;
+  }
+
+  // Output pagination metadata is only allowed inside the 'hasResults' branch
+  // of each tool's discriminated output schema. Both ErrorDataSchema and
+  // EmptyDataSchema are strict and do not declare outputPagination, so
+  // injecting it there would trigger MCP output validation failures
+  // (unrecognized_keys: ["outputPagination"]).
+  if (queryResult.status !== 'hasResults') {
+    return queryResult;
+  }
+
+  if (toolName === TOOL_NAMES.LSP_FIND_REFERENCES) {
     return queryResult;
   }
 

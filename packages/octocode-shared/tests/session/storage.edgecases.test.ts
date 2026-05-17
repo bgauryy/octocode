@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import {
   SESSION_FILE,
+  STATS_FILE,
   readSession,
   writeSession,
   getOrCreateSession,
@@ -36,6 +37,37 @@ import {
   MALFORMED_JSON,
   generateTruncatedJson,
 } from '../helpers/fsErrors.js';
+
+const zeroTotalUsageStats = () => ({
+  toolCalls: 0,
+  promptCalls: 0,
+  errors: 0,
+  rateLimits: 0,
+  rateLimitsByProvider: {},
+  rawChars: 0,
+  responseChars: 0,
+  savedChars: 0,
+  charSavingsCalls: 0,
+  githubCacheHits: 0,
+  githubCacheRateLimits: 0,
+  packageRegistryFailures: 0,
+  packageRegistryFailuresByRegistry: {},
+});
+
+const defaultStats = () => ({
+  toolCalls: 0,
+  promptCalls: 0,
+  errors: 0,
+  rateLimits: 0,
+  rateLimitsByProvider: {},
+  charsSavedByTool: {},
+  githubCacheHits: {
+    hits: {},
+    rateLimits: 0,
+  },
+  packageRegistryFailures: {},
+  totalUsage: zeroTotalUsageStats(),
+});
 
 // Mock node:fs to prevent tests from touching real filesystem
 vi.mock('node:fs', () => ({
@@ -193,19 +225,9 @@ describe('Session Storage Edge Cases', () => {
         );
         _resetSessionState();
 
-        // Zod validation rejects sessions missing required fields (stats)
         const readBack = readSession();
-        expect(readBack).toBeNull();
-
-        // getOrCreateSession creates a fresh session since the file is invalid
-        const session = getOrCreateSession();
-        expect(session.sessionId).not.toBe('test-uuid');
-        expect(session.stats).toEqual({
-          toolCalls: 0,
-          promptCalls: 0,
-          errors: 0,
-          rateLimits: 0,
-        });
+        expect(readBack?.sessionId).toBe('test-uuid');
+        expect(readBack?.stats).toEqual(defaultStats());
       });
     });
 
@@ -512,6 +534,13 @@ describe('Session Storage Edge Cases', () => {
           },
         });
         mockFileStore.set(SESSION_FILE, JSON.stringify(externalSession));
+        mockFileStore.set(
+          STATS_FILE,
+          JSON.stringify({
+            version: 1,
+            stats: externalSession.stats,
+          })
+        );
 
         // Cache takes precedence
         const cachedSession = readSession();
@@ -730,10 +759,14 @@ describe('Session Storage Edge Cases', () => {
         process.emit('SIGINT');
 
         const content = mockFileStore.get(SESSION_FILE);
+        const statsContent = mockFileStore.get(STATS_FILE);
         expect(content).toBeDefined();
+        expect(statsContent).toBeDefined();
         const onDisk = JSON.parse(content!);
+        const statsOnDisk = JSON.parse(statsContent!);
         expect(onDisk.sessionId).toBe(session.sessionId);
-        expect(onDisk.stats.toolCalls).toBe(7);
+        expect(onDisk.stats).toBeUndefined();
+        expect(statsOnDisk.stats.toolCalls).toBe(7);
       });
 
       it('should flush session to disk when SIGTERM is emitted', () => {

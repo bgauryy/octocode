@@ -1,10 +1,7 @@
 import type { RipgrepQuery } from '@octocodeai/octocode-core';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core';
 import type { SearchStats } from '../../utils/core/types.js';
-import {
-  parseRipgrepJson,
-  parseGrepOutput,
-} from '../../utils/parsers/ripgrep.js';
+import { parseRipgrepJson } from '../../utils/parsers/ripgrep.js';
 
 /**
  * Parse ripgrep plain text output (filesOnly or filesWithoutMatch mode).
@@ -97,14 +94,4 @@ export function parseRipgrepOutput(
     // JSON output: structured match data with line numbers, columns, etc.
     return parseRipgrepJson(stdout, configuredQuery);
   }
-}
-
-/**
- * Parse grep output
- */
-export function parseGrepOutputWrapper(
-  stdout: string,
-  configuredQuery: RipgrepQuery
-): LocalSearchCodeFile[] {
-  return parseGrepOutput(stdout, configuredQuery);
 }

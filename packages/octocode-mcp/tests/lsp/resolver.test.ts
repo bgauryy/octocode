@@ -513,7 +513,7 @@ line8`;
     it('should find barrel re-export when lineHint is slightly off', () => {
       const resolver = new SymbolResolver({ lineSearchRadius: 3 });
       const content = [
-        "export { createClient } from './client.js';",
+        "export { acquirePooledClient } from './client.js';",
         '',
         "export { isLanguageServerAvailable } from './manager.js';",
       ].join('\n');

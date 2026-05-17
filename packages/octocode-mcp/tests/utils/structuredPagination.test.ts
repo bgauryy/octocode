@@ -480,7 +480,7 @@ describe('tool-owned structured pagination', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('paginates lspFindReferences locations through the same location content branch', () => {
+  it('leaves lspFindReferences query data to its domain pagination contract', () => {
     const fullContent = 'reference-'.repeat(700);
 
     const result = applyQueryOutputPagination(
@@ -506,10 +506,49 @@ describe('tool-owned structured pagination', () => {
       outputPagination?: { hasMore: boolean };
     };
 
-    expect(data.locations?.[0]?.content?.length).toBeLessThan(
-      fullContent.length
+    expect(data.locations?.[0]?.content?.length).toBe(fullContent.length);
+    expect(data.outputPagination).toBeUndefined();
+  });
+
+  it('uses only responsePagination for oversized lspFindReferences bulk responses', () => {
+    const fullContent = 'reference-'.repeat(700);
+
+    const response = applyBulkResponsePagination(
+      {
+        results: [
+          {
+            id: 'find_refs',
+            status: 'hasResults',
+            data: {
+              locations: [
+                {
+                  uri: '/workspace/src/reference.ts',
+                  range: { start: { line: 21, character: 0 } },
+                  content: fullContent,
+                },
+              ],
+              pagination: {
+                currentPage: 1,
+                totalPages: 2,
+                totalResults: 2,
+                hasMore: true,
+                resultsPerPage: 1,
+              },
+            },
+          },
+        ],
+      },
+      { length: 500 },
+      TOOL_NAMES.LSP_FIND_REFERENCES
     );
-    expect(data.outputPagination?.hasMore).toBe(true);
+
+    const data = response.results[0]?.data as {
+      outputPagination?: unknown;
+      pagination?: unknown;
+    };
+    expect(response.responsePagination?.hasMore).toBe(true);
+    expect(data.outputPagination).toBeUndefined();
+    expect(data.pagination).toBeDefined();
   });
 
   it('paginates lspCallHierarchy call arrays through the hierarchy branch', () => {
@@ -568,5 +607,86 @@ describe('tool-owned structured pagination', () => {
 
     expect(data.pull_requests?.length).toBeLessThan(pullRequests.length);
     expect(data.outputPagination?.hasMore).toBe(true);
+  });
+
+  it('does NOT inject outputPagination into error-status query data (schema is strict)', () => {
+    const longError = 'symbol not found: ' + 'x'.repeat(20000);
+
+    const result = applyQueryOutputPagination(
+      {
+        id: 'q-err',
+        status: 'error',
+        data: { error: longError, hints: ['Retry with lineHint'] },
+      },
+      { charLength: 1000 },
+      TOOL_NAMES.LSP_CALL_HIERARCHY
+    );
+
+    const data = result.data as Record<string, unknown>;
+    expect(data.outputPagination).toBeUndefined();
+    expect(data.charPagination).toBeUndefined();
+    expect(data.error).toBe(longError);
+  });
+
+  it('does NOT inject outputPagination into empty-status query data', () => {
+    const result = applyQueryOutputPagination(
+      {
+        id: 'q-empty',
+        status: 'empty',
+        data: { hints: ['No matches'] },
+      },
+      { charLength: 100 },
+      TOOL_NAMES.LSP_CALL_HIERARCHY
+    );
+
+    const data = result.data as Record<string, unknown>;
+    expect(data.outputPagination).toBeUndefined();
+  });
+
+  it('still injects outputPagination for hasResults-status oversized data', () => {
+    const calls = Array.from({ length: 200 }, (_, i) => ({
+      from: {
+        name: `caller${i}`,
+        kind: 'function' as const,
+        uri: `file:///c${i}.ts`,
+        range: {
+          start: { line: i, character: 0 },
+          end: { line: i, character: 10 },
+        },
+        content: 'x'.repeat(200),
+      },
+      fromRanges: [
+        {
+          start: { line: i, character: 0 },
+          end: { line: i, character: 10 },
+        },
+      ],
+    }));
+
+    const result = applyQueryOutputPagination(
+      {
+        id: 'q-ok',
+        status: 'hasResults',
+        data: {
+          item: {
+            name: 'target',
+            kind: 'function',
+            uri: 'file:///t.ts',
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 10 },
+            },
+          },
+          direction: 'incoming',
+          depth: 1,
+          incomingCalls: calls,
+        },
+      },
+      { charLength: 1000 },
+      TOOL_NAMES.LSP_CALL_HIERARCHY
+    );
+
+    const data = result.data as Record<string, unknown>;
+    expect(data.outputPagination).toBeDefined();
   });
 });

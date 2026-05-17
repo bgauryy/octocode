@@ -18,8 +18,9 @@ import { fetchGitHubFileContentAPI } from '../../github/fileContent.js';
 import type { FileContentQuery as GHFileContentQuery } from '@octocodeai/octocode-core';
 import type { GitHubFileContentApiData } from '../../tools/github_fetch_content/types.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 
-import { parseGitHubProjectId } from './utils.js';
+import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
 /**
@@ -86,12 +87,7 @@ export async function getFileContent(
 
   // Check for error using type guard
   if (isGitHubAPIError(result)) {
-    return {
-      error: result.error,
-      status: result.status || 500,
-      provider: 'github',
-      hints: result.hints,
-    };
+    return createGitHubProviderError(result);
   }
 
   if (!result.data) {
@@ -106,5 +102,7 @@ export async function getFileContent(
     data: transformFileContentResult(result.data, query),
     status: 200,
     provider: 'github',
+    rawResponseChars:
+      result.rawResponseChars ?? countSerializedChars(result.data),
   };
 }

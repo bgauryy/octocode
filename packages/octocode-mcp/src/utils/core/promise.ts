@@ -4,6 +4,7 @@ import {
   PROMISE_ERRORS,
 } from '../../errors/domainErrors.js';
 import { logSessionError } from '../../session.js';
+import { ignoreBestEffortFailure } from './bestEffort.js';
 
 export async function executeWithErrorIsolation<T>(
   promises: Array<() => Promise<T>>,
@@ -13,7 +14,7 @@ export async function executeWithErrorIsolation<T>(
     logSessionError(
       'promiseUtils',
       VALIDATION_ERRORS.PROMISES_NOT_ARRAY.code
-    ).catch(() => {});
+    ).catch(ignoreBestEffortFailure('promise utility session logging'));
     throw new Error(VALIDATION_ERRORS.PROMISES_NOT_ARRAY.message);
   }
 
@@ -27,14 +28,14 @@ export async function executeWithErrorIsolation<T>(
     logSessionError(
       'promiseUtils',
       VALIDATION_ERRORS.TIMEOUT_NOT_POSITIVE.code
-    ).catch(() => {});
+    ).catch(ignoreBestEffortFailure('promise utility session logging'));
     throw new Error(VALIDATION_ERRORS.TIMEOUT_NOT_POSITIVE.message);
   }
   if (concurrency <= 0) {
     logSessionError(
       'promiseUtils',
       VALIDATION_ERRORS.CONCURRENCY_NOT_POSITIVE.code
-    ).catch(() => {});
+    ).catch(ignoreBestEffortFailure('promise utility session logging'));
     throw new Error(VALIDATION_ERRORS.CONCURRENCY_NOT_POSITIVE.message);
   }
 
@@ -45,7 +46,7 @@ export async function executeWithErrorIsolation<T>(
           logSessionError(
             'promiseUtils',
             PROMISE_ERRORS.NOT_A_FUNCTION.code
-          ).catch(() => {});
+          ).catch(ignoreBestEffortFailure('promise utility session logging'));
           return Promise.reject(
             new Error(PROMISE_ERRORS.NOT_A_FUNCTION.message(index))
           );
@@ -158,7 +159,7 @@ async function executeWithConcurrencyLimit<T>(
         logSessionError(
           'promiseUtils',
           PROMISE_ERRORS.FUNCTION_UNDEFINED.code
-        ).catch(() => {});
+        ).catch(ignoreBestEffortFailure('promise utility session logging'));
         results[currentIndex] = {
           success: false,
           error: new Error(PROMISE_ERRORS.FUNCTION_UNDEFINED.message),

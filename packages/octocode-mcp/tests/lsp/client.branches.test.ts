@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { LSPClient } from '../../src/lsp/client.js';
 import {
-  createClient,
+  acquirePooledClient,
   isLanguageServerAvailable,
 } from '../../src/lsp/manager.js';
 import * as cp from 'child_process';
@@ -30,6 +30,14 @@ vi.mock('vscode-jsonrpc/node.js', () => ({
   createMessageConnection: vi.fn(),
   StreamMessageReader: vi.fn(),
   StreamMessageWriter: vi.fn(),
+  CancellationTokenSource: class {
+    token = {
+      isCancellationRequested: false,
+      onCancellationRequested: vi.fn(),
+    };
+    cancel = vi.fn();
+    dispose = vi.fn();
+  },
 }));
 
 describe('LSP Client Branch Coverage', () => {
@@ -192,7 +200,10 @@ describe('LSP Client Branch Coverage', () => {
         return Promise.resolve('file content');
       });
 
-      const client = await createClient('/workspace', '/workspace/Main.java');
+      const client = await acquirePooledClient(
+        '/workspace',
+        '/workspace/Main.java'
+      );
 
       if (client) {
         // If client was created, verify config was used
@@ -222,7 +233,10 @@ describe('LSP Client Branch Coverage', () => {
         return Promise.resolve('file content');
       });
 
-      const client = await createClient('/workspace', '/workspace/Main.scala');
+      const client = await acquirePooledClient(
+        '/workspace',
+        '/workspace/Main.scala'
+      );
 
       if (client) {
         expect(cp.spawn).toHaveBeenCalledWith(
@@ -501,7 +515,7 @@ describe('LSP Client Branch Coverage', () => {
         .mockImplementation(() => {});
 
       try {
-        // Trigger createClient which internally attempts to resolve the
+        // Trigger acquirePooledClient which internally attempts to resolve the
         // bundled typescript-language-server. When the require fails,
         // the code logs a debug message. We verify the spy is callable
         // and was not invoked by unrelated code during setup.

@@ -3,6 +3,8 @@ import type {
   BitbucketAPIError,
   BitbucketAPIResponse,
 } from '../../bitbucket/types.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
+import { logRateLimit } from '../../session.js';
 
 interface BitbucketProjectId {
   workspace: string;
@@ -54,12 +56,28 @@ export function extractBitbucketRateLimit(
   };
 }
 
+function recordBitbucketRateLimit(
+  rateLimit: NonNullable<ProviderResponse<never>['rateLimit']>
+): void {
+  void logRateLimit({
+    limit_type: 'primary',
+    retry_after_seconds: rateLimit.retryAfter,
+    rate_limit_remaining: rateLimit.remaining,
+    rate_limit_reset_ms: rateLimit.reset * 1000,
+    provider: 'bitbucket',
+  });
+}
+
 export function handleBitbucketAPIResponse<TData, TRaw>(
   result: BitbucketAPIResponse<TRaw>,
   transform: (data: TRaw) => TData
 ): ProviderResponse<TData> {
   if ('error' in result && result.error) {
     const rateLimit = extractBitbucketRateLimit(result as BitbucketAPIError);
+    if (rateLimit) {
+      recordBitbucketRateLimit(rateLimit);
+    }
+
     return {
       error:
         typeof result.error === 'string' ? result.error : String(result.error),
@@ -83,5 +101,6 @@ export function handleBitbucketAPIResponse<TData, TRaw>(
     data: transform(result.data),
     status: 200,
     provider: 'bitbucket',
+    rawResponseChars: countSerializedChars(result.data),
   };
 }

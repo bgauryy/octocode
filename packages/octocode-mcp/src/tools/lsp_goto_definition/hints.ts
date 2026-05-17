@@ -14,14 +14,12 @@ const TOOL_NAME = 'lspGotoDefinition';
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
     const hints: (string | undefined)[] = [];
-    const locationCount = (ctx as Record<string, unknown>).locationCount as
-      | number
-      | undefined;
+    const { locationCount, hasExternalPackage } = ctx;
     if (locationCount && locationCount > 1) {
       hints.push(`Found ${locationCount} definitions.`);
       hints.push(...getMetadataDynamicHints(TOOL_NAME, 'multipleDefinitions'));
     }
-    if ((ctx as Record<string, unknown>).hasExternalPackage) {
+    if (hasExternalPackage) {
       hints.push(...getMetadataDynamicHints(TOOL_NAME, 'externalPackage'));
     }
     return hints;
@@ -29,34 +27,31 @@ export const hints: ToolHintGenerators = {
 
   empty: (ctx: HintContext = {}) => {
     const hints: (string | undefined)[] = [];
-    const searchRadius = (ctx as Record<string, unknown>).searchRadius;
-    const lineHint = (ctx as Record<string, unknown>).lineHint;
+    const { searchRadius, lineHint, symbolName } = ctx;
     if (searchRadius) {
       hints.push(
         `Searched ±${searchRadius} lines from lineHint=${lineHint}. Adjust hint.`
       );
     }
-    if ((ctx as Record<string, unknown>).symbolName) {
+    if (symbolName) {
       hints.push(...getMetadataDynamicHints(TOOL_NAME, 'symbolNotFound'));
     }
     return hints;
   },
 
   error: (ctx: HintContext = {}) => {
-    const symbolName = (ctx as Record<string, unknown>).symbolName;
-    const lineHint = (ctx as Record<string, unknown>).lineHint;
-    const uri = (ctx as Record<string, unknown>).uri as string | undefined;
+    const { symbolName, lineHint, uri, errorType } = ctx;
 
-    if ((ctx as Record<string, unknown>).errorType === 'symbol_not_found') {
+    if (errorType === 'symbol_not_found') {
       return [
         `Symbol "${symbolName}" not found at line ${lineHint}.`,
         ...getMetadataDynamicHints(TOOL_NAME, 'symbolNotFound'),
       ];
     }
-    if ((ctx as Record<string, unknown>).errorType === 'file_not_found') {
+    if (errorType === 'file_not_found') {
       return [`File not found: ${uri}`];
     }
-    if ((ctx as Record<string, unknown>).errorType === 'timeout') {
+    if (errorType === 'timeout') {
       return [...getMetadataDynamicHints(TOOL_NAME, 'timeout')];
     }
     return [];

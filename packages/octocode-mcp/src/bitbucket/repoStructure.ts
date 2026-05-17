@@ -12,6 +12,10 @@ import { getBitbucketDefaultBranch } from './fileContent.js';
 import { handleBitbucketAPIError, createBitbucketError } from './errors.js';
 import type { BitbucketAPIResponse, BitbucketTreeEntry } from './types.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import {
+  isBitbucketTreeEntry,
+  parseBitbucketPaginatedResponse,
+} from './responseGuards.js';
 
 interface BitbucketRepoStructureQuery {
   workspace: string;
@@ -79,16 +83,19 @@ export async function viewBitbucketRepoStructureAPI(
             },
           }
         );
+        const rawData = parseBitbucketPaginatedResponse(
+          data,
+          isBitbucketTreeEntry
+        );
+        if (!rawData) {
+          return createBitbucketError(
+            'Unexpected Bitbucket repository tree response shape.',
+            502
+          );
+        }
 
-        const rawData = data as unknown as {
-          values?: BitbucketTreeEntry[];
-          page?: number;
-          size?: number;
-          next?: string;
-        };
-
-        const entries = rawData?.values || [];
-        const size = rawData?.size || entries.length;
+        const entries = rawData.values;
+        const size = rawData.size || entries.length;
 
         return {
           data: {

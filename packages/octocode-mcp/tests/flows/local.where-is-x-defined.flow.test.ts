@@ -59,7 +59,7 @@ vi.mock('../../src/lsp/manager.js', async () => {
 
   return {
     ...actual,
-    createClient: vi.fn().mockResolvedValue(null),
+    acquirePooledClient: vi.fn().mockResolvedValue(null),
     isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
   };
 });

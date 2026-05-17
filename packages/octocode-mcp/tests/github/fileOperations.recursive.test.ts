@@ -1,12 +1,94 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
+import { fetchDirectoryContentsRecursivelyAPI } from '../../src/github/repoStructureRecursive.js';
 import { getOctokit } from '../../src/github/client.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
+import { countSerializedChars } from '../../src/utils/response/charSavings.js';
 
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
+
+describe('fetchDirectoryContentsRecursivelyAPI — branch coverage', () => {
+  it('returns empty array immediately when currentDepth > maxDepth', async () => {
+    const mockOctokit = {
+      rest: { repos: { getContent: vi.fn() } },
+    };
+
+    const result = await fetchDirectoryContentsRecursivelyAPI(
+      mockOctokit as any,
+      'owner',
+      'repo',
+      'main',
+      'src',
+      5,
+      2
+    );
+
+    expect(result).toEqual([]);
+    expect(mockOctokit.rest.repos.getContent).not.toHaveBeenCalled();
+  });
+
+  it('returns empty array when path is in visitedPaths (cycle detection)', async () => {
+    const mockOctokit = {
+      rest: { repos: { getContent: vi.fn() } },
+    };
+    const visited = new Set(['src']);
+
+    const result = await fetchDirectoryContentsRecursivelyAPI(
+      mockOctokit as any,
+      'owner',
+      'repo',
+      'main',
+      'src',
+      0,
+      3,
+      visited
+    );
+
+    expect(result).toEqual([]);
+    expect(mockOctokit.rest.repos.getContent).not.toHaveBeenCalled();
+  });
+
+  it('returns empty array on subdirectory fetch error (catch branch)', async () => {
+    const mockOctokit = {
+      rest: {
+        repos: {
+          getContent: vi
+            .fn()
+            .mockResolvedValueOnce({
+              data: [
+                {
+                  name: 'src',
+                  path: 'src',
+                  type: 'dir',
+                  size: 0,
+                  url: 'url',
+                  html_url: 'html',
+                  git_url: 'git',
+                  sha: 'abc',
+                },
+              ],
+            })
+            .mockRejectedValueOnce(new Error('Access denied for subdir')),
+        },
+      },
+    };
+
+    const result = await fetchDirectoryContentsRecursivelyAPI(
+      mockOctokit as any,
+      'owner',
+      'repo',
+      'main',
+      '',
+      0,
+      1
+    );
+
+    expect(Array.isArray(result)).toBe(true);
+  });
+});
 
 describe('GitHub File Operations - Recursive Directory Structure', () => {
   beforeEach(() => {
@@ -108,6 +190,16 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         expect(result.structure['.']?.folders).toContain('src');
         // Should have made API calls
         expect(mockOctokit.rest.repos.getContent).toHaveBeenCalled();
+        const [rootResponse, recursiveResponse] = mockOctokit.rest.repos.getContent.mock.results.map(
+          call => call.value
+        );
+        const [rootData, recursiveData] = await Promise.all([
+          rootResponse.then(response => response.data),
+          recursiveResponse.then(response => response.data),
+        ]);
+        expect(result.rawResponseChars).toBe(
+          countSerializedChars(rootData) + countSerializedChars(recursiveData)
+        );
       }
     });
 

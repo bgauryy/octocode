@@ -7,15 +7,51 @@
 /**
  * Session statistics tracking
  */
+export interface ToolCharSavingsStats {
+  rawChars: number;
+  responseChars: number;
+  savedChars: number;
+  calls: number;
+}
+
+export interface GitHubCacheHitStats {
+  hits: Record<string, number>;
+  rateLimits: number;
+}
+
+export type StatsCounterMap = Record<string, number>;
+
+export interface SessionTotalUsageStats {
+  toolCalls: number;
+  promptCalls: number;
+  errors: number;
+  rateLimits: number;
+  rateLimitsByProvider: StatsCounterMap;
+  rawChars: number;
+  responseChars: number;
+  savedChars: number;
+  charSavingsCalls: number;
+  githubCacheHits: number;
+  githubCacheRateLimits: number;
+  packageRegistryFailures: number;
+  packageRegistryFailuresByRegistry: StatsCounterMap;
+}
+
 export interface SessionStats {
   toolCalls: number;
   promptCalls: number;
   errors: number;
   rateLimits: number;
+  rateLimitsByProvider?: StatsCounterMap;
+  charsSavedByTool?: Record<string, ToolCharSavingsStats>;
+  githubCacheHits?: GitHubCacheHitStats;
+  packageRegistryFailures?: StatsCounterMap;
+  totalUsage?: SessionTotalUsageStats;
 }
 
 /**
- * Persisted session data stored in ~/.octocode/session.json
+ * Session data kept in memory. Identity/timestamps are stored in
+ * ~/.octocode/session.json and stats are stored in ~/.octocode/stats.json.
  */
 export interface PersistedSession {
   /** Schema version for future migrations */
@@ -27,6 +63,16 @@ export interface PersistedSession {
   /** Last time the session was active (updated on init) */
   lastActiveAt: string;
   /** Cumulative session statistics */
+  stats: SessionStats;
+}
+
+/**
+ * Persisted stats data stored in ~/.octocode/stats.json
+ */
+export interface PersistedStats {
+  /** Schema version for future migrations */
+  version: 1;
+  /** Cumulative statistics */
   stats: SessionStats;
 }
 

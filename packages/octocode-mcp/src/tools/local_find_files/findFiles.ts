@@ -17,13 +17,18 @@ import {
 } from '../../utils/file/toolHelpers.js';
 import { formatFileSize } from '../../utils/file/size.js';
 import type {
-  FindFilesQuery,
+  FindFilesQuery as UpstreamFindFilesQuery,
   LocalFindFilesEntry,
   LocalFindFilesToolResult,
 } from '@octocodeai/octocode-core';
 import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import { attachRawResponseChars } from '../../utils/response/charSavings.js';
+
+type FindFilesQuery = UpstreamFindFilesQuery & { verbosity?: Verbosity };
 
 export async function findFiles(
   query: FindFilesQuery
@@ -110,6 +115,7 @@ export async function findFiles(
       return createErrorResult(toolError, query, {
         toolName: TOOL_NAMES.LOCAL_FIND_FILES,
         extra: { stderr: userMessage },
+        rawResponse: result.stdout.length + result.stderr.length,
       }) as LocalFindFilesToolResult;
     }
 
@@ -179,7 +185,7 @@ export async function findFiles(
       configFilePatterns.test(f.path.split('/').pop() || '')
     );
 
-    return {
+    const fullResult: LocalFindFilesToolResult = {
       status,
       files: finalFiles,
       pagination: {
@@ -214,11 +220,52 @@ export async function findFiles(
           : []),
       ],
     };
+
+    return attachRawResponseChars(
+      applyFindFilesVerbosity(fullResult, query, { totalFiles }),
+      result.stdout.length
+    );
   } catch (error) {
     return createErrorResult(error, query, {
       toolName: TOOL_NAMES.LOCAL_FIND_FILES,
     }) as LocalFindFilesToolResult;
   }
+}
+
+/**
+ * RFC §4.7.3: ultra payload is a one-line summary with a `newest:` drill-back
+ * hint pointing at the first file. Compact / verbose / omitted behave
+ * identically to today (default-invariance contract).
+ *
+ * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ */
+export function applyFindFilesVerbosity(
+  result: LocalFindFilesToolResult,
+  query: FindFilesQuery,
+  totals: { totalFiles: number }
+): LocalFindFilesToolResult {
+  if (!isUltra(query.verbosity)) return result;
+  if (result.status !== 'hasResults') return result;
+
+  const topFile = result.files?.[0];
+  const newest = topFile?.path ?? '';
+  const dirs = new Set(
+    (result.files ?? []).map(f => f.path.split('/').slice(0, -1).join('/'))
+  );
+  const summary =
+    `${totals.totalFiles} files in ${dirs.size} dirs` +
+    (newest ? ` (newest: ${newest})` : '');
+
+  return {
+    ...result,
+    files: [],
+    hints: [
+      summary,
+      ...ultraDrillBackHint(
+        're-call with verbosity:"compact" or narrow with name/type/time filters'
+      ),
+    ],
+  };
 }
 
 function sortLocalFindFilesEntrys(

@@ -16,7 +16,13 @@ import {
   LSP_UNAVAILABLE_HINT,
 } from '../../lsp/manager.js';
 import type { CallHierarchyResult } from '../../lsp/types.js';
-import type { LSPCallHierarchyQuery } from '@octocodeai/octocode-core';
+import type { LSPCallHierarchyQuery as UpstreamLSPCallHierarchyQuery } from '@octocodeai/octocode-core';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+
+type LSPCallHierarchyQuery = UpstreamLSPCallHierarchyQuery & {
+  verbosity?: Verbosity;
+};
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { callHierarchyWithLSP } from './callHierarchyLsp.js';
 import { callHierarchyWithPatternMatching } from './callHierarchyPatterns.js';
@@ -25,11 +31,31 @@ import { serializeForPagination } from '../../utils/pagination/core.js';
 import { TOOL_NAME } from './constants.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
 import { applyQueryOutputPagination } from '../../utils/response/structuredPagination.js';
+import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
+import {
+  attachRawResponseChars,
+  countSerializedChars,
+  getRawResponseChars,
+} from '../../utils/response/charSavings.js';
 
 /**
- * Process a single call hierarchy query
+ * Process a single call hierarchy query.
+ *
+ * Wraps the internal core logic with the RFC §4.7.7 verbosity transformer
+ * so that `verbosity:"ultra"` returns graph edges only (no per-node content).
  */
 export async function processCallHierarchy(
+  query: LSPCallHierarchyQuery
+): Promise<CallHierarchyResult> {
+  const result = await processCallHierarchyInternal(query);
+  const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
+  return attachRawResponseChars(
+    applyCallHierarchyVerbosity(result, query),
+    rawChars
+  );
+}
+
+async function processCallHierarchyInternal(
   query: LSPCallHierarchyQuery
 ): Promise<CallHierarchyResult> {
   try {
@@ -67,18 +93,22 @@ export async function processCallHierarchy(
       });
     } catch (error) {
       if (error instanceof SymbolResolutionError) {
-        return {
-          status: 'empty',
-          errorType: 'symbol_not_found',
-          error: error.message,
-          hints: [
-            ...getHints(TOOL_NAME, 'empty'),
-            `Symbol '${query.symbolName}' not found at line ${query.lineHint}`,
-            'Verify the exact function name (case-sensitive)',
-            'Check the line number is correct',
-            'Use localSearchCode to find the function first',
-          ],
-        };
+        return attachRawResponseChars(
+          {
+            status: 'empty',
+            errorType: 'symbol_not_found',
+            errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
+            error: error.message,
+            hints: [
+              ...getHints(TOOL_NAME, 'empty'),
+              `Symbol '${query.symbolName}' not found at line ${query.lineHint}`,
+              'Verify the exact function name (case-sensitive)',
+              'Check the line number is correct',
+              'Use localSearchCode to find the function first',
+            ],
+          },
+          content.length
+        );
       }
       throw error;
     }
@@ -89,6 +119,7 @@ export async function processCallHierarchy(
       workspaceRoot
     );
 
+    let semanticFallbackHint: string | undefined;
     if (lspAvailable) {
       try {
         const result = await callHierarchyWithLSP(
@@ -98,13 +129,18 @@ export async function processCallHierarchy(
           query,
           content
         );
-        if (result)
-          return applyCallHierarchyOutputLimit(
-            { ...result, lspMode: 'semantic' },
-            query
+        if (result) {
+          const semanticResult = { ...result, lspMode: 'semantic' } as const;
+          return attachRawResponseChars(
+            applyCallHierarchyOutputLimit(semanticResult, query),
+            content.length + countSerializedChars(semanticResult)
           );
+        }
+        semanticFallbackHint =
+          'LSP semantic call hierarchy returned no result; using text fallback';
       } catch {
-        // LSP call hierarchy failed; pattern-matching fallback still produces a result.
+        semanticFallbackHint =
+          'LSP semantic call hierarchy failed; using text fallback';
       }
     }
 
@@ -116,12 +152,28 @@ export async function processCallHierarchy(
       resolvedSymbol.foundAtLine,
       resolver
     );
-    return applyCallHierarchyOutputLimit(
-      {
-        ...withLspUnavailableHint(patternResult, lspAvailable),
-        lspMode: 'fallback',
-      },
-      query
+    // The published output schema is closed for status='error' — `lspMode`
+    // is only valid on hasResults/empty. Skip the tag on error responses
+    // to keep MCP schema validation passing. We still surface the
+    // LSP-unavailable hint through hints[].
+    const withMode: CallHierarchyResult =
+      patternResult.status === 'error'
+        ? withLspUnavailableHint(
+            patternResult,
+            lspAvailable,
+            semanticFallbackHint
+          )
+        : {
+            ...withLspUnavailableHint(
+              patternResult,
+              lspAvailable,
+              semanticFallbackHint
+            ),
+            lspMode: 'fallback',
+          };
+    return attachRawResponseChars(
+      applyCallHierarchyOutputLimit(withMode, query),
+      content.length + countSerializedChars(withMode)
     );
   } catch (error) {
     return createErrorResult(error, query, {
@@ -137,8 +189,15 @@ export async function processCallHierarchy(
  */
 function withLspUnavailableHint(
   result: CallHierarchyResult,
-  lspAvailable: boolean
+  lspAvailable: boolean,
+  semanticFallbackHint?: string
 ): CallHierarchyResult {
+  if (semanticFallbackHint) {
+    return {
+      ...result,
+      hints: [semanticFallbackHint, ...(result.hints || [])],
+    };
+  }
   if (lspAvailable) return result;
   return {
     ...result,
@@ -165,11 +224,13 @@ function applyCallHierarchyOutputLimit(
 
   if (!sizeLimitResult.wasLimited || !sizeLimitResult.pagination) return result;
 
+  // CallHierarchyResult satisfies Record<string, unknown> via its [key: string]:
+  // unknown index signature inherited from LSPToolResultBase, so no cast needed.
   const pagedQueryResult = applyQueryOutputPagination(
     {
       id: query.id ?? 'q1',
       status: result.status,
-      data: result as unknown as Record<string, unknown>,
+      data: result,
     },
     {
       charOffset: sizeLimitResult.pagination.charOffset,
@@ -178,8 +239,12 @@ function applyCallHierarchyOutputLimit(
     TOOL_NAME
   );
 
-  const pagedData =
-    pagedQueryResult.data as unknown as Partial<CallHierarchyResult>;
+  // pagedQueryResult.data is Record<string, unknown> — narrow what we read
+  // back into typed values rather than asserting a Partial<CallHierarchyResult>.
+  const pagedData = pagedQueryResult.data;
+  const pagedHints = Array.isArray(pagedData.hints)
+    ? pagedData.hints.filter((h): h is string => typeof h === 'string')
+    : [];
 
   // Re-spread the original result.hints to make hint-preservation an explicit
   // invariant. applyQueryOutputPagination today excludes 'hints' from
@@ -189,10 +254,15 @@ function applyCallHierarchyOutputLimit(
   // dedupes the outer hints with whatever pagedData.hints carries through.
   const combinedHints = [
     ...(result.hints ?? []),
-    ...((pagedData.hints as string[] | undefined) ?? []),
+    ...pagedHints,
     ...sizeLimitResult.warnings,
     ...sizeLimitResult.paginationHints,
   ];
+
+  const pagedLspMode: CallHierarchyResult['lspMode'] =
+    pagedData.lspMode === 'semantic' || pagedData.lspMode === 'fallback'
+      ? pagedData.lspMode
+      : undefined;
 
   return {
     ...result,
@@ -200,7 +270,7 @@ function applyCallHierarchyOutputLimit(
     // Pin lspMode from the pre-pagination result. pagedData may omit it
     // if the JSON slice lands past the field, and a slice that explicitly
     // serialised `lspMode` to undefined would otherwise erase the marker.
-    lspMode: result.lspMode ?? pagedData.lspMode,
+    lspMode: result.lspMode ?? pagedLspMode,
     outputPagination: {
       charOffset: sizeLimitResult.pagination.charOffset!,
       charLength: sizeLimitResult.pagination.charLength!,
@@ -213,9 +283,81 @@ function applyCallHierarchyOutputLimit(
   };
 }
 
+/**
+ * RFC §4.7.7: when `verbosity:"ultra"` is requested, drop tree node content
+ * and emit graph edges only. Compact / verbose / omitted behave identically
+ * to today.
+ *
+ * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ */
+export function applyCallHierarchyVerbosity(
+  result: CallHierarchyResult,
+  query: LSPCallHierarchyQuery
+): CallHierarchyResult {
+  if (!isUltra(query.verbosity)) return result;
+  if (result.status === 'error') return result;
+
+  const direction = (result.direction ?? query.direction ?? 'incoming') as
+    | 'incoming'
+    | 'outgoing';
+  const root = (result.root ?? (result as { item?: unknown }).item) as
+    | { symbol?: { name?: string }; name?: string }
+    | undefined;
+  const rootName = root?.symbol?.name ?? root?.name ?? query.symbolName ?? '?';
+  // The pattern-fallback emits `incomingCalls` / `outgoingCalls`, the LSP
+  // path emits `calls`. Treat all three as the same edge list.
+  const items = ((result as { calls?: unknown[] }).calls ??
+    (result as { incomingCalls?: unknown[] }).incomingCalls ??
+    (result as { outgoingCalls?: unknown[] }).outgoingCalls ??
+    []) as Array<{
+    from?: {
+      name?: string;
+      uri?: string;
+      range?: { start?: { line?: number } };
+    };
+    to?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
+    fromRanges?: Array<{ start?: { line?: number } }>;
+  }>;
+
+  const edges = items.map(item => {
+    const peer = direction === 'incoming' ? item.from : item.to;
+    const peerName = peer?.name ?? '?';
+    const callSites = item.fromRanges?.length ?? 1;
+    return direction === 'incoming'
+      ? `${peerName} → ${rootName}${callSites > 1 ? ` (×${callSites})` : ''}`
+      : `${rootName} → ${peerName}${callSites > 1 ? ` (×${callSites})` : ''}`;
+  });
+
+  const summary = `${edges.length} ${direction} edge(s) for ${rootName} at depth=${result.depth ?? query.depth ?? 1}`;
+
+  // Preserve whichever edge-list field the upstream result used so the
+  // output schema validation still passes. The LSP path emits `calls`, the
+  // pattern-fallback path emits `incomingCalls` / `outgoingCalls`.
+  const hasCalls = 'calls' in (result as object);
+  const hasIncoming = 'incomingCalls' in (result as object);
+  const hasOutgoing = 'outgoingCalls' in (result as object);
+  const item =
+    result.item && typeof result.item === 'object'
+      ? { ...result.item, content: '' }
+      : result.item;
+  return {
+    ...result,
+    ...(item ? { item } : {}),
+    ...(hasCalls ? { calls: [] } : {}),
+    ...(hasIncoming ? { incomingCalls: [] } : {}),
+    ...(hasOutgoing ? { outgoingCalls: [] } : {}),
+    hints: [
+      summary,
+      `edges: ${edges.join('; ')}`,
+      ...ultraDrillBackHint(
+        're-call with verbosity:"compact" (default) for full per-node context'
+      ),
+    ],
+  };
+}
+
 export {
   parseRipgrepJsonOutput,
-  parseGrepOutput,
   extractFunctionBody,
 } from './callHierarchyPatterns.js';
 export {

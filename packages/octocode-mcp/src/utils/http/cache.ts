@@ -1,5 +1,6 @@
 import NodeCache from 'node-cache';
 import crypto from 'crypto';
+import { incrementGitHubCacheHits } from 'octocode-shared';
 import type { CacheStats } from '../core/types.js';
 
 const VERSION = 'v1';
@@ -52,6 +53,29 @@ interface PendingRequest {
   startedAt: number;
 }
 const pendingRequests = new Map<string, PendingRequest>();
+
+function extractCachePrefix(cacheKey: string): string | undefined {
+  return cacheKey.match(/^v\d+-([^:]+):/)?.[1];
+}
+
+function isGitHubCachePrefix(prefix: string): boolean {
+  return (
+    prefix.startsWith('gh-api-') ||
+    prefix.startsWith('gh-repo-') ||
+    prefix === 'github-user'
+  );
+}
+
+function recordGitHubCacheHit(cacheKey: string): void {
+  const prefix = extractCachePrefix(cacheKey);
+  if (!prefix || !isGitHubCachePrefix(prefix)) return;
+
+  try {
+    incrementGitHubCacheHits(prefix, 1);
+  } catch {
+    // Session stats are best-effort and must never affect cache reads.
+  }
+}
 
 /**
  * Clean up stale pending requests that have exceeded max age.
@@ -180,6 +204,7 @@ export async function withDataCache<T>(
       const cached = cache.get<T>(cacheKey);
       if (cached !== undefined) {
         cacheStats.hits++;
+        recordGitHubCacheHit(cacheKey);
         return cached;
       }
     } catch {

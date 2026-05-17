@@ -100,12 +100,7 @@ export async function loadUserConfig(
       if (!validation.success) continue;
       const config = validation.data;
       if (config.languageServers) {
-        return sanitizeUserLanguageServers(
-          config.languageServers as unknown as Record<
-            string,
-            UserLanguageServerConfig
-          >
-        );
+        return sanitizeUserLanguageServers(config.languageServers);
       }
     } catch {
       // Config file doesn't exist or is invalid, try next

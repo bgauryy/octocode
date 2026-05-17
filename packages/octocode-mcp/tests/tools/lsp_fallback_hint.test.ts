@@ -58,7 +58,7 @@ vi.mock('../../src/lsp/manager.js', async importOriginal => {
   const actual = await importOriginal<object>();
   return {
     ...actual,
-    createClient: vi.fn().mockResolvedValue(null),
+    acquirePooledClient: vi.fn().mockResolvedValue(null),
     isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
   };
 });
@@ -84,7 +84,6 @@ vi.mock(
       hints: [],
     }),
     parseRipgrepJsonOutput: vi.fn(),
-    parseGrepOutput: vi.fn(),
     extractFunctionBody: vi.fn(),
   })
 );
@@ -114,7 +113,7 @@ describe('LSP fallback hint — surfaced when isLanguageServerAvailable=false', 
       isFile: () => true,
     } as unknown as Awaited<ReturnType<typeof fs.stat>>);
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
-    vi.mocked(managerModule.createClient).mockResolvedValue(null);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -282,7 +281,7 @@ describe('LSP goto-definition fallback hint', () => {
     process.env.WORKSPACE_ROOT = process.cwd();
     vi.mocked(fs.readFile).mockResolvedValue(SAMPLE);
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
-    vi.mocked(managerModule.createClient).mockResolvedValue(null);
+    vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
   });
 
   afterEach(() => {

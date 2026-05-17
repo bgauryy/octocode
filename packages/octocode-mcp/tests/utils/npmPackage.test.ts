@@ -162,6 +162,27 @@ describe('mapToResult - time object parsing', () => {
     }
   });
 
+
+  it('should report rawResponseChars from every fetched npm payload', async () => {
+    const viewPayload = {
+      name: 'test-pkg',
+      version: '2.0.0',
+      time: { '2.0.0': '2024-02-15T10:00:00.000Z' },
+    };
+    const downloadsPayload = { downloads: 1000 };
+    mockFetchWithRetries
+      .mockResolvedValueOnce(viewPayload)
+      .mockResolvedValueOnce(downloadsPayload);
+
+    const result = await searchNpmPackage('test-pkg', 1, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      const expectedRawChars =
+        JSON.stringify(viewPayload).length + JSON.stringify(downloadsPayload).length;
+      expect(result.rawResponseChars).toBe(expectedRawChars);
+    }
+  });
   it('should not call fetchLastPublished when time object already provides lastPublished', async () => {
     mockFetchWithRetries
       .mockResolvedValueOnce({

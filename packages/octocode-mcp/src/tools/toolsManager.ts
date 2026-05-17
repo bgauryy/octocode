@@ -7,6 +7,7 @@ import {
 } from '../serverConfig.js';
 import { ToolInvocationCallback } from '../types.js';
 import { logSessionError } from '../session.js';
+import { ignoreBestEffortFailure } from '../utils/core/bestEffort.js';
 import { withOutputSanitization } from '../utils/secureServer.js';
 import {
   getToolFilterConfigSafe,
@@ -80,7 +81,9 @@ export async function registerTools(
 
 function logSessionErrorSafe(toolName: string, errorCode: string): void {
   try {
-    void Promise.resolve(logSessionError(toolName, errorCode)).catch(() => {});
+    void Promise.resolve(logSessionError(toolName, errorCode)).catch(
+      ignoreBestEffortFailure('tool registration session logging')
+    );
   } catch {
     // Best-effort logging should never affect tool registration.
   }

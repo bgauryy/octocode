@@ -1,4 +1,5 @@
 import { generateCacheKey, withDataCache } from '../http/cache.js';
+import { logPackageRegistryFailure } from '../../session.js';
 import type {
   PackageSearchAPIResult,
   PackageSearchError,
@@ -8,6 +9,14 @@ import type {
 
 const MAX_DESCRIPTION_LENGTH = 200;
 const MAX_KEYWORDS = 10;
+
+function recordPyPiRegistryFailure(): void {
+  try {
+    logPackageRegistryFailure('pypi');
+  } catch {
+    // Local stats are best-effort and must not affect package search.
+  }
+}
 
 async function searchPythonPackageInternal(
   packageName: string,
@@ -40,10 +49,18 @@ async function searchPythonPackageInternal(
 
       if (!response.ok) {
         if (response.status === 404) continue;
+        recordPyPiRegistryFailure();
         throw new Error(`PyPI returned ${response.status}`);
       }
 
-      const packageInfo = await response.json();
+      const rawBody = await response.text();
+      let packageInfo: any;
+      try {
+        packageInfo = JSON.parse(rawBody);
+      } catch {
+        continue;
+      }
+      const rawResponseChars = rawBody.length;
       if (!packageInfo.info) {
         continue;
       }
@@ -100,6 +117,7 @@ async function searchPythonPackageInternal(
           packages: [minimalResult],
           ecosystem: 'python',
           totalFound: 1,
+          rawResponseChars,
         };
       }
 
@@ -148,6 +166,7 @@ async function searchPythonPackageInternal(
         packages: [result],
         ecosystem: 'python',
         totalFound: 1,
+        rawResponseChars,
       };
     } catch (error) {
       if (error instanceof Error && error.message.includes('404')) {

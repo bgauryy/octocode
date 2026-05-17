@@ -45,6 +45,7 @@ import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch.
 import { fetchGitHubPullRequestByNumberAPI } from '../../src/github/prByNumber.js';
 import { transformPullRequestItemFromREST } from '../../src/github/prContentFetcher.js';
 import type { PullRequestSimple } from '../../src/github/githubAPI.js';
+import { countSerializedChars } from '../../src/utils/response/charSavings.js';
 
 // Type for mock PR items in tests - allows partial data
 type MockPRItem = Partial<PullRequestSimple>;
@@ -151,6 +152,52 @@ describe('Pull Request Search', () => {
         repo: 'repo',
         pull_number: 123,
       });
+    });
+
+
+    it('should include raw chars from REST list and fetched file changes', async () => {
+      mockShouldUseSearchForPRs.mockReturnValue(false);
+
+      const mockPRs = [
+        {
+          number: 9,
+          title: 'Raw PR',
+          state: 'open',
+          draft: false,
+          user: { login: 'user1' },
+          labels: [],
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-02T00:00:00Z',
+          closed_at: null,
+          html_url: 'https://github.com/test/repo/pull/9',
+          head: { ref: 'feature', sha: 'abc' },
+          base: { ref: 'main', sha: 'def' },
+          body: 'Description',
+        },
+      ];
+      const mockFiles = [
+        {
+          filename: 'src/index.ts',
+          status: 'modified',
+          additions: 2,
+          deletions: 1,
+          changes: 3,
+          patch: '@@ raw patch',
+        },
+      ];
+
+      mockOctokit.rest.pulls.list.mockResolvedValue({ data: mockPRs });
+      mockOctokit.rest.pulls.listFiles.mockResolvedValue({ data: mockFiles });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        type: 'metadata',
+      });
+
+      expect(result.rawResponseChars).toBe(
+        countSerializedChars(mockPRs) + countSerializedChars(mockFiles)
+      );
     });
 
     it('should use REST API for simple repo searches', async () => {

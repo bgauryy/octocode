@@ -50,6 +50,44 @@ describe('withSecurityValidation logging', () => {
     });
   });
 
+  it('should log the tool call after the handler produces a response', async () => {
+    const events: string[] = [];
+    mockLogToolCall.mockImplementation(async () => {
+      events.push('logToolCall');
+    });
+    const mockHandler = vi.fn(async () => {
+      events.push('handler');
+      return {
+        isError: false,
+        content: [{ type: 'text' as const, text: 'success' }],
+      };
+    });
+
+    const wrappedHandler = withSecurityValidation('test_tool', mockHandler);
+
+    const args = {
+      queries: [
+        {
+          owner: 'test-owner',
+          repo: 'test-repo',
+          mainResearchGoal: 'Response ordered logging',
+        },
+      ],
+    };
+
+    const { ContentSanitizer } = await import('../src/contentSanitizer.js');
+    vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
+      isValid: true,
+      sanitizedParams: args,
+      warnings: [],
+      hasSecrets: false,
+    });
+
+    await wrappedHandler(args, { signal: new AbortController().signal });
+
+    expect(events).toEqual(['handler', 'logToolCall']);
+  });
+
   it('should extract repo and owner from bulk queries and log them', async () => {
     const mockHandler = vi.fn(async () => ({
       isError: false,
@@ -239,6 +277,46 @@ describe('withSecurityValidation logging', () => {
     );
   });
 
+  it('should log remote package-style queries even when no repository is present', async () => {
+    const mockHandler = vi.fn(async () => ({
+      isError: false,
+      content: [{ type: 'text' as const, text: 'success' }],
+    }));
+
+    const wrappedHandler = withSecurityValidation('packageSearch', mockHandler);
+
+    const args = {
+      queries: [
+        {
+          id: 'pkg',
+          mainResearchGoal: 'Package lookup',
+          researchGoal: 'Find package metadata',
+          reasoning: 'Package tools do not always have repository fields',
+          ecosystem: 'npm',
+          name: 'react',
+        },
+      ],
+    };
+
+    const { ContentSanitizer } = await import('../src/contentSanitizer.js');
+    vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
+      isValid: true,
+      sanitizedParams: args,
+      warnings: [],
+      hasSecrets: false,
+    });
+
+    await wrappedHandler(args, { signal: new AbortController().signal });
+
+    expect(mockLogToolCall).toHaveBeenCalledWith(
+      'packageSearch',
+      [],
+      'Package lookup',
+      'Find package metadata',
+      'Package tools do not always have repository fields'
+    );
+  });
+
   describe('Bulk operations - individual query logging', () => {
     it('should log each query individually in bulk operations', async () => {
       const mockHandler = vi.fn(async () => ({
@@ -370,7 +448,7 @@ describe('withSecurityValidation logging', () => {
       );
     });
 
-    it('should skip logging queries without repos in bulk operations', async () => {
+    it('should log queries without repos using an empty repo list in bulk operations', async () => {
       const mockHandler = vi.fn(async () => ({
         isError: false,
         content: [{ type: 'text' as const, text: 'success' }],
@@ -407,8 +485,8 @@ describe('withSecurityValidation logging', () => {
 
       await wrappedHandler(args, { signal: new AbortController().signal });
 
-      // Only queries with repos should be logged (2 out of 3)
-      expect(mockLogToolCall).toHaveBeenCalledTimes(2);
+      // Every valid query should be counted, even when it has no repository fields.
+      expect(mockLogToolCall).toHaveBeenCalledTimes(3);
 
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         1,
@@ -421,6 +499,15 @@ describe('withSecurityValidation logging', () => {
 
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         2,
+        'test_tool',
+        [],
+        undefined,
+        undefined,
+        undefined
+      );
+
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        3,
         'test_tool',
         ['owner3/repo3'],
         undefined,

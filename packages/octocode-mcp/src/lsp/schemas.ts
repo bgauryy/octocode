@@ -35,6 +35,7 @@ const UserLanguageServerConfigSchema = z
       )
       .max(MAX_ARGS_COUNT)
       .optional(),
+    languageId: z.string().min(1).max(64),
     initializationOptions: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();

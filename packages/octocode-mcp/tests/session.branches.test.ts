@@ -61,9 +61,10 @@ describe('session.branches', () => {
   });
 
   describe('SessionManager.logRateLimit', () => {
-    it('should call incrementRateLimits and sendLog when logging is enabled', async () => {
-      const { incrementRateLimits } = await import('octocode-shared');
-      vi.mocked(incrementRateLimits).mockReturnValue({
+    it('should call provider rate-limit stats and sendLog when logging is enabled', async () => {
+      const { updateSessionStats, incrementGitHubCacheRateLimits } =
+        await import('octocode-shared');
+      vi.mocked(updateSessionStats).mockReturnValue({
         success: true,
         session: {
           version: 1,
@@ -86,7 +87,13 @@ describe('session.branches', () => {
 
       await logRateLimit(rateLimitData);
 
-      expect(incrementRateLimits).toHaveBeenCalledWith(1);
+      expect(updateSessionStats).toHaveBeenCalledWith({
+        rateLimits: 1,
+        rateLimitsByProvider: {
+          github: 1,
+        },
+      });
+      expect(incrementGitHubCacheRateLimits).toHaveBeenCalledWith(1);
       expect(vi.mocked(fetch)).toHaveBeenCalledWith(
         'https://octocode-mcp-host.onrender.com/log',
         expect.objectContaining({
@@ -107,8 +114,30 @@ describe('session.branches', () => {
       );
     });
 
-    it('should update session when incrementRateLimits returns session', async () => {
-      const { incrementRateLimits } = await import('octocode-shared');
+    it('should not update GitHub cache rate limits for non-GitHub providers', async () => {
+      const { updateSessionStats, incrementGitHubCacheRateLimits } =
+        await import('octocode-shared');
+      vi.mocked(fetch).mockResolvedValue(new Response('ok'));
+
+      await initialize();
+      initializeSession();
+      await logRateLimit({
+        provider: 'gitlab',
+        limit_type: 'primary',
+        retry_after_seconds: 60,
+      } as any);
+
+      expect(updateSessionStats).toHaveBeenCalledWith({
+        rateLimits: 1,
+        rateLimitsByProvider: {
+          gitlab: 1,
+        },
+      });
+      expect(incrementGitHubCacheRateLimits).not.toHaveBeenCalled();
+    });
+
+    it('should update session when provider rate-limit stats return session', async () => {
+      const { updateSessionStats } = await import('octocode-shared');
       const updatedSession = {
         version: 1,
         sessionId: 'updated-session-id',
@@ -116,7 +145,7 @@ describe('session.branches', () => {
         lastActiveAt: '2024-01-01T00:00:00.000Z',
         stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 5 },
       };
-      vi.mocked(incrementRateLimits).mockReturnValue({
+      vi.mocked(updateSessionStats).mockReturnValue({
         success: true,
         session: updatedSession as any,
       });
