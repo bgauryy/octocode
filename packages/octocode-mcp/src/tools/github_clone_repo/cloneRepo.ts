@@ -30,6 +30,7 @@ import {
   TOOLING_ALLOWED_ENV_VARS,
 } from '../../utils/exec/spawn.js';
 import type { CloneRepoQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import type { CloneRepoResult } from './types.js';
 import {
   getCloneDir,
@@ -62,11 +63,14 @@ const GIT_ALLOWED_ENV_VARS = [
  * @returns      - Local path, cache status, expiry
  */
 export async function cloneRepo(
-  query: CloneRepoQuery,
+  query: WithOptionalMeta<CloneRepoQuery>,
   authInfo?: AuthInfo,
   token?: string
 ): Promise<CloneRepoResult> {
-  const { owner, repo, sparse_path, forceRefresh } = query;
+  // owner and repo are required by Zod schema at the call site; assert here for TypeScript.
+  const owner = query.owner!;
+  const repo = query.repo!;
+  const { sparse_path, forceRefresh } = query;
 
   await assertGitAvailable();
 

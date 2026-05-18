@@ -10,10 +10,13 @@ import { dirname, resolve as resolvePath } from 'path';
 import type { LSPGotoDefinitionQuery as UpstreamLSPGotoDefinitionQuery } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import type { WithOptionalMeta } from '../../types/execution.js';
 
-type LSPGotoDefinitionQuery = UpstreamLSPGotoDefinitionQuery & {
-  verbosity?: Verbosity;
-};
+type LSPGotoDefinitionQuery =
+  WithOptionalMeta<UpstreamLSPGotoDefinitionQuery> & {
+    verbosity?: Verbosity;
+    orderHint?: number;
+  };
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import {
   acquirePooledClient,

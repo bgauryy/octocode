@@ -129,6 +129,8 @@ export interface PullRequestQuery extends BaseProviderQuery {
   projectId?: string;
   /** Owner/organization filter (used when searching without a specific repo) */
   owner?: string;
+  /** Repository name filter */
+  repo?: string;
   /**
    * PR/MR number within the project:
    * - GitHub: PR number

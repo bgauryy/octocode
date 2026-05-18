@@ -16,6 +16,7 @@ import type {
   ViewStructureQuery as UpstreamViewStructureQuery,
 } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithOptionalMeta } from '../../types/execution.js';
 
 /**
  * Handler-side query type: upstream input shape plus the overlay's `verbosity`
@@ -23,7 +24,7 @@ import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
  * preserves the existing input-shape contract — callers that pass partial
  * queries continue to type-check while the handler still sees `verbosity`.
  */
-type ViewStructureQuery = UpstreamViewStructureQuery & {
+type ViewStructureQuery = WithOptionalMeta<UpstreamViewStructureQuery> & {
   verbosity?: Verbosity;
 };
 import { ToolErrors } from '../../errors/errorFactories.js';

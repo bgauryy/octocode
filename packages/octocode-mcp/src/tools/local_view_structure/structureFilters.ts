@@ -14,13 +14,19 @@ export interface DirectoryEntry {
   depth?: number;
 }
 
+/** Subset of ViewStructureQuery fields used by applyEntryFilters */
+type EntryFilterQuery = Pick<
+  Partial<ViewStructureQuery>,
+  'pattern' | 'extension' | 'extensions' | 'directoriesOnly' | 'filesOnly'
+>;
+
 /**
  * Apply query filters to entry list
  * Used by both CLI and recursive paths to ensure consistent filtering
  */
 export function applyEntryFilters(
   entries: DirectoryEntry[],
-  query: ViewStructureQuery
+  query: EntryFilterQuery
 ): DirectoryEntry[] {
   let filtered = entries;
 

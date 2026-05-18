@@ -18,10 +18,12 @@ import {
 import type { CallHierarchyResult } from '../../lsp/types.js';
 import type { LSPCallHierarchyQuery as UpstreamLSPCallHierarchyQuery } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
 
-type LSPCallHierarchyQuery = UpstreamLSPCallHierarchyQuery & {
+type LSPCallHierarchyQuery = WithOptionalMeta<UpstreamLSPCallHierarchyQuery> & {
   verbosity?: Verbosity;
+  orderHint?: number;
 };
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { callHierarchyWithLSP } from './callHierarchyLsp.js';

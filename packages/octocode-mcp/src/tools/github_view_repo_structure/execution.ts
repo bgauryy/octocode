@@ -4,6 +4,9 @@ import type {
   GitHubViewRepoStructureToolResult,
   GitHubRepoStructureDirectoryEntry,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
+
+type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
@@ -43,14 +46,14 @@ function filterStructure(
 }
 
 export async function exploreMultipleRepositoryStructures(
-  args: ToolExecutionArgs<GitHubViewRepoStructureQuery>
+  args: ToolExecutionArgs<PartialRepoStructureQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: GitHubViewRepoStructureQuery, _index: number) => {
+    async (query: PartialRepoStructureQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
         const projectId = `${query.owner}/${query.repo}`;

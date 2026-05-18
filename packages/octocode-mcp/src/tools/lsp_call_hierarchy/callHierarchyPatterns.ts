@@ -17,6 +17,7 @@ import type {
   LSPPaginationInfo,
 } from '../../lsp/types.js';
 import type { LSPCallHierarchyQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import {
   CallSite,
   createCallHierarchyItem,
@@ -26,8 +27,10 @@ import {
 } from './callHierarchyHelpers.js';
 import { TOOL_NAME } from './constants.js';
 
+type PartialLSPCallHierarchyQuery = WithOptionalMeta<LSPCallHierarchyQuery>;
+
 interface IncomingPatternSearchOptions {
-  query: LSPCallHierarchyQuery;
+  query: PartialLSPCallHierarchyQuery;
   targetFilePath: string;
   workspaceRoot: string;
   targetItem: CallHierarchyItem;
@@ -38,7 +41,7 @@ interface IncomingPatternSearchOptions {
 }
 
 interface OutgoingPatternSearchOptions {
-  query: LSPCallHierarchyQuery;
+  query: PartialLSPCallHierarchyQuery;
   filePath: string;
   content: string;
   targetItem: CallHierarchyItem;
@@ -52,7 +55,7 @@ interface OutgoingPatternSearchOptions {
  * Fallback: Use pattern matching when LSP is unavailable
  */
 export async function callHierarchyWithPatternMatching(
-  query: LSPCallHierarchyQuery,
+  query: PartialLSPCallHierarchyQuery,
   absolutePath: string,
   workspaceRoot: string,
   content: string,

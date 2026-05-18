@@ -17,10 +17,22 @@ import {
   LSPGotoDefinitionQuerySchema as UpstreamGotoDefinitionQuerySchema,
   LSPFindReferencesQuerySchema as UpstreamFindReferencesQuerySchema,
   LSPCallHierarchyQuerySchema as UpstreamCallHierarchyQuerySchema,
-  createBulkQuerySchema,
 } from '@octocodeai/octocode-core';
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
-import { createVerbosityField, verbosityField } from './localSchemaOverlay.js';
+import {
+  createRelaxedBulkQuerySchema,
+  createVerbosityField,
+  verbosityField,
+  contextLinesField,
+  relaxedPaginationLimitField,
+  relaxedPageNumberField,
+} from './localSchemaOverlay.js';
+
+const lspOptionalMetaFields = {
+  id: z.string().optional(),
+  researchGoal: z.string().optional(),
+  reasoning: z.string().optional(),
+} as const;
 
 export { verbosityField };
 
@@ -48,14 +60,16 @@ const callHierarchyVerbosityField = createVerbosityField(
 
 export const LSPGotoDefinitionQuerySchema =
   UpstreamGotoDefinitionQuerySchema.extend({
+    ...lspOptionalMetaFields,
     verbosity: gotoDefinitionVerbosityField,
-  });
+    contextLines: contextLinesField,
+  }).strip();
 
 export type LSPGotoDefinitionQuery = z.infer<
   typeof LSPGotoDefinitionQuerySchema
 >;
 
-export const BulkLSPGotoDefinitionQuerySchema = createBulkQuerySchema(
+export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,
   LSPGotoDefinitionQuerySchema,
   { maxQueries: 5 }
@@ -67,7 +81,11 @@ export const BulkLSPGotoDefinitionQuerySchema = createBulkQuerySchema(
 
 export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.extend({
+    ...lspOptionalMetaFields,
     verbosity: findReferencesVerbosityField,
+    contextLines: contextLinesField,
+    referencesPerPage: relaxedPaginationLimitField.default(10),
+    page: relaxedPageNumberField.default(1),
     groupByFile: z
       .boolean()
       .optional()
@@ -77,13 +95,13 @@ export const LSPFindReferencesQuerySchema =
           'full locations list — use for impact-analysis ("is this used widely?"). ' +
           'Drill-back: re-query with `includePattern` scoped to the top file(s).'
       ),
-  });
+  }).strip();
 
 export type LSPFindReferencesQuery = z.infer<
   typeof LSPFindReferencesQuerySchema
 >;
 
-export const BulkLSPFindReferencesQuerySchema = createBulkQuerySchema(
+export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
   LSPFindReferencesQuerySchema,
   { maxQueries: 5 }
@@ -95,12 +113,16 @@ export const BulkLSPFindReferencesQuerySchema = createBulkQuerySchema(
 
 export const LSPCallHierarchyQuerySchema =
   UpstreamCallHierarchyQuerySchema.extend({
+    ...lspOptionalMetaFields,
     verbosity: callHierarchyVerbosityField,
-  });
+    contextLines: contextLinesField,
+    callsPerPage: relaxedPaginationLimitField.default(10),
+    page: relaxedPageNumberField.default(1),
+  }).strip();
 
 export type LSPCallHierarchyQuery = z.infer<typeof LSPCallHierarchyQuerySchema>;
 
-export const BulkLSPCallHierarchyQuerySchema = createBulkQuerySchema(
+export const BulkLSPCallHierarchyQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
   LSPCallHierarchyQuerySchema,
   { maxQueries: 5 }

@@ -18,6 +18,7 @@ import type {
   FetchContentQuery as UpstreamFetchContentQuery,
   LocalGetFileContentToolResult,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
@@ -25,7 +26,9 @@ import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
-type FetchContentQuery = UpstreamFetchContentQuery & { verbosity?: Verbosity };
+type FetchContentQuery = WithOptionalMeta<UpstreamFetchContentQuery> & {
+  verbosity?: Verbosity;
+};
 
 const DEFAULT_OUTPUT_CHAR_LENGTH = 8000;
 const MAX_MATCH_LINES = 50;

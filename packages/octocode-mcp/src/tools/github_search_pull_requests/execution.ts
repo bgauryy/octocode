@@ -5,7 +5,23 @@ import type {
 } from '@octocodeai/octocode-core';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  ToolExecutionArgs,
+  WithOptionalMeta,
+} from '../../types/execution.js';
+
+/** Fields that have ZodDefault values and can be omitted by callers */
+type PRDefaultKeys =
+  | 'order'
+  | 'limit'
+  | 'page'
+  | 'withComments'
+  | 'withCommits'
+  | 'type';
+type PartialPRQuery = WithOptionalMeta<
+  Omit<GitHubPullRequestSearchQuery, PRDefaultKeys> &
+    Partial<Pick<GitHubPullRequestSearchQuery, PRDefaultKeys>>
+>;
 import {
   handleCatchError,
   createSuccessResult,
@@ -24,14 +40,14 @@ import {
 } from '../providerExecution.js';
 
 export async function searchMultipleGitHubPullRequests(
-  args: ToolExecutionArgs<GitHubPullRequestSearchQuery>
+  args: ToolExecutionArgs<PartialPRQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: GitHubPullRequestSearchQuery, _index: number) => {
+    async (query: PartialPRQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
 

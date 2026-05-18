@@ -276,12 +276,12 @@ describe('Local Tools — Overlay schemas (what MCP actually receives)', () => {
       expect(result.success).toBe(true);
     });
 
-    it('bulk schemas keep the strict top-level guard from upstream', () => {
+    it('bulk schemas strip unknown top-level keys instead of rejecting them', () => {
       const result = BulkRipgrepQuerySchema.safeParse({
         queries: [baseRipgrep],
         unexpected: true,
       });
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
 
     it('bulk schemas keep duplicate-id detection from upstream', () => {

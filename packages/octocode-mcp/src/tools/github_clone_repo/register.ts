@@ -11,9 +11,10 @@ import { toMCPSchema } from '../../types/toolTypes.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { ToolInvocationCallback } from '../../types.js';
 import {
-  BulkCloneRepoSchema,
   GITHUB_CLONE_REPO_DESCRIPTION,
+  type CloneRepoQuery,
 } from '@octocodeai/octocode-core';
+import { BulkCloneRepoLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
 import { executeCloneRepo } from './execution.js';
 import { withSecurityValidation } from '../../utils/securityBridge.js';
 import { GitHubCloneRepoOutputSchema } from '@octocodeai/octocode-core';
@@ -27,7 +28,7 @@ export function registerGitHubCloneRepoTool(
     TOOL_NAMES.GITHUB_CLONE_REPO,
     {
       description: GITHUB_CLONE_REPO_DESCRIPTION,
-      inputSchema: toMCPSchema(BulkCloneRepoSchema),
+      inputSchema: toMCPSchema(BulkCloneRepoLocalSchema),
       outputSchema: toMCPSchema(GitHubCloneRepoOutputSchema),
       annotations: {
         title: 'Clone / Fetch GitHub Repository Locally',
@@ -41,7 +42,7 @@ export function registerGitHubCloneRepoTool(
       TOOL_NAMES.GITHUB_CLONE_REPO,
       async (args, authInfo, sessionId) => {
         const { queries, responseCharOffset, responseCharLength } = args as {
-          queries: unknown[];
+          queries: CloneRepoQuery[];
           responseCharOffset?: number;
           responseCharLength?: number;
         };
@@ -53,7 +54,7 @@ export function registerGitHubCloneRepoTool(
         );
 
         return executeCloneRepo({
-          queries: queries as Parameters<typeof executeCloneRepo>[0]['queries'],
+          queries,
           responseCharOffset,
           responseCharLength,
           authInfo,

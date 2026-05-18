@@ -6,6 +6,7 @@ import path from 'path';
 import { pathValidator } from 'octocode-security-utils/pathValidator';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import type { BaseQueryLocal } from '@octocodeai/octocode-core';
+type PartialBaseQueryLocal = Partial<BaseQueryLocal>;
 import {
   createErrorResult,
   type UnifiedErrorResult,
@@ -69,9 +70,16 @@ function getPathErrorHints(
  * Validate tool path and return validation result
  */
 export function validateToolPath(
-  query: BaseQueryLocal & { path: string },
+  query: PartialBaseQueryLocal & { path?: string },
   toolName: string
 ): ToolPathValidationResult {
+  if (!query.path) {
+    const toolError = ToolErrors.pathValidationFailed('', 'path is required');
+    return {
+      isValid: false,
+      errorResult: createErrorResult(toolError, query, { toolName }),
+    };
+  }
   const cwd = process.cwd();
   const inputPath = query.path.replace(/^file:\/\//, '');
   const resolvedPath = path.resolve(inputPath);

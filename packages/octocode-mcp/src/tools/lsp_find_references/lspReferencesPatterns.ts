@@ -17,6 +17,7 @@ import type {
   LSPPaginationInfo,
 } from '../../lsp/types.js';
 import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import { getHints } from '../../hints/index.js';
 import { RipgrepMatchOnlySchema } from '../../utils/parsers/schemas.js';
 import { matchesFilePatterns } from './lspReferencesCore.js';
@@ -206,7 +207,7 @@ async function enhancePatternReference(
 export async function findReferencesWithPatternMatching(
   absolutePath: string,
   workspaceRoot: string,
-  query: LSPFindReferencesQuery
+  query: WithOptionalMeta<LSPFindReferencesQuery>
 ): Promise<FindReferencesResult> {
   const allRawReferences = await searchReferencesInWorkspace(
     workspaceRoot,

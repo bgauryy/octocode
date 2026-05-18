@@ -7,6 +7,14 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { HintContext } from './metadata.js';
 
 /**
+ * Makes all upstream fields optional so tests can call src functions without
+ * providing ZodDefault fields (which are required in the inferred TypeScript type
+ * but have runtime defaults). This covers metadata fields (id, researchGoal, etc.)
+ * as well as ZodDefault fields (limit, page, details, entriesPerPage, etc.).
+ */
+export type WithOptionalMeta<T> = Partial<T>;
+
+/**
  * Standardized execution arguments for all tools.
  * Provides a consistent interface across GitHub, Local, LSP, and Package tools.
  *

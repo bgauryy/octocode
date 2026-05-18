@@ -8,7 +8,12 @@ import {
   getDynamicHints as getMetadataDynamicHints,
 } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  ToolExecutionArgs,
+  WithOptionalMeta,
+} from '../../types/execution.js';
+
+type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchQuery>;
 import {
   handleCatchError,
   handleProviderError,
@@ -31,12 +36,12 @@ type RepoSearchVariantLabel = 'combined' | 'topics' | 'keywords';
 
 interface RepoSearchVariant {
   label: RepoSearchVariantLabel;
-  query: GitHubReposSearchQuery;
+  query: PartialReposSearchQuery;
 }
 
 interface RepoSearchVariantExecution {
   label: RepoSearchVariantLabel;
-  query: GitHubReposSearchQuery;
+  query: PartialReposSearchQuery;
   response: ProviderOperationResult<
     RepoSearchVariant,
     ProviderRepoSearchResult
@@ -52,7 +57,7 @@ type SuccessfulRepoSearchVariant = RepoSearchVariantExecution & {
   };
 };
 
-function hasValidTopics(query: GitHubReposSearchQuery): boolean {
+function hasValidTopics(query: PartialReposSearchQuery): boolean {
   return Boolean(
     query.topicsToSearch &&
     (Array.isArray(query.topicsToSearch)
@@ -61,7 +66,7 @@ function hasValidTopics(query: GitHubReposSearchQuery): boolean {
   );
 }
 
-function hasValidKeywords(query: GitHubReposSearchQuery): boolean {
+function hasValidKeywords(query: PartialReposSearchQuery): boolean {
   return Boolean(query.keywordsToSearch && query.keywordsToSearch.length > 0);
 }
 
@@ -77,7 +82,7 @@ function createSearchReasoning(
 }
 
 function createSearchVariants(
-  query: GitHubReposSearchQuery
+  query: PartialReposSearchQuery
 ): RepoSearchVariant[] {
   const hasTopics = hasValidTopics(query);
   const hasKeywords = hasValidKeywords(query);
@@ -166,7 +171,7 @@ function sumVariantRawResponseChars(
 }
 
 function generateSearchSpecificHints(
-  query: GitHubReposSearchQuery,
+  query: PartialReposSearchQuery,
   hasResults: boolean
 ): string[] | undefined {
   const hints: string[] = [];
@@ -200,14 +205,14 @@ function generateSearchSpecificHints(
 }
 
 export async function searchMultipleGitHubRepos(
-  args: ToolExecutionArgs<GitHubReposSearchQuery>
+  args: ToolExecutionArgs<PartialReposSearchQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: GitHubReposSearchQuery, _index: number) => {
+    async (query: PartialReposSearchQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
         const variants = createSearchVariants(query);

@@ -16,6 +16,7 @@ import type {
   CodeSnippet,
 } from '../../lsp/types.js';
 import type { LSPCallHierarchyQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import {
   createCallItemKey,
   enhanceCallHierarchyItem,
@@ -32,7 +33,7 @@ export async function callHierarchyWithLSP(
   filePath: string,
   workspaceRoot: string,
   position: ExactPosition,
-  query: LSPCallHierarchyQuery,
+  query: WithOptionalMeta<LSPCallHierarchyQuery>,
   content: string
 ): Promise<CallHierarchyResult | null> {
   // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it

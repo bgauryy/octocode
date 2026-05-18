@@ -19,6 +19,7 @@ import type {
   ExactPosition,
 } from '../../lsp/types.js';
 import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import type { SymbolKind } from '../../lsp/types.js';
 import { acquirePooledClient } from '../../lsp/manager.js';
 import { getHints } from '../../hints/index.js';
@@ -81,7 +82,7 @@ export async function findReferencesWithLSP(
   filePath: string,
   workspaceRoot: string,
   position: ExactPosition,
-  query: LSPFindReferencesQuery
+  query: WithOptionalMeta<LSPFindReferencesQuery>
 ): Promise<FindReferencesResult | null> {
   // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it
   // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).

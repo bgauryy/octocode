@@ -10,7 +10,12 @@ import type { CloneRepoQuery } from '@octocodeai/octocode-core';
 import { getDirectorySizeBytes } from 'octocode-shared';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  ToolExecutionArgs,
+  WithOptionalMeta,
+} from '../../types/execution.js';
+
+type PartialCloneRepoQuery = WithOptionalMeta<CloneRepoQuery>;
 import { handleCatchError, createSuccessResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import {
@@ -46,14 +51,14 @@ const CACHE_HIT_HINT =
   'Served from 24-hour cache (no network call). To force refresh, set forceRefresh: true in the query.';
 
 export async function executeCloneRepo(
-  args: ToolExecutionArgs<CloneRepoQuery>
+  args: ToolExecutionArgs<PartialCloneRepoQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: CloneRepoQuery, _index: number) =>
+    async (query: PartialCloneRepoQuery, _index: number) =>
       executeWithToolBoundary({
         toolName: TOOL_NAMES.GITHUB_CLONE_REPO,
         query,

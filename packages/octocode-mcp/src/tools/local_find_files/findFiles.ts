@@ -21,6 +21,7 @@ import type {
   LocalFindFilesEntry,
   LocalFindFilesToolResult,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
@@ -28,7 +29,9 @@ import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
-type FindFilesQuery = UpstreamFindFilesQuery & { verbosity?: Verbosity };
+type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery> & {
+  verbosity?: Verbosity;
+};
 
 export async function findFiles(
   query: FindFilesQuery

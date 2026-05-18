@@ -7,6 +7,7 @@ import type {
   GitHubReposSearchQuery,
   GitHubRepositoryOutput,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../types/execution.js';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { buildRepoSearchQuery } from './queryBuilders.js';
@@ -27,7 +28,7 @@ interface RepoSearchPagination {
 }
 
 export async function searchGitHubReposAPI(
-  params: GitHubReposSearchQuery,
+  params: WithOptionalMeta<GitHubReposSearchQuery>,
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<
@@ -76,7 +77,7 @@ export async function searchGitHubReposAPI(
 }
 
 async function searchGitHubReposAPIInternal(
-  params: GitHubReposSearchQuery,
+  params: WithOptionalMeta<GitHubReposSearchQuery>,
   authInfo?: AuthInfo
 ): Promise<
   GitHubAPIResponse<{

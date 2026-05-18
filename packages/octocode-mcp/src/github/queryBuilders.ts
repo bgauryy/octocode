@@ -2,6 +2,7 @@ import type {
   GitHubCodeSearchQuery,
   GitHubReposSearchQuery,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../types/execution.js';
 import { GitHubPullRequestsSearchParams } from './githubAPI.js';
 
 export function getOwnerQualifier(owner: string): string {
@@ -130,7 +131,7 @@ abstract class BaseQueryBuilder {
 }
 
 class CodeSearchQueryBuilder extends BaseQueryBuilder {
-  addQueryTerms(params: GitHubCodeSearchQuery): this {
+  addQueryTerms(params: WithOptionalMeta<GitHubCodeSearchQuery>): this {
     if (
       Array.isArray(params.keywordsToSearch) &&
       params.keywordsToSearch.length > 0
@@ -145,14 +146,14 @@ class CodeSearchQueryBuilder extends BaseQueryBuilder {
     return this;
   }
 
-  addSearchFilters(params: GitHubCodeSearchQuery): this {
+  addSearchFilters(params: WithOptionalMeta<GitHubCodeSearchQuery>): this {
     this.addSimpleFilter(params.filename, 'filename');
     this.addSimpleFilter(params.extension, 'extension');
     this.addQuotedFilter(params.path, 'path');
     return this;
   }
 
-  addMatchFilters(params: GitHubCodeSearchQuery): this {
+  addMatchFilters(params: WithOptionalMeta<GitHubCodeSearchQuery>): this {
     if (params.match) {
       const matches = Array.isArray(params.match)
         ? params.match
@@ -170,7 +171,7 @@ class CodeSearchQueryBuilder extends BaseQueryBuilder {
 }
 
 class RepoSearchQueryBuilder extends BaseQueryBuilder {
-  addQueryTerms(params: GitHubReposSearchQuery): this {
+  addQueryTerms(params: WithOptionalMeta<GitHubReposSearchQuery>): this {
     if (
       Array.isArray(params.keywordsToSearch) &&
       params.keywordsToSearch.length > 0
@@ -182,7 +183,7 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     return this;
   }
 
-  addRepoFilters(params: GitHubReposSearchQuery): this {
+  addRepoFilters(params: WithOptionalMeta<GitHubReposSearchQuery>): this {
     this.addArrayFilter(params.topicsToSearch, 'topic');
     this.addSimpleFilter(params.stars, 'stars');
     this.addSimpleFilter(params.size, 'size');
@@ -195,7 +196,7 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     return this;
   }
 
-  addMatchFilters(params: GitHubReposSearchQuery): this {
+  addMatchFilters(params: WithOptionalMeta<GitHubReposSearchQuery>): this {
     if (params.match) {
       const matches = Array.isArray(params.match)
         ? params.match
@@ -283,7 +284,9 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
   }
 }
 
-export function buildCodeSearchQuery(params: GitHubCodeSearchQuery): string {
+export function buildCodeSearchQuery(
+  params: WithOptionalMeta<GitHubCodeSearchQuery>
+): string {
   return new CodeSearchQueryBuilder()
     .addQueryTerms(params)
     .addSearchFilters(params)
@@ -292,7 +295,9 @@ export function buildCodeSearchQuery(params: GitHubCodeSearchQuery): string {
     .build();
 }
 
-export function buildRepoSearchQuery(params: GitHubReposSearchQuery): string {
+export function buildRepoSearchQuery(
+  params: WithOptionalMeta<GitHubReposSearchQuery>
+): string {
   return new RepoSearchQueryBuilder()
     .addQueryTerms(params)
     .addOwnerRepo(params)

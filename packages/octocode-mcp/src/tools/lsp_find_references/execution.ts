@@ -1,8 +1,14 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { LSPFindReferencesQuery as UpstreamLSPFindReferencesQuery } from '@octocodeai/octocode-core';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { findReferences } from './lsp_find_references.js';
-import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  ToolExecutionArgs,
+  WithOptionalMeta,
+} from '../../types/execution.js';
+
+type LSPFindReferencesQuery =
+  WithOptionalMeta<UpstreamLSPFindReferencesQuery> & { orderHint?: number };
 import { TOOL_NAME } from './constants.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 

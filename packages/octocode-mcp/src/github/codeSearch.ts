@@ -6,6 +6,7 @@ import type {
   OptimizedCodeSearchResult,
 } from './githubAPI.js';
 import type { GitHubCodeSearchQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../types/execution.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { minifyContent } from '../utils/minifier/minifier.js';
 import { getOctokit } from './client.js';
@@ -20,7 +21,7 @@ import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 
 export async function searchGitHubCodeAPI(
-  params: GitHubCodeSearchQuery,
+  params: WithOptionalMeta<GitHubCodeSearchQuery>,
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubAPIResponse<OptimizedCodeSearchResult>> {
@@ -59,7 +60,7 @@ export async function searchGitHubCodeAPI(
 }
 
 async function searchGitHubCodeAPIInternal(
-  params: GitHubCodeSearchQuery,
+  params: WithOptionalMeta<GitHubCodeSearchQuery>,
   authInfo?: AuthInfo
 ): Promise<GitHubAPIResponse<OptimizedCodeSearchResult>> {
   try {

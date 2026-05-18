@@ -16,7 +16,9 @@ export class LsCommandBuilder extends BaseCommandBuilder {
   /**
    * Builds an ls command from a view structure query
    */
-  fromQuery(query: ViewStructureQuery): this {
+  fromQuery(
+    query: Partial<ViewStructureQuery> & Pick<ViewStructureQuery, 'path'>
+  ): this {
     this.addFlag('--color=never');
 
     if (process.platform === 'linux') {

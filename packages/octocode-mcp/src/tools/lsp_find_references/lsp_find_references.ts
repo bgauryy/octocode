@@ -11,12 +11,15 @@ import { readFile, stat } from 'fs/promises';
 
 import { type LSPFindReferencesQuery as UpstreamLSPFindReferencesQuery } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithOptionalMeta } from '../../types/execution.js';
 import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
 
-type LSPFindReferencesQuery = UpstreamLSPFindReferencesQuery & {
-  verbosity?: Verbosity;
-  groupByFile?: boolean;
-};
+type LSPFindReferencesQuery =
+  WithOptionalMeta<UpstreamLSPFindReferencesQuery> & {
+    verbosity?: Verbosity;
+    groupByFile?: boolean;
+    orderHint?: number;
+  };
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import {
   isLanguageServerAvailable,

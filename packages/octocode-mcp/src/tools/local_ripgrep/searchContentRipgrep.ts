@@ -10,8 +10,11 @@ import {
 } from '../../utils/exec/commandAvailability.js';
 import {
   applyWorkflowMode,
-  type RipgrepQuery,
+  type RipgrepQuery as UpstreamRipgrepQuery,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
+
+type RipgrepQuery = WithOptionalMeta<UpstreamRipgrepQuery>;
 import { createErrorResult } from '../../utils/file/toolHelpers.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
@@ -22,7 +25,7 @@ import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 export async function searchContentRipgrep(
   query: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
-  const configuredQuery = applyWorkflowMode(query);
+  const configuredQuery = applyWorkflowMode(query as UpstreamRipgrepQuery);
 
   try {
     const rgAvailability = await checkCommandAvailability('rg');

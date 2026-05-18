@@ -1,6 +1,9 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { FileContentQuery } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../../types/execution.js';
+
+type PartialFileContentQuery = WithOptionalMeta<FileContentQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
@@ -56,7 +59,7 @@ const FILE_KEYS_PRIORITY = [
 ];
 
 export async function fetchMultipleGitHubFileContents(
-  args: ToolExecutionArgs<FileContentQuery>
+  args: ToolExecutionArgs<PartialFileContentQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
@@ -71,7 +74,7 @@ export async function fetchMultipleGitHubFileContents(
 
   return executeBulkOperation(
     queries,
-    async (query: FileContentQuery, _index: number) => {
+    async (query: PartialFileContentQuery, _index: number) => {
       try {
         const providerContext = getProviderContext();
 
@@ -94,7 +97,7 @@ export async function fetchMultipleGitHubFileContents(
 }
 
 async function handleDirectoryFetch(
-  query: FileContentQuery,
+  query: PartialFileContentQuery,
   authInfo: AuthInfo | undefined,
   providerContext: ReturnType<typeof createProviderExecutionContext>
 ) {
@@ -124,11 +127,11 @@ async function handleDirectoryFetch(
 
   const branch =
     query.branch ??
-    (await resolveDefaultBranch(query.owner, query.repo, authInfo));
+    (await resolveDefaultBranch(query.owner!, query.repo!, authInfo));
 
   const result = await fetchDirectoryContents(
-    query.owner,
-    query.repo,
+    query.owner!,
+    query.repo!,
     String(query.path),
     branch,
     authInfo,
@@ -164,7 +167,7 @@ async function handleDirectoryFetch(
 }
 
 async function handleFileFetch(
-  query: FileContentQuery,
+  query: PartialFileContentQuery,
   providerContext: ReturnType<typeof createProviderExecutionContext>
 ) {
   const providerResult = await executeProviderOperation(query, () =>

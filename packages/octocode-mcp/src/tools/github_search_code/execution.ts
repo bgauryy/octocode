@@ -5,7 +5,12 @@ import type {
 } from '@octocodeai/octocode-core';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  ToolExecutionArgs,
+  WithOptionalMeta,
+} from '../../types/execution.js';
+
+type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 import { handleCatchError, createSuccessResult } from '../utils.js';
 import {
   buildPaginationHints,
@@ -18,14 +23,14 @@ import {
 } from '../providerExecution.js';
 
 export async function searchMultipleGitHubCode(
-  args: ToolExecutionArgs<GitHubCodeSearchQuery>
+  args: ToolExecutionArgs<PartialCodeSearchQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: GitHubCodeSearchQuery, _index: number) => {
+    async (query: PartialCodeSearchQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
 

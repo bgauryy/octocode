@@ -13,7 +13,9 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     this.isWindows = process.platform === 'win32';
   }
 
-  fromQuery(query: FindFilesQuery): this {
+  fromQuery(
+    query: Partial<FindFilesQuery> & Pick<FindFilesQuery, 'path'>
+  ): this {
     // Windows is not supported - find command doesn't exist
     if (this.isWindows) {
       throw new Error(
@@ -77,7 +79,7 @@ export class FindCommandBuilder extends BaseCommandBuilder {
    * Adds all filter options (type, names, size, time, etc.)
    * These must come AFTER the prune block when excludeDir is used
    */
-  private addFilters(query: FindFilesQuery): void {
+  private addFilters(query: Partial<FindFilesQuery>): void {
     if (query.type) {
       this.addOption('-type', query.type);
     }

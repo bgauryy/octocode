@@ -14,6 +14,20 @@ import type {
   GitHubSearchCodeData,
   GitHubViewRepoStructureQuery,
 } from '@octocodeai/octocode-core';
+import type { WithOptionalMeta } from '../types/execution.js';
+
+type PRDefaultKeys =
+  | 'order'
+  | 'limit'
+  | 'page'
+  | 'withComments'
+  | 'withCommits'
+  | 'type';
+type PartialPRQuery = WithOptionalMeta<
+  Omit<GitHubPullRequestSearchQuery, PRDefaultKeys> &
+    Partial<Pick<GitHubPullRequestSearchQuery, PRDefaultKeys>>
+>;
+type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 
 function toProviderProjectId(
   owner?: string,
@@ -61,9 +75,11 @@ export function buildPaginationHints(
   return hints;
 }
 
-export function mapCodeSearchToolQuery(query: GitHubCodeSearchQuery) {
+export function mapCodeSearchToolQuery(
+  query: WithOptionalMeta<GitHubCodeSearchQuery>
+) {
   return {
-    keywords: query.keywordsToSearch,
+    keywords: query.keywordsToSearch ?? [],
     projectId: toProviderProjectId(query.owner, query.repo),
     owner: query.owner,
     path: query.path,
@@ -80,7 +96,7 @@ export function mapCodeSearchToolQuery(query: GitHubCodeSearchQuery) {
 
 export function mapCodeSearchProviderResult(
   data: CodeSearchResult,
-  query: GitHubCodeSearchQuery
+  query: WithOptionalMeta<GitHubCodeSearchQuery>
 ): GitHubSearchCodeData {
   const splitRepositoryPath = (repositoryPath: string) => {
     const slashIdx = repositoryPath.lastIndexOf('/');
@@ -147,7 +163,9 @@ export function mapCodeSearchProviderResult(
   return result;
 }
 
-export function mapRepoSearchToolQuery(query: GitHubReposSearchQuery) {
+export function mapRepoSearchToolQuery(
+  query: WithOptionalMeta<GitHubReposSearchQuery>
+) {
   return {
     keywords: query.keywordsToSearch,
     topics: query.topicsToSearch,
@@ -211,7 +229,7 @@ export function mapRepoSearchProviderRepositories(
   });
 }
 
-export function mapPullRequestToolQuery(query: GitHubPullRequestSearchQuery) {
+export function mapPullRequestToolQuery(query: PartialPRQuery) {
   return {
     projectId: toProviderProjectId(query.owner, query.repo),
     owner: query.owner,
@@ -340,7 +358,9 @@ export function mapPullRequestProviderResultData(
   };
 }
 
-export function mapFileContentToolQuery(query: FileContentQuery) {
+export function mapFileContentToolQuery(
+  query: WithOptionalMeta<FileContentQuery>
+) {
   const fullContent = Boolean(query.fullContent);
 
   return {
@@ -363,7 +383,7 @@ export function mapFileContentToolQuery(query: FileContentQuery) {
 
 export function mapFileContentProviderResult(
   data: ProviderFileContentResult,
-  query: FileContentQuery
+  query: WithOptionalMeta<FileContentQuery>
 ): Record<string, unknown> {
   return {
     content: data.content,
@@ -390,7 +410,7 @@ export function mapFileContentProviderResult(
 }
 
 export function mapRepoStructureToolQuery(
-  query: GitHubViewRepoStructureQuery,
+  query: PartialRepoStructureQuery,
   resolvedBranch: string
 ) {
   return {
@@ -414,7 +434,7 @@ export function mapRepoStructureToolQuery(
 
 export function mapRepoStructureProviderResult(
   data: ProviderRepoStructureResult,
-  query: GitHubViewRepoStructureQuery,
+  query: PartialRepoStructureQuery,
   filteredStructure: ProviderRepoStructureResult['structure'],
   resolvedBranch: string
 ): Record<string, unknown> {
