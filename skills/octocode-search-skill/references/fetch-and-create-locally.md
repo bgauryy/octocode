@@ -29,7 +29,7 @@ https://github.com/<owner>/<repo>/blob/<branch>/<path>/SKILL.md
 3. Fetch the source folder with Octocode:
    - Default: `githubGetFileContent` in directory mode for a single skill folder.
    - Use `githubCloneRepo` when the skill has many sibling assets or the user wants the whole repo for context.
-   - Stage downloads under a scratch path the user controls; do not write directly into final destinations yet.
+   - Stage downloads under a scratch path the user controls (e.g. `/tmp/skill-fetch/<skill-name>/` or a directory the user names); do not write directly into final destinations yet.
 4. Validate the download: the folder contains `SKILL.md` with valid `name` and `description` frontmatter.
 5. Safety scan: read `SKILL.md`, then any `scripts/`, install hooks, or executable helpers. Flag risky behavior to the user before writing.
 6. If adapting (not verbatim):

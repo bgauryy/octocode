@@ -1,6 +1,6 @@
 ---
 name: octocode-search-skill
-description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns.
+description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns. Do NOT activate for general package search (npm, PyPI, cargo), web search, or code research not involving SKILL.md files.
 ---
 
 # Octocode Search Skill
@@ -22,7 +22,7 @@ Compress steps when the user names a specific source (`owner/repo path-to-SKILL.
 Hard rules:
 
 Recommend
-- MUST recommend by task fit, workflow quality, safety gates, and portability; use stars or popularity only as a tiebreaker.
+- MUST recommend by task fit, workflow quality, safety gates, and portability; use `installs` count or GitHub stars only as a tiebreaker when two candidates are otherwise equal.
 - MUST identify every remote candidate by `(owner/repo, path-to-SKILL.md)` and every local candidate by absolute or workspace-relative path.
 
 Inspect
@@ -40,7 +40,8 @@ Forbidden
 Stop when any of these is true:
 
 - One recommendation is justified by inspected content.
-- Further search is unlikely to change the recommendation.
+- Two or more High-quality candidates have been inspected and task fit is confirmed for the top pick.
+- Three search angles have returned no new candidates not already examined.
 - A user gate is awaiting an answer.
 
 ## Tool Routing
@@ -109,11 +110,33 @@ Useful GitHub patterns:
 - Inspect likely paths: `skills/<name>/SKILL.md`, `skills/<category>/<name>/SKILL.md`, `<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md`, `.cursor/skills/<name>/SKILL.md`, `.codex/skills/<name>/SKILL.md`, `.opencode/skills/<name>/SKILL.md`, `.agents/skills/<name>/SKILL.md`.
 - Probe plugin manifests: `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`, and per-catalog `llms.txt` / `llms-full.txt` files for batch discovery.
 
+### Skills.sh Registry API
+
+MUST run this in parallel with GitHub/Octocode search for every public skill query. MUST NOT use for org-specific or private searches — use Octocode tools only for those.
+
+```bash
+curl 'https://www.skills.sh/api/search?q={{SEARCH_KEY}}&limit=100' \
+  --compressed \
+  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0'
+```
+
+Response shape: `{"skills": [{"id": string, "skillId": string, "name": string, "installs": number, "source": "owner/repo"}, ...], "count": number}`
+
+Popularity workflow — MUST follow this order:
+
+1. Sort results by `installs` descending — highest install count = most battle-tested signal.
+2. Take the top 5 candidates by installs as priority inspection targets.
+3. In parallel with other searches, fetch each top candidate's `SKILL.md` via Octocode (`githubGetFileContent` using `source` as `owner/repo`; try paths `skills/<skillId>/SKILL.md`, `<skillId>/SKILL.md`, `.claude/skills/<skillId>/SKILL.md`).
+4. Include install count in every result card as a quality signal.
+5. MUST NOT blindly recommend the highest-install skill — inspect content and task fit first; use `installs` as a tiebreaker only when two candidates are otherwise equal.
+
+Fallback: if the API is unreachable or rate-limited, switch to `https://www.skills.sh` leaderboard page and GitHub topic search; lower confidence and continue.
+
 Marketplace and registry surfaces (see `references/discovery-surfaces.md` for the full list and APIs):
 
-- Per-skill check: `https://www.skills.sh/<owner>/<repo>/<skill-name>` — confirm a skill exists in the public index, see its install count, install command, and security audit status. Common shape when the repo is named `skills`: `https://www.skills.sh/<org>/skills/<skill-name>`.
+- Per-skill check: `https://www.skills.sh/<owner>/<repo>/<skill-name>` — install count, install command, security audit status.
 - Leaderboard: `https://www.skills.sh` — install-count ranked, agent-filtered.
-- Registry APIs: `agentskills.io/llms.txt`, `aiskillstore.io/llms.txt`, `microsoft.github.io/skills/llms-full.txt` for catalog snapshots; `claude-plugins.dev` REST for sortable Claude Code plugin search.
+- Additional registries: `agentskills.io/llms.txt`, `aiskillstore.io/llms.txt`, `microsoft.github.io/skills/llms-full.txt`; `claude-plugins.dev` REST for Claude Code plugin search.
 
 Seed only when discovery is sparse. Start from `topic:agent-skills` (or the narrower `topic:claude-code-skills`) on GitHub, then sample well-maintained collections such as `anthropics/skills`, `ComposioHQ/awesome-claude-skills`, `addyosmani/agent-skills`, `vercel-labs/skills`, `alirezarezvani/claude-skills`, `microsoft/skills`, `obra/superpowers`, `trailofbits/skills`, `wshobson/claude-code-workflows`, or any author-curated marketplace the user trusts.
 
@@ -144,7 +167,15 @@ For evidence-based quality signals beyond stars (install counts, recency, audit 
 
 Use this mode when the user asks to rate, review, score, improve, or refactor a `SKILL.md` — yours or someone else's. Read `references/agent-skills-guide.md` before rating or rewriting.
 
-Modes — pick one before starting and confirm with the user if ambiguous:
+Modes — pick one before starting. If the user's request is ambiguous (e.g., "check my skill"), present this gate before proceeding:
+
+```text
+Which mode?
+1. Rate-only — score and report issues; no file edits.
+2. Improve / refactor — fix issues and rewrite; gate before writing.
+3. Fix all — apply fixes from a prior rating in this conversation; skip re-rating.
+4. Cancel.
+```
 
 - `Rate-only` (rate, review, score, audit): stop after the REPORT step. MUST NOT edit files. End with a numbered next-action gate (apply fixes, show diff, cancel).
 - `Improve` / `refactor` / `rewrite`: full flow including REWRITE and VALIDATE; gate before writing.
@@ -273,6 +304,8 @@ Before writing files:
 3. Ask for approval with create, adjust, inspect more, or cancel options.
 
 After approval, write the skill with concise purpose, workflow, tool and resource rules, gates, output UX, and recovery paths. Add `references/`, `scripts/`, or `assets/` only when they reduce repeated work or keep `SKILL.md` lean. Defer to a dedicated skill-creation skill when one is available.
+
+MUST also create `references/references.md` inside the new skill folder using the shape in `references/references-template.md`. Populate it with every source actually consulted — do not list sources that were not checked. This file is a research audit trail, not a bibliography template.
 
 ## Install
 

@@ -6,6 +6,7 @@ Use when the user wants to shop for skills beyond raw GitHub code search — mar
 
 | User goal | Best first surface |
 |-----------|--------------------|
+| "Search skills by keyword or topic" | skills.sh Registry API (`/api/search?q=...`) — sort by `installs` |
 | "Is skill X published / battle-tested?" | `https://www.skills.sh/<owner>/<repo>/<skill-name>` |
 | "What are the most-installed skills right now?" | `https://www.skills.sh` leaderboard |
 | "Find a Claude Code plugin" | `claude-plugins.dev` (REST + UI) |
@@ -60,6 +61,15 @@ Each surface is provider-agnostic unless noted. Treat install counts and audit b
 - Public install-count leaderboard.
 - Search box, agent filter ("available for these agents"), per-skill page (see Per-Skill Check above).
 - Install pattern: `npx skills add <github-url> --skill <skill-name>`.
+- **Registry search API** (MUST use for public skill searches, in parallel with GitHub):
+  ```bash
+  curl 'https://www.skills.sh/api/search?q={{SEARCH_KEY}}&limit=100' \
+    --compressed \
+    -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0'
+  ```
+  Response: `{"skills": [{"id": "owner/repo/skillId", "skillId": string, "name": string, "installs": number, "source": "owner/repo"}], "count": number}`
+  Sort results by `installs` descending; top entries are the most battle-tested candidates.
+  Do NOT use for org-specific or private searches — Octocode tools only for those.
 
 ### `claude-plugins.dev` (Kamalnrf)
 

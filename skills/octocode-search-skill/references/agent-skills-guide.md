@@ -60,7 +60,7 @@ Ask for each instruction: "Would the agent likely get this wrong without the ski
 
 Good skills are coherent units of work. Avoid scopes that are too narrow and force many skills to load, or too broad and trigger imprecisely.
 
-Aim for moderate detail: concise, stepwise guidance with a working example usually beats exhaustive documentation. Keep `SKILL.md` under 500 lines and 5,000 tokens; for this repository, prefer under 300 lines when practical.
+Aim for moderate detail: concise, stepwise guidance with a working example usually beats exhaustive documentation. Keep `SKILL.md` under 500 lines and 5,000 tokens; for most skills, prefer under 300 lines when practical.
 
 ## Progressive Reference Files
 
@@ -162,8 +162,9 @@ Optimization loop:
 
 When ranking candidates, prefer evidence-based signals over raw star count:
 
-- **Install count** — `https://www.skills.sh` leaderboard ranks by installs. A skill with high installs but modest stars is often more battle-tested than the reverse.
+- **Install count via search API** — query `https://www.skills.sh/api/search?q=<topic>&limit=100` (see `discovery-surfaces.md` for the full curl command), sort results by `installs` descending. High install count with modest GitHub stars is usually a stronger battle-tested signal than the reverse.
 - **Per-skill index page** — check `https://www.skills.sh/<owner>/<repo>/<skill-name>` (or `https://www.skills.sh/<org>/skills/<skill-name>` when the repo is named `skills`) for install count, install command, audit badge, and related skills.
+- **Leaderboard** — `https://www.skills.sh` shows install-count ranked skills across all agents; useful for spotting dominant skills in a domain without knowing names in advance.
 - **Recency** — `pushed:>YYYY-MM-DD` on GitHub. Skip skills with no commits in the last 12 months unless the user wants archival.
 - **Audit badges** — skills.sh exposes Gen Agent Trust Hub pass/fail; Microsoft uses the Sensei rubric (triggers + anti-triggers + compatibility scored Low/Medium/High).
 - **Registry-side fields** — `aiskillstore.io` exposes `match_reasons`, `downloads_7d`, `days_since_update`, and a `/similar` endpoint for overlap-ranked alternatives.
