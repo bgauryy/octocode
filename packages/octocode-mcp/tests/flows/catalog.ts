@@ -4,21 +4,21 @@ export const FLOW_CATALOG = {
     description:
       'Search for a symbol, resolve its definition, and inspect the implementation.',
     docUrl:
-      'https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/LOCAL_TOOLS_REFERENCE.md#L466-L478',
+      'https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md#L466-L478',
   },
   localImpactAnalysis: {
     id: 'local.impact-analysis',
     description:
       'Find symbol references, inspect callers, and read one impacted call site.',
     docUrl:
-      'https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/LOCAL_TOOLS_REFERENCE.md#L592-L608',
+      'https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md#L592-L608',
   },
   remoteSearchToFetchContent: {
     id: 'remote.search-to-fetch-content',
     description:
       'Search remote code through the active provider and fetch one matched file.',
     docUrl:
-      'https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/GITHUB_GITLAB_TOOLS_REFERENCE.md',
+      'https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md',
   },
 } as const;
 

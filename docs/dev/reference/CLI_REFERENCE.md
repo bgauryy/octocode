@@ -36,6 +36,7 @@ Run any Octocode tool directly — for agents, scripts, and humans. `--queries` 
 | `githubViewRepoStructure` | GitHub | List repo directory tree |
 | `githubSearchRepositories` | GitHub | Search repos by keywords/topics |
 | `githubSearchPullRequests` | GitHub | Search pull requests |
+| `githubCloneRepo` | GitHub + Local | Clone GitHub repos/subtrees for local + LSP analysis |
 | `localSearchCode` | Local | Ripgrep search in local files |
 | `localGetFileContent` | Local | Read local file content |
 | `localFindFiles` | Local | Find files by glob/pattern |
@@ -56,6 +57,7 @@ Examples:
 ```bash
 octocode-cli --tool githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
 octocode-cli --tool githubGetFileContent --queries '{"owner":"facebook","repo":"react","path":"packages/react/src/React.js","matchString":"useState"}'
+octocode-cli --tool githubCloneRepo --queries '{"owner":"facebook","repo":"react"}'
 octocode-cli --tool localSearchCode --queries '{"path":".","pattern":"runCLI"}'
 octocode-cli --tool packageSearch --queries '{"name":"react","ecosystem":"npm"}'
 ```
@@ -115,7 +117,7 @@ octocode-cli skills install [--skill <name>] [--targets <list>] [--mode <copy|sy
 octocode-cli skills remove --skill <name> [--targets <list>]
 ```
 
-See [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/docs/SKILLS_GUIDE.md).
+See [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md).
 
 ### cache
 

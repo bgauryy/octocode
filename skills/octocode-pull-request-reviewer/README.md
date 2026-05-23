@@ -37,7 +37,7 @@ npx add-skill https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-
 ### For PR Mode (Remote Pull Requests)
 
 - **Octocode MCP server** running with GitHub/GitLab authentication
-- See [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md)
+- See [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md)
 
 ### For Local Mode (Local Changes) — `ENABLE_LOCAL=true`
 
@@ -64,7 +64,7 @@ export ENABLE_LOCAL=true
 | **Local Filesystem** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` | Search, explore, and read code in your workspace |
 | **LSP Semantic** | `lspGotoDefinition`, `lspFindReferences`, `lspCallHierarchy` | Jump to definitions, find all usages, trace call chains |
 
-> **Full documentation:** [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/LOCAL_TOOLS_REFERENCE.md) | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION_REFERENCE.md)
+> **Full documentation:** [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md)
 
 **Verify it's working:**
 
@@ -237,8 +237,8 @@ Optionally saved to:
 | [references/verification-checklist.md](./references/verification-checklist.md) | Full delivery checklist |
 | [references/parallel-agent-protocol.md](./references/parallel-agent-protocol.md) | Multi-agent swarm strategy |
 | [references/output-template.md](./references/output-template.md) | Report format template (PR + Local) |
-| [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/LOCAL_TOOLS_REFERENCE.md) | Full local + LSP tool documentation |
-| [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION_REFERENCE.md) | `ENABLE_LOCAL` and other settings |
+| [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | Full local + LSP tool documentation |
+| [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) | `ENABLE_LOCAL` and other settings |
 
 ---
 

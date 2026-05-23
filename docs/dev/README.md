@@ -1,0 +1,35 @@
+# Development
+
+How to use, extend, and contribute to Octocode.
+
+## At this level
+
+| Doc | When to read |
+|-----|--------------|
+| [Development Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/DEVELOPMENT_GUIDE.md) | Monorepo setup, commands, testing standards, contribution flow |
+| [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md) | The skills system: install, build, marketplace |
+
+## [reference/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/dev/reference) — Tool & API references
+
+| Doc | When to read |
+|-----|--------------|
+| [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) | Schemas + behavior for remote-host tools |
+| [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | Schemas + behavior for local FS / LSP tools |
+| [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) | All `octocode-cli` commands and flags |
+| [Shared API Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/SHARED_API_REFERENCE.md) | `octocode-shared` exports for credentials/session/platform |
+
+## [workflows/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/dev/workflows) — End-to-end patterns
+
+| Doc | When to read |
+|-----|--------------|
+| [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) | Pull a GitHub repo, then analyze locally with LSP |
+| [CLI vs MCP Benchmark](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/BENCHMARK.md) | Performance comparison + when to pick each |
+
+## [architecture/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/dev/architecture) — Internal design
+
+| Doc | When to read |
+|-----|--------------|
+| [Credentials Architecture](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md) | Token storage, encryption, refresh chain |
+| [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md) | Deferred writes, exit handlers, statistics |
+
+[← back to docs index](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md)

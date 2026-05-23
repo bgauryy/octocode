@@ -253,13 +253,13 @@ Retrieve credentials synchronously (file storage only).
 function getCredentialsSync(hostname?: string): StoredCredentials | null
 ```
 
-⚠️ **Note**: Cannot access keychain (async-only). Use for sync contexts where refresh isn't needed.
+⚠️ **Note**: Reads encrypted file storage synchronously. Use for sync contexts where refresh is not needed.
 
 ---
 
 #### `deleteCredentials(hostname?)`
 
-Delete credentials from all storage backends.
+Delete credentials from encrypted file storage.
 
 ```typescript
 async function deleteCredentials(hostname?: string): Promise<DeleteResult>
@@ -1064,8 +1064,8 @@ import {
 
 ## Related Documentation
 
-- [CREDENTIALS_ARCHITECTURE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/CREDENTIALS_ARCHITECTURE.md) - Deep dive into credential storage
-- [SESSION_PERSISTENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/SESSION_PERSISTENCE.md) - Session storage architecture
+- [CREDENTIALS_ARCHITECTURE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md) - Deep dive into credential storage
+- [SESSION_PERSISTENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md) - Session storage architecture
 
 ---
 

@@ -91,7 +91,7 @@
 | `octocode-mcp` | Contract suite | `yarn mcp:contracts` | You need the fast deterministic contract signal while iterating locally. |
 | `octocode-shared` | Package gate | `yarn shared:package` | Shared config, credential, platform, or session boundaries regress. |
 
-For package-specific references, use the package docs indexes: [octocode-mcp docs](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/README.md) and [octocode-shared docs](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/README.md).
+For package-specific references, see the consolidated [docs index](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md) — `octocode-shared` API/credentials/session docs and `octocode-cli` reference all live there.
 
 ### Structure
 ```
@@ -108,15 +108,15 @@ packages/<name>/tests/
 
 For detailed research workflows including LSP navigation, local discovery, and external research patterns, see the canonical references:
 
-- [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/LOCAL_TOOLS_REFERENCE.md) — Local discovery, LSP navigation, and flow tracing
-- [GitHub & GitLab Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/GITHUB_GITLAB_TOOLS_REFERENCE.md) — External research and package discovery
-- [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) — Bridging GitHub repos with local + LSP tools
+- [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local discovery, LSP navigation, and flow tracing
+- [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) — External research and package discovery
+- [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) — Bridging GitHub repos with local + LSP tools
 
 ## Skills System
 
 Skills are markdown-based instruction sets that teach AI assistants specific tasks. For the complete skills guide including installation, creating custom skills, and the marketplace:
 
-- [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/docs/SKILLS_GUIDE.md) — Comprehensive guide to the skills system
+- [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md) — Comprehensive guide to the skills system
 - [Skills Index](https://github.com/bgauryy/octocode-mcp/blob/main/skills/README.md) — All available skills with when-to-use guide
 
 ## Package Documentation
@@ -135,6 +135,6 @@ For the complete package documentation index, see [docs/README.md](https://githu
 
 ## See Also
 
-- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION_REFERENCE.md) — All env vars and `.octocoderc` options
-- [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/TROUBLESHOOTING.md) — Common issues and solutions
-- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md) — GitHub/GitLab auth
+- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — All env vars and `.octocoderc` options
+- [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — Common issues and solutions
+- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — GitHub/GitLab/Bitbucket auth

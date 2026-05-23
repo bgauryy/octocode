@@ -180,7 +180,7 @@ Or use an absolute path:
 
 ## 3. Authentication Issues
 
-For detailed authentication setup and troubleshooting, see the [Authentication Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md).
+For detailed authentication setup and troubleshooting, see the [Authentication Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md).
 
 **Quick tips not covered there:**
 - **401/bad credentials:** Verify token: `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user`. Ensure scopes include `repo`, `read:user`, `read:org`.
@@ -245,6 +245,6 @@ We actively monitor and respond to issues!
 
 ## See Also
 
-- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION_REFERENCE.md) — All env vars and `.octocoderc` options
-- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md) — GitHub/GitLab auth guide
-- [Development Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/DEVELOPMENT_GUIDE.md) — Build commands, testing, code standards
+- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — All env vars and `.octocoderc` options
+- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — GitHub/GitLab auth guide
+- [Development Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/DEVELOPMENT_GUIDE.md) — Build commands, testing, code standards

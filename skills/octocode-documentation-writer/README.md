@@ -56,7 +56,7 @@ Install via the CLI or add to your MCP config:
 }
 ```
 
-For authentication and full setup, see the [Octocode MCP docs](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md).
+For authentication and full setup, see the [Octocode MCP docs](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md).
 
 ---
 

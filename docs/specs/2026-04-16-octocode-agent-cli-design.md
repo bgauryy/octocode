@@ -143,7 +143,7 @@ Scope:
 - Keep `--tool <name>` working, add stderr deprecation warning.
 - Ensure `isError → exit 1` wiring is correct in `executeToolCommand` (currently: `return !result.isError; if (!success) process.exitCode = 1;` — verify this is hit by the new commands).
 - Vitest tests: for each new subcommand — happy path via flags, bulk via stdin, `--json`, exit codes, autofill on/off, deprecation notice on `--tool`.
-- Doc updates: `packages/octocode-cli/docs/CLI_REFERENCE.md`.
+- Doc updates: `docs/CLI_REFERENCE.md`.
 - Ship `skills/octocode-cli-usage/SKILL.md` — one-page agent cheat sheet (dev-browser style) listing the 6 subcommands and their most common flags.
 
 Out of scope for v1:

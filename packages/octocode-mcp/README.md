@@ -158,7 +158,7 @@ This will automatically:
 curl -fsSL https://raw.githubusercontent.com/bgauryy/octocode-mcp/main/install/install.sh | sh
 ```
 
-See [Troubleshooting Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/TROUBLESHOOTING.md) for common issues and solutions.
+See [Troubleshooting Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) for common issues and solutions.
 
 ---
 
@@ -550,7 +550,7 @@ Add the `GITHUB_API_URL` environment variable to your MCP configuration:
 
 **Default:** If not specified, defaults to `https://api.github.com` (public GitHub).
 
-**Note:** Ensure your GitHub Enterprise token has the same scopes as documented in the [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md).
+**Note:** Ensure your GitHub Enterprise token has the same scopes as documented in the [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md).
 
 ---
 
@@ -686,9 +686,13 @@ Comprehensive security analysis of a repository. Identifies vulnerabilities, rev
 | Resource | Description | Link |
 |----------|-------------|------|
 | **Official Website** | Interactive tutorials, demos, community | [octocode.ai](https://octocode.ai) |
-| **Configuration Guide** | Environment variables and server configuration | [CONFIGURATION_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION_REFERENCE.md) |
-| **Authentication Guide** | Setup instructions for GitHub & GitLab | [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md) |
-| **Troubleshooting** | Common issues and solutions | [Troubleshooting Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/TROUBLESHOOTING.md) |
+| **Docs Index** | All configuration, development, workflow, and reference docs | [docs/README.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md) |
+| **Configuration Guide** | Environment variables and server configuration | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) |
+| **Authentication Guide** | Setup instructions for GitHub, GitLab, and Bitbucket | [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) |
+| **Remote Tool Reference** | GitHub/GitLab/Bitbucket tool behavior and schemas | [GitHub, GitLab & Bitbucket Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) |
+| **Local + LSP Reference** | Local filesystem and semantic navigation tools | [Local & LSP Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) |
+| **Clone Workflow** | Clone GitHub repos, then analyze locally with LSP | [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) |
+| **Troubleshooting** | Common issues and solutions | [Troubleshooting Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) |
 | **YouTube Channel** | Video tutorials and demonstrations | [Octocode on YouTube](https://www.youtube.com/@Octocode-ai) |
 
 

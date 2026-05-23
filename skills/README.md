@@ -1,6 +1,6 @@
 # OctoCode Skills
 
-Specialized AI agent skills extending OctoCode. 18 skills live under `skills/`.
+Specialized AI agent skills extending OctoCode. 19 skills live under `skills/`.
 
 ---
 
@@ -25,6 +25,7 @@ Specialized AI agent skills extending OctoCode. 18 skills live under `skills/`.
 | **Search Skill** | `octocode-search-skill/` | Find, preview, and download agent skills. |
 | **Chrome DevTools** | `octocode-chrome-devtools/` | Open Chrome via CDP, generate inspection scripts, trace errors to source. |
 | **Agentic Flow Best Practices** | `agentic-flow-best-practices/` | Design agentic workflow patterns, agent collaboration, MCP/tool boundaries, context, memory scopes, caching, prompts, model settings, gates, and verification. |
+| **Stats** | `octocode-stats/` | Render Octocode usage dashboards from local stats files. |
 
 ---
 
@@ -80,3 +81,6 @@ Opens Chrome with CDP WebSocket debugging, generates a custom inspection script 
 
 ### Agentic Flow Best Practices
 Designs practical agentic flows by choosing the simplest reliable pattern, shaping context packets, defining MCP/tool and skill boundaries, planning session/agent/shared memory scopes, tuning model configuration, and adding gates and verification where risk demands it.
+
+### Stats
+Renders an Octocode MCP usage dashboard from `${OCTOCODE_HOME}/stats.json` or `~/.octocode/stats.json`, including saved tokens/chars, cache hits, errors, and rate limits.

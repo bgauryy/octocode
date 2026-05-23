@@ -42,7 +42,7 @@ The server is not just a pass-through — it provides a persistent runtime layer
 npx add-skill https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-research
 ```
 
-> Requires GitHub auth. See [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md).
+> Requires GitHub auth. See [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md).
 
 Or manually:
 
@@ -201,7 +201,7 @@ Collects de-identified telemetry (usage counts, error rates). Never collects sou
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Architecture |
 | [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) | Full API reference |
 | [docs/FLOWS.md](./docs/FLOWS.md) | Request flow diagrams |
-| [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/TROUBLESHOOTING.md) | Common issues |
+| [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) | Common issues |
 
 ---
 

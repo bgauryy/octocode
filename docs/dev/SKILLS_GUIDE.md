@@ -8,15 +8,25 @@ Skills are markdown instruction sets that teach AI coding clients how to perform
 
 | Skill | When to use |
 |-------|-------------|
-| `octocode-researcher` | Everyday code exploration — find, trace, definitions |
+| `octocode-install` | Guided Octocode setup: CLI/MCP, auth, IDE config, skills |
+| `octocode-cli` | Run Octocode tools directly from the shell |
+| `octocode-researcher` | Everyday direct MCP code exploration — find, trace, definitions |
 | `octocode-research` | Deep research via HTTP research server (sessions, checkpoints) |
+| `octocode-brainstorming` | Validate ideas with prior art and market evidence |
 | `octocode-plan` | Plan → implement → verify |
 | `octocode-rfc-generator` | RFCs, design docs, options comparison |
+| `octocode-engineer` | Architecture-aware implementation, refactors, audits |
 | `octocode-pull-request-reviewer` | PR review (remote) or local/staged change review |
-| `octocode-local-code-quality` | Architecture rot, security, dead code, test gaps |
-| `octocode-documentation-writer` | Generate or refresh project documentation |
-| `octocode-prompt-optimizer` | Harden prompts, SKILL.md, and agent instructions |
 | `octocode-roast` | Brutally honest code critique |
+| `octocode-prompt-optimizer` | Harden prompts, SKILL.md, and agent instructions |
+| `octocode-design` | Design-system and UI architecture guidance |
+| `octocode-documentation-writer` | Generate or refresh project documentation |
+| `octocode-news` | Recent AI/devtools/web/security update research |
+| `octocode-search-skill` | Find, preview, install, or review Agent Skills |
+| `octocode-chrome-devtools` | Browser debugging through Chrome DevTools Protocol |
+| `agentic-flow-best-practices` | Design/review agentic workflows and MCP/tool boundaries |
+| `octocode-slides` | Generate polished HTML slide decks |
+| `octocode-stats` | Render Octocode usage/statistics dashboards |
 
 **researcher vs research:** use `octocode-researcher` for direct MCP tool exploration. Use `octocode-research` for the HTTP research-server workflow with sessions and checkpoints.
 
@@ -154,4 +164,4 @@ Keep SKILL.md under 500 lines. Use `references/` for extended content.
 
 ---
 
-[CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/docs/CLI_REFERENCE.md) | [Claude Skills Documentation](https://support.anthropic.com/en/articles/10176498-how-to-use-custom-instructions-for-your-projects)
+[CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) | [Claude Skills Documentation](https://support.anthropic.com/en/articles/10176498-how-to-use-custom-instructions-for-your-projects)

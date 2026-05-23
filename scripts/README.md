@@ -20,6 +20,6 @@ Workspace orchestration tool that discovers all packages and skills, resolves th
 
 ### `docs-verify.mjs`
 
-Documentation link validator. Ensures every markdown link inside `docs/` and `packages/*/docs/` uses absolute GitHub URLs (per the [Documentation Links Rule](https://github.com/bgauryy/octocode-mcp/blob/main/AGENTS.md)) and that in-repo links point to files that actually exist. Also validates that `.github/workflows/README.md` only references workflow files that are present on disk.
+Documentation link validator. Ensures every markdown link inside `docs/` uses absolute GitHub URLs (per the [Documentation Links Rule](https://github.com/bgauryy/octocode-mcp/blob/main/AGENTS.md)) and that in-repo links point to files that actually exist. Also validates that `.github/workflows/README.md` only references workflow files that are present on disk.
 
 **Command:** `yarn docs:verify`

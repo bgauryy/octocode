@@ -29,7 +29,7 @@ import { isWindows, isMac, isLinux } from 'octocode-shared/platform';
 
 ### Credentials
 
-Secure credential storage with AES-256-GCM encryption and native keychain support.
+Secure credential storage with AES-256-GCM encryption.
 
 ```typescript
 import {
@@ -170,17 +170,15 @@ Octocode looks for configuration in `~/.octocode/.octocoderc`:
 | Config | `~/.octocode/.octocoderc` |
 | Credentials | `~/.octocode/credentials.json` (encrypted) |
 | Session | `~/.octocode/session.json` |
-| Encryption Key | System keychain or `~/.octocode/.key` |
+| Encryption Key | `~/.octocode/.key` |
 
-## API Reference
+## Docs
 
-For detailed API documentation, see [docs/API_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/API_REFERENCE.md).
-
-## Architecture
-
-- [Credentials Architecture](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/CREDENTIALS_ARCHITECTURE.md) - Secure token storage design
-- [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-shared/docs/SESSION_PERSISTENCE.md) - Session management design
-- [Configuration](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION_REFERENCE.md) - Configuration reference (env vars and `.octocoderc`)
+- [Docs Index](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md) — all Octocode docs
+- [Shared API Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/SHARED_API_REFERENCE.md) — exports, types, and import patterns
+- [Credentials Architecture](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md) — secure token storage design
+- [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md) — session lifecycle and deferred writes
+- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — env vars and `.octocoderc`
 
 ## Development
 

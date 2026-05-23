@@ -11,7 +11,7 @@
 1. **Manage** — install, authenticate, sync, and configure Octocode MCP, skills, and marketplace MCPs across IDEs.
 2. **Run tools** — call any Octocode tool directly from the terminal, for agents and humans alike.
 
-[Website](https://octocode.ai) | [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/docs/CLI_REFERENCE.md) | [GitHub](https://github.com/bgauryy/octocode-mcp)
+[Website](https://octocode.ai) | [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) | [GitHub](https://github.com/bgauryy/octocode-mcp)
 
 <img src="https://raw.githubusercontent.com/bgauryy/octocode-mcp/main/packages/octocode-cli/assets/example.png" alt="Octocode CLI Demo" width="700" style="border-radius: 8px; margin: 20px 0;">
 
@@ -54,8 +54,11 @@ octocode-cli --tools-context                      # Full MCP instructions + all 
 
 ## Docs
 
-- [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/docs/CLI_REFERENCE.md) — full command and tool syntax
-- [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/docs/SKILLS_GUIDE.md) — bundled skills installation
+- [Docs Index](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md) — all Octocode docs
+- [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) — full command and tool syntax
+- [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md) — bundled skills installation
+- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — MCP env/config options the CLI writes
+- [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — install, Node.js, auth, and MCP startup issues
 
 ## Troubleshooting
 

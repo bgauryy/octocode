@@ -15,7 +15,7 @@
  * the entire resolution chain. Tests for the actual priority chain logic
  * are in the octocode-shared package.
  *
- * @see packages/octocode-mcp/docs/AUTHENTICATION_SETUP.md
+ * @see docs/AUTHENTICATION_SETUP.md
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';

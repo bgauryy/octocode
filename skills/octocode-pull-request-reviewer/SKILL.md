@@ -104,7 +104,7 @@ Or in the Octocode config file (`local.enabled: true`).
   
   Set ENABLE_LOCAL=true in your Octocode MCP configuration.
   
-  See: https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/docs/LOCAL_TOOLS_REFERENCE.md
+  See: https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md
   
   Alternatively, push your changes to a PR and I can review that instead.
   ```

@@ -346,4 +346,4 @@ yarn install
 
 ---
 
-*This skill wraps `octocode-mcp` tools as HTTP endpoints. For tool-specific documentation, see the [octocode-mcp package](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/AGENTS.md).*
+*This skill wraps `octocode-mcp` tools as HTTP endpoints. For tool-specific documentation, see the [octocode-mcp package](https://github.com/bgauryy/octocode-mcp/blob/main/AGENTS.md).*

@@ -128,7 +128,7 @@ Risk assessment and vulnerability surfacing. Maps attack surface and investigate
 
 ## Tools Available
 
-All tools support bulk operations (1-3 queries).
+All tools support bulk operations (1–5 queries).
 
 | Tool | Purpose | Key Args |
 |------|---------|----------|
@@ -163,6 +163,13 @@ This extension works with all major AI-powered editors and assistants:
 
 </details>
 
+
+## Documentation
+
+- [Docs Index](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md) — all Octocode docs
+- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — GitHub/GitLab/Bitbucket auth model
+- [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — MCP env/config options
+- [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — install, Node.js, auth, and MCP startup issues
 
 ## Troubleshooting & More Info
 
