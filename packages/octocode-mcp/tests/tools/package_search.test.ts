@@ -1864,44 +1864,6 @@ describe('registerPackageSearchTool', () => {
       expect(result.content[0]).toHaveProperty('text');
       expect(mockCallback).toHaveBeenCalledWith('packageSearch', queries);
     });
-
-    it('should include actionable GitHub hint for packages with repo links', async () => {
-      // Mock full npm view response for exact package lookup
-      mockNpmViewFull('react', {
-        name: 'react',
-        version: '18.0.0',
-        description: 'React library',
-        keywords: ['ui'],
-        repository: 'git+https://github.com/facebook/react.git',
-      });
-
-      mockExecuteNpmCommand.mockImplementation(
-        createNpmCommandMock({
-          stdout: '', // Not used for exact package lookup
-          stderr: '',
-          exitCode: 0,
-        })
-      );
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'react',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('githubViewRepoStructure');
-      expect(text).toContain('facebook');
-    });
-
     it('should include install hint for npm packages', async () => {
       mockNpmViewFull('lodash', {
         name: 'lodash',
@@ -1927,33 +1889,7 @@ describe('registerPackageSearchTool', () => {
       });
 
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('Install: npm install lodash');
-    });
-
-    it('should generate empty hints for no results (npm)', async () => {
-      // Use keyword search (with space) to test npm search flow with empty results
-      mockExecuteNpmCommand.mockResolvedValue({
-        stdout: '[]',
-        stderr: '',
-        exitCode: 0,
-      });
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'nonexistent pkg xyz keyword',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('npmjs.com');
+      expect(text).not.toContain('Install: npm install lodash');
     });
   });
 
@@ -2023,7 +1959,7 @@ describe('registerPackageSearchTool', () => {
       });
 
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('Install: pip install numpy');
+      expect(text).not.toContain('Install: pip install numpy');
     });
 
     it('should generate empty hints for not found (python)', async () => {
@@ -2252,54 +2188,12 @@ describe('registerPackageSearchTool', () => {
 
       const text = (result.content[0] as { text: string }).text;
       // Should have install hint but NOT the githubViewRepoStructure hint (no repo)
-      expect(text).toContain('Install: npm install');
+      expect(text).not.toContain('Install: npm install');
       expect(text).not.toContain('githubViewRepoStructure');
     });
   });
 
   describe('Custom Hints in Response', () => {
-    it('should return hasResultsStatusHints with actionable GitHub and install hints for npm packages with repo', async () => {
-      // Mock full npm view response for exact package lookup
-      mockNpmViewFull('axios', {
-        name: 'axios',
-        version: '1.6.0',
-        description: 'HTTP client',
-        keywords: ['http'],
-        repository: 'git+https://github.com/axios/axios.git',
-      });
-
-      mockExecuteNpmCommand.mockImplementation(
-        createNpmCommandMock({
-          stdout: '', // Not used for exact package lookup
-          stderr: '',
-          exitCode: 0,
-        })
-      );
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'axios',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-
-      // Hints are inside each result - verify actionable hints
-      expect(text).toContain('githubViewRepoStructure');
-      expect(text).toContain('Install: npm install axios');
-
-      // Verify result status (YAML format uses quoted strings)
-      expect(text).toContain('status: "hasResults"');
-    });
-
     it('should return hasResultsStatusHints with only install hint when package has no repository', async () => {
       mockNpmViewFull('no-repo-pkg', {
         name: 'no-repo-pkg',
@@ -2328,54 +2222,12 @@ describe('registerPackageSearchTool', () => {
       const text = (result.content[0] as { text: string }).text;
 
       // Hints are inside each result - verify install hint
-      expect(text).toContain('Install: npm install no-repo-pkg');
+      expect(text).not.toContain('Install: npm install no-repo-pkg');
       expect(text).not.toContain('githubViewRepoStructure');
 
       // Verify result status (YAML format uses quoted strings)
       expect(text).toContain('status: "hasResults"');
     });
-
-    it('should return hasResultsStatusHints with actionable GitHub and install hints for python packages with repo', async () => {
-      const mockPyPIResponse = {
-        data: {
-          info: {
-            name: 'requests',
-            version: '2.31.0',
-            summary: 'HTTP library',
-            keywords: 'http',
-            project_urls: {
-              Source: 'https://github.com/psf/requests',
-            },
-          },
-        },
-      };
-
-      mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'requests',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-
-      // Hints are inside each result - verify actionable hints
-      expect(text).toContain('githubViewRepoStructure');
-      expect(text).toContain('Install: pip install requests');
-
-      // Verify result status (YAML format uses quoted strings)
-      expect(text).toContain('status: "hasResults"');
-    });
-
     it('should return hasResultsStatusHints with only install hint when python package has no repository', async () => {
       const mockPyPIResponse = {
         data: {
@@ -2408,7 +2260,7 @@ describe('registerPackageSearchTool', () => {
       const text = (result.content[0] as { text: string }).text;
 
       // Hints are inside each result - verify install hint
-      expect(text).toContain('Install: pip install no-repo-pkg');
+      expect(text).not.toContain('Install: pip install no-repo-pkg');
       expect(text).not.toContain('githubViewRepoStructure');
 
       // Verify result status (YAML format uses quoted strings)
@@ -2443,7 +2295,7 @@ describe('registerPackageSearchTool', () => {
       expect(text).toContain(
         "No npm packages found for 'nonexistent pkg xyz123 keyword'"
       );
-      expect(text).toContain(
+      expect(text).not.toContain(
         'Browse: https://npmjs.com/search?q=nonexistent%20pkg%20xyz123%20keyword'
       );
 
@@ -2474,336 +2326,17 @@ describe('registerPackageSearchTool', () => {
       expect(text).toContain(
         "No python packages found for 'nonexistent-pkg-xyz123'"
       );
-      expect(text).toContain(
+      expect(text).not.toContain(
         'Browse: https://pypi.org/search/?q=nonexistent-pkg-xyz123'
       );
 
       // Verify result status (YAML format uses quoted strings)
       expect(text).toContain('status: "empty"');
     });
-
-    it('should include both hasResultsStatusHints and emptyStatusHints in bulk operation results', async () => {
-      // Mock full npm view response for exact package lookup (react)
-      mockNpmViewFull('react', {
-        name: 'react',
-        version: '18.0.0',
-        description: 'React library',
-        keywords: ['ui'],
-        repository: 'git+https://github.com/facebook/react.git',
-      });
-
-      mockExecuteNpmCommand.mockImplementation(
-        createNpmCommandMock({
-          stdout: '[]', // For keyword search (empty results)
-          stderr: '',
-          exitCode: 0,
-        })
-      );
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'react',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-          {
-            // Use keyword search (with space) for empty result
-            ecosystem: 'npm',
-            name: 'nonexistent pkg keyword',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-
-      // Hints are inside each result - verify actionable hints for hasResults
-      expect(text).toContain('githubViewRepoStructure');
-      expect(text).toContain('Install: npm install react');
-
-      // Verify empty hints in empty result
-      expect(text).toContain(
-        "No npm packages found for 'nonexistent pkg keyword'"
-      );
-      expect(text).toContain(
-        'Browse: https://npmjs.com/search?q=nonexistent%20pkg%20keyword'
-      );
-    });
-
-    it('should generate correct hints based on generateSuccessHints for mixed ecosystems', async () => {
-      // Mock full npm view response for exact package lookup
-      mockNpmViewFull('lodash', {
-        name: 'lodash',
-        version: '4.17.21',
-        description: 'Utility library',
-        keywords: [],
-        repository: 'git+https://github.com/lodash/lodash.git',
-      });
-
-      const mockPyPIResponse = {
-        data: {
-          info: {
-            name: 'numpy',
-            version: '1.26.0',
-            summary: 'Numerical Python',
-            keywords: '',
-            project_urls: {
-              Repository: 'https://github.com/numpy/numpy',
-            },
-          },
-        },
-      };
-
-      mockExecuteNpmCommand.mockImplementation(
-        createNpmCommandMock({
-          stdout: '', // Not used for exact package lookup
-          stderr: '',
-          exitCode: 0,
-        })
-      );
-
-      mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      // Test npm ecosystem hints
-      const npmResult = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'lodash',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const npmText = (npmResult.content[0] as { text: string }).text;
-      expect(npmText).toContain('Install: npm install lodash');
-      expect(npmText).toContain('githubViewRepoStructure');
-
-      // Test python ecosystem hints
-      const pythonResult = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'numpy',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const pythonText = (pythonResult.content[0] as { text: string }).text;
-      expect(pythonText).toContain('Install: pip install numpy');
-      expect(pythonText).toContain('githubViewRepoStructure');
-    });
-
-    it('should generate correct hints based on generateEmptyHints for mixed ecosystems', async () => {
-      mockExecuteNpmCommand.mockResolvedValue({
-        stdout: '[]',
-        stderr: '',
-        exitCode: 0,
-      });
-
-      mockPypiFetch.mockResolvedValue(new Response('', { status: 404 }));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      // Test npm empty hints - use keyword search (with space) for npm search flow
-      const npmResult = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'npm',
-            name: 'nonexistent npm pkg keyword',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const npmText = (npmResult.content[0] as { text: string }).text;
-      expect(npmText).toContain(
-        "No npm packages found for 'nonexistent npm pkg keyword'"
-      );
-      expect(npmText).toContain(
-        'Browse: https://npmjs.com/search?q=nonexistent%20npm%20pkg%20keyword'
-      );
-      expect(npmText).not.toContain('pypi.org');
-
-      // Test python empty hints
-      const pythonResult = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'nonexistent-python-pkg',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const pythonText = (pythonResult.content[0] as { text: string }).text;
-      expect(pythonText).toContain(
-        "No python packages found for 'nonexistent-python-pkg'"
-      );
-      expect(pythonText).toContain(
-        'Browse: https://pypi.org/search/?q=nonexistent-python-pkg'
-      );
-      expect(pythonText).not.toContain('npmjs.com');
-    });
   });
 });
 
 // NEW TESTS: Task 1 - Enhanced GitHub Integration Hints
-describe('Task 1: Enhanced GitHub Integration Hints', () => {
-  let mockServer: MockMcpServer;
-
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    clearAllCache();
-    clearNpmRegistryMocks();
-    clearNpmCliViewMocks();
-    _resetNpmRegistryUrlCache();
-    mockCheckNpmAvailability.mockResolvedValue(true);
-    mockServer = createMockMcpServer();
-    setupDefaultFetchMock();
-  });
-
-  afterEach(() => {
-    mockServer.cleanup();
-  });
-
-  it('should generate actionable GitHub tool call hints for npm packages', async () => {
-    // Mock full npm view response for exact package lookup
-    mockNpmViewFull('axios', {
-      name: 'axios',
-      version: '1.6.0',
-      description: 'HTTP client',
-      keywords: [],
-      repository: 'git+https://github.com/axios/axios.git',
-    });
-
-    mockExecuteNpmCommand.mockImplementation(
-      createNpmCommandMock({
-        stdout: '', // Not used for exact package lookup
-        stderr: '',
-        exitCode: 0,
-      })
-    );
-
-    await registerPackageSearchTool(mockServer.server);
-
-    const result = await mockServer.callTool('packageSearch', {
-      queries: [
-        {
-          ecosystem: 'npm',
-          name: 'axios',
-          mainResearchGoal: 'Test',
-          researchGoal: 'Test',
-          reasoning: 'Test',
-        },
-      ],
-    });
-
-    const text = (result.content[0] as { text: string }).text;
-    // YAML uses escaped quotes, check for pattern
-    expect(text).toContain('githubViewRepoStructure');
-    expect(text).toContain('axios');
-    expect(text).toContain('Install: npm install axios');
-  });
-
-  it('should generate actionable GitHub tool call hints for Python packages', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'requests',
-          version: '2.31.0',
-          summary: 'HTTP library',
-          keywords: '',
-          project_urls: {
-            Source: 'https://github.com/psf/requests',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    await registerPackageSearchTool(mockServer.server);
-
-    const result = await mockServer.callTool('packageSearch', {
-      queries: [
-        {
-          ecosystem: 'python',
-          name: 'requests',
-          mainResearchGoal: 'Test',
-          researchGoal: 'Test',
-          reasoning: 'Test',
-        },
-      ],
-    });
-
-    const text = (result.content[0] as { text: string }).text;
-    // YAML uses escaped quotes, so check for the pattern with either format
-    expect(text).toContain('githubViewRepoStructure');
-    expect(text).toContain('owner=');
-    expect(text).toContain('psf');
-    expect(text).toContain('Install: pip install requests');
-  });
-
-  it('should clean .git suffix from GitHub repository URLs', async () => {
-    // Mock full npm view response for exact package lookup with .git suffix
-    mockNpmViewFull('lodash', {
-      name: 'lodash',
-      version: '4.17.21',
-      description: 'Utility library',
-      keywords: [],
-      repository: 'git+https://github.com/lodash/lodash.git',
-    });
-
-    mockExecuteNpmCommand.mockImplementation(
-      createNpmCommandMock({
-        stdout: '', // Not used for exact package lookup
-        stderr: '',
-        exitCode: 0,
-      })
-    );
-
-    await registerPackageSearchTool(mockServer.server);
-
-    const result = await mockServer.callTool('packageSearch', {
-      queries: [
-        {
-          ecosystem: 'npm',
-          name: 'lodash',
-          mainResearchGoal: 'Test',
-          researchGoal: 'Test',
-          reasoning: 'Test',
-        },
-      ],
-    });
-
-    const text = (result.content[0] as { text: string }).text;
-    // YAML uses escaped quotes, so check for the pattern
-    expect(text).toContain('githubViewRepoStructure');
-    expect(text).toContain('lodash');
-    // Make sure .git is stripped from the repo name in the hint
-    expect(text).not.toContain('repo="lodash.git"');
-    expect(text).not.toContain("repo='lodash.git'");
-  });
-});
 
 // NEW TESTS: Task 2 - Name Variation Suggestions
 describe('Task 2: Name Variation Suggestions', () => {

@@ -23,7 +23,6 @@ import {
   incrementToolCalls,
   incrementRateLimits,
   incrementErrors,
-  incrementPromptCalls,
   resetSessionStats,
   deleteSession,
   flushSession,
@@ -40,7 +39,6 @@ import {
 
 const zeroTotalUsageStats = () => ({
   toolCalls: 0,
-  promptCalls: 0,
   errors: 0,
   rateLimits: 0,
   rateLimitsByProvider: {},
@@ -56,7 +54,6 @@ const zeroTotalUsageStats = () => ({
 
 const defaultStats = () => ({
   toolCalls: 0,
-  promptCalls: 0,
   errors: 0,
   rateLimits: 0,
   rateLimitsByProvider: {},
@@ -189,7 +186,7 @@ describe('Session Storage Edge Cases', () => {
             version: 1,
             createdAt: '2026-01-09T10:00:00.000Z',
             lastActiveAt: '2026-01-09T10:00:00.000Z',
-            stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+            stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
           })
         );
         _resetSessionState();
@@ -204,7 +201,7 @@ describe('Session Storage Edge Cases', () => {
             version: 1,
             sessionId: 'test-uuid',
             lastActiveAt: '2026-01-09T10:00:00.000Z',
-            stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+            stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
           })
         );
         _resetSessionState();
@@ -242,7 +239,7 @@ describe('Session Storage Edge Cases', () => {
             lastActiveAt: '2026-01-09T10:00:00.000Z',
             stats: {
               toolCalls: 5,
-              // Missing: promptCalls, errors, rateLimits
+              // Missing: errors, rateLimits
             },
           })
         );
@@ -267,7 +264,6 @@ describe('Session Storage Edge Cases', () => {
             createTestSession({
               stats: {
                 toolCalls: 'five' as unknown as number,
-                promptCalls: null,
                 errors: undefined,
                 rateLimits: {} as unknown as number,
               },
@@ -292,7 +288,6 @@ describe('Session Storage Edge Cases', () => {
             createTestSession({
               stats: {
                 toolCalls: -5,
-                promptCalls: -10,
                 errors: -1,
                 rateLimits: -3,
               },
@@ -312,7 +307,7 @@ describe('Session Storage Edge Cases', () => {
       it('should handle truncated session file from interrupted write', () => {
         const fullContent = JSON.stringify(
           createTestSession({
-            stats: { toolCalls: 5, promptCalls: 2, errors: 1, rateLimits: 3 },
+            stats: { toolCalls: 5, errors: 1, rateLimits: 3 },
           })
         );
 
@@ -339,7 +334,7 @@ describe('Session Storage Edge Cases', () => {
           sessionId: 'test-uuid',
           createdAt: '2026-01-09T10:00:00.000Z',
           lastActiveAt: '2026-01-09T10:00:00.000Z',
-          stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+          stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
           // Inject large payload (simulate tampering/corruption)
           extraData: 'x'.repeat(1024 * 1024), // 1MB
         };
@@ -506,14 +501,12 @@ describe('Session Storage Edge Cases', () => {
           incrementRateLimits(1);
           incrementToolCalls(1);
           incrementErrors(1);
-          incrementPromptCalls(1);
         }
 
         const session = readSession();
         expect(session?.stats.rateLimits).toBe(50);
         expect(session?.stats.toolCalls).toBe(50);
         expect(session?.stats.errors).toBe(50);
-        expect(session?.stats.promptCalls).toBe(50);
       });
     });
 
@@ -528,7 +521,6 @@ describe('Session Storage Edge Cases', () => {
           sessionId: 'external-process-uuid',
           stats: {
             toolCalls: 100,
-            promptCalls: 50,
             errors: 10,
             rateLimits: 20,
           },
@@ -566,7 +558,6 @@ describe('Session Storage Edge Cases', () => {
               sessionId: 'different-id',
               stats: {
                 toolCalls: 999,
-                promptCalls: 0,
                 errors: 0,
                 rateLimits: 0,
               },
@@ -679,7 +670,6 @@ describe('Session Storage Edge Cases', () => {
       lastActiveAt: '2026-01-09T10:00:00.000Z',
       stats: {
         toolCalls: 7,
-        promptCalls: 0,
         errors: 0,
         rateLimits: 0,
       },
@@ -899,7 +889,7 @@ describe('Session Storage Edge Cases', () => {
           JSON.stringify(
             createTestSession({
               sessionId: 'orphaned-session',
-              stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 5 },
+              stats: { toolCalls: 0, errors: 0, rateLimits: 5 },
             })
           )
         );
@@ -920,7 +910,6 @@ describe('Session Storage Edge Cases', () => {
             createTestSession({
               stats: {
                 toolCalls: Number.MAX_SAFE_INTEGER - 1,
-                promptCalls: 0,
                 errors: 0,
                 rateLimits: Number.MAX_SAFE_INTEGER - 1,
               },
@@ -978,7 +967,6 @@ describe('Session Storage Edge Cases', () => {
         expect(incrementRateLimits(1).success).toBe(false);
         expect(incrementToolCalls(1).success).toBe(false);
         expect(incrementErrors(1).success).toBe(false);
-        expect(incrementPromptCalls(1).success).toBe(false);
       });
     });
 
@@ -1049,7 +1037,6 @@ describe('Session Storage Edge Cases', () => {
         expect(result.session?.stats.rateLimits).toBe(5);
         expect(result.session?.stats.errors).toBe(3);
         expect(result.session?.stats.toolCalls).toBe(10);
-        expect(result.session?.stats.promptCalls).toBe(0);
       });
 
       it('should handle partial updates correctly', () => {
@@ -1147,7 +1134,7 @@ describe('Session Storage Edge Cases', () => {
             sessionId: 'test-uuid',
             createdAt: 'invalid-date',
             lastActiveAt: 'also-invalid',
-            stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+            stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
           })
         );
         _resetSessionState();

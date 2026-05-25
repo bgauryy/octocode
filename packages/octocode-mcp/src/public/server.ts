@@ -3,7 +3,6 @@
  */
 
 export { registerTools } from '../tools/toolsManager.js';
-export { registerPrompts } from '../prompts/prompts.js';
 export { ALL_TOOLS, type ToolConfig } from '../tools/toolConfig.js';
 export { initialize } from '../serverConfig.js';
 export { initializeProviders } from '../providers/factory.js';

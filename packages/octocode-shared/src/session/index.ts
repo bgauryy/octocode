@@ -37,7 +37,6 @@ export {
 export {
   updateSessionStats,
   incrementToolCalls,
-  incrementPromptCalls,
   incrementErrors,
   incrementRateLimits,
   incrementRateLimitByProvider,

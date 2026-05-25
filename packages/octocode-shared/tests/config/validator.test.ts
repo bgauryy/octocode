@@ -183,23 +183,6 @@ describe('config/validator', () => {
         expect(result.valid).toBe(true);
       });
 
-      it('rejects non-boolean disablePrompts', () => {
-        const result = validateConfig({
-          tools: { disablePrompts: 'true' },
-        });
-        expect(result.valid).toBe(false);
-        expect(
-          result.errors.some(e => e.includes('tools.disablePrompts'))
-        ).toBe(true);
-      });
-
-      it('accepts valid boolean disablePrompts', () => {
-        const result = validateConfig({
-          tools: { disablePrompts: true },
-        });
-        expect(result.valid).toBe(true);
-      });
-
       it('rejects non-object tools', () => {
         const result = validateConfig({ tools: 'invalid' });
         expect(result.valid).toBe(false);

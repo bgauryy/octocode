@@ -131,6 +131,8 @@ export interface PullRequestQuery extends BaseProviderQuery {
   owner?: string;
   /** Repository name filter */
   repo?: string;
+  /** Free-text search query (matches title/body/comments per `match` scope) */
+  query?: string;
   /**
    * PR/MR number within the project:
    * - GitHub: PR number

@@ -260,7 +260,7 @@ describe('secureServer', () => {
       );
     });
 
-    describe('prompt + resource registration', () => {
+    describe('resource registration', () => {
       let server: McpServer;
       let captured: Record<string, (...args: unknown[]) => Promise<unknown>> =
         {};
@@ -270,12 +270,6 @@ describe('secureServer', () => {
         captured = {};
         server = {
           registerTool: vi.fn(),
-          registerPrompt: vi.fn(
-            (_name: string, _config: unknown, cb: unknown) => {
-              captured.prompt = cb as (...a: unknown[]) => Promise<unknown>;
-              return {} as never;
-            }
-          ),
           registerResource: vi.fn(
             (
               _name: string,
@@ -289,44 +283,6 @@ describe('secureServer', () => {
           ),
         } as unknown as McpServer;
         proxy = withOutputSanitization(server);
-      });
-
-      it('forwards a successful prompt result unchanged', async () => {
-        const ok = {
-          messages: [
-            {
-              role: 'user' as const,
-              content: { type: 'text' as const, text: 'hi' },
-            },
-          ],
-        };
-        const handler = vi.fn().mockResolvedValue(ok);
-        proxy.registerPrompt('greet', {} as never, handler as never);
-        const result = await captured.prompt!({});
-        expect(result).toEqual(ok);
-      });
-
-      it('re-throws a sanitized McpError when a prompt handler throws', async () => {
-        const handler = vi
-          .fn()
-          .mockRejectedValue(
-            new Error('leak ghp_abc123xyz456789012345678901234567890 oh no')
-          );
-        proxy.registerPrompt('boom', {} as never, handler as never);
-
-        await expect(captured.prompt!({})).rejects.toMatchObject({
-          code: expect.any(Number),
-          message: expect.stringContaining('prompt "boom" failed'),
-        });
-
-        try {
-          await captured.prompt!({});
-        } catch (err) {
-          const message = (err as { message: string }).message;
-          expect(message).not.toContain(
-            'ghp_abc123xyz456789012345678901234567890'
-          );
-        }
       });
 
       it('forwards a successful resource result unchanged', async () => {
@@ -362,13 +318,6 @@ describe('secureServer', () => {
         });
       });
 
-      it('handles non-Error throws from prompt handlers', async () => {
-        const handler = vi.fn().mockRejectedValue('string error');
-        proxy.registerPrompt('boom', {} as never, handler as never);
-        await expect(captured.prompt!({})).rejects.toMatchObject({
-          message: expect.stringContaining('string error'),
-        });
-      });
     });
 
     describe('crash isolation', () => {

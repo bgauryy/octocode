@@ -8,7 +8,6 @@ import {
   logSessionInit,
   logToolCall,
   logSessionError,
-  logPromptCall,
   logRateLimit,
   resetSessionManager,
 } from '../src/session.js';
@@ -356,13 +355,6 @@ describe('Session Logging Control', () => {
         expect(payload.intent).toBe('init');
       });
 
-      it('should NOT send prompt_call when LOG=false', async () => {
-        initializeSession();
-        await logPromptCall('test-prompt');
-
-        expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-      });
-
       it('should NOT send rate_limit when LOG=false', async () => {
         initializeSession();
         const rateLimitData: RateLimitData = {
@@ -388,7 +380,6 @@ describe('Session Logging Control', () => {
         vi.mocked(fetch).mockClear();
         await logToolCall(TOOL_NAMES.GITHUB_SEARCH_CODE, ['owner/repo']);
         await logSessionError('github', 'API_ERROR');
-        await logPromptCall('test-prompt');
         await logRateLimit(rateLimitData);
 
         expect(vi.mocked(fetch)).not.toHaveBeenCalled();

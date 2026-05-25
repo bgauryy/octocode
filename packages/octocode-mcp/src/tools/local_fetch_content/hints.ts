@@ -5,10 +5,7 @@
  * API dynamic keys available: largeFile, sourceCode, configOrDocs, needAnalysis
  */
 
-import { getMetadataDynamicHints } from '../../hints/static.js';
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
-
-const TOOL_NAME = 'localGetFileContent';
 
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
@@ -51,9 +48,8 @@ export const hints: ToolHintGenerators = {
     if (ctx.errorType === 'size_limit' && ctx.isLarge) {
       return [
         ctx.fileSize
-          ? `Large file (~${Math.round(ctx.fileSize * 0.25)}K tokens).`
-          : undefined,
-        ...getMetadataDynamicHints(TOOL_NAME, 'largeFile'),
+          ? `Large file (~${Math.round(ctx.fileSize * 0.25)}K tokens). Use matchString or startLine/endLine.`
+          : 'File too large. Use matchString or startLine/endLine.',
       ];
     }
 

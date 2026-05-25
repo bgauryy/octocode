@@ -23,7 +23,6 @@ export type StatsCounterMap = Record<string, number>;
 
 export interface SessionTotalUsageStats {
   toolCalls: number;
-  promptCalls: number;
   errors: number;
   rateLimits: number;
   rateLimitsByProvider: StatsCounterMap;
@@ -39,7 +38,6 @@ export interface SessionTotalUsageStats {
 
 export interface SessionStats {
   toolCalls: number;
-  promptCalls: number;
   errors: number;
   rateLimits: number;
   rateLimitsByProvider?: StatsCounterMap;

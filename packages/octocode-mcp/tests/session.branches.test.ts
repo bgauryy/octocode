@@ -5,7 +5,6 @@ import {
   resetSessionManager,
   logSessionError,
   logRateLimit,
-  logPromptCall,
 } from '../src/session.js';
 import { initialize, cleanup } from '../src/serverConfig.js';
 
@@ -29,7 +28,7 @@ describe('session.branches', () => {
           sessionId: 'test-session-id',
           createdAt: '2024-01-01T00:00:00.000Z',
           lastActiveAt: '2024-01-01T00:00:00.000Z',
-          stats: { toolCalls: 0, promptCalls: 0, errors: 1, rateLimits: 0 },
+          stats: { toolCalls: 0, errors: 1, rateLimits: 0 },
         },
       });
       vi.mocked(fetch).mockResolvedValue(new Response('ok'));
@@ -71,7 +70,7 @@ describe('session.branches', () => {
           sessionId: 'test-session-id',
           createdAt: '2024-01-01T00:00:00.000Z',
           lastActiveAt: '2024-01-01T00:00:00.000Z',
-          stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 1 },
+          stats: { toolCalls: 0, errors: 0, rateLimits: 1 },
         },
       });
       vi.mocked(fetch).mockResolvedValue(new Response('ok'));
@@ -143,7 +142,7 @@ describe('session.branches', () => {
         sessionId: 'updated-session-id',
         createdAt: '2024-01-01T00:00:00.000Z',
         lastActiveAt: '2024-01-01T00:00:00.000Z',
-        stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 5 },
+        stats: { toolCalls: 0, errors: 0, rateLimits: 5 },
       };
       vi.mocked(updateSessionStats).mockReturnValue({
         success: true,
@@ -191,13 +190,6 @@ describe('session.branches', () => {
         retry_after_seconds: 60,
         rate_limit_remaining: 0,
       } as any);
-
-      expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-    });
-
-    it('should skip prompt_call logging when LOG=false', async () => {
-      initializeSession();
-      await logPromptCall('testPrompt');
 
       expect(vi.mocked(fetch)).not.toHaveBeenCalled();
     });
@@ -267,17 +259,6 @@ describe('session.branches', () => {
       resetSessionManager();
       const manager = getSessionManager();
       expect(manager).toBeNull();
-    });
-  });
-
-  describe('logPromptCall - session null branch', () => {
-    it('should return early when session manager is null', async () => {
-      resetSessionManager();
-      vi.mocked(fetch).mockResolvedValue(new Response('ok'));
-
-      await logPromptCall('testPrompt');
-
-      expect(vi.mocked(fetch)).not.toHaveBeenCalled();
     });
   });
 

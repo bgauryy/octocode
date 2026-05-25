@@ -8,12 +8,14 @@ import { withSecurityValidation } from '../../utils/securityBridge.js';
 import type { ToolInvocationCallback } from '../../types.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 import type { PackageSearchQuery } from '@octocodeai/octocode-core';
-import { PackageSearchBulkQueryLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
+import {
+  PackageSearchBulkQueryLocalSchema,
+  PackageSearchOutputLocalSchema,
+} from '../../scheme/remoteSchemaOverlay.js';
 import { invokeCallbackSafely } from '../utils.js';
 import { checkNpmAvailability } from '../../utils/exec/npm.js';
 import { checkNpmRegistryReachable } from '../../utils/package/npm.js';
 import { searchPackages } from './execution.js';
-import { PackageSearchOutputSchema } from '@octocodeai/octocode-core';
 
 export async function registerPackageSearchTool(
   server: McpServer,
@@ -34,7 +36,7 @@ export async function registerPackageSearchTool(
     {
       description: DESCRIPTIONS[TOOL_NAMES.PACKAGE_SEARCH],
       inputSchema: toMCPSchema(PackageSearchBulkQueryLocalSchema),
-      outputSchema: toMCPSchema(PackageSearchOutputSchema),
+      outputSchema: toMCPSchema(PackageSearchOutputLocalSchema),
       annotations: {
         title: 'Package Search',
         readOnlyHint: true,
@@ -50,6 +52,7 @@ export async function registerPackageSearchTool(
           queries: PackageSearchQuery[];
           responseCharOffset?: number;
           responseCharLength?: number;
+          format?: 'tsv' | 'json';
         },
         _authInfo,
         _sessionId
@@ -66,6 +69,7 @@ export async function registerPackageSearchTool(
           queries,
           responseCharOffset: args.responseCharOffset,
           responseCharLength: args.responseCharLength,
+          format: args.format,
         });
       }
     )

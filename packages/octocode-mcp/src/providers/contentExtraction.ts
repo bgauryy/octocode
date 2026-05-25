@@ -12,6 +12,7 @@ interface ExtractedFileContent {
   hints?: string[];
   pagination?: PaginationInfo;
   isPartial: boolean;
+  totalLines: number;
   startLine?: number;
   endLine?: number;
 }
@@ -29,6 +30,7 @@ function extractMatchingContent(
     return {
       content,
       isPartial: false,
+      totalLines,
     };
   }
 
@@ -48,6 +50,7 @@ function extractMatchingContent(
         `Pattern "${matchString}" not found in file. Try broader search or verify path.`,
       ],
       isPartial: false,
+      totalLines,
     };
   }
 
@@ -58,6 +61,7 @@ function extractMatchingContent(
   return {
     content: lines.slice(startLine - 1, endLine).join('\n'),
     isPartial: true,
+    totalLines,
     startLine,
     endLine,
   };
@@ -76,6 +80,7 @@ function extractLineRangeContent(
     return {
       content,
       isPartial: false,
+      totalLines,
     };
   }
 
@@ -85,6 +90,7 @@ function extractLineRangeContent(
   return {
     content: lines.slice(clampedStartLine - 1, clampedEndLine).join('\n'),
     isPartial: true,
+    totalLines,
     startLine: clampedStartLine,
     endLine: clampedEndLine,
   };
@@ -136,6 +142,7 @@ export function extractFileContent(
     extracted = {
       content,
       isPartial: false,
+      totalLines: content.split('\n').length,
     };
   }
 

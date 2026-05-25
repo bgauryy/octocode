@@ -62,7 +62,7 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 export async function searchPackages(
   args: ToolExecutionArgs<PackageSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries, responseCharOffset, responseCharLength, format } = args;
 
   return executeBulkOperation(
     queries,
@@ -127,6 +127,9 @@ export async function searchPackages(
       keysPriority: ['packages', 'totalFound', 'error'],
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
     }
   );
 }
@@ -145,41 +148,25 @@ function generateSuccessHints(
   const name = getPackageName(pkg);
   const repo = getPackageRepo(pkg);
 
+  // Only emit recovery-actionable hints. Data-echo hints
+  // (Explore/Install/Browse/Compare) are dropped — the caller already has
+  // name/repo/license on `packages[]` and can construct any URL themselves.
   if (deprecationInfo?.deprecated) {
     const msg = deprecationInfo.message || 'This package is deprecated';
     hints.push(`DEPRECATED: ${name} - ${msg}`);
   }
 
-  if (repo) {
-    const repoMatch = repo.match(
-      /(?:github\.com|gitlab\.com|bitbucket\.org)\/([^/]+)\/([^/]+)/
-    );
-    if (repoMatch && repoMatch[1] && repoMatch[2]) {
-      const owner = repoMatch[1];
-      const repoName = repoMatch[2];
-      const cleanRepo = repoName.replace(/\.git$/, '').replace(/\/$/, '');
-      hints.push(
-        `Explore: githubViewRepoStructure(owner="${owner}", repo="${cleanRepo}")`
-      );
-    }
-  }
-
-  hints.push(
-    ecosystem === 'npm'
-      ? `Install: npm install ${name}`
-      : `Install: pip install ${name}`
-  );
-
-  if (result.packages.length > 1) {
-    hints.push(
-      'Compare: Check weeklyDownloads, lastPublished, license for best fit'
-    );
-  }
+  // Reference args to satisfy noUnusedParameters without changing the signature
+  // (kept for back-compat with the call site).
+  void ecosystem;
+  void repo;
 
   return hints;
 }
 
 function generateEmptyHints(query: PackageSearchQuery): string[] {
+  // Only emit recovery hints: a stated reason + concrete name variations
+  // to retry. Drop the `Browse:` URL — pure data echo (agent can build it).
   const hints: string[] = [];
   const name = query.name;
 
@@ -189,12 +176,6 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
   if (variations.length > 0) {
     hints.push(`Try: ${variations.join(', ')}`);
   }
-
-  const browseUrl =
-    query.ecosystem === 'npm'
-      ? `https://npmjs.com/search?q=${encodeURIComponent(name)}`
-      : `https://pypi.org/search/?q=${encodeURIComponent(name)}`;
-  hints.push(`Browse: ${browseUrl}`);
 
   return hints;
 }

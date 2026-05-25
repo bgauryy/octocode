@@ -104,6 +104,117 @@ describe('LSP Call Hierarchy Handler Tests', () => {
       expect(config.annotations.readOnlyHint).toBe(true);
     });
 
+    it('should validate rich empty call hierarchy structured content', async () => {
+      vi.resetModules();
+
+      const { registerLSPCallHierarchyTool } =
+        await import('../../src/tools/lsp_call_hierarchy/register.js');
+
+      const mockServer = {
+        registerTool: vi.fn().mockReturnValue('registered'),
+      };
+
+      registerLSPCallHierarchyTool(mockServer as any);
+
+      const config = mockServer.registerTool.mock.calls[0]![1];
+      const validation = config.outputSchema.safeParse({
+        results: [
+          {
+            id: 'call-hierarchy-empty',
+            status: 'empty',
+            data: {
+              item: {
+                name: 'registerTools',
+                kind: 'function',
+                uri: '/workspace/src/tools/toolsManager.ts',
+                range: {
+                  start: { line: 35, character: 22 },
+                  end: { line: 35, character: 35 },
+                },
+                content: 'export async function registerTools() {}',
+              },
+              direction: 'incoming',
+              depth: 1,
+              incomingCalls: [],
+              hints: ['No callers found'],
+            },
+          },
+        ],
+        hints: ['No callers found'],
+      });
+
+      expect(validation.success).toBe(true);
+    });
+
+    it('should validate rich incoming call hierarchy structured content', async () => {
+      vi.resetModules();
+
+      const { registerLSPCallHierarchyTool } =
+        await import('../../src/tools/lsp_call_hierarchy/register.js');
+
+      const mockServer = {
+        registerTool: vi.fn().mockReturnValue('registered'),
+      };
+
+      registerLSPCallHierarchyTool(mockServer as any);
+
+      const config = mockServer.registerTool.mock.calls[0]![1];
+      const validation = config.outputSchema.safeParse({
+        results: [
+          {
+            id: 'call-hierarchy-incoming',
+            status: 'hasResults',
+            data: {
+              item: {
+                name: 'registerTools',
+                kind: 'function',
+                uri: '/workspace/src/tools/toolsManager.ts',
+                range: {
+                  start: { line: 35, character: 22 },
+                  end: { line: 35, character: 35 },
+                },
+                content: 'export async function registerTools() {}',
+              },
+              direction: 'incoming',
+              depth: 1,
+              incomingCalls: [
+                {
+                  from: {
+                    name: 'main',
+                    kind: 'function',
+                    uri: '/workspace/src/index.ts',
+                    range: {
+                      start: { line: 100, character: 0 },
+                      end: { line: 110, character: 1 },
+                    },
+                    content: 'await registerTools(server);',
+                  },
+                  fromRanges: [
+                    {
+                      start: { line: 104, character: 8 },
+                      end: { line: 104, character: 21 },
+                    },
+                  ],
+                },
+              ],
+              pagination: {
+                currentPage: 1,
+                totalPages: 1,
+                totalResults: 1,
+                hasMore: false,
+                resultsPerPage: 5,
+              },
+              lspMode: 'semantic',
+              hints: ['Found 1 caller'],
+            },
+          },
+        ],
+        hints: ['Found 1 caller'],
+      });
+
+      expect(validation.success).toBe(true);
+    });
+
     it('should handle empty queries array', async () => {
       vi.resetModules();
 

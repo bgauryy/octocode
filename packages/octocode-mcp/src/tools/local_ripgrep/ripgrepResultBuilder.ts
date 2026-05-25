@@ -115,13 +115,12 @@ export async function buildSearchResult(
     }
   );
 
-  const paginationHints = [
-    `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles})`,
-    `Total: ${totalMatches} matches across ${totalFiles} files`,
+  const paginationHints: string[] =
     filePageNumber < totalFilePages
-      ? `Next: filePageNumber=${filePageNumber + 1}`
-      : 'Final page',
-  ];
+      ? [
+          `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: filePageNumber=${filePageNumber + 1}`,
+        ]
+      : [];
 
   if (wasLimited) {
     paginationHints.push(
@@ -158,7 +157,6 @@ export async function buildSearchResult(
       ...paginationHints,
       ...refinementHints,
       ...getHints(TOOL_NAMES.LOCAL_RIPGREP, 'hasResults'),
-      'files[].matches[].line = use as lineHint for LSP tools',
     ],
   };
 
@@ -213,20 +211,18 @@ function _getStructuredResultSizeHints(
 ): string[] {
   const hints: string[] = [];
 
+  // Strict policy: only emit a recovery hint when the result set is
+  // genuinely too large; one concise line, no headings or empty separators.
   if (totalMatches > 100 || files.length > 20) {
-    hints.push('', 'Large result set - refine search:');
-    if (!query.type && !query.include)
+    const recoveries: string[] = [];
+    if (!query.type && !query.include) recoveries.push('add type or include');
+    if (!query.excludeDir?.length) recoveries.push('add excludeDir');
+    if (query.pattern.length < 5) recoveries.push('lengthen pattern');
+    if (recoveries.length > 0) {
       hints.push(
-        '  - Narrow by file type: type="ts" or include=["*.{ts,tsx}"]'
+        `Large result set (${totalMatches} matches in ${files.length} files). Narrow: ${recoveries.join(', ')}.`
       );
-    if (!query.excludeDir?.length)
-      hints.push(
-        '  - Exclude directories: excludeDir=["test", "vendor", "generated"]'
-      );
-    if (query.pattern.length < 5)
-      hints.push(
-        '  - Use more specific pattern (current pattern is very short)'
-      );
+    }
   }
 
   return hints;

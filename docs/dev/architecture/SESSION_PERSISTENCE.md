@@ -73,7 +73,6 @@ interface PersistedStats {
 
 interface SessionStats {
   toolCalls: number;       // MCP tool invocations
-  promptCalls: number;     // MCP prompt invocations  
   errors: number;          // Error count
   rateLimits: number;      // Provider API rate-limit encounters
   rateLimitsByProvider?: Record<string, number>;
@@ -105,7 +104,6 @@ interface SessionStats {
   "version": 1,
   "stats": {
     "toolCalls": 142,
-    "promptCalls": 3,
     "errors": 2,
     "rateLimits": 0,
     "rateLimitsByProvider": {},
@@ -117,7 +115,6 @@ interface SessionStats {
     "packageRegistryFailures": {},
     "totalUsage": {
       "toolCalls": 142,
-      "promptCalls": 3,
       "errors": 2,
       "rateLimits": 0,
       "rateLimitsByProvider": {},
@@ -292,7 +289,6 @@ const deleted = deleteSession();
 ```typescript
 // Increment by 1 (default)
 incrementToolCalls();
-incrementPromptCalls();
 incrementErrors();
 incrementRateLimits();
 incrementRateLimitByProvider('gitlab');
@@ -346,7 +342,6 @@ resetSessionStats();
 |----------|---------|---------|
 | `updateSessionStats(updates)` | Batch update stats | `SessionUpdateResult` |
 | `incrementToolCalls(n?)` | Increment tool calls | `SessionUpdateResult` |
-| `incrementPromptCalls(n?)` | Increment prompt calls | `SessionUpdateResult` |
 | `incrementErrors(n?)` | Increment error count | `SessionUpdateResult` |
 | `incrementRateLimits(n?)` | Increment global provider rate-limit count | `SessionUpdateResult` |
 | `incrementRateLimitByProvider(provider, n?)` | Increment global and per-provider rate-limit counts | `SessionUpdateResult` |

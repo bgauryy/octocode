@@ -35,6 +35,7 @@ export function transformFileContentResult(
     content: data.content || '',
     encoding: 'utf-8',
     size: data.content?.length || 0,
+    totalLines: data.totalLines,
     ref: data.branch || query.ref || '',
     lastModified: data.lastModified,
     lastModifiedBy: data.lastModifiedBy,
@@ -42,6 +43,7 @@ export function transformFileContentResult(
     isPartial: data.isPartial,
     startLine: data.startLine,
     endLine: data.endLine,
+    warnings: data.warnings ?? data.matchLocations,
   };
 }
 

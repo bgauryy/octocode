@@ -6,14 +6,28 @@ import {
 import { expectHasResultsData, getSingleResult } from '../flows/assertions.js';
 import {
   LocalFindFilesDataSchema,
-  LocalFindFilesOutputSchema,
+  LocalFindFilesOutputSchema as UpstreamLocalFindFilesOutputSchema,
   LocalGetFileContentDataSchema,
-  LocalGetFileContentOutputSchema,
+  LocalGetFileContentOutputSchema as UpstreamLocalGetFileContentOutputSchema,
   LocalSearchCodeDataSchema,
-  LocalSearchCodeOutputSchema,
+  LocalSearchCodeOutputSchema as UpstreamLocalSearchCodeOutputSchema,
   LocalViewStructureDataSchema,
-  LocalViewStructureOutputSchema,
+  LocalViewStructureOutputSchema as UpstreamLocalViewStructureOutputSchema,
 } from '@octocodeai/octocode-core';
+import { withTsvEnvelope } from '../../src/scheme/tsvEnvelope.js';
+
+const LocalFindFilesOutputSchema = withTsvEnvelope(
+  UpstreamLocalFindFilesOutputSchema
+);
+const LocalGetFileContentOutputSchema = withTsvEnvelope(
+  UpstreamLocalGetFileContentOutputSchema
+);
+const LocalSearchCodeOutputSchema = withTsvEnvelope(
+  UpstreamLocalSearchCodeOutputSchema
+);
+const LocalViewStructureOutputSchema = withTsvEnvelope(
+  UpstreamLocalViewStructureOutputSchema
+);
 import { registerLocalRipgrepTool } from '../../src/tools/local_ripgrep/register.js';
 import { registerLocalViewStructureTool } from '../../src/tools/local_view_structure/register.js';
 import { registerLocalFindFilesTool } from '../../src/tools/local_find_files/register.js';

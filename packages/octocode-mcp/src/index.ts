@@ -2,14 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Implementation } from '@modelcontextprotocol/sdk/types.js';
 
-import { registerPrompts } from './prompts/prompts.js';
 import { clearAllCache } from './utils/http/cache.js';
 import { clearOctokitInstances } from './github/client.js';
 import {
   initialize,
   cleanup,
   getGitHubToken,
-  arePromptsEnabled,
   isCloneEnabled,
   getActiveProvider,
   isLoggingEnabled,
@@ -172,7 +170,6 @@ export async function registerAllTools(
 
 async function createServer(content: CompleteMetadata): Promise<McpServer> {
   const capabilities: {
-    prompts?: Record<string, never>;
     tools: { listChanged: boolean };
     logging: Record<string, never>;
   } = {
@@ -180,30 +177,12 @@ async function createServer(content: CompleteMetadata): Promise<McpServer> {
     logging: {},
   };
 
-  if (arePromptsEnabled()) {
-    capabilities.prompts = {};
-  }
-
-  const genericHints = [
-    'Every query must include a unique id; match responses via results[].id',
-    "Follow 'mainResearchGoal', 'researchGoal', 'reasoning', 'hints' to navigate research",
-    'Do findings answer your question? If partial, identify gaps and continue',
-    'Got 3+ examples? Consider stopping to avoid over-research',
-    'Check last modified dates - skip stale content',
-    'Try broader terms or related concepts when results are empty',
-    'Remove filters one at a time to find what blocks results',
-    'Separate concerns into multiple simpler queries',
-    'If stuck in loop - STOP and ask user',
-    'If LSP tools return text-based fallback, install typescript-language-server for semantic analysis',
-  ].join('\n');
-
-  const fullInstructions = content.instructions
-    ? `${content.instructions}\n\n${genericHints}`
-    : genericHints;
-
+  // Server-level instructions are the upstream content alone. No static
+  // priming block — the single hint flow is dynamic per response (empty /
+  // error / pagination cursor). See `tests/tools/unified-hint-flow.contract`.
   return new McpServer(SERVER_CONFIG, {
     capabilities,
-    instructions: fullInstructions,
+    instructions: content.instructions,
   });
 }
 
@@ -229,12 +208,9 @@ async function startServer() {
     const content = await loadToolContent();
     const session = initializeSession();
 
-    // Phase 2: Create server, register tools & prompts (pre-connect)
+    // Phase 2: Create server, register tools (pre-connect)
     const server = await createServer(content);
     await registerAllTools(server, content);
-    if (arePromptsEnabled()) {
-      registerPrompts(server, content);
-    }
 
     // Phase 3: Setup shutdown/crash handlers BEFORE connect
     // Uses lazy getLogger() so handlers work both with and without a logger

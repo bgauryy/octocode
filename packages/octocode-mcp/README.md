@@ -29,18 +29,84 @@
 
 ---
 
+## Benchmark Performance
+
+Hermetic evals: **212/212 passing**. Octocode MCP is the best default for agent research: it wins the combined benchmark with **99/105 quality** and **17,274 output tokens** on the full 60-query remote sweep (**89% less than raw `gh`**).
+
+**Token benchmark — lower is better**
+
+| Method | Token load | Tokens | Result |
+|---|---:|---:|---|
+| raw `gh` | `████████████████████` | 153,042 | baseline |
+| Octocode CLI | `████░░░░░░░░░░░░░░░░` | 29,365 | 81% less than `gh` |
+| **Octocode MCP** | `██░░░░░░░░░░░░░░░░░░` | **17,274** | **89% less than `gh`** |
+
+**Quality benchmark — higher is better**
+
+| Method | Quality bar | Score | Best use |
+|---|---:|---:|---|
+| **Octocode MCP** | `███████████████████░` | **99/105 · 94%** | Deep agent research + local/LSP flow |
+| Octocode CLI | `███████████████░░░░░` | 79/105 · 75% | Short scripted research |
+| RTK | `███░░░░░░░░░░░░░░░░░` | 18/105 · 17% | Shallow PR/local summaries and writes |
+| raw `gh` | `not scored` | baseline | Writes and direct GitHub API access |
+
+**Token × Quality visual axis**
+
+X-axis = token savings vs raw `gh` (right is better). Y-axis = research quality score (up is better). **Best overall is the upper-right quadrant.**
+
+```text
+Quality ↑
+100 |                                                  ● Octocode MCP
+ 90 |                                                    99/105 quality
+ 80 |                                      ● Octocode CLI 89% token savings
+ 70 |                                        79/105 quality
+ 60 |
+ 50 |
+ 40 |
+ 30 |
+ 20 |                                                   ● RTK
+ 10 |                                                     18/105 quality
+  0 | ● raw gh                                            90% T5-only savings
+    +--------------------------------------------------------------→ Token savings
+      0%               40%               80%              90%+
+      baseline                          CLI 81%        MCP 89% / RTK T5 90%
+```
+
+| Point | X: token benchmark | Y: quality benchmark | Interpretation |
+|---|---:|---:|---|
+| **Octocode MCP** | 89% less than `gh` | **99/105** | Best combined token + quality result |
+| Octocode CLI | 81% less than `gh` | 79/105 | Best short/scripted structured runner |
+| RTK | 90% less on T5 only | 18/105 | Very cheap but shallow and narrow |
+| raw `gh` | baseline | not scored | Direct API/writes; verbose reads |
+
+**Best-by-scenario matrix**
+
+| Scenario | Best tokens | Best quality | Recommendation |
+|---|---|---|---|
+| Full remote research sweep | **Octocode MCP** | **Octocode MCP** | Default for agent research |
+| Short one-off scripted run | **Octocode CLI** | Octocode CLI / MCP | Use CLI when MCP init is not amortized |
+| Shallow PR listing | **RTK** | **Octocode MCP** | RTK for titles only; MCP for triage |
+| PR triage with diff stats | **Octocode MCP** | **Octocode MCP** | MCP avoids `1 + N` follow-up calls |
+| Remote directory browsing | **Octocode MCP** | **Octocode MCP** | Raw `gh api /contents` is very verbose |
+| Local shallow grep/find | **RTK** | **Octocode local tools** | RTK for quick summaries; Octocode for evidence |
+| Local targeted code read | **Octocode local tools** | **Octocode local tools** | Use `matchString` / line ranges |
+| Local semantic flow | **Octocode MCP LSP** | **Octocode MCP LSP** | Definitions, references, call hierarchy |
+| GitHub writes | **raw `gh` / RTK** | **raw `gh` / RTK** | Octocode is read-only |
+
+Local verdict: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"ultra"` is available for lossy broad probes; use compact/default for evidence.
+
+Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/benchmark/github/README.md)
+
+---
+
 ## Table of Contents
 
+- [Benchmark Performance](#benchmark-performance)
 - [See It In Action](#see-it-in-action)
 - [Installation](#installation)
 - [More Examples](#more-examples)
 - [Overview](#overview)
 - [Tools](#tools)
-- [Commands](#commands)
-  - [/research - Expert Code & Product Research](#research---expert-code--product-research)
-  - [/plan - Research, Plan & Implement Complex Tasks](#plan---research-plan--implement-complex-tasks)
-  - [/review_pull_request - Comprehensive PR Review](#review_pull_request---comprehensive-pr-review)
-  - [/review_security - Security Audit](#review_security---security-audit)
 - [Documentation](#documentation)
 - [Community](#community)
 - [License](#license)
@@ -581,101 +647,6 @@ Demonstrates progressive research workflow:
 2. Structure exploration (hooks implementation)
 3. Code analysis (internal mechanisms)
 4. Comprehensive explanation with code references
-
----
-
-## Commands
-
-Octocode MCP provides intelligent prompt commands that enhance your research workflow:
-
-### `/research` - Expert Code & Product Research
-
-Powerful research prompt leveraging Octocode's full capabilities for deep code discovery, documentation analysis, pattern identification, and bug investigation. Orchestrates parallel bulk queries with staged analysis to uncover insights fast.
-
-**When to use**:
-- **Understanding repository workflows**: Discover how repositories work, trace specific flows through codebases, and understand technical implementations
-- **Cross-repository flow analysis**: Understand complex flows that span multiple repositories, trace data flows across microservices
-- **Deep technical investigations**: Trace code flows, understand complex implementations, analyze architecture decisions
-- **Bug investigation**: Find root causes by analyzing code, commit history, and related PRs
-- **Pattern discovery**: Compare implementations across multiple repos to find best practices
-- **Documentation validation**: Verify docs match actual code behavior
-
-**Usage Examples**:
-```
-/research How does React's useState hook work internally?
-/research Compare state management approaches: Redux vs Zustand vs Jotai
-/research Why is the payment webhook failing? Trace the error through payment-service
-```
-
----
-
-### `/plan` - Research, Plan & Implement Complex Tasks
-
-Your AI architect for tackling complex development work. Breaks down ambitious tasks into actionable steps, researches existing patterns and implementations, then guides you through execution—all powered by Octocode's deep codebase intelligence.
-
-**When to use**:
-- **Building new features**: Research patterns, plan architecture, then implement
-- **Complex refactoring**: Understand current state, plan migration path, execute safely
-- **Learning new technologies**: Research best practices, create learning plan, build incrementally
-- **System design**: Explore existing implementations, design your approach, validate decisions
-
-**Usage Examples**:
-```
-/plan Build a real-time chat application with WebSocket support
-/plan Migrate our authentication from JWT to OAuth2
-/plan Implement a plugin system for our CLI tool
-```
-
----
-
-### `/review_pull_request` - Comprehensive PR Review
-
-**Args:** `prUrl` (required) - GitHub Pull Request URL (e.g., https://github.com/owner/repo/pull/123)
-
-Expert-level PR review with a Defects-First mindset. Dives deep into code changes, spots bugs before they ship, flags complexity risks, and delivers actionable feedback that elevates code quality.
-
-**What it analyzes**:
-- **Defects & Bugs**: Logic errors, edge cases, race conditions, null handling
-- **Security Issues**: Injection vulnerabilities, auth bypasses, data exposure
-- **Performance**: N+1 queries, memory leaks, inefficient algorithms
-- **Code Quality**: Complexity, maintainability, test coverage gaps
-- **Best Practices**: Design patterns, error handling, documentation
-
-**Usage**:
-```
-/review_pull_request prUrl: https://github.com/facebook/react/pull/12345
-```
-
----
-
-### `/review_security` - Security Audit
-
-**Args:** `repoUrl` (required) - GitHub repository URL (e.g., https://github.com/owner/repo)
-
-Comprehensive security analysis of a repository. Identifies vulnerabilities, reviews authentication/authorization patterns, checks for secrets exposure, and provides remediation guidance.
-
-**What it analyzes**:
-- **Authentication & Authorization**: Auth flows, session management, access controls
-- **Input Validation**: Injection points, sanitization, boundary checks
-- **Secrets Management**: Hardcoded credentials, API keys, configuration security
-- **Dependencies**: Known vulnerabilities, outdated packages, supply chain risks
-- **Data Protection**: Encryption, PII handling, data flow security
-
-**Usage**:
-```
-/review_security repoUrl: https://github.com/your-org/your-repo
-```
-
----
-
-### Tips for Using Commands
-
-1. **Use `/research` for code exploration** - Deep dive into how things work
-2. **Use `/plan` for building** - Research, plan, then implement complex features
-3. **Use `/review_pull_request`** before merging PRs for thorough code review
-4. **Use `/review_security`** for security audits of repositories
-
-> **💡 Pro Tip**: Combine `/research` and `/plan` for maximum effectiveness—research existing patterns first, then plan your implementation with confidence.
 
 ---
 

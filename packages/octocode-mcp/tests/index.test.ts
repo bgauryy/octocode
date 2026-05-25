@@ -9,7 +9,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js');
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js');
 vi.mock('../src/utils/http/cache.js');
-vi.mock('../src/prompts/prompts.js');
 vi.mock('../src/tools/github_search_code/github_search_code.js');
 vi.mock('../src/tools/github_fetch_content/github_fetch_content.js');
 vi.mock('../src/tools/github_search_repos/github_search_repos.js');
@@ -64,7 +63,6 @@ vi.mock('../src/utils/core/logger.js', () => {
 });
 
 // Import mocked functions
-import { registerPrompts } from '../src/prompts/prompts.js';
 import { registerGitHubSearchCodeTool } from '../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
@@ -76,7 +74,6 @@ import {
   cleanup,
   getServerConfig,
   getGitHubToken,
-  arePromptsEnabled,
   isCloneEnabled,
   getActiveProvider,
 } from '../src/serverConfig.js';
@@ -97,7 +94,6 @@ const mockTransport = {
   start: vi.fn(function () {}),
 };
 
-const mockRegisterPrompts = vi.mocked(registerPrompts);
 const mockMcpServerConstructor = vi.mocked(McpServer);
 const mockStdioServerTransport = vi.mocked(StdioServerTransport);
 const mockGetGithubCLIToken = vi.mocked(getGithubCLIToken);
@@ -106,7 +102,6 @@ const mockGetGitHubToken = vi.mocked(getGitHubToken);
 const mockInitialize = vi.mocked(initialize);
 const mockCleanup = vi.mocked(cleanup);
 const mockGetServerConfig = vi.mocked(getServerConfig);
-const mockArePromptsEnabled = vi.mocked(arePromptsEnabled);
 const mockIsCloneEnabled = vi.mocked(isCloneEnabled);
 const mockGetActiveProvider = vi.mocked(getActiveProvider);
 
@@ -205,9 +200,6 @@ describe('Index Module', () => {
       update: vi.fn(function () {}),
       remove: vi.fn(function () {}),
     } as unknown as RegisteredTool;
-    mockRegisterPrompts.mockImplementation(function () {
-      return mockRegisteredTool;
-    });
     mockRegisterGitHubSearchCodeTool.mockImplementation(function () {
       return mockRegisteredTool;
     });
@@ -238,7 +230,6 @@ describe('Index Module', () => {
       loggingEnabled: true,
       enableLocal: false,
       enableClone: false,
-      disablePrompts: false,
       outputFormat: 'yaml',
       tokenSource: 'env:GITHUB_TOKEN',
     });
@@ -247,9 +238,6 @@ describe('Index Module', () => {
     mockRegisterTools.mockImplementation(async () => {
       return { successCount: 4, failedTools: [] }; // Default tools count
     });
-
-    // Mock arePromptsEnabled to return true by default (prompts enabled)
-    mockArePromptsEnabled.mockReturnValue(true);
 
     // Mock isCloneEnabled and getActiveProvider
     mockIsCloneEnabled.mockReturnValue(false);
@@ -295,7 +283,6 @@ describe('Index Module', () => {
         }),
         expect.objectContaining({
           capabilities: expect.objectContaining({
-            prompts: {},
             tools: { listChanged: false },
           }),
         })
@@ -706,52 +693,6 @@ describe('Index Module', () => {
       );
 
       expect(mockRegisterTools).toHaveBeenCalled();
-    });
-  });
-
-  describe('Prompts Configuration', () => {
-    it('should register prompts when arePromptsEnabled returns true', async () => {
-      mockArePromptsEnabled.mockReturnValue(true);
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      expect(mockRegisterPrompts).toHaveBeenCalled();
-    });
-
-    it('should not register prompts when arePromptsEnabled returns false', async () => {
-      mockArePromptsEnabled.mockReturnValue(false);
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      expect(mockRegisterPrompts).not.toHaveBeenCalled();
-    });
-
-    it('should include prompts capability when prompts are enabled', async () => {
-      mockArePromptsEnabled.mockReturnValue(true);
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      expect(mockMcpServerConstructor).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          capabilities: expect.objectContaining({
-            prompts: {},
-          }),
-        })
-      );
-    });
-
-    it('should exclude prompts capability when prompts are disabled', async () => {
-      mockArePromptsEnabled.mockReturnValue(false);
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      const serverOptions = mockMcpServerConstructor.mock.calls[0]?.[1];
-      expect(serverOptions?.capabilities).not.toHaveProperty('prompts');
     });
   });
 

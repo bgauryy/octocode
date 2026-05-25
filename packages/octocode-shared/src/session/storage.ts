@@ -207,7 +207,6 @@ export function updateSessionStats(
   // Increment stats
   const updatedStats: SessionStats = withDerivedUsageTotals({
     toolCalls: currentStats.toolCalls + (updates.toolCalls ?? 0),
-    promptCalls: currentStats.promptCalls + (updates.promptCalls ?? 0),
     errors: currentStats.errors + (updates.errors ?? 0),
     rateLimits: currentStats.rateLimits + (updates.rateLimits ?? 0),
     rateLimitsByProvider: mergeCounterMapStats(
@@ -249,10 +248,6 @@ export function incrementToolCalls(count: number = 1): SessionUpdateResult {
 /**
  * Increment prompt call counter (batched)
  */
-export function incrementPromptCalls(count: number = 1): SessionUpdateResult {
-  return updateSessionStats({ promptCalls: count });
-}
-
 /**
  * Increment error counter (batched)
  */

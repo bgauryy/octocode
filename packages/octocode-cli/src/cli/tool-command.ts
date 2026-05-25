@@ -10,6 +10,7 @@ import {
   searchMultipleGitHubPullRequests,
   searchMultipleGitHubRepos,
   exploreMultipleRepositoryStructures,
+  executeCloneRepo,
   executeFetchContent,
   executeFindFiles,
   executeRipgrepSearch,
@@ -31,6 +32,7 @@ import {
   LSPFindReferencesQuerySchema,
   LSPCallHierarchyQuerySchema,
   PackageSearchQuerySchema,
+  CloneRepoQuerySchema,
 } from 'octocode-mcp/public';
 
 type ToolResult = {
@@ -124,6 +126,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'githubSearchPullRequests',
     schema: GitHubPullRequestSearchQuerySchema,
     execute: wrapExecutor(searchMultipleGitHubPullRequests),
+    requiresServerRuntime: true,
+    requiresProviders: true,
+  },
+  {
+    name: 'githubCloneRepo',
+    schema: CloneRepoQuerySchema,
+    execute: wrapExecutor(executeCloneRepo),
     requiresServerRuntime: true,
     requiresProviders: true,
   },
@@ -688,7 +697,7 @@ function printToolResult(
       result.structuredContent !== undefined
         ? result.structuredContent
         : result;
-    console.log(JSON.stringify(payload));
+    console.log(JSON.stringify(stripTsvRedundantResults(payload)));
     return;
   }
 
@@ -709,6 +718,20 @@ function printToolResult(
   }
 
   console.log(JSON.stringify(result, null, 2));
+}
+
+/**
+ * In TSV envelope mode (format='tsv'), the bulk runner still includes a
+ * verbose `results[]` alongside `{columns, rows}` as a structured fallback.
+ * Agents reading the envelope don't need both — drop `results` so callers
+ * pay only for the TSV view they asked for. Non-TSV payloads pass through.
+ */
+function stripTsvRedundantResults(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') return payload;
+  const obj = payload as Record<string, unknown>;
+  if (obj.format !== 'tsv' || typeof obj.rows !== 'string') return payload;
+  const { results: _drop, ...rest } = obj;
+  return rest;
 }
 
 function printToolError(message: string, details: string[] = []): void {
@@ -819,6 +842,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       queries,
       responseCharLength: payload.responseCharLength,
       responseCharOffset: payload.responseCharOffset,
+      format: 'tsv',
     });
     printToolResult(result, getOutputMode(args));
     return !result.isError;

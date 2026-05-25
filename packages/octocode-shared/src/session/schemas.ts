@@ -26,7 +26,6 @@ const StatsCounterMapSchema = z.record(z.string(), z.number()).default({});
 
 const SessionTotalUsageStatsSchema = z.object({
   toolCalls: z.number(),
-  promptCalls: z.number(),
   errors: z.number(),
   rateLimits: z.number(),
   rateLimitsByProvider: StatsCounterMapSchema,
@@ -42,7 +41,6 @@ const SessionTotalUsageStatsSchema = z.object({
 
 export const SessionStatsSchema = z.object({
   toolCalls: z.number(),
-  promptCalls: z.number(),
   errors: z.number(),
   rateLimits: z.number(),
   rateLimitsByProvider: StatsCounterMapSchema,

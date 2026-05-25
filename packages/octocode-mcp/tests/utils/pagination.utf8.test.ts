@@ -401,32 +401,6 @@ describe('UTF-8 Pagination - Byte/Character Separation', () => {
     });
   });
 
-  describe('generateGitHubPaginationHints with UTF-8', () => {
-    it('should use byte offsets in hints for GitHub tools', () => {
-      const metadata = applyPagination(TEST_CONTENT.emoji, 0, 10, {
-        mode: 'bytes',
-      });
-      const info = createPaginationInfo(metadata);
-
-      const hints = generateGitHubPaginationHints(info, {
-        owner: 'test',
-        repo: 'test',
-        path: 'test.txt',
-      });
-
-      // Should reference bytes, not chars
-      const bytesHint = hints.find(h => h.includes('bytes'));
-      expect(bytesHint).toBeDefined();
-
-      // Next offset should be byte-based
-      const nextOffset = (info.byteOffset ?? 0) + (info.byteLength ?? 0);
-      const nextPageHint = hints.find(h =>
-        h.includes(`charOffset=${nextOffset}`)
-      );
-      expect(nextPageHint).toBeDefined();
-    });
-  });
-
   describe('Roundtrip validation', () => {
     it('should allow full content reconstruction using nextCharOffset', () => {
       const content = TEST_CONTENT.mixed;

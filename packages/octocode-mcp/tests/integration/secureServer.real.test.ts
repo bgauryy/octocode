@@ -2,7 +2,7 @@
  * Integration test: end-to-end crash isolation through a real MCP transport.
  *
  * Spawns a real `McpServer` + `Client` pair connected via `InMemoryTransport`,
- * registers tools and prompts via the `withOutputSanitization` proxy, then
+ * registers tools via the `withOutputSanitization` proxy, then
  * verifies that:
  *
  *   1. A throwing tool returns an `isError: true` `CallToolResult` to the
@@ -11,10 +11,7 @@
  *   3. A throwing tool with a strict `outputSchema` does NOT cause the SDK
  *      to reject our structured error payload — confirms that `isError: true`
  *      short-circuits `validateToolOutput` (caveat #2 regression test).
- *   4. A throwing prompt handler causes a JSON-RPC error response with a
- *      sanitized message; the server keeps serving subsequent requests
- *      (the proxy's `McpError` re-throw is exercised end-to-end).
- *   5. After a tool / prompt exception the server still responds to a
+ *   4. After a tool exception the server still responds to a
  *      well-behaved tool call (liveness guarantee).
  */
 
@@ -132,50 +129,5 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
     await server.close();
   });
 
-  it('sanitizes the message of a throwing prompt without crashing the server', async () => {
-    const { secure, client, serverTransport, clientTransport, server } =
-      await setupPair();
-
-    secure.registerPrompt(
-      'leaky',
-      { description: 'leaks a secret on error' },
-      async () => {
-        throw new Error('auth ghp_abc123xyz456789012345678901234567890 failed');
-      }
-    );
-
-    secure.registerTool(
-      'ping',
-      { description: 'simple', inputSchema: {} },
-      async () => ({
-        content: [{ type: 'text', text: 'pong' }],
-      })
-    );
-
-    await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
-    ]);
-
-    // Prompt call should reject with a sanitized JSON-RPC error.
-    await expect(
-      client.getPrompt({ name: 'leaky', arguments: {} })
-    ).rejects.toMatchObject({
-      message: expect.stringContaining('prompt "leaky" failed'),
-    });
-
-    try {
-      await client.getPrompt({ name: 'leaky', arguments: {} });
-    } catch (err) {
-      const message = (err as { message: string }).message;
-      expect(message).not.toContain('ghp_abc123xyz456789012345678901234567890');
-    }
-
-    // Server is still alive after the prompt exception.
-    const okResult = await client.callTool({ name: 'ping', arguments: {} });
-    expect(okResult.isError).toBeFalsy();
-
-    await client.close();
-    await server.close();
-  });
 });
+

@@ -13,7 +13,7 @@ vi.mock('octocode-shared', async importOriginal => {
       sessionId: '12345678-1234-4123-8123-123456789012',
       createdAt: '2024-01-01T00:00:00.000Z',
       lastActiveAt: '2024-01-01T00:00:00.000Z',
-      stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+      stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
     })),
     incrementToolCalls: vi.fn(count => ({
       success: true,
@@ -22,17 +22,7 @@ vi.mock('octocode-shared', async importOriginal => {
         sessionId: '12345678-1234-4123-8123-123456789012',
         createdAt: '2024-01-01T00:00:00.000Z',
         lastActiveAt: new Date().toISOString(),
-        stats: { toolCalls: count, promptCalls: 0, errors: 0, rateLimits: 0 },
-      },
-    })),
-    incrementPromptCalls: vi.fn(count => ({
-      success: true,
-      session: {
-        version: 1,
-        sessionId: '12345678-1234-4123-8123-123456789012',
-        createdAt: '2024-01-01T00:00:00.000Z',
-        lastActiveAt: new Date().toISOString(),
-        stats: { toolCalls: 0, promptCalls: count, errors: 0, rateLimits: 0 },
+        stats: { toolCalls: count, errors: 0, rateLimits: 0 },
       },
     })),
     incrementErrors: vi.fn(count => ({
@@ -42,7 +32,7 @@ vi.mock('octocode-shared', async importOriginal => {
         sessionId: '12345678-1234-4123-8123-123456789012',
         createdAt: '2024-01-01T00:00:00.000Z',
         lastActiveAt: new Date().toISOString(),
-        stats: { toolCalls: 0, promptCalls: 0, errors: count, rateLimits: 0 },
+        stats: { toolCalls: 0, errors: count, rateLimits: 0 },
       },
     })),
     incrementRateLimits: vi.fn(count => ({
@@ -52,7 +42,7 @@ vi.mock('octocode-shared', async importOriginal => {
         sessionId: '12345678-1234-4123-8123-123456789012',
         createdAt: '2024-01-01T00:00:00.000Z',
         lastActiveAt: new Date().toISOString(),
-        stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: count },
+        stats: { toolCalls: 0, errors: 0, rateLimits: count },
       },
     })),
     updateSessionStats: vi.fn(updates => ({
@@ -64,7 +54,6 @@ vi.mock('octocode-shared', async importOriginal => {
         lastActiveAt: new Date().toISOString(),
         stats: {
           toolCalls: 0,
-          promptCalls: 0,
           errors: 0,
           rateLimits: updates.rateLimits ?? 0,
           ...updates,
@@ -80,7 +69,6 @@ vi.mock('octocode-shared', async importOriginal => {
         lastActiveAt: new Date().toISOString(),
         stats: {
           toolCalls: 0,
-          promptCalls: 0,
           errors: 0,
           rateLimits: count,
           rateLimitsByProvider: { [provider]: count },

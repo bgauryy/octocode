@@ -11,7 +11,6 @@ import type {
   GitHubPullRequestSearchQuery,
   GitHubReposSearchQuery,
   GitHubRepositoryOutput,
-  GitHubSearchCodeData,
   GitHubViewRepoStructureQuery,
 } from '@octocodeai/octocode-core';
 import type { WithOptionalMeta } from '../types/execution.js';
@@ -47,28 +46,22 @@ export function buildPaginationHints(
   },
   label: string
 ): string[] {
+  if (pagination.totalPages <= 1) {
+    return [];
+  }
+
   const hints: string[] = [];
   const perPage = pagination.entriesPerPage || pagination.perPage || 10;
   const totalMatches = pagination.totalMatches || 0;
   const startItem = (pagination.currentPage - 1) * perPage + 1;
   const endItem = Math.min(pagination.currentPage * perPage, totalMatches);
 
-  hints.push(
-    `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label})`
-  );
-
+  // Strict policy: emit only when there's more to fetch. Page/Previous/Jump
+  // are data echoes of pagination.{currentPage,totalPages} the agent already
+  // has — `Final page` is the same tautology in negative form.
   if (pagination.hasMore) {
-    hints.push(`Next: page=${pagination.currentPage + 1}`);
-  }
-  if (pagination.currentPage > 1) {
-    hints.push(`Previous: page=${pagination.currentPage - 1}`);
-  }
-  if (!pagination.hasMore) {
-    hints.push('Final page');
-  }
-  if (pagination.totalPages > 2) {
     hints.push(
-      `Jump to: page=1 (first) or page=${pagination.totalPages} (last)`
+      `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label}). Next: page=${pagination.currentPage + 1}`
     );
   }
 
@@ -94,63 +87,78 @@ export function mapCodeSearchToolQuery(
   };
 }
 
+export interface CodeSearchGroupedMatch {
+  path: string;
+  value?: string;
+}
+
+export interface CodeSearchGroupedResult {
+  id: string;
+  owner: string;
+  repo: string;
+  matches: CodeSearchGroupedMatch[];
+}
+
+export interface CodeSearchPagination {
+  currentPage: number;
+  totalPages: number;
+  perPage: number;
+  totalMatches: number;
+  hasMore: boolean;
+}
+
+export interface CodeSearchFlatResult {
+  results: CodeSearchGroupedResult[];
+  pagination?: CodeSearchPagination;
+}
+
+function splitRepositoryPath(repositoryPath: string): {
+  owner: string;
+  repo: string;
+} {
+  const slashIdx = repositoryPath.lastIndexOf('/');
+  if (slashIdx <= 0) {
+    return { owner: '', repo: repositoryPath };
+  }
+  return {
+    owner: repositoryPath.substring(0, slashIdx),
+    repo: repositoryPath.substring(slashIdx + 1),
+  };
+}
+
 export function mapCodeSearchProviderResult(
   data: CodeSearchResult,
   query: WithOptionalMeta<GitHubCodeSearchQuery>
-): GitHubSearchCodeData {
-  const splitRepositoryPath = (repositoryPath: string) => {
-    const slashIdx = repositoryPath.lastIndexOf('/');
-    if (slashIdx <= 0) {
-      return {
-        owner: '',
-        repo: repositoryPath,
-      };
-    }
+): CodeSearchFlatResult {
+  const isPathMatch = query.match === 'path';
+  const groups = new Map<string, CodeSearchGroupedResult>();
 
-    return {
-      owner: repositoryPath.substring(0, slashIdx),
-      repo: repositoryPath.substring(slashIdx + 1),
-    };
-  };
-
-  const files = data.items.map(item => {
+  for (const item of data.items) {
     const repoFullName = item.repository.name || '';
-    const { owner, repo: repoName } = splitRepositoryPath(repoFullName);
+    const { owner, repo } = splitRepositoryPath(repoFullName);
+    const id = `${owner}/${repo}`;
 
-    const baseFile = {
-      path: item.path,
-      owner,
-      repo: repoName,
-      ...(item.lastModifiedAt && { lastModifiedAt: item.lastModifiedAt }),
-    };
-
-    if (query.match === 'path') {
-      return baseFile;
+    let group = groups.get(id);
+    if (!group) {
+      group = { id, owner, repo, matches: [] };
+      groups.set(id, group);
     }
 
-    return {
-      ...baseFile,
-      text_matches: item.matches.map(match => ({
-        value: match.context,
-        ...(match.positions?.length && {
-          matchIndices: match.positions.map(([start, end]) => ({
-            start,
-            end,
-          })),
-        }),
-      })),
-    };
-  });
+    if (isPathMatch || !item.matches?.length) {
+      group.matches.push({ path: item.path });
+      continue;
+    }
 
-  const result: GitHubSearchCodeData = { files };
-
-  if (data.repositoryContext?.branch) {
-    result.repositoryContext = {
-      branch: data.repositoryContext.branch,
-    };
+    for (const m of item.matches) {
+      group.matches.push({ path: item.path, value: m.context });
+    }
   }
 
-  if (data.pagination) {
+  const result: CodeSearchFlatResult = {
+    results: Array.from(groups.values()),
+  };
+
+  if (data.pagination && data.pagination.totalPages > 1) {
     result.pagination = {
       currentPage: data.pagination.currentPage,
       totalPages: data.pagination.totalPages,
@@ -233,6 +241,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
   return {
     projectId: toProviderProjectId(query.owner, query.repo),
     owner: query.owner,
+    query: query.query,
     number: query.prNumber,
     state: query.state as 'open' | 'closed' | 'merged' | 'all' | undefined,
     author: query.author,
@@ -386,7 +395,11 @@ export function mapFileContentProviderResult(
   query: WithOptionalMeta<FileContentQuery>
 ): Record<string, unknown> {
   return {
+    path: data.path,
     content: data.content,
+    ...(typeof data.totalLines === 'number' && {
+      totalLines: data.totalLines,
+    }),
     ...(data.isPartial && {
       isPartial: data.isPartial,
     }),
@@ -402,6 +415,9 @@ export function mapFileContentProviderResult(
     }),
     ...(data.pagination && {
       pagination: data.pagination,
+    }),
+    ...(data.warnings?.length && {
+      warnings: data.warnings,
     }),
     ...(data.ref && query.branch !== data.ref
       ? { resolvedBranch: data.ref }

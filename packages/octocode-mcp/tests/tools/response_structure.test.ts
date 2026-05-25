@@ -128,7 +128,8 @@ describe('Response Structure Tests - All Tools', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('hasResults');
+      expect(responseText).toContain('id: "test/repo"');
+      expect(responseText).toContain('src/index.ts');
     });
 
     it('should return empty for no results', async () => {
@@ -149,8 +150,8 @@ describe('Response Structure Tests - All Tools', () => {
       });
 
       expect(result.isError).toBe(false);
-      const responseText = getTextContent(result.content);
-      expect(responseText).toContain('empty');
+      const structured = result.structuredContent as { results: unknown[] };
+      expect(structured.results).toEqual([]);
     });
 
     it('should return error for API failure', async () => {
@@ -195,7 +196,8 @@ describe('Response Structure Tests - All Tools', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('hasResults');
+      expect(responseText).toContain('README.md');
+      expect(responseText).toContain('# Hello World');
     });
 
     it('should return error for missing file', async () => {

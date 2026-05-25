@@ -1698,40 +1698,6 @@ describe('localViewStructure', () => {
       expect(result.pagination?.currentPage).toBe(-3);
     });
 
-    it('should clamp entryPageNumber=2 to totalPages=1 (BUG-01 exact repro)', async () => {
-      // Exact repro from bug report: entriesPerPage=5, totalEntries=2, entryPageNumber=2
-      // totalPages = ceil(2/5) = 1. Requesting page 2 overflows by 1.
-      // Before fix: returned "Page 2/1 (showing 0 of 2)" with empty entries.
-      // After fix: clamps to page 1 and returns both entries.
-      const fileList = 'alpha.ts\nbeta.ts';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
-
-      const result = await viewStructure({
-        path: '/test/path',
-        entriesPerPage: 5,
-        entryPageNumber: 2,
-      });
-
-      expect(result.status).toBe('hasResults');
-      expect(result.pagination?.currentPage).toBe(1);
-      expect(result.pagination?.totalPages).toBe(1);
-      expect(result.pagination?.hasMore).toBe(false);
-      // Both entries must be present — NOT an empty list
-      expect(result.entries?.length).toBe(2);
-      const pageHint = result.hints?.find(h => h.startsWith('Page'));
-      // Hint must reflect the clamped page, not the raw requested page
-      expect(pageHint).toMatch(/^Page 1\/1/);
-    });
-
     it('should clamp overflow entryPageNumber to totalPages (BUG-01 fix)', async () => {
       // 25 entries, 10 per page → totalPages = 3
       // Requesting page 9999 must clamp to 3 (not return "Page 9999/3 showing 0")
@@ -1763,36 +1729,6 @@ describe('localViewStructure', () => {
       expect(result.pagination?.hasMore).toBe(false);
       // Last page returns the remaining 5 entries (21-25), not 0
       expect(result.entries?.length).toBe(5);
-    });
-
-    it('should clamp overflow entryPageNumber and hint "Final page"', async () => {
-      // Verifies the hint string is consistent with the clamped page
-      const fileList = Array.from({ length: 15 }, (_, i) => `f${i}.ts`).join(
-        '\n'
-      );
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
-
-      const result = await viewStructure({
-        path: '/test/path',
-        entriesPerPage: 10,
-        entryPageNumber: 100,
-      });
-
-      expect(result.pagination?.currentPage).toBe(2);
-      expect(result.pagination?.hasMore).toBe(false);
-      // Hint must not say "Page 100/2" — must say "Page 2/2"
-      const pageHint = result.hints?.find(h => h.startsWith('Page'));
-      expect(pageHint).toMatch(/^Page 2\/2/);
-      expect(result.hints).toContain('Final page');
     });
   });
 

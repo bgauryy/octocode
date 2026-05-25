@@ -117,7 +117,18 @@ export async function executeRipgrepSearchInternal(
         status: 'empty',
         searchEngine: 'rg',
         warnings: [...validation.warnings, ...chunkingWarnings],
-        hints: getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty'),
+        // Pass full query shape so the per-tool empty branch can name the
+        // actual filters in play (type/include/excludeDir/path/case) and
+        // suggest a concrete next move.
+        hints: getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty', {
+          pattern: configuredQuery.pattern,
+          path: configuredQuery.path,
+          type: configuredQuery.type,
+          include: configuredQuery.include,
+          excludeDir: configuredQuery.excludeDir,
+          fixedString: configuredQuery.fixedString,
+          caseSensitive: configuredQuery.caseSensitive,
+        } as Record<string, unknown>),
       } as LocalSearchCodeToolResult,
       result.stdout.length
     );

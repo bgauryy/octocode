@@ -172,3 +172,4 @@ export type {
 export { withBasicSecurityValidation } from '../utils/securityBridge.js';
 
 export { registerGitHubCloneRepoTool } from '../tools/github_clone_repo/register.js';
+export { executeCloneRepo } from '../tools/github_clone_repo/execution.js';

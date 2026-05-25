@@ -202,20 +202,25 @@ export async function findFiles(
         charPagination: createPaginationInfo(paginationMetadata),
       }),
       hints: [
-        `Page ${filePageNumber}/${totalPages} (showing ${finalFiles.length} of ${totalFiles})`,
-        filePageNumber < totalPages
-          ? `Next: filePageNumber=${filePageNumber + 1}`
-          : 'Final page',
-        `Sorted by ${sortBy}${sortBy === 'modified' ? ' (most recent first)' : sortBy === 'size' ? ' (largest first)' : ''}`,
+        ...(filePageNumber < totalPages
+          ? [
+              `Page ${filePageNumber}/${totalPages} (showing ${finalFiles.length} of ${totalFiles}). Next: filePageNumber=${filePageNumber + 1}`,
+            ]
+          : []),
         ...(wasFileCapped
           ? [
-              `Results capped at ${maxFiles} of ${discoveredFileCount}. Narrow with name/type/time filters or increase limit to inspect more.`,
+              `Results capped at ${maxFiles} of ${discoveredFileCount}. Narrow with name/type/time filters or increase limit.`,
             ]
           : []),
         ...getHints(TOOL_NAMES.LOCAL_FIND_FILES, status, {
           fileCount: totalFiles,
           hasConfigFiles,
-        }),
+          path: query.path,
+          name: query.name ?? query.iname,
+          modifiedWithin: query.modifiedWithin,
+          sizeGreater: query.sizeGreater,
+          sizeLess: query.sizeLess,
+        } as Record<string, unknown>),
         ...(paginationMetadata
           ? generatePaginationHints(paginationMetadata, {
               toolName: TOOL_NAMES.LOCAL_FIND_FILES,

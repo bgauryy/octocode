@@ -1171,29 +1171,6 @@ describe('localFindFiles', () => {
       expect(result.hints).toBeDefined();
       expect(result.hints!.length).toBeGreaterThan(0);
     });
-
-    it('should show final page hint on last page', async () => {
-      const files = Array.from(
-        { length: 25 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        filesPerPage: 20,
-        filePageNumber: 2,
-      });
-
-      expect(result.status).toBe('hasResults');
-      expect(result.hints).toBeDefined();
-      expect(result.hints!.length).toBeGreaterThan(0);
-    });
   });
 
   describe('Research context fields', () => {

@@ -1,7 +1,7 @@
 /**
  * Unified output sanitization + crash-isolation layer for all MCP callbacks.
  *
- * Wraps `McpServer.registerTool` / `registerPrompt` / `registerResource`
+ * Wraps `McpServer.registerTool` / `registerResource`
  * via a transparent Proxy so every callback is:
  * 1. Wrapped in a try/catch — any thrown error (sync, async, or non-Error
  *    rejection) is intercepted so the MCP server can never crash on a
@@ -11,14 +11,14 @@
  *      — see `validateToolOutput` in `@modelcontextprotocol/sdk` — so the
  *      structured error payload below cannot be rejected by a strict tool
  *      output schema.)
- *    - For prompts/resources: re-thrown as a sanitized `McpError` so the
+ *    - For resources: re-thrown as a sanitized `McpError` so the
  *      JSON-RPC error response carries a redacted message instead of
  *      leaking raw error text (which could contain secrets).
  * 2. Sanitized before reaching the MCP transport — both `content[]` text
  *    blocks and `structuredContent` deep-walked strings.
  *
  * Call `withOutputSanitization(server)` once, then pass the returned proxy
- * to all registration functions (tools, prompts, resources).
+ * to all registration functions (tools, resources).
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -225,9 +225,9 @@ function wrapToolCallback(
 }
 
 /**
- * Build the wrapped callback used by prompt/resource registrations.
+ * Build the wrapped callback used by resource registrations.
  *
- * `GetPromptResult` and `ReadResourceResult` have no `isError` field, so on
+ * `ReadResourceResult` has no `isError` field, so on
  * exception we sanitize the error message and re-throw as `McpError`. The
  * SDK's protocol layer converts this into a JSON-RPC error response, but
  * the message has been redacted so secrets never reach the wire.
@@ -236,7 +236,7 @@ function wrapToolCallback(
  * shape to sanitize on these channels).
  */
 function wrapNonToolCallback<T>(
-  kind: 'prompt' | 'resource',
+  kind: 'resource',
   name: string,
   cb: (...args: unknown[]) => unknown
 ): (...args: unknown[]) => Promise<T> {
@@ -260,19 +260,19 @@ function wrapNonToolCallback<T>(
 }
 
 /**
- * Return a Proxy around `server` that intercepts `registerTool`,
- * `registerPrompt`, and `registerResource` calls.
+ * Return a Proxy around `server` that intercepts `registerTool`
+ * and `registerResource` calls.
  *
  * For every registered handler the callback is wrapped so that any thrown
  * exception (sync, async, non-Error rejection) is caught:
  * - Tool callbacks → sanitized `isError: true` `CallToolResult`.
- * - Prompt/Resource callbacks → sanitized `McpError` re-thrown so the SDK
+ * - Resource callbacks → sanitized `McpError` re-thrown so the SDK
  *   protocol layer emits a JSON-RPC error response without leaking secrets.
  *
  * Successful tool results additionally pass through `sanitizeCallToolResult`
  * to redact secrets in both `content[]` text and `structuredContent`.
  *
- * The original `server.registerTool` / `registerPrompt` / `registerResource`
+ * The original `server.registerTool` / `registerResource`
  * functions are never replaced on the underlying object, so test spies and
  * the SDK's internal state are preserved.
  *
@@ -290,21 +290,6 @@ export function withOutputSanitization(server: McpServer): McpServer {
         ) => {
           const wrappedCb = wrapToolCallback(name, cb);
           return target.registerTool(name, config as never, wrappedCb as never);
-        };
-      }
-
-      if (prop === 'registerPrompt') {
-        return (
-          name: string,
-          config: Record<string, unknown>,
-          cb: (...args: unknown[]) => unknown
-        ) => {
-          const wrappedCb = wrapNonToolCallback('prompt', name, cb);
-          return target.registerPrompt(
-            name,
-            config as never,
-            wrappedCb as never
-          );
         };
       }
 

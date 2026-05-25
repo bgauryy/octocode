@@ -18,7 +18,7 @@ import type { ToolExecutionArgs } from '../../types/execution.js';
 export async function executeViewStructure(
   args: ToolExecutionArgs<ViewStructureQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries, responseCharOffset, responseCharLength, format } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -42,6 +42,9 @@ export async function executeViewStructure(
       toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
     }
   );
 }

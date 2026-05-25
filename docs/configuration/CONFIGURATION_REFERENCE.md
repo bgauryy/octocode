@@ -105,8 +105,7 @@ New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.octocode"
   "tools": {
     "enabled": null,                         // Strict whitelist (null = all tools)
     "enableAdditional": null,                // Add extra tools
-    "disabled": null,                        // Remove specific tools
-    "disablePrompts": false                  // Disable MCP prompts registration
+    "disabled": null                         // Remove specific tools
   },
 
   "network": {
@@ -211,7 +210,6 @@ Example:
   "version": 1,
   "stats": {
     "toolCalls": 142,
-    "promptCalls": 3,
     "errors": 2,
     "rateLimits": 3,
     "rateLimitsByProvider": {
@@ -239,7 +237,6 @@ Example:
     },
     "totalUsage": {
       "toolCalls": 142,
-      "promptCalls": 3,
       "errors": 2,
       "rateLimits": 3,
       "rateLimitsByProvider": {
@@ -267,7 +264,6 @@ Tracked stats:
 | Field | Description |
 |-------|-------------|
 | `toolCalls` | Total MCP tool calls handled by Octocode. |
-| `promptCalls` | Total MCP prompt calls handled by Octocode. |
 | `errors` | Total logged Octocode errors. |
 | `rateLimits` | Total provider API rate-limit encounters. Package registry failures are tracked separately. |
 | `rateLimitsByProvider` | Provider API rate-limit encounters by provider, including `github`, `gitlab`, and `bitbucket`. |
@@ -304,17 +300,16 @@ For implementation details, see [Session Persistence](https://github.com/bgauryy
 | 8 | `TOOLS_TO_RUN` | `tools.enabled` | list | `null` (all) | **Strict whitelist.** When set, only these tools are available. Overrides #9 and #10. |
 | 9 | `ENABLE_TOOLS` | `tools.enableAdditional` | list | `null` | Add extra tools to the default set. Ignored when #8 is set. |
 | 10 | `DISABLE_TOOLS` | `tools.disabled` | list | `null` | Remove tools from the default set. Ignored when #8 is set. |
-| 11 | `DISABLE_PROMPTS` | `tools.disablePrompts` | boolean | `false` | Disable MCP prompts registration (slash commands / agent instructions). |
 | | **Network** | | | | |
-| 12 | `REQUEST_TIMEOUT` | `network.timeout` | number | `30000` | Request timeout in ms. Range: 5,000–300,000. Values outside range are clamped. |
-| 13 | `MAX_RETRIES` | `network.maxRetries` | number | `3` | Max retry attempts. Range: 0–10. Clamped. |
+| 11 | `REQUEST_TIMEOUT` | `network.timeout` | number | `30000` | Request timeout in ms. Range: 5,000–300,000. Values outside range are clamped. |
+| 12 | `MAX_RETRIES` | `network.maxRetries` | number | `3` | Max retry attempts. Range: 0–10. Clamped. |
 | | **Telemetry** | | | | |
-| 14 | `LOG` | `telemetry.logging` | logging | `true` | Telemetry. Disabled with `false`/`0`. |
+| 13 | `LOG` | `telemetry.logging` | logging | `true` | Telemetry. Disabled with `false`/`0`. |
 | | **LSP** | | | | |
-| 15 | `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | string | `null` | Custom LSP config file path. Auto-detects `.octocode/lsp-servers.json` when unset. Requires `ENABLE_LOCAL=true`. |
+| 14 | `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | string | `null` | Custom LSP config file path. Auto-detects `.octocode/lsp-servers.json` when unset. Requires `ENABLE_LOCAL=true`. |
 | | **Output** | | | | |
-| 16 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | string | `yaml` | Response serialization format. `yaml` (default, token-efficient) or `json` (raw JSON). |
-| 17 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | number | `8000` | Default output page budget for automatic pagination. Used by all tools unless a request overrides it with `charLength` or `responseCharLength`. |
+| 15 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | string | `yaml` | Response serialization format. `yaml` (default, token-efficient) or `json` (raw JSON). |
+| 16 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | number | `8000` | Default output page budget for automatic pagination. Used by all tools unless a request overrides it with `charLength` or `responseCharLength`. |
 | | **Authentication** (env only) | | | | |
 | 18 | `OCTOCODE_TOKEN` | — | string | — | GitHub token (priority 1). |
 | 19 | `GH_TOKEN` | — | string | — | GitHub CLI token (priority 2). |
@@ -376,7 +371,6 @@ All values are strings in the `"env"` block:
         "TOOLS_TO_RUN": "githubSearchCode,githubGetFileContent",
         "ENABLE_TOOLS": "localSearchCode",
         "DISABLE_TOOLS": "packageSearch",
-        "DISABLE_PROMPTS": "false",
         "REQUEST_TIMEOUT": "30000",
         "MAX_RETRIES": "3",
         "LOG": "true",

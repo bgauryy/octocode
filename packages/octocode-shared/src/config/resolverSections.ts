@@ -179,11 +179,10 @@ export function resolveLocal(
 export function resolveTools(
   fileConfig?: OctocodeConfig['tools']
 ): RequiredToolsConfig {
-  // Env vars: TOOLS_TO_RUN, ENABLE_TOOLS, DISABLE_TOOLS, DISABLE_PROMPTS
+  // Env vars: TOOLS_TO_RUN, ENABLE_TOOLS, DISABLE_TOOLS
   const envToolsToRun = parseStringArrayEnv(process.env.TOOLS_TO_RUN);
   const envEnableTools = parseStringArrayEnv(process.env.ENABLE_TOOLS);
   const envDisableTools = parseStringArrayEnv(process.env.DISABLE_TOOLS);
-  const envDisablePrompts = parseBooleanEnv(process.env.DISABLE_PROMPTS);
 
   return {
     enabled:
@@ -194,10 +193,6 @@ export function resolveTools(
       DEFAULT_TOOLS_CONFIG.enableAdditional,
     disabled:
       envDisableTools ?? fileConfig?.disabled ?? DEFAULT_TOOLS_CONFIG.disabled,
-    disablePrompts:
-      envDisablePrompts ??
-      fileConfig?.disablePrompts ??
-      DEFAULT_TOOLS_CONFIG.disablePrompts,
   };
 }
 

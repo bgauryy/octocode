@@ -110,7 +110,6 @@ describe('Tool Count Verification', () => {
       loggingEnabled: true,
       enableLocal: false,
       enableClone: false,
-      disablePrompts: false,
       outputFormat: 'yaml',
       tokenSource: 'env:GITHUB_TOKEN',
     });
@@ -133,7 +132,6 @@ describe('Tool Count Verification', () => {
       loggingEnabled: true,
       enableLocal: true,
       enableClone: false,
-      disablePrompts: false,
       outputFormat: 'yaml',
       tokenSource: 'env:GITHUB_TOKEN',
     });
@@ -160,7 +158,6 @@ describe('Tool Count Verification', () => {
       loggingEnabled: true,
       enableLocal: true,
       enableClone: true,
-      disablePrompts: false,
       outputFormat: 'yaml',
       tokenSource: 'env:GITHUB_TOKEN',
     });

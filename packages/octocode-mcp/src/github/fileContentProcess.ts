@@ -158,6 +158,7 @@ export async function processFileContentAPI(
         path: filePath,
         content: '',
         branch,
+        totalLines,
         matchNotFound: true,
         searchedFor: matchString,
         hints: [
@@ -249,6 +250,7 @@ export async function processFileContentAPI(
     path: filePath,
     content: finalContent,
     branch,
+    totalLines,
     ...(isPartial && {
       startLine: actualStartLine,
       endLine: actualEndLine,
@@ -256,6 +258,7 @@ export async function processFileContentAPI(
     }),
     ...(matchLocations.length > 0 && {
       matchLocations,
+      warnings: matchLocations,
     }),
   } as GitHubFileContentApiResult;
 }

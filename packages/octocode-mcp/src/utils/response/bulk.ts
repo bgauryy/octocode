@@ -18,6 +18,8 @@ import {
   applyQueryOutputPagination,
 } from './structuredPagination.js';
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
+import { tsvFormat } from './tsvFormat.js';
+import { getTsvProjection } from './tsvColumns.js';
 
 /** Default concurrency for bulk operations */
 const DEFAULT_BULK_CONCURRENCY = 3;
@@ -69,10 +71,13 @@ export function computeQueryTimeout(
   return minTimeoutMs ? Math.max(computed, minTimeoutMs) : computed;
 }
 
-export async function executeBulkOperation<TQuery extends object>(
+export async function executeBulkOperation<
+  TQuery extends object,
+  TOutput extends Record<string, unknown> = Record<string, unknown>,
+>(
   queries: Array<TQuery>,
   processor: (query: TQuery, index: number) => Promise<ProcessedBulkResult>,
-  config: BulkResponseConfig
+  config: BulkResponseConfig<TQuery, TOutput>
 ): Promise<CallToolResult> {
   const concurrency = config.concurrency ?? DEFAULT_BULK_CONCURRENCY;
   const { results, errors } = await processBulkQueries<TQuery>(
@@ -81,11 +86,14 @@ export async function executeBulkOperation<TQuery extends object>(
     concurrency,
     config.minQueryTimeoutMs
   );
-  return createBulkResponse<TQuery>(config, results, errors, queries);
+  return createBulkResponse<TQuery, TOutput>(config, results, errors, queries);
 }
 
-function createBulkResponse<TQuery extends object>(
-  config: BulkResponseConfig,
+function createBulkResponse<
+  TQuery extends object,
+  TOutput extends Record<string, unknown>,
+>(
+  config: BulkResponseConfig<TQuery, TOutput>,
   results: Array<{
     result: ProcessedBulkResult;
     queryIndex: number;
@@ -94,8 +102,8 @@ function createBulkResponse<TQuery extends object>(
   errors: QueryError[],
   queries: Array<TQuery>
 ): CallToolResult {
-  const topLevelFields = ['results'];
-  const resultFields = ['id', 'status', 'data', 'hints'];
+  const topLevelFields = ['format', 'columns', 'rows', 'results', 'hints'];
+  const resultFields = ['id', 'status', 'data'];
   const fullKeysPriority = [
     ...new Set([
       ...topLevelFields,
@@ -131,6 +139,32 @@ function createBulkResponse<TQuery extends object>(
     (query): query is FlatQueryResult => query !== undefined
   );
 
+  // Finalizer hook — tools with a non-default response shape (e.g. flat
+  // owner/repo grouped responses) own the rest of the pipeline from here.
+  if (config.finalize) {
+    const finalized = config.finalize({
+      queries,
+      results: flatQueries,
+      config,
+    });
+    recordBulkCharSavings(
+      config.toolName,
+      results,
+      errors,
+      finalized.text.length
+    );
+    return {
+      content: [{ type: 'text' as const, text: finalized.text }],
+      // No cast needed — TOutput is constrained to `Record<string, unknown>`,
+      // so it is structurally compatible with `CallToolResult.structuredContent`.
+      structuredContent: finalized.structuredContent,
+      isError:
+        finalized.isError ??
+        (flatQueries.length > 0 &&
+          flatQueries.every(queryResult => queryResult.status === 'error')),
+    };
+  }
+
   const queryPaginatedResults = flatQueries.map((queryResult, index) =>
     applyQueryOutputPagination(
       queryResult,
@@ -138,6 +172,15 @@ function createBulkResponse<TQuery extends object>(
       config.toolName
     )
   );
+
+  // Lift hints out of each query's `data` so they appear once at peer level.
+  // Opt-in: some output schemas (local/lsp) are strict about top-level keys,
+  // so callers explicitly enable this with `config.peerHints` once they have
+  // widened their output schema to accept `hints` at root.
+  const aggregatedHints = config.peerHints
+    ? dedupePeerHints(queryPaginatedResults)
+    : [];
+
   const responseData: BulkToolResponse = applyBulkResponsePagination(
     {
       results: queryPaginatedResults,
@@ -148,7 +191,38 @@ function createBulkResponse<TQuery extends object>(
     },
     config.toolName
   );
-  const text = createResponseFormat(responseData, fullKeysPriority);
+
+  if (aggregatedHints.length > 0) {
+    responseData.hints = aggregatedHints;
+  }
+
+  // TSV mode — emit columns/rows derived from the per-tool projection and
+  // mark the envelope with `format: "tsv"`.
+  if (config.format === 'tsv') {
+    const projection = getTsvProjection(config.toolName);
+    if (projection) {
+      const rows = queryPaginatedResults.flatMap(q =>
+        projection.toRows(q.data)
+      );
+      responseData.format = 'tsv';
+      responseData.columns = projection.columns;
+      responseData.rows = tsvFormat(projection.columns, rows);
+    }
+  }
+
+  // In TSV mode, exclude `results` from content[0].text — agents reading the
+  // text only need the compact rows, not the full per-query JSON structs.
+  // The complete `results` array is still available via structuredContent.
+  type BulkResponseForText = Omit<BulkToolResponse, 'results'> &
+    Partial<Pick<BulkToolResponse, 'results'>>;
+  const textPayload: BulkResponseForText =
+    config.format === 'tsv'
+      ? { ...responseData, results: undefined }
+      : responseData;
+  const text = createResponseFormat(
+    textPayload as BulkToolResponse,
+    fullKeysPriority
+  );
   recordBulkCharSavings(config.toolName, results, errors, text.length);
 
   return {
@@ -166,6 +240,31 @@ function createBulkResponse<TQuery extends object>(
       flatQueries.length > 0 &&
       flatQueries.every(queryResult => queryResult.status === 'error'),
   };
+}
+
+/**
+ * Walk every flattened query and lift `data.hints` out into a deduped
+ * top-level array. Mutates each query result to drop its local `hints` so
+ * the field appears once at response root instead of repeated per query.
+ */
+function dedupePeerHints(queries: FlatQueryResult[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const q of queries) {
+    const data = q.data as Record<string, unknown> | undefined;
+    const raw =
+      data && Array.isArray(data.hints) ? (data.hints as unknown[]) : [];
+    for (const h of raw) {
+      if (typeof h === 'string' && h.trim().length > 0 && !seen.has(h)) {
+        seen.add(h);
+        out.push(h);
+      }
+    }
+    if (data && 'hints' in data) {
+      delete (data as Record<string, unknown>).hints;
+    }
+  }
+  return out;
 }
 
 function recordBulkCharSavings(

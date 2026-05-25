@@ -37,6 +37,7 @@ export function transformFileContentResult(
       | 'utf-8'
       | 'base64',
     size: data.size || 0,
+    totalLines: extracted.totalLines,
     ref: data.ref || query.ref || '',
     lastCommitSha: data.last_commit_id,
     lastModifiedBy: undefined, // GitLab doesn't provide this in file content API

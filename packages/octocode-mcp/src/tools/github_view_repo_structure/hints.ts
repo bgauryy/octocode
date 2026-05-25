@@ -1,27 +1,40 @@
 /**
- * Dynamic hints for githubViewRepoStructure tool
+ * Response-state hints for githubViewRepoStructure.
+ *
+ * Only emits hints conditional on the response itself.
+ *
  * @module tools/github_view_repo_structure/hints
  */
 
-import { getMetadataDynamicHints } from '../../hints/static.js';
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
-
-const TOOL_NAME = 'githubViewRepoStructure';
 
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
-    // Only add context-aware hints based on entry count
-    const hints: (string | undefined)[] = [];
     if (ctx.entryCount && ctx.entryCount > 50) {
-      hints.push(`Large directory (${ctx.entryCount} entries).`);
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'largeDirectory'));
+      return [
+        `Large directory (${ctx.entryCount} entries). Narrow with path or depth=1.`,
+      ];
     }
-    return hints;
+    return [];
   },
 
-  empty: (_ctx: HintContext = {}) => [
-    // Static hints cover the common cases
-  ],
+  empty: (ctx: HintContext = {}) => {
+    const c = ctx as Record<string, unknown>;
+    const path = typeof c.path === 'string' && c.path ? c.path : undefined;
+    const depth = typeof c.depth === 'number' ? c.depth : undefined;
+    const branch =
+      typeof c.branch === 'string' && c.branch ? c.branch : undefined;
+    const where = path ? `'${path}'` : 'the repository root';
+    const onBranch = branch ? ` on branch '${branch}'` : '';
+    if (depth === 1) {
+      return [
+        `Empty listing for ${where}${onBranch}. Try depth=2 or a different path.`,
+      ];
+    }
+    return [
+      `Empty listing for ${where}${onBranch}. Verify the path with a parent directory or different branch.`,
+    ];
+  },
 
   error: (_ctx: HintContext = {}) => [],
 };

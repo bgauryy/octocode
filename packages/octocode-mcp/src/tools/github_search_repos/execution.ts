@@ -3,10 +3,7 @@ import type {
   GitHubReposSearchQuery,
   GitHubRepositoryOutput,
 } from '@octocodeai/octocode-core';
-import {
-  TOOL_NAMES,
-  getDynamicHints as getMetadataDynamicHints,
-} from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type {
   ToolExecutionArgs,
@@ -174,40 +171,51 @@ function generateSearchSpecificHints(
   query: PartialReposSearchQuery,
   hasResults: boolean
 ): string[] | undefined {
-  const hints: string[] = [];
+  // Local recovery hints only — name the actual filters in play so the
+  // agent can drop them one by one. No upstream static guidance.
+  if (hasResults) return undefined;
   const hasTopics = hasValidTopics(query);
   const hasKeywords = hasValidKeywords(query);
+  const stars = typeof query.stars === 'string' ? query.stars : undefined;
+  const created = typeof query.created === 'string' ? query.created : undefined;
+  const updated = typeof query.updated === 'string' ? query.updated : undefined;
+  const hints: string[] = [];
 
-  if (hasTopics && hasResults) {
+  if (hasTopics && hasKeywords) {
     hints.push(
-      ...getMetadataDynamicHints(
-        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        'topicsHasResults'
-      )
+      'No repos match topics AND keywords. Drop topics first, then keywords.'
     );
-  } else if (hasTopics && !hasResults) {
+  } else if (hasTopics) {
     hints.push(
-      ...getMetadataDynamicHints(
-        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        'topicsEmpty'
-      )
+      'No repos for these topics. Drop a topic, try synonyms, or switch to a keywords search.'
     );
-  } else if (hasKeywords && !hasResults && !hasTopics) {
+  } else if (hasKeywords) {
     hints.push(
-      ...getMetadataDynamicHints(
-        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        'keywordsEmpty'
-      )
+      'No repos for these keywords. Drop the rarest keyword, broaden synonyms, or switch to topics.'
     );
   }
 
-  return hints.length > 0 ? hints : undefined;
+  const filters: string[] = [];
+  if (stars) filters.push(`stars="${stars}"`);
+  if (created) filters.push(`created="${created}"`);
+  if (updated) filters.push(`updated="${updated}"`);
+  if (filters.length > 0) {
+    hints.push(
+      `Numeric/date filters applied (${filters.join(', ')}) — try widening or removing them.`
+    );
+  }
+
+  if (hints.length === 0) {
+    return undefined;
+  }
+  return hints;
 }
 
 export async function searchMultipleGitHubRepos(
   args: ToolExecutionArgs<PartialReposSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
+    args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -315,6 +323,9 @@ export async function searchMultipleGitHubRepos(
       keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
     }
   );
 }

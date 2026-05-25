@@ -138,9 +138,7 @@ describe('tool stats emission contract', () => {
   it('records final sent response length once per bulk tool invocation', async () => {
     const bulk = await readProjectFile('src/utils/response/bulk.ts');
 
-    expect(bulk).toMatch(
-      /const text = createResponseFormat\(responseData, fullKeysPriority\);/
-    );
+    expect(bulk).toMatch(/createResponseFormat\(/);
     expect(bulk).toMatch(
       /recordBulkCharSavings\(config\.toolName, results, errors, text\.length\);/
     );

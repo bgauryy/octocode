@@ -48,7 +48,6 @@ function buildResolvedConfig(
     process.env.TOOLS_TO_RUN !== undefined ||
     process.env.ENABLE_TOOLS !== undefined ||
     process.env.DISABLE_TOOLS !== undefined ||
-    process.env.DISABLE_PROMPTS !== undefined ||
     process.env.REQUEST_TIMEOUT !== undefined ||
     process.env.MAX_RETRIES !== undefined ||
     process.env.LOG !== undefined ||

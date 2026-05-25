@@ -46,6 +46,20 @@ export interface HintContext {
 
   hasConfigFiles?: boolean;
 
+  // Query-shape fields used by empty-result hint generators.
+  // These let per-tool hints.ts name the actual filters in play
+  // when no results came back.
+  owner?: string;
+  repo?: string;
+  branch?: string;
+  extension?: string;
+  filename?: string;
+  keywords?: string[];
+  state?: string;
+  author?: string;
+  query?: string;
+  prNumber?: number;
+
   locationCount?: number;
   hasExternalPackage?: boolean;
   isFallback?: boolean;

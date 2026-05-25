@@ -6,6 +6,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
+import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
 
 import { LSP_GOTO_DEFINITION_DESCRIPTION } from '@octocodeai/octocode-core';
 import { BulkLSPGotoDefinitionQuerySchema } from '../../scheme/lspSchemaOverlay.js';
@@ -22,7 +23,7 @@ export function registerLSPGotoDefinitionTool(server: McpServer) {
     {
       description: LSP_GOTO_DEFINITION_DESCRIPTION,
       inputSchema: toMCPSchema(BulkLSPGotoDefinitionQuerySchema),
-      outputSchema: toMCPSchema(LspGotoDefinitionOutputSchema),
+      outputSchema: toMCPSchema(withTsvEnvelope(LspGotoDefinitionOutputSchema)),
       annotations: {
         title: 'Go To Definition',
         readOnlyHint: true,

@@ -1,6 +1,12 @@
 /**
- * Pagination hint generation utilities
- * Unified hint generation for both local and GitHub tools
+ * Pagination hint generation utilities.
+ *
+ * Strict policy: emit a hint only when it is either
+ *  (a) a pagination cursor the agent can re-call with, or
+ *  (b) a recovery directive for a size/over-budget condition.
+ *
+ * No token narration, no "Complete page" tautologies, no emoji decoration,
+ * no echo of the params the caller already has.
  */
 
 import type { PaginationInfo } from '../../types.js';
@@ -13,7 +19,9 @@ import type {
 } from './types.js';
 
 /**
- * Generate token usage hints based on estimated tokens
+ * Surface token-budget recovery directives only when the response is
+ * actually at risk. Below 30K tokens we say nothing — the agent already
+ * sees the data and doesn't need a "you're fine" reassurance.
  */
 function generateTokenWarnings(
   estimatedTokens: number,
@@ -21,63 +29,34 @@ function generateTokenWarnings(
 ): string[] {
   if (!enableWarnings) return [];
 
-  const hints: string[] = [];
-
   if (estimatedTokens > 50000) {
-    hints.push(
-      '🚨 CRITICAL: Response TOO LARGE (>50K tokens) - will likely exceed model context limits',
-      'ACTION REQUIRED: Use smaller charLength or refine query to reduce output size'
-    );
-  } else if (estimatedTokens > 30000) {
-    hints.push(
-      '⚠️ WARNING: High token usage (>30K tokens) - may approach context limits',
-      'RECOMMENDATION: Consider reducing charLength or using more specific queries'
-    );
-  } else if (estimatedTokens > 15000) {
-    hints.push(
-      'ℹ️ NOTICE: Moderate token usage (>15K tokens) - monitor context window usage'
-    );
-  } else if (estimatedTokens > 5000) {
-    hints.push(
-      'ℹ️ Moderate usage: Response uses ~' +
-        estimatedTokens.toLocaleString() +
-        ' tokens'
-    );
-  } else {
-    hints.push(
-      '✓ Efficient query: Response uses ~' +
-        estimatedTokens.toLocaleString() +
-        ' tokens'
-    );
+    return [
+      `Response ~${estimatedTokens.toLocaleString()} tokens — exceeds typical context. Reduce charLength or refine the query.`,
+    ];
   }
-
-  return hints;
+  if (estimatedTokens > 30000) {
+    return [
+      `Response ~${estimatedTokens.toLocaleString()} tokens — approaching context limit. Consider reducing charLength.`,
+    ];
+  }
+  return [];
 }
 
 /**
- * Generate generic pagination navigation hints
- * Uses character offsets (for local tools that use JavaScript string operations)
+ * Generic pagination navigation. Only emits a cursor when more pages
+ * exist. Final-page tautologies are silent.
  */
 function generateNavigationHints(metadata: PaginationMetadata): string[] {
-  const hints: string[] = [];
-
   if (metadata.hasMore && metadata.nextCharOffset !== undefined) {
-    hints.push(
-      '📄 More available: This is page ' +
-        metadata.currentPage +
-        ' of ' +
-        metadata.totalPages,
-      '▶ Next page: Use charOffset=' + metadata.nextCharOffset + ' to continue'
-    );
-  } else if (metadata.charOffset > 0 && !metadata.hasMore) {
-    hints.push('✓ Final page: Reached end of content');
+    return [
+      `Page ${metadata.currentPage}/${metadata.totalPages}. Next: charOffset=${metadata.nextCharOffset}`,
+    ];
   }
-
-  return hints;
+  return [];
 }
 
 /**
- * Generate pagination hints based on metadata (generic, for local tools)
+ * Pagination hints based on metadata (generic, for local tools).
  */
 export function generatePaginationHints(
   metadata: PaginationMetadata,
@@ -86,101 +65,48 @@ export function generatePaginationHints(
   const { enableWarnings = true, customHints = [] } = options;
   const hints: string[] = [];
 
-  // Add custom hints first
   hints.push(...customHints);
 
-  // Token usage warnings (if enabled)
   if (metadata.estimatedTokens) {
     hints.push(
       ...generateTokenWarnings(metadata.estimatedTokens, enableWarnings)
     );
   }
 
-  // Pagination navigation hints
   hints.push(...generateNavigationHints(metadata));
 
   return hints;
 }
 
 /**
- * Generate hints for GitHub file content paginated responses
- * Uses byte offsets (for GitHub API compatibility)
+ * GitHub file-content pagination. Only fires when more pages exist; emits
+ * a single cursor line the agent can use directly.
  */
 export function generateGitHubPaginationHints(
   pagination: PaginationInfo,
-  query: GitHubFileContentHintContext
+  _query: GitHubFileContentHintContext
 ): string[] {
-  if (!pagination.hasMore) {
-    return [
-      `✓ Complete content retrieved ` +
-        `(${pagination.totalPages} page${pagination.totalPages > 1 ? 's' : ''})`,
-    ];
-  }
+  if (!pagination.hasMore) return [];
 
-  // Use byte offsets for GitHub API compatibility
   const nextOffset =
     (pagination.byteOffset ?? 0) + (pagination.byteLength ?? 0);
-  const branchParam = query.branch ? `, branch="${query.branch}"` : '';
 
   return [
-    `📄 Page ${pagination.currentPage}/${pagination.totalPages} ` +
-      `(${(pagination.byteLength ?? 0).toLocaleString()} of ` +
-      `${(pagination.totalBytes ?? 0).toLocaleString()} bytes)`,
-    ``,
-    `▶ TO GET NEXT PAGE:`,
-    `  Use: charOffset=${nextOffset}`,
-    `  Same params: owner="${query.owner}", repo="${query.repo}", ` +
-      `path="${query.path}"${branchParam}`,
-    ``,
-    `💡 TIP: Use matchString for targeted extraction instead of ` +
-      `paginating through entire file`,
+    `Page ${pagination.currentPage}/${pagination.totalPages}. Next: charOffset=${nextOffset}`,
   ];
 }
 
 /**
- * Generate hints for repository structure pagination
+ * Repository structure pagination. Only fires when more pages exist;
+ * emits a single cursor line, no param echo or "tip" recipes.
  */
 export function generateStructurePaginationHints(
   pagination: StructurePaginationInfo,
-  context: StructurePaginationHintContext
+  _context: StructurePaginationHintContext
 ): string[] {
-  const hints: string[] = [];
+  if (!pagination.hasMore) return [];
 
-  // Summary of current page
-  hints.push(
-    `📂 Page ${pagination.currentPage}/${pagination.totalPages} ` +
-      `(${context.pageFiles} files, ${context.pageFolders} folders on this page)`
-  );
-
-  hints.push(
-    `📊 Total: ${context.allFiles} files, ${context.allFolders} folders ` +
-      `(${pagination.totalEntries} entries)`
-  );
-
-  if (pagination.hasMore) {
-    const pathParam = context.path ? `path="${context.path}", ` : '';
-    const depthParam =
-      context.depth && context.depth > 1 ? `depth=${context.depth}, ` : '';
-
-    hints.push('');
-    hints.push(`▶ TO GET NEXT PAGE:`);
-    hints.push(`  Use: entryPageNumber=${pagination.currentPage + 1}`);
-    hints.push(
-      `  Same params: owner="${context.owner}", repo="${context.repo}", ` +
-        `branch="${context.branch}", ${pathParam}${depthParam}entriesPerPage=${pagination.entriesPerPage}`
-    );
-    hints.push('');
-    hints.push(
-      `💡 TIP: Use githubSearchCode with path filter for targeted discovery ` +
-        `instead of paginating through entire structure`
-    );
-  } else {
-    hints.push('');
-    hints.push(
-      `✓ Complete structure retrieved ` +
-        `(${pagination.totalPages} page${pagination.totalPages > 1 ? 's' : ''})`
-    );
-  }
-
-  return hints;
+  return [
+    `Page ${pagination.currentPage}/${pagination.totalPages}. Next: entryPageNumber=${pagination.currentPage + 1}`,
+  ];
 }

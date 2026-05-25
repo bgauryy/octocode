@@ -418,23 +418,17 @@ describe('index.ts - Startup Flow', () => {
         callOrder.push('registerTools');
       });
 
-      const mockRegisterPrompts = vi.fn(() => {
-        callOrder.push('registerPrompts');
-      });
-
       // Simulate startup flow
       await mockInitialize();
       await mockLoadToolContent();
       mockInitializeSession();
       await mockRegisterTools();
-      mockRegisterPrompts();
 
       expect(callOrder).toEqual([
         'initialize',
         'loadToolContent',
         'initializeSession',
         'registerTools',
-        'registerPrompts',
       ]);
     });
 

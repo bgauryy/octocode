@@ -25,6 +25,7 @@ export function transformFileContentResult(
     content: extracted.content,
     encoding: 'utf-8',
     size: data.size || 0,
+    totalLines: extracted.totalLines,
     ref: data.ref || query.ref || '',
     lastCommitSha: data.lastCommitSha,
     pagination: extracted.pagination,

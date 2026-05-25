@@ -43,6 +43,12 @@ export interface ToolExecutionArgs<TQuery> {
   /** Character length budget for top-level bulk response pagination across results[] */
   responseCharLength?: number;
 
+  /**
+   * Output format. Defaults to 'json' when omitted (back-compat).
+   * 'tsv' emits a tab-delimited rows view per the tool's column projection.
+   */
+  format?: 'tsv' | 'json';
+
   /** Optional OAuth authentication info (GitHub tools) */
   authInfo?: AuthInfo;
 

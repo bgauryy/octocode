@@ -8,49 +8,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { hints as codeSearchHints } from '../../src/tools/github_search_code/hints.js';
 
 describe('github_search_code hints - error branches', () => {
-  it('should generate rate limit hints with retryAfter (line 43)', () => {
+  it('should generate rate limit hint with retryAfter', () => {
     const result = codeSearchHints.error({
       isRateLimited: true,
       retryAfter: 30,
     });
-    expect(
-      result.some((h: string | undefined) => h?.includes('Retry after 30s'))
-    ).toBe(true);
-    expect(
-      result.some((h: string | undefined) =>
-        h?.includes('reduce request frequency')
-      )
-    ).toBe(true);
+    expect(result.some(h => h?.includes('Retry after 30s'))).toBe(true);
   });
 
-  it('should generate rate limit hints without retryAfter (line 43 else)', () => {
-    const result = codeSearchHints.error({
-      isRateLimited: true,
-    });
-    expect(
-      result.some((h: string | undefined) =>
-        h?.includes('Wait before retrying')
-      )
-    ).toBe(true);
+  it('should generate rate limit hint without retryAfter', () => {
+    const result = codeSearchHints.error({ isRateLimited: true });
+    expect(result.some(h => h?.includes('Rate limited'))).toBe(true);
   });
 
-  it('should generate 401 auth hint (line 52)', () => {
-    const result = codeSearchHints.error({
-      status: 401,
-    });
-    expect(
-      result.some((h: string | undefined) => h?.includes('GITHUB_TOKEN'))
-    ).toBe(true);
+  it('should generate 401 auth hint', () => {
+    const result = codeSearchHints.error({ status: 401 });
+    expect(result.some(h => h?.includes('GITHUB_TOKEN'))).toBe(true);
   });
 
-  it('should generate 403 permission hint when not rate limited (line 57)', () => {
+  it('should generate 403 permission hint when not rate limited', () => {
     const result = codeSearchHints.error({
       status: 403,
       isRateLimited: false,
     });
-    expect(
-      result.some((h: string | undefined) => h?.includes('token permissions'))
-    ).toBe(true);
+    expect(result.some(h => h?.includes('Permission denied'))).toBe(true);
   });
 
   it('should not generate 403 hint when rate limited', () => {
@@ -58,9 +39,7 @@ describe('github_search_code hints - error branches', () => {
       status: 403,
       isRateLimited: true,
     });
-    expect(
-      result.some((h: string | undefined) => h?.includes('token permissions'))
-    ).toBe(false);
+    expect(result.some(h => h?.includes('Permission denied'))).toBe(false);
   });
 });
 

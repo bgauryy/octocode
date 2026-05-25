@@ -200,6 +200,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          totalLines: 5,
         },
       });
     });
@@ -218,6 +219,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          totalLines: 5,
         },
       });
     });
@@ -238,6 +240,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'master',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          totalLines: 5,
         },
       });
     });
@@ -259,6 +262,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          totalLines: 5,
         },
       });
     });
@@ -281,6 +285,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          totalLines: 5,
         },
       });
     });
@@ -303,6 +308,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          totalLines: 5,
         },
       });
     });

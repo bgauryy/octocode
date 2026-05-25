@@ -65,7 +65,6 @@ describe('GitHub Client', () => {
       loggingEnabled: true,
       enableLocal: true,
       enableClone: false,
-      disablePrompts: false,
       outputFormat: 'yaml',
       tokenSource: 'env:GH_TOKEN',
     });
@@ -165,7 +164,6 @@ describe('GitHub Client', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });
@@ -189,7 +187,6 @@ describe('GitHub Client', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });

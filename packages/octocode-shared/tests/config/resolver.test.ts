@@ -42,7 +42,6 @@ describe('config/resolver', () => {
     delete process.env.TOOLS_TO_RUN;
     delete process.env.ENABLE_TOOLS;
     delete process.env.DISABLE_TOOLS;
-    delete process.env.DISABLE_PROMPTS;
     delete process.env.REQUEST_TIMEOUT;
     delete process.env.MAX_RETRIES;
     delete process.env.LOG;
@@ -326,23 +325,6 @@ describe('config/resolver', () => {
         process.env.ALLOWED_PATHS = '/path/a,,/path/b,';
         const config = resolveConfigSync();
         expect(config.local.allowedPaths).toEqual(['/path/a', '/path/b']);
-      });
-
-      it('parses DISABLE_PROMPTS as boolean', () => {
-        process.env.DISABLE_PROMPTS = 'true';
-        expect(resolveConfigSync().tools.disablePrompts).toBe(true);
-
-        _resetConfigCache();
-        process.env.DISABLE_PROMPTS = '1';
-        expect(resolveConfigSync().tools.disablePrompts).toBe(true);
-
-        _resetConfigCache();
-        process.env.DISABLE_PROMPTS = 'false';
-        expect(resolveConfigSync().tools.disablePrompts).toBe(false);
-
-        _resetConfigCache();
-        process.env.DISABLE_PROMPTS = '0';
-        expect(resolveConfigSync().tools.disablePrompts).toBe(false);
       });
 
       it('parses OCTOCODE_LSP_CONFIG', () => {
@@ -691,42 +673,6 @@ describe('config/resolver', () => {
       });
     });
 
-    describe('tools.disablePrompts (DISABLE_PROMPTS)', () => {
-      it('env overrides file', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            tools: { disablePrompts: false },
-          })
-        );
-        process.env.DISABLE_PROMPTS = 'true';
-
-        const config = resolveConfigSync();
-        expect(config.tools.disablePrompts).toBe(true);
-      });
-
-      it('file overrides default', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            tools: { disablePrompts: true },
-          })
-        );
-
-        const config = resolveConfigSync();
-        expect(config.tools.disablePrompts).toBe(true);
-      });
-
-      it('falls back to default when neither env nor file', () => {
-        vi.mocked(existsSync).mockReturnValue(false);
-
-        const config = resolveConfigSync();
-        expect(config.tools.disablePrompts).toBe(
-          DEFAULT_CONFIG.tools.disablePrompts
-        );
-      });
-    });
-
     describe('network.timeout (REQUEST_TIMEOUT)', () => {
       it('env overrides file', () => {
         vi.mocked(existsSync).mockReturnValue(true);
@@ -923,15 +869,6 @@ describe('config/resolver', () => {
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
       process.env.ALLOWED_PATHS = '/path/a';
-
-      const config = resolveConfigSync();
-      expect(config.source).toBe('mixed');
-    });
-
-    it('detects DISABLE_PROMPTS as env override for mixed source', () => {
-      vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
-      process.env.DISABLE_PROMPTS = 'true';
 
       const config = resolveConfigSync();
       expect(config.source).toBe('mixed');

@@ -120,8 +120,43 @@ describe('GitHub Fetch Content Tool', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "hasResults"');
+      expect(responseText).toContain('results:');
+      expect(responseText).toContain('owner: "test"');
+      expect(responseText).toContain('repo: "repo"');
+      expect(responseText).toContain('path: "README.md"');
       expect(responseText).toContain('content:');
+      expect(responseText).not.toContain('status:');
+    });
+
+    it('should include totalLines and omit repeated generic hints', async () => {
+      mockProvider.getFileContent.mockResolvedValue({
+        data: {
+          path: 'src/app.ts',
+          content: 'line1\nline2',
+          encoding: 'utf-8',
+          size: 11,
+          totalLines: 2,
+          ref: 'main',
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            { owner: 'test', repo: 'repo', path: 'src/app.ts', branch: 'main' },
+          ],
+        }
+      );
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain('totalLines: 2');
+      expect(responseText).not.toContain(
+        "Use 'owner', 'repo', 'branch', 'path'"
+      );
+      expect(responseText).not.toContain("Follow 'mainResearchGoal'");
     });
 
     it('should pass authInfo to provider', async () => {
@@ -195,8 +230,8 @@ describe('GitHub Fetch Content Tool', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('content1');
       expect(responseText).toContain('content2');
-      expect(responseText).not.toContain('file1.js');
-      expect(responseText).not.toContain('file2.js');
+      expect(responseText).toContain('path: "file1.js"');
+      expect(responseText).toContain('path: "file2.js"');
     });
   });
 
@@ -603,7 +638,8 @@ describe('GitHub Fetch Content Tool', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('content: "good"');
-      expect(responseText).not.toContain('good.js');
+      expect(responseText).toContain('path: "good.js"');
+      expect(responseText).toContain('errors:');
     });
   });
 

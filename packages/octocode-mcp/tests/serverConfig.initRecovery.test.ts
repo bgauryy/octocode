@@ -39,7 +39,6 @@ describe('serverConfig initialize recovery', () => {
           enabled: undefined,
           enableAdditional: undefined,
           disabled: undefined,
-          disablePrompts: false,
         },
         network: { timeout: 30000, maxRetries: 3 },
         telemetry: { logging: true },

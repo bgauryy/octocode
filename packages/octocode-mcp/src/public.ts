@@ -36,6 +36,7 @@ export {
   LSPFindReferencesQuerySchema,
   LSPCallHierarchyQuerySchema,
   PackageSearchQuerySchema,
+  CloneRepoQuerySchema,
 } from '@octocodeai/octocode-core';
 
 // Tool metadata loading

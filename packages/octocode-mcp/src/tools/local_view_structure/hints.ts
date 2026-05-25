@@ -1,31 +1,41 @@
 /**
- * Dynamic hints for localViewStructure tool
+ * Response-state hints for localViewStructure.
+ *
+ * Only emits hints conditional on the response itself.
+ *
  * @module tools/local_view_structure/hints
  */
 
-import { getMetadataDynamicHints } from '../../hints/static.js';
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
-const TOOL_NAME = 'localViewStructure';
-
 export const hints: ToolHintGenerators = {
-  hasResults: (ctx: HintContext = {}) => {
-    const hints: (string | undefined)[] = [];
-    if (ctx.entryCount && ctx.entryCount > 10) {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'largeDirectory'));
-    }
-    return hints;
-  },
+  hasResults: (_ctx: HintContext = {}) => [],
 
-  empty: (_ctx: HintContext = {}) => [
-    // Base hints come from HOST
-  ],
+  empty: (ctx: HintContext = {}) => {
+    const c = ctx as Record<string, unknown>;
+    const path = typeof c.path === 'string' ? c.path : undefined;
+    const extension = typeof c.extension === 'string' ? c.extension : undefined;
+    const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
+    const filters: string[] = [];
+    if (extension) filters.push(`extension="${extension}"`);
+    if (pattern) filters.push(`pattern="${pattern}"`);
+    if (filters.length > 0) {
+      return [
+        `No entries in ${path ?? 'this directory'} matching ${filters.join(' + ')}. Drop a filter or try a parent path.`,
+      ];
+    }
+    return [
+      `Empty directory ${path ?? 'at this path'}. Try a parent directory or verify the path.`,
+    ];
+  },
 
   error: (ctx: HintContext = {}) => {
     if (ctx.errorType === 'size_limit' && ctx.entryCount) {
+      const tokens = ctx.tokenEstimate
+        ? ` (~${ctx.tokenEstimate.toLocaleString()} tokens)`
+        : '';
       return [
-        `Directory has ${ctx.entryCount} entries${ctx.tokenEstimate ? ` (~${ctx.tokenEstimate.toLocaleString()} tokens)` : ''}.`,
-        ...getMetadataDynamicHints(TOOL_NAME, 'largeDirectory'),
+        `Directory has ${ctx.entryCount} entries${tokens}. Narrow with depth or path.`,
       ];
     }
     return [];

@@ -142,7 +142,6 @@ export async function initialize(): Promise<void> {
       loggingEnabled: resolved.telemetry.logging,
       enableLocal: resolved.local.enabled,
       enableClone: resolved.local.enableClone,
-      disablePrompts: resolved.tools.disablePrompts,
       outputFormat: resolved.output.format,
       tokenSource: tokenResult.source,
       gitlab: resolveGitLabConfig(),
@@ -206,10 +205,6 @@ export function isCloneEnabled(): boolean {
 
 export function isLoggingEnabled(): boolean {
   return config?.loggingEnabled ?? false;
-}
-
-export function arePromptsEnabled(): boolean {
-  return !(config?.disablePrompts ?? false);
 }
 
 /**

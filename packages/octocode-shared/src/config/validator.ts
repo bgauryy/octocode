@@ -275,12 +275,6 @@ function validateTools(tools: unknown, errors: string[]): void {
     'tools.disabled'
   );
   if (disabledError) errors.push(disabledError);
-
-  const disablePromptsError = validateBoolean(
-    t.disablePrompts,
-    'tools.disablePrompts'
-  );
-  if (disablePromptsError) errors.push(disablePromptsError);
 }
 
 function validateNetwork(network: unknown, errors: string[]): void {

@@ -19,7 +19,7 @@ import { executeWithToolBoundary } from '../executionGuard.js';
 export async function executeFindReferences(
   args: ToolExecutionArgs<LSPFindReferencesQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries, responseCharOffset, responseCharLength, format } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -34,6 +34,9 @@ export async function executeFindReferences(
       toolName: TOOL_NAME,
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
       minQueryTimeoutMs: 30_000,
     }
   );

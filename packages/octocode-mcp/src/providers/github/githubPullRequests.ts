@@ -121,6 +121,7 @@ export async function searchPullRequests(
   const githubParams: GitHubPullRequestsSearchParams = {
     owner,
     repo,
+    query: query.query,
     prNumber: query.number,
     state:
       query.state === 'merged'

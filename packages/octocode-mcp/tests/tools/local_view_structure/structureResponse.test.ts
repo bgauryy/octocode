@@ -110,7 +110,7 @@ describe('structureResponse.buildEntryPaginationHints', () => {
     makeFile(`f${i}.ts`, '1KB')
   );
 
-  it('includes a "starts with" preview when more pages remain', () => {
+  it('emits one cursor line (with starts-with preview) when more pages remain', () => {
     const hints = buildEntryPaginationHints(
       allEntries,
       5,
@@ -122,12 +122,13 @@ describe('structureResponse.buildEntryPaginationHints', () => {
       },
       5
     );
+    expect(hints).toHaveLength(1);
     expect(hints[0]).toContain('Page 1/2');
-    expect(hints[1]).toContain('entryPageNumber=2');
-    expect(hints[1]).toContain('starts with: f5');
+    expect(hints[0]).toContain('entryPageNumber=2');
+    expect(hints[0]).toContain('starts with: f5');
   });
 
-  it('omits "starts with" when next-page preview is empty', () => {
+  it('omits "starts with" preview when the next-page window is empty', () => {
     const hints = buildEntryPaginationHints(
       allEntries,
       10,
@@ -137,13 +138,14 @@ describe('structureResponse.buildEntryPaginationHints', () => {
         totalEntries: 10,
         hasMore: true,
       },
-      allEntries.length // endIdx past the last entry → empty preview
+      allEntries.length
     );
-    expect(hints[1]).toContain('entryPageNumber=2');
-    expect(hints[1]).not.toContain('starts with:');
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toContain('entryPageNumber=2');
+    expect(hints[0]).not.toContain('starts with:');
   });
 
-  it('emits "Final page" instead of next-page hint on the last page', () => {
+  it('emits no hint on the final page (no "Final page" tautology)', () => {
     const hints = buildEntryPaginationHints(
       allEntries,
       5,
@@ -155,7 +157,7 @@ describe('structureResponse.buildEntryPaginationHints', () => {
       },
       10
     );
-    expect(hints[1]).toBe('Final page');
+    expect(hints).toEqual([]);
   });
 });
 

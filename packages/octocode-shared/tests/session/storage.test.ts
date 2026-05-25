@@ -10,7 +10,6 @@ import {
   getSessionId,
   updateSessionStats,
   incrementToolCalls,
-  incrementPromptCalls,
   incrementErrors,
   incrementRateLimits,
   incrementRateLimitByProvider,
@@ -27,7 +26,6 @@ import type { PersistedSession } from '../../src/session/types.js';
 
 const zeroTotalUsageStats = () => ({
   toolCalls: 0,
-  promptCalls: 0,
   errors: 0,
   rateLimits: 0,
   rateLimitsByProvider: {},
@@ -43,7 +41,6 @@ const zeroTotalUsageStats = () => ({
 
 const defaultStats = () => ({
   toolCalls: 0,
-  promptCalls: 0,
   errors: 0,
   rateLimits: 0,
   rateLimitsByProvider: {},
@@ -219,7 +216,6 @@ describe('Session Storage', () => {
         lastActiveAt: '2026-01-09T10:00:00.000Z',
         stats: {
           toolCalls: 5,
-          promptCalls: 2,
           errors: 1,
           rateLimits: 0,
         },
@@ -239,7 +235,6 @@ describe('Session Storage', () => {
         lastActiveAt: '2026-01-09T10:00:00.000Z',
         stats: {
           toolCalls: 5,
-          promptCalls: 2,
           errors: 1,
           rateLimits: 0,
         },
@@ -334,7 +329,6 @@ describe('Session Storage', () => {
           lastActiveAt: '2026-01-09T10:00:00.000Z',
           stats: {
             toolCalls: 1,
-            promptCalls: 2,
             errors: 3,
             rateLimits: 4,
           },
@@ -352,7 +346,6 @@ describe('Session Storage', () => {
       expect(session?.stats.totalUsage).toEqual({
         ...zeroTotalUsageStats(),
         toolCalls: 1,
-        promptCalls: 2,
         errors: 3,
         rateLimits: 4,
       });
@@ -382,17 +375,6 @@ describe('Session Storage', () => {
       const result = incrementToolCalls();
       expect(result.success).toBe(false);
       expect(result.session).toBeNull();
-    });
-  });
-
-  describe('incrementPromptCalls', () => {
-    it('should increment prompt call count', () => {
-      getOrCreateSession();
-
-      const result = incrementPromptCalls();
-
-      expect(result.success).toBe(true);
-      expect(result.session?.stats.promptCalls).toBe(1);
     });
   });
 
@@ -517,7 +499,6 @@ describe('Session Storage', () => {
       expect(result.success).toBe(true);
       expect(result.session?.stats.toolCalls).toBe(10);
       expect(result.session?.stats.errors).toBe(2);
-      expect(result.session?.stats.promptCalls).toBe(0);
       expect(result.session?.stats.rateLimits).toBe(0);
       expect(result.session?.stats.totalUsage).toEqual({
         ...zeroTotalUsageStats(),

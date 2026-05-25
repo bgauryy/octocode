@@ -18,6 +18,8 @@ interface RemoteToolConfig<TQuery> {
   outputSchema: object;
   /** The execution function that processes bulk queries */
   executionFn: (args: ToolExecutionArgs<TQuery>) => Promise<CallToolResult>;
+  /** Optional transform applied to the upstream tool description */
+  describe?: (base: string) => string;
   /** MCP tool annotations (defaults provided for typical read-only tools) */
   annotations?: {
     readOnlyHint?: boolean;
@@ -42,14 +44,23 @@ export function createRemoteToolRegistration<TQuery>(
   server: McpServer,
   callback?: ToolInvocationCallback
 ) => ReturnType<McpServer['registerTool']> {
-  const { name, title, inputSchema, outputSchema, executionFn, annotations } =
-    config;
+  const {
+    name,
+    title,
+    inputSchema,
+    outputSchema,
+    executionFn,
+    describe,
+    annotations,
+  } = config;
 
   return (server: McpServer, callback?: ToolInvocationCallback) => {
+    const baseDescription = DESCRIPTIONS[name] ?? '';
+    const description = describe ? describe(baseDescription) : baseDescription;
     return server.registerTool(
       name,
       {
-        description: DESCRIPTIONS[name],
+        description,
         inputSchema: toMCPSchema(inputSchema),
         outputSchema: toMCPSchema(outputSchema),
         annotations: {

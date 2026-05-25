@@ -1,12 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LocalGetFileContentDataSchema,
-  LocalGetFileContentOutputSchema,
+  LocalGetFileContentOutputSchema as UpstreamLocalGetFileContentOutputSchema,
   LocalSearchCodeDataSchema,
-  LocalSearchCodeOutputSchema,
+  LocalSearchCodeOutputSchema as UpstreamLocalSearchCodeOutputSchema,
   LspGotoDefinitionDataSchema,
-  LspGotoDefinitionOutputSchema,
+  LspGotoDefinitionOutputSchema as UpstreamLspGotoDefinitionOutputSchema,
 } from '@octocodeai/octocode-core';
+import { withTsvEnvelope } from '../../src/scheme/tsvEnvelope.js';
+
+// All four schemas now carry the shared TSV envelope (format/columns/rows
+// /hints at peer level) — wrap once here so test parses don't trip on the
+// optional fields the bulk runner adds.
+const LocalSearchCodeOutputSchema = withTsvEnvelope(
+  UpstreamLocalSearchCodeOutputSchema
+);
+const LocalGetFileContentOutputSchema = withTsvEnvelope(
+  UpstreamLocalGetFileContentOutputSchema
+);
+const LspGotoDefinitionOutputSchema = withTsvEnvelope(
+  UpstreamLspGotoDefinitionOutputSchema
+);
 import { FLOW_CATALOG } from './catalog.js';
 import {
   createFlowHarness,

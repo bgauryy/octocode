@@ -225,15 +225,15 @@ describe('Local Tools Hints', () => {
         expect(hints?.filter(Boolean).length).toBe(0);
       });
 
-      it('should include parallelize hint when entryCount > 10', () => {
+      it('should return [] regardless of entryCount (no static guidance)', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]?.hasResults(
           {
             entryCount: 15,
           }
         );
 
-        // With entryCount > 10, includes parallelize hints from metadata
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
+        // Dynamic-only contract: hasResults emits no guidance.
+        expect(hints?.filter(Boolean).length).toBe(0);
       });
 
       it('should not include parallelize hint when entryCount <= 10', () => {
@@ -306,15 +306,15 @@ describe('Local Tools Hints', () => {
         expect(hints?.filter(Boolean).length).toBe(0);
       });
 
-      it('should return manyResults hints when fileCount > 20 (lines 25-28)', () => {
+      it('should return [] regardless of fileCount (no static guidance)', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.LOCAL_FIND_FILES]?.hasResults({
           fileCount: 25,
         });
 
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
+        expect(hints?.filter(Boolean).length).toBe(0);
       });
 
-      it('should return empty when fileCount <= 3', () => {
+      it('should return [] when fileCount <= 3', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.LOCAL_FIND_FILES]?.hasResults({
           fileCount: 2,
         });
@@ -322,12 +322,12 @@ describe('Local Tools Hints', () => {
         expect(hints?.filter(Boolean).length).toBe(0);
       });
 
-      it('should return configFiles hints when hasConfigFiles is true (line 20)', () => {
+      it('should return [] when hasConfigFiles is true (no static guidance)', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.LOCAL_FIND_FILES]?.hasResults({
           hasConfigFiles: true,
         });
 
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
+        expect(hints?.filter(Boolean).length).toBe(0);
       });
     });
 
@@ -352,65 +352,49 @@ describe('Local Tools Hints', () => {
 
   describe('GITHUB_SEARCH_CODE hints', () => {
     describe('hasResults', () => {
-      it('should return hints when hasOwnerRepo is true', () => {
-        const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.hasResults({
-          hasOwnerRepo: true,
-        });
-
-        // Returns singleRepo dynamic hints from metadata
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
-      });
-
-      it('should return hints when hasOwnerRepo is false', () => {
-        const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.hasResults({
-          hasOwnerRepo: false,
-        });
-
-        // Returns multiRepo dynamic hints from metadata
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
-      });
-
-      it('should return multiRepo hints when context is empty', () => {
-        const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.hasResults(
-          {}
-        );
-
-        // Default to multiRepo hints
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
+      it('should return [] regardless of context (no static guidance)', () => {
+        expect(
+          HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.hasResults({
+            hasOwnerRepo: true,
+          })
+        ).toEqual([]);
+        expect(
+          HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.hasResults({
+            hasOwnerRepo: false,
+          })
+        ).toEqual([]);
+        expect(
+          HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.hasResults({})
+        ).toEqual([]);
       });
     });
 
     describe('empty', () => {
-      it('should return hints when hasOwnerRepo is false', () => {
+      it('should return cross-repo hint when no owner/repo', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.empty({
           hasOwnerRepo: false,
         });
-
-        // Returns crossRepoEmpty hints from metadata
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
+        expect(hints?.some(h => h?.includes('across repos'))).toBe(true);
       });
 
-      it('should return empty array when hasOwnerRepo is true', () => {
+      it('should return path-mode hint when match=path is empty', () => {
+        const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.empty({
+          match: 'path',
+        });
+        expect(hints?.some(h => h?.includes('match="file"'))).toBe(true);
+      });
+
+      it('should return [] when owner/repo is provided', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.empty({
           hasOwnerRepo: true,
         });
-
-        // No dynamic hints when owner/repo is specified - static hints cover this
         expect(hints?.filter(Boolean).length).toBe(0);
-      });
-
-      it('should return hints when context is empty', () => {
-        const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.empty({});
-
-        // Default to crossRepoEmpty hints when no context provided
-        expect(hints?.filter(Boolean).length).toBeGreaterThan(0);
       });
     });
 
     describe('error', () => {
-      it('should return empty array', () => {
+      it('should return [] without context', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.error({});
-
         expect(hints).toEqual([]);
       });
     });

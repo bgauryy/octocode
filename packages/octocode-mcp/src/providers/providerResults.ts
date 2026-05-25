@@ -98,6 +98,8 @@ export interface FileContentResult {
   encoding: 'utf-8' | 'base64';
   /** File size in bytes */
   size: number;
+  /** Total number of lines in the source file, when known */
+  totalLines?: number;
   /** Branch/ref used */
   ref: string;
   /** Last modified date */
@@ -114,6 +116,8 @@ export interface FileContentResult {
   startLine?: number;
   /** End line (if partial) */
   endLine?: number;
+  /** Non-fatal warnings/notices from extraction or sanitization */
+  warnings?: string[];
 }
 
 /**

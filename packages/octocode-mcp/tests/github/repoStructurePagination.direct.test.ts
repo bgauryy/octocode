@@ -228,29 +228,4 @@ describe('applyStructurePagination — direct unit tests', () => {
       expect(result.pagination?.hasMore).toBe(false);
     });
   });
-
-  describe('hints', () => {
-    it('passes depth through to the hint generator (>1 surfaces in hint text)', () => {
-      const cached = makeCached({
-        path: 'src',
-        _cachedItems: [
-          { path: 'src/a.ts', type: 'file' },
-          { path: 'src/b.ts', type: 'file' },
-          { path: 'src/c.ts', type: 'file' },
-        ],
-      });
-      const result = applyStructurePagination(
-        cached,
-        makeQuery({
-          path: 'src',
-          depth: 2,
-          entriesPerPage: 1,
-          entryPageNumber: 1,
-        })
-      );
-      const hintsText = (result.hints ?? []).join('\n');
-      expect(hintsText).toContain('depth=2');
-      expect(hintsText).toContain('path="src"');
-    });
-  });
 });

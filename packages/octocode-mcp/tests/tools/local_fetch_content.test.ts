@@ -130,7 +130,9 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBe('empty');
       expect(result.hints).toBeDefined();
-      expect(result.hints?.some(h => h.includes('Case-sensitive'))).toBe(true);
+      expect(result.hints?.some(h => h.includes('caseSensitive=true'))).toBe(
+        true
+      );
     });
 
     it('should match using regex when matchStringIsRegex is true', async () => {

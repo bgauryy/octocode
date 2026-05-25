@@ -6,8 +6,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { getHints } from '../../src/hints/index.js';
 import { getLargeFileWorkflowHints } from '../../src/hints/dynamic.js';
 import { hasDynamicHints } from '../../src/hints/dynamic.js';
-// Internal function imported directly for testing
-import { getMetadataDynamicHints } from '../../src/hints/static.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 
@@ -28,20 +26,19 @@ describe('Unified Hints System', () => {
       expect(Array.isArray(hints)).toBe(true);
     });
 
-    it('should return hints for local tools', () => {
+    it('should return an array for local tools', () => {
       const hints = getHints(STATIC_TOOL_NAMES.LOCAL_RIPGREP, 'hasResults');
 
       expect(hints).toBeDefined();
       expect(Array.isArray(hints)).toBe(true);
-      expect(hints.length).toBeGreaterThan(0);
+      // Dynamic-only: may be empty when no condition is met.
     });
 
-    it('should return empty hints for hasResults status', () => {
+    it('should return an array for empty status', () => {
       const hints = getHints(STATIC_TOOL_NAMES.LOCAL_RIPGREP, 'empty');
 
       expect(hints).toBeDefined();
       expect(Array.isArray(hints)).toBe(true);
-      expect(hints.length).toBeGreaterThan(0);
     });
 
     it('should return error hints for error status', () => {
@@ -98,8 +95,8 @@ describe('Unified Hints System', () => {
           fileCount: 3,
         });
 
-        // Should return base hints without parallelTip hints
-        expect(hints.length).toBeGreaterThan(0);
+        // Dynamic-only contract: no fileCount-conditioned hint at fileCount<=5.
+        expect(Array.isArray(hints)).toBe(true);
       });
 
       it('should include size context for size_limit errors', () => {
@@ -125,7 +122,7 @@ describe('Unified Hints System', () => {
         expect(hints.some(h => h.includes('1000'))).toBe(true);
       });
 
-      it('should return context-aware hints based on hasOwnerRepo', () => {
+      it('should NOT emit hasResults guidance based on hasOwnerRepo', () => {
         const hintsWithRepo = getHints(
           STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
           'hasResults',
@@ -137,9 +134,9 @@ describe('Unified Hints System', () => {
           { hasOwnerRepo: false }
         );
 
-        // Both should return hints (from different metadata keys)
-        expect(hintsWithRepo.length).toBeGreaterThan(0);
-        expect(hintsWithoutRepo.length).toBeGreaterThan(0);
+        // Dynamic-only contract: hasResults emits no static guidance.
+        expect(hintsWithRepo).toEqual([]);
+        expect(hintsWithoutRepo).toEqual([]);
       });
     });
   });
@@ -191,28 +188,10 @@ describe('Unified Hints System', () => {
     });
   });
 
-  describe('getMetadataDynamicHints', () => {
-    it('should return topics hints for githubSearchRepositories', () => {
-      const hints = getMetadataDynamicHints(
-        STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        'topicsHasResults'
-      );
-
-      expect(hints).toBeDefined();
-      expect(Array.isArray(hints)).toBe(true);
-    });
-
-    it('should return empty array for unknown hint type', () => {
-      const hints = getMetadataDynamicHints(
-        STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-        'unknownHintType'
-      );
-
-      expect(hints).toBeDefined();
-      expect(Array.isArray(hints)).toBe(true);
-      expect(hints.length).toBe(0);
-    });
-  });
+  // Note: `getMetadataDynamicHints` / `getStaticHints` were removed when the
+  // hint flow was unified to dynamic-per-response only. Their tests are gone
+  // because the production code path that read upstream metadata hints no
+  // longer exists.
 
   describe('all supported tools coverage', () => {
     const allTools = Object.values(STATIC_TOOL_NAMES);

@@ -1,10 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  GitHubFetchContentDataSchema,
-  GitHubFetchContentOutputSchema,
-  GitHubSearchCodeDataSchema,
-  GitHubSearchCodeOutputSchema,
-} from '@octocodeai/octocode-core';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+
+type CodeSearchFlatResponse = {
+  results: Array<{
+    id: string;
+    owner: string;
+    repo: string;
+    matches: Array<{ path: string; value?: string }>;
+  }>;
+  pagination?: {
+    currentPage: number;
+    totalPages: number;
+    perPage: number;
+    totalMatches: number;
+    hasMore: boolean;
+  };
+};
+
+function parseCodeSearchFlatResponse(
+  result: CallToolResult
+): CodeSearchFlatResponse {
+  return result.structuredContent as CodeSearchFlatResponse;
+}
 import { registerTools } from '../../src/tools/toolsManager.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
@@ -13,7 +30,6 @@ import {
   createMockMcpServer,
   type MockMcpServer,
 } from '../fixtures/mcp-fixtures.js';
-import { expectHasResultsData } from './assertions.js';
 import { FLOW_CATALOG } from './catalog.js';
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
@@ -249,17 +265,14 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
         ],
       });
 
-      const searchData = expectHasResultsData(
-        GitHubSearchCodeOutputSchema,
-        GitHubSearchCodeDataSchema,
-        searchResponse
-      );
-      const matchedFile = searchData.files?.[0];
+      const searchData = parseCodeSearchFlatResponse(searchResponse);
+      const matchedGroup = searchData.results[0];
+      const matchedMatch = matchedGroup?.matches[0];
 
-      expect(matchedFile).toBeDefined();
-      expect(matchedFile?.path).toBe('src/score.ts');
-      expect(matchedFile?.owner).toBe(providerCase.owner);
-      expect(matchedFile?.repo).toBe(providerCase.repo);
+      expect(matchedGroup).toBeDefined();
+      expect(matchedMatch?.path).toBe('src/score.ts');
+      expect(matchedGroup?.owner).toBe(providerCase.owner);
+      expect(matchedGroup?.repo).toBe(providerCase.repo);
       expect(mockGetProvider).toHaveBeenCalledWith(
         providerCase.provider,
         expect.objectContaining({
@@ -280,10 +293,9 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
         queries: [
           {
             id: `remote_fetch_score_${providerCase.provider}`,
-            owner: matchedFile!.owner,
-            repo: matchedFile!.repo,
-            path: matchedFile!.path,
-            branch: searchData.repositoryContext?.branch,
+            owner: matchedGroup!.owner,
+            repo: matchedGroup!.repo,
+            path: matchedMatch!.path,
             matchString: 'export function computeScore',
             researchGoal: 'Read the matched remote file',
             reasoning: 'Use the path handoff from remote code search',
@@ -291,19 +303,25 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
         ],
       });
 
-      const fetchData = expectHasResultsData(
-        GitHubFetchContentOutputSchema,
-        GitHubFetchContentDataSchema,
-        fetchResponse
-      );
+      const fetchStructured = fetchResponse.structuredContent as {
+        results: Array<{
+          owner: string;
+          repo: string;
+          files?: Array<{
+            path: string;
+            content?: string;
+            lastModified?: string;
+          }>;
+        }>;
+      };
+      const fetchedFile = fetchStructured.results[0]?.files?.[0];
 
-      expect(fetchData.content).toContain('computeScore');
-      expect(fetchData.lastModified).toBe('2026-03-13T10:00:00.000Z');
+      expect(fetchedFile?.content).toContain('computeScore');
+      expect(fetchedFile?.lastModified).toBe('2026-03-13T10:00:00.000Z');
       expect(mockProvider.getFileContent).toHaveBeenCalledWith(
         expect.objectContaining({
           projectId: `${providerCase.owner}/${providerCase.repo}`,
           path: 'src/score.ts',
-          ref: searchData.repositoryContext?.branch,
         })
       );
     }
@@ -424,11 +442,10 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
         ],
       });
 
-      const searchData = expectHasResultsData(
-        GitHubSearchCodeOutputSchema,
-        GitHubSearchCodeDataSchema,
-        searchResponse
-      );
+      const searchData = parseCodeSearchFlatResponse(searchResponse);
+      const firstMatch = searchData.results[0]?.matches[0];
+
+      expect(firstMatch?.path).toBe('src/score.ts');
 
       await mockServer.callTool('githubGetFileContent', {
         queries: [
@@ -436,321 +453,14 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
             id: `remote_branch_fetch_${providerCase.provider}`,
             owner: providerCase.owner,
             repo: providerCase.repo,
-            path: searchData.files![0]!.path,
-            branch: searchData.repositoryContext?.branch,
-            researchGoal: 'Read fetched file from handed-off branch',
-            reasoning: 'Branch is already known from search response',
+            path: firstMatch!.path,
+            researchGoal: 'Read fetched file from handed-off path',
+            reasoning: 'Path is already known from search response',
           },
         ],
       });
 
       expect(mockProvider.getFileContent).toHaveBeenCalledTimes(1);
-      expect(mockProvider.resolveDefaultBranch).not.toHaveBeenCalled();
-    }
-  );
-
-  it.each(providerFlows)(
-    'continues remote search->fetch across query-level output pagination for %s provider',
-    async providerCase => {
-      setupActiveProvider(providerCase);
-      const result = await registerRemoteFlowTools(mockServer.server);
-      expect(result.successCount).toBe(2);
-      expect(result.failedTools).toEqual([]);
-
-      mockProvider.searchCode.mockResolvedValue({
-        data: {
-          items: Array.from({ length: 3 }, (_, index) => ({
-            path: `src/score-${index + 1}.ts`,
-            matches: [
-              {
-                context: `export function computeScore${index + 1}(input: ScoreInput): number {\n${'x'.repeat(2000)}\n}`,
-                positions: [[16, 29]],
-              },
-            ],
-            url: `${providerCase.urlPrefix}/${providerCase.owner}/${providerCase.repo}/-/blob/main/src/score-${index + 1}.ts`,
-            repository: {
-              id: '42',
-              name: `${providerCase.owner}/${providerCase.repo}`,
-              url: `${providerCase.urlPrefix}/${providerCase.owner}/${providerCase.repo}`,
-            },
-            lastModifiedAt: '2026-03-13T10:00:00.000Z',
-          })),
-          totalCount: 3,
-          pagination: {
-            currentPage: 1,
-            totalPages: 1,
-            hasMore: false,
-            entriesPerPage: 10,
-            totalMatches: 3,
-          },
-          repositoryContext: {
-            owner: providerCase.owner,
-            repo: providerCase.repo,
-            branch: 'main',
-          },
-        },
-        status: 200,
-        provider: providerCase.provider,
-      });
-
-      mockProvider.getFileContent.mockImplementation(async query => ({
-        data: {
-          path: query.path,
-          content: `export function ${query.path.replace(/[/.-]/g, '_')}() {\n  return 'paged';\n}\n`,
-          encoding: 'utf-8',
-          size: 96,
-          ref: 'main',
-          lastModified: '2026-03-13T10:00:00.000Z',
-        },
-        status: 200,
-        provider: providerCase.provider,
-      }));
-
-      const firstSearchResponse = await mockServer.callTool(
-        'githubSearchCode',
-        {
-          queries: [
-            {
-              id: `remote_paged_search_${providerCase.provider}`,
-              owner: providerCase.owner,
-              repo: providerCase.repo,
-              keywordsToSearch: ['computeScore'],
-              path: 'src',
-              match: 'file',
-              charLength: 600,
-              researchGoal: `Find paginated computeScore results in ${providerCase.provider}`,
-              reasoning:
-                'Verify query-level output pagination still allows fetch handoff',
-            },
-          ],
-        }
-      );
-
-      const firstSearchData = expectHasResultsData(
-        GitHubSearchCodeOutputSchema,
-        GitHubSearchCodeDataSchema,
-        firstSearchResponse
-      );
-
-      expect(firstSearchData.outputPagination?.hasMore).toBe(true);
-      expect(firstSearchData.files?.length).toBe(1);
-
-      const nextCharOffset =
-        (firstSearchData.outputPagination?.charOffset ?? 0) +
-        (firstSearchData.outputPagination?.charLength ?? 0);
-
-      const secondSearchResponse = await mockServer.callTool(
-        'githubSearchCode',
-        {
-          queries: [
-            {
-              id: `remote_paged_search_${providerCase.provider}`,
-              owner: providerCase.owner,
-              repo: providerCase.repo,
-              keywordsToSearch: ['computeScore'],
-              path: 'src',
-              match: 'file',
-              charLength: 600,
-              charOffset: nextCharOffset,
-              researchGoal: `Continue paginated computeScore results in ${providerCase.provider}`,
-              reasoning:
-                'Use outputPagination metadata to resume the same search query',
-            },
-          ],
-        }
-      );
-
-      const secondSearchData = expectHasResultsData(
-        GitHubSearchCodeOutputSchema,
-        GitHubSearchCodeDataSchema,
-        secondSearchResponse
-      );
-
-      expect(
-        secondSearchData.files?.[0]?.path !==
-          firstSearchData.files?.[0]?.path ||
-          secondSearchData.files?.[0]?.text_matches?.[0] !==
-            firstSearchData.files?.[0]?.text_matches?.[0]
-      ).toBe(true);
-
-      const fetchResponse = await mockServer.callTool('githubGetFileContent', {
-        queries: [
-          {
-            id: `remote_fetch_paged_${providerCase.provider}`,
-            owner: providerCase.owner,
-            repo: providerCase.repo,
-            path: secondSearchData.files![0]!.path,
-            branch: secondSearchData.repositoryContext?.branch,
-            researchGoal: 'Read the file returned on the next output page',
-            reasoning:
-              'Verify paginated search results can still hand off to fetch content',
-          },
-        ],
-      });
-
-      const fetchData = expectHasResultsData(
-        GitHubFetchContentOutputSchema,
-        GitHubFetchContentDataSchema,
-        fetchResponse
-      );
-
-      expect(fetchData.content).toContain(
-        secondSearchData.files![0]!.path.replace(/[/.-]/g, '_')
-      );
-      expect(mockProvider.getFileContent).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          path: secondSearchData.files![0]!.path,
-        })
-      );
-    }
-  );
-
-  it.each(providerFlows)(
-    'continues remote search->fetch across bulk response pagination for %s provider',
-    async providerCase => {
-      setupActiveProvider(providerCase);
-      const result = await registerRemoteFlowTools(mockServer.server);
-      expect(result.successCount).toBe(2);
-      expect(result.failedTools).toEqual([]);
-
-      mockProvider.searchCode.mockImplementation(async query => {
-        const keyword = query.keywords?.[0] ?? 'unknown';
-
-        return {
-          data: {
-            items: [
-              {
-                path: `src/${keyword}.ts`,
-                matches: [
-                  {
-                    context: `export function ${keyword}() {\n${'y'.repeat(400)}\n}`,
-                    positions: [[16, 16 + keyword.length]],
-                  },
-                ],
-                url: `${providerCase.urlPrefix}/${providerCase.owner}/${providerCase.repo}/-/blob/main/src/${keyword}.ts`,
-                repository: {
-                  id: '42',
-                  name: `${providerCase.owner}/${providerCase.repo}`,
-                  url: `${providerCase.urlPrefix}/${providerCase.owner}/${providerCase.repo}`,
-                },
-                lastModifiedAt: '2026-03-13T10:00:00.000Z',
-              },
-            ],
-            totalCount: 1,
-            pagination: {
-              currentPage: 1,
-              totalPages: 1,
-              hasMore: false,
-              entriesPerPage: 10,
-              totalMatches: 1,
-            },
-            repositoryContext: {
-              owner: providerCase.owner,
-              repo: providerCase.repo,
-              branch: 'main',
-            },
-          },
-          status: 200,
-          provider: providerCase.provider,
-        };
-      });
-
-      mockProvider.getFileContent.mockImplementation(async query => ({
-        data: {
-          path: query.path,
-          content: `export function ${query.path.replace(/[/.-]/g, '_')}() {\n  return 'bulk';\n}\n`,
-          encoding: 'utf-8',
-          size: 96,
-          ref: 'main',
-          lastModified: '2026-03-13T10:00:00.000Z',
-        },
-        status: 200,
-        provider: providerCase.provider,
-      }));
-
-      const queries = [
-        {
-          id: `bulk_page_one_${providerCase.provider}`,
-          owner: providerCase.owner,
-          repo: providerCase.repo,
-          keywordsToSearch: ['computeScore'],
-          path: 'src',
-          match: 'file',
-          researchGoal: `Find computeScore in ${providerCase.provider}`,
-          reasoning: 'First bulk query for pagination flow coverage',
-        },
-        {
-          id: `bulk_page_two_${providerCase.provider}`,
-          owner: providerCase.owner,
-          repo: providerCase.repo,
-          keywordsToSearch: ['buildSummary'],
-          path: 'src',
-          match: 'file',
-          researchGoal: `Find buildSummary in ${providerCase.provider}`,
-          reasoning: 'Second bulk query for pagination flow coverage',
-        },
-      ];
-
-      const firstResponse = await mockServer.callTool('githubSearchCode', {
-        queries,
-        responseCharLength: 200,
-      });
-
-      const firstParsed = GitHubSearchCodeOutputSchema.parse(
-        firstResponse.structuredContent
-      );
-
-      expect(firstParsed.responsePagination?.hasMore).toBe(true);
-      expect(firstParsed.results).toHaveLength(1);
-      expect(firstParsed.results[0]?.id).toBe(
-        `bulk_page_one_${providerCase.provider}`
-      );
-
-      const nextResponse = await mockServer.callTool('githubSearchCode', {
-        queries,
-        responseCharLength: 200,
-        responseCharOffset:
-          (firstParsed.responsePagination?.charOffset ?? 0) +
-          (firstParsed.responsePagination?.charLength ?? 0),
-      });
-
-      const nextParsed = GitHubSearchCodeOutputSchema.parse(
-        nextResponse.structuredContent
-      );
-      const nextResult = nextParsed.results[0];
-
-      expect(nextResult?.status).toBe('hasResults');
-
-      const nextData = GitHubSearchCodeDataSchema.parse(nextResult?.data);
-
-      const fetchResponse = await mockServer.callTool('githubGetFileContent', {
-        queries: [
-          {
-            id: `remote_fetch_bulk_${providerCase.provider}`,
-            owner: providerCase.owner,
-            repo: providerCase.repo,
-            path: nextData.files![0]!.path,
-            branch: nextData.repositoryContext?.branch,
-            researchGoal:
-              'Read the file returned on the next bulk response page',
-            reasoning:
-              'Verify responsePagination still allows downstream fetch',
-          },
-        ],
-      });
-
-      const fetchData = expectHasResultsData(
-        GitHubFetchContentOutputSchema,
-        GitHubFetchContentDataSchema,
-        fetchResponse
-      );
-
-      expect(fetchData.content?.length ?? 0).toBeGreaterThan(0);
-      expect(mockProvider.getFileContent).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          path: nextData.files![0]!.path,
-        })
-      );
     }
   );
 });

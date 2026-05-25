@@ -42,7 +42,8 @@ import {
 export async function searchMultipleGitHubPullRequests(
   args: ToolExecutionArgs<PartialPRQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
+    args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -166,12 +167,22 @@ export async function searchMultipleGitHubPullRequests(
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
           {
-            hintContext: { matchCount: pullRequests.length },
+            // Pass query-shape fields so the per-tool empty branch can
+            // name the actual filters that produced zero results
+            // (state, author, prNumber, query) instead of generic prose.
+            hintContext: {
+              matchCount: pullRequests.length,
+              state: query.state,
+              owner: query.owner,
+              repo: query.repo,
+              author: query.author,
+              query: query.query,
+              prNumber: query.prNumber,
+            },
             extraHints: [
               ...paginationHints,
               ...outputLimitHints,
               ...fileChangeHints,
-              "file_changes[].patch = diff hunks; use prNumber + type='partialContent' for full file diffs",
             ],
             rawResponse: providerResult.response.rawResponseChars,
           }
@@ -191,6 +202,9 @@ export async function searchMultipleGitHubPullRequests(
       ] satisfies Array<keyof GitHubSearchPullRequestsToolResult>,
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
     }
   );
 }

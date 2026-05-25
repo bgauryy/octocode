@@ -173,56 +173,6 @@ describe('File Operations - Branch and ResolvedRef Behavior', () => {
   });
 
   describe('pagination hints with branch field', () => {
-    it('should include branch in pagination hints when branch is known', async () => {
-      // Large content to trigger pagination
-      const largeContent = 'x'.repeat(25000);
-
-      const mockOctokit = {
-        rest: {
-          repos: {
-            getContent: vi.fn().mockResolvedValue({
-              data: {
-                type: 'file',
-                content: Buffer.from(largeContent).toString('base64'),
-                size: largeContent.length,
-                sha: 'sha123',
-                name: 'large.txt',
-                path: 'large.txt',
-              },
-            }),
-            listCommits: vi.fn().mockResolvedValue({ data: [] }),
-          },
-        },
-      };
-
-      vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
-      );
-      vi.mocked(minifierModule.minifyContent).mockImplementation(
-        async content => ({
-          content,
-          failed: false,
-          type: 'general',
-        })
-      );
-
-      const result = await fetchGitHubFileContentAPI({
-        owner: 'test',
-        repo: 'repo',
-        path: 'large.txt',
-        branch: 'feature-branch',
-      });
-
-      expect(result).toHaveProperty('data');
-      if ('data' in result && result.data) {
-        expect(result.data.hints).toBeDefined();
-        // Should include branch in hints for next page
-        expect(
-          result.data.hints?.some(h => h.includes('branch="feature-branch"'))
-        ).toBe(true);
-      }
-    });
-
     it('should NOT include branch SHA in pagination hints', async () => {
       // Large content to trigger pagination
       const largeContent = 'x'.repeat(25000);

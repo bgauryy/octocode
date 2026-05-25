@@ -101,7 +101,7 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "hasResults"');
+      expect(responseText).toContain('id: "test/repo"');
       expect(responseText).toContain('src/index.ts');
       expect(responseText).toContain('src/utils.ts');
     });
@@ -174,7 +174,7 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
   });
 
   describe('Status: empty', () => {
-    it('should return empty status when no items found', async () => {
+    it('should return empty results when no items found', async () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [],
@@ -196,8 +196,8 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
       });
 
       expect(result.isError).toBe(false);
-      const responseText = getTextContent(result.content);
-      expect(responseText).toContain('empty');
+      const structured = result.structuredContent as { results: unknown[] };
+      expect(structured.results).toEqual([]);
     });
   });
 
@@ -363,169 +363,6 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('file.ts');
     });
-
-    it('should add outputPagination for oversized matches and resume with charOffset', async () => {
-      const largeMatch = 'match-'.repeat(600);
-
-      mockProvider.searchCode.mockResolvedValue({
-        data: {
-          items: [
-            {
-              path: 'src/huge-file.ts',
-              repository: { id: '1', name: 'test/repo', url: '' },
-              matches: [{ context: largeMatch, positions: [] }],
-              url: '',
-            },
-          ],
-          totalCount: 1,
-          pagination: { currentPage: 1, totalPages: 1, hasMore: false },
-        },
-        status: 200,
-        provider: 'github',
-      });
-
-      const firstResult = await mockServer.callTool(
-        TOOL_NAMES.GITHUB_SEARCH_CODE,
-        {
-          queries: [
-            {
-              keywordsToSearch: ['huge'],
-              owner: 'test',
-              repo: 'repo',
-              charLength: 350,
-            },
-          ],
-        }
-      );
-
-      const firstStructured = firstResult.structuredContent as {
-        results: Array<{
-          data: {
-            files?: Array<{ path: string; text_matches?: string[] }>;
-            outputPagination?: {
-              hasMore: boolean;
-              charOffset: number;
-              charLength: number;
-            };
-          };
-        }>;
-      };
-      const firstData = firstStructured.results[0]!.data;
-      const nextOffset =
-        (firstData.outputPagination?.charOffset ?? 0) +
-        (firstData.outputPagination?.charLength ?? 0);
-
-      expect(firstData.files?.[0]?.path).toBe('src/huge-file.ts');
-      const match = firstData.files?.[0]?.text_matches?.[0];
-      const matchStr = typeof match === 'string' ? match : (match?.value ?? '');
-      expect(matchStr.length).toBeLessThanOrEqual(largeMatch.length);
-      expect(firstData.outputPagination?.hasMore).toBe(true);
-
-      const secondResult = await mockServer.callTool(
-        TOOL_NAMES.GITHUB_SEARCH_CODE,
-        {
-          queries: [
-            {
-              keywordsToSearch: ['huge'],
-              owner: 'test',
-              repo: 'repo',
-              charOffset: nextOffset,
-              charLength: 350,
-            },
-          ],
-        }
-      );
-
-      const secondStructured = secondResult.structuredContent as {
-        results: Array<{
-          data: {
-            files?: Array<{ text_matches?: string[] }>;
-          };
-        }>;
-      };
-
-      expect(
-        secondStructured.results[0]!.data.files?.[0]?.text_matches?.[0]
-      ).not.toBe(firstData.files?.[0]?.text_matches?.[0]);
-    });
-
-    it('should include repositoryContext.branch when API returns it', async () => {
-      mockProvider.searchCode.mockResolvedValue({
-        data: {
-          items: [
-            {
-              path: 'src/file.ts',
-              repository: { id: '1', name: 'test/repo', url: '' },
-              matches: [],
-              url: '',
-            },
-          ],
-          totalCount: 1,
-          pagination: { currentPage: 1, totalPages: 1, hasMore: false },
-          repositoryContext: { branch: 'feature/xyz' },
-        },
-        status: 200,
-        provider: 'github',
-      });
-
-      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [
-          {
-            keywordsToSearch: ['test'],
-            owner: 'test',
-            repo: 'repo',
-          },
-        ],
-      });
-
-      expect(result.isError).toBe(false);
-      const responseText = getTextContent(result.content);
-      expect(responseText).toContain('repositoryContext');
-      expect(responseText).toContain('feature/xyz');
-    });
-
-    it('should include jump-to-first/last hint when totalPages > 2', async () => {
-      mockProvider.searchCode.mockResolvedValue({
-        data: {
-          items: [
-            {
-              path: 'src/file.ts',
-              repository: { id: '1', name: 'test/repo', url: '' },
-              matches: [],
-              url: '',
-            },
-          ],
-          totalCount: 50,
-          pagination: {
-            currentPage: 2,
-            totalPages: 5,
-            hasMore: true,
-            entriesPerPage: 10,
-            totalMatches: 50,
-          },
-        },
-        status: 200,
-        provider: 'github',
-      });
-
-      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [
-          {
-            keywordsToSearch: ['test'],
-            owner: 'test',
-            repo: 'repo',
-            page: 2,
-            limit: 10,
-          },
-        ],
-      });
-
-      expect(result.isError).toBe(false);
-      const responseText = getTextContent(result.content);
-      expect(responseText).toContain('page=1');
-      expect(responseText).toContain('page=5');
-      expect(responseText).toContain('Jump to');
-    });
   });
 
   describe('Search filters', () => {
@@ -688,7 +525,7 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('hasResults');
+      expect(responseText).toContain('owner: "wix-private"');
       expect(responseText).toContain('src/refund.ts');
     });
   });

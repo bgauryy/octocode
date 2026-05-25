@@ -21,7 +21,9 @@ export interface GitHubFileContentApiData {
   startLine?: number;
   endLine?: number;
   isPartial?: boolean;
+  totalLines?: number;
   matchLocations?: string[];
+  warnings?: string[];
   lastModified?: string;
   lastModifiedBy?: string;
   pagination?: PaginationInfo;

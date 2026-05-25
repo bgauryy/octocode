@@ -54,12 +54,12 @@ describe('providerMappers', () => {
       }
     );
 
-    expect(result.files).toEqual([
+    expect(result.results).toEqual([
       expect.objectContaining({
-        path: 'src/index.ts',
+        id: 'owner/repo',
         owner: 'owner',
         repo: 'repo',
-        text_matches: [{ value: 'const test = 1;' }],
+        matches: [{ path: 'src/index.ts', value: 'const test = 1;' }],
       }),
     ]);
   });
@@ -92,8 +92,9 @@ describe('providerMappers', () => {
       }
     );
 
-    expect(result.files).toEqual([
+    expect(result.results).toEqual([
       expect.objectContaining({
+        id: 'group/subgroup/repo',
         owner: 'group/subgroup',
         repo: 'repo',
       }),
@@ -168,19 +169,46 @@ describe('providerMappers', () => {
     expect(result.owner).toBe('facebook');
   });
 
-  it('should build pagination hints with stable wording', () => {
+  it('should forward free-text query through PR mapper', () => {
+    const result = mapPullRequestToolQuery({
+      owner: 'facebook',
+      repo: 'react',
+      query: 'hydration',
+      state: 'closed',
+    });
+
+    expect(result.query).toBe('hydration');
+  });
+
+  it('emits a single combined cursor line when hasMore', () => {
+    const hints = buildPaginationHints(
+      {
+        currentPage: 2,
+        totalPages: 3,
+        hasMore: true,
+        totalMatches: 25,
+        perPage: 10,
+      },
+      'matches'
+    );
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toContain('Page 2/3');
+    expect(hints[0]).toContain('Next: page=3');
+  });
+
+  it('emits no hint on the final page (no tautology)', () => {
     expect(
       buildPaginationHints(
         {
-          currentPage: 2,
+          currentPage: 3,
           totalPages: 3,
-          hasMore: true,
+          hasMore: false,
           totalMatches: 25,
           perPage: 10,
         },
         'matches'
       )
-    ).toContain('Next: page=3');
+    ).toEqual([]);
   });
 
   it('should include branch fallback details for repo structure results', () => {

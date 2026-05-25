@@ -88,6 +88,7 @@ vi.mock('octocode-mcp/public', async () => {
     searchMultipleGitHubPullRequests: publicMocks.noop,
     searchMultipleGitHubRepos: publicMocks.noop,
     exploreMultipleRepositoryStructures: publicMocks.noop,
+    executeCloneRepo: publicMocks.noop,
     searchPackages: publicMocks.noop,
     RipgrepQuerySchema: localBase.extend({
       path: z.string(),
@@ -140,6 +141,13 @@ vi.mock('octocode-mcp/public', async () => {
       ecosystem: z.enum(['npm', 'python']),
       name: z.string(),
     }),
+    CloneRepoQuerySchema: githubBase.extend({
+      owner: z.string().describe('Repository owner'),
+      repo: z.string().describe('Repository name'),
+      branch: z.string().optional(),
+      sparse_path: z.string().optional(),
+      forceRefresh: z.boolean().optional().default(false),
+    }),
   };
 });
 
@@ -176,19 +184,22 @@ describe('toolCommand', () => {
 
     expect(publicMocks.initialize).not.toHaveBeenCalled();
     expect(publicMocks.initializeProviders).not.toHaveBeenCalled();
-    expect(publicMocks.localSearchCode).toHaveBeenCalledWith({
-      queries: [
-        expect.objectContaining({
-          path: '.',
-          pattern: 'runCLI',
-          fixedString: true,
-          include: ['ts', 'tsx'],
-          limit: 5,
-          researchGoal: 'Execute localSearchCode via octocode-cli',
-          reasoning: 'Executed via octocode-cli tool command',
-        }),
-      ],
-    });
+    expect(publicMocks.localSearchCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queries: [
+          expect.objectContaining({
+            path: '.',
+            pattern: 'runCLI',
+            fixedString: true,
+            include: ['ts', 'tsx'],
+            limit: 5,
+            researchGoal: 'Execute localSearchCode via octocode-cli',
+            reasoning: 'Executed via octocode-cli tool command',
+          }),
+        ],
+        format: 'tsv',
+      })
+    );
     expect(consoleSpy).toHaveBeenCalledWith('tool output');
     expect(process.exitCode).toBeUndefined();
   });
@@ -207,19 +218,22 @@ describe('toolCommand', () => {
 
     expect(publicMocks.initialize).toHaveBeenCalledTimes(1);
     expect(publicMocks.initializeProviders).toHaveBeenCalledTimes(1);
-    expect(publicMocks.githubSearchCode).toHaveBeenCalledWith({
-      queries: [
-        expect.objectContaining({
-          keywordsToSearch: ['tool'],
-          owner: 'bgauryy',
-          repo: 'octocode-mcp',
-          mainResearchGoal: 'Execute githubSearchCode via octocode-cli',
-          researchGoal: 'Execute githubSearchCode via octocode-cli',
-          reasoning: 'Executed via octocode-cli tool command',
-        }),
-      ],
-      responseCharLength: 1200,
-    });
+    expect(publicMocks.githubSearchCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queries: [
+          expect.objectContaining({
+            keywordsToSearch: ['tool'],
+            owner: 'bgauryy',
+            repo: 'octocode-mcp',
+            mainResearchGoal: 'Execute githubSearchCode via octocode-cli',
+            researchGoal: 'Execute githubSearchCode via octocode-cli',
+            reasoning: 'Executed via octocode-cli tool command',
+          }),
+        ],
+        responseCharLength: 1200,
+        format: 'tsv',
+      })
+    );
     expect(consoleSpy).toHaveBeenCalledWith('github output');
   });
 
@@ -410,6 +424,6 @@ describe('toolCommand', () => {
     expect(context).toContain('3. localSearchCode');
     expect(context).toContain('Input schema:');
     expect(context).toContain('"keywordsToSearch"');
-    expect(context).toContain('"owner": "Repository owner"');
+    expect(context).toContain('"description": "Repository owner"');
   });
 });

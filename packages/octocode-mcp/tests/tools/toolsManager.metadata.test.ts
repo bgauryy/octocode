@@ -107,7 +107,6 @@ describe('ToolsManager - Metadata Availability', () => {
       loggingEnabled: true,
       enableLocal: false,
       enableClone: false,
-      disablePrompts: false,
       outputFormat: 'yaml',
       tokenSource: 'env:GITHUB_TOKEN',
     });
@@ -367,7 +366,6 @@ describe('ToolsManager - Metadata Availability', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -403,7 +401,6 @@ describe('ToolsManager - Metadata Availability', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -444,7 +441,6 @@ describe('ToolsManager - Metadata Availability', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });

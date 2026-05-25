@@ -375,11 +375,21 @@ describe('Dynamic Hints', () => {
       expect(hints.length).toBeGreaterThanOrEqual(0);
     });
 
-    it('should return empty for non-size_limit errors', () => {
+    it('emits a path-verify recovery for not_found errors', () => {
       const hints = getDynamicHints(
         STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
         'error',
-        { errorType: 'not_found' }
+        { errorType: 'not_found', path: 'src/missing.ts', branch: 'main' }
+      );
+      expect(hints.some(h => h.includes('not found'))).toBe(true);
+      expect(hints.some(h => h.includes('githubViewRepoStructure'))).toBe(true);
+    });
+
+    it('emits nothing for unrelated error types', () => {
+      const hints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        'error',
+        { errorType: 'permission' }
       );
       expect(hints).toEqual([]);
     });
@@ -644,52 +654,37 @@ describe('Dynamic Hints', () => {
   });
 
   describe('LSP_CALL_HIERARCHY hints', () => {
-    it('should show incoming callers hint', () => {
-      const hints = getDynamicHints(
-        STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
-        'hasResults',
-        { direction: 'incoming', callCount: 5 } as HintContext
-      );
-      expect(hints.some(h => h.includes('5 callers'))).toBe(true);
+    it('should NOT emit caller/callee count narration (no static guidance)', () => {
+      expect(
+        getDynamicHints(STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY, 'hasResults', {
+          direction: 'incoming',
+          callCount: 5,
+        } as HintContext)
+      ).toEqual([]);
+      expect(
+        getDynamicHints(STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY, 'hasResults', {
+          direction: 'outgoing',
+          callCount: 3,
+        } as HintContext)
+      ).toEqual([]);
     });
 
-    it('should show outgoing callees hint', () => {
-      const hints = getDynamicHints(
-        STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
-        'hasResults',
-        { direction: 'outgoing', callCount: 3 } as HintContext
-      );
-      expect(hints.some(h => h.includes('3 callees'))).toBe(true);
-    });
-
-    it('should return hints when depth=1', () => {
+    it('should return [] when depth=1 with no other condition', () => {
       const hints = getDynamicHints(
         STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
         'hasResults',
         { depth: 1 } as HintContext
       );
-      // Depth=1 returns base hints without deep chain hints
-      expect(hints.length).toBeGreaterThan(0);
+      expect(hints).toEqual([]);
     });
 
-    it('should show current depth when depth > 1', () => {
+    it('should return [] when depth > 1 (no longer narrates depth)', () => {
       const hints = getDynamicHints(
         STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
         'hasResults',
         { depth: 2 } as HintContext
       );
-      // Depth > 1 includes depth info in hints
-      expect(hints.some(h => h.includes('Depth=2'))).toBe(true);
-    });
-
-    it('should return hints for incoming direction', () => {
-      const hints = getDynamicHints(
-        STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
-        'hasResults',
-        { direction: 'incoming' } as HintContext
-      );
-      // Should return some hints for incoming direction
-      expect(hints.length).toBeGreaterThan(0);
+      expect(hints).toEqual([]);
     });
 
     it('should include pagination hint when more pages', () => {
@@ -701,24 +696,13 @@ describe('Dynamic Hints', () => {
       expect(hints.some(h => h.includes('Page 1/3'))).toBe(true);
     });
 
-    it('should return hints when hasMorePages', () => {
-      const hints = getDynamicHints(
-        STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
-        'hasResults',
-        { hasMorePages: true, totalPages: 3 } as HintContext
-      );
-      // Should return pagination-related hints
-      expect(hints.length).toBeGreaterThan(0);
-    });
-
-    it('should include fallback hints when isFallback', () => {
+    it('should return [] when isFallback (no static fallback hints)', () => {
       const hints = getDynamicHints(
         STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
         'hasResults',
         { isFallback: true } as HintContext
       );
-      // Should return fallback-related hints from metadata
-      expect(hints.length).toBeGreaterThan(0);
+      expect(hints).toEqual([]);
     });
 
     it('should return hints for incoming empty results', () => {
@@ -787,7 +771,7 @@ describe('Dynamic Hints', () => {
   });
 
   describe('Tools with empty dynamic hints', () => {
-    it('should return empty for GITHUB_SEARCH_PULL_REQUESTS all statuses', () => {
+    it('GITHUB_SEARCH_PULL_REQUESTS: hasResults/error silent, empty emits a query-aware recovery line', () => {
       expect(
         getDynamicHints(
           STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -795,11 +779,15 @@ describe('Dynamic Hints', () => {
         )
       ).toEqual([]);
       expect(
-        getDynamicHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, 'empty')
-      ).toEqual([]);
-      expect(
         getDynamicHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, 'error')
       ).toEqual([]);
+      // Empty without context emits a generic-but-actionable fallback line.
+      const emptyHints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        'empty'
+      );
+      expect(emptyHints.length).toBeGreaterThan(0);
+      expect(emptyHints[0]).toMatch(/Relax filters|No PRs/);
     });
 
     it('should return empty for GITHUB_SEARCH_REPOSITORIES all statuses', () => {

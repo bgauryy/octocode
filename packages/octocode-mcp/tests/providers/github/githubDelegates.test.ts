@@ -780,6 +780,25 @@ describe('GitHub Provider Delegates', () => {
         expect(result.status).toBe(500);
       });
 
+      it('should forward free-text query to the GitHub PR search API', async () => {
+        mockSearchGitHubPullRequestsAPI.mockResolvedValue({
+          pull_requests: [],
+          total_count: 0,
+        });
+
+        const query: PullRequestQuery = {
+          projectId: 'vercel/next.js',
+          query: 'hydration',
+          state: 'closed',
+        };
+        await searchPullRequests(query);
+
+        expect(mockSearchGitHubPullRequestsAPI).toHaveBeenCalledWith(
+          expect.objectContaining({ query: 'hydration' }),
+          undefined
+        );
+      });
+
       it('should return success when API returns data', async () => {
         mockSearchGitHubPullRequestsAPI.mockResolvedValue({
           pull_requests: [

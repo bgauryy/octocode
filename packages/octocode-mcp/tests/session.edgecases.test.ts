@@ -10,7 +10,7 @@ vi.mock('octocode-shared', async importOriginal => {
       sessionId: 'mock-session-id-12345678-1234-4123-8123-123456789012',
       createdAt: '2024-01-01T00:00:00.000Z',
       lastActiveAt: '2024-01-01T00:00:00.000Z',
-      stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+      stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
     })),
     incrementToolCalls: vi.fn(count => ({
       success: true,
@@ -19,7 +19,7 @@ vi.mock('octocode-shared', async importOriginal => {
         sessionId: 'mock-session-id-12345678-1234-4123-8123-123456789012',
         createdAt: '2024-01-01T00:00:00.000Z',
         lastActiveAt: new Date().toISOString(),
-        stats: { toolCalls: count, promptCalls: 0, errors: 0, rateLimits: 0 },
+        stats: { toolCalls: count, errors: 0, rateLimits: 0 },
       },
     })),
     incrementErrors: vi.fn(count => ({
@@ -29,7 +29,7 @@ vi.mock('octocode-shared', async importOriginal => {
         sessionId: 'mock-session-id-12345678-1234-4123-8123-123456789012',
         createdAt: '2024-01-01T00:00:00.000Z',
         lastActiveAt: new Date().toISOString(),
-        stats: { toolCalls: 0, promptCalls: 0, errors: count, rateLimits: 0 },
+        stats: { toolCalls: 0, errors: count, rateLimits: 0 },
       },
     })),
     deleteSession: vi.fn(),

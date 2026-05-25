@@ -1,54 +1,78 @@
 /**
- * Dynamic hints for githubSearchCode tool
+ * Response-state hints for githubSearchCode.
+ *
+ * Only emits hints that are conditional on the response itself
+ * (pagination, failures, empty-with-context). No static guidance.
+ *
  * @module tools/github_search_code/hints
  */
 
-import { getMetadataDynamicHints } from '../../hints/static.js';
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 import { getActiveProvider } from '../../serverConfig.js';
 
-const TOOL_NAME = 'githubSearchCode';
-
 export const hints: ToolHintGenerators = {
-  hasResults: (ctx: HintContext = {}) => {
-    // Context-aware hints based on single vs multi-repo results
-    const hints: (string | undefined)[] = [];
-    if (ctx.hasOwnerRepo) {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'singleRepo'));
-    } else {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'multiRepo'));
-    }
-    return hints;
-  },
+  hasResults: (_ctx: HintContext = {}) => [],
 
   empty: (ctx: HintContext = {}) => {
-    // Context-aware hints - static hints cover generic cases
-    const hints: (string | undefined)[] = [];
+    const out: string[] = [];
+    const c = ctx as Record<string, unknown>;
+    const keywords = Array.isArray(c.keywords) ? c.keywords : undefined;
+    const owner = typeof c.owner === 'string' ? c.owner : undefined;
+    const repo = typeof c.repo === 'string' ? c.repo : undefined;
+    const filters: string[] = [];
+    if (typeof c.extension === 'string') filters.push('extension');
+    if (typeof c.filename === 'string') filters.push('filename');
+    if (typeof c.path === 'string') filters.push('path');
 
-    // Path-specific guidance when match="path" returns empty
     if (ctx.match === 'path') {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'pathEmpty'));
+      out.push('No paths matched. Try match="file" or drop the path filter.');
+    } else if (ctx.hasOwnerRepo && owner && repo) {
+      const filterList = filters.length > 0 ? filters.join('+') : 'filters';
+      out.push(
+        `No matches in ${owner}/${repo}. Drop ${filterList} or try different keywords.`
+      );
     } else if (!ctx.hasOwnerRepo) {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'crossRepoEmpty'));
+      out.push(
+        'No matches across repos. Narrow with owner+repo or simplify keywords (AND logic — every term must match).'
+      );
     }
-    // Note: "Try semantic variants" is in static hints, not duplicated here
-    return hints;
+
+    if (keywords && keywords.length > 2) {
+      out.push(
+        `${keywords.length} keywords combined with AND. Try fewer (${keywords.slice(0, 2).join(', ')}) or broader synonyms.`
+      );
+    }
+    if (filters.length >= 2) {
+      out.push(
+        `Combining ${filters.join(' + ')} is often too restrictive — drop one filter.`
+      );
+    }
+    // Cross-tool routing recovery: if the only keyword looks like a package
+    // identifier (scoped, dashed, dotted), point the agent at packageSearch
+    // which resolves a known name → repo in one call.
+    if (
+      !ctx.hasOwnerRepo &&
+      keywords &&
+      keywords.length === 1 &&
+      typeof keywords[0] === 'string' &&
+      /^(@[\w-]+\/)?[\w.-]+$/.test(keywords[0])
+    ) {
+      out.push(
+        `Looks like a package name ("${keywords[0]}") — try packageSearch first; it resolves to a repo in one call.`
+      );
+    }
+    return out;
   },
 
   error: (ctx: HintContext = {}) => {
-    const hints: (string | undefined)[] = [];
+    const out: string[] = [];
 
-    // Rate limit specific hints
     if (ctx.isRateLimited) {
-      hints.push(
-        `Rate limited. ${ctx.retryAfter ? `Retry after ${ctx.retryAfter}s.` : 'Wait before retrying.'}`
-      );
-      hints.push(
-        'Consider: Use a different token, reduce request frequency, or use pagination.'
+      out.push(
+        `Rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ''}`
       );
     }
 
-    // Authentication hints
     if (ctx.status === 401) {
       const provider = getActiveProvider();
       const tokenVarMap: Record<string, string> = {
@@ -56,16 +80,15 @@ export const hints: ToolHintGenerators = {
         bitbucket: 'BITBUCKET_TOKEN',
       };
       const tokenVar = tokenVarMap[provider] ?? 'GITHUB_TOKEN';
-      hints.push(`Check ${tokenVar} is valid and not expired.`);
+      out.push(`Check ${tokenVar} is valid and not expired.`);
     }
 
-    // Permission hints
     if (ctx.status === 403 && !ctx.isRateLimited) {
-      hints.push(
-        'Check token permissions. Required scopes: repo (for private repos).'
+      out.push(
+        'Permission denied. Token needs `repo` scope for private repos.'
       );
     }
 
-    return hints;
+    return out;
   },
 };

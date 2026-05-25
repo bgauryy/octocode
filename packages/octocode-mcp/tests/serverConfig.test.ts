@@ -8,7 +8,6 @@ import {
   isLoggingEnabled,
   isLocalEnabled,
   isCloneEnabled,
-  arePromptsEnabled,
   getTokenSource,
   _setTokenResolvers,
   _resetTokenResolvers,
@@ -108,7 +107,6 @@ describe('ServerConfig - Simplified Version', () => {
     delete process.env.REQUEST_TIMEOUT;
     delete process.env.MAX_RETRIES;
     delete process.env.OCTOCODE_TOKEN;
-    delete process.env.DISABLE_PROMPTS;
 
     // Set up injectable mock for token resolution
     setupTokenMocks();
@@ -145,7 +143,6 @@ describe('ServerConfig - Simplified Version', () => {
       expect(config.loggingEnabled).toBe(true);
       expect(config.enableLocal).toBe(true);
       expect(config.enableClone).toBe(false);
-      expect(config.disablePrompts).toBe(false);
       expect(config.tokenSource).toBe('none');
     });
 
@@ -814,100 +811,6 @@ describe('ServerConfig - Simplified Version', () => {
       );
       const source2 = await getTokenSource();
       expect(source2).toBe('gh-cli');
-    });
-  });
-
-  describe('DISABLE_PROMPTS Configuration', () => {
-    beforeEach(() => {
-      delete process.env.DISABLE_PROMPTS;
-    });
-
-    it('should default to false when DISABLE_PROMPTS is not set', async () => {
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(false);
-      expect(arePromptsEnabled()).toBe(true);
-    });
-
-    it('should disable prompts when DISABLE_PROMPTS is "true"', async () => {
-      process.env.DISABLE_PROMPTS = 'true';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(true);
-      expect(arePromptsEnabled()).toBe(false);
-    });
-
-    it('should disable prompts when DISABLE_PROMPTS is "1"', async () => {
-      process.env.DISABLE_PROMPTS = '1';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(true);
-      expect(arePromptsEnabled()).toBe(false);
-    });
-
-    it('should handle DISABLE_PROMPTS with leading/trailing whitespace', async () => {
-      process.env.DISABLE_PROMPTS = '  true  ';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(true);
-      expect(arePromptsEnabled()).toBe(false);
-    });
-
-    it('should handle DISABLE_PROMPTS with uppercase', async () => {
-      process.env.DISABLE_PROMPTS = 'TRUE';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(true);
-      expect(arePromptsEnabled()).toBe(false);
-    });
-
-    it('should handle DISABLE_PROMPTS with mixed case', async () => {
-      process.env.DISABLE_PROMPTS = 'TrUe';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(true);
-      expect(arePromptsEnabled()).toBe(false);
-    });
-
-    it('should handle DISABLE_PROMPTS = "1" with whitespace', async () => {
-      process.env.DISABLE_PROMPTS = ' 1 ';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().disablePrompts).toBe(true);
-      expect(arePromptsEnabled()).toBe(false);
-    });
-
-    it('should return false (prompts enabled) for explicit false values', async () => {
-      const explicitFalseValues = ['false', 'FALSE', '0'];
-
-      for (const value of explicitFalseValues) {
-        cleanup();
-        delete process.env.DISABLE_PROMPTS;
-        process.env.DISABLE_PROMPTS = value;
-        mockSpawnFailure();
-        await initialize();
-        expect(getServerConfig().disablePrompts).toBe(false);
-        expect(arePromptsEnabled()).toBe(true);
-      }
-    });
-
-    it('should return false (prompts enabled) for invalid/unrecognized values', async () => {
-      const invalidValues = ['no', 'yes', 'disabled', '', '   '];
-
-      for (const value of invalidValues) {
-        cleanup();
-        delete process.env.DISABLE_PROMPTS;
-        process.env.DISABLE_PROMPTS = value;
-        mockSpawnFailure();
-        await initialize();
-        expect(getServerConfig().disablePrompts).toBe(false);
-        expect(arePromptsEnabled()).toBe(true);
-      }
-    });
-
-    it('should return false for arePromptsEnabled when config is not initialized', () => {
-      // cleanup() is called in beforeEach, so config is null
-      expect(arePromptsEnabled()).toBe(true); // Returns true when config is null (default)
     });
   });
 

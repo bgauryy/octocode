@@ -68,6 +68,154 @@ export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   FileContentQueryLocalSchema
 );
 
+/**
+ * Strict mirror of the runtime `PaginationInfo` interface (src/types.ts).
+ * Replaces the prior `Record<string, unknown>` placeholder so finalizers
+ * pass their typed pagination through without an `as unknown as` cast.
+ * Every field stays optional except the three the runtime always emits
+ * (`currentPage`, `totalPages`, `hasMore`) so providers can supply any
+ * combination of byte / char / file / entry / match counters.
+ */
+const PaginationInfoSchema = z.object({
+  currentPage: z.number(),
+  totalPages: z.number(),
+  hasMore: z.boolean(),
+  byteOffset: z.number().optional(),
+  byteLength: z.number().optional(),
+  totalBytes: z.number().optional(),
+  charOffset: z.number().optional(),
+  charLength: z.number().optional(),
+  totalChars: z.number().optional(),
+  filesPerPage: z.number().optional(),
+  totalFiles: z.number().optional(),
+  entriesPerPage: z.number().optional(),
+  totalEntries: z.number().optional(),
+  matchesPerPage: z.number().optional(),
+  totalMatches: z.number().optional(),
+});
+
+/**
+ * Char-budget pagination descriptor emitted by the bulk finalizers
+ * (`responsePagination` / per-query `outputPagination`).  Stricter than
+ * `PaginationInfoSchema` because the finalizers always populate all six
+ * fields — no optional gaps.
+ */
+const CharPaginationSchema = z.object({
+  currentPage: z.number(),
+  totalPages: z.number(),
+  hasMore: z.boolean(),
+  charOffset: z.number(),
+  charLength: z.number(),
+  totalChars: z.number(),
+});
+
+const PerQueryPaginationSchema = CharPaginationSchema.extend({
+  id: z.string(),
+});
+
+/**
+ * Structured non-fatal signal shared across the grouped GitHub tools.
+ * Discriminated by `kind` so callers branch on enum identity rather than
+ * inline magic strings — and so new kinds extend cleanly without breaking
+ * existing consumers.  Two kinds today:
+ *
+ *  - `match-value-truncated` — `githubSearchCode` had to clip a single match
+ *    value to honour `responseCharLength`.  Re-query with a larger budget or
+ *    narrow the search to recover.
+ *  - `content-truncated` — `githubGetFileContent` had to clip a file's
+ *    content for the same reason. The file is still listed, but its `content`
+ *    no longer includes everything past `truncatedAt`.
+ */
+export const GroupedToolWarningSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('match-value-truncated'),
+    groupId: z.string(),
+    path: z.string(),
+    fullValueLength: z.number(),
+    truncatedAt: z.number(),
+    recovery: z.string(),
+  }),
+  z.object({
+    kind: z.literal('content-truncated'),
+    groupId: z.string(),
+    path: z.string(),
+    fullContentLength: z.number(),
+    truncatedAt: z.number(),
+    recovery: z.string(),
+  }),
+]);
+
+export type GroupedToolWarning = z.infer<typeof GroupedToolWarningSchema>;
+
+const GitHubFetchFileEntrySchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  totalLines: z.number().optional(),
+  resolvedBranch: z.string().optional(),
+  pagination: PaginationInfoSchema.optional(),
+  isPartial: z.boolean().optional(),
+  startLine: z.number().optional(),
+  endLine: z.number().optional(),
+  lastModified: z.string().optional(),
+  lastModifiedBy: z.string().optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+const GitHubFetchDirectoryEntrySchema = z.object({
+  path: z.string(),
+  localPath: z.string(),
+  fileCount: z.number(),
+  totalSize: z.number(),
+  files: z
+    .array(
+      z.object({
+        path: z.string(),
+        size: z.number(),
+        type: z.string(),
+      })
+    )
+    .optional(),
+  cached: z.boolean().optional(),
+  resolvedBranch: z.string().optional(),
+});
+
+export const GitHubFetchContentOutputLocalSchema = z.object({
+  /** Output format marker — only present when format='tsv' was requested. */
+  format: z.literal('tsv').optional(),
+  /** TSV column header list (only when format='tsv'). */
+  columns: z.array(z.string()).optional(),
+  /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
+  rows: z.string().optional(),
+  results: z.array(
+    z.object({
+      id: z.string(),
+      owner: z.string(),
+      repo: z.string(),
+      files: z.array(GitHubFetchFileEntrySchema).optional(),
+      directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
+    })
+  ),
+  responsePagination: CharPaginationSchema.optional(),
+  hints: z.array(z.string()).optional(),
+  warnings: z.array(GroupedToolWarningSchema).optional(),
+  errors: z
+    .array(
+      z.object({
+        id: z.string(),
+        owner: z.string().optional(),
+        repo: z.string().optional(),
+        path: z.string().optional(),
+        error: z.string(),
+        hints: z.array(z.string()).optional(),
+      })
+    )
+    .optional(),
+});
+
+export type GitHubFetchContentOutputLocal = z.infer<
+  typeof GitHubFetchContentOutputLocalSchema
+>;
+
 // ---------------------------------------------------------------------------
 // githubSearchCode
 // ---------------------------------------------------------------------------
@@ -88,6 +236,90 @@ export const GitHubCodeSearchBulkQueryLocalSchema =
     STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
     GitHubCodeSearchQueryLocalSchema
   );
+
+// CharPaginationSchema and PerQueryPaginationSchema are declared near the top
+// of this file so the fetch-content schema can reuse them; their definitions
+// are not repeated here.
+
+// Code-search warnings re-use the shared GroupedToolWarningSchema declared
+// above (next to the fetch-content schema) so both tools speak the same
+// vocabulary and new kinds extend cleanly.
+
+/**
+ * Flat output shape for githubSearchCode: results grouped by owner/repo,
+ * matchIndices removed, single-page upstream pagination omitted by the executor.
+ *
+ * Char-level pagination metadata fields:
+ *   - `outputPagination`: per-query metadata array, one entry per query that
+ *     supplied `charLength`/`charOffset`.
+ *   - `responsePagination`: top-level bulk slicing metadata, driven by
+ *     `responseCharLength` / `responseCharOffset`.
+ */
+export const GitHubCodeSearchOutputLocalSchema = z.object({
+  /** Output format marker — only present when format='tsv' was requested. */
+  format: z.literal('tsv').optional(),
+  /** TSV column header list (only when format='tsv'). */
+  columns: z.array(z.string()).optional(),
+  /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
+  rows: z.string().optional(),
+  results: z.array(
+    z.object({
+      id: z.string(),
+      owner: z.string(),
+      repo: z.string(),
+      matches: z.array(
+        z.object({
+          path: z.string(),
+          value: z.string().optional(),
+        })
+      ),
+    })
+  ),
+  pagination: z
+    .object({
+      currentPage: z.number(),
+      totalPages: z.number(),
+      perPage: z.number(),
+      totalMatches: z.number(),
+      hasMore: z.boolean(),
+    })
+    .optional(),
+  outputPagination: z.array(PerQueryPaginationSchema).optional(),
+  responsePagination: CharPaginationSchema.optional(),
+  hints: z.array(z.string()).optional(),
+  warnings: z.array(GroupedToolWarningSchema).optional(),
+  /**
+   * Per-query no-match signal. A query that ran successfully but produced
+   * zero matches is reported here so the caller can disambiguate
+   * "merged into an existing owner/repo group" from "actually empty" —
+   * which would otherwise be invisible in `results[]`.
+   */
+  emptyQueries: z
+    .array(
+      z.object({
+        id: z.string(),
+        // Per-query empty-result recovery hints. Each entry names the
+        // filters in play and suggests a concrete next move (drop a
+        // filter, switch match mode, broaden keywords).
+        hints: z.array(z.string()).optional(),
+      })
+    )
+    .optional(),
+  errors: z
+    .array(
+      z.object({
+        id: z.string(),
+        error: z.string(),
+      })
+    )
+    .optional(),
+});
+
+export type GitHubCodeSearchOutputLocal = z.infer<
+  typeof GitHubCodeSearchOutputLocalSchema
+>;
+/** @deprecated alias kept for source compat — prefer `GroupedToolWarning`. */
+export type GitHubCodeSearchWarning = GroupedToolWarning;
 
 // ---------------------------------------------------------------------------
 // githubViewRepoStructure
@@ -194,3 +426,35 @@ export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   packageQueryWithEcosystemDefault,
   { maxQueries: 5 }
 );
+
+// ---------------------------------------------------------------------------
+// Output schema extensions — add peer-level `hints` and TSV envelope fields
+// (`format`, `columns`, `rows`) to each upstream output schema. Wraps the
+// upstream object so the bulk runner can emit these top-level keys without
+// failing strict Zod validation.
+// ---------------------------------------------------------------------------
+import {
+  GitHubSearchRepositoriesOutputSchema as UpstreamReposOutput,
+  GitHubSearchPullRequestsOutputSchema as UpstreamPRsOutput,
+  GitHubViewRepoStructureOutputSchema as UpstreamStructureOutput,
+  PackageSearchOutputSchema as UpstreamPackageOutput,
+} from '@octocodeai/octocode-core';
+
+const peerEnvelopeFields = {
+  hints: z.array(z.string()).optional(),
+  format: z.literal('tsv').optional(),
+  columns: z.array(z.string()).optional(),
+  rows: z.string().optional(),
+} as const;
+
+export const GitHubSearchRepositoriesOutputLocalSchema =
+  UpstreamReposOutput.extend(peerEnvelopeFields);
+
+export const GitHubSearchPullRequestsOutputLocalSchema =
+  UpstreamPRsOutput.extend(peerEnvelopeFields);
+
+export const GitHubViewRepoStructureOutputLocalSchema =
+  UpstreamStructureOutput.extend(peerEnvelopeFields);
+
+export const PackageSearchOutputLocalSchema =
+  UpstreamPackageOutput.extend(peerEnvelopeFields);

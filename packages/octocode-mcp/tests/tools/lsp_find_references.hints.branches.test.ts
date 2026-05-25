@@ -1,16 +1,14 @@
 /**
- * Branch coverage tests for lsp_find_references/hints.ts
- * Targets: isFiltered, filteredAll, and nested conditionals
+ * Branch coverage tests for lsp_find_references/hints.ts.
+ *
+ * After the dynamic-only refactor, this file no longer imports upstream
+ * static guidance, so the mock that used to backfill `dynamic-${key}` is
+ * dead. We keep these tests for the local conditional branches
+ * (filteredAll, etc.).
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { HintContext } from '../../src/types/metadata.js';
-
-vi.mock('../../src/hints/static.js', () => ({
-  getMetadataDynamicHints: vi.fn((_tool: string, key: string) => [
-    `dynamic-${key}`,
-  ]),
-}));
 
 import { hints } from '../../src/tools/lsp_find_references/hints.js';
 

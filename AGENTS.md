@@ -122,7 +122,7 @@ Run commands from `packages/octocode-mcp/`.
 | Build (dev) | `yarn build:dev` |
 | Build (watch) | `yarn build:watch` |
 | Clean | `yarn clean` |
-| Test | `yarn test` (coverage) · `yarn test:full` · `yarn test:quiet` · `yarn test:watch` · `yarn test:ui` |
+| Test | `yarn test` (coverage) · `yarn test:quiet` · `yarn test:watch` · `yarn test:ui` |
 | Typecheck | `yarn typecheck` |
 | Lint | `yarn lint` / `yarn lint:fix` |
 | Format | `yarn format` / `yarn format:check` |
@@ -147,7 +147,6 @@ src/
 ├── commands/     # Builders: Ripgrep / Find / Ls (whitelist only)
 ├── utils/        # core/, credentials/, environment/, exec/, file/, http/, minifier/,
 │                 # package/, pagination/, parsers/, response/
-└── prompts/      # MCP prompt registration
 ```
 
 ```
@@ -205,13 +204,19 @@ Tools return `structuredContent` validated against `outputSchema`. Handles track
 | `GITLAB_HOST` | GitLab instance URL | `https://gitlab.com` |
 | `ENABLE_LOCAL` | Enable local FS tools | `true` |
 | `ENABLE_CLONE` | Enable `githubCloneRepo` + directory mode (requires `ENABLE_LOCAL`) | `false` |
+| `WORKSPACE_ROOT` | Root directory for local tool operations | `process.cwd()` |
+| `ALLOWED_PATHS` | Restrict local tools to these paths (comma-separated; empty = all) | `[]` |
 | `OCTOCODE_CACHE_TTL_MS` | Clone cache TTL (ms) | `86400000` |
-| `DISABLE_PROMPTS` | Disable prompts/slash commands | `false` |
 | `LOG` | Enable session logging | `true` |
 | `REQUEST_TIMEOUT` | API timeout (ms) | `30000` |
 | `MAX_RETRIES` | Max retry attempts | `3` |
 | `TOOLS_TO_RUN` / `ENABLE_TOOLS` / `DISABLE_TOOLS` | Comma-separated tool filters | – |
+| `OCTOCODE_LSP_CONFIG` | Custom LSP config file path | auto-detect |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` (default) or `json` | `yaml` |
+| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | Default output page budget (chars) | `8000` |
+| `BITBUCKET_TOKEN` / `BB_TOKEN` | Bitbucket auth (activates Bitbucket mode) | – |
+| `BITBUCKET_HOST` | Bitbucket API base URL | `https://api.bitbucket.org/2.0` |
+| `BITBUCKET_USERNAME` | Bitbucket username (for app password auth) | – |
 
 ### Key files
 
@@ -425,7 +430,7 @@ In-memory cache ↔ Deferred writes → ~/.octocode/session.json
 Flush triggers: timer, explicit flush, SIGINT/SIGTERM, beforeExit
 ```
 
-Tracks: `sessionId`, `createdAt`, `lastActiveAt`, `stats.{toolCalls, promptCalls, errors, rateLimits}`.
+Tracks: `sessionId`, `createdAt`, `lastActiveAt`, `stats.{toolCalls, errors, rateLimits}`.
 
 ### Package guidelines
 

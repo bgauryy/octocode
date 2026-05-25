@@ -1,58 +1,43 @@
 /**
- * Dynamic hints for lspGotoDefinition tool
- * @module tools/lsp_goto_definition/hints
+ * Response-state hints for lspGotoDefinition.
  *
- * API dynamic keys available: multipleDefinitions, externalPackage, symbolNotFound,
- * timeout, functionSymbol, typeOrVariable
+ * Only emits hints conditional on the response itself.
+ *
+ * @module tools/lsp_goto_definition/hints
  */
 
-import { getMetadataDynamicHints } from '../../hints/static.js';
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
-
-const TOOL_NAME = 'lspGotoDefinition';
 
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
-    const hints: (string | undefined)[] = [];
-    const { locationCount, hasExternalPackage } = ctx;
+    const { locationCount } = ctx;
     if (locationCount && locationCount > 1) {
-      hints.push(`Found ${locationCount} definitions.`);
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'multipleDefinitions'));
+      return [`Found ${locationCount} definitions.`];
     }
-    if (hasExternalPackage) {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'externalPackage'));
-    }
-    return hints;
+    return [];
   },
 
   empty: (ctx: HintContext = {}) => {
-    const hints: (string | undefined)[] = [];
-    const { searchRadius, lineHint, symbolName } = ctx;
+    const { searchRadius, lineHint } = ctx;
     if (searchRadius) {
-      hints.push(
-        `Searched ±${searchRadius} lines from lineHint=${lineHint}. Adjust hint.`
-      );
+      return [
+        `Searched ±${searchRadius} lines from lineHint=${lineHint}. Adjust hint.`,
+      ];
     }
-    if (symbolName) {
-      hints.push(...getMetadataDynamicHints(TOOL_NAME, 'symbolNotFound'));
-    }
-    return hints;
+    return [];
   },
 
   error: (ctx: HintContext = {}) => {
     const { symbolName, lineHint, uri, errorType } = ctx;
 
     if (errorType === 'symbol_not_found') {
-      return [
-        `Symbol "${symbolName}" not found at line ${lineHint}.`,
-        ...getMetadataDynamicHints(TOOL_NAME, 'symbolNotFound'),
-      ];
+      return [`Symbol "${symbolName}" not found at line ${lineHint}.`];
     }
     if (errorType === 'file_not_found') {
       return [`File not found: ${uri}`];
     }
     if (errorType === 'timeout') {
-      return [...getMetadataDynamicHints(TOOL_NAME, 'timeout')];
+      return ['Definition lookup timed out.'];
     }
     return [];
   },

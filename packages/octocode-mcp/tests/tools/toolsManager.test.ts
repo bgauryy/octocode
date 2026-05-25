@@ -160,7 +160,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -209,7 +208,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -247,7 +245,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -276,7 +273,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -305,7 +301,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -338,7 +333,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -362,7 +356,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -386,7 +379,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -414,7 +406,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -449,7 +440,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -477,7 +467,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -505,7 +494,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: true,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -535,7 +523,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -563,7 +550,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -596,7 +582,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -634,7 +619,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -667,7 +651,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -692,7 +675,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -717,7 +699,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -742,7 +723,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -772,7 +752,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -808,7 +787,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -842,7 +820,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -869,7 +846,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -900,7 +876,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -928,7 +903,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -959,7 +933,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -1001,7 +974,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -1059,7 +1031,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });
@@ -1093,7 +1064,6 @@ describe('ToolsManager', () => {
         loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GITHUB_TOKEN',
       });

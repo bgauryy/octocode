@@ -65,7 +65,6 @@ const mockDefaultConfig = {
     enabled: null,
     enableAdditional: null,
     disabled: null,
-    disablePrompts: false,
   },
   network: {
     timeout: 30000,
@@ -139,7 +138,6 @@ const buildMockConfig = () => {
   const envToolsToRun = mockParseStringArrayEnv(process.env.TOOLS_TO_RUN);
   const envEnableTools = mockParseStringArrayEnv(process.env.ENABLE_TOOLS);
   const envDisableTools = mockParseStringArrayEnv(process.env.DISABLE_TOOLS);
-  const envDisablePrompts = mockParseBooleanEnv(process.env.DISABLE_PROMPTS);
 
   let timeout = envTimeout ?? mockDefaultConfig.network.timeout;
   timeout = Math.max(5000, Math.min(300000, timeout));
@@ -174,8 +172,6 @@ const buildMockConfig = () => {
       enableAdditional:
         envEnableTools ?? mockDefaultConfig.tools.enableAdditional,
       disabled: envDisableTools ?? mockDefaultConfig.tools.disabled,
-      disablePrompts:
-        envDisablePrompts ?? mockDefaultConfig.tools.disablePrompts,
     },
     network: {
       timeout,
@@ -205,11 +201,10 @@ vi.mock('octocode-shared', () => ({
       sessionId: sessionMockState.sessionId,
       createdAt: '2024-01-01T00:00:00.000Z',
       lastActiveAt: '2024-01-01T00:00:00.000Z',
-      stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+      stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
     };
   }),
   incrementToolCalls: vi.fn(() => ({ success: true })),
-  incrementPromptCalls: vi.fn(() => ({ success: true })),
   incrementErrors: vi.fn(() => ({ success: true })),
   incrementRateLimits: vi.fn(() => ({ success: true })),
   updateSessionStats: vi.fn(() => ({ success: true })),

@@ -11,7 +11,6 @@ import { handleCatchError, createSuccessResult } from '../utils.js';
 import { isCloneEnabled } from '../../serverConfig.js';
 import { fetchDirectoryContents } from '../../github/directoryFetch.js';
 import { resolveDefaultBranch } from '../../github/client.js';
-import { LOCAL_TOOL_LIST } from '../../hints/localToolUsageHints.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 import {
   mapFileContentProviderResult,
@@ -23,54 +22,14 @@ import {
   executeProviderOperation,
   providerSupports,
 } from '../providerExecution.js';
-
-const DIRECTORY_FETCH_HINTS: string[] = [
-  'Directory fetched and saved to disk.',
-  'Use `localPath` as the `path` parameter for local tools:',
-  ...LOCAL_TOOL_LIST,
-  'Tip: start with localViewStructure to explore the fetched directory.',
-];
-
-const DIRECTORY_CACHE_HIT_HINT =
-  'Served from 24-hour cache (no network call). To force refresh, wait for expiry or manually delete the localPath.';
-
-const DIRECTORY_KEYS_PRIORITY = [
-  'resolvedBranch',
-  'localPath',
-  'fileCount',
-  'totalSize',
-  'files',
-  'cached',
-  'expiresAt',
-  'error',
-];
-
-const FILE_KEYS_PRIORITY = [
-  'content',
-  'resolvedBranch',
-  'pagination',
-  'isPartial',
-  'startLine',
-  'endLine',
-  'lastModified',
-  'lastModifiedBy',
-  'matchLocations',
-  'error',
-];
+import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
 export async function fetchMultipleGitHubFileContents(
   args: ToolExecutionArgs<PartialFileContentQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
+    args;
   const getProviderContext = createLazyProviderContext(authInfo);
-
-  const hasDirectoryQuery = queries.some(q => q.type === 'directory');
-  const hasFileQuery = queries.some(q => q.type !== 'directory');
-
-  const keysPriority =
-    hasDirectoryQuery && !hasFileQuery
-      ? DIRECTORY_KEYS_PRIORITY
-      : FILE_KEYS_PRIORITY;
 
   return executeBulkOperation(
     queries,
@@ -89,9 +48,11 @@ export async function fetchMultipleGitHubFileContents(
     },
     {
       toolName: TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      keysPriority,
       responseCharOffset,
       responseCharLength,
+
+      format,
+      finalize: buildGithubFetchContentFinalizer<PartialFileContentQuery>(),
     }
   );
 }
@@ -149,18 +110,12 @@ async function handleDirectoryFetch(
       : {}),
   };
 
-  const hints = [...DIRECTORY_FETCH_HINTS];
-  if (result.cached) {
-    hints.unshift(DIRECTORY_CACHE_HIT_HINT);
-  }
-
   return createSuccessResult(
     query,
     resultData,
     true,
     TOOL_NAMES.GITHUB_FETCH_CONTENT,
     {
-      extraHints: hints,
       rawResponse: result.totalSize || countSerializedChars(result),
     }
   );
@@ -188,19 +143,12 @@ async function handleFileFetch(
     providerResult.response.data.content.length > 0
   );
 
-  const paginationHints = providerResult.response.hints || [];
-  const isLarge = providerResult.response.data.size > 50000;
-  const isPartial = providerResult.response.data.isPartial;
-  const endLine = providerResult.response.data.endLine;
-
   return createSuccessResult(
     query,
     resultData,
     hasContent,
     TOOL_NAMES.GITHUB_FETCH_CONTENT,
     {
-      hintContext: { isLarge, isPartial, endLine },
-      extraHints: paginationHints,
       rawResponse: providerResult.response.rawResponseChars,
     }
   );

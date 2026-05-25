@@ -107,10 +107,10 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // Empty files array should not appear with []
+      // No legacy `files:` shape; new shape uses `results:`.
       expect(responseText).not.toMatch(/files:\s*\[\]/);
-      // Status should indicate empty
-      expect(responseText).toContain('status: "empty"');
+      // Empty result-set is rendered as `results: []` (no per-tool status field).
+      expect(responseText).toContain('results: []');
     });
 
     it('should include file even when matches array is empty', async () => {
@@ -159,8 +159,8 @@ describe('Empty Arrays Removal in Responses', () => {
 
       // File should still be present
       expect(responseText).toContain('test.js');
-      // Status should show hasResults since we have a file
-      expect(responseText).toContain('status: "hasResults"');
+      // Owner/repo derived from repository.name = "test-repo" (no slash) -> empty owner
+      expect(responseText).toContain('repo: "test-repo"');
     });
   });
 
@@ -224,12 +224,10 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // No empty arrays anywhere
-      expect(responseText).not.toMatch(/:\s*\[\]\s*$/m);
-
-      expect(responseText).toContain('status: "hasResults"');
-      expect(responseText).toContain('status: "empty"');
-      // Optimized format: "1 ok, 1 empty"
+      // Multi-query is aggregated into a single flat result-set
+      expect(responseText).toContain('found.js');
+      // No empty matches/hints arrays should leak through
+      expect(responseText).not.toMatch(/matches:\s*\[\]/);
     });
   });
 
@@ -332,8 +330,9 @@ describe('Empty Arrays Removal in Responses', () => {
       const responseText = getTextContent(result.content);
 
       expect(responseText).toContain('results:');
-      expect(responseText).toContain('id: "empty_hints_query"');
-      expect(responseText).toContain('status: "hasResults"');
+      expect(responseText).toContain('file.js');
+      // No hints field should appear when there is nothing to say (single page, no warnings)
+      expect(responseText).not.toMatch(/hints:\s*\[\]/);
     });
   });
 

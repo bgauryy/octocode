@@ -20,7 +20,7 @@ import { executeWithToolBoundary } from '../executionGuard.js';
 export async function executeCallHierarchy(
   args: ToolExecutionArgs<LSPCallHierarchyQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries, responseCharOffset, responseCharLength, format } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -35,6 +35,9 @@ export async function executeCallHierarchy(
       toolName: TOOL_NAME,
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
       minQueryTimeoutMs: 30_000,
     }
   );

@@ -16,7 +16,6 @@ export {
 export type {
   SessionData,
   ToolCallData,
-  PromptCallData,
   ErrorData,
   RateLimitData,
 } from '../types.js';

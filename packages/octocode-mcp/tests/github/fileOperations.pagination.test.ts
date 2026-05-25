@@ -194,74 +194,6 @@ describe('GitHub File Operations - Pagination', () => {
     });
   });
 
-  describe('pagination hints', () => {
-    it('should include pagination hints when hasMore=true', async () => {
-      const largeContent = 'x'.repeat(70000);
-      const mockOctokit = createMockOctokit(largeContent);
-
-      vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
-      );
-      vi.mocked(minifierModule.minifyContent).mockImplementation(
-        async content => ({
-          content,
-          failed: false,
-          type: 'general',
-        })
-      );
-
-      const result = await fetchGitHubFileContentAPI({
-        owner: 'test',
-        repo: 'repo',
-        path: 'large.ts',
-      });
-
-      expect(result).toHaveProperty('data');
-      if ('data' in result && result.data && !('error' in result.data)) {
-        expect(result.data.hints).toBeDefined();
-        expect(
-          result.data.hints?.some(h => h.includes('TO GET NEXT PAGE'))
-        ).toBe(true);
-        expect(
-          result.data.hints?.some(h =>
-            h.includes(`charOffset=${DEFAULT_OUTPUT_CHAR_LENGTH}`)
-          )
-        ).toBe(true);
-      }
-    });
-
-    it('should include completion hint on last page', async () => {
-      const largeContent = 'x'.repeat(70000);
-      const mockOctokit = createMockOctokit(largeContent);
-
-      vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
-      );
-      vi.mocked(minifierModule.minifyContent).mockImplementation(
-        async content => ({
-          content,
-          failed: false,
-          type: 'general',
-        })
-      );
-
-      const result = await fetchGitHubFileContentAPI({
-        owner: 'test',
-        repo: 'repo',
-        path: 'large.ts',
-        charOffset: DEFAULT_OUTPUT_CHAR_LENGTH * 8,
-      });
-
-      expect(result).toHaveProperty('data');
-      if ('data' in result && result.data && !('error' in result.data)) {
-        expect(result.data.hints).toBeDefined();
-        expect(
-          result.data.hints?.some(h => h.includes('Complete content retrieved'))
-        ).toBe(true);
-      }
-    });
-  });
-
   describe('boundary conditions', () => {
     it('should handle charOffset at exactly content boundary', async () => {
       const content = 'x'.repeat(40000); // Exactly 5 pages at the shared default
@@ -492,34 +424,6 @@ describe('GitHub File Operations - Pagination', () => {
         expect(result.data.pagination?.charOffset).toBeDefined();
         expect(result.data.pagination?.charLength).toBeDefined();
         expect(result.data.pagination?.totalChars).toBeDefined();
-      }
-    });
-
-    it('should include byte info in hints for GitHub', async () => {
-      const largeContent = 'x'.repeat(70000);
-      const mockOctokit = createMockOctokit(largeContent);
-
-      vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
-      );
-      vi.mocked(minifierModule.minifyContent).mockImplementation(
-        async content => ({
-          content,
-          failed: false,
-          type: 'general',
-        })
-      );
-
-      const result = await fetchGitHubFileContentAPI({
-        owner: 'test',
-        repo: 'repo',
-        path: 'large.ts',
-      });
-
-      expect(result).toHaveProperty('data');
-      if ('data' in result && result.data && !('error' in result.data)) {
-        // Hints should mention bytes for GitHub API
-        expect(result.data.hints?.some(h => h.includes('bytes'))).toBe(true);
       }
     });
   });

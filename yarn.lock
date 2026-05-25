@@ -5319,6 +5319,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"gpt-tokenizer@npm:^3.4.0":
+  version: 3.4.0
+  resolution: "gpt-tokenizer@npm:3.4.0"
+  checksum: 10c0/40e30e73840ab52ee902fe1f481c0dfff45ca6eb27feb4c97fcaa248fdd9f4e61679fa8873383b1360a6d13cb4c421b6ab0c56d77db59adcabccf34fcd639146
+  languageName: node
+  linkType: hard
+
 "graceful-fs@npm:^4.1.6, graceful-fs@npm:^4.2.0, graceful-fs@npm:^4.2.6":
   version: 4.2.11
   resolution: "graceful-fs@npm:4.2.11"
@@ -7077,6 +7084,7 @@ __metadata:
     eslint: "npm:^9.18.0"
     eslint-config-prettier: "npm:^10.1.5"
     eslint-plugin-prettier: "npm:^5.5.4"
+    gpt-tokenizer: "npm:^3.4.0"
     prettier: "npm:^3.5.3"
     syncpack: "npm:^14.0.0-alpha.19"
     typescript: "npm:^5.9.3"

@@ -46,7 +46,7 @@ vi.mock('octocode-shared', () => ({
     sessionId: '00000000-0000-4000-8000-000000000000',
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
-    stats: { toolCalls: 0, promptCalls: 0, errors: 0, rateLimits: 0 },
+    stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
   })),
   incrementToolCalls: vi.fn(() => ({ success: true })),
   incrementErrors: vi.fn(() => ({ success: true })),

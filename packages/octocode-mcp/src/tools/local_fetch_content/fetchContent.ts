@@ -76,10 +76,7 @@ function validateExtractionOptions(
       error:
         'Cannot use fullContent with matchString — these are mutually exclusive extraction methods. Choose ONE: fullContent=true to read the entire file, OR matchString to extract matching sections.',
       hints: [
-        'fullContent and matchString are mutually exclusive — pick one extraction method',
-        'Use fullContent=true to read the entire file (small files only)',
-        'Use matchString="pattern" to extract specific sections (recommended for large files)',
-        'TIP: matchString is more token-efficient — prefer it when you know what to look for',
+        'fullContent and matchString are mutually exclusive. Pick one — matchString is more token-efficient when you know what to look for.',
       ],
     } as LocalGetFileContentToolResult;
   }
@@ -260,39 +257,26 @@ function createNoMatchesResult(
   query: FetchContentQuery,
   totalLines: number
 ): LocalGetFileContentToolResult {
-  const contextHints = [
-    `Searched ${totalLines} line${totalLines === 1 ? '' : 's'} - no matches found`,
+  // Recovery only — name the actual matchString options in play and
+  // propose one concrete switch. No "TIP:" prefix, no trailing prose.
+  const hints: string[] = [
+    `No matches for "${query.matchString}" in ${query.path} (${totalLines} line${totalLines === 1 ? '' : 's'} scanned).`,
   ];
-
   if (query.matchStringIsRegex) {
-    contextHints.push(
-      'TIP: Regex matches per-line only (not multiline). Verify pattern exists on a single line.'
-    );
+    hints.push('Regex is per-line only — verify the pattern fits on one line.');
   } else {
-    contextHints.push(
-      'TIP: Try matchStringIsRegex=true for pattern matching (e.g., "export.*function")'
+    hints.push(
+      'Try matchStringIsRegex=true for pattern matching (e.g. "export.*function").'
     );
   }
-
   if (query.matchStringCaseSensitive) {
-    contextHints.push(
-      'TIP: Case-sensitive mode active - try matchStringCaseSensitive=false'
-    );
+    hints.push('caseSensitive=true is active — disable for fuzzier matching.');
   }
-
-  contextHints.push(
-    'TIP: Verify file contains expected content or try simpler pattern'
-  );
-
   return {
     status: 'empty',
     errorCode: LOCAL_TOOL_ERROR_CODES.NO_MATCHES,
     totalLines,
-    hints: [
-      ...getHints(TOOL_NAMES.LOCAL_FETCH_CONTENT, 'empty'),
-      '',
-      ...contextHints,
-    ],
+    hints,
   };
 }
 
@@ -352,9 +336,7 @@ function buildMatchExtractionState(
           `Pattern matched ${result.matchCount} lines. Truncated to first ${MAX_MATCH_LINES} matches.`,
         ],
         hints: [
-          `Pattern matched ${result.matchCount} lines - likely too generic`,
-          'Make the pattern more specific to target only what you need',
-          'TIP: Use charLength to paginate if you need all matches',
+          `Pattern matched ${result.matchCount} lines (truncated to ${MAX_MATCH_LINES}). Use a more specific pattern, or paginate with charLength.`,
         ],
       },
     };

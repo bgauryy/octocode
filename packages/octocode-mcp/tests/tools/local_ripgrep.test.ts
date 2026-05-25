@@ -2032,46 +2032,6 @@ describe('localSearchCode', () => {
         expect(hasNextPageHint).toBe(true);
       }
     });
-
-    it('should show final page message on last page', async () => {
-      const files = Array.from({ length: 25 }, (_, i) => ({
-        type: 'match',
-        data: {
-          path: { text: `/test/file${i}.ts` },
-          lines: { text: 'test match' },
-          line_number: 10,
-          absolute_offset: 100,
-          submatches: [{ start: 0, end: 4, match: { text: 'test' } }],
-        },
-      }));
-      const jsonOutput = files.map(f => JSON.stringify(f)).join('\n');
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: jsonOutput,
-        stderr: '',
-      });
-
-      const result = await runRipgrep({
-        pattern: 'test',
-        path: '/test/path',
-        filesPerPage: 10,
-        filePageNumber: 3, // Last page
-      });
-
-      expect(result.status).toBe('hasResults');
-      expect(result.pagination?.hasMore).toBe(false);
-      if (result.hints) {
-        const hasFinalPageHint = result.hints.some(
-          h =>
-            h.toLowerCase().includes('final') ||
-            h.toLowerCase().includes('last')
-        );
-        expect(hasFinalPageHint).toBe(true);
-      }
-    });
-
     it('should include parameter names matching tool schema', async () => {
       const files = Array.from({ length: 25 }, (_, i) => ({
         type: 'match',

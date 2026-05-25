@@ -63,8 +63,6 @@ export interface ToolsConfigOptions {
   enableAdditional?: string[] | null;
   /** Blacklist of tools to disable */
   disabled?: string[] | null;
-  /** Disable MCP prompts/slash commands (default: false) */
-  disablePrompts?: boolean;
 }
 
 /**
@@ -162,7 +160,6 @@ export interface RequiredToolsConfig {
   enabled: string[] | null;
   enableAdditional: string[] | null;
   disabled: string[] | null;
-  disablePrompts: boolean;
 }
 
 export interface RequiredNetworkConfig {

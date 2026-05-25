@@ -84,7 +84,6 @@ export function createTestSession(overrides: {
   lastActiveAt?: string;
   stats?: Partial<{
     toolCalls: number | string | null | undefined | object;
-    promptCalls: number | string | null | undefined | object;
     errors: number | string | null | undefined | object;
     rateLimits: number | string | null | undefined | object;
   }>;
@@ -96,7 +95,6 @@ export function createTestSession(overrides: {
     lastActiveAt: overrides.lastActiveAt ?? '2026-01-09T10:00:00.000Z',
     stats: {
       toolCalls: overrides.stats?.toolCalls ?? 0,
-      promptCalls: overrides.stats?.promptCalls ?? 0,
       errors: overrides.stats?.errors ?? 0,
       rateLimits: overrides.stats?.rateLimits ?? 0,
     },

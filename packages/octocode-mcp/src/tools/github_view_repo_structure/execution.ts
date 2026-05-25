@@ -48,7 +48,8 @@ function filterStructure(
 export async function exploreMultipleRepositoryStructures(
   args: ToolExecutionArgs<PartialRepoStructureQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
+    args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -105,7 +106,15 @@ export async function exploreMultipleRepositoryStructures(
           hasContent,
           TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
           {
-            hintContext: { entryCount },
+            // Pass path/depth/branch so empty-listing hints can name the
+            // exact location that came back empty and suggest a concrete
+            // probe (parent dir, depth=2, different branch).
+            hintContext: {
+              entryCount,
+              path: query.path,
+              depth: query.depth,
+              branch: query.branch,
+            },
             prefixHints: branchHints,
             extraHints: apiHints,
             rawResponse: providerResult.response.rawResponseChars,
@@ -129,6 +138,9 @@ export async function exploreMultipleRepositoryStructures(
       ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
       responseCharOffset,
       responseCharLength,
+
+      format,
+      peerHints: true,
     }
   );
 }

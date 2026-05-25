@@ -32,7 +32,6 @@ export function calculateTotalUsageStats(
 
   return {
     toolCalls: stats.toolCalls,
-    promptCalls: stats.promptCalls,
     errors: stats.errors,
     rateLimits: stats.rateLimits,
     rateLimitsByProvider,
@@ -65,7 +64,6 @@ export function withDerivedUsageTotals(stats: SessionStats): SessionStats {
 export function createDefaultStats(): SessionStats {
   return withDerivedUsageTotals({
     toolCalls: 0,
-    promptCalls: 0,
     errors: 0,
     rateLimits: 0,
     rateLimitsByProvider: {},

@@ -48,7 +48,6 @@ vi.mock('../src/tools/toolMetadata/state.js', () => ({
   loadToolContent: vi.fn(() =>
     Promise.resolve({
       instructions: 'Test instructions',
-      prompts: {},
       toolNames: {
         GITHUB_FETCH_CONTENT: 'githubGetFileContent',
         GITHUB_SEARCH_CODE: 'githubSearchCode',
@@ -73,10 +72,6 @@ vi.mock('../src/tools/toolsManager.js', () => ({
   registerTools: vi.fn(() =>
     Promise.resolve({ successCount: 5, failedTools: [] })
   ),
-}));
-
-vi.mock('../src/prompts/prompts.js', () => ({
-  registerPrompts: vi.fn(),
 }));
 
 vi.mock('../src/utils/http/cache.js', () => ({

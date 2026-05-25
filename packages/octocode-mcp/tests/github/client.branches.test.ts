@@ -70,7 +70,6 @@ describe('GitHub Client Branch Coverage', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });
@@ -93,7 +92,6 @@ describe('GitHub Client Branch Coverage', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });
@@ -116,7 +114,6 @@ describe('GitHub Client Branch Coverage', () => {
         loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
-        disablePrompts: false,
         outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });

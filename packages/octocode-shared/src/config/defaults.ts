@@ -49,7 +49,6 @@ export const DEFAULT_TOOLS_CONFIG: RequiredToolsConfig = {
   enabled: null,
   enableAdditional: null,
   disabled: null,
-  disablePrompts: false,
 };
 
 /**

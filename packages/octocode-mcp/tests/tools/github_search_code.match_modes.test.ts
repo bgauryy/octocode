@@ -118,7 +118,7 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('src/tools/utils.ts');
-      expect(responseText).toContain('text_matches');
+      expect(responseText).toContain('matches:');
     });
 
     it('should search IN file content and return matching code snippets', async () => {
@@ -483,8 +483,8 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       });
 
       expect(result.isError).toBe(false);
-      const responseText = getTextContent(result.content);
-      expect(responseText).toContain('empty');
+      const structured = result.structuredContent as { results: unknown[] };
+      expect(structured.results).toEqual([]);
     });
   });
 });

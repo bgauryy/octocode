@@ -174,8 +174,8 @@ describe('GitHub Search Code Tool - Filtering at Tool Level', () => {
       )) as CallToolResult;
 
       expect(result.isError).toBeFalsy();
-      const responseText = result.content[0]?.text || '';
-      expect(responseText).toContain('empty');
+      const structured = result.structuredContent as { results: unknown[] };
+      expect(structured.results).toEqual([]);
     });
 
     it('should filter vendor and third-party directories', async () => {

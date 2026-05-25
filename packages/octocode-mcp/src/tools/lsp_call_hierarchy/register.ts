@@ -1,10 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import {
-  LSP_CALL_HIERARCHY_DESCRIPTION,
-  LspCallHierarchyOutputSchema,
-} from '@octocodeai/octocode-core';
+import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { LSP_CALL_HIERARCHY_DESCRIPTION } from '@octocodeai/octocode-core';
 import { BulkLSPCallHierarchyQuerySchema } from '../../scheme/lspSchemaOverlay.js';
+import { LspCallHierarchyOutputLocalSchema } from '../../scheme/lspOutputSchemaOverlay.js';
 import { executeCallHierarchy } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
@@ -18,7 +17,9 @@ export function registerLSPCallHierarchyTool(server: McpServer) {
     {
       description: LSP_CALL_HIERARCHY_DESCRIPTION,
       inputSchema: toMCPSchema(BulkLSPCallHierarchyQuerySchema),
-      outputSchema: toMCPSchema(LspCallHierarchyOutputSchema),
+      outputSchema: toMCPSchema(
+        withTsvEnvelope(LspCallHierarchyOutputLocalSchema)
+      ),
       annotations: {
         title: 'Call Hierarchy',
         readOnlyHint: true,

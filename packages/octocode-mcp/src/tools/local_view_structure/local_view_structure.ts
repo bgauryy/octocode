@@ -149,7 +149,13 @@ export async function viewStructure(
             ...entryPaginationHints,
             ...getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, status, {
               entryCount: totalEntries,
-            }),
+              path: query.path,
+              extension: query.extension,
+              pattern:
+                typeof (query as { pattern?: unknown }).pattern === 'string'
+                  ? (query as { pattern?: string }).pattern
+                  : undefined,
+            } as Record<string, unknown>),
           ],
         },
         query.verbosity

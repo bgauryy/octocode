@@ -9,11 +9,8 @@ import type {
   ToolExecutionArgs,
   WithOptionalMeta,
 } from '../../types/execution.js';
-
-type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
-import { handleCatchError, createSuccessResult } from '../utils.js';
+import { createSuccessResult, handleCatchError } from '../utils.js';
 import {
-  buildPaginationHints,
   mapCodeSearchProviderResult,
   mapCodeSearchToolQuery,
 } from '../providerMappers.js';
@@ -21,48 +18,59 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
+import { buildGithubSearchCodeFinalizer } from './finalizer.js';
+
+type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
 export async function searchMultipleGitHubCode(
   args: ToolExecutionArgs<PartialCodeSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
-  const getProviderContext = createLazyProviderContext(authInfo);
+  const { queries, responseCharOffset, responseCharLength, format } = args;
+  const getProviderContext = createLazyProviderContext(args.authInfo);
 
   return executeBulkOperation(
     queries,
     async (query: PartialCodeSearchQuery, _index: number) => {
       try {
-        const currentProviderContext = getProviderContext();
-
+        const ctx = getProviderContext();
         const providerResult = await executeProviderOperation(query, () =>
-          currentProviderContext.provider.searchCode(
-            mapCodeSearchToolQuery(query)
-          )
+          ctx.provider.searchCode(mapCodeSearchToolQuery(query))
         );
 
         if (providerResult.ok === false) {
           return providerResult.result;
         }
 
-        const result: GitHubSearchCodeData = mapCodeSearchProviderResult(
+        const flat = mapCodeSearchProviderResult(
           providerResult.response.data,
           query
         );
 
-        const hasContent = (result.files?.length || 0) > 0;
-        const hasOwnerRepo = !!(query.owner && query.repo);
-        const paginationHints = result.pagination
-          ? buildPaginationHints(result.pagination, 'matches')
-          : [];
-
+        // We stash the flat per-query shape into the standard tool data
+        // surface; the finalizer reads it back and reshapes the whole bulk.
+        // Cast through `unknown` since the upstream type expects the legacy
+        // {files, pagination} shape — this local schema is overridden in
+        // GitHubCodeSearchOutputLocalSchema.
+        // Query-shape context lets per-tool hints.ts pick the most specific
+        // empty-result recovery line — naming the filters in play, suggesting
+        // which to drop, calling out the AND-logic gotcha.
+        const hintContext = {
+          hasOwnerRepo: Boolean(query.owner && query.repo),
+          owner: query.owner,
+          repo: query.repo,
+          match: query.match,
+          extension: query.extension,
+          filename: query.filename,
+          path: query.path,
+          keywords: query.keywordsToSearch,
+        };
         return createSuccessResult(
           query,
-          result,
-          hasContent,
+          flat as unknown as GitHubSearchCodeData,
+          flat.results.length > 0,
           TOOL_NAMES.GITHUB_SEARCH_CODE,
           {
-            hintContext: { hasOwnerRepo, match: query.match },
-            extraHints: paginationHints,
+            hintContext,
             rawResponse: providerResult.response.rawResponseChars,
           }
         );
@@ -72,9 +80,10 @@ export async function searchMultipleGitHubCode(
     },
     {
       toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
-      keysPriority: ['files', 'pagination', 'repositoryContext', 'error'],
       responseCharOffset,
       responseCharLength,
+      format,
+      finalize: buildGithubSearchCodeFinalizer<PartialCodeSearchQuery>(),
     }
   );
 }

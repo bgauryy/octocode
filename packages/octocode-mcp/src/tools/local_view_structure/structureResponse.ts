@@ -59,21 +59,16 @@ export function buildEntryPaginationHints(
   },
   endIdx: number
 ): string[] {
-  const hints = [
-    `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${paginatedCount} of ${pagination.totalEntries})`,
+  // Strict policy: only emit a hint when more pages exist.
+  if (!pagination.hasMore) return [];
+
+  const nextPagePreview = entries
+    .slice(endIdx, endIdx + 3)
+    .map(e => e.name)
+    .join(', ');
+  return [
+    `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${paginatedCount} of ${pagination.totalEntries}). Next: entryPageNumber=${pagination.currentPage + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`,
   ];
-  if (pagination.hasMore) {
-    const nextPagePreview = entries
-      .slice(endIdx, endIdx + 3)
-      .map(e => e.name)
-      .join(', ');
-    hints.push(
-      `Next: entryPageNumber=${pagination.currentPage + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`
-    );
-  } else {
-    hints.push('Final page');
-  }
-  return hints;
 }
 
 export function buildWalkWarnings(walkStats: WalkStats): string[] {
