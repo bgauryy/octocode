@@ -135,5 +135,4 @@ describe('MCP protocol exposure: instructions and tools', () => {
       expect(expectedNames).toContain(tool.name);
     }
   });
-
 });

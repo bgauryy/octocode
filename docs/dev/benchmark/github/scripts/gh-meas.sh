@@ -1,26 +1,11 @@
 #!/usr/bin/env bash
-# gh-meas.sh — Run a gh command, log chars in/out + elapsed_ms to $LOG.
-# Usage: bash gh-meas.sh <gh args...>
-# Env:   LOG (jsonl path, required), Q (question number, required)
-set -euo pipefail
-: "${LOG:?LOG required}"; : "${Q:?Q required}"
-D="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-
-CMD="gh $*"
-START=$(node -e 'process.stdout.write(String(Date.now()))')
-TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
-set +e; gh "$@" >"$TMP" 2>&1; EXIT=$?; set -e
-END=$(node -e 'process.stdout.write(String(Date.now()))')
-
-IN=$(printf '%s' "$CMD" | node "$D/chars.mjs")
-OUT=$(node "$D/chars.mjs" --file "$TMP")
-node -e '
-  const [q,cmd,in_,out,el,ex] = process.argv.slice(1);
-  process.stdout.write(JSON.stringify({
-    ts: new Date().toISOString(), q: +q, agent: "gh", cmd,
-    in_chars: +in_, out_chars: +out, elapsed_ms: +el, exit: +ex
-  }) + "\n");
-' "$Q" "$CMD" "$IN" "$OUT" $((END - START)) "$EXIT" >> "$LOG"
-
-cat "$TMP"
-exit $EXIT
+# gh-meas.sh — Thin wrapper. Delegates to gh-meas.mjs.
+#
+# The original shell implementation spawned Node 5 times per call
+# (2× Date.now(), 2× chars.mjs, 1× JSON log), adding ~100–200 ms of
+# systematic overhead to tool_elapsed_ms and biasing timing against gh.
+# gh-meas.mjs runs entirely in one Node process with no spawning overhead.
+#
+# Usage: bash gh-meas.sh <gh args...>   (same as before — no change needed)
+# Env:   LOG, RUN (required, same as before)
+exec node "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")"; pwd)/gh-meas.mjs" "$@"

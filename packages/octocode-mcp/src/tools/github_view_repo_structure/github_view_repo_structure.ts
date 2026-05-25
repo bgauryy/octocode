@@ -13,5 +13,12 @@ export const registerViewGitHubRepoStructureTool = createRemoteToolRegistration(
     inputSchema: GitHubViewRepoStructureBulkQueryLocalSchema,
     outputSchema: GitHubViewRepoStructureOutputLocalSchema,
     executionFn: exploreMultipleRepositoryStructures,
+    describe: base =>
+      base +
+      `
+  <gotchas>
+  - Browse dir before reading any file — sibling files a search missed are visible here
+  - Path confirms architecture: read the listing before assuming what a file contains
+  </gotchas>`,
   }
 );

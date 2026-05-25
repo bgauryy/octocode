@@ -63,6 +63,11 @@ export async function searchMultipleGitHubCode(
           filename: query.filename,
           path: query.path,
           keywords: query.keywordsToSearch,
+          // Pagination signals so hasResults hint can emit exhaustive-search guidance
+          totalMatches: flat.pagination?.totalMatches,
+          hasMore: flat.pagination?.hasMore,
+          currentPage: flat.pagination?.currentPage ?? 1,
+          totalPages: flat.pagination?.totalPages ?? 1,
         };
         return createSuccessResult(
           query,

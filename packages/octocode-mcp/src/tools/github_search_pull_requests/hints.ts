@@ -11,7 +11,12 @@
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
-  hasResults: (_ctx: HintContext = {}) => [],
+  hasResults: (_ctx: HintContext = {}) => [
+    // Strategy reminder when results exist but may not be the right PR
+    'For PR archaeology: if this is not the PR you need, try sort="best-match" ' +
+      'and narrow with match=["title"] to get title-only results, then widen to ' +
+      'match=["title","body"] if needed.',
+  ],
 
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
@@ -29,6 +34,18 @@ export const hints: ToolHintGenerators = {
         `PR #${prNumber} not found in ${owner}/${repo}. Verify the number or drop owner/repo to search elsewhere.`
       );
       return out;
+    }
+
+    // PR archaeology hint — always emitted first when a query was used
+    if (query && query.length > 0) {
+      out.push(
+        `No PRs match query="${query}" in ${scope}. ` +
+          'PR archaeology strategy: (1) try match=["title"] with sort="best-match" — ' +
+          'title-only search returns the highest-signal results for finding a PR by keyword. ' +
+          '(2) Try shorter / alternate keywords (e.g. if searching "use hook" try "experimental_use"). ' +
+          '(3) Widen to match=["title","body"] or drop match entirely. ' +
+          '(4) Drop state/date filters one at a time.'
+      );
     }
 
     if (state === 'merged') {
@@ -49,15 +66,10 @@ export const hints: ToolHintGenerators = {
       );
     }
 
-    if (query && query.length > 0 && out.length === 0) {
+    if (!query && out.length === 0) {
       out.push(
-        `No PRs match query="${query}" in ${scope}. Relax the query or drop other filters.`
-      );
-    }
-
-    if (out.length === 0) {
-      out.push(
-        `No PRs found in ${scope}. Relax filters one at a time (state, author, label, query).`
+        `No PRs found in ${scope}. Relax filters one at a time (state, author, label, query). ` +
+          'For PR archaeology, use query + match=["title"] + sort="best-match" as your starting point.'
       );
     }
     return out;

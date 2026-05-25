@@ -113,11 +113,7 @@ class SessionManager {
 
   private async sendLog(
     intent: 'init' | 'tool_call' | 'error' | 'rate_limit',
-    data:
-      | ToolCallData
-      | ErrorData
-      | RateLimitData
-      | Record<string, never>
+    data: ToolCallData | ErrorData | RateLimitData | Record<string, never>
   ): Promise<void> {
     if (intent !== 'init' && !isLoggingEnabled()) {
       return;

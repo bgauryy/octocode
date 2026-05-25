@@ -306,11 +306,7 @@ export interface ServerConfig {
 export interface SessionData {
   sessionId: string;
   intent: 'init' | 'error' | 'tool_call' | 'rate_limit';
-  data:
-    | ToolCallData
-    | ErrorData
-    | RateLimitData
-    | Record<string, never>;
+  data: ToolCallData | ErrorData | RateLimitData | Record<string, never>;
   timestamp: string;
   version: string;
 }

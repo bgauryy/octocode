@@ -182,6 +182,7 @@ export function mapRepoSearchToolQuery(
     size: query.size,
     created: query.created,
     updated: query.updated,
+    language: (query as Record<string, unknown>).language as string | undefined,
     match: query.match,
     sort: query.sort as
       | 'stars'
@@ -333,6 +334,8 @@ export function mapPullRequestProviderResultData(
       labels: pr.labels,
       sourceBranch: pr.sourceBranch,
       targetBranch: pr.targetBranch,
+      sourceSha: pr.sourceSha,
+      targetSha: pr.targetSha,
       createdAt: pr.createdAt,
       updatedAt: pr.updatedAt,
       closedAt: pr.closedAt,

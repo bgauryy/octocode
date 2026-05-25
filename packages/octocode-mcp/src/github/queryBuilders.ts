@@ -193,6 +193,12 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
       this.queryParts.push(`pushed:${params.updated}`);
     }
 
+    // language: filter by primary repo language (e.g. language:TypeScript)
+    const language = (params as Record<string, unknown>).language;
+    if (language && typeof language === 'string') {
+      this.queryParts.push(`language:${language}`);
+    }
+
     return this;
   }
 

@@ -49,6 +49,7 @@ export async function searchGitHubReposAPI(
       size: params.size,
       created: params.created,
       updated: params.updated,
+      language: (params as Record<string, unknown>).language,
       match: params.match,
       sort: params.sort,
       limit: params.limit,

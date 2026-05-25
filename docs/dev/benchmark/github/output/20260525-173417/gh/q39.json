@@ -1,0 +1,1 @@
+{"calls":2,"in_chars":118,"out_chars":2993,"elapsed_ms":1375,"calls_detail":[{"cmd":"gh api repos/biomejs/biome/contents --jq [.[] | {name,type,path}]","in_chars":62,"out_chars":2508,"elapsed_ms":620,"exit":0},{"cmd":"gh repo view biomejs/biome --json languages --jq .languages","in_chars":56,"out_chars":485,"elapsed_ms":755,"exit":0}],"tool_elapsed_ms":1375,"q_elapsed_ms":14786}

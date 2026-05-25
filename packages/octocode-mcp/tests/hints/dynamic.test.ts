@@ -313,24 +313,51 @@ describe('Dynamic Hints', () => {
   });
 
   describe('GITHUB_SEARCH_CODE hints', () => {
-    it('should return hints when hasOwnerRepo is true', () => {
+    it('should return empty hints when there are no more pages (hasMore=false)', () => {
+      const hints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+        'hasResults',
+        { hasOwnerRepo: true, hasMore: false, currentPage: 1, totalPages: 1 }
+      );
+      expect(hints).toEqual([]);
+    });
+
+    it('should emit exhaustive enumeration warning when hasMore=true', () => {
+      const hints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+        'hasResults',
+        {
+          hasOwnerRepo: true,
+          hasMore: true,
+          currentPage: 1,
+          totalPages: 3,
+          totalMatches: 28,
+        }
+      );
+      expect(hints.length).toBe(1);
+      expect(hints[0]).toContain('Page 1/3');
+      expect(hints[0]).toContain('28');
+      expect(hints[0]).toContain('page=2');
+      expect(hints[0]).toContain('exhaustive');
+    });
+
+    it('should emit warning with correct next page when on page 2', () => {
+      const hints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+        'hasResults',
+        { hasMore: true, currentPage: 2, totalPages: 4 }
+      );
+      expect(hints.length).toBe(1);
+      expect(hints[0]).toContain('page=3');
+    });
+
+    it('should return empty hints when hasMore is not set (no pagination info)', () => {
       const hints = getDynamicHints(
         STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
         'hasResults',
         { hasOwnerRepo: true }
       );
-      // Should return hints from singleRepo metadata
-      expect(hints.length).toBeGreaterThanOrEqual(0);
-    });
-
-    it('should return hints when hasOwnerRepo is false', () => {
-      const hints = getDynamicHints(
-        STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-        'hasResults',
-        { hasOwnerRepo: false }
-      );
-      // Should return hints from multiRepo metadata
-      expect(hints.length).toBeGreaterThanOrEqual(0);
+      expect(hints).toEqual([]);
     });
 
     it('should return hints for empty with match=path', () => {
@@ -771,13 +798,13 @@ describe('Dynamic Hints', () => {
   });
 
   describe('Tools with empty dynamic hints', () => {
-    it('GITHUB_SEARCH_PULL_REQUESTS: hasResults/error silent, empty emits a query-aware recovery line', () => {
-      expect(
-        getDynamicHints(
-          STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-          'hasResults'
-        )
-      ).toEqual([]);
+    it('GITHUB_SEARCH_PULL_REQUESTS: hasResults emits archaeology reminder, error silent, empty emits recovery', () => {
+      const hasResultsHints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        'hasResults'
+      );
+      expect(hasResultsHints.length).toBeGreaterThan(0);
+      expect(hasResultsHints[0]).toContain('match=["title"]');
       expect(
         getDynamicHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, 'error')
       ).toEqual([]);
@@ -787,19 +814,22 @@ describe('Dynamic Hints', () => {
         'empty'
       );
       expect(emptyHints.length).toBeGreaterThan(0);
-      expect(emptyHints[0]).toMatch(/Relax filters|No PRs/);
+      expect(emptyHints[0]).toMatch(/Relax filters|No PRs|match/);
     });
 
-    it('should return empty for GITHUB_SEARCH_REPOSITORIES all statuses', () => {
+    it('should return expected hints for GITHUB_SEARCH_REPOSITORIES statuses', () => {
       expect(
         getDynamicHints(
           STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           'hasResults'
         )
       ).toEqual([]);
-      expect(
-        getDynamicHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES, 'empty')
-      ).toEqual([]);
+      const emptyHints = getDynamicHints(
+        STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+        'empty'
+      );
+      expect(emptyHints.length).toBeGreaterThan(0);
+      expect(emptyHints[0]).toContain('language=');
       expect(
         getDynamicHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES, 'error')
       ).toEqual([]);

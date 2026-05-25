@@ -11,7 +11,27 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 import { getActiveProvider } from '../../serverConfig.js';
 
 export const hints: ToolHintGenerators = {
-  hasResults: (_ctx: HintContext = {}) => [],
+  hasResults: (ctx: HintContext = {}) => {
+    const c = ctx as Record<string, unknown>;
+    const hasMore = c.hasMore === true;
+    const totalMatches =
+      typeof c.totalMatches === 'number' ? c.totalMatches : undefined;
+    const currentPage = typeof c.currentPage === 'number' ? c.currentPage : 1;
+    const totalPages = typeof c.totalPages === 'number' ? c.totalPages : 1;
+
+    if (!hasMore) return [];
+
+    // There are more pages — emit an assertive enumeration warning.
+    // This is the primary cause of missed call sites in multi-file usage queries
+    // (e.g. Q4: finding ALL startTransition usages across vercel/next.js).
+    const totalStr = totalMatches ? ` of ${totalMatches}` : '';
+    return [
+      `⚠️ Page ${currentPage}/${totalPages} only. This result shows the FIRST page${totalStr} matches. ` +
+        'For exhaustive usage enumeration (all call sites, all files), fetch every page: ' +
+        `page=${currentPage + 1}${totalPages > currentPage + 1 ? `, page=${currentPage + 2}, … page=${totalPages}` : ''}. ` +
+        'Critical files are often on later pages — stop paginating only when hasMore=false.',
+    ];
+  },
 
   empty: (ctx: HintContext = {}) => {
     const out: string[] = [];

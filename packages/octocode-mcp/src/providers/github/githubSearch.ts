@@ -174,6 +174,7 @@ export async function searchRepos(
     size: query.size,
     created: query.created,
     updated: query.updated,
+    language: query.language,
     match: query.match,
     sort:
       query.sort === 'best-match'
@@ -184,7 +185,7 @@ export async function searchRepos(
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
-  } as GitHubReposSearchQuery;
+  } as unknown as GitHubReposSearchQuery;
 
   const result = await searchGitHubReposAPI(githubQuery, authInfo);
 

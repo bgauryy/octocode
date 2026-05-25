@@ -128,6 +128,4 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
     await client.close();
     await server.close();
   });
-
 });
-

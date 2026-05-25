@@ -17,4 +17,11 @@ export const registerFetchGitHubFileContentTool = createRemoteToolRegistration({
   outputSchema: GitHubFetchContentOutputLocalSchema,
   executionFn: fetchMultipleGitHubFileContents,
   annotations: { readOnlyHint: false },
+  describe: base =>
+    base +
+    `
+  <gotchas>
+  - Exact values (version strings, hashes): use matchString to extract verbatim — never summarize
+  - Batch related files: 1 bulk call for N related files beats N sequential calls
+  </gotchas>`,
 });

@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PackageSearchBulkQueryLocalSchema,
   GitHubPullRequestSearchBulkQueryLocalSchema,
+  GitHubReposSearchBulkQueryLocalSchema,
 } from '../../src/scheme/remoteSchemaOverlay.js';
 
 const BASE_RESEARCH = {
@@ -105,6 +106,49 @@ describe('remoteSchemaOverlay', () => {
             owner: 'facebook',
             repo: 'react',
             state: 'invalid-state',
+          },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('GitHubReposSearchBulkQueryLocalSchema — language field extension', () => {
+    it('accepts language field as a string', () => {
+      const result = GitHubReposSearchBulkQueryLocalSchema.safeParse({
+        queries: [
+          {
+            ...QUERY_BASE,
+            keywordsToSearch: ['testing'],
+            language: 'TypeScript',
+          },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(
+          (result.data.queries[0] as Record<string, unknown>).language
+        ).toBe('TypeScript');
+      }
+    });
+
+    it('accepts query without language field (optional)', () => {
+      const result = GitHubReposSearchBulkQueryLocalSchema.safeParse({
+        queries: [{ ...QUERY_BASE, keywordsToSearch: ['testing'] }],
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects language field that is not a string', () => {
+      const result = GitHubReposSearchBulkQueryLocalSchema.safeParse({
+        queries: [
+          {
+            ...QUERY_BASE,
+            keywordsToSearch: ['testing'],
+            language: 42,
           },
         ],
       });

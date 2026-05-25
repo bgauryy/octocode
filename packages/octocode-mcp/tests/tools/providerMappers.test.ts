@@ -3,6 +3,7 @@ import {
   buildPaginationHints,
   mapCodeSearchProviderResult,
   mapCodeSearchToolQuery,
+  mapPullRequestProviderResultData,
   mapPullRequestToolQuery,
   mapRepoSearchProviderRepositories,
   mapRepoStructureProviderResult,
@@ -178,6 +179,93 @@ describe('providerMappers', () => {
     });
 
     expect(result.query).toBe('hydration');
+  });
+
+  it('should preserve every provider PR response field in tool output', () => {
+    const { resultData } = mapPullRequestProviderResultData({
+      items: [
+        {
+          number: 123,
+          title: 'Fix hydration',
+          body: 'Detailed body',
+          url: 'https://github.com/facebook/react/pull/123',
+          state: 'merged',
+          draft: false,
+          author: 'alice',
+          assignees: ['bob'],
+          labels: ['bug'],
+          sourceBranch: 'fix-hydration',
+          targetBranch: 'main',
+          sourceSha: 'abc123',
+          targetSha: 'def456',
+          createdAt: '2026-05-24T00:00:00Z',
+          updatedAt: '2026-05-25T00:00:00Z',
+          closedAt: '2026-05-25T01:00:00Z',
+          mergedAt: '2026-05-25T01:00:00Z',
+          commentsCount: 2,
+          changedFilesCount: 1,
+          additions: 10,
+          deletions: 3,
+          comments: [
+            {
+              id: 'c1',
+              author: 'bob',
+              body: 'Looks good',
+              createdAt: '2026-05-25T00:30:00Z',
+              updatedAt: '2026-05-25T00:30:00Z',
+            },
+          ],
+          fileChanges: [
+            {
+              path: 'src/a.ts',
+              status: 'modified',
+              additions: 10,
+              deletions: 3,
+              patch: '@@ -1 +1 @@',
+            },
+          ],
+        },
+      ],
+      totalCount: 1,
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+        totalMatches: 1,
+      },
+    });
+
+    const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
+
+    expect(Object.keys(pr).sort()).toEqual(
+      [
+        'additions',
+        'assignees',
+        'author',
+        'body',
+        'changedFilesCount',
+        'closedAt',
+        'comments',
+        'commentsCount',
+        'createdAt',
+        'deletions',
+        'draft',
+        'fileChanges',
+        'labels',
+        'mergedAt',
+        'number',
+        'sourceBranch',
+        'sourceSha',
+        'state',
+        'targetBranch',
+        'targetSha',
+        'title',
+        'updatedAt',
+        'url',
+      ].sort()
+    );
+    expect(pr.sourceSha).toBe('abc123');
+    expect(pr.targetSha).toBe('def456');
   });
 
   it('emits a single combined cursor line when hasMore', () => {

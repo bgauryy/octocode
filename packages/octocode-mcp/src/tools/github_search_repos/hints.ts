@@ -11,7 +11,13 @@ export const hints: ToolHintGenerators = {
     // Metadata dynamic hints (topicsHasResults, etc.) are loaded separately via extraHints
   ],
   empty: (_ctx: HintContext = {}) => [
-    // Static hints cover "Try broader terms", metadata dynamic hints cover topics/keywords
+    // Language vs topic guidance — this is the #1 source of missed repos
+    'Language filter tip: use language="TypeScript" (primary language filter) instead of or ' +
+      'in addition to topicsToSearch:["typescript"]. ' +
+      'Topic tags are self-reported and sparse — many TypeScript repos do not have the "typescript" topic. ' +
+      'language:X is reliable because GitHub auto-detects it from file extensions.',
+    'Drop rarest filter first: if using stars + created + language + topics, drop topics first, ' +
+      'then created, then widen stars range.',
   ],
   error: (_ctx: HintContext = {}) => [],
 };

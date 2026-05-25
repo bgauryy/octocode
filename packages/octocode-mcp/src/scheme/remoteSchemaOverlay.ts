@@ -11,7 +11,19 @@
  *    The GitHub search API maps `state:"merged"` to `is:merged` server-side;
  *    the execution layer already casts state through with the wider union.
  *
- * 2. packageSearch — defaults `ecosystem` to `"npm"` when omitted.
+ * 2. githubSearchPullRequests — improves `query`, `match`, and `sort` descriptions.
+ *    Adds explicit PR archaeology strategy: use match=["title"] + sort="best-match"
+ *    as the first step when searching for a PR by approximate title keyword.
+ *
+ * 3. githubSearchRepositories — adds `language` field.
+ *    Maps to GitHub's language: qualifier (primary repo language auto-detected from
+ *    file extensions). More reliable than topicsToSearch for language filtering;
+ *    topics are self-reported and sparse.
+ *
+ * 4. githubSearchRepositories — fixes `updated` description.
+ *    Corrects "metadata update" to "last code push" (pushed: qualifier, not updated:).
+ *
+ * 5. packageSearch — defaults `ecosystem` to `"npm"` when omitted.
  *    The upstream schema is a discriminated union that requires `ecosystem`.
  *    A `z.preprocess` step injects `ecosystem: "npm"` before the union runs,
  *    so callers that only supply `name` get npm behaviour without an error.
@@ -347,6 +359,23 @@ export const GitHubViewRepoStructureBulkQueryLocalSchema =
 
 export const GitHubReposSearchSingleQueryLocalSchema =
   UpstreamGitHubReposSearchSingleQuerySchema.extend({
+    language: z
+      .string()
+      .optional()
+      .describe(
+        'Filter by primary programming language (e.g. "TypeScript", "Python", "Go"). ' +
+          "Maps to GitHub's language: qualifier. " +
+          'Use this instead of topicsToSearch when you want repos whose primary language is X. ' +
+          'topicsToSearch:["typescript"] only finds repos that self-tagged with the topic.'
+      ),
+    updated: z
+      .string()
+      .optional()
+      .describe(
+        'Filter by last code push date (e.g. ">=2024-01-01" or "2024-01-01..2024-12-31"). ' +
+          "Maps to GitHub's pushed: qualifier — this is the last git push, not a metadata update. " +
+          'Use this to find recently active repos.'
+      ),
     page: relaxedPageNumberField.default(1),
     limit: relaxedPaginationLimitField.default(10),
   });
@@ -375,6 +404,35 @@ export const GitHubPullRequestSearchQueryLocalSchema =
           '"open" = open PRs. ' +
           '"closed" = closed PRs (includes merged). ' +
           '"merged" = merged PRs only (shorthand for closed + merged:true).'
+      ),
+    query: z
+      .string()
+      .optional()
+      .describe(
+        'Free-text search across title, body, and comments by default (max 256 chars). ' +
+          'Use match=["title"] to restrict to title-only — best strategy for PR archaeology ' +
+          '(finding the PR that introduced a feature by its probable title keywords). ' +
+          'Example: query="experimental_use promise", match=["title"] to find the PR ' +
+          'that first shipped use(promise). Without match, noisy body/comment hits dominate.'
+      ),
+    match: z
+      .array(z.enum(['title', 'body', 'comments']))
+      .optional()
+      .describe(
+        'Restrict query to specific fields. Default: all three (title + body + comments). ' +
+          'For PR archaeology (find a PR by approximate title): match=["title"] first — ' +
+          'it returns the highest signal results in fewest calls. ' +
+          'If title search fails, widen to match=["title","body"] then drop match entirely.'
+      ),
+    sort: z
+      .enum(['created', 'updated', 'best-match'])
+      .optional()
+      .describe(
+        'Sort order. ' +
+          '"best-match" (default for keyword queries): highest relevance first — ' +
+          'best for PR archaeology when you have a title keyword. ' +
+          '"created": chronological — best when you want the earliest or latest PR. ' +
+          '"updated": most recently touched — best for finding active PRs.'
       ),
     page: relaxedPageNumberField.default(1),
     limit: relaxedPaginationLimitField.default(10),

@@ -101,8 +101,10 @@ export interface RepoSearchQuery extends BaseProviderQuery {
   size?: string;
   /** Created date filter (e.g. '>2024-01-01') */
   created?: string;
-  /** Updated/pushed date filter (e.g. '>2024-06-01') */
+  /** Updated/pushed date filter (e.g. '>2024-06-01') — maps to GitHub pushed: qualifier */
   updated?: string;
+  /** Primary programming language filter (e.g. 'TypeScript', 'Python') — maps to language: qualifier */
+  language?: string;
   /** Match scope: name, description, readme */
   match?: Array<'name' | 'description' | 'readme'>;
   /** Visibility filter */

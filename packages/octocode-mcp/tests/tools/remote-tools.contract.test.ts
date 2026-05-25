@@ -380,12 +380,25 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(hints.some(h => h.includes('match="file"'))).toBe(true);
   });
 
-  it('githubSearchCode hasResults emits nothing (no static narration)', () => {
+  it('githubSearchCode hasResults emits nothing when hasMore is not set (single-page result)', () => {
     expect(
       getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'hasResults', {
         hasOwnerRepo: true,
       })
     ).toEqual([]);
+  });
+
+  it('githubSearchCode hasResults emits exhaustive-enumeration warning when hasMore=true', () => {
+    const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'hasResults', {
+      hasOwnerRepo: true,
+      hasMore: true,
+      currentPage: 1,
+      totalPages: 3,
+      totalMatches: 28,
+    });
+    expect(hints.length).toBe(1);
+    expect(hints[0]).toContain('exhaustive');
+    expect(hints[0]).toContain('page=2');
   });
 
   it('githubGetFileContent isPartial emits a continuation cursor hint', () => {

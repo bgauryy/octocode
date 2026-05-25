@@ -69,6 +69,19 @@ const genericCases: GenericCase[] = [
           deletions: 0,
           changedFilesCount: 1,
           url: 'u',
+          mergedAt: '2026-05-25T12:00:00Z',
+          body: 'body text',
+          draft: false,
+          assignees: ['reviewer'],
+          labels: ['bug'],
+          sourceBranch: 'feature',
+          targetBranch: 'main',
+          sourceSha: 'abc123',
+          targetSha: 'def456',
+          closedAt: '2026-05-25T12:01:00Z',
+          commentsCount: 2,
+          comments: [{ author: 'reviewer', body: 'comment' }],
+          fileChanges: [{ path: 'src/a.ts', status: 'modified' }],
         },
       ],
     },
@@ -220,6 +233,40 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
       expect(Array.isArray(sc.columns)).toBe(true);
       expect(typeof sc.rows).toBe('string');
       expect(String(sc.rows)).toContain(rowProbe);
+
+      if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS) {
+        expect(sc.columns).toEqual(
+          expect.arrayContaining([
+            'number',
+            'title',
+            'body',
+            'url',
+            'state',
+            'draft',
+            'author',
+            'assignees',
+            'labels',
+            'sourceBranch',
+            'targetBranch',
+            'sourceSha',
+            'targetSha',
+            'createdAt',
+            'updatedAt',
+            'closedAt',
+            'mergedAt',
+            'commentsCount',
+            'changedFilesCount',
+            'additions',
+            'deletions',
+            'comments',
+            'fileChanges',
+          ])
+        );
+        expect(String(sc.rows)).toContain('2026-05-25T12:00:00Z');
+        expect(String(sc.rows)).toContain('body text');
+        expect(String(sc.rows)).toContain('abc123');
+        expect(String(sc.rows)).toContain('src/a.ts');
+      }
     }
   );
 });

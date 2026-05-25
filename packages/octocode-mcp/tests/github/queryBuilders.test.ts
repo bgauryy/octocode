@@ -350,6 +350,41 @@ describe('Query Builders', () => {
       const query = buildRepoSearchQuery(params);
       expect(query).toBe('react typescript is:not-archived');
     });
+
+    it('should include language filter when language is provided', () => {
+      const params = {
+        keywordsToSearch: ['testing'],
+        language: 'TypeScript',
+      } as Parameters<typeof buildRepoSearchQuery>[0];
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toContain('language:TypeScript');
+      expect(query).toBe('testing language:TypeScript is:not-archived');
+    });
+
+    it('should combine language with topics', () => {
+      const params = {
+        topicsToSearch: ['testing'],
+        language: 'TypeScript',
+        stars: '>1000',
+        created: '>=2022-01-01',
+      } as Parameters<typeof buildRepoSearchQuery>[0];
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toContain('language:TypeScript');
+      expect(query).toContain('topic:testing');
+      expect(query).toContain('stars:>1000');
+      expect(query).toContain('created:>=2022-01-01');
+    });
+
+    it('should omit language qualifier when language is not provided', () => {
+      const params = {
+        keywordsToSearch: ['testing'],
+      };
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).not.toContain('language:');
+    });
   });
 
   describe('buildPullRequestSearchQuery', () => {

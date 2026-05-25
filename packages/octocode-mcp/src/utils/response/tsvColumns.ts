@@ -123,7 +123,7 @@ const searchReposProjection: TsvProjection = {
 };
 
 // ---------------------------------------------------------------------------
-// githubSearchPullRequests — one row per PR; body/fileChanges stay JSON
+// githubSearchPullRequests — one row per PR; nested fields stay JSON
 // ---------------------------------------------------------------------------
 const searchPrsProjection: TsvProjection = {
   columns: [
@@ -137,6 +137,19 @@ const searchPrsProjection: TsvProjection = {
     'deletions',
     'changedFilesCount',
     'url',
+    'mergedAt',
+    'body',
+    'draft',
+    'assignees',
+    'labels',
+    'sourceBranch',
+    'targetBranch',
+    'sourceSha',
+    'targetSha',
+    'closedAt',
+    'commentsCount',
+    'comments',
+    'fileChanges',
   ],
   toRows: data => {
     const list = arr((data as { pull_requests?: unknown }).pull_requests);
@@ -153,6 +166,19 @@ const searchPrsProjection: TsvProjection = {
         deletions: pr.deletions ?? '',
         changedFilesCount: pr.changedFilesCount ?? '',
         url: pr.url ?? '',
+        mergedAt: pr.mergedAt ?? '',
+        body: pr.body ?? '',
+        draft: pr.draft ?? '',
+        assignees: pr.assignees ?? '',
+        labels: pr.labels ?? '',
+        sourceBranch: pr.sourceBranch ?? '',
+        targetBranch: pr.targetBranch ?? '',
+        sourceSha: pr.sourceSha ?? '',
+        targetSha: pr.targetSha ?? '',
+        closedAt: pr.closedAt ?? '',
+        commentsCount: pr.commentsCount ?? '',
+        comments: pr.comments ?? '',
+        fileChanges: pr.fileChanges ?? '',
       };
     });
   },

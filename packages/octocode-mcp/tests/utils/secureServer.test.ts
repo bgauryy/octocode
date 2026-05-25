@@ -317,7 +317,6 @@ describe('secureServer', () => {
           message: expect.stringContaining('resource "doc" failed'),
         });
       });
-
     });
 
     describe('crash isolation', () => {

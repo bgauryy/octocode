@@ -1,53 +1,81 @@
 # Scripts
 
-Zero-dependency. Every measurement is **chars (codepoints) + wall time + count** — same ruler for both agents.
+13 zero-dependency utilities. Full operator flow and agent prompts live in [`../README.md`](../README.md).
 
-| Script | What it does |
-|---|---|
-| `init-run.sh <octocode\|gh\|none>` | Create `output/<ts>-<agent>/q{1..31}/` and `log.jsonl`. Exports `$RUN`, `$LOG`. |
-| `gh-meas.sh <gh args>` | Runs `gh`, appends `{q, in_chars, out_chars, elapsed_ms}` to `$LOG`, passes stdout through. |
-| `mcp-meas.mjs <mcp-server-cmd> [args...]` | **Transparent MCP stdio proxy.** Spawns the Octocode MCP server and logs every `tools/call` pair (request + response, by JSON-RPC `id`) to `$LOG` with the same schema as `gh-meas.sh`. Fully automated — both sides measured equivalently. |
-| `octo-meas.sh <tool> <req_file> <res_file> [elapsed_ms]` | Manual fallback when the MCP proxy can't be used. Agent invokes after each call. |
-| `chars.mjs` | Codepoint counter. `string` → stdout. |
-| `aggregate.mjs <log> <q>` | Sums one question's log rows. Prints `calls in out ms`. |
-| `record.sh <q> <model> <answer_file>` | Writes `$RUN/q<q>/output.md` using metrics from `$LOG`. |
-| `finalize.mjs <run>` | Writes `<run>/output.md` summary table. |
-| `cross-run.mjs <run...>` | Median across ≥2 runs of the same agent. |
-| `judge.mjs <run_a> <run_b>` | Auto-score using `EXPECTED_FACTS.md` (verbatim-token match). |
-| `verify-facts.mjs` | Re-fetch every file path in `EXPECTED_FACTS.md`; detect drift. Needs `$GH_TOKEN`. |
+## Pipeline at a glance
 
-## Loop
-
-```bash
-source scripts/init-run.sh octocode    # or: gh, none
-export Q=1
-
-# gh agent — wrap every gh call:
-bash scripts/gh-meas.sh search code "useState" --repo facebook/react
-
-# octocode agent — configure the agent's MCP client to point at the proxy:
-#   command: node
-#   args:    [scripts/mcp-meas.mjs, octocode-mcp]
-#   env:     { LOG, Q }
-# Every tools/call is then logged automatically (no agent action required).
-
-# After Q finishes:
-bash scripts/record.sh "$Q" "claude-opus-4-7" answer.md
-export Q=2
-# ... repeat ...
-
-node scripts/finalize.mjs "$RUN"
+```
+init-run ──→ set-q ──→ (agent works) ──→ record ──→ (repeat) ──→ finalize ──→ judge
+              │                            │                       │
+              ↓                            ↓                       ↓
+         .current-q              log.jsonl + metrics.json     summary.json
+         .q-start                                             output.md
 ```
 
-## Scoring
+## 1 · Setup
 
-```bash
-node scripts/judge.mjs output/<ts>-octocode output/<ts>-gh
-node scripts/verify-facts.mjs   # weekly drift check
+**`init-run.sh <agent-slug>`** — Creates `output/<ts>-<agent>/` with empty `log.jsonl`, `.current-q=0`, `.q-count=N` (auto-counted from `QUESTIONS.md`), and `q1/…qN/` dirs. Exports `$RUN`, `$LOG`, `$Q=0`. Slug = any `[a-z0-9_-]+`.
+
+## 2 · Per-question routing
+
+**`set-q.sh <n>`** — Writes `<n>` to `.current-q` and `Date.now()` to `.q-start`. Run **before every Q's first tool call** — the metering scripts read `.current-q` to attribute the call to the right Q; `record.sh` later reads `.q-start` to compute Q wall-clock.
+
+## 3 · Metering (one log row per tool call)
+
+**`mcp-meas.mjs <server-cmd> [args]`** — Transparent MCP stdio proxy. Spawns the real MCP server (e.g. `octocode-mcp`), forwards every JSON-RPC line in both directions, and appends one row to `$LOG` per `tools/call`. The agent's MCP client points at this script instead of the server.
+
+**`gh-meas.sh <gh args>`** — Wrapper for `gh`. Runs the command, captures stdout+stderr, appends one row to `$LOG`. Agent must call every `gh` through this — bare `gh` is unmetered.
+
+**`octo-meas.sh <tool> <req-file> <res-file> [ms]`** — Manual fallback when the MCP proxy can't be inserted. Agent supplies request + response payloads as files; the script logs them. Fragile (operator discipline) — prefer `mcp-meas.mjs`.
+
+**`chars.mjs [--file P | --text S | <stdin>]`** — Codepoint counter (not bytes). Used internally by all metering scripts.
+
+Log row schema (jsonl):
+
+```json
+{"ts","q","agent","cmd","in_chars","out_chars","elapsed_ms","exit"}
 ```
 
-## Multi-run
+## 4 · Recording (per Q, after the agent finishes)
 
-```bash
-node scripts/cross-run.mjs output/*-octocode   # medians across all octocode runs
-```
+**`aggregate.mjs <log> <q> [--allow-zero] [--json]`** — Sums rows where `q==<n>`. Prints `calls in_chars out_chars elapsed_ms` (or JSON with per-call breakdown). **Fails loud on zero rows** unless `--allow-zero`.
+
+**`record.sh <q> <model> <answer-file>`** — Aggregates `$LOG` for `<q>`, computes `q_elapsed_ms = now − .q-start`, writes `q<n>.json` + `q<n>.md` flat in `$RUN`. Strips a leading `## Answer` header from the answer file. `DETERMINISTIC=1` zeroes timestamps for byte-stable golden tests.
+
+## 5 · Rollup (after all Qs)
+
+**`finalize.mjs <run>`** — Reads every `q*/metrics.json`, writes `<run>/output.md` (human summary) and `<run>/summary.json` (machine totals + per-Q breakdown).
+
+## 6 · Stability & integrity (≥2 runs)
+
+**`cross-run.mjs <run...>`** — Median per metric across same-agent runs. Reads `summary.json`. Descriptive.
+
+**`report-variance.mjs [--csv] <run...>`** — Coefficient of variation (CV=stdev/mean) per metric. Flags unstable Qs (CV ≥ 0.3). Descriptive — no pass/fail.
+
+**`validate-pipeline.mjs [--strict-cmds] <run...>`** — Asserts `calls`, `in_chars`, `out_chars` are byte-identical across runs (wall-clock excluded). For regression-checking the metering code, not agent behaviour. Exit 0 only on full match.
+
+## 7 · Scoring
+
+Scoring is done by the judge agent — paste `prompts/judge.md` with the two run paths. The agent reads both `q<n>.md` answer files and `EXPECTED_FACTS.md` and scores semantically. No script is involved.
+
+## 8 · Smoke-testing
+
+**`call-tool.mjs <tool-name> '<queries-json>'`** — One-shot MCP client routed through `mcp-meas.mjs`. Spawns proxy+server, sends a single `tools/call`, prints the result text, exits. Useful for verifying the MCP path works without writing a full run. Server resolution: `$OCTOCODE_MCP_SERVER` → monorepo `dist/index.js` → `octocode-mcp` on PATH.
+
+## Ruler — same for both agents
+
+| | octocode (`mcp-meas.mjs`) | gh (`gh-meas.sh`) |
+|---|---|---|
+| `in_chars`  | codepoints of `JSON.stringify(params.arguments)` | codepoints of argv tail (no `gh ` prefix) |
+| `out_chars` | codepoints of `result.content[].text` joined | codepoints of stdout + stderr |
+
+Codepoints (not bytes): `日本` = 2, `🚀` = 1. JSON-RPC envelope and `gh ` prefix excluded so neither agent pays for transport overhead.
+
+## Pass/fail vs descriptive
+
+| Script | Asks | Exits non-zero on… |
+|---|---|---|
+| `aggregate.mjs` | Did metering capture this Q? | missing log / zero rows |
+| `validate-pipeline.mjs` | Is the metering code deterministic? | metric diff across runs |
+| judge agent | How well did the agent answer? | semantic — no pass/fail |
+| `cross-run.mjs`, `report-variance.mjs` | What's the spread / median? | never (descriptive) |
