@@ -49,7 +49,7 @@ describe('TSV projection coverage', () => {
   it.each(allTools)('registers a TSV projection for %s', tool => {
     const projection = getTsvProjection(tool);
     expect(projection).toBeDefined();
-    expect(projection!.columns.length).toBeGreaterThan(0);
+    expect(Array.isArray(projection!.columns)).toBe(true);
     expect(typeof projection!.toRows).toBe('function');
   });
 
@@ -87,13 +87,11 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toEqual(['path', 'line', 'column', 'value']);
+    expect(columns).toEqual(['line', 'column']);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
-      path: 'src/a.ts',
       line: 10,
       column: 4,
-      value: 'export function foo()',
     });
   });
 
@@ -109,11 +107,11 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toContain('permissions');
+    expect(columns).not.toContain('path');
+    expect(columns).not.toContain('type');
+    expect(columns).not.toContain('permissions');
     expect(rows[0]).toMatchObject({
-      path: 'README.md',
       size: 1234,
-      permissions: '644',
     });
   });
 
@@ -128,19 +126,22 @@ describe('local + LSP TSV projections — sample data', () => {
     expect(rows.map(r => r.name)).toEqual(['src', 'README.md']);
   });
 
-  it('localGetFileContent emits a single row collapsing the file slice', () => {
-    const { rows, text } = project(STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT, {
-      path: 'src/a.ts',
-      content: 'line1\nline2\nline3',
-      startLine: 1,
-      endLine: 3,
-      totalLines: 100,
-      isPartial: true,
-    });
+  it('localGetFileContent emits metadata without file content', () => {
+    const { rows, text, columns } = project(
+      STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
+      {
+        path: 'src/a.ts',
+        content: 'line1\nline2\nline3',
+        startLine: 1,
+        endLine: 3,
+        totalLines: 100,
+        isPartial: true,
+      }
+    );
     expect(rows).toHaveLength(1);
-    // Multi-line content must collapse to a single TSV row (escaped \n).
+    expect(columns).not.toContain('content');
     expect(text.split('\n')).toHaveLength(2);
-    expect(text).toContain('line1\\nline2\\nline3');
+    expect(text).not.toContain('line1');
   });
 
   it('lspGotoDefinition flattens definitions to uri/line/column rows', () => {
@@ -153,13 +154,12 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toEqual(['uri', 'line', 'column', 'snippet']);
+    expect(columns).toEqual(['line', 'column']);
     expect(rows[0]).toMatchObject({
-      uri: 'src/a.ts',
       line: 10,
       column: 4,
-      snippet: 'export class A',
     });
+    expect(rows[0]).not.toHaveProperty('snippet');
   });
 
   it('lspFindReferences flattens references the same way', () => {
@@ -173,13 +173,12 @@ describe('local + LSP TSV projections — sample data', () => {
       ],
     });
     expect(rows[0]).toMatchObject({
-      uri: 'src/b.ts',
       line: 22,
       column: 0,
     });
   });
 
-  it('lspCallHierarchy projects (direction, name, uri, line, column)', () => {
+  it('lspCallHierarchy omits direction and uri params', () => {
     const { rows, columns } = project(STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY, {
       calls: [
         {
@@ -192,11 +191,9 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toEqual(['direction', 'name', 'uri', 'line', 'column']);
+    expect(columns).toEqual(['name', 'line', 'column']);
     expect(rows[0]).toMatchObject({
-      direction: 'incoming',
       name: 'callerFn',
-      uri: 'src/c.ts',
       line: 5,
       column: 2,
     });

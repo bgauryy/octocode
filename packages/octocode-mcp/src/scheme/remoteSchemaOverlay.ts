@@ -498,11 +498,15 @@ import {
   PackageSearchOutputSchema as UpstreamPackageOutput,
 } from '@octocodeai/octocode-core';
 
+import { EvidenceSchema } from './tsvEnvelope.js';
+
 const peerEnvelopeFields = {
   hints: z.array(z.string()).optional(),
   format: z.literal('tsv').optional(),
   columns: z.array(z.string()).optional(),
   rows: z.string().optional(),
+  /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
+  evidence: EvidenceSchema,
 } as const;
 
 export const GitHubSearchRepositoriesOutputLocalSchema =

@@ -95,7 +95,7 @@ Quality ↑
 
 Local verdict: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"ultra"` is available for lossy broad probes; use compact/default for evidence.
 
-Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/benchmark/github/README.md)
+Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/README.md)
 
 ---
 

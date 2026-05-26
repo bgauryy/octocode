@@ -3,6 +3,7 @@ import type {
   ToolErrorResult,
   ToolSuccessResult,
   ToolInvocationCallback,
+  EvidenceMetadata,
 } from '../types.js';
 import type { HintContext } from '../types/metadata.js';
 import type { ProviderResponse } from '../providers/types.js';
@@ -46,6 +47,11 @@ interface SuccessResultOptions {
   extraHints?: string[];
   /** Raw source response or character count used for local savings stats */
   rawResponse?: unknown;
+  /**
+   * Evidence metadata for this query. The bulk runner can lift it to the
+   * top of the response when the tool's config sets `peerEvidence: true`.
+   */
+  evidence?: EvidenceMetadata;
 }
 
 /**
@@ -106,6 +112,10 @@ export function createSuccessResult<T extends object>(
 
   if (allHints.length > 0) {
     result.hints = allHints;
+  }
+
+  if (options?.evidence && Object.keys(options.evidence).length > 0) {
+    (result as Record<string, unknown>).evidence = options.evidence;
   }
 
   return options?.rawResponse === undefined

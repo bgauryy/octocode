@@ -162,6 +162,13 @@ export interface BulkResponseConfig<
    */
   peerHints?: boolean;
   /**
+   * When true, per-query `data.evidence` blocks are lifted out, deduped,
+   * and aggregated into a single top-level `evidence` object on the
+   * response (answerReady = AND of all, complete = AND of all, confidence
+   * = lowest of all). Opt-in for the same reason as `peerHints`.
+   */
+  peerEvidence?: boolean;
+  /**
    * Maximum number of concurrent requests during bulk operations.
    * Lower values reduce rate limiting risk, higher values improve throughput.
    * @default 3
@@ -209,6 +216,31 @@ export interface StructuredToolResponse {
   [key: string]: unknown;
 }
 
+/**
+ * Cross-tool evidence metadata. Tools opt in to populating these fields so
+ * the agent can tell whether a response is answer-ready, complete, and what
+ * kind of evidence was returned without inspecting the payload shape.
+ */
+export interface EvidenceMetadata {
+  kind?:
+    | 'metadata'
+    | 'content'
+    | 'structure'
+    | 'code'
+    | 'docs'
+    | 'config'
+    | 'pr'
+    | 'repo'
+    | 'package'
+    | 'references'
+    | 'calls';
+  answerReady?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
+  complete?: boolean;
+  reason?: string;
+  missingFields?: string[];
+}
+
 /** Bulk response format */
 export interface BulkToolResponse {
   results: FlatQueryResult[];
@@ -221,6 +253,8 @@ export interface BulkToolResponse {
   columns?: readonly string[];
   /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
   rows?: string;
+  /** Aggregated evidence metadata, lifted from per-query `data.evidence`. */
+  evidence?: EvidenceMetadata;
 }
 
 /**

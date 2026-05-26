@@ -31,55 +31,25 @@ function obj(value: unknown): Record<string, unknown> {
 // githubSearchCode — flatten owner/repo groups into one row per match
 // ---------------------------------------------------------------------------
 const searchCodeProjection: TsvProjection = {
-  columns: ['repo', 'path', 'value'],
-  toRows: data => {
-    const groups = arr((data as { results?: unknown }).results);
-    const rows: Array<Record<string, unknown>> = [];
-    for (const g of groups) {
-      const group = obj(g);
-      const repo = `${group.owner ?? ''}/${group.repo ?? ''}`;
-      for (const m of arr(group.matches)) {
-        const match = obj(m);
-        rows.push({
-          repo,
-          path: match.path ?? '',
-          value: match.value ?? '',
-        });
-      }
-    }
-    return rows;
-  },
+  columns: [],
+  toRows: () => [],
 };
 
 // ---------------------------------------------------------------------------
 // githubGetFileContent — one row per file; content stays as a single cell
 // ---------------------------------------------------------------------------
 const fetchContentProjection: TsvProjection = {
-  columns: [
-    'repo',
-    'path',
-    'startLine',
-    'endLine',
-    'totalLines',
-    'lastModifiedBy',
-    'content',
-  ],
+  columns: ['totalLines', 'lastModifiedBy'],
   toRows: data => {
     const groups = arr((data as { results?: unknown }).results);
     const rows: Array<Record<string, unknown>> = [];
     for (const g of groups) {
       const group = obj(g);
-      const repo = `${group.owner ?? ''}/${group.repo ?? ''}`;
       for (const f of arr(group.files)) {
         const file = obj(f);
         rows.push({
-          repo,
-          path: file.path ?? '',
-          startLine: file.startLine ?? '',
-          endLine: file.endLine ?? '',
           totalLines: file.totalLines ?? '',
           lastModifiedBy: file.lastModifiedBy ?? '',
-          content: file.content ?? '',
         });
       }
     }
@@ -92,15 +62,12 @@ const fetchContentProjection: TsvProjection = {
 // ---------------------------------------------------------------------------
 const searchReposProjection: TsvProjection = {
   columns: [
-    'owner',
     'repo',
-    'stars',
     'language',
     'pushedAt',
     'forksCount',
     'openIssuesCount',
     'topics',
-    'description',
   ],
   toRows: data => {
     const list = arr((data as { repositories?: unknown }).repositories);
@@ -108,29 +75,23 @@ const searchReposProjection: TsvProjection = {
       const row = obj(r);
       const topics = Array.isArray(row.topics) ? row.topics.join(' ') : '';
       return {
-        owner: row.owner ?? '',
         repo: row.repo ?? '',
-        stars: row.stars ?? '',
         language: row.language ?? '',
         pushedAt: row.pushedAt ?? '',
         forksCount: row.forksCount ?? '',
         openIssuesCount: row.openIssuesCount ?? '',
         topics,
-        description: row.description ?? '',
       };
     });
   },
 };
 
 // ---------------------------------------------------------------------------
-// githubSearchPullRequests — one row per PR; nested fields stay JSON
+// githubSearchPullRequests — one row per PR; omit large/nested fields from TSV
 // ---------------------------------------------------------------------------
 const searchPrsProjection: TsvProjection = {
   columns: [
     'number',
-    'state',
-    'author',
-    'title',
     'createdAt',
     'updatedAt',
     'additions',
@@ -138,8 +99,6 @@ const searchPrsProjection: TsvProjection = {
     'changedFilesCount',
     'url',
     'mergedAt',
-    'body',
-    'draft',
     'assignees',
     'labels',
     'sourceBranch',
@@ -148,8 +107,6 @@ const searchPrsProjection: TsvProjection = {
     'targetSha',
     'closedAt',
     'commentsCount',
-    'comments',
-    'fileChanges',
   ],
   toRows: data => {
     const list = arr((data as { pull_requests?: unknown }).pull_requests);
@@ -157,9 +114,6 @@ const searchPrsProjection: TsvProjection = {
       const pr = obj(p);
       return {
         number: pr.number ?? '',
-        state: pr.state ?? '',
-        author: pr.author ?? '',
-        title: pr.title ?? '',
         createdAt: pr.createdAt ?? '',
         updatedAt: pr.updatedAt ?? '',
         additions: pr.additions ?? '',
@@ -167,8 +121,6 @@ const searchPrsProjection: TsvProjection = {
         changedFilesCount: pr.changedFilesCount ?? '',
         url: pr.url ?? '',
         mergedAt: pr.mergedAt ?? '',
-        body: pr.body ?? '',
-        draft: pr.draft ?? '',
         assignees: pr.assignees ?? '',
         labels: pr.labels ?? '',
         sourceBranch: pr.sourceBranch ?? '',
@@ -177,8 +129,6 @@ const searchPrsProjection: TsvProjection = {
         targetSha: pr.targetSha ?? '',
         closedAt: pr.closedAt ?? '',
         commentsCount: pr.commentsCount ?? '',
-        comments: pr.comments ?? '',
-        fileChanges: pr.fileChanges ?? '',
       };
     });
   },
@@ -217,7 +167,6 @@ const packageSearchProjection: TsvProjection = {
     'weeklyDownloads',
     'lastPublished',
     'license',
-    'description',
   ],
   toRows: data => {
     const list = arr((data as { packages?: unknown }).packages);
@@ -231,7 +180,6 @@ const packageSearchProjection: TsvProjection = {
         weeklyDownloads: pkg.weeklyDownloads ?? '',
         lastPublished: pkg.lastPublished ?? '',
         license: pkg.license ?? '',
-        description: pkg.description ?? '',
       };
     });
   },
@@ -241,20 +189,17 @@ const packageSearchProjection: TsvProjection = {
 // localSearchCode (ripgrep) — flatten files[].matches[] into one row per hit
 // ---------------------------------------------------------------------------
 const localSearchCodeProjection: TsvProjection = {
-  columns: ['path', 'line', 'column', 'value'],
+  columns: ['line', 'column'],
   toRows: data => {
     const files = arr((data as { files?: unknown }).files);
     const rows: Array<Record<string, unknown>> = [];
     for (const f of files) {
       const file = obj(f);
-      const path = file.path ?? '';
       for (const m of arr(file.matches)) {
         const match = obj(m);
         rows.push({
-          path,
           line: match.line ?? '',
           column: match.column ?? '',
-          value: match.value ?? '',
         });
       }
     }
@@ -266,17 +211,14 @@ const localSearchCodeProjection: TsvProjection = {
 // localFindFiles — one row per file
 // ---------------------------------------------------------------------------
 const localFindFilesProjection: TsvProjection = {
-  columns: ['path', 'type', 'size', 'modified', 'permissions'],
+  columns: ['size', 'modified'],
   toRows: data => {
     const files = arr((data as { files?: unknown }).files);
     return files.map(f => {
       const file = obj(f);
       return {
-        path: file.path ?? '',
-        type: file.type ?? '',
         size: file.size ?? '',
         modified: file.modified ?? '',
-        permissions: file.permissions ?? '',
       };
     });
   },
@@ -286,7 +228,7 @@ const localFindFilesProjection: TsvProjection = {
 // localViewStructure — one row per entry
 // ---------------------------------------------------------------------------
 const localViewStructureProjection: TsvProjection = {
-  columns: ['name', 'type', 'size', 'modified', 'depth'],
+  columns: ['name', 'type', 'size', 'modified'],
   toRows: data => {
     const entries = arr((data as { entries?: unknown }).entries);
     return entries.map(e => {
@@ -296,7 +238,6 @@ const localViewStructureProjection: TsvProjection = {
         type: entry.type ?? '',
         size: entry.size ?? '',
         modified: entry.modified ?? '',
-        depth: entry.depth ?? '',
       };
     });
   },
@@ -306,14 +247,7 @@ const localViewStructureProjection: TsvProjection = {
 // localGetFileContent — single row (one file slice per query)
 // ---------------------------------------------------------------------------
 const localFetchContentProjection: TsvProjection = {
-  columns: [
-    'path',
-    'startLine',
-    'endLine',
-    'totalLines',
-    'isPartial',
-    'content',
-  ],
+  columns: ['totalLines', 'isPartial'],
   toRows: data => {
     const d = obj(data);
     // Some empty paths only carry `totalLines`; render a single row anyway
@@ -323,12 +257,8 @@ const localFetchContentProjection: TsvProjection = {
     }
     return [
       {
-        path: d.path ?? '',
-        startLine: d.startLine ?? '',
-        endLine: d.endLine ?? '',
         totalLines: d.totalLines ?? '',
         isPartial: d.isPartial ?? '',
-        content: d.content ?? '',
       },
     ];
   },
@@ -341,15 +271,13 @@ function locationRow(loc: Record<string, unknown>): Record<string, unknown> {
   const range = obj(loc.range);
   const start = obj(range.start);
   return {
-    uri: loc.uri ?? loc.path ?? '',
     line: start.line ?? loc.line ?? '',
     column: start.character ?? start.column ?? loc.column ?? '',
-    snippet: loc.snippet ?? loc.context ?? '',
   };
 }
 
 const lspGotoDefinitionProjection: TsvProjection = {
-  columns: ['uri', 'line', 'column', 'snippet'],
+  columns: ['line', 'column'],
   toRows: data => {
     const defs = arr(
       (data as { definitions?: unknown; locations?: unknown }).definitions ??
@@ -360,7 +288,7 @@ const lspGotoDefinitionProjection: TsvProjection = {
 };
 
 const lspFindReferencesProjection: TsvProjection = {
-  columns: ['uri', 'line', 'column', 'snippet'],
+  columns: ['line', 'column'],
   toRows: data => {
     const refs = arr(
       (data as { references?: unknown; locations?: unknown }).references ??
@@ -371,7 +299,7 @@ const lspFindReferencesProjection: TsvProjection = {
 };
 
 const lspCallHierarchyProjection: TsvProjection = {
-  columns: ['direction', 'name', 'uri', 'line', 'column'],
+  columns: ['name', 'line', 'column'],
   toRows: data => {
     const calls = arr((data as { calls?: unknown }).calls);
     return calls.map(c => {
@@ -380,9 +308,7 @@ const lspCallHierarchyProjection: TsvProjection = {
       const range = obj(node.range ?? call.range);
       const start = obj(range.start);
       return {
-        direction: call.direction ?? '',
         name: node.name ?? '',
-        uri: node.uri ?? '',
         line: start.line ?? '',
         column: start.character ?? start.column ?? '',
       };

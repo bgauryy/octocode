@@ -296,10 +296,15 @@ export async function searchMultipleGitHubRepos(
               ]
             : createVariantFailureHints(failedVariants);
 
+        const hasContent = repositories.length > 0;
+        const hasMore = Boolean(successfulPagination?.hasMore);
+        const variantsPartial =
+          variants.length > 1 && successfulVariants.length < variants.length;
+
         return createSuccessResult(
           query,
           { repositories, pagination: resultPagination },
-          repositories.length > 0,
+          hasContent,
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {
             extraHints: [
@@ -308,6 +313,18 @@ export async function searchMultipleGitHubRepos(
               ...paginationHints,
               ...(searchHints || []),
             ],
+            evidence: {
+              kind: 'repo',
+              answerReady: hasContent,
+              complete: hasContent && !hasMore && !variantsPartial,
+              confidence: variantsPartial ? 'medium' : undefined,
+              ...(hasContent
+                ? {}
+                : {
+                    reason:
+                      'No repositories matched the supplied filters; consider dropping topics/keywords or widening stars/created/updated ranges.',
+                  }),
+            },
             rawResponse: sumVariantRawResponseChars([
               ...successfulVariants,
               ...failedVariants,
@@ -326,6 +343,7 @@ export async function searchMultipleGitHubRepos(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

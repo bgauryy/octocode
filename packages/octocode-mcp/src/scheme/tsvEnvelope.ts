@@ -9,6 +9,42 @@
 
 import { z } from 'zod/v4';
 
+/**
+ * Shared evidence metadata. Tools opt in to populating these fields so the
+ * agent can tell whether a response is answer-ready, complete, and what
+ * kind of evidence was returned — without parsing the payload shape.
+ */
+export const EvidenceSchema = z
+  .object({
+    /** What category of evidence this response carries. */
+    kind: z
+      .enum([
+        'metadata',
+        'content',
+        'structure',
+        'code',
+        'docs',
+        'config',
+        'pr',
+        'repo',
+        'package',
+        'references',
+        'calls',
+      ])
+      .optional(),
+    /** True when the response contains enough to answer the caller's intent. */
+    answerReady: z.boolean().optional(),
+    /** How much to trust this evidence (semantic vs. heuristic vs. fallback). */
+    confidence: z.enum(['high', 'medium', 'low']).optional(),
+    /** False if results were truncated / paginated and more remain. */
+    complete: z.boolean().optional(),
+    /** Short human-readable reason explaining the state above. */
+    reason: z.string().optional(),
+    /** Names of fields the caller asked for but the tool could not return. */
+    missingFields: z.array(z.string()).optional(),
+  })
+  .optional();
+
 export const tsvEnvelopeFields = {
   /** Output format marker — only present when format='tsv' was requested. */
   format: z.literal('tsv').optional(),
@@ -18,6 +54,8 @@ export const tsvEnvelopeFields = {
   rows: z.string().optional(),
   /** Top-level hints (response-state pagination / recovery / failure). */
   hints: z.array(z.string()).optional(),
+  /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
+  evidence: EvidenceSchema,
 } as const;
 
 /**

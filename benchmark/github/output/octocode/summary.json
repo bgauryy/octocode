@@ -1,0 +1,489 @@
+{
+  "run": "octocode",
+  "agent": "octocode",
+  "questions": 20,
+  "totals": {
+    "calls": 141,
+    "in_chars": 39521,
+    "out_chars": 402386,
+    "tool_elapsed_ms": 210513,
+    "q_elapsed_ms": 814198,
+    "reasoning_ms": 603685
+  },
+  "mcp_init": {
+    "calls": 57,
+    "in_chars": 114,
+    "out_chars": 547477,
+    "elapsed_ms": 19213,
+    "rows": [
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_tools/list",
+        "in_chars": 2,
+        "out_chars": 159789
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      },
+      {
+        "cmd": "_initialize",
+        "in_chars": 2,
+        "out_chars": 6923
+      }
+    ]
+  },
+  "pre_q_orphans": 0,
+  "per_q": [
+    {
+      "q": 1,
+      "calls": 4,
+      "in_chars": 1055,
+      "out_chars": 7148,
+      "tool_elapsed_ms": 5040,
+      "q_elapsed_ms": 17847,
+      "reasoning_ms": 12807
+    },
+    {
+      "q": 2,
+      "calls": 4,
+      "in_chars": 1135,
+      "out_chars": 13722,
+      "tool_elapsed_ms": 22960,
+      "q_elapsed_ms": 38486,
+      "reasoning_ms": 15526
+    },
+    {
+      "q": 3,
+      "calls": 6,
+      "in_chars": 1727,
+      "out_chars": 10785,
+      "tool_elapsed_ms": 7237,
+      "q_elapsed_ms": 26236,
+      "reasoning_ms": 18999
+    },
+    {
+      "q": 4,
+      "calls": 12,
+      "in_chars": 3315,
+      "out_chars": 20102,
+      "tool_elapsed_ms": 15940,
+      "q_elapsed_ms": 47671,
+      "reasoning_ms": 31731
+    },
+    {
+      "q": 5,
+      "calls": 3,
+      "in_chars": 646,
+      "out_chars": 3646,
+      "tool_elapsed_ms": 2834,
+      "q_elapsed_ms": 17466,
+      "reasoning_ms": 14632
+    },
+    {
+      "q": 6,
+      "calls": 2,
+      "in_chars": 499,
+      "out_chars": 46715,
+      "tool_elapsed_ms": 6393,
+      "q_elapsed_ms": 22657,
+      "reasoning_ms": 16264
+    },
+    {
+      "q": 7,
+      "calls": 8,
+      "in_chars": 2376,
+      "out_chars": 14386,
+      "tool_elapsed_ms": 11119,
+      "q_elapsed_ms": 37390,
+      "reasoning_ms": 26271
+    },
+    {
+      "q": 8,
+      "calls": 3,
+      "in_chars": 707,
+      "out_chars": 5422,
+      "tool_elapsed_ms": 4596,
+      "q_elapsed_ms": 15715,
+      "reasoning_ms": 11119
+    },
+    {
+      "q": 9,
+      "calls": 13,
+      "in_chars": 3686,
+      "out_chars": 27898,
+      "tool_elapsed_ms": 18256,
+      "q_elapsed_ms": 63705,
+      "reasoning_ms": 45449
+    },
+    {
+      "q": 10,
+      "calls": 10,
+      "in_chars": 2714,
+      "out_chars": 20118,
+      "tool_elapsed_ms": 13639,
+      "q_elapsed_ms": 52375,
+      "reasoning_ms": 38736
+    },
+    {
+      "q": 11,
+      "calls": 10,
+      "in_chars": 2856,
+      "out_chars": 28638,
+      "tool_elapsed_ms": 11999,
+      "q_elapsed_ms": 48886,
+      "reasoning_ms": 36887
+    },
+    {
+      "q": 12,
+      "calls": 5,
+      "in_chars": 1372,
+      "out_chars": 13402,
+      "tool_elapsed_ms": 4647,
+      "q_elapsed_ms": 27279,
+      "reasoning_ms": 22632
+    },
+    {
+      "q": 13,
+      "calls": 23,
+      "in_chars": 6891,
+      "out_chars": 40302,
+      "tool_elapsed_ms": 28836,
+      "q_elapsed_ms": 114811,
+      "reasoning_ms": 85975
+    },
+    {
+      "q": 14,
+      "calls": 3,
+      "in_chars": 835,
+      "out_chars": 11835,
+      "tool_elapsed_ms": 3227,
+      "q_elapsed_ms": 18914,
+      "reasoning_ms": 15687
+    },
+    {
+      "q": 15,
+      "calls": 9,
+      "in_chars": 2602,
+      "out_chars": 28102,
+      "tool_elapsed_ms": 10844,
+      "q_elapsed_ms": 52836,
+      "reasoning_ms": 41992
+    },
+    {
+      "q": 16,
+      "calls": 8,
+      "in_chars": 2086,
+      "out_chars": 16683,
+      "tool_elapsed_ms": 10217,
+      "q_elapsed_ms": 47562,
+      "reasoning_ms": 37345
+    },
+    {
+      "q": 17,
+      "calls": 1,
+      "in_chars": 208,
+      "out_chars": 1752,
+      "tool_elapsed_ms": 1549,
+      "q_elapsed_ms": 23079,
+      "reasoning_ms": 21530
+    },
+    {
+      "q": 18,
+      "calls": 3,
+      "in_chars": 755,
+      "out_chars": 15475,
+      "tool_elapsed_ms": 3762,
+      "q_elapsed_ms": 35253,
+      "reasoning_ms": 31491
+    },
+    {
+      "q": 19,
+      "calls": 12,
+      "in_chars": 3567,
+      "out_chars": 32326,
+      "tool_elapsed_ms": 17160,
+      "q_elapsed_ms": 71525,
+      "reasoning_ms": 54365
+    },
+    {
+      "q": 20,
+      "calls": 2,
+      "in_chars": 489,
+      "out_chars": 43929,
+      "tool_elapsed_ms": 10258,
+      "q_elapsed_ms": 34505,
+      "reasoning_ms": 24247
+    }
+  ]
+}

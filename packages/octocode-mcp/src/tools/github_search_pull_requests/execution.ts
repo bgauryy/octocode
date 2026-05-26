@@ -161,6 +161,11 @@ export async function searchMultipleGitHubPullRequests(
           );
         }
 
+        const hasMore = Boolean(
+          pagination?.hasMore ||
+          (sizeLimitResult.wasLimited && sizeLimitResult.pagination?.hasMore)
+        );
+
         return createSuccessResult(
           query,
           outputLimitData,
@@ -184,6 +189,17 @@ export async function searchMultipleGitHubPullRequests(
               ...outputLimitHints,
               ...fileChangeHints,
             ],
+            evidence: {
+              kind: 'pr',
+              answerReady: hasContent,
+              complete: hasContent && !hasMore,
+              ...(hasContent
+                ? {}
+                : {
+                    reason:
+                      'No PRs matched the supplied filters; try widening the query or removing state/author/label filters.',
+                  }),
+            },
             rawResponse: providerResult.response.rawResponseChars,
           }
         );
@@ -205,6 +221,7 @@ export async function searchMultipleGitHubPullRequests(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

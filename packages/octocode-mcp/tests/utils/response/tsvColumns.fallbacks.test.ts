@@ -18,12 +18,11 @@ function project(tool: string, data: unknown) {
 }
 
 describe('tsvColumns fallback chains', () => {
-  it('searchCode tolerates missing owner / repo / value (all empty cells)', () => {
+  it('searchCode emits no TSV rows because all match fields are params or payload', () => {
     const rows = project(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, {
       results: [{ matches: [{}, { path: 'x.ts' }] }],
     });
-    expect(rows[0]).toEqual({ repo: '/', path: '', value: '' });
-    expect(rows[1]).toEqual({ repo: '/', path: 'x.ts', value: '' });
+    expect(rows).toEqual([]);
   });
 
   it('fetchContent tolerates missing per-field metadata', () => {
@@ -31,13 +30,8 @@ describe('tsvColumns fallback chains', () => {
       results: [{ owner: 'o', repo: 'r', files: [{}] }],
     });
     expect(rows[0]).toMatchObject({
-      repo: 'o/r',
-      path: '',
-      startLine: '',
-      endLine: '',
       totalLines: '',
       lastModifiedBy: '',
-      content: '',
     });
   });
 
@@ -47,7 +41,7 @@ describe('tsvColumns fallback chains', () => {
         { owner: 'o', repo: 'r' /* topics intentionally absent */ },
       ],
     });
-    expect(rows[0]).toMatchObject({ owner: 'o', repo: 'r', topics: '' });
+    expect(rows[0]).toMatchObject({ repo: 'r', topics: '' });
   });
 
   it('searchPullRequests tolerates partial PR rows', () => {
@@ -56,9 +50,6 @@ describe('tsvColumns fallback chains', () => {
     });
     expect(rows[0]).toMatchObject({
       number: 1,
-      state: '',
-      author: '',
-      title: '',
       additions: '',
     });
   });
@@ -95,11 +86,8 @@ describe('tsvColumns fallback chains', () => {
       files: [{ path: 'a.ts' }],
     });
     expect(rows[0]).toEqual({
-      path: 'a.ts',
-      type: '',
       size: '',
       modified: '',
-      permissions: '',
     });
   });
 
@@ -112,7 +100,6 @@ describe('tsvColumns fallback chains', () => {
       type: 'f',
       size: '',
       modified: '',
-      depth: '',
     });
   });
 
@@ -127,7 +114,7 @@ describe('tsvColumns fallback chains', () => {
       totalLines: 10,
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ path: 'x', totalLines: 10, content: '' });
+    expect(rows[0]).toMatchObject({ totalLines: 10 });
   });
 
   it('lspGotoDefinition falls back through locations when definitions absent', () => {
@@ -137,10 +124,8 @@ describe('tsvColumns fallback chains', () => {
       ],
     });
     expect(rows[0]).toMatchObject({
-      uri: 'src/a.ts',
       line: 10,
       column: 4,
-      snippet: 'class A',
     });
   });
 
@@ -149,10 +134,8 @@ describe('tsvColumns fallback chains', () => {
       locations: [{ uri: 'b.ts', line: 5, column: 2, snippet: 'x' }],
     });
     expect(rows[0]).toMatchObject({
-      uri: 'b.ts',
       line: 5,
       column: 2,
-      snippet: 'x',
     });
   });
 
@@ -162,7 +145,7 @@ describe('tsvColumns fallback chains', () => {
         { uri: 'a.ts', range: { start: { line: 1, column: 7 } }, snippet: 's' },
       ],
     });
-    expect(rows[0]).toMatchObject({ uri: 'a.ts', line: 1, column: 7 });
+    expect(rows[0]).toMatchObject({ line: 1, column: 7 });
   });
 
   it('lspCallHierarchy falls back through `to` when `from` absent', () => {
@@ -179,9 +162,7 @@ describe('tsvColumns fallback chains', () => {
       ],
     });
     expect(rows[0]).toMatchObject({
-      direction: 'outgoing',
       name: 'callee',
-      uri: 'src/h.ts',
       line: 12,
       column: 4,
     });
@@ -192,11 +173,106 @@ describe('tsvColumns fallback chains', () => {
       calls: [{ direction: 'incoming' }],
     });
     expect(rows[0]).toEqual({
-      direction: 'incoming',
       name: '',
-      uri: '',
       line: '',
       column: '',
     });
+  });
+
+  it('does not expose known tool input parameter names as TSV columns', () => {
+    const forbiddenByTool: Record<string, string[]> = {
+      [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: [
+        'owner',
+        'repo',
+        'path',
+        'filename',
+        'extension',
+        'match',
+        'page',
+        'limit',
+      ],
+      [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: [
+        'owner',
+        'repo',
+        'path',
+        'branch',
+        'startLine',
+        'endLine',
+        'matchString',
+        'type',
+      ],
+      [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: [
+        'owner',
+        'stars',
+        'created',
+        'updated',
+        'size',
+        'sort',
+      ],
+      [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]: [
+        'owner',
+        'repo',
+        'state',
+        'author',
+        'assignee',
+        'base',
+        'head',
+        'draft',
+        'label',
+        'sort',
+        'order',
+      ],
+      [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]: [
+        'owner',
+        'repo',
+        'path',
+        'branch',
+        'depth',
+      ],
+      [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: ['path', 'pattern', 'type', 'sort'],
+      [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: [
+        'path',
+        'name',
+        'type',
+        'permissions',
+        'sortBy',
+      ],
+      [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: [
+        'path',
+        'pattern',
+        'extension',
+        'depth',
+      ],
+      [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: [
+        'path',
+        'startLine',
+        'endLine',
+        'matchString',
+      ],
+      [STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION]: [
+        'uri',
+        'symbolName',
+        'lineHint',
+        'orderHint',
+      ],
+      [STATIC_TOOL_NAMES.LSP_FIND_REFERENCES]: [
+        'uri',
+        'symbolName',
+        'lineHint',
+        'orderHint',
+      ],
+      [STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY]: [
+        'uri',
+        'symbolName',
+        'lineHint',
+        'orderHint',
+        'direction',
+      ],
+    };
+
+    for (const [tool, forbidden] of Object.entries(forbiddenByTool)) {
+      const columns = getTsvProjection(tool)?.columns ?? [];
+      expect(columns.filter(column => forbidden.includes(column))).toEqual([]);
+    }
   });
 });

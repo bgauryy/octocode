@@ -117,27 +117,26 @@ describe('TSV projection: githubSearchCode', () => {
         ],
       }
     );
-    expect(columns).toEqual(['repo', 'path', 'value']);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({
-      repo: 'modelcontextprotocol/typescript-sdk',
-      path: 'src/a.ts',
-      value: 'export class A {}',
-    });
-    expect(text.split('\n')).toHaveLength(3); // header + 2 rows
+    expect(columns).toEqual([]);
+    expect(rows).toHaveLength(0);
+    expect(text).toBe('');
   });
 
-  it('handles missing value cells without crashing', () => {
-    const { rows } = projectAndFormat(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, {
-      results: [
-        {
-          owner: 'o',
-          repo: 'r',
-          matches: [{ path: 'x.ts' }],
-        },
-      ],
-    });
-    expect(rows[0]).toEqual({ repo: 'o/r', path: 'x.ts', value: '' });
+  it('omits params and payload cells without crashing', () => {
+    const { rows, columns } = projectAndFormat(
+      STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+      {
+        results: [
+          {
+            owner: 'o',
+            repo: 'r',
+            matches: [{ path: 'x.ts' }],
+          },
+        ],
+      }
+    );
+    expect(columns).toEqual([]);
+    expect(rows).toEqual([]);
   });
 });
 
@@ -164,32 +163,32 @@ describe('TSV projection: githubGetFileContent', () => {
         ],
       }
     );
-    expect(columns).toContain('content');
-    expect(columns).toContain('startLine');
+    expect(columns).not.toContain('content');
+    expect(columns).not.toContain('repo');
+    expect(columns).not.toContain('path');
+    expect(columns).not.toContain('startLine');
+    expect(columns).not.toContain('endLine');
     expect(rows[0]).toMatchObject({
-      repo: 'a/b',
-      path: 'README.md',
-      startLine: 1,
-      endLine: 40,
       totalLines: 200,
       lastModifiedBy: 'someone',
-      content: '# hi',
     });
   });
 
-  it('encodes multi-line content as a single TSV cell (newlines escaped)', () => {
-    const { text } = projectAndFormat(STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT, {
-      results: [
-        {
-          owner: 'a',
-          repo: 'b',
-          files: [{ path: 'x.ts', content: 'line1\nline2\nline3' }],
-        },
-      ],
-    });
-    // Header + exactly one data row regardless of embedded newlines.
-    expect(text.split('\n')).toHaveLength(2);
-    expect(text).toContain('line1\\nline2\\nline3');
+  it('omits file content from TSV rows', () => {
+    const { text, columns } = projectAndFormat(
+      STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+      {
+        results: [
+          {
+            owner: 'a',
+            repo: 'b',
+            files: [{ path: 'x.ts', content: 'line1\nline2\nline3' }],
+          },
+        ],
+      }
+    );
+    expect(columns).not.toContain('content');
+    expect(text).not.toContain('line1');
   });
 });
 
@@ -214,13 +213,11 @@ describe('TSV projection: githubSearchRepositories', () => {
       }
     );
     expect(columns).toContain('topics');
+    expect(columns).not.toContain('description');
     expect(rows[0]).toMatchObject({
-      owner: 'o',
       repo: 'r',
-      stars: 1234,
       language: 'TypeScript',
       topics: 'mcp agents',
-      description: 'Hello',
     });
   });
 });
@@ -249,11 +246,12 @@ describe('TSV projection: githubSearchPullRequests', () => {
     );
     expect(columns).not.toContain('fileChanges');
     expect(columns).not.toContain('body');
+    expect(columns).not.toContain('title');
+    expect(columns).not.toContain('comments');
+    expect(columns).not.toContain('state');
+    expect(columns).not.toContain('author');
     expect(rows[0]).toMatchObject({
       number: 2147,
-      state: 'open',
-      author: 'alice',
-      title: 'feat: x',
       additions: 100,
       deletions: 20,
       changedFilesCount: 3,
@@ -485,8 +483,10 @@ function buildScorecard(
     const text = tsvFormat(projection.columns, rows);
     const lines = text.split('\n');
     tsvIsParseable =
-      lines.length === rows.length + 1 &&
-      lines.every(l => l.split('\t').length === projection.columns.length);
+      projection.columns.length === 0
+        ? text === '' && rows.length === 0
+        : lines.length === rows.length + 1 &&
+          lines.every(l => l.split('\t').length === projection.columns.length);
   }
 
   // 5. When more results exist, a pagination cursor hint is provided.

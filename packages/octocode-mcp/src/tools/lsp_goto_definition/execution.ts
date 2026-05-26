@@ -65,7 +65,8 @@ export async function executeGotoDefinition(
         toolName: TOOL_NAME,
         query,
         contextMessage: 'lspGotoDefinition execution failed',
-        execute: async () => gotoDefinition(query),
+        execute: async () =>
+          attachDefinitionEvidence(await gotoDefinition(query)),
       }),
     {
       toolName: TOOL_NAME,
@@ -74,9 +75,48 @@ export async function executeGotoDefinition(
 
       format,
       peerHints: true,
+      peerEvidence: true,
       minQueryTimeoutMs: 30_000,
     }
   );
+}
+
+/**
+ * Attach cross-tool evidence so the bulk runner can lift it to the response
+ * envelope. Confidence is `high` for LSP semantic results and `low` for the
+ * text-pattern fallback; the goto-definition response either resolves
+ * fully or not at all, so `complete` follows `answerReady`.
+ */
+function attachDefinitionEvidence(
+  result: GotoDefinitionResult
+): GotoDefinitionResult {
+  // Only annotate well-shaped LSP results — skip raw error envelopes so we
+  // don't add an evidence block to shapes that tests assert verbatim.
+  const status = (result as { status?: string }).status;
+  if (status !== 'hasResults' && status !== 'empty') return result;
+  const hasResults = status === 'hasResults';
+  const mode = (result as { lspMode?: 'semantic' | 'fallback' }).lspMode;
+  const evidence = {
+    kind: 'references' as const,
+    answerReady: hasResults,
+    complete: hasResults,
+    confidence:
+      mode === 'semantic'
+        ? ('high' as const)
+        : mode === 'fallback'
+          ? ('low' as const)
+          : undefined,
+    ...(mode === 'fallback'
+      ? {
+          reason:
+            'Resolved via text fallback; may point at an import line rather than the source definition.',
+        }
+      : {}),
+  };
+  // Mutate in place so any non-enumerable raw-chars symbol attached
+  // upstream (see attachRawResponseChars) survives.
+  (result as Record<string, unknown>).evidence = evidence;
+  return result;
 }
 
 /**

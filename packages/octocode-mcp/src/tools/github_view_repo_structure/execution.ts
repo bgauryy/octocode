@@ -100,6 +100,25 @@ export async function exploreMultipleRepositoryStructures(
           0
         );
 
+        const summary = (
+          resultData as {
+            summary?: { truncated?: boolean; filtered?: boolean };
+          }
+        ).summary;
+        const wasTruncated = Boolean(summary?.truncated);
+        const wasFiltered = Boolean(summary?.filtered);
+        const truncatedReasons: string[] = [];
+        if (wasTruncated) {
+          truncatedReasons.push(
+            `Tree truncated at depth=${query.depth ?? 'default'}; re-query with a deeper depth or a more specific path to see the rest.`
+          );
+        }
+        if (wasFiltered) {
+          truncatedReasons.push(
+            'Some entries were filtered (e.g. ignored paths); re-query with a narrower path to inspect them directly.'
+          );
+        }
+
         return createSuccessResult(
           query,
           resultData,
@@ -117,6 +136,14 @@ export async function exploreMultipleRepositoryStructures(
             },
             prefixHints: branchHints,
             extraHints: apiHints,
+            evidence: {
+              kind: 'structure',
+              answerReady: hasContent,
+              complete: hasContent && !wasTruncated,
+              ...(truncatedReasons.length > 0
+                ? { reason: truncatedReasons.join(' ') }
+                : {}),
+            },
             rawResponse: providerResult.response.rawResponseChars,
           }
         );
@@ -141,6 +168,7 @@ export async function exploreMultipleRepositoryStructures(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

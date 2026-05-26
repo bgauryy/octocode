@@ -59,9 +59,48 @@ export async function findReferences(
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
   return attachRawResponseChars(
-    applyFindReferencesVerbosity(result, query),
+    attachReferencesEvidence(applyFindReferencesVerbosity(result, query)),
     rawChars
   );
+}
+
+/**
+ * Attach cross-tool evidence so the bulk runner can lift it to the response
+ * envelope. Confidence is `high` for LSP semantic results and `low` for the
+ * text-pattern fallback; `complete` mirrors the pagination state.
+ */
+function attachReferencesEvidence(
+  result: FindReferencesResult
+): FindReferencesResult {
+  // Only annotate well-shaped LSP results — skip raw error envelopes so we
+  // don't add an evidence block to shapes that tests assert verbatim.
+  const status = (result as { status?: string }).status;
+  if (status !== 'hasResults' && status !== 'empty') return result;
+  const hasResults = status === 'hasResults';
+  const mode = (result as { lspMode?: 'semantic' | 'fallback' }).lspMode;
+  const pagination = (result as { pagination?: { hasMore?: boolean } })
+    .pagination;
+  const evidence = {
+    kind: 'references' as const,
+    answerReady: hasResults,
+    complete: hasResults && !(pagination?.hasMore ?? false),
+    confidence:
+      mode === 'semantic'
+        ? ('high' as const)
+        : mode === 'fallback'
+          ? ('low' as const)
+          : undefined,
+    ...(mode === 'fallback'
+      ? {
+          reason:
+            'Results derived from text pattern matching; may include false positives or miss renamed/aliased usages.',
+        }
+      : {}),
+  };
+  // Mutate in place so any non-enumerable raw-chars symbol attached
+  // upstream (see attachRawResponseChars) survives.
+  (result as Record<string, unknown>).evidence = evidence;
+  return result;
 }
 
 async function findReferencesInternal(

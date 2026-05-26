@@ -11,6 +11,7 @@ import type {
   QueryError,
   BulkResponseConfig,
   BulkToolResponse,
+  EvidenceMetadata,
   PromiseResult,
 } from '../../types.js';
 import {
@@ -102,7 +103,14 @@ function createBulkResponse<
   errors: QueryError[],
   queries: Array<TQuery>
 ): CallToolResult {
-  const topLevelFields = ['format', 'columns', 'rows', 'results', 'hints'];
+  const topLevelFields = [
+    'format',
+    'columns',
+    'rows',
+    'results',
+    'hints',
+    'evidence',
+  ];
   const resultFields = ['id', 'status', 'data'];
   const fullKeysPriority = [
     ...new Set([
@@ -181,6 +189,13 @@ function createBulkResponse<
     ? dedupePeerHints(queryPaginatedResults)
     : [];
 
+  // Same idea for `evidence`: lift per-query `data.evidence` blocks into a
+  // single top-level summary (kind taken from first present; answerReady /
+  // complete combined with AND; confidence is the weakest of all).
+  const aggregatedEvidence = config.peerEvidence
+    ? aggregatePeerEvidence(queryPaginatedResults)
+    : undefined;
+
   const responseData: BulkToolResponse = applyBulkResponsePagination(
     {
       results: queryPaginatedResults,
@@ -194,6 +209,10 @@ function createBulkResponse<
 
   if (aggregatedHints.length > 0) {
     responseData.hints = aggregatedHints;
+  }
+
+  if (aggregatedEvidence) {
+    responseData.evidence = aggregatedEvidence;
   }
 
   // TSV mode — emit columns/rows derived from the per-tool projection and
@@ -265,6 +284,81 @@ function dedupePeerHints(queries: FlatQueryResult[]): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Walk every query and combine their `data.evidence` blocks into one
+ * top-level summary. Mutates each query to drop its local `evidence` so the
+ * field appears once at root. Combination rules:
+ *   - `kind`          → first non-empty value (most tools emit one kind).
+ *   - `answerReady`   → true only if every query that set it is true.
+ *   - `complete`      → true only if every query that set it is true.
+ *   - `confidence`    → weakest of all present (low < medium < high).
+ *   - `missingFields` → deduped union of all entries.
+ *   - `reason`        → joined when multiple queries supplied one.
+ */
+function aggregatePeerEvidence(
+  queries: FlatQueryResult[]
+): EvidenceMetadata | undefined {
+  const rankConfidence: Record<
+    NonNullable<EvidenceMetadata['confidence']>,
+    number
+  > = { low: 0, medium: 1, high: 2 };
+  let combinedKind: EvidenceMetadata['kind'];
+  let answerReadyAll: boolean | undefined;
+  let completeAll: boolean | undefined;
+  let weakestConfidence: EvidenceMetadata['confidence'];
+  const reasons: string[] = [];
+  const missing = new Set<string>();
+  let sawAny = false;
+
+  for (const q of queries) {
+    const data = q.data as Record<string, unknown> | undefined;
+    const raw = data?.evidence as EvidenceMetadata | undefined;
+    if (!raw || typeof raw !== 'object') continue;
+    sawAny = true;
+    if (!combinedKind && raw.kind) combinedKind = raw.kind;
+    if (typeof raw.answerReady === 'boolean') {
+      answerReadyAll =
+        answerReadyAll === undefined
+          ? raw.answerReady
+          : answerReadyAll && raw.answerReady;
+    }
+    if (typeof raw.complete === 'boolean') {
+      completeAll =
+        completeAll === undefined ? raw.complete : completeAll && raw.complete;
+    }
+    if (raw.confidence) {
+      if (
+        !weakestConfidence ||
+        rankConfidence[raw.confidence] < rankConfidence[weakestConfidence]
+      ) {
+        weakestConfidence = raw.confidence;
+      }
+    }
+    if (typeof raw.reason === 'string' && raw.reason.trim().length > 0) {
+      reasons.push(raw.reason.trim());
+    }
+    if (Array.isArray(raw.missingFields)) {
+      for (const f of raw.missingFields) {
+        if (typeof f === 'string' && f.length > 0) missing.add(f);
+      }
+    }
+    if (data && 'evidence' in data) {
+      delete (data as Record<string, unknown>).evidence;
+    }
+  }
+
+  if (!sawAny) return undefined;
+
+  const out: EvidenceMetadata = {};
+  if (combinedKind) out.kind = combinedKind;
+  if (answerReadyAll !== undefined) out.answerReady = answerReadyAll;
+  if (completeAll !== undefined) out.complete = completeAll;
+  if (weakestConfidence) out.confidence = weakestConfidence;
+  if (reasons.length > 0) out.reason = reasons.join('; ');
+  if (missing.size > 0) out.missingFields = Array.from(missing);
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function recordBulkCharSavings(

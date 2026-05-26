@@ -37,6 +37,7 @@ export async function executeFindReferences(
 
       format,
       peerHints: true,
+      peerEvidence: true,
       minQueryTimeoutMs: 30_000,
     }
   );

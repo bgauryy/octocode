@@ -52,7 +52,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'o\tr\t1',
+    rowProbe: 'r\tTypeScript\t2026',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -85,7 +85,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: '42\tmerged\ta\tt',
+    rowProbe: '42\t2026\t2026\t1',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
@@ -125,7 +125,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'a.ts\t5\t0',
+    rowProbe: '5\t0',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
@@ -140,7 +140,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'a.ts\tf\t100',
+    rowProbe: '100\t2026',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
@@ -161,7 +161,7 @@ const genericCases: GenericCase[] = [
       totalLines: 1,
       isPartial: false,
     },
-    rowProbe: 'a.ts\t1\t1',
+    rowProbe: '1\tfalse',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,
@@ -174,7 +174,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'src/a.ts\t10\t4',
+    rowProbe: '10\t4',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
@@ -187,7 +187,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'src/b.ts\t22\t0',
+    rowProbe: '22\t0',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
@@ -203,7 +203,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'incoming\tcaller\tsrc/c.ts\t5\t2',
+    rowProbe: 'caller\t5\t2',
   },
 ];
 
@@ -238,12 +238,7 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
         expect(sc.columns).toEqual(
           expect.arrayContaining([
             'number',
-            'title',
-            'body',
             'url',
-            'state',
-            'draft',
-            'author',
             'assignees',
             'labels',
             'sourceBranch',
@@ -258,14 +253,19 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
             'changedFilesCount',
             'additions',
             'deletions',
-            'comments',
-            'fileChanges',
           ])
         );
+        expect(sc.columns).not.toContain('state');
+        expect(sc.columns).not.toContain('draft');
+        expect(sc.columns).not.toContain('author');
+        expect(sc.columns).not.toContain('title');
+        expect(sc.columns).not.toContain('body');
+        expect(sc.columns).not.toContain('comments');
+        expect(sc.columns).not.toContain('fileChanges');
         expect(String(sc.rows)).toContain('2026-05-25T12:00:00Z');
-        expect(String(sc.rows)).toContain('body text');
         expect(String(sc.rows)).toContain('abc123');
-        expect(String(sc.rows)).toContain('src/a.ts');
+        expect(String(sc.rows)).not.toContain('body text');
+        expect(String(sc.rows)).not.toContain('src/a.ts');
       }
     }
   );
@@ -309,7 +309,11 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
     expect(sc.format).toBe('tsv');
     expect(Array.isArray(sc.columns)).toBe(true);
     expect(typeof sc.rows).toBe('string');
-    expect(String(sc.rows)).toContain('o/r\ta.ts\texport class A {}');
+    expect(sc.columns).toEqual([]);
+    expect(String(sc.rows)).toBe('');
+    expect(String(sc.rows)).not.toContain('o/r');
+    expect(String(sc.rows)).not.toContain('a.ts');
+    expect(String(sc.rows)).not.toContain('export class A {}');
   });
 
   it('githubGetFileContent finalizer attaches format/columns/rows', () => {
@@ -354,7 +358,9 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
     expect(sc.format).toBe('tsv');
     expect(Array.isArray(sc.columns)).toBe(true);
     expect(typeof sc.rows).toBe('string');
-    expect(String(sc.rows)).toContain('o/r\ta.ts\t1\t1\t1');
+    expect(String(sc.rows)).toContain('1\t');
+    expect(String(sc.rows)).not.toContain('o/r');
+    expect(String(sc.rows)).not.toContain('a.ts');
   });
 });
 
