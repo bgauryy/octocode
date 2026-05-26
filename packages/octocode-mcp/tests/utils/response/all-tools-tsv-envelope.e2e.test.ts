@@ -52,7 +52,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'r\tTypeScript\t2026',
+    rowProbe: 'o\tr\t\t\td\t\t1\t\t0\t0\tTypeScript',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -85,7 +85,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: '42\t2026\t2026\t1',
+    rowProbe: '42\tmerged\tfalse\ta\tt\tbody text\t2026\t2026',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
@@ -112,7 +112,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'pkg\t1.0.0\to',
+    rowProbe: 'pkg\t1.0.0\td\to\tr',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_RIPGREP,
@@ -140,7 +140,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: '100\t2026',
+    rowProbe: 'a.ts\tf\t100\t644\t2026',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
@@ -149,7 +149,7 @@ const genericCases: GenericCase[] = [
         { name: 'src', type: 'd', size: '4KB', modified: '2026', depth: 1 },
       ],
     },
-    rowProbe: 'src\td\t4KB',
+    rowProbe: 'src\t\td\t4KB',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
@@ -203,7 +203,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'caller\t5\t2',
+    rowProbe: 'incoming\tcaller\t\tsrc/c.ts\t5\t2'
   },
 ];
 
@@ -238,6 +238,11 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
         expect(sc.columns).toEqual(
           expect.arrayContaining([
             'number',
+            'state',
+            'draft',
+            'author',
+            'title',
+            'body',
             'url',
             'assignees',
             'labels',
@@ -253,19 +258,14 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
             'changedFilesCount',
             'additions',
             'deletions',
+            'comments',
+            'fileChanges',
           ])
         );
-        expect(sc.columns).not.toContain('state');
-        expect(sc.columns).not.toContain('draft');
-        expect(sc.columns).not.toContain('author');
-        expect(sc.columns).not.toContain('title');
-        expect(sc.columns).not.toContain('body');
-        expect(sc.columns).not.toContain('comments');
-        expect(sc.columns).not.toContain('fileChanges');
         expect(String(sc.rows)).toContain('2026-05-25T12:00:00Z');
         expect(String(sc.rows)).toContain('abc123');
-        expect(String(sc.rows)).not.toContain('body text');
-        expect(String(sc.rows)).not.toContain('src/a.ts');
+        expect(String(sc.rows)).toContain('body text');
+        expect(String(sc.rows)).toContain('src/a.ts');
       }
     }
   );
@@ -309,11 +309,10 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
     expect(sc.format).toBe('tsv');
     expect(Array.isArray(sc.columns)).toBe(true);
     expect(typeof sc.rows).toBe('string');
-    expect(sc.columns).toEqual([]);
-    expect(String(sc.rows)).toBe('');
-    expect(String(sc.rows)).not.toContain('o/r');
-    expect(String(sc.rows)).not.toContain('a.ts');
-    expect(String(sc.rows)).not.toContain('export class A {}');
+    expect(sc.columns).toEqual(['id', 'owner', 'repo', 'path', 'value']);
+    expect(String(sc.rows)).toContain('o/r');
+    expect(String(sc.rows)).toContain('a.ts');
+    expect(String(sc.rows)).toContain('export class A {}');
   });
 
   it('githubGetFileContent finalizer attaches format/columns/rows', () => {
@@ -359,8 +358,8 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
     expect(Array.isArray(sc.columns)).toBe(true);
     expect(typeof sc.rows).toBe('string');
     expect(String(sc.rows)).toContain('1\t');
-    expect(String(sc.rows)).not.toContain('o/r');
-    expect(String(sc.rows)).not.toContain('a.ts');
+    expect(String(sc.rows)).toContain('o/r');
+    expect(String(sc.rows)).toContain('a.ts');
   });
 });
 

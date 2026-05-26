@@ -81,6 +81,17 @@ export interface HintContext {
   nextCharOffset?: number;
   totalChars?: number;
   filteredAll?: boolean;
+
+  // githubSearchCode.hasResults uses this to warn when all returned matches
+  // live in non-canonical paths (examples/__tests__/docs/fixtures).
+  matchedPaths?: string[];
+  // Total matches across pages (githubSearchCode pagination warning).
+  totalMatches?: number;
+  hasMore?: boolean;
+  // githubViewRepoStructure.hasResults uses this to surface feature-flag /
+  // *Mode / *Config / *Flag files that often gate the real implementation
+  // a direct code search would miss.
+  flagFiles?: string[];
 }
 
 export type HintGenerator = (context: HintContext) => (string | undefined)[];

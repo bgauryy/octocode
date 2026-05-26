@@ -87,11 +87,13 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toEqual(['line', 'column']);
+    expect(columns).toEqual(['path', 'matchCount', 'line', 'column', 'value']);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
+      path: 'src/a.ts',
       line: 10,
       column: 4,
+      value: 'export function foo()',
     });
   });
 
@@ -107,11 +109,20 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).not.toContain('path');
-    expect(columns).not.toContain('type');
-    expect(columns).not.toContain('permissions');
+    expect(columns).toEqual([
+      'path',
+      'type',
+      'size',
+      'permissions',
+      'modified',
+      'accessed',
+      'created',
+    ]);
     expect(rows[0]).toMatchObject({
+      path: 'README.md',
+      type: 'f',
       size: 1234,
+      permissions: '644',
     });
   });
 
@@ -139,9 +150,9 @@ describe('local + LSP TSV projections — sample data', () => {
       }
     );
     expect(rows).toHaveLength(1);
-    expect(columns).not.toContain('content');
+    expect(columns).toContain('content');
     expect(text.split('\n')).toHaveLength(2);
-    expect(text).not.toContain('line1');
+    expect(text).toContain('line1\\nline2\\nline3');
   });
 
   it('lspGotoDefinition flattens definitions to uri/line/column rows', () => {
@@ -154,12 +165,21 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toEqual(['line', 'column']);
+    expect(columns).toEqual([
+      'uri',
+      'name',
+      'kind',
+      'line',
+      'column',
+      'content',
+      'snippet',
+    ]);
     expect(rows[0]).toMatchObject({
+      uri: 'src/a.ts',
       line: 10,
       column: 4,
+      snippet: 'export class A',
     });
-    expect(rows[0]).not.toHaveProperty('snippet');
   });
 
   it('lspFindReferences flattens references the same way', () => {
@@ -191,9 +211,19 @@ describe('local + LSP TSV projections — sample data', () => {
         },
       ],
     });
-    expect(columns).toEqual(['name', 'line', 'column']);
+    expect(columns).toEqual([
+      'direction',
+      'name',
+      'kind',
+      'uri',
+      'line',
+      'column',
+      'fromRanges',
+    ]);
     expect(rows[0]).toMatchObject({
+      direction: 'incoming',
       name: 'callerFn',
+      uri: 'src/c.ts',
       line: 5,
       column: 2,
     });

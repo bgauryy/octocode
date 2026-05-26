@@ -341,14 +341,13 @@ Rules:
 - For multi-part questions, score parts separately and average.
 - For every non-3 score, cite a specific missing/wrong file path, identifier, PR discussion point, or agent claim.
 
-## Efficiency scoring
+## Token-usage scoring
 
-Use char fields only:
+Use char fields only. Characters are the canonical tokenizer-independent proxy for token usage; optional `approx_tokens` is `chars / 4` for display only.
 
 ```text
 effective_chars = in_chars + out_chars + amortized_mcp_init_chars
-effective_ms     = max(q_elapsed_ms, tool_elapsed_ms, 1)
-efficiency       = quality / ((effective_chars / 1000) * (effective_ms / 1000))
+token_score     = quality / (effective_chars / 1000)
 ```
 
 For Octocode:
@@ -363,7 +362,7 @@ For `gh`:
 amortized_mcp_init_chars = 0
 ```
 
-A zero-quality answer has zero efficiency even if it is fast or character-cheap. If the efficiency winner has materially lower raw quality, state that tradeoff explicitly.
+A zero-quality answer has zero token score even if it is character-cheap. If the token-usage winner has materially lower raw quality, state that tradeoff explicitly. Wall-clock time is context only and must not decide the winner.
 
 ## Required judge output
 
@@ -380,15 +379,15 @@ Use these sections:
 
 ## Per-question table
 
-| Q | Drift | Octo qual | gh qual | Octo chars | gh chars | Octo q_ms | gh q_ms | Octo eff | gh eff | Winner | Notes |
+| Q | Drift | Octo qual | gh qual | Octo chars | gh chars | Octo token score | gh token score | Winner | Notes |
 
 ## Quality verdict (non-drift Qs only)
 
-| Agent | Σ quality | Efficiency wins | Efficiency ties | Avg quality per Q |
+| Agent | Σ quality | Token-score wins | Token-score ties | Avg quality per Q |
 
 ## Drift verdict (reported separately)
 
-## Quality-adjusted efficiency verdict
+## Quality-adjusted token-usage verdict
 
 | Axis | octocode | gh | ratio (octo/gh) |
 | Σ quality (non-drift) | | | |
@@ -399,8 +398,11 @@ Use these sections:
 | TOTAL chars (per-Q + init) | | | |
 | Σ tool_elapsed_ms | | | |
 | Σ q_elapsed_ms | | | |
-| Σ reasoning_ms | | | |
-| Run efficiency = Σ quality / ((TOTAL chars/1000) * (Σ q_ms/1000)) | | | |
+| Approx tokens (`TOTAL chars / 4`) | | | |
+| Quality per 1k chars = Σ quality / (TOTAL chars/1000) | | | |
+| Σ tool_elapsed_ms (context only) | | | |
+| Σ q_elapsed_ms (context only) | | | |
+| Σ reasoning_ms (context only) | | | |
 
 ## Failure-mode review
 
@@ -413,7 +415,7 @@ Do not write additional files.
 
 ## Scoring model summary
 
-Evaluation is semantic and intentionally not rigid. The benchmark winner is based on quality-adjusted efficiency: answer quality per character-second, with MCP init/context chars charged to Octocode.
+Evaluation is semantic and intentionally not rigid. The benchmark winner is based on quality-adjusted token/character usage: answer quality per measured character, with MCP init/context chars charged to Octocode. Elapsed time is reported as context only.
 
 Drift questions (heading suffix `[drift]` in `EXPECTED_FACTS.md`, if present) are scored loosely and reported separately.
 

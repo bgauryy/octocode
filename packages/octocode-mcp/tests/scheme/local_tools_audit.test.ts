@@ -284,6 +284,36 @@ describe('Local Tools — Overlay schemas (what MCP actually receives)', () => {
       expect(result.success).toBe(true);
     });
 
+    it('bulk schemas reject non-object query entries instead of silently dropping them', () => {
+      const result = BulkRipgrepQuerySchema.safeParse({
+        queries: [baseRipgrep, 'hallucinated hint'],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('local and LSP overlays accept mainResearchGoal metadata consistently', () => {
+      expect(
+        BulkRipgrepQuerySchema.safeParse({
+          queries: [
+            {
+              ...baseRipgrep,
+              mainResearchGoal: 'Understand local code search',
+            },
+          ],
+        }).success
+      ).toBe(true);
+      expect(
+        BulkLSPGotoDefinitionQuerySchema.safeParse({
+          queries: [
+            {
+              ...baseLSPRefs,
+              mainResearchGoal: 'Understand symbol definitions',
+            },
+          ],
+        }).success
+      ).toBe(true);
+    });
+
     it('bulk schemas keep duplicate-id detection from upstream', () => {
       const result = BulkRipgrepQuerySchema.safeParse({
         queries: [

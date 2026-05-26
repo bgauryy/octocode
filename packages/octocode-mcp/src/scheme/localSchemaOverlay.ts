@@ -7,13 +7,13 @@ import {
 } from '@octocodeai/octocode-core';
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 
-export const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 500_000;
+export const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 100_000;
 
-export const LOCAL_OVERLAY_MAX_CHAR_LENGTH = 500_000;
+export const LOCAL_OVERLAY_MAX_CHAR_LENGTH = 100_000;
 
-export const LOCAL_OVERLAY_MAX_CONTEXT_LINES = 1000;
+export const LOCAL_OVERLAY_MAX_CONTEXT_LINES = 100;
 
-export const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = 10_000;
+export const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = 1_000;
 
 export const matchContentLengthField = z
   .number()
@@ -23,7 +23,7 @@ export const matchContentLengthField = z
   .optional()
   .default(200)
   .describe(
-    'Maximum characters per individual match snippet. Default 200, max 500000. ' +
+    'Maximum characters per individual match snippet. Default 200, max 100000. ' +
       'Raise this when matches sit on very long lines (minified code, JSON blobs, generated SQL). ' +
       'Total output size is still bounded by charLength / responseCharLength budgets — ' +
       'prefer paginating via filePageNumber/matchesPerPage over truncating a single match.'
@@ -36,7 +36,7 @@ export const localCharLengthField = z
   .max(LOCAL_OVERLAY_MAX_CHAR_LENGTH)
   .optional()
   .describe(
-    'Character budget for output pagination of this query. Unified at 500000 across local tools. ' +
+    'Character budget for output pagination of this query. Unified at 100000 across local tools. ' +
       'Pair with charOffset for explicit pagination instead of truncating responses.'
   );
 
@@ -46,9 +46,7 @@ export const matchStringContextLinesField = z
   .min(0)
   .max(LOCAL_OVERLAY_MAX_CONTEXT_LINES)
   .optional()
-  .describe(
-    'Number of lines of context to show around each match. Default 5, recommended max 100.'
-  );
+  .describe('Number of lines of context to show around each match. Max 100.');
 
 export const contextLinesField = z
   .number()
@@ -56,9 +54,7 @@ export const contextLinesField = z
   .min(0)
   .max(LOCAL_OVERLAY_MAX_CONTEXT_LINES)
   .optional()
-  .describe(
-    'Number of lines of context to show around each match. Default 5, recommended max 100.'
-  );
+  .describe('Number of lines of context to show around each match. Max 100.');
 
 export const relaxedPaginationLimitField = z
   .number()
@@ -142,15 +138,8 @@ export function createRelaxedBulkQuerySchema(
   return z
     .object({
       queries: z
-        .preprocess(val => {
-          if (Array.isArray(val)) {
-            // Filter out non-object items (like hallucinated string hints)
-            return val.filter(
-              item => typeof item === 'object' && item !== null
-            );
-          }
-          return val;
-        }, z.array(querySchema).min(1))
+        .array(querySchema)
+        .min(1)
         .describe(
           `Array of queries for ${toolName}. Recommended maximum is ${maxQueries} queries per call. ` +
             'Multiple queries run in parallel. If many are provided, results may be truncated to fit token limits.'
@@ -204,9 +193,19 @@ export function createRelaxedBulkQuerySchema(
 }
 
 const optionalMetaFields = {
-  id: z.string().optional(),
-  researchGoal: z.string().optional(),
-  reasoning: z.string().optional(),
+  id: z.string().optional().describe('Stable query identifier.'),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe('Overall research objective shared by related queries.'),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe('Specific goal this query is trying to answer.'),
+  reasoning: z
+    .string()
+    .optional()
+    .describe('Why this query helps achieve the research goal.'),
 } as const;
 
 export const RipgrepQuerySchema = UpstreamRipgrepQuerySchema.extend({

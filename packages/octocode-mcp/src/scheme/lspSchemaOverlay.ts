@@ -29,9 +29,19 @@ import {
 } from './localSchemaOverlay.js';
 
 const lspOptionalMetaFields = {
-  id: z.string().optional(),
-  researchGoal: z.string().optional(),
-  reasoning: z.string().optional(),
+  id: z.string().optional().describe('Stable query identifier.'),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe('Overall research objective shared by related queries.'),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe('Specific goal this query is trying to answer.'),
+  reasoning: z
+    .string()
+    .optional()
+    .describe('Why this query helps achieve the research goal.'),
 } as const;
 
 export { verbosityField };

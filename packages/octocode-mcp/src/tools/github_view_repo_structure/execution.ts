@@ -128,11 +128,19 @@ export async function exploreMultipleRepositoryStructures(
             // Pass path/depth/branch so empty-listing hints can name the
             // exact location that came back empty and suggest a concrete
             // probe (parent dir, depth=2, different branch).
+            // flagFiles lets hints.hasResults surface feature-flag /
+            // *Mode/*Config files that gate the implementation a direct
+            // search would miss.
             hintContext: {
               entryCount,
               path: query.path,
               depth: query.depth,
               branch: query.branch,
+              flagFiles: Object.values(filteredStructure).flatMap(entry =>
+                entry.files.filter(f =>
+                  /(Mode|Config|Flag|Feature)\.[A-Za-z0-9]+$/.test(f)
+                )
+              ),
             },
             prefixHints: branchHints,
             extraHints: apiHints,

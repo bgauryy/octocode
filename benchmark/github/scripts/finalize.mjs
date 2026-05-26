@@ -62,6 +62,7 @@ if (existsSync(logPath)) {
 }
 
 const fmt = n => Number(n).toLocaleString('en');
+const approxTokens = n => Math.ceil(Number(n) / 4);
 const oneLine = (p) => {
   if (!existsSync(p)) return '';
   const t = readFileSync(p, 'utf8');
@@ -106,6 +107,9 @@ const tot = {
   q_ms: sum('q_ms'),
   reason_ms: sum('reason_ms'),
 };
+const perQChars = tot.in + tot.out;
+const mcpInitChars = mcpInit.in_chars + mcpInit.out_chars;
+const totalCharsWithInit = perQChars + mcpInitChars;
 
 const slug = basename(run);
 const agent = slug || basename(run);
@@ -125,20 +129,20 @@ const orphanWarn = preQOrphans > 0
 
 const body = `# Run ${slug}
 
-| Agent | Questions | Calls | In Chars | Out Chars | Tool ms | Q wall ms | Reasoning ms |
-|-------|----------:|------:|---------:|----------:|--------:|----------:|-------------:|
-| ${agent} | ${ok.length} / ${N_QS} | ${tot.calls} | ${fmt(tot.in)} | ${fmt(tot.out)} | ${fmt(tot.tool_ms)} | ${fmt(tot.q_ms)} | ${fmt(tot.reason_ms)} |
+| Agent | Questions | Calls | In Chars | Out Chars | Per-Q Chars | MCP Init Chars | Total Chars | Approx Tokens | Tool ms | Q wall ms | Reasoning ms |
+|-------|----------:|------:|---------:|----------:|------------:|---------------:|------------:|--------------:|--------:|----------:|-------------:|
+| ${agent} | ${ok.length} / ${N_QS} | ${tot.calls} | ${fmt(tot.in)} | ${fmt(tot.out)} | ${fmt(perQChars)} | ${fmt(mcpInitChars)} | ${fmt(totalCharsWithInit)} | ${fmt(approxTokens(totalCharsWithInit))} | ${fmt(tot.tool_ms)} | ${fmt(tot.q_ms)} | ${fmt(tot.reason_ms)} |
 
-> **Tool ms** = Σ wall time on tool calls. **Q wall ms** = Σ wall time per question from \`set-q.sh\` to \`record.sh\`. **Reasoning ms** = Q wall − Tool (approx time the LLM spent thinking between calls).
+> **Total Chars** = per-question \`in_chars + out_chars\` plus MCP init/context chars when present. **Approx Tokens** = \`ceil(Total Chars / 4)\` and is a rough display-only token proxy; characters remain the canonical measurement. **Tool/Q/Reasoning ms** are context only for token-usage judging.
 ${initSection}${orphanWarn}
 
-| Q | Calls | In Chars | Out Chars | Tool ms | Q wall ms | Reasoning ms | Answer (one line) |
-|---|------:|---------:|----------:|--------:|----------:|-------------:|-------------------|
+| Q | Calls | In Chars | Out Chars | Total Chars | Approx Tokens | Tool ms | Q wall ms | Reasoning ms | Answer (one line) |
+|---|------:|---------:|----------:|------------:|--------------:|--------:|----------:|-------------:|-------------------|
 ${rows.map(r => r.missing
-  ? `| Q${r.q} | — | — | — | — | — | — | ⚠️ missing |`
-  : `| Q${r.q} | ${r.calls} | ${fmt(r.in)} | ${fmt(r.out)} | ${fmt(r.tool_ms)} | ${fmt(r.q_ms)} | ${fmt(r.reason_ms)} | ${trunc(r.one)} |`
+  ? `| Q${r.q} | — | — | — | — | — | — | — | — | ⚠️ missing |`
+  : `| Q${r.q} | ${r.calls} | ${fmt(r.in)} | ${fmt(r.out)} | ${fmt(r.in + r.out)} | ${fmt(approxTokens(r.in + r.out))} | ${fmt(r.tool_ms)} | ${fmt(r.q_ms)} | ${fmt(r.reason_ms)} | ${trunc(r.one)} |`
 ).join('\n')}
-| **Σ** | **${tot.calls}** | **${fmt(tot.in)}** | **${fmt(tot.out)}** | **${fmt(tot.tool_ms)}** | **${fmt(tot.q_ms)}** | **${fmt(tot.reason_ms)}** | |
+| **Σ** | **${tot.calls}** | **${fmt(tot.in)}** | **${fmt(tot.out)}** | **${fmt(perQChars)}** | **${fmt(approxTokens(perQChars))}** | **${fmt(tot.tool_ms)}** | **${fmt(tot.q_ms)}** | **${fmt(tot.reason_ms)}** | |
 `;
 
 writeFileSync(join(run, 'output.md'), body);
@@ -151,6 +155,9 @@ const summary = {
     calls: tot.calls,
     in_chars: tot.in,
     out_chars: tot.out,
+    per_q_chars: perQChars,
+    total_chars_with_init: totalCharsWithInit,
+    approx_tokens_with_init: approxTokens(totalCharsWithInit),
     tool_elapsed_ms: tot.tool_ms,
     q_elapsed_ms: tot.q_ms,
     reasoning_ms: tot.reason_ms,
@@ -172,6 +179,8 @@ const summary = {
         calls: r.calls,
         in_chars: r.in,
         out_chars: r.out,
+        total_chars: r.in + r.out,
+        approx_tokens: approxTokens(r.in + r.out),
         tool_elapsed_ms: r.tool_ms,
         q_elapsed_ms: r.q_ms,
         reasoning_ms: r.reason_ms,
@@ -181,7 +190,7 @@ writeFileSync(join(run, 'summary.json'), JSON.stringify(summary, null, 2));
 
 console.log(`wrote ${join(run, 'output.md')}`);
 console.log(`wrote ${join(run, 'summary.json')}`);
-console.log(`questions=${ok.length}/${N_QS}  calls=${tot.calls}  in_chars=${fmt(tot.in)}  out_chars=${fmt(tot.out)}  tool_ms=${fmt(tot.tool_ms)}  q_ms=${fmt(tot.q_ms)}  reason_ms=${fmt(tot.reason_ms)}`);
+console.log(`questions=${ok.length}/${N_QS}  calls=${tot.calls}  in_chars=${fmt(tot.in)}  out_chars=${fmt(tot.out)}  total_chars=${fmt(totalCharsWithInit)}  approx_tokens=${fmt(approxTokens(totalCharsWithInit))}  tool_ms=${fmt(tot.tool_ms)}  q_ms=${fmt(tot.q_ms)}  reason_ms=${fmt(tot.reason_ms)}`);
 if (mcpInit.calls > 0) {
   console.log(`mcp_init: calls=${mcpInit.calls}  in_chars=${fmt(mcpInit.in_chars)}  out_chars=${fmt(mcpInit.out_chars)} chars  ms=${fmt(mcpInit.elapsed_ms)}  (one-time session cost)`);
 }

@@ -1609,10 +1609,10 @@ describe('registerGitHubCloneRepoTool', () => {
     });
 
     const structured = result.structuredContent as {
+      hints?: string[];
       results: Array<{
         data: {
           localPath: string;
-          hints?: string[];
           outputPagination?: {
             hasMore: boolean;
             charOffset: number;
@@ -1625,9 +1625,7 @@ describe('registerGitHubCloneRepoTool', () => {
     expect(structured.results[0]!.data.localPath).toContain(execTestDir);
     expect(structured.results[0]!.data.outputPagination?.hasMore).toBe(true);
     expect(
-      structured.results[0]!.data.hints?.some(hint =>
-        hint.includes('Use charOffset=')
-      )
+      structured.hints?.some(hint => hint.includes('Use charOffset='))
     ).toBe(true);
 
     if (existsSync(execTestDir)) {

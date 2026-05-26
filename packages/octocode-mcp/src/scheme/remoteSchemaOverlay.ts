@@ -198,6 +198,8 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
   columns: z.array(z.string()).optional(),
   /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
   rows: z.string().optional(),
+  /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
+  evidence: EvidenceSchema,
   results: z.array(
     z.object({
       id: z.string(),
@@ -274,6 +276,8 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
   columns: z.array(z.string()).optional(),
   /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
   rows: z.string().optional(),
+  /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
+  evidence: EvidenceSchema,
   results: z.array(
     z.object({
       id: z.string(),
@@ -498,7 +502,8 @@ import {
   PackageSearchOutputSchema as UpstreamPackageOutput,
 } from '@octocodeai/octocode-core';
 
-import { EvidenceSchema } from './tsvEnvelope.js';
+import { EvidenceSchema, tsvEnvelopeFields } from './tsvEnvelope.js';
+import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core';
 
 const peerEnvelopeFields = {
   hints: z.array(z.string()).optional(),
@@ -520,3 +525,6 @@ export const GitHubViewRepoStructureOutputLocalSchema =
 
 export const PackageSearchOutputLocalSchema =
   UpstreamPackageOutput.extend(peerEnvelopeFields);
+
+export const GitHubCloneRepoOutputLocalSchema =
+  UpstreamCloneRepoOutput.extend(tsvEnvelopeFields);

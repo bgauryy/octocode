@@ -18,11 +18,14 @@ function project(tool: string, data: unknown) {
 }
 
 describe('tsvColumns fallback chains', () => {
-  it('searchCode emits no TSV rows because all match fields are params or payload', () => {
+  it('searchCode emits one TSV row per match, defaulting missing cells', () => {
     const rows = project(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, {
       results: [{ matches: [{}, { path: 'x.ts' }] }],
     });
-    expect(rows).toEqual([]);
+    expect(rows).toEqual([
+      { id: '', owner: '', repo: '', path: '', value: '' },
+      { id: '', owner: '', repo: '', path: 'x.ts', value: '' },
+    ]);
   });
 
   it('fetchContent tolerates missing per-field metadata', () => {
@@ -74,11 +77,14 @@ describe('tsvColumns fallback chains', () => {
     });
   });
 
-  it('localSearchCode tolerates files without matches', () => {
+  it('localSearchCode tolerates files without matches by emitting file rows', () => {
     const rows = project(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
       files: [{ path: 'a.ts' }, { path: 'b.ts', matches: [] }],
     });
-    expect(rows).toHaveLength(0);
+    expect(rows).toEqual([
+      { path: 'a.ts', matchCount: '', line: '', column: '', value: '' },
+      { path: 'b.ts', matchCount: '', line: '', column: '', value: '' },
+    ]);
   });
 
   it('localFindFiles tolerates files without size / modified / perms', () => {
@@ -86,8 +92,13 @@ describe('tsvColumns fallback chains', () => {
       files: [{ path: 'a.ts' }],
     });
     expect(rows[0]).toEqual({
+      path: 'a.ts',
+      type: '',
       size: '',
+      permissions: '',
       modified: '',
+      accessed: '',
+      created: '',
     });
   });
 
@@ -97,9 +108,11 @@ describe('tsvColumns fallback chains', () => {
     });
     expect(rows[0]).toEqual({
       name: 'x',
+      path: '',
       type: 'f',
       size: '',
       modified: '',
+      depth: '',
     });
   });
 
@@ -173,18 +186,19 @@ describe('tsvColumns fallback chains', () => {
       calls: [{ direction: 'incoming' }],
     });
     expect(rows[0]).toEqual({
+      direction: 'incoming',
       name: '',
+      kind: '',
+      uri: '',
       line: '',
       column: '',
+      fromRanges: '',
     });
   });
 
-  it('does not expose known tool input parameter names as TSV columns', () => {
+  it('does not expose non-output-only tool input parameter names as TSV columns', () => {
     const forbiddenByTool: Record<string, string[]> = {
       [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: [
-        'owner',
-        'repo',
-        'path',
         'filename',
         'extension',
         'match',
@@ -192,81 +206,51 @@ describe('tsvColumns fallback chains', () => {
         'limit',
       ],
       [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: [
-        'owner',
-        'repo',
-        'path',
         'branch',
-        'startLine',
-        'endLine',
         'matchString',
-        'type',
       ],
       [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: [
-        'owner',
-        'stars',
         'created',
         'updated',
-        'size',
         'sort',
       ],
       [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]: [
-        'owner',
-        'repo',
-        'state',
-        'author',
         'assignee',
         'base',
         'head',
-        'draft',
         'label',
         'sort',
         'order',
       ],
       [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]: [
-        'owner',
-        'repo',
-        'path',
         'branch',
-        'depth',
       ],
-      [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: ['path', 'pattern', 'type', 'sort'],
+      [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: ['pattern', 'sort'],
       [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: [
-        'path',
         'name',
-        'type',
-        'permissions',
         'sortBy',
       ],
       [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: [
-        'path',
         'pattern',
         'extension',
-        'depth',
       ],
       [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: [
-        'path',
-        'startLine',
-        'endLine',
         'matchString',
       ],
       [STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION]: [
-        'uri',
         'symbolName',
         'lineHint',
         'orderHint',
       ],
       [STATIC_TOOL_NAMES.LSP_FIND_REFERENCES]: [
-        'uri',
         'symbolName',
         'lineHint',
         'orderHint',
       ],
       [STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY]: [
-        'uri',
         'symbolName',
         'lineHint',
         'orderHint',
-        'direction',
       ],
     };
 

@@ -56,7 +56,18 @@ Log row schema (jsonl):
 
 ## 7 · Scoring
 
-Scoring is done by the judge agent — paste `prompts/judge.md` with the two run paths. The agent reads both `q<n>.md` answer files and `EXPECTED_FACTS.md` and scores semantically. No script is involved.
+Primary scoring is done by the judge agent — paste `prompts/judge.md` with the two run paths. The agent reads both `q<n>.md` answer files and `EXPECTED_FACTS.md`, scores semantic quality, and picks the winner by **quality-adjusted token/character usage**.
+
+Winner axis:
+
+```text
+effective_chars = in_chars + out_chars + amortized_mcp_init_chars
+token_score     = quality / (effective_chars / 1000)
+```
+
+Elapsed time is context only; it must not decide the winner.
+
+**`score-token-usage.mjs <octocode-run> <gh-run> <quality-scores.json>`** — Deterministically combines judge quality scores with metered chars. It does not judge quality itself; it expects a JSON score file and outputs per-Q effective chars, token scores, and the aggregate token-usage winner.
 
 ## 8 · Smoke-testing
 
@@ -79,5 +90,6 @@ JSON-RPC envelope and `gh` command prefix are excluded so neither agent pays for
 |---|---|---|
 | `aggregate.mjs` | Did metering capture this Q? | missing log / zero rows / missing char fields |
 | `validate-pipeline.mjs` | Is the metering code deterministic? | metric diff across runs |
-| judge agent | How well did the agent answer? | semantic — no pass/fail |
+| judge agent | How well did the agent answer, and who wins by quality per token/char? | semantic — no pass/fail |
+| `score-token-usage.mjs` | Given judge scores, who wins by quality per measured char? | missing/invalid score file or run summaries |
 | `cross-run.mjs`, `report-variance.mjs` | What's the spread / median? | never (descriptive) |

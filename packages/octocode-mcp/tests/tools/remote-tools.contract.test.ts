@@ -117,9 +117,15 @@ describe('TSV projection: githubSearchCode', () => {
         ],
       }
     );
-    expect(columns).toEqual([]);
-    expect(rows).toHaveLength(0);
-    expect(text).toBe('');
+    expect(columns).toEqual(['id', 'owner', 'repo', 'path', 'value']);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      owner: 'modelcontextprotocol',
+      repo: 'typescript-sdk',
+      path: 'src/a.ts',
+      value: 'export class A {}',
+    });
+    expect(text).toContain('modelcontextprotocol\ttypescript-sdk\tsrc/a.ts');
   });
 
   it('omits params and payload cells without crashing', () => {
@@ -135,8 +141,10 @@ describe('TSV projection: githubSearchCode', () => {
         ],
       }
     );
-    expect(columns).toEqual([]);
-    expect(rows).toEqual([]);
+    expect(columns).toEqual(['id', 'owner', 'repo', 'path', 'value']);
+    expect(rows).toEqual([
+      { id: '', owner: 'o', repo: 'r', path: 'x.ts', value: '' },
+    ]);
   });
 });
 
@@ -163,12 +171,34 @@ describe('TSV projection: githubGetFileContent', () => {
         ],
       }
     );
-    expect(columns).not.toContain('content');
-    expect(columns).not.toContain('repo');
-    expect(columns).not.toContain('path');
-    expect(columns).not.toContain('startLine');
-    expect(columns).not.toContain('endLine');
+    expect(columns).toEqual([
+      'id',
+      'owner',
+      'repo',
+      'path',
+      'content',
+      'totalLines',
+      'resolvedBranch',
+      'isPartial',
+      'startLine',
+      'endLine',
+      'lastModified',
+      'lastModifiedBy',
+      'warnings',
+      'localPath',
+      'fileCount',
+      'totalSize',
+      'size',
+      'type',
+      'cached',
+    ]);
     expect(rows[0]).toMatchObject({
+      owner: 'a',
+      repo: 'b',
+      path: 'README.md',
+      content: '# hi',
+      startLine: 1,
+      endLine: 40,
       totalLines: 200,
       lastModifiedBy: 'someone',
     });
@@ -187,8 +217,8 @@ describe('TSV projection: githubGetFileContent', () => {
         ],
       }
     );
-    expect(columns).not.toContain('content');
-    expect(text).not.toContain('line1');
+    expect(columns).toContain('content');
+    expect(text).toContain('line1\\nline2\\nline3');
   });
 });
 
@@ -213,11 +243,12 @@ describe('TSV projection: githubSearchRepositories', () => {
       }
     );
     expect(columns).toContain('topics');
-    expect(columns).not.toContain('description');
+    expect(columns).toContain('description');
     expect(rows[0]).toMatchObject({
       repo: 'r',
       language: 'TypeScript',
-      topics: 'mcp agents',
+      topics: ['mcp', 'agents'],
+      description: 'Hello',
     });
   });
 });
@@ -244,17 +275,21 @@ describe('TSV projection: githubSearchPullRequests', () => {
         ],
       }
     );
-    expect(columns).not.toContain('fileChanges');
-    expect(columns).not.toContain('body');
-    expect(columns).not.toContain('title');
-    expect(columns).not.toContain('comments');
-    expect(columns).not.toContain('state');
-    expect(columns).not.toContain('author');
+    expect(columns).toContain('fileChanges');
+    expect(columns).toContain('body');
+    expect(columns).toContain('title');
+    expect(columns).toContain('comments');
+    expect(columns).toContain('state');
+    expect(columns).toContain('author');
     expect(rows[0]).toMatchObject({
       number: 2147,
+      state: 'open',
+      author: 'alice',
+      title: 'feat: x',
       additions: 100,
       deletions: 20,
       changedFilesCount: 3,
+      fileChanges: [{ path: 'a', additions: 1, deletions: 0 }],
     });
   });
 });
@@ -270,17 +305,33 @@ describe('TSV projection: githubViewRepoStructure', () => {
         },
       }
     );
-    expect(columns).toEqual(['parent', 'name', 'type']);
+    expect(columns).toEqual(['parent', 'name', 'type', 'path', 'size', 'sha', 'url']);
     expect(rows).toContainEqual({
       parent: '.',
       name: 'README.md',
       type: 'file',
+      path: '',
+      size: '',
+      sha: '',
+      url: '',
     });
-    expect(rows).toContainEqual({ parent: '.', name: 'src', type: 'dir' });
+    expect(rows).toContainEqual({
+      parent: '.',
+      name: 'src',
+      type: 'dir',
+      path: '',
+      size: '',
+      sha: '',
+      url: '',
+    });
     expect(rows).toContainEqual({
       parent: 'src',
       name: 'index.ts',
       type: 'file',
+      path: '',
+      size: '',
+      sha: '',
+      url: '',
     });
   });
 
@@ -290,7 +341,7 @@ describe('TSV projection: githubViewRepoStructure', () => {
       { structure: {} }
     );
     expect(rows).toHaveLength(0);
-    expect(text).toBe('parent\tname\ttype');
+    expect(text).toBe('parent\tname\ttype\tpath\tsize\tsha\turl');
   });
 });
 

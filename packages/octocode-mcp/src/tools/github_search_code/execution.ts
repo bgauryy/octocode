@@ -68,6 +68,11 @@ export async function searchMultipleGitHubCode(
           hasMore: flat.pagination?.hasMore,
           currentPage: flat.pagination?.currentPage ?? 1,
           totalPages: flat.pagination?.totalPages ?? 1,
+          // Matched paths drive the non-canonical (examples/__tests__/docs)
+          // concept-match warning in hints.hasResults.
+          matchedPaths: flat.results.flatMap(group =>
+            group.matches.map(m => m.path)
+          ),
         };
         return createSuccessResult(
           query,

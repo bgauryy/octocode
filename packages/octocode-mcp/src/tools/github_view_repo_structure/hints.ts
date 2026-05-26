@@ -10,12 +10,33 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
-    if (ctx.entryCount && ctx.entryCount > 50) {
-      return [
-        `Large directory (${ctx.entryCount} entries). Narrow with path or depth=1.`,
-      ];
+    const out: string[] = [];
+    const c = ctx as Record<string, unknown>;
+
+    // Surface feature-flag / mode / config files at the top of the listing.
+    // Benchmark Q8 lost a point because Recoil_ReactMode.js — which gates the
+    // hook implementation behind a feature flag — was never inspected. If a
+    // dir contains *Mode/*Config/*Flag files, the agent should read those
+    // before assuming the search result is canonical.
+    const flagFiles = Array.isArray(c.flagFiles)
+      ? (c.flagFiles as unknown[]).filter(
+          (f): f is string => typeof f === 'string'
+        )
+      : [];
+    if (flagFiles.length > 0) {
+      const shown = flagFiles.slice(0, 3).join(', ');
+      const more = flagFiles.length > 3 ? `, +${flagFiles.length - 3} more` : '';
+      out.push(
+        `Flag/Mode/Config files present (${shown}${more}). Read these FIRST — they often gate the implementation a direct search misses.`
+      );
     }
-    return [];
+
+    if (ctx.entryCount && ctx.entryCount > 50) {
+      out.push(
+        `Large directory (${ctx.entryCount} entries). Narrow with path or depth=1.`
+      );
+    }
+    return out;
   },
 
   empty: (ctx: HintContext = {}) => {

@@ -41,8 +41,9 @@ describe('bulk.ts — TSV branch in the generic path', () => {
     expect(sc.format).toBe('tsv');
     expect(Array.isArray(sc.columns)).toBe(true);
     expect(typeof sc.rows).toBe('string');
-    expect(String(sc.rows)).toContain('r\tTypeScript\t2026-05-24');
-    expect(String(sc.rows)).not.toContain('o\tr\t1');
+    expect(String(sc.rows)).toContain('o\tr\t');
+    expect(String(sc.rows)).toContain('\tTypeScript\t["x"]\t');
+    expect(String(sc.rows)).toContain('\t2026-05-24\t');
   });
 
   it('does NOT emit TSV envelope when config.format=json (default branch silent)', async () => {

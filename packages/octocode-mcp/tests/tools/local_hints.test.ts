@@ -384,11 +384,16 @@ describe('Local Tools Hints', () => {
         expect(hints?.some(h => h?.includes('match="file"'))).toBe(true);
       });
 
-      it('should return [] when owner/repo is provided', () => {
+      it('should emit a PIVOT hint when owner/repo is provided (no "not found" without a pivot)', () => {
         const hints = HINTS[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.empty({
           hasOwnerRepo: true,
+          owner: 'octocat',
+          repo: 'hello-world',
         });
-        expect(hints?.filter(Boolean).length).toBe(0);
+        // Negative searches must steer the agent to a recovery step
+        // (githubViewRepoStructure scout, filename variants, *Mode/*Config)
+        // rather than concluding the symbol is absent.
+        expect(hints?.some(h => h?.includes('PIVOT'))).toBe(true);
       });
     });
 

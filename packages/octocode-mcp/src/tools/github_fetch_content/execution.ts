@@ -150,6 +150,15 @@ async function handleFileFetch(
     TOOL_NAMES.GITHUB_FETCH_CONTENT,
     {
       rawResponse: providerResult.response.rawResponseChars,
+      // Path drives the non-canonical (examples/__tests__/docs/fixtures)
+      // warning in hints.hasResults. isPartial/endLine keep continuation
+      // hints working alongside.
+      hintContext: {
+        path: query.path,
+        branch: query.branch,
+        isPartial: (resultData as { isPartial?: boolean }).isPartial,
+        endLine: (resultData as { endLine?: number }).endLine,
+      },
     }
   );
 }

@@ -78,6 +78,7 @@ export function createRemoteToolRegistration<TQuery>(
             queries: TQuery[];
             responseCharOffset?: number;
             responseCharLength?: number;
+            format?: 'tsv' | 'json';
           },
           authInfo,
           sessionId
@@ -90,6 +91,7 @@ export function createRemoteToolRegistration<TQuery>(
             queries,
             responseCharOffset: args.responseCharOffset,
             responseCharLength: args.responseCharLength,
+            format: args.format,
             authInfo,
             sessionId,
           });

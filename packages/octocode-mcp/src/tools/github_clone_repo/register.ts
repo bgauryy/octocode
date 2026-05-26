@@ -17,7 +17,7 @@ import {
 import { BulkCloneRepoLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
 import { executeCloneRepo } from './execution.js';
 import { withSecurityValidation } from '../../utils/securityBridge.js';
-import { GitHubCloneRepoOutputSchema } from '@octocodeai/octocode-core';
+import { GitHubCloneRepoOutputLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
 import { invokeCallbackSafely } from '../utils.js';
 
 export function registerGitHubCloneRepoTool(
@@ -29,7 +29,7 @@ export function registerGitHubCloneRepoTool(
     {
       description: GITHUB_CLONE_REPO_DESCRIPTION,
       inputSchema: toMCPSchema(BulkCloneRepoLocalSchema),
-      outputSchema: toMCPSchema(GitHubCloneRepoOutputSchema),
+      outputSchema: toMCPSchema(GitHubCloneRepoOutputLocalSchema),
       annotations: {
         title: 'Clone / Fetch GitHub Repository Locally',
         readOnlyHint: false,
@@ -41,11 +41,13 @@ export function registerGitHubCloneRepoTool(
     withSecurityValidation(
       TOOL_NAMES.GITHUB_CLONE_REPO,
       async (args, authInfo, sessionId) => {
-        const { queries, responseCharOffset, responseCharLength } = args as {
-          queries: CloneRepoQuery[];
-          responseCharOffset?: number;
-          responseCharLength?: number;
-        };
+        const { queries, responseCharOffset, responseCharLength, format } =
+          args as {
+            queries: CloneRepoQuery[];
+            responseCharOffset?: number;
+            responseCharLength?: number;
+            format?: 'tsv' | 'json';
+          };
 
         await invokeCallbackSafely(
           callback,
@@ -57,6 +59,7 @@ export function registerGitHubCloneRepoTool(
           queries,
           responseCharOffset,
           responseCharLength,
+          format,
           authInfo,
           sessionId,
         });
