@@ -122,7 +122,7 @@ function attachDefinitionEvidence(
 /**
  * Execute goto definition for a single query
  */
-export async function gotoDefinition(
+async function gotoDefinition(
   query: LSPGotoDefinitionQuery
 ): Promise<GotoDefinitionResult> {
   try {
@@ -150,12 +150,14 @@ export async function gotoDefinition(
       }) as GotoDefinitionResult;
     }
 
+    const symbolName = query.symbolName!;
+    const lineHint = query.lineHint!;
     const resolver = new SymbolResolver({ lineSearchRadius: 5 });
     let resolvedSymbol;
     try {
       resolvedSymbol = resolver.resolvePositionFromContent(content, {
-        symbolName: query.symbolName,
-        lineHint: query.lineHint,
+        symbolName,
+        lineHint,
         orderHint: query.orderHint ?? 0,
       });
     } catch (error) {
@@ -169,8 +171,8 @@ export async function gotoDefinition(
             searchRadius: error.searchRadius,
             hints: [
               ...getHints(TOOL_NAME, 'empty'),
-              `Symbol "${query.symbolName}" not found at or near line ${query.lineHint}`,
-              `Searched lines ${Math.max(1, query.lineHint - error.searchRadius)} to ${query.lineHint + error.searchRadius}`,
+              `Symbol "${symbolName}" not found at or near line ${lineHint}`,
+              `Searched lines ${Math.max(1, lineHint - error.searchRadius)} to ${lineHint + error.searchRadius}`,
               'Verify the exact symbol name (case-sensitive, no partial matches)',
               'Adjust lineHint if the symbol moved due to code changes',
               query.orderHint && query.orderHint > 0
@@ -332,6 +334,23 @@ async function gotoDefinitionWithLSP(
   const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
+  if (client.hasCapability && !client.hasCapability('definitionProvider')) {
+    return {
+      status: 'error',
+      error: 'Language server does not support goto definition',
+      errorType: 'unknown',
+      errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
+      lspMode: 'semantic',
+      hints: [
+        ...getHints(TOOL_NAME, 'error'),
+        'The active language server does not advertise definitionProvider.',
+        'Try localSearchCode as a text fallback.',
+        'Check LSP server configuration for this language.',
+      ],
+    };
+  }
+
+  const symbolName = query.symbolName!;
   let locations = await client.gotoDefinition(filePath, _position);
 
   if (!locations || locations.length === 0) {
@@ -343,7 +362,7 @@ async function gotoDefinitionWithLSP(
       const manualLocation = await resolveDefinitionViaModulePath(
         targetLine,
         filePath,
-        query.symbolName
+        symbolName
       );
       if (manualLocation) {
         return applyGotoDefinitionOutputLimit(
@@ -397,7 +416,7 @@ async function gotoDefinitionWithLSP(
             line: loc.range.start.line,
             character: resolveImportSymbolCharacter(
               targetLine,
-              query.symbolName,
+              symbolName,
               loc.range.start.character
             ),
           };
@@ -422,7 +441,7 @@ async function gotoDefinitionWithLSP(
             const manualLocation = await resolveDefinitionViaModulePath(
               targetLine,
               loc.uri,
-              query.symbolName
+              symbolName
             );
             if (manualLocation) {
               locations = [manualLocation];
@@ -568,6 +587,7 @@ function createFallbackResult(
   resolvedSymbol: { position: ExactPosition; foundAtLine: number },
   options: { lspUnavailable?: boolean; semanticFallbackHint?: string } = {}
 ): GotoDefinitionResult {
+  const symbolName = query.symbolName!;
   const contextLines = query.contextLines ?? 5;
   const context = resolver.extractContext(
     content,
@@ -587,7 +607,7 @@ function createFallbackResult(
       start: resolvedSymbol.position,
       end: {
         line: resolvedSymbol.position.line,
-        character: resolvedSymbol.position.character + query.symbolName.length,
+        character: resolvedSymbol.position.character + symbolName.length,
       },
     },
     content: numberedContent,

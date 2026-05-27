@@ -24,6 +24,7 @@ import type { SymbolKind } from '../../lsp/types.js';
 import { acquirePooledClient } from '../../lsp/manager.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAME } from './constants.js';
+import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
 
 /**
  * Infer symbol kind from the definition line content.
@@ -88,6 +89,21 @@ export async function findReferencesWithLSP(
   // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).
   const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
+
+  if (client.hasCapability && !client.hasCapability('referencesProvider')) {
+    return {
+      status: 'error',
+      error: 'Language server does not support find references',
+      errorType: 'unknown',
+      errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
+      lspMode: 'semantic',
+      hints: [
+        ...getHints(TOOL_NAME, 'error'),
+        'The active language server does not advertise referencesProvider.',
+        'Try localSearchCode for text-based usage search.',
+      ],
+    };
+  }
 
   // Warm-up: prepareCallHierarchy forces tsserver to load the project graph.
   // Without this, a freshly-spawned language server may only return references

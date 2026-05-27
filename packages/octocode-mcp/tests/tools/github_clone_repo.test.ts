@@ -1677,28 +1677,6 @@ describe('executeCloneRepo', () => {
     }
   });
 
-  it('returns error for non-github provider', async () => {
-    mockGetActiveProvider.mockReturnValue('gitlab');
-
-    const result = await executeCloneRepo({
-      queries: [
-        {
-          mainResearchGoal: 'test',
-          researchGoal: 'test',
-          reasoning: 'test',
-          owner: 'fb',
-          repo: 'react',
-        },
-      ],
-    });
-
-    const text = result.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map(c => c.text)
-      .join('\n');
-    expect(text.toLowerCase()).toContain('github');
-  });
-
   it('returns success result for github provider', async () => {
     const result = await executeCloneRepo({
       queries: [

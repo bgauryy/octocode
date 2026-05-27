@@ -32,7 +32,10 @@ export function applyStructurePagination(
 
   const paginatedItems = cachedItems.slice(startIdx, endIdx);
 
-  const structure: Record<string, { files: string[]; folders: string[] }> = {};
+  // Object.create(null): keys come from GitHub paths — defense-in-depth
+  // against unexpected paths polluting Object.prototype.
+  const structure: Record<string, { files: string[]; folders: string[] }> =
+    Object.create(null);
   const basePath = cachedResult.path === '/' ? '' : cachedResult.path;
 
   const getRelativeParent = (itemPath: string): string => {
@@ -82,7 +85,7 @@ export function applyStructurePagination(
   const sortedStructure: Record<
     string,
     { files: string[]; folders: string[] }
-  > = {};
+  > = Object.create(null);
   const sortedKeys = Object.keys(structure).sort((a, b) => {
     if (a === '.') return -1;
     if (b === '.') return 1;

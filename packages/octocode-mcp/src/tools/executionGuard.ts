@@ -1,4 +1,4 @@
-import type { ProcessedBulkResult } from '../types.js';
+import type { ProcessedBulkResult } from '../types/toolResults.js';
 import { handleCatchError } from './utils.js';
 
 interface GuardableQuery {

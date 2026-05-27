@@ -402,18 +402,16 @@ describe('Session Storage', () => {
     it('should increment provider-specific rate limit counts', () => {
       getOrCreateSession();
 
-      incrementRateLimitByProvider('gitlab');
-      const result = incrementRateLimitByProvider('bitbucket', 2);
+      incrementRateLimitByProvider('github');
+      const result = incrementRateLimitByProvider('github', 2);
 
       expect(result.success).toBe(true);
       expect(result.session?.stats.rateLimits).toBe(3);
       expect(result.session?.stats.rateLimitsByProvider).toEqual({
-        gitlab: 1,
-        bitbucket: 2,
+        github: 3,
       });
       expect(result.session?.stats.totalUsage?.rateLimitsByProvider).toEqual({
-        gitlab: 1,
-        bitbucket: 2,
+        github: 3,
       });
     });
   });

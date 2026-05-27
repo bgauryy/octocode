@@ -10,7 +10,8 @@
  * `BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal>` so any shape drift is
  * caught at compile time before reaching the MCP SDK validator.
  */
-import type { BulkFinalizer, FlatQueryResult } from '../../types.js';
+import type { BulkFinalizer } from '../../types/bulk.js';
+import type { FlatQueryResult } from '../../types/toolResults.js';
 import {
   collectFlatErrors,
   dedupeHints,

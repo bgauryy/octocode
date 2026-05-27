@@ -145,7 +145,7 @@ export function formatEntryString(
   }
 }
 
-export interface EntryOutput {
+interface EntryOutput {
   name: string;
   type: 'file' | 'dir' | 'link';
   depth?: number;

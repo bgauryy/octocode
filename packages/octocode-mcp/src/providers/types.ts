@@ -1,9 +1,7 @@
 /**
  * Provider Abstraction Layer - Type Definitions
  *
- * This module defines the interfaces for provider-agnostic code hosting operations.
- * Tools use these unified types, and the execution layer routes to the appropriate
- * provider (GitHub, GitLab, etc.) based on the `provider` parameter.
+ * This module defines the interfaces for the GitHub code hosting provider.
  *
  * @module providers/types
  */
@@ -47,9 +45,8 @@ import type {
 
 /**
  * Supported code hosting providers.
- * Default is 'github' .
  */
-export type ProviderType = 'github' | 'gitlab' | 'bitbucket';
+export type ProviderType = 'github';
 
 /**
  * Configuration for provider initialization.
@@ -57,7 +54,7 @@ export type ProviderType = 'github' | 'gitlab' | 'bitbucket';
 export interface ProviderConfig {
   /** Provider type */
   type: ProviderType;
-  /** Base URL for self-hosted instances (e.g., 'https://gitlab.mycompany.com') */
+  /** Base URL for self-hosted GitHub Enterprise instances */
   baseUrl?: string;
   /** Provider-specific authentication token */
   token?: string;

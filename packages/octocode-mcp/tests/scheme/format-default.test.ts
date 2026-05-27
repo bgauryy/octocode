@@ -6,18 +6,26 @@
 
 import { describe, it, expect } from 'vitest';
 import { createRelaxedBulkQuerySchema } from '../../src/scheme/localSchemaOverlay.js';
+import {
+  DEFAULT_TOOL_RESPONSE_FORMAT,
+  type ToolExecutionArgs,
+} from '../../src/types/execution.js';
 import { z } from 'zod/v4';
 
-describe('relaxed bulk schema — format default', () => {
+describe('tool response format defaults', () => {
   const querySchema = z.object({ id: z.string().optional() });
   const bulkSchema = createRelaxedBulkQuerySchema('demoTool', querySchema);
 
-  it('defaults format to "tsv" when the caller omits it', () => {
+  it('uses a shared default constant for MCP and CLI direct execution', () => {
+    expect(DEFAULT_TOOL_RESPONSE_FORMAT).toBe('tsv');
+  });
+
+  it('MCP bulk schemas default format to "tsv" when the caller omits it', () => {
     const parsed = bulkSchema.parse({ queries: [{ id: 'q1' }] });
     expect(parsed.format).toBe('tsv');
   });
 
-  it('still honors an explicit format: "json" opt-out', () => {
+  it('MCP bulk schemas still honor an explicit format: "json" opt-out', () => {
     const parsed = bulkSchema.parse({
       queries: [{ id: 'q1' }],
       format: 'json',
@@ -25,11 +33,20 @@ describe('relaxed bulk schema — format default', () => {
     expect(parsed.format).toBe('json');
   });
 
-  it('rejects any other format value', () => {
+  it('MCP bulk schemas reject any other format value', () => {
     const result = bulkSchema.safeParse({
       queries: [{ id: 'q1' }],
       format: 'yaml',
     });
     expect(result.success).toBe(false);
+  });
+
+  it('CLI direct tool execution can use the same default format constant', () => {
+    const args = {
+      queries: [{ id: 'q1' }],
+      format: DEFAULT_TOOL_RESPONSE_FORMAT,
+    } satisfies ToolExecutionArgs<{ id: string }>;
+
+    expect(args.format).toBe('tsv');
   });
 });

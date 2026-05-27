@@ -9,14 +9,12 @@ How to install, authenticate, and configure Octocode.
 | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) | All env vars and `.octocoderc` flags |
 | [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) | Diagnose install or auth issues |
 
-## [providers/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/configuration/providers) — Authenticate against a code host
+## [providers/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/configuration/providers) — Authenticate against GitHub
 
 | Doc | When to read |
 |-----|--------------|
-| [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) | Pick a provider, understand the auth model |
+| [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) | Understand the auth model |
 | [GitHub Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) | Tokens, Enterprise, clone tools |
-| [GitLab Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITLAB_SETUP_GUIDE.md) | Self-hosted, tier limits |
-| [Bitbucket Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/BITBUCKET_SETUP_GUIDE.md) | App passwords, OAuth |
 
 ## [clients/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/configuration/clients) — Connect from an MCP host
 

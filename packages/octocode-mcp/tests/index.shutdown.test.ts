@@ -66,6 +66,7 @@ vi.mock('../src/tools/toolMetadata/state.js', () => ({
       },
     })
   ),
+  getMetadataOrNull: vi.fn(() => null),
 }));
 
 vi.mock('../src/tools/toolsManager.js', () => ({

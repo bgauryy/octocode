@@ -9,11 +9,10 @@ import type {
   ProcessedBulkResult,
   FlatQueryResult,
   QueryError,
-  BulkResponseConfig,
-  BulkToolResponse,
   EvidenceMetadata,
-  PromiseResult,
-} from '../../types.js';
+} from '../../types/toolResults.js';
+import type { BulkResponseConfig, BulkToolResponse } from '../../types/bulk.js';
+import type { PromiseResult } from '../../types/promise.js';
 import {
   applyBulkResponsePagination,
   applyQueryOutputPagination,

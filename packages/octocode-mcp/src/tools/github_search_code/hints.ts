@@ -8,7 +8,6 @@
  */
 
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
-import { getActiveProvider } from '../../serverConfig.js';
 
 export const hints: ToolHintGenerators = {
   hasResults: (ctx: HintContext = {}) => {
@@ -31,7 +30,8 @@ export const hints: ToolHintGenerators = {
         )
       : undefined;
     if (paths && paths.length > 0) {
-      const nonCanonical = /(^|\/)(examples?|__tests?__|tests?|docs?|fixtures?|samples?|benchmarks?|e2e)(\/|$)/i;
+      const nonCanonical =
+        /(^|\/)(examples?|__tests?__|tests?|docs?|fixtures?|samples?|benchmarks?|e2e)(\/|$)/i;
       const allNonCanonical = paths.every(p => nonCanonical.test(p));
       if (allNonCanonical) {
         out.push(
@@ -128,13 +128,7 @@ export const hints: ToolHintGenerators = {
     }
 
     if (ctx.status === 401) {
-      const provider = getActiveProvider();
-      const tokenVarMap: Record<string, string> = {
-        gitlab: 'GITLAB_TOKEN',
-        bitbucket: 'BITBUCKET_TOKEN',
-      };
-      const tokenVar = tokenVarMap[provider] ?? 'GITHUB_TOKEN';
-      out.push(`Check ${tokenVar} is valid and not expired.`);
+      out.push('Check GITHUB_TOKEN is valid and not expired.');
     }
 
     if (ctx.status === 403 && !ctx.isRateLimited) {

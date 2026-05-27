@@ -34,8 +34,6 @@ export type {
 
   // Section types (raw)
   GitHubConfigOptions,
-  GitLabConfigOptions,
-  BitbucketConfigOptions,
   LocalConfigOptions,
   ToolsConfigOptions,
   NetworkConfigOptions,
@@ -46,8 +44,6 @@ export type {
 
   // Section types (resolved)
   RequiredGitHubConfig,
-  RequiredGitLabConfig,
-  RequiredBitbucketConfig,
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
@@ -63,8 +59,6 @@ export {
   // Default configs
   DEFAULT_CONFIG,
   DEFAULT_GITHUB_CONFIG,
-  DEFAULT_GITLAB_CONFIG,
-  DEFAULT_BITBUCKET_CONFIG,
   DEFAULT_LOCAL_CONFIG,
   DEFAULT_TOOLS_CONFIG,
   DEFAULT_NETWORK_CONFIG,

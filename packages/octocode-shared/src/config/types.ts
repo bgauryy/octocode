@@ -24,22 +24,6 @@ export interface GitHubConfigOptions {
 }
 
 /**
- * GitLab-specific configuration
- */
-export interface GitLabConfigOptions {
-  /** GitLab instance URL (default: https://gitlab.com) */
-  host?: string;
-}
-
-/**
- * Bitbucket-specific configuration
- */
-export interface BitbucketConfigOptions {
-  /** Bitbucket API base URL (default: https://api.bitbucket.org/2.0) */
-  host?: string;
-}
-
-/**
  * Local filesystem tools configuration
  */
 export interface LocalConfigOptions {
@@ -116,10 +100,6 @@ export interface OctocodeConfig {
   version?: number;
   /** GitHub configuration */
   github?: GitHubConfigOptions;
-  /** GitLab configuration */
-  gitlab?: GitLabConfigOptions;
-  /** Bitbucket configuration */
-  bitbucket?: BitbucketConfigOptions;
   /** Local tools configuration */
   local?: LocalConfigOptions;
   /** Tool enable/disable */
@@ -139,14 +119,6 @@ export interface OctocodeConfig {
  */
 export interface RequiredGitHubConfig {
   apiUrl: string;
-}
-
-export interface RequiredGitLabConfig {
-  host: string;
-}
-
-export interface RequiredBitbucketConfig {
-  host: string;
 }
 
 export interface RequiredLocalConfig {
@@ -192,10 +164,6 @@ export interface ResolvedConfig {
   version: number;
   /** GitHub configuration */
   github: RequiredGitHubConfig;
-  /** GitLab configuration */
-  gitlab: RequiredGitLabConfig;
-  /** Bitbucket configuration */
-  bitbucket: RequiredBitbucketConfig;
   /** Local tools configuration */
   local: RequiredLocalConfig;
   /** Tool enable/disable */

@@ -70,13 +70,16 @@ async function processCallHierarchyInternal(
     }
 
     const absolutePath = pathValidation.sanitizedPath!;
+    const uri = query.uri!;
+    const symbolName = query.symbolName!;
+    const lineHint = query.lineHint!;
 
     let content: string;
     try {
       content = await readFile(absolutePath, 'utf-8');
     } catch (error) {
       const toolError = ToolErrors.fileAccessFailed(
-        query.uri,
+        uri,
         error instanceof Error ? error : undefined
       );
       return createErrorResult(toolError, query, {
@@ -89,8 +92,8 @@ async function processCallHierarchyInternal(
     let resolvedSymbol;
     try {
       resolvedSymbol = resolver.resolvePositionFromContent(content, {
-        symbolName: query.symbolName,
-        lineHint: query.lineHint,
+        symbolName,
+        lineHint,
         orderHint: query.orderHint ?? 0,
       });
     } catch (error) {
@@ -103,7 +106,7 @@ async function processCallHierarchyInternal(
             error: error.message,
             hints: [
               ...getHints(TOOL_NAME, 'empty'),
-              `Symbol '${query.symbolName}' not found at line ${query.lineHint}`,
+              `Symbol '${symbolName}' not found at line ${lineHint}`,
               'Verify the exact function name (case-sensitive)',
               'Check the line number is correct',
               'Use localSearchCode to find the function first',

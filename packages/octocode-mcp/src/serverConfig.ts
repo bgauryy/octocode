@@ -8,21 +8,9 @@ import {
   invalidateConfigCache,
 } from 'octocode-shared';
 import { version } from '../package.json';
-import type { ServerConfig, TokenSourceType } from './types.js';
+import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
-import {
-  getGitLabConfig as resolveGitLabConfig,
-  getGitLabToken,
-  getGitLabHost,
-  isGitLabConfigured,
-} from './gitlabConfig.js';
-import {
-  getBitbucketConfig as resolveBitbucketConfig,
-  getBitbucketToken,
-  getBitbucketHost,
-  isBitbucketConfigured,
-} from './bitbucketConfig.js';
 
 /** Result of token resolution with source tracking */
 interface TokenResolutionResult {
@@ -144,8 +132,6 @@ export async function initialize(): Promise<void> {
       enableClone: resolved.local.enableClone,
       outputFormat: resolved.output.format,
       tokenSource: tokenResult.source,
-      gitlab: resolveGitLabConfig(),
-      bitbucket: resolveBitbucketConfig(),
     };
   })();
 
@@ -222,39 +208,21 @@ export async function getTokenSource(): Promise<TokenSourceType> {
 }
 
 /**
- * Get the active provider based on environment configuration.
- * Priority: GITLAB_TOKEN → 'gitlab', BITBUCKET_TOKEN → 'bitbucket', otherwise → 'github' (default)
+ * Get the active provider. Always 'github'.
  */
 export function getActiveProvider(): ProviderType {
-  if (isGitLabConfigured()) return 'gitlab';
-  if (isBitbucketConfigured()) return 'bitbucket';
   return 'github';
 }
 
 /**
  * Get active provider configuration for tool execution.
- * Returns provider type and base URL based on environment and global config.
- * Priority: env vars > config file > defaults
+ * Returns provider type and base URL based on global config.
  */
 export function getActiveProviderConfig(): {
   provider: ProviderType;
   baseUrl?: string;
   token?: string;
 } {
-  if (isGitLabConfigured()) {
-    return {
-      provider: 'gitlab',
-      baseUrl: getGitLabHost(),
-      token: getGitLabToken() ?? undefined,
-    };
-  }
-  if (isBitbucketConfigured()) {
-    return {
-      provider: 'bitbucket',
-      baseUrl: getBitbucketHost(),
-      token: getBitbucketToken() ?? undefined,
-    };
-  }
   const githubApiUrl = getConfigSync().github.apiUrl;
   const baseUrl =
     githubApiUrl !== 'https://api.github.com' ? githubApiUrl : undefined;
@@ -262,11 +230,4 @@ export function getActiveProviderConfig(): {
     provider: 'github',
     baseUrl,
   };
-}
-
-/**
- * Check if the active provider is GitLab.
- */
-export function isGitLabActive(): boolean {
-  return getActiveProvider() === 'gitlab';
 }

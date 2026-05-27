@@ -1,9 +1,55 @@
 import { describe, it, expect } from 'vitest';
-import { createResult, createResponseFormat } from '../../src/responses';
+import {
+  createResult,
+  createResponseFormat,
+  formatCallToolResultForOutput,
+} from '../../src/responses';
 import { jsonToYamlString } from '../../src/utils/minifier/jsonToYamlString.js';
 import { getTextContent } from './testHelpers.js';
 
 describe('Response Utilities', () => {
+  describe('formatCallToolResultForOutput', () => {
+    it('returns the full MCP CallToolResult envelope in json mode', () => {
+      const result = {
+        content: [{ type: 'text' as const, text: 'text output' }],
+        structuredContent: {
+          format: 'tsv',
+          rows: 'path\tline\nfoo.ts\t1',
+          results: [{ id: 'q1', status: 'hasResults', data: {} }],
+        },
+        isError: false,
+      };
+
+      expect(formatCallToolResultForOutput(result, 'json')).toBe(
+        JSON.stringify(result)
+      );
+    });
+
+    it('returns joined text blocks in text mode', () => {
+      expect(
+        formatCallToolResultForOutput(
+          {
+            content: [
+              { type: 'text' as const, text: 'first' },
+              { type: 'text' as const, text: '' },
+              { type: 'text' as const, text: 'second' },
+            ],
+          },
+          'text'
+        )
+      ).toBe('first\n\nsecond');
+    });
+
+    it('falls back to pretty structuredContent in text mode', () => {
+      expect(
+        formatCallToolResultForOutput(
+          { content: [], structuredContent: { status: 'ok' } },
+          'text'
+        )
+      ).toBe(JSON.stringify({ status: 'ok' }, null, 2));
+    });
+  });
+
   describe('createResult', () => {
     it('should create success result with JSON data', () => {
       const data = { message: 'Hello' };

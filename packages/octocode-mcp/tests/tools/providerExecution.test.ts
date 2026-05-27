@@ -34,13 +34,13 @@ describe('providerExecution', () => {
 
   it('should create provider context with provider capabilities', () => {
     mockGetProvider.mockReturnValue({
-      capabilities: PROVIDER_CAPABILITIES.gitlab,
+      capabilities: PROVIDER_CAPABILITIES.github,
     });
 
     const context = createProviderExecutionContext();
 
     expect(context.providerType).toBe('github');
-    expect(context.capabilities).toBe(PROVIDER_CAPABILITIES.gitlab);
+    expect(context.capabilities).toBe(PROVIDER_CAPABILITIES.github);
   });
 
   it('should throw a typed error when provider initialization fails', () => {
@@ -159,43 +159,15 @@ describe('providerExecution', () => {
         {
           meta: { label: 'op' },
           operation: async () => {
-            throw new Error('gitlab api down');
+            throw new Error('github api down');
           },
         },
       ],
-      'gitlab'
+      'github'
     );
 
     expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]?.response.provider).toBe('gitlab');
-    expect(result.failures[0]?.response.error).toBe('gitlab api down');
-  });
-
-  it('should capture providerType at call time, not from global state in catch', async () => {
-    mockGetActiveProviderConfig.mockReturnValue({
-      provider: 'github',
-      baseUrl: undefined,
-      token: 'mock-token',
-    });
-
-    const result = await executeProviderOperations(
-      [
-        {
-          meta: { label: 'op' },
-          operation: async () => {
-            mockGetActiveProviderConfig.mockReturnValue({
-              provider: 'bitbucket',
-              baseUrl: undefined,
-              token: 'mock-token',
-            });
-            throw new Error('failed');
-          },
-        },
-      ],
-      'gitlab'
-    );
-
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]?.response.provider).toBe('gitlab');
+    expect(result.failures[0]?.response.provider).toBe('github');
+    expect(result.failures[0]?.response.error).toBe('github api down');
   });
 });

@@ -1357,7 +1357,7 @@ describe('searchPackage - Python Edge Cases', () => {
           summary: 'Test package',
           keywords: '',
           project_urls: {},
-          home_page: 'https://example.com/docs', // Not github/gitlab/bitbucket
+          home_page: 'https://example.com/docs', // Not github
         },
       },
     };
@@ -1536,107 +1536,6 @@ describe('searchPackage - Python Edge Cases', () => {
     if ('packages' in result) {
       const pkg = result.packages[0] as { description: string };
       expect(pkg.description).toBe('Found on second try');
-    }
-  });
-
-  it('should extract repo from gitlab URL', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test',
-          keywords: '',
-          project_urls: {
-            Repository: 'https://gitlab.com/test/repo',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.repository).toBe('https://gitlab.com/test/repo');
-    }
-  });
-
-  it('should extract repo from bitbucket URL', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test',
-          keywords: '',
-          project_urls: {
-            Source: 'https://bitbucket.org/test/repo',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.repository).toBe('https://bitbucket.org/test/repo');
-    }
-  });
-
-  it('should extract repo from gitlab home_page', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test',
-          keywords: '',
-          project_urls: {},
-          home_page: 'https://gitlab.com/test/repo',
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.repository).toBe('https://gitlab.com/test/repo');
     }
   });
 });

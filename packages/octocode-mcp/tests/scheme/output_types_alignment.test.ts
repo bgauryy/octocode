@@ -63,7 +63,7 @@ import type {
   OutgoingCall,
   PackageSearchResult,
   PackageResultWithRepo,
-} from '../../src/public/tools.js';
+} from '../../src/public.js';
 
 describe('Output type alignment', () => {
   it('derives GitHub tool output aliases from the output schemas', () => {

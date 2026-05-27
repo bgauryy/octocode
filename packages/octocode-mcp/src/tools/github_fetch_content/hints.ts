@@ -20,7 +20,8 @@ export const hints: ToolHintGenerators = {
     // canonical).
     const path = typeof c.path === 'string' ? c.path : undefined;
     if (path) {
-      const nonCanonical = /(^|\/)(examples?|__tests?__|tests?|docs?|fixtures?|samples?|benchmarks?|e2e)(\/|$)/i;
+      const nonCanonical =
+        /(^|\/)(examples?|__tests?__|tests?|docs?|fixtures?|samples?|benchmarks?|e2e)(\/|$)/i;
       if (nonCanonical.test(path)) {
         out.push(
           `⚠️ Path '${path}' is in a NON-CANONICAL location (examples/__tests__/docs/fixtures). Treat contents as illustrative, not the real implementation. For the canonical source, search inside packages/ or src/.`

@@ -31,18 +31,6 @@ export interface UserLanguageServerConfig {
 }
 
 /**
- * Config file schema for user-defined language servers
- * File locations (in priority order):
- * 1. OCTOCODE_LSP_CONFIG environment variable
- * 2. .octocode/lsp-servers.json (workspace-level)
- * 3. ${OCTOCODE_HOME:-~/.octocode}/lsp-servers.json (user-level)
- */
-export interface LSPConfigFile {
-  /** Language servers by file extension (e.g., ".py", ".java") */
-  languageServers?: Record<string, UserLanguageServerConfig>;
-}
-
-/**
  * Server command info from the registry
  */
 export interface LanguageServerCommand {
@@ -210,7 +198,7 @@ type LSPErrorType =
  * char-budget pagination and lets agents branch on it without parsing
  * hint strings.
  */
-export type LspMode = 'semantic' | 'fallback';
+type LspMode = 'semantic' | 'fallback';
 
 /**
  * Base LSP tool result

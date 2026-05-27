@@ -3,16 +3,9 @@
  * Unified query types for provider-agnostic code hosting operations.
  */
 
-/**
- * Supported code hosting providers.
- * Default is 'github' .
- */
-export type ProviderType = 'github' | 'gitlab' | 'bitbucket';
+type ProviderType = 'github';
 
-/**
- * Base query interface with common fields across all providers.
- */
-export interface BaseProviderQuery {
+interface BaseProviderQuery {
   /** Provider to use (default: 'github') */
   provider?: ProviderType;
   /** Stable query identifier for matching input queries to response results */
@@ -29,11 +22,7 @@ export interface BaseProviderQuery {
 export interface CodeSearchQuery extends BaseProviderQuery {
   /** Keywords to search for in code */
   keywords: string[];
-  /**
-   * Project identifier:
-   * - GitHub: 'owner/repo'
-   * - GitLab: numeric ID or 'group/project'
-   */
+  /** Project identifier: 'owner/repo' */
   projectId?: string;
   /** Owner/organization filter (used when searching without a specific repo) */
   owner?: string;
@@ -57,11 +46,7 @@ export interface CodeSearchQuery extends BaseProviderQuery {
  * Unified file content query parameters.
  */
 export interface FileContentQuery extends BaseProviderQuery {
-  /**
-   * Project identifier:
-   * - GitHub: 'owner/repo'
-   * - GitLab: numeric ID or 'group/project'
-   */
+  /** Project identifier: 'owner/repo' */
   projectId: string;
   /** File path within the repository */
   path: string;
@@ -93,7 +78,7 @@ export interface RepoSearchQuery extends BaseProviderQuery {
   topics?: string[];
   /** Owner/organization filter */
   owner?: string;
-  /** Minimum stars (GitHub only, GitLab: client-side filter) */
+  /** Minimum stars */
   minStars?: number;
   /** Raw stars filter string for GitHub (e.g. '>1000', '100..500', '>=500') */
   stars?: string;
@@ -123,11 +108,7 @@ export interface RepoSearchQuery extends BaseProviderQuery {
  * Unified pull/merge request search query parameters.
  */
 export interface PullRequestQuery extends BaseProviderQuery {
-  /**
-   * Project identifier (optional for cross-repo search):
-   * - GitHub: 'owner/repo'
-   * - GitLab: numeric ID or 'group/project'
-   */
+  /** Project identifier (optional for cross-repo search): 'owner/repo' */
   projectId?: string;
   /** Owner/organization filter (used when searching without a specific repo) */
   owner?: string;
@@ -135,11 +116,7 @@ export interface PullRequestQuery extends BaseProviderQuery {
   repo?: string;
   /** Free-text search query (matches title/body/comments per `match` scope) */
   query?: string;
-  /**
-   * PR/MR number within the project:
-   * - GitHub: PR number
-   * - GitLab: MR iid (project-scoped)
-   */
+  /** PR number within the project */
   number?: number;
   /** State filter */
   state?: 'open' | 'closed' | 'merged' | 'all';
@@ -217,11 +194,7 @@ export interface PullRequestQuery extends BaseProviderQuery {
  * Unified repository structure query parameters.
  */
 export interface RepoStructureQuery extends BaseProviderQuery {
-  /**
-   * Project identifier:
-   * - GitHub: 'owner/repo'
-   * - GitLab: numeric ID or 'group/project'
-   */
+  /** Project identifier: 'owner/repo' */
   projectId: string;
   /** Branch, tag, or commit reference */
   ref?: string;

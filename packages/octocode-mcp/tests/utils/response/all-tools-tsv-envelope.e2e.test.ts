@@ -21,7 +21,7 @@ import { executeBulkOperation } from '../../../src/utils/response/bulk.js';
 import { STATIC_TOOL_NAMES } from '../../../src/tools/toolNames.js';
 import { buildGithubSearchCodeFinalizer } from '../../../src/tools/github_search_code/finalizer.js';
 import { buildGithubFetchContentFinalizer } from '../../../src/tools/github_fetch_content/finalizer.js';
-import type { BulkFinalizerInput } from '../../../src/types.js';
+import type { BulkFinalizerInput } from '../../../src/types/bulk.js';
 
 // ---------------------------------------------------------------------------
 // 1. Generic bulk-path tools — 11 of 13
@@ -203,7 +203,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'incoming\tcaller\t\tsrc/c.ts\t5\t2'
+    rowProbe: 'incoming\tcaller\t\tsrc/c.ts\t5\t2',
   },
 ];
 

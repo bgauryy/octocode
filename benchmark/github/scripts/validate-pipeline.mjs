@@ -33,10 +33,20 @@ if (runs.length < 2) {
   process.exit(2);
 }
 
+const readAgent = (run) => {
+  const summaryPath = join(run, 'summary.json');
+  if (!existsSync(summaryPath)) return basename(run);
+  try {
+    return JSON.parse(readFileSync(summaryPath, 'utf8')).agent ?? basename(run);
+  } catch {
+    return basename(run);
+  }
+};
+
 const agents = new Set();
 const data = runs.map(run => {
   const slug = basename(run);
-  agents.add(slug);
+  agents.add(readAgent(run));
   const qFiles = readdirSync(run).filter(f => /^q\d+\.json$/.test(f));
   const perQ = {};
   for (const f of qFiles) {
@@ -58,7 +68,7 @@ const allQs = [...new Set(data.flatMap(d => Object.keys(d.perQ).map(Number)))].s
 const mismatches = [];
 let bothMissing = 0;
 for (const q of allQs) {
-  const cells = data.map(d => d.perQ[q]);
+  const cells = data.map(d => d.perQ[q] ?? null);
   const nullCount = cells.filter(c => c === null).length;
   if (nullCount === cells.length) {
     bothMissing++;

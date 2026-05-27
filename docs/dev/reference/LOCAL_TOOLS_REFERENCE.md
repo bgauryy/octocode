@@ -111,13 +111,13 @@ For LSP tools, workspace selection is automatic:
 - If the target file is outside `WORKSPACE_ROOT`, Octocode walks up from the file and picks the nearest project root using markers such as `package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, or `pyproject.toml`.
 - If no marker is found, Octocode falls back to the file's own directory.
 
-> **Note:** `githubCloneRepo` and `githubGetFileContent` directory mode are **GitHub only** — they are not available when GitLab or Bitbucket is the active provider. Both require `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
+> **Note:** `githubCloneRepo` and `githubGetFileContent` directory mode both require `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
 
 > **Full workflow guide:** [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md)
 
 ### Research Context (Required)
 
-All local and LSP tools require research context fields (same as GitHub/GitLab tools):
+All local and LSP tools require research context fields (same as GitHub tools):
 
 | Field | Description |
 |-------|-------------|
@@ -721,5 +721,5 @@ Tools with no dependencies can run in parallel:
 ## Related Documentation
 
 - [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) — How to clone external repos and analyze them with local + LSP tools
-- [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) — code host tools including `githubCloneRepo`
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — code host tools including `githubCloneRepo`
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — `ENABLE_LOCAL`, `ENABLE_CLONE`, and other settings

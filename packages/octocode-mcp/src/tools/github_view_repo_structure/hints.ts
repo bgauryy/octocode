@@ -25,7 +25,8 @@ export const hints: ToolHintGenerators = {
       : [];
     if (flagFiles.length > 0) {
       const shown = flagFiles.slice(0, 3).join(', ');
-      const more = flagFiles.length > 3 ? `, +${flagFiles.length - 3} more` : '';
+      const more =
+        flagFiles.length > 3 ? `, +${flagFiles.length - 3} more` : '';
       out.push(
         `Flag/Mode/Config files present (${shown}${more}). Read these FIRST — they often gate the implementation a direct search misses.`
       );

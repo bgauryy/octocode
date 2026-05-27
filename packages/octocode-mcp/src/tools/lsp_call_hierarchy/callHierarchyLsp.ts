@@ -41,6 +41,23 @@ export async function callHierarchyWithLSP(
   const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
+  if (client.hasCapability && !client.hasCapability('callHierarchyProvider')) {
+    return {
+      status: 'error',
+      error: 'Language server does not support call hierarchy',
+      errorType: 'not_a_function',
+      errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
+      direction: query.direction,
+      depth: query.depth ?? 1,
+      lspMode: 'semantic',
+      hints: [
+        ...getHints(TOOL_NAME, 'error'),
+        'The active language server does not advertise callHierarchyProvider.',
+        'Try lspFindReferences for broader usage analysis.',
+      ],
+    };
+  }
+
   try {
     let items = await client.prepareCallHierarchy(filePath, position);
     let effectiveContent = content;

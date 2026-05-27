@@ -36,7 +36,7 @@ npx add-skill https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-
 
 ### For PR Mode (Remote Pull Requests)
 
-- **Octocode MCP server** running with GitHub/GitLab authentication
+- **Octocode MCP server** running with GitHub authentication
 - See [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md)
 
 ### For Local Mode (Local Changes) — `ENABLE_LOCAL=true`

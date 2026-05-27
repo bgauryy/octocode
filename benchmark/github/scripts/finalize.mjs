@@ -28,15 +28,24 @@ if (!run || !existsSync(run)) {
   process.exit(1);
 }
 
+const qJsonNumbers = () => readdirSync(run)
+  .filter(f => /^q\d+\.json$/.test(f))
+  .map(f => +f.replace(/\D/g, ''))
+  .filter(Number.isFinite)
+  .sort((a, b) => a - b);
+
 let N_QS;
 const qCountFile = join(run, '.q-count');
 if (existsSync(qCountFile)) {
-  N_QS = parseInt(readFileSync(qCountFile, 'utf8').trim(), 10);
+  N_QS = Number.parseInt(readFileSync(qCountFile, 'utf8').trim(), 10);
 }
+const discoveredQs = qJsonNumbers();
 if (!Number.isFinite(N_QS) || N_QS < 1) {
-  const qNums = readdirSync(run).filter(f => /^q\d+\.json$/.test(f)).map(f => +f.replace(/\D/g, ''));
-  N_QS = qNums.length ? Math.max(...qNums) : 0;
+  N_QS = discoveredQs.length ? Math.max(...discoveredQs) : 0;
 }
+const questionNumbers = N_QS > 0
+  ? Array.from({ length: N_QS }, (_, i) => i + 1)
+  : discoveredQs;
 
 const logPath = join(run, 'log.jsonl');
 let mcpInit = { calls: 0, in_chars: 0, out_chars: 0, elapsed_ms: 0, rows: [] };
@@ -70,11 +79,7 @@ const oneLine = (p) => {
 };
 const trunc = (s, n = 60) => s.length > n ? s.slice(0, n - 1) + '\u2026' : s;
 
-const rows = readdirSync(run)
-  .filter(f => /^q\d+\.json$/.test(f))
-  .map(f => +f.replace(/\D/g, ''))
-  .sort((a, b) => a - b)
-  .map(q => {
+const rows = questionNumbers.map(q => {
     const metricsPath = join(run, `q${q}.json`);
     const outPath    = join(run, `q${q}.md`);
     if (!existsSync(metricsPath) || !existsSync(outPath)) return { q, missing: true };

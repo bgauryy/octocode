@@ -21,7 +21,7 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 import { getHints } from '../../hints/index.js';
 import { RipgrepMatchOnlySchema } from '../../utils/parsers/schemas.js';
 import { matchesFilePatterns } from './lspReferencesCore.js';
-import { validateCommand } from 'octocode-security-utils/commandValidator';
+import { spawnCollectOutput } from './lspReferencesProcess.js';
 import { resolveRipgrepBinary } from '../../utils/exec/ripgrepBinary.js';
 import { TOOL_NAME } from './constants.js';
 const DEFAULT_CODE_EXTENSIONS = [
@@ -91,72 +91,6 @@ export function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Lazy-load spawn to avoid module-level child_process dependency
-const getSpawn = async () => {
-  const { spawn } = await import('child_process');
-  return spawn;
-};
-
-/**
- * Spawn a command with args and collect stdout.
- * Validates command against the security allowlist before execution.
- */
-async function spawnCollectOutput(
-  command: string,
-  args: string[],
-  options: { maxBuffer?: number; timeout?: number } = {}
-): Promise<{ stdout: string }> {
-  const validation = validateCommand(command, args);
-  if (!validation.isValid) {
-    throw new Error(
-      `Command validation failed: ${validation.error || 'Command not allowed'}`
-    );
-  }
-
-  const spawnFn = await getSpawn();
-  const { maxBuffer = 10 * 1024 * 1024, timeout = 30000 } = options;
-
-  return new Promise((resolve, reject) => {
-    const child = spawnFn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout,
-      env: {
-        ...Object.fromEntries(
-          ['PATH', 'HOME', 'USER', 'LANG', 'TERM', 'SHELL'].map(k => [
-            k,
-            process.env[k],
-          ])
-        ),
-      },
-    });
-
-    let stdout = '';
-    let totalSize = 0;
-
-    child.stdout?.on('data', (data: Buffer) => {
-      totalSize += data.length;
-      if (totalSize > maxBuffer) {
-        child.kill('SIGKILL');
-        reject(new Error('Output size limit exceeded'));
-        return;
-      }
-      stdout += data.toString();
-    });
-
-    child.on('close', code => {
-      if (code === 0 || code === 1) {
-        resolve({ stdout });
-      } else {
-        reject(
-          Object.assign(new Error(`Process exited with code ${code}`), { code })
-        );
-      }
-    });
-
-    child.on('error', reject);
-  });
-}
-
 /**
  * Raw reference before content enhancement (no file I/O).
  */
@@ -209,9 +143,10 @@ export async function findReferencesWithPatternMatching(
   workspaceRoot: string,
   query: WithOptionalMeta<LSPFindReferencesQuery>
 ): Promise<FindReferencesResult> {
+  const symbolName = query.symbolName!;
   const allRawReferences = await searchReferencesInWorkspace(
     workspaceRoot,
-    query.symbolName,
+    symbolName,
     absolutePath,
     query.includePattern,
     query.excludePattern

@@ -308,7 +308,7 @@ describe('pythonPackage - branch coverage', () => {
       }
     });
 
-    it('should skip non-github/gitlab/bitbucket URLs in project_urls', async () => {
+    it('should skip non-github URLs in project_urls', async () => {
       vi.mocked(fetch).mockResolvedValue(
         pypiOk({
           data: {

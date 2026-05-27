@@ -9,7 +9,7 @@
  * no echo of the params the caller already has.
  */
 
-import type { PaginationInfo } from '../../types.js';
+import type { PaginationInfo } from '../../types/toolResults.js';
 import type {
   PaginationMetadata,
   GeneratePaginationHintsOptions,

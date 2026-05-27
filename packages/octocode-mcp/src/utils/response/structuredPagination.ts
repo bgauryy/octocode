@@ -1,10 +1,10 @@
 import { getConfigSync } from 'octocode-shared';
 import { TOOL_NAMES } from '../../tools/toolMetadata/proxies.js';
+import type { BulkToolResponse } from '../../types/bulk.js';
 import type {
-  BulkToolResponse,
   FlatQueryResult,
   PaginationInfo,
-} from '../../types.js';
+} from '../../types/toolResults.js';
 
 const DEFAULT_OUTPUT_CHAR_LENGTH = 8000;
 const FALLBACK_EXCLUDED_FIELDS = new Set([

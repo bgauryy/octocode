@@ -4,7 +4,7 @@ import type {
   ToolSuccessResult,
   ToolInvocationCallback,
   EvidenceMetadata,
-} from '../types.js';
+} from '../types/toolResults.js';
 import type { HintContext } from '../types/metadata.js';
 import type { ProviderResponse } from '../providers/types.js';
 import { getHints } from '../hints/index.js';

@@ -22,7 +22,7 @@ import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
   createVerbosityField,
-  verbosityField,
+  describeShapeFields,
   contextLinesField,
   relaxedPaginationLimitField,
   relaxedPageNumberField,
@@ -43,8 +43,6 @@ const lspOptionalMetaFields = {
     .optional()
     .describe('Why this query helps achieve the research goal.'),
 } as const;
-
-export { verbosityField };
 
 const gotoDefinitionVerbosityField = createVerbosityField(
   'definition locations with ranges, snippets, resolved position, and semantic/fallback mode',
@@ -71,13 +69,14 @@ const callHierarchyVerbosityField = createVerbosityField(
 export const LSPGotoDefinitionQuerySchema =
   UpstreamGotoDefinitionQuerySchema.extend({
     ...lspOptionalMetaFields,
+    ...describeShapeFields(UpstreamGotoDefinitionQuerySchema.shape, {
+      symbolName: 'EXACT symbol text, no parens, no partials',
+      lineHint: '1-indexed line. Tool searches ±2 lines',
+      orderHint: '0-indexed occurrence if multiple on line',
+    }),
     verbosity: gotoDefinitionVerbosityField,
-    contextLines: contextLinesField,
+    contextLines: contextLinesField.describe('Context lines around match'),
   }).strip();
-
-export type LSPGotoDefinitionQuery = z.infer<
-  typeof LSPGotoDefinitionQuerySchema
->;
 
 export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,
@@ -92,24 +91,28 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
 export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.extend({
     ...lspOptionalMetaFields,
+    ...describeShapeFields(UpstreamFindReferencesQuerySchema.shape, {
+      uri: 'File path. Example: "src/api/client.ts"',
+      symbolName: 'EXACT symbol text, no parens, no partials',
+      lineHint: '1-indexed line. Tool searches ±2 lines',
+      orderHint: '0-indexed occurrence if multiple on line',
+      includeDeclaration: 'Include definition in results',
+      includePattern: 'Glob array — restrict search to these paths',
+      excludePattern: 'Glob array — exclude these paths',
+    }),
     verbosity: findReferencesVerbosityField,
-    contextLines: contextLinesField,
-    referencesPerPage: relaxedPaginationLimitField.default(10),
-    page: relaxedPageNumberField.default(1),
+    contextLines: contextLinesField.describe('Context lines around match'),
+    referencesPerPage: relaxedPaginationLimitField
+      .default(10)
+      .describe('Max refs per page'),
+    page: relaxedPageNumberField.default(1).describe('1-indexed page'),
     groupByFile: z
       .boolean()
       .optional()
       .describe(
-        'Roll up references into per-file counts ({ "src/foo.ts": 7 }) ' +
-          'instead of returning individual locations. Less tokens than the ' +
-          'full locations list — use for impact-analysis ("is this used widely?"). ' +
-          'Drill-back: re-query with `includePattern` scoped to the top file(s).'
+        'Roll up references into per-file counts (cheaper, for impact analysis)'
       ),
   }).strip();
-
-export type LSPFindReferencesQuery = z.infer<
-  typeof LSPFindReferencesQuerySchema
->;
 
 export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
@@ -124,13 +127,21 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
 export const LSPCallHierarchyQuerySchema =
   UpstreamCallHierarchyQuerySchema.extend({
     ...lspOptionalMetaFields,
+    ...describeShapeFields(UpstreamCallHierarchyQuerySchema.shape, {
+      uri: 'File path. Example: "src/api/handler.ts"',
+      symbolName: 'EXACT function/method name, no parens',
+      lineHint: '1-indexed line where function is defined or called',
+      orderHint: '0-indexed occurrence if multiple on line',
+      direction: '"incoming" (callers) | "outgoing" (callees)',
+      depth: 'Recursion depth',
+    }),
     verbosity: callHierarchyVerbosityField,
-    contextLines: contextLinesField,
-    callsPerPage: relaxedPaginationLimitField.default(10),
-    page: relaxedPageNumberField.default(1),
+    contextLines: contextLinesField.describe('Context lines around match'),
+    callsPerPage: relaxedPaginationLimitField
+      .default(10)
+      .describe('Max call sites per page'),
+    page: relaxedPageNumberField.default(1).describe('1-indexed page'),
   }).strip();
-
-export type LSPCallHierarchyQuery = z.infer<typeof LSPCallHierarchyQuerySchema>;
 
 export const BulkLSPCallHierarchyQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,

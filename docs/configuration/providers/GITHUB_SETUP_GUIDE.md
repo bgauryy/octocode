@@ -18,7 +18,7 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
 npx octocode-mcp
 ```
 
-GitHub is the **default provider**. When no GitLab or Bitbucket token is set, Octocode uses GitHub automatically.
+GitHub is the only supported provider.
 
 ---
 
@@ -119,7 +119,7 @@ export GITHUB_API_URL="https://github.mycompany.com/api/v3"
 
 The default is `https://api.github.com` if `GITHUB_API_URL` is not set.
 
-For available tools and detailed usage, see the [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md). For all configuration options, see the [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md).
+For available tools and detailed usage, see the [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md). For all configuration options, see the [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md).
 
 ---
 
@@ -155,7 +155,7 @@ For available tools and detailed usage, see the [GitHub, GitLab & Bitbucket Tool
 ## See Also
 
 - [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — Overview of all provider authentication
-- [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) — Full tool documentation
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — Full tool documentation
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — All configuration options
 - [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — General troubleshooting guide
 

@@ -187,6 +187,21 @@ describe('T3.2 — LspClientPool', () => {
     expect(pool.size()).toBe(0);
   });
 
+  it('keys() returns active pool keys for diagnostics', async () => {
+    const factory = vi.fn(async () => makeFakeClient());
+    const pool = new LspClientPool<FakeClient>({
+      idleTimeoutMs: 60_000,
+      factory,
+    });
+    const key1: PoolKey = { workspaceRoot: '/r1', languageId: 'typescript' };
+    const key2: PoolKey = { workspaceRoot: '/r2', languageId: 'python' };
+
+    await acquireNonNull(pool, key1);
+    await acquireNonNull(pool, key2);
+
+    expect(pool.keys()).toEqual(expect.arrayContaining([key1, key2]));
+  });
+
   it('clear() is a no-op when called with a key that was never acquired', async () => {
     const factory = vi.fn(async () => makeFakeClient());
     const pool = new LspClientPool<FakeClient>({

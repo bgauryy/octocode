@@ -9,7 +9,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import type { ToolInvocationCallback } from '../../types.js';
+import type { ToolInvocationCallback } from '../../types/toolResults.js';
 import {
   GITHUB_CLONE_REPO_DESCRIPTION,
   type CloneRepoQuery,

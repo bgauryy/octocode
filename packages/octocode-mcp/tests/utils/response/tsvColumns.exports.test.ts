@@ -192,7 +192,9 @@ const cases: ExportCase[] = [
     columns: localFindFilesColumns,
     projection: localFindFilesProjection,
     toTsv: localFindFilesToTsv,
-    fixture: { files: [{ path: 'a.ts', type: 'f', size: 1, modified: '2026' }] },
+    fixture: {
+      files: [{ path: 'a.ts', type: 'f', size: 1, modified: '2026' }],
+    },
     expectedColumns: ['path', 'type', 'size', 'permissions', 'modified'],
     rowProbe: 'a.ts\tf\t1',
   },
@@ -201,7 +203,9 @@ const cases: ExportCase[] = [
     columns: localViewStructureColumns,
     projection: localViewStructureProjection,
     toTsv: localViewStructureToTsv,
-    fixture: { entries: [{ name: 'src', path: '/tmp/src', type: 'd', size: '4K' }] },
+    fixture: {
+      entries: [{ name: 'src', path: '/tmp/src', type: 'd', size: '4K' }],
+    },
     expectedColumns: ['name', 'path', 'type', 'size', 'depth'],
     rowProbe: 'src\t/tmp/src\td\t4K',
   },
@@ -210,7 +214,13 @@ const cases: ExportCase[] = [
     columns: localFetchContentColumns,
     projection: localFetchContentProjection,
     toTsv: localFetchContentToTsv,
-    fixture: { path: 'a.ts', content: 'x', startLine: 1, endLine: 1, totalLines: 1 },
+    fixture: {
+      path: 'a.ts',
+      content: 'x',
+      startLine: 1,
+      endLine: 1,
+      totalLines: 1,
+    },
     expectedColumns: ['path', 'content', 'startLine', 'endLine', 'totalLines'],
     rowProbe: 'a.ts\tx\t1\t1\t1',
   },
@@ -219,7 +229,15 @@ const cases: ExportCase[] = [
     columns: lspGotoDefinitionColumns,
     projection: lspGotoDefinitionProjection,
     toTsv: lspGotoDefinitionToTsv,
-    fixture: { locations: [{ uri: 'a.ts', name: 'foo', range: { start: { line: 1, character: 2 } } }] },
+    fixture: {
+      locations: [
+        {
+          uri: 'a.ts',
+          name: 'foo',
+          range: { start: { line: 1, character: 2 } },
+        },
+      ],
+    },
     expectedColumns: ['uri', 'name', 'kind', 'line', 'column'],
     rowProbe: 'a.ts\tfoo\t\t1\t2',
   },
@@ -228,7 +246,15 @@ const cases: ExportCase[] = [
     columns: lspFindReferencesColumns,
     projection: lspFindReferencesProjection,
     toTsv: lspFindReferencesToTsv,
-    fixture: { references: [{ uri: 'b.ts', name: 'foo', range: { start: { line: 3, character: 4 } } }] },
+    fixture: {
+      references: [
+        {
+          uri: 'b.ts',
+          name: 'foo',
+          range: { start: { line: 3, character: 4 } },
+        },
+      ],
+    },
     expectedColumns: ['uri', 'name', 'line', 'column', 'isDeclaration'],
     rowProbe: 'b.ts\tfoo\t\t3\t4',
   },
@@ -237,29 +263,51 @@ const cases: ExportCase[] = [
     columns: lspCallHierarchyColumns,
     projection: lspCallHierarchyProjection,
     toTsv: lspCallHierarchyToTsv,
-    fixture: { calls: [{ direction: 'incoming', from: { name: 'caller', uri: 'c.ts', range: { start: { line: 5, character: 6 } } } }] },
+    fixture: {
+      calls: [
+        {
+          direction: 'incoming',
+          from: {
+            name: 'caller',
+            uri: 'c.ts',
+            range: { start: { line: 5, character: 6 } },
+          },
+        },
+      ],
+    },
     expectedColumns: ['direction', 'name', 'kind', 'uri', 'line', 'column'],
     rowProbe: 'incoming\tcaller\t\tc.ts\t5\t6',
   },
 ];
 
 describe('TSV column exports', () => {
-  it.each(cases)('$toolName exports columns, projection, direct TSV helper, and registry entry', ({ toolName, columns, projection, toTsv, fixture, expectedColumns, rowProbe }) => {
-    expect(columns.length).toBeGreaterThan(0);
-    expect(projection.columns).toBe(columns);
-    for (const column of expectedColumns) {
-      expect(columns).toContain(column);
+  it.each(cases)(
+    '$toolName exports columns, projection, direct TSV helper, and registry entry',
+    ({
+      toolName,
+      columns,
+      projection,
+      toTsv,
+      fixture,
+      expectedColumns,
+      rowProbe,
+    }) => {
+      expect(columns.length).toBeGreaterThan(0);
+      expect(projection.columns).toBe(columns);
+      for (const column of expectedColumns) {
+        expect(columns).toContain(column);
+      }
+
+      expect(getTsvProjection(toolName)).toBe(projection);
+      expect(TOOL_TSV_PROJECTIONS[toolName]).toBe(projection);
+      expect(exportToolDataToTsv(toolName, fixture)).toEqual(toTsv(fixture));
+
+      const rendered = toTsv(fixture);
+      expect(rendered.columns).toBe(columns);
+      expect(rendered.rows.split('\n')[0]).toBe(columns.join('\t'));
+      expect(rendered.rows).toContain(rowProbe);
     }
-
-    expect(getTsvProjection(toolName)).toBe(projection);
-    expect(TOOL_TSV_PROJECTIONS[toolName]).toBe(projection);
-    expect(exportToolDataToTsv(toolName, fixture)).toEqual(toTsv(fixture));
-
-    const rendered = toTsv(fixture);
-    expect(rendered.columns).toBe(columns);
-    expect(rendered.rows.split('\n')[0]).toBe(columns.join('\t'));
-    expect(rendered.rows).toContain(rowProbe);
-  });
+  );
 
   it('covers every registered tool TSV projection', () => {
     const expected = [

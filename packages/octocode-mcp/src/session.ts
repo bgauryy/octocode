@@ -14,7 +14,7 @@ import type {
   ToolCallData,
   ErrorData,
   RateLimitData,
-} from './types.js';
+} from './types/session.js';
 import { isLocalTool } from './tools/toolNames.js';
 
 /**

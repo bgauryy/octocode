@@ -19,8 +19,6 @@ export const OctocodeConfigSchema = z
     $schema: z.string().optional(),
     version: z.number().int().optional(),
     github: z.record(z.string(), z.unknown()).optional(),
-    gitlab: z.record(z.string(), z.unknown()).optional(),
-    bitbucket: z.record(z.string(), z.unknown()).optional(),
     local: z.record(z.string(), z.unknown()).optional(),
     tools: z.record(z.string(), z.unknown()).optional(),
     network: z.record(z.string(), z.unknown()).optional(),

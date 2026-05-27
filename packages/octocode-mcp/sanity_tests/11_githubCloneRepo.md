@@ -359,7 +359,6 @@ Clones a GitHub repository (shallow, `--depth 1`) to a local cache directory (`~
 | `ENABLE_LOCAL=false` | Tool not registered / not available |
 | `ENABLE_CLONE=false` | Tool not registered / not available |
 | git not on PATH | "git is not installed or not on PATH" |
-| GitLab provider active | "only available with the GitHub provider" |
 
 **Expected:**
 - [ ] Clear, actionable error messages

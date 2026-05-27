@@ -18,6 +18,8 @@ export const LSP_ERROR_CODES = {
   LSP_REQUEST_FAILED: 'LSP_REQUEST_FAILED',
   /** Server responded successfully but the result is empty. */
   LSP_EMPTY: 'LSP_EMPTY',
+  /** Active language server does not advertise the requested capability. */
+  LSP_CAPABILITY_UNSUPPORTED: 'LSP_CAPABILITY_UNSUPPORTED',
   /** Tool fell back to text-based search (ripgrep) when LSP was unusable. */
   LSP_FALLBACK_TO_TEXT: 'LSP_FALLBACK_TO_TEXT',
   /** The requested symbol could not be resolved near `lineHint`. */
@@ -27,6 +29,3 @@ export const LSP_ERROR_CODES = {
   /** A server-provided URI failed validation (T1.5 — fromUri hardening). */
   UNSAFE_URI: 'UNSAFE_URI',
 } as const;
-
-export type LspErrorCode =
-  (typeof LSP_ERROR_CODES)[keyof typeof LSP_ERROR_CODES];

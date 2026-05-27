@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { incrementToolCharSavings } from 'octocode-shared';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { attachRawResponseChars } from '../../src/utils/response/charSavings.js';
-import type { QueryStatus } from '../../src/types';
+import type { QueryStatus } from '../../src/types/toolResults.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 import type { ToolName } from '../../src/tools/toolMetadata/types.js';

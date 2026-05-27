@@ -14,7 +14,7 @@
 import { DEFAULTS, RESOURCE_LIMITS } from '../core/constants.js';
 import { getConfigSync } from 'octocode-shared';
 import { applyPagination, createPaginationInfo } from './core.js';
-import type { PaginationInfo } from '../../types.js';
+import type { PaginationInfo } from '../../types/toolResults.js';
 
 function readConfiguredDefaultCharLength(): number | undefined {
   const config = getConfigSync() as {

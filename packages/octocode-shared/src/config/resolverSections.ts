@@ -5,8 +5,6 @@
 import type {
   OctocodeConfig,
   RequiredGitHubConfig,
-  RequiredGitLabConfig,
-  RequiredBitbucketConfig,
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
@@ -16,8 +14,6 @@ import type {
 } from './types.js';
 import {
   DEFAULT_GITHUB_CONFIG,
-  DEFAULT_GITLAB_CONFIG,
-  DEFAULT_BITBUCKET_CONFIG,
   DEFAULT_LOCAL_CONFIG,
   DEFAULT_TOOLS_CONFIG,
   DEFAULT_NETWORK_CONFIG,
@@ -113,33 +109,6 @@ export function resolveGitHub(
 
   return {
     apiUrl: envApiUrl || fileConfig?.apiUrl || DEFAULT_GITHUB_CONFIG.apiUrl,
-  };
-}
-
-/**
- * Resolve GitLab configuration.
- */
-export function resolveGitLab(
-  fileConfig?: OctocodeConfig['gitlab']
-): RequiredGitLabConfig {
-  // Env var: GITLAB_HOST
-  const envHost = process.env.GITLAB_HOST?.trim();
-
-  return {
-    host: envHost || fileConfig?.host || DEFAULT_GITLAB_CONFIG.host,
-  };
-}
-
-/**
- * Resolve Bitbucket configuration.
- */
-export function resolveBitbucket(
-  fileConfig?: OctocodeConfig['bitbucket']
-): RequiredBitbucketConfig {
-  const envHost = process.env.BITBUCKET_HOST?.trim();
-
-  return {
-    host: envHost || fileConfig?.host || DEFAULT_BITBUCKET_CONFIG.host,
   };
 }
 

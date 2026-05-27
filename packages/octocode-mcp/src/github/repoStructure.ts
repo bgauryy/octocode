@@ -181,7 +181,10 @@ function buildStructureTree(
   items: GitHubApiFileItem[],
   basePath: string
 ): Record<string, { files: string[]; folders: string[] }> {
-  const structure: Record<string, { files: string[]; folders: string[] }> = {};
+  // Object.create(null): keys come from GitHub paths — defense against any
+  // pathological path that would otherwise pollute Object.prototype.
+  const structure: Record<string, { files: string[]; folders: string[] }> =
+    Object.create(null);
 
   const getRelativeParent = (itemPath: string): string => {
     let relativePath = itemPath;
@@ -228,7 +231,7 @@ function buildStructureTree(
   const sortedStructure: Record<
     string,
     { files: string[]; folders: string[] }
-  > = {};
+  > = Object.create(null);
   for (const key of sortedKeys) {
     const entry = structure[key];
     if (entry) {

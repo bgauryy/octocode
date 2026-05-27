@@ -109,7 +109,7 @@ packages/<name>/tests/
 For detailed research workflows including LSP navigation, local discovery, and external research patterns, see the canonical references:
 
 - [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local discovery, LSP navigation, and flow tracing
-- [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) — External research and package discovery
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — External research and package discovery
 - [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) — Bridging GitHub repos with local + LSP tools
 
 ## Skills System
@@ -137,4 +137,4 @@ For the complete package documentation index, see [docs/README.md](https://githu
 
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — All env vars and `.octocoderc` options
 - [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — Common issues and solutions
-- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — GitHub/GitLab/Bitbucket auth
+- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — GitHub auth

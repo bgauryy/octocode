@@ -3,7 +3,8 @@ import { maskSensitiveData } from 'octocode-security-utils/mask';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { jsonToYamlString } from './utils/minifier/jsonToYamlString.js';
 import { getConfigSync } from 'octocode-shared';
-import type { BulkToolResponse, StructuredToolResponse } from './types.js';
+import type { BulkToolResponse } from './types/bulk.js';
+import type { StructuredToolResponse } from './types/toolResults.js';
 import type {
   RoleContentBlock,
   RoleBasedResultOptions,
@@ -23,6 +24,8 @@ export type {
   RoleBasedResultOptions,
   RoleAnnotations,
 } from './types/responseTypes.js';
+
+export type CallToolResultOutputMode = 'text' | 'json';
 
 export function createResult(options: {
   data: unknown;
@@ -368,6 +371,33 @@ export function sanitizeStructuredContent(obj: unknown): unknown {
   }
 
   return obj;
+}
+
+export function formatCallToolResultForOutput(
+  result: Pick<CallToolResult, 'content' | 'structuredContent' | 'isError'>,
+  outputMode: CallToolResultOutputMode
+): string {
+  if (outputMode === 'json') {
+    return JSON.stringify(result);
+  }
+
+  const textBlocks = Array.isArray(result.content)
+    ? result.content
+        .map(block =>
+          'text' in block && typeof block.text === 'string' ? block.text : ''
+        )
+        .filter(block => block.length > 0)
+    : [];
+
+  if (textBlocks.length > 0) {
+    return textBlocks.join('\n\n');
+  }
+
+  if (result.structuredContent !== undefined) {
+    return JSON.stringify(result.structuredContent, null, 2);
+  }
+
+  return JSON.stringify(result, null, 2);
 }
 
 export function createResponseFormat(

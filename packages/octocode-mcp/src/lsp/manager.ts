@@ -20,6 +20,7 @@ import {
   LANGUAGE_SERVER_COMMANDS,
 } from './config.js';
 import { LspClientPool, type PoolKey } from './lspClientPool.js';
+import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
 
 /**
  * Check if a command exists in the system PATH.
@@ -191,6 +192,72 @@ export async function acquirePooledClient(
  */
 export async function releaseAllPooledClients(): Promise<void> {
   await sharedPool.clearAll();
+}
+
+/** Tear down the pooled client for one workspace/file, if supported. */
+export async function releasePooledClientForFile(
+  workspaceRoot: string,
+  filePath: string
+): Promise<boolean> {
+  const languageId = languageIdForFile(filePath);
+  if (!languageId) return false;
+  await sharedPool.clear({ workspaceRoot, languageId });
+  return true;
+}
+
+export type LspStatusInput = {
+  filePath?: string;
+  workspaceRoot?: string;
+};
+
+export type LspStatusResult = {
+  enabled: true;
+  pooledClientCount: number;
+  pooledClients: PoolKey[];
+  filePath?: string;
+  workspaceRoot?: string;
+  languageId?: string;
+  serverAvailable?: boolean;
+  hints: string[];
+};
+
+/** Return lightweight process-local LSP diagnostics. */
+export async function getLspStatus(
+  input: LspStatusInput = {}
+): Promise<LspStatusResult> {
+  const base = {
+    enabled: true as const,
+    pooledClientCount: sharedPool.size(),
+    pooledClients: sharedPool.keys(),
+  };
+
+  if (!input.filePath) {
+    return {
+      ...base,
+      hints: [
+        'Provide filePath to check language server availability for a specific file.',
+      ],
+    };
+  }
+
+  const workspaceRoot =
+    input.workspaceRoot ?? (await resolveWorkspaceRootForFile(input.filePath));
+  const languageId = languageIdForFile(input.filePath) ?? undefined;
+  const serverAvailable = await isLanguageServerAvailable(
+    input.filePath,
+    workspaceRoot
+  );
+
+  return {
+    ...base,
+    filePath: input.filePath,
+    workspaceRoot,
+    languageId,
+    serverAvailable,
+    hints: serverAvailable
+      ? ['Language server appears available for this file.']
+      : [LSP_UNAVAILABLE_HINT],
+  };
 }
 
 /** Internal: surface pool size for diagnostics / metrics. */

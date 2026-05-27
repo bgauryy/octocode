@@ -33,8 +33,6 @@ describe('serverConfig initialize recovery', () => {
       })
       .mockReturnValue({
         github: { apiUrl: 'https://api.github.com' },
-        gitlab: { host: 'https://gitlab.com/api/v4' },
-        bitbucket: { host: 'https://api.bitbucket.org/2.0' },
         tools: {
           enabled: undefined,
           enableAdditional: undefined,

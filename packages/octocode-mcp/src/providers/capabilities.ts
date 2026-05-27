@@ -9,18 +9,4 @@ export const PROVIDER_CAPABILITIES: Record<ProviderType, ProviderCapabilities> =
       supportsMergedState: false,
       supportsMultiTopicSearch: true,
     },
-    gitlab: {
-      cloneRepo: false,
-      fetchDirectoryToDisk: false,
-      requiresScopedCodeSearch: true,
-      supportsMergedState: true,
-      supportsMultiTopicSearch: false,
-    },
-    bitbucket: {
-      cloneRepo: false,
-      fetchDirectoryToDisk: false,
-      requiresScopedCodeSearch: true,
-      supportsMergedState: true,
-      supportsMultiTopicSearch: false,
-    },
   };

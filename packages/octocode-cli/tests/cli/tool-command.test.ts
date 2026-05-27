@@ -90,6 +90,27 @@ vi.mock('octocode-mcp/public', async () => {
     exploreMultipleRepositoryStructures: publicMocks.noop,
     executeCloneRepo: publicMocks.noop,
     searchPackages: publicMocks.noop,
+    DEFAULT_TOOL_RESPONSE_FORMAT: 'tsv',
+    formatCallToolResultForOutput: (
+      result: unknown,
+      outputMode: 'text' | 'json'
+    ) => {
+      if (outputMode === 'json') return JSON.stringify(result);
+      const typedResult = result as {
+        content?: Array<{ text?: string }>;
+        structuredContent?: unknown;
+      };
+      const textBlocks = Array.isArray(typedResult.content)
+        ? typedResult.content
+            .map(block => (typeof block.text === 'string' ? block.text : ''))
+            .filter(Boolean)
+        : [];
+      if (textBlocks.length > 0) return textBlocks.join('\n\n');
+      if (typedResult.structuredContent !== undefined) {
+        return JSON.stringify(typedResult.structuredContent, null, 2);
+      }
+      return JSON.stringify(result, null, 2);
+    },
     RipgrepQuerySchema: localBase.extend({
       path: z.string(),
       pattern: z.string(),

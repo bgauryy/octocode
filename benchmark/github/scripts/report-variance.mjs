@@ -27,7 +27,17 @@ if (runs.length < 2) {
   process.exit(2);
 }
 
-const agents = new Set(runs.map(r => basename(r)));
+const readAgent = (run) => {
+  const summaryPath = join(run, 'summary.json');
+  if (!existsSync(summaryPath)) return basename(run);
+  try {
+    return JSON.parse(readFileSync(summaryPath, 'utf8')).agent ?? basename(run);
+  } catch {
+    return basename(run);
+  }
+};
+
+const agents = new Set(runs.map(readAgent));
 if (agents.size > 1) {
   console.error(`report-variance: runs span multiple agents (${[...agents].join(', ')}) — compare runs of one agent at a time`);
   process.exit(2);

@@ -3,7 +3,7 @@
  * Unified result types for provider-agnostic code hosting operations.
  */
 
-import type { PaginationInfo } from '../types.js';
+import type { PaginationInfo } from '../types/toolResults.js';
 
 /**
  * Unified repository information.

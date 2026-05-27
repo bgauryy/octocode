@@ -1,8 +1,8 @@
 # GitHub Research Benchmark
 
-This directory contains a benchmark for comparing GitHub research agents by **answer quality × elapsed time × character-measured tool I/O chars**.
+This directory contains a benchmark for comparing GitHub research agents by **semantic answer quality per measured character**. Elapsed time is recorded for context only; it does not decide the winner.
 
-There are 20 questions in `benchmark/github/QUESTIONS.md`. Two researcher runs answer the same questions:
+Questions live in `benchmark/github/QUESTIONS.md`. `scripts/init-run.sh` derives the question count from that file so the benchmark is not tied to a hard-coded total. Two researcher runs answer the same questions:
 
 - `octocode` researcher: uses only Octocode MCP tools, routed through `scripts/mcp-meas.mjs`.
 - `gh` researcher: uses only GitHub CLI, routed through `scripts/gh-meas.sh`.
@@ -101,19 +101,23 @@ These rows represent the one-time context cost of loading the MCP system instruc
 
 ## Script reference
 
-| Script | Who uses it | Purpose |
-|---|---|---|
-| `scripts/init-run.sh <agent>` | operator/researcher | Creates `output/<agent>/`, exports `$SESSION`, `$RUN`, `$LOG`, `$Q` |
-| `scripts/set-q.sh <n>` | researcher | Sets current question and starts Q wall-clock timer |
-| `scripts/mcp-meas.mjs <server-cmd>` | octocode researcher MCP config | Transparent MCP proxy; logs MCP init and every `tools/call` char I/O |
-| `scripts/gh-meas.sh <gh args>` | gh researcher | Wraps `gh`; logs argv/stdout/stderr char I/O |
-| `scripts/record.sh <n> <model> /tmp/answer.md` | researcher | Aggregates Q metrics and writes `q<n>.md` + `q<n>.json` |
-| `scripts/finalize.mjs <run-dir>` | researcher/operator | Writes per-run `output.md` + `summary.json` |
-| `scripts/chars.mjs` | metering scripts | Counts Unicode codepoints |
-| `scripts/aggregate.mjs` | internal/operator | Sums `log.jsonl` rows for one question; fails on zero rows |
-| `scripts/cross-run.mjs` | optional analysis | Reports medians across saved repeated runs |
-| `scripts/report-variance.mjs` | optional analysis | Reports variance/CV across saved repeated runs |
-| `scripts/validate-pipeline.mjs` | optional analysis | Checks deterministic metering fields across same-agent runs |
+| Script | Who uses it | Purpose | Why it is needed |
+|---|---|---|---|
+| `scripts/init-run.sh <agent>` | operator/researcher | Creates `output/<agent>/`, exports `$SESSION`, `$RUN`, `$LOG`, `$Q` | Establishes one clean, isolated run directory and derives the question count from `QUESTIONS.md` instead of hard-coding it. |
+| `scripts/set-q.sh <n>` | researcher | Sets current question and starts Q wall-clock timer | Prevents cross-question metric leakage by giving metering wrappers a single current-Q sentinel. |
+| `scripts/mcp-meas.mjs <server-cmd>` | octocode researcher MCP config | Transparent MCP proxy; logs MCP init and every `tools/call` char I/O | Ensures every Octocode tool call, plus MCP schema/context startup cost, is measured without changing the agent's research workflow. |
+| `scripts/gh-meas.sh <gh args>` | gh researcher | Thin shell wrapper that delegates to `gh-meas.mjs` | Gives the `gh` researcher a simple command shape while keeping metering implementation in one Node script. |
+| `scripts/gh-meas.mjs <gh args>` | gh researcher via wrapper | Spawns `gh`; logs argv/stdout/stderr char I/O | Applies the same character ruler to all GitHub CLI calls and captures exact output returned to the agent. |
+| `scripts/octo-meas.sh <tool> <req-file> <res-file> [ms]` | fallback/operator | Manual Octocode metering fallback when MCP proxying is impossible; prefer `mcp-meas.mjs` | Keeps a last-resort metered path available, but marks it as less reliable because it depends on operator discipline. |
+| `scripts/record.sh <n> <model> /tmp/answer.md` | researcher | Aggregates Q metrics and writes `q<n>.md` + `q<n>.json` | Couples the final answer with the measured rows for that exact question and fails loud if no metered calls were captured. |
+| `scripts/finalize.mjs <run-dir>` | researcher/operator | Writes per-run `output.md` + `summary.json`; reports missing expected questions | Produces the machine-readable totals the judge needs and prevents incomplete runs from looking complete. |
+| `scripts/chars.mjs` | metering scripts | Counts Unicode codepoints | Provides a dependency-free, tokenizer-independent ruler shared by every wrapper. |
+| `scripts/aggregate.mjs` | internal/operator | Sums `log.jsonl` rows for one question; fails on zero rows | Provides the single source of truth for per-question calls/chars/time and catches bypassed metering. |
+| `scripts/call-tool.mjs <tool> '<queries-json>'` | smoke test/operator | Sends one MCP tool call through `mcp-meas.mjs` without a full agent run | Verifies the MCP proxy path and logging before spending a full benchmark run. |
+| `scripts/cross-run.mjs <run...>` | optional analysis | Reports medians across saved repeated runs | Summarizes repeated same-agent runs without pretending one stochastic run is definitive. |
+| `scripts/report-variance.mjs [--csv] <run...>` | optional analysis | Reports variance/CV across saved repeated runs of the same agent | Quantifies run-to-run spread so benchmark claims can disclose instability instead of hiding it. |
+| `scripts/validate-pipeline.mjs [--strict-cmds] <run...>` | optional analysis | Checks deterministic metering fields across same-agent runs | Regression-tests the metering pipeline itself, separate from normal agent stochasticity. |
+| `scripts/score-token-usage.mjs <octocode-run> <gh-run> <quality.json>` | optional judge aid | Combines judge-supplied quality scores with measured chars; it does not score quality itself | Makes the arithmetic reproducible while keeping semantic quality judgment human/agent-reviewed and non-rigid. |
 
 ---
 
@@ -125,7 +129,7 @@ Use this section only if your assigned role is `researcher: octocode`.
 
 - Read `benchmark/github/QUESTIONS.md`.
 - Do **not** read `benchmark/github/EXPECTED_FACTS.md`.
-- Use only Octocode MCP tools routed through `scripts/mcp-meas.mjs`.
+- You may use **any Octocode MCP tool** needed to answer the questions, as long as every call is routed through `scripts/mcp-meas.mjs`.
 - Do not use direct/unmetered Octocode tools, `gh`, web search, `curl`, `wget`, `git clone`, or local repository files.
 - Run questions sequentially: finish and record Q`n` before starting Q`n+1`.
 - Never use `record.sh --allow-zero`.
@@ -172,9 +176,9 @@ For each question number `n` from 1 to `cat "$RUN/.q-count"`:
 bash benchmark/github/scripts/set-q.sh <n>
 ```
 
-Read exactly that question from `QUESTIONS.md`. Research using only metered Octocode MCP calls.
+Read exactly that question from `QUESTIONS.md`. Research using any Octocode MCP tool that helps, but only through the metered MCP path.
 
-After your first Octocode tool call for that question, verify the call was attributed to the current question:
+After your first Octocode tool call for that question, verify the call was attributed to the current question. Replace `<n>` with the current question number:
 
 ```bash
 grep '"q":<n>' "$RUN/log.jsonl"
@@ -222,7 +226,7 @@ Use this section only if your assigned role is `researcher: gh`.
 
 - Read `benchmark/github/QUESTIONS.md`.
 - Do **not** read `benchmark/github/EXPECTED_FACTS.md`.
-- Use only `gh` CLI calls routed through `scripts/gh-meas.sh`.
+- You may use **any `gh` CLI command** needed to answer the questions, as long as every call is routed through `scripts/gh-meas.sh`.
 - Do not use bare `gh`, Octocode tools, web search, `curl`, `wget`, `git clone`, or local repository files.
 - Run questions sequentially: finish and record Q`n` before starting Q`n+1`.
 - Never use `record.sh --allow-zero`.
@@ -269,7 +273,7 @@ For each question number `n` from 1 to `cat "$RUN/.q-count"`:
 bash benchmark/github/scripts/set-q.sh <n>
 ```
 
-Read exactly that question from `QUESTIONS.md`. Research using only `gh-meas.sh` commands.
+Read exactly that question from `QUESTIONS.md`. Research using any `gh` CLI command that helps, but only through `gh-meas.sh`.
 
 Write the answer to `/tmp/answer.md`:
 
@@ -356,6 +360,8 @@ For Octocode:
 amortized_mcp_init_chars = (mcp_init.in_chars + mcp_init.out_chars) / N
 ```
 
+`N` is the number of comparable, non-drift, non-excluded questions scored for both agents. Do not amortize MCP init over questions that are excluded from the token-usage verdict.
+
 For `gh`:
 
 ```text
@@ -396,8 +402,6 @@ Use these sections:
 | Σ out_chars (per-Q) | | | |
 | MCP init chars | | 0 | |
 | TOTAL chars (per-Q + init) | | | |
-| Σ tool_elapsed_ms | | | |
-| Σ q_elapsed_ms | | | |
 | Approx tokens (`TOTAL chars / 4`) | | | |
 | Quality per 1k chars = Σ quality / (TOTAL chars/1000) | | | |
 | Σ tool_elapsed_ms (context only) | | | |

@@ -3,7 +3,7 @@
  * Shared pagination logic for content pagination with proper byte/character handling
  */
 
-import type { PaginationInfo } from '../../types.js';
+import type { PaginationInfo } from '../../types/toolResults.js';
 import type {
   PaginationMetadata,
   ApplyPaginationOptions,

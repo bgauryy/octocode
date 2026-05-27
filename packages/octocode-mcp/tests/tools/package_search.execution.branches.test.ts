@@ -76,7 +76,7 @@ describe('package_search execution branches', () => {
     });
   });
 
-  describe('parseRepoInfo - repoUrl does not match github/gitlab/bitbucket', () => {
+  describe('parseRepoInfo - repoUrl does not match github', () => {
     it('should return package without owner/repo when repository URL is not from supported hosts', async () => {
       mockSearchPackage.mockResolvedValue({
         packages: [

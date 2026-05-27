@@ -62,9 +62,10 @@ export async function callHierarchyWithPatternMatching(
   foundAtLine: number,
   _resolver: SymbolResolver
 ): Promise<CallHierarchyResult> {
+  const symbolName = query.symbolName!;
   const lines = content.split(/\r?\n/);
   const targetItem = createCallHierarchyItem(
-    query.symbolName,
+    symbolName,
     absolutePath,
     foundAtLine,
     lines,
@@ -112,7 +113,7 @@ async function findIncomingCallsWithPatternMatching(
     page,
     contextLines,
   } = options;
-  const symbolName = query.symbolName;
+  const symbolName = query.symbolName!;
 
   const searchPattern = `\\b${escapeRegex(symbolName)}\\s*\\(`;
 

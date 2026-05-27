@@ -13,7 +13,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GitHubProvider } from '../../src/providers/github/GitHubProvider.js';
-import { GitLabProvider } from '../../src/providers/gitlab/GitLabProvider.js';
 import { RequestError } from 'octokit';
 
 // Mock the API functions to throw rate limit errors
@@ -21,15 +20,9 @@ vi.mock('../../src/github/codeSearch.js', () => ({
   searchGitHubCodeAPI: vi.fn(),
 }));
 
-vi.mock('../../src/gitlab/codeSearch.js', () => ({
-  searchGitLabCodeAPI: vi.fn(),
-}));
-
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
-import { searchGitLabCodeAPI } from '../../src/gitlab/codeSearch.js';
 
 const mockSearchGitHubCodeAPI = searchGitHubCodeAPI as ReturnType<typeof vi.fn>;
-const mockSearchGitLabCodeAPI = searchGitLabCodeAPI as ReturnType<typeof vi.fn>;
 
 describe('Rate Limit Integration Tests', () => {
   beforeEach(() => {
@@ -212,65 +205,6 @@ describe('Rate Limit Integration Tests', () => {
 
       // Should return 403, NOT 500 like the old broken implementation
       expect(result.status).toBe(403);
-    });
-  });
-
-  describe('GitLabProvider rate limit handling', () => {
-    let provider: GitLabProvider;
-
-    beforeEach(() => {
-      provider = new GitLabProvider();
-    });
-
-    it('should extract rate limit info from 429 response', async () => {
-      // Simulate GitLab 429 rate limit error
-      const rateLimitError = {
-        cause: {
-          description: 'Rate limit exceeded',
-          status: 429,
-        },
-        response: {
-          status: 429,
-          headers: {
-            'retry-after': '30',
-            'ratelimit-reset': String(Math.floor(Date.now() / 1000) + 30),
-          },
-        },
-      };
-
-      mockSearchGitLabCodeAPI.mockRejectedValue(rateLimitError);
-
-      const result = await provider.searchCode({
-        keywords: ['test'],
-        projectId: 'group/project',
-      });
-
-      expect(result.status).toBe(429);
-      expect(result.provider).toBe('gitlab');
-
-      // Verify rate limit info
-      expect(result.rateLimit).toBeDefined();
-      expect(result.rateLimit?.remaining).toBe(0);
-      expect(result.rateLimit?.retryAfter).toBe(30);
-    });
-
-    it('should NOT include rateLimit for non-rate-limit errors', async () => {
-      const notFoundError = {
-        cause: {
-          description: 'Project not found',
-          status: 404,
-        },
-      };
-
-      mockSearchGitLabCodeAPI.mockRejectedValue(notFoundError);
-
-      const result = await provider.searchCode({
-        keywords: ['test'],
-        projectId: 'group/project',
-      });
-
-      expect(result.status).toBe(404);
-      expect(result.rateLimit).toBeUndefined();
     });
   });
 });

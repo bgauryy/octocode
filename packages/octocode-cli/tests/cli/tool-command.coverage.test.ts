@@ -14,7 +14,7 @@
  *  - buildToolPayload: array payload, responseCharOffset, >2 args error,
  *    non-string/non-object/empty-array payload errors
  *  - printToolResult: structuredContent fallback, bare-result fallback,
- *    stripTsvRedundantResults non-TSV passthrough
+ *    JSON mode CallToolResult passthrough
  *  - executeToolCommand: no-name → list, 'list' keyword, --list flag,
  *    unknown tool, --schema flag, isError result, --json/-o json flags
  *  - showToolHelp: GitHub tool (mainResearchGoal hint), unknown tool
@@ -122,6 +122,27 @@ vi.mock('octocode-mcp/public', async () => {
     exploreMultipleRepositoryStructures: mocks.noop,
     executeCloneRepo: mocks.cloneRepo,
     searchPackages: mocks.noop,
+    DEFAULT_TOOL_RESPONSE_FORMAT: 'tsv',
+    formatCallToolResultForOutput: (
+      result: unknown,
+      outputMode: 'text' | 'json'
+    ) => {
+      if (outputMode === 'json') return JSON.stringify(result);
+      const typedResult = result as {
+        content?: Array<{ text?: string }>;
+        structuredContent?: unknown;
+      };
+      const textBlocks = Array.isArray(typedResult.content)
+        ? typedResult.content
+            .map(block => (typeof block.text === 'string' ? block.text : ''))
+            .filter(Boolean)
+        : [];
+      if (textBlocks.length > 0) return textBlocks.join('\n\n');
+      if (typedResult.structuredContent !== undefined) {
+        return JSON.stringify(typedResult.structuredContent, null, 2);
+      }
+      return JSON.stringify(result, null, 2);
+    },
     RipgrepQuerySchema: localBase.extend({
       path: z.string(),
       pattern: z.string(),
@@ -526,10 +547,11 @@ describe('tool-command coverage', () => {
     expect(allArgs).toContain('"content"');
   });
 
-  it('printToolResult: --json mode with non-TSV structuredContent passes through', async () => {
+  it('printToolResult: --json mode prints the full MCP CallToolResult envelope', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: { kind: 'results', items: ['a', 'b'] },
+      isError: false,
     });
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -540,15 +562,17 @@ describe('tool-command coverage', () => {
       options: { tool: 'localSearchCode', json: true },
     });
 
-    const allArgs = consoleSpy.mock.calls.flat().join('\n');
-    // structuredContent is passed through as-is (non-TSV)
-    expect(allArgs).toContain('"kind"');
-    expect(allArgs).toContain('"items"');
-    // results array NOT stripped (not TSV format)
-    expect(allArgs).not.toContain('yaml output');
+    const raw = consoleSpy.mock.calls.flat().join('\n');
+    const parsed = JSON.parse(raw);
+    expect(parsed.content).toEqual([{ type: 'text', text: 'yaml output' }]);
+    expect(parsed.structuredContent).toEqual({
+      kind: 'results',
+      items: ['a', 'b'],
+    });
+    expect(parsed.isError).toBe(false);
   });
 
-  it('printToolResult: --json mode strips results from TSV structuredContent', async () => {
+  it('printToolResult: --json mode preserves TSV structuredContent results', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: {
@@ -569,11 +593,13 @@ describe('tool-command coverage', () => {
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(raw);
-    expect(parsed.format).toBe('tsv');
-    expect(parsed.columns).toEqual(['path', 'line']);
-    expect(parsed.rows).toContain('foo.ts');
-    // results must be stripped
-    expect(parsed.results).toBeUndefined();
+    expect(parsed.content).toEqual([{ type: 'text', text: 'yaml output' }]);
+    expect(parsed.structuredContent.format).toBe('tsv');
+    expect(parsed.structuredContent.columns).toEqual(['path', 'line']);
+    expect(parsed.structuredContent.rows).toContain('foo.ts');
+    expect(parsed.structuredContent.results).toEqual([
+      { id: 'q1', status: 'hasResults', data: {} },
+    ]);
   });
 
   it('printToolResult: -o json flag also selects JSON mode', async () => {
@@ -592,7 +618,8 @@ describe('tool-command coverage', () => {
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(raw);
-    expect(parsed.answer).toBe(42);
+    expect(parsed.content).toEqual([{ type: 'text', text: 'out' }]);
+    expect(parsed.structuredContent).toEqual({ answer: 42 });
   });
 
   // ── isError result ────────────────────────────────────────────────────────
@@ -888,12 +915,12 @@ describe('tool-command coverage', () => {
     expect(out).not.toContain('base64');
   });
 
-  // ── stripTsvRedundantResults: falsy payload passes through unchanged ──────
+  // ── JSON mode: full MCP CallToolResult envelope is preserved ─────────────
 
-  it('stripTsvRedundantResults: null structuredContent in JSON mode emits null', async () => {
+  it('printToolResult: JSON mode preserves null structuredContent in the envelope', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'txt' }],
-      structuredContent: null, // null !== undefined so payload = null → !payload branch
+      structuredContent: null,
     } as unknown as { content: Array<{ type: string; text: string }> });
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -904,15 +931,15 @@ describe('tool-command coverage', () => {
       options: { tool: 'localSearchCode', json: true },
     });
 
-    const out = consoleSpy.mock.calls.flat().join('\n');
-    // stripTsvRedundantResults(!null) → return null → JSON.stringify(null) = 'null'
-    expect(out.trim()).toBe('null');
+    const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
+    expect(parsed.content).toEqual([{ type: 'text', text: 'txt' }]);
+    expect(parsed.structuredContent).toBeNull();
   });
 
-  it('stripTsvRedundantResults: non-object payload passes through unchanged', async () => {
+  it('printToolResult: JSON mode preserves primitive structuredContent in the envelope', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'txt' }],
-      structuredContent: 'just a string', // not an object
+      structuredContent: 'just a string',
     } as unknown as { content: Array<{ type: string; text: string }> });
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -923,8 +950,9 @@ describe('tool-command coverage', () => {
       options: { tool: 'localSearchCode', json: true },
     });
 
-    const out = consoleSpy.mock.calls.flat().join('\n');
-    expect(out.trim()).toBe('"just a string"');
+    const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
+    expect(parsed.content).toEqual([{ type: 'text', text: 'txt' }]);
+    expect(parsed.structuredContent).toBe('just a string');
   });
 
   // ── buildExampleValue: default fallback + boolean branch ─────────────────

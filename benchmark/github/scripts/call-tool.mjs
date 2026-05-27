@@ -80,10 +80,28 @@ const proxy = spawn('node', [
 });
 
 let msgId = 0;
+let initialized = false;
+let toolCallSent = false;
 const pending = new Map();
 const send = (obj) => {
   const line = JSON.stringify(obj);
   proxy.stdin.write(line + '\n');
+};
+
+const callToolOnce = () => {
+  if (!initialized || toolCallSent) return;
+  toolCallSent = true;
+  const id = ++msgId + 10;
+  pending.set(id, true);
+  send({
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: {
+      name: toolName,
+      arguments: { queries },
+    },
+  });
 };
 
 const rl = createInterface({ input: proxy.stdout });
@@ -93,18 +111,9 @@ rl.on('line', (line) => {
 
   // Handle initialize result
   if (msg.id === 1 && msg.result?.capabilities) {
-    // Initialized — now call the tool
-    const id = ++msgId + 10;
-    pending.set(id, true);
-    send({
-      jsonrpc: '2.0',
-      id,
-      method: 'tools/call',
-      params: {
-        name: toolName,
-        arguments: { queries },
-      },
-    });
+    initialized = true;
+    send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+    callToolOnce();
     return;
   }
 
@@ -127,7 +136,8 @@ rl.on('line', (line) => {
 
 proxy.on('close', () => process.exit(0));
 
-// Step 1: initialize
+// Step 1: initialize. The initialized notification and tool call are sent only
+// after the server acknowledges initialize; no timing sleep is needed.
 send({
   jsonrpc: '2.0',
   id: 1,
@@ -138,7 +148,3 @@ send({
     clientInfo: { name: 'benchmark-client', version: '1.0' },
   },
 });
-// Step 2: send initialized notification
-setTimeout(() => {
-  send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
-}, 100);

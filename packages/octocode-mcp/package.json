@@ -95,7 +95,6 @@
     "verify:full": "yarn lint && yarn typecheck:full && yarn test"
   },
   "dependencies": {
-    "@coderabbitai/bitbucket": "^1.1.4",
     "@octocodeai/octocode-core": "^1.0.2",
     "@vscode/ripgrep": "^1.18.0",
     "typescript": "^5.9.3",

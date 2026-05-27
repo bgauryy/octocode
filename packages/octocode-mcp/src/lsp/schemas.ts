@@ -1,8 +1,7 @@
 /**
  * Zod schemas for LSP configuration file validation.
  *
- * Validates parsed JSON from lsp-servers.json config files
- * before type-asserting to LSPConfigFile.
+ * Validates parsed JSON from lsp-servers.json config files.
  */
 
 import { z } from 'zod/v4';

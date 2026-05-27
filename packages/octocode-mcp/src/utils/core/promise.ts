@@ -1,4 +1,7 @@
-import type { PromiseResult, PromiseExecutionOptions } from '../../types.js';
+import type {
+  PromiseResult,
+  PromiseExecutionOptions,
+} from '../../types/promise.js';
 import {
   VALIDATION_ERRORS,
   PROMISE_ERRORS,

@@ -1,8 +1,6 @@
 import type { FileContentQuery } from '@octocodeai/octocode-core';
 import type { PaginationInfo } from '../../utils/core/types.js';
 
-export type ContentFetchType = 'file' | 'directory';
-
 /**
  * Extension of FileContentQuery with internal execution fields
  * not part of the Zod schema.

@@ -44,9 +44,7 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
   repo?: string;
 } {
   if (!repoUrl) return {};
-  const match = repoUrl.match(
-    /(?:github\.com|gitlab\.com|bitbucket\.org)\/([^/]+)\/([^/]+)/
-  );
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (match && match[1] && match[2]) {
     const owner = match[1];
     const repoName = match[2];

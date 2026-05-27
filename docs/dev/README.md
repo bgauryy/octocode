@@ -13,7 +13,7 @@ How to use, extend, and contribute to Octocode.
 
 | Doc | When to read |
 |-----|--------------|
-| [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) | Schemas + behavior for remote-host tools |
+| [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) | Schemas + behavior for remote-host tools |
 | [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | Schemas + behavior for local FS / LSP tools |
 | [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) | All `octocode-cli` commands and flags |
 | [Shared API Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/SHARED_API_REFERENCE.md) | `octocode-shared` exports for credentials/session/platform |

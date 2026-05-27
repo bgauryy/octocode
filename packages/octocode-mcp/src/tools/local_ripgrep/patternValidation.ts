@@ -12,7 +12,7 @@
  * @module tools/local_ripgrep/patternValidation
  */
 
-export interface RipgrepPatternInput {
+interface RipgrepPatternInput {
   pattern: string;
   fixedString?: boolean;
   perlRegex?: boolean;

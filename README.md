@@ -67,7 +67,7 @@ npx add-skill https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-
 
 The [Octocode MCP Server](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp) connects your AI assistant to code:
 
-- **GitHub, GitLab & Bitbucket**: Search repositories, find usage patterns, read implementations, explore PRs/MRs
+- **GitHub**: Search repositories, find usage patterns, read implementations, explore PRs
 - **Local Tools**: Search code (ripgrep), browse directories, find files in your local codebase
 - **LSP Intelligence**: Go to Definition, Find References, Call Hierarchy — compiler-level understanding
 - **Package Discovery**: Resolve npm/PyPI packages to their source repos
@@ -149,7 +149,7 @@ This is a yarn-workspaces monorepo. Each package has its own `README.md`; all se
 
 | Package | Purpose |
 |---------|---------|
-| [`octocode-mcp`](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp) | MCP server — 14 tools across GitHub/GitLab/Bitbucket, local FS, LSP |
+| [`octocode-mcp`](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp) | MCP server — 14 tools across GitHub, local FS, LSP |
 | [`octocode-cli`](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-cli) | CLI — installer, tool runner, skills marketplace |
 | [`octocode-vscode`](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-vscode) | VS Code extension — GitHub OAuth + multi-editor MCP install |
 | [`octocode-shared`](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-shared) | Shared utilities — credentials, session, platform |
@@ -220,12 +220,12 @@ Full index: **[docs/README.md](https://github.com/bgauryy/octocode-mcp/blob/main
 - [`docs/specs/`](https://github.com/bgauryy/octocode-mcp/tree/main/docs/specs) — design specs and RFCs
 
 **Setup**
-- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) · [GitHub](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) · [GitLab](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITLAB_SETUP_GUIDE.md) · [Bitbucket](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/BITBUCKET_SETUP_GUIDE.md)
+- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) · [GitHub](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md)
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md)
 - [Using octocode-mcp with Pi](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/clients/PI_SETUP_GUIDE.md)
 
 **Tool References**
-- [GitHub, GitLab & Bitbucket Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md)
+- [GitHub Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md)
 - [Local + LSP Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)
 - [Clone & Local Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md)
 

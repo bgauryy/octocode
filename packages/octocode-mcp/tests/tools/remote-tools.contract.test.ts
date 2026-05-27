@@ -305,7 +305,15 @@ describe('TSV projection: githubViewRepoStructure', () => {
         },
       }
     );
-    expect(columns).toEqual(['parent', 'name', 'type', 'path', 'size', 'sha', 'url']);
+    expect(columns).toEqual([
+      'parent',
+      'name',
+      'type',
+      'path',
+      'size',
+      'sha',
+      'url',
+    ]);
     expect(rows).toContainEqual({
       parent: '.',
       name: 'README.md',
@@ -509,7 +517,7 @@ function buildScorecard(
     /Retry after \d+s/,
     /across repos/,
     /Permission denied/,
-    /\bGITHUB_TOKEN\b|\bGITLAB_TOKEN\b|\bBITBUCKET_TOKEN\b/,
+    /\bGITHUB_TOKEN\b/,
     /Partial content/,
     /entries\)/,
     /Page \d+\/\d+/, // "Page 1/3 (...)" pagination summary

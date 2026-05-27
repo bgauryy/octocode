@@ -97,7 +97,7 @@ async function getFileStatsOrError(
     };
   } catch (error) {
     const toolError = ToolErrors.fileAccessFailed(
-      query.path,
+      query.path!,
       error instanceof Error ? error : undefined
     );
 
@@ -130,7 +130,7 @@ function createLargeFileErrorResult(
   fileSizeKB: number
 ): LocalGetFileContentToolResult {
   const toolError = ToolErrors.fileTooLarge(
-    query.path,
+    query.path!,
     fileSizeKB,
     RESOURCE_LIMITS.LARGE_FILE_THRESHOLD_KB
   );
@@ -151,7 +151,7 @@ function createBinaryFileErrorResult(
   query: FetchContentQuery,
   absolutePath: string
 ): LocalGetFileContentToolResult {
-  const toolError = ToolErrors.binaryFileUnsupported(query.path);
+  const toolError = ToolErrors.binaryFileUnsupported(query.path!);
 
   return createErrorResult(toolError, query, {
     toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
@@ -240,7 +240,7 @@ async function readFileContentOrError(
     };
   } catch (error) {
     const toolError = ToolErrors.fileReadFailed(
-      query.path,
+      query.path!,
       error instanceof Error ? error : undefined
     );
 
@@ -303,7 +303,7 @@ function buildMatchExtractionState(
     };
   }
 
-  const resultContent = applyMinification(result.lines.join('\n'), query.path);
+  const resultContent = applyMinification(result.lines.join('\n'), query.path!);
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
   let matchRanges: Array<{ start: number; end: number }> | undefined;

@@ -151,16 +151,6 @@ describe('Provider Types', () => {
       expect(isProviderSuccess(response)).toBe(true);
     });
 
-    it('should work with gitlab provider', () => {
-      const response: ProviderResponse<string> = {
-        data: 'test data',
-        status: 200,
-        provider: 'gitlab',
-      };
-
-      expect(isProviderSuccess(response)).toBe(true);
-    });
-
     it('should return true for response with additional hints', () => {
       const response: ProviderResponse<string> = {
         data: 'test data',
@@ -278,16 +268,6 @@ describe('Provider Types', () => {
         error: '',
         status: 400,
         provider: 'github',
-      };
-
-      expect(isProviderError(response)).toBe(true);
-    });
-
-    it('should work with gitlab provider', () => {
-      const response: ProviderResponse<string> = {
-        error: 'GitLab error',
-        status: 500,
-        provider: 'gitlab',
       };
 
       expect(isProviderError(response)).toBe(true);
@@ -430,17 +410,6 @@ describe('Provider Types', () => {
   describe('ProviderType type validation', () => {
     it('should accept github as valid provider', () => {
       const provider: ProviderType = 'github';
-      const response: ProviderResponse<string> = {
-        data: 'test',
-        status: 200,
-        provider,
-      };
-
-      expect(isProviderSuccess(response)).toBe(true);
-    });
-
-    it('should accept gitlab as valid provider', () => {
-      const provider: ProviderType = 'gitlab';
       const response: ProviderResponse<string> = {
         data: 'test',
         status: 200,

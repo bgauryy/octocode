@@ -1,5 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import type { ProcessedBulkResult } from '../types.js';
+import type { ProcessedBulkResult } from '../types/toolResults.js';
 import { getProvider } from '../providers/factory.js';
 import {
   isProviderSuccess,

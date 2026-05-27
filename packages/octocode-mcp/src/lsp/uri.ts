@@ -55,7 +55,7 @@ export function fromUri(uri: string): string {
 /**
  * Result of a safe URI parse — never throws on bad input by default.
  */
-export interface SafeUriResult {
+interface SafeUriResult {
   isValid: boolean;
   /** Filesystem path; only meaningful when isValid=true. */
   path: string | null;

@@ -113,22 +113,6 @@ describe(FLOW_CATALOG.remoteSearchToFetchContent.id, () => {
       repo: 'octokit',
       urlPrefix: 'https://github.com',
     },
-    {
-      provider: 'gitlab' as const,
-      baseUrl: 'https://gitlab.example.com',
-      token: 'gitlab-token',
-      owner: 'group',
-      repo: 'project',
-      urlPrefix: 'https://gitlab.example.com',
-    },
-    {
-      provider: 'bitbucket' as const,
-      baseUrl: 'https://api.bitbucket.org',
-      token: 'bitbucket-token',
-      owner: 'workspace',
-      repo: 'repo',
-      urlPrefix: 'https://bitbucket.org',
-    },
   ];
 
   let mockServer: MockMcpServer;

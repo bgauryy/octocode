@@ -45,6 +45,7 @@ import {
   countSerializedChars,
   getRawResponseChars,
 } from '../../utils/response/charSavings.js';
+import { attachLspEvidence } from '../../lsp/evidence.js';
 
 /**
  * Find all references to a symbol.
@@ -64,43 +65,15 @@ export async function findReferences(
   );
 }
 
-/**
- * Attach cross-tool evidence so the bulk runner can lift it to the response
- * envelope. Confidence is `high` for LSP semantic results and `low` for the
- * text-pattern fallback; `complete` mirrors the pagination state.
- */
 function attachReferencesEvidence(
   result: FindReferencesResult
 ): FindReferencesResult {
-  // Only annotate well-shaped LSP results — skip raw error envelopes so we
-  // don't add an evidence block to shapes that tests assert verbatim.
-  const status = (result as { status?: string }).status;
-  if (status !== 'hasResults' && status !== 'empty') return result;
-  const hasResults = status === 'hasResults';
-  const mode = (result as { lspMode?: 'semantic' | 'fallback' }).lspMode;
-  const pagination = (result as { pagination?: { hasMore?: boolean } })
-    .pagination;
-  const evidence = {
-    kind: 'references' as const,
-    answerReady: hasResults,
-    complete: hasResults && !(pagination?.hasMore ?? false),
-    confidence:
-      mode === 'semantic'
-        ? ('high' as const)
-        : mode === 'fallback'
-          ? ('low' as const)
-          : undefined,
-    ...(mode === 'fallback'
-      ? {
-          reason:
-            'Results derived from text pattern matching; may include false positives or miss renamed/aliased usages.',
-        }
-      : {}),
-  };
-  // Mutate in place so any non-enumerable raw-chars symbol attached
-  // upstream (see attachRawResponseChars) survives.
-  (result as Record<string, unknown>).evidence = evidence;
-  return result;
+  return attachLspEvidence(result, {
+    kind: 'references',
+    paginationKey: 'pagination',
+    fallbackReason:
+      'Results derived from text pattern matching; may include false positives or miss renamed/aliased usages.',
+  });
 }
 
 async function findReferencesInternal(
@@ -116,12 +89,15 @@ async function findReferencesInternal(
     }
 
     const absolutePath = pathValidation.sanitizedPath!;
+    const uri = query.uri!;
+    const symbolName = query.symbolName!;
+    const lineHint = query.lineHint!;
 
     try {
       await stat(absolutePath);
     } catch (error) {
       const toolError = ToolErrors.fileAccessFailed(
-        query.uri,
+        uri,
         error instanceof Error ? error : undefined
       );
       return createErrorResult(toolError, query, {
@@ -135,7 +111,7 @@ async function findReferencesInternal(
       content = await readFile(absolutePath, 'utf-8');
     } catch (error) {
       const toolError = ToolErrors.fileReadFailed(
-        query.uri,
+        uri,
         error instanceof Error ? error : undefined
       );
       return createErrorResult(toolError, query, {
@@ -148,8 +124,8 @@ async function findReferencesInternal(
     let resolvedSymbol: { position: ExactPosition; foundAtLine: number };
     try {
       resolvedSymbol = resolver.resolvePositionFromContent(content, {
-        symbolName: query.symbolName,
-        lineHint: query.lineHint,
+        symbolName,
+        lineHint,
         orderHint: query.orderHint ?? 0,
       });
     } catch (error) {
@@ -161,8 +137,8 @@ async function findReferencesInternal(
             errorType: 'symbol_not_found',
             errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
             hints: [
-              `Symbol '${query.symbolName}' not found at or near line ${query.lineHint}`,
-              `Searched +/-${error.searchRadius} lines from line ${query.lineHint}`,
+              `Symbol '${symbolName}' not found at or near line ${lineHint}`,
+              `Searched +/-${error.searchRadius} lines from line ${lineHint}`,
               'Verify the exact symbol name (case-sensitive, no partial matches)',
               'Use localGetFileContent to check the file content around that line',
               'TIP: Use localSearchCode to find the correct line number first',

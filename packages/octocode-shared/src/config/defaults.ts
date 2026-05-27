@@ -1,7 +1,5 @@
 import type {
   RequiredGitHubConfig,
-  RequiredGitLabConfig,
-  RequiredBitbucketConfig,
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
@@ -16,20 +14,6 @@ import type {
  */
 export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
   apiUrl: 'https://api.github.com',
-};
-
-/**
- * Default GitLab configuration
- */
-export const DEFAULT_GITLAB_CONFIG: RequiredGitLabConfig = {
-  host: 'https://gitlab.com',
-};
-
-/**
- * Default Bitbucket configuration
- */
-export const DEFAULT_BITBUCKET_CONFIG: RequiredBitbucketConfig = {
-  host: 'https://api.bitbucket.org/2.0',
 };
 
 /**
@@ -90,8 +74,6 @@ export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   version: 1,
   github: DEFAULT_GITHUB_CONFIG,
-  gitlab: DEFAULT_GITLAB_CONFIG,
-  bitbucket: DEFAULT_BITBUCKET_CONFIG,
   local: DEFAULT_LOCAL_CONFIG,
   tools: DEFAULT_TOOLS_CONFIG,
   network: DEFAULT_NETWORK_CONFIG,

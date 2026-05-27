@@ -113,28 +113,6 @@ describe('session.branches', () => {
       );
     });
 
-    it('should not update GitHub cache rate limits for non-GitHub providers', async () => {
-      const { updateSessionStats, incrementGitHubCacheRateLimits } =
-        await import('octocode-shared');
-      vi.mocked(fetch).mockResolvedValue(new Response('ok'));
-
-      await initialize();
-      initializeSession();
-      await logRateLimit({
-        provider: 'gitlab',
-        limit_type: 'primary',
-        retry_after_seconds: 60,
-      } as any);
-
-      expect(updateSessionStats).toHaveBeenCalledWith({
-        rateLimits: 1,
-        rateLimitsByProvider: {
-          gitlab: 1,
-        },
-      });
-      expect(incrementGitHubCacheRateLimits).not.toHaveBeenCalled();
-    });
-
     it('should update session when provider rate-limit stats return session', async () => {
       const { updateSessionStats } = await import('octocode-shared');
       const updatedSession = {

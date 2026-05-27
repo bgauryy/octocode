@@ -21,7 +21,10 @@ if (!log || !qRaw) {
   process.exit(2);
 }
 const q = Number.parseInt(qRaw, 10);
-if (!Number.isFinite(q)) { console.error(`aggregate: invalid q: ${qRaw}`); process.exit(2); }
+if (!/^\d+$/.test(qRaw) || !Number.isFinite(q)) {
+  console.error(`aggregate: invalid q: ${qRaw}`);
+  process.exit(2);
+}
 
 if (!existsSync(log)) {
   console.error(`aggregate: log not found: ${log}`);

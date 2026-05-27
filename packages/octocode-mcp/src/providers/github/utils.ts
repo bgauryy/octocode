@@ -35,7 +35,7 @@ export function parseGitHubProjectId(projectId?: string): {
   return { owner: parts[0], repo: parts[1] };
 }
 
-export function extractGitHubRateLimit(apiError: {
+function extractGitHubRateLimit(apiError: {
   rateLimitRemaining?: number;
   rateLimitReset?: number;
   retryAfter?: number;

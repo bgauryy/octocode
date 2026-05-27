@@ -1066,149 +1066,21 @@ describe('ServerConfig - Simplified Version', () => {
     });
   });
 
-  describe('GitLab Configuration Fresh Resolution (Issue #1 & #2)', () => {
-    let getGitLabConfig: typeof import('../src/gitlabConfig.js').getGitLabConfig;
-
-    beforeEach(async () => {
-      const gitlabConfig = await import('../src/gitlabConfig.js');
-      getGitLabConfig = gitlabConfig.getGitLabConfig;
-      // Clear any cached state
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
-      delete process.env.GITLAB_HOST;
-    });
-
-    it('should resolve GitLab config fresh each time (no caching)', () => {
-      // First call - no token
-      const config1 = getGitLabConfig();
-      expect(config1.token).toBeNull();
-      expect(config1.isConfigured).toBe(false);
-
-      // Set token at runtime
-      process.env.GITLAB_TOKEN = 'fresh-token-1';
-
-      // Second call - should see the new token (fresh resolution)
-      const config2 = getGitLabConfig();
-      expect(config2.token).toBe('fresh-token-1');
-      expect(config2.isConfigured).toBe(true);
-
-      // Change token again
-      process.env.GITLAB_TOKEN = 'fresh-token-2';
-
-      // Third call - should see updated token
-      const config3 = getGitLabConfig();
-      expect(config3.token).toBe('fresh-token-2');
-    });
-
-    it('should pick up GitLab token deletion dynamically', () => {
-      process.env.GITLAB_TOKEN = 'initial-token';
-
-      const config1 = getGitLabConfig();
-      expect(config1.token).toBe('initial-token');
-
-      // Delete token at runtime
-      delete process.env.GITLAB_TOKEN;
-
-      const config2 = getGitLabConfig();
-      expect(config2.token).toBeNull();
-      expect(config2.isConfigured).toBe(false);
-    });
-
-    it('should pick up GL_TOKEN changes dynamically', () => {
-      process.env.GL_TOKEN = 'gl-token-1';
-
-      const config1 = getGitLabConfig();
-      expect(config1.token).toBe('gl-token-1');
-
-      process.env.GL_TOKEN = 'gl-token-2';
-
-      const config2 = getGitLabConfig();
-      expect(config2.token).toBe('gl-token-2');
-    });
-
-    // Removed: 'should pick up GITLAB_HOST changes dynamically'
-    // This test relied on env var propagation through mocked getConfigSync.
-    // Dynamic host resolution is an implementation detail covered by config integration tests.
-
-    it('should always return GitLabConfig (not null)', () => {
-      const config = getGitLabConfig();
-      expect(config).not.toBeNull();
-      expect(config.host).toBe('https://gitlab.com');
-      expect(config.isConfigured).toBe(false);
-    });
-
-    it('should prioritize GITLAB_TOKEN over GL_TOKEN when both are set', () => {
-      process.env.GITLAB_TOKEN = 'gitlab-primary-token';
-      process.env.GL_TOKEN = 'gl-fallback-token';
-
-      const config = getGitLabConfig();
-      expect(config.token).toBe('gitlab-primary-token');
-      expect(config.isConfigured).toBe(true);
-    });
-
-    it('should fall back to GL_TOKEN when GITLAB_TOKEN is not set', () => {
-      delete process.env.GITLAB_TOKEN;
-      process.env.GL_TOKEN = 'gl-fallback-token';
-
-      const config = getGitLabConfig();
-      expect(config.token).toBe('gl-fallback-token');
-      expect(config.isConfigured).toBe(true);
-    });
-
-    it('should use GITLAB_TOKEN even when GL_TOKEN changes', () => {
-      process.env.GITLAB_TOKEN = 'gitlab-primary-token';
-      process.env.GL_TOKEN = 'gl-fallback-token';
-
-      const config1 = getGitLabConfig();
-      expect(config1.token).toBe('gitlab-primary-token');
-
-      process.env.GL_TOKEN = 'gl-changed-token';
-
-      const config2 = getGitLabConfig();
-      expect(config2.token).toBe('gitlab-primary-token');
-    });
-  });
-
   describe('Active Provider Configuration', () => {
-    // Import the functions we need to test
     let getActiveProvider: typeof import('../src/serverConfig.js').getActiveProvider;
     let getActiveProviderConfig: typeof import('../src/serverConfig.js').getActiveProviderConfig;
-    let isGitLabActive: typeof import('../src/serverConfig.js').isGitLabActive;
 
     beforeEach(async () => {
-      // Dynamic import to get fresh module state
       const serverConfig = await import('../src/serverConfig.js');
       getActiveProvider = serverConfig.getActiveProvider;
       getActiveProviderConfig = serverConfig.getActiveProviderConfig;
-      isGitLabActive = serverConfig.isGitLabActive;
     });
 
-    it('should return github as default provider when no GitLab token', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
-
+    it('should always return github as the active provider', () => {
       expect(getActiveProvider()).toBe('github');
     });
 
-    it('should return gitlab as provider when GITLAB_TOKEN is set', () => {
-      process.env.GITLAB_TOKEN = 'glpat-test-token';
-
-      expect(getActiveProvider()).toBe('gitlab');
-
-      delete process.env.GITLAB_TOKEN;
-    });
-
-    it('should return gitlab as provider when GL_TOKEN is set', () => {
-      process.env.GL_TOKEN = 'glpat-test-token';
-
-      expect(getActiveProvider()).toBe('gitlab');
-
-      delete process.env.GL_TOKEN;
-    });
-
-    it('should return github provider config when no GitLab token', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
+    it('should return github provider config with no custom API URL', () => {
       delete process.env.GITHUB_API_URL;
 
       const config = getActiveProviderConfig();
@@ -1219,8 +1091,6 @@ describe('ServerConfig - Simplified Version', () => {
     });
 
     it('should return github provider config with custom API URL', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
       process.env.GITHUB_API_URL = 'https://github.mycompany.com/api/v3';
 
       const config = getActiveProviderConfig();
@@ -1229,101 +1099,6 @@ describe('ServerConfig - Simplified Version', () => {
       expect(config.baseUrl).toBe('https://github.mycompany.com/api/v3');
 
       delete process.env.GITHUB_API_URL;
-    });
-
-    it('should return gitlab provider config when GITLAB_TOKEN is set', () => {
-      process.env.GITLAB_TOKEN = 'glpat-test-token';
-      delete process.env.GITLAB_HOST;
-
-      const config = getActiveProviderConfig();
-
-      expect(config.provider).toBe('gitlab');
-      expect(config.baseUrl).toBe('https://gitlab.com');
-      expect(config.token).toBe('glpat-test-token');
-
-      delete process.env.GITLAB_TOKEN;
-    });
-
-    it('should return gitlab provider config with custom host', () => {
-      process.env.GITLAB_TOKEN = 'glpat-test-token';
-      process.env.GITLAB_HOST = 'https://gitlab.mycompany.com';
-
-      const config = getActiveProviderConfig();
-
-      expect(config.provider).toBe('gitlab');
-      expect(config.baseUrl).toBe('https://gitlab.mycompany.com');
-      expect(config.token).toBe('glpat-test-token');
-
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GITLAB_HOST;
-    });
-
-    it('should return false for isGitLabActive when no GitLab token', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
-
-      expect(isGitLabActive()).toBe(false);
-    });
-
-    it('should return true for isGitLabActive when GitLab token is set', () => {
-      process.env.GITLAB_TOKEN = 'glpat-test-token';
-
-      expect(isGitLabActive()).toBe(true);
-
-      delete process.env.GITLAB_TOKEN;
-    });
-
-    it('should return bitbucket as provider when BITBUCKET_TOKEN is set', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
-      process.env.BITBUCKET_TOKEN = 'bb-test-token';
-
-      expect(getActiveProvider()).toBe('bitbucket');
-
-      delete process.env.BITBUCKET_TOKEN;
-    });
-
-    it('should return bitbucket provider config when BITBUCKET_TOKEN is set', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
-      process.env.BITBUCKET_TOKEN = 'bb-test-token';
-
-      const config = getActiveProviderConfig();
-
-      expect(config.provider).toBe('bitbucket');
-      expect(config.baseUrl).toBe('https://api.bitbucket.org/2.0');
-      expect(config.token).toBe('bb-test-token');
-
-      delete process.env.BITBUCKET_TOKEN;
-    });
-
-    it('should return bitbucket provider config with custom host', () => {
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.GL_TOKEN;
-      process.env.BITBUCKET_TOKEN = 'bb-test-token';
-      process.env.BITBUCKET_HOST = 'https://bitbucket.mycompany.com';
-
-      const config = getActiveProviderConfig();
-
-      expect(config.provider).toBe('bitbucket');
-      expect(config.baseUrl).toBe('https://bitbucket.mycompany.com');
-      expect(config.token).toBe('bb-test-token');
-
-      delete process.env.BITBUCKET_TOKEN;
-      delete process.env.BITBUCKET_HOST;
-    });
-
-    it('should prioritize gitlab over bitbucket when both tokens are set', () => {
-      process.env.GITLAB_TOKEN = 'glpat-test-token';
-      process.env.BITBUCKET_TOKEN = 'bb-test-token';
-
-      expect(getActiveProvider()).toBe('gitlab');
-
-      const config = getActiveProviderConfig();
-      expect(config.provider).toBe('gitlab');
-
-      delete process.env.GITLAB_TOKEN;
-      delete process.env.BITBUCKET_TOKEN;
     });
   });
 });

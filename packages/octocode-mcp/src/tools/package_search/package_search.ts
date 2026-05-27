@@ -5,7 +5,7 @@ import {
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { withSecurityValidation } from '../../utils/securityBridge.js';
-import type { ToolInvocationCallback } from '../../types.js';
+import type { ToolInvocationCallback } from '../../types/toolResults.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 import type { PackageSearchQuery } from '@octocodeai/octocode-core';
 import {

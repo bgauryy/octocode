@@ -18,7 +18,7 @@ export type TsvProjection = {
   toRows: (data: unknown) => ReadonlyArray<Record<string, unknown>>;
 };
 
-export type TsvExport = {
+type TsvExport = {
   columns: readonly string[];
   rows: string;
 };
@@ -752,7 +752,8 @@ export const TOOL_TSV_PROJECTIONS: Record<string, TsvProjection> = {
     githubSearchRepositoriesProjection,
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]:
     githubSearchPullRequestsProjection,
-  [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]: githubViewRepoStructureProjection,
+  [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]:
+    githubViewRepoStructureProjection,
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: githubCloneRepoProjection,
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: packageSearchProjection,
   // Local

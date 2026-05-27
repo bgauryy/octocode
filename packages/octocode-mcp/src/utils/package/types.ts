@@ -39,7 +39,7 @@ export interface PythonPackageResult {
   repo?: string;
 }
 
-export type PackageResult =
+type PackageResult =
   | MinimalPackageResult
   | NpmPackageResult
   | PythonPackageResult;

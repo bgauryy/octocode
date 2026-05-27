@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ToolInvocationCallback } from '../types.js';
+import type { ToolInvocationCallback } from '../types/toolResults.js';
 import type { ToolConfig } from './toolConfig.js';
 
 type ToolRegistrationOutcome =

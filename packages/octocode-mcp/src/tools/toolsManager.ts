@@ -5,7 +5,7 @@ import {
   isLocalEnabled,
   isCloneEnabled,
 } from '../serverConfig.js';
-import { ToolInvocationCallback } from '../types.js';
+import type { ToolInvocationCallback } from '../types/toolResults.js';
 import { logSessionError } from '../session.js';
 import { ignoreBestEffortFailure } from '../utils/core/bestEffort.js';
 import { withOutputSanitization } from '../utils/secureServer.js';

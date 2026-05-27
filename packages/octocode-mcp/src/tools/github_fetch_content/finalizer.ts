@@ -1,9 +1,9 @@
 import type { FileContentQuery } from '@octocodeai/octocode-core';
+import type { BulkFinalizer } from '../../types/bulk.js';
 import type {
-  BulkFinalizer,
   FlatQueryResult,
   PaginationInfo,
-} from '../../types.js';
+} from '../../types/toolResults.js';
 import {
   collectFlatErrors,
   dedupeHints,

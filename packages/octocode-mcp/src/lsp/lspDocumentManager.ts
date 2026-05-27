@@ -12,15 +12,20 @@ import {
   TextDocumentItem,
   TextDocumentIdentifier,
 } from 'vscode-languageserver-protocol';
-import { toUri, fromUri } from './uri.js';
+import { toUri } from './uri.js';
 import { detectLanguageId } from './config.js';
 import type { LanguageServerConfig } from './types.js';
+
+interface OpenDocumentState {
+  version: number;
+  refCount: number;
+}
 
 /**
  * Document manager for LSP client
  */
 export class LSPDocumentManager {
-  private openFiles = new Map<string, number>(); // uri -> version
+  private openFiles = new Map<string, OpenDocumentState>(); // uri -> open state
   private connection: MessageConnection | null = null;
   private initialized = false;
   private config: LanguageServerConfig;
@@ -55,8 +60,9 @@ export class LSPDocumentManager {
 
     const uri = toUri(filePath);
 
-    // Already open?
-    if (this.openFiles.has(uri)) {
+    const existing = this.openFiles.get(uri);
+    if (existing) {
+      existing.refCount += 1;
       return;
     }
 
@@ -73,7 +79,7 @@ export class LSPDocumentManager {
     };
 
     await this.connection.sendNotification('textDocument/didOpen', params);
-    this.openFiles.set(uri, 1);
+    this.openFiles.set(uri, { version: 1, refCount: 1 });
   }
 
   /**
@@ -85,7 +91,13 @@ export class LSPDocumentManager {
     }
 
     const uri = toUri(filePath);
-    if (!this.openFiles.has(uri)) {
+    const existing = this.openFiles.get(uri);
+    if (!existing) {
+      return;
+    }
+
+    existing.refCount -= 1;
+    if (existing.refCount > 0) {
       return;
     }
 
@@ -103,8 +115,14 @@ export class LSPDocumentManager {
   async closeAllDocuments(): Promise<void> {
     for (const uri of Array.from(this.openFiles.keys())) {
       try {
-        const filePath = fromUri(uri);
-        await this.closeDocument(filePath);
+        const params: DidCloseTextDocumentParams = {
+          textDocument: { uri } as TextDocumentIdentifier,
+        };
+        await this.connection?.sendNotification(
+          'textDocument/didClose',
+          params
+        );
+        this.openFiles.delete(uri);
       } catch {
         // Connection may already be disposed — force-remove from tracking
         // to prevent the openFiles map from growing indefinitely.
@@ -126,5 +144,13 @@ export class LSPDocumentManager {
    */
   getOpenDocumentUris(): string[] {
     return Array.from(this.openFiles.keys());
+  }
+
+  /**
+   * Get the current reference count for an open document.
+   */
+  getOpenDocumentRefCount(filePath: string): number {
+    const uri = toUri(filePath);
+    return this.openFiles.get(uri)?.refCount ?? 0;
   }
 }

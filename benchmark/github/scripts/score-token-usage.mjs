@@ -42,8 +42,12 @@ const drift = new Set((quality.drift ?? []).map(Number));
 const exclude = new Set((quality.exclude ?? []).map(Number));
 
 const initChars = s => (s.mcp_init?.in_chars ?? 0) + (s.mcp_init?.out_chars ?? 0);
-const answered = s => s.per_q.filter(q => !q.missing).length || s.questions || 1;
-const amortizedInit = initChars(octo) / answered(octo);
+const comparableQs = octo.per_q
+  .filter(q => !q.missing)
+  .map(q => q.q)
+  .filter(q => gh.per_q.some(g => !g.missing && g.q === q))
+  .filter(q => !drift.has(q) && !exclude.has(q));
+const amortizedInit = comparableQs.length > 0 ? initChars(octo) / comparableQs.length : 0;
 const fmt = n => Number(n).toLocaleString('en', { maximumFractionDigits: 3 });
 const score = (q, chars) => q <= 0 ? 0 : q / (chars / 1000);
 const qScore = (agent, q) => {

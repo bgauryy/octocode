@@ -153,4 +153,4 @@ The skill drives octocode via the CLI and avoids the MCP transport layer entirel
 
 - pi-mcp-adapter — https://github.com/nicobailon/pi-mcp-adapter
 - Pi (coding agent) — https://github.com/earendil-works/pi
-- octocode-mcp tool reference — [GitHub, GitLab & Bitbucket Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md), [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)
+- octocode-mcp tool reference — [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md), [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)

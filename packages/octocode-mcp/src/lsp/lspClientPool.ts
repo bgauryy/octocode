@@ -25,11 +25,11 @@ export interface PoolKey {
   languageId: string;
 }
 
-export interface PooledClient {
+interface PooledClient {
   stop(): Promise<void>;
 }
 
-export interface LspClientPoolOptions<T extends PooledClient> {
+interface LspClientPoolOptions<T extends PooledClient> {
   /** Idle timeout in ms before a pooled client is torn down. */
   idleTimeoutMs: number;
   /** Spawn a new client. Return `null` when no server is available. */
@@ -106,6 +106,11 @@ export class LspClientPool<T extends PooledClient> {
     return this.entries.size;
   }
 
+  /** Active pool keys (for diagnostics/status tools). */
+  keys(): PoolKey[] {
+    return [...this.entries.keys()].map(deserializeKey);
+  }
+
   private resetIdleTimer(k: string): void {
     const entry = this.entries.get(k);
     if (!entry) return;
@@ -126,6 +131,17 @@ export class LspClientPool<T extends PooledClient> {
 
 function serializeKey(key: PoolKey): string {
   return `${key.languageId}\u0000${key.workspaceRoot}`;
+}
+
+function deserializeKey(serialized: string): PoolKey {
+  const separatorIndex = serialized.indexOf('\u0000');
+  if (separatorIndex === -1) {
+    return { languageId: serialized, workspaceRoot: '' };
+  }
+  return {
+    languageId: serialized.slice(0, separatorIndex),
+    workspaceRoot: serialized.slice(separatorIndex + 1),
+  };
 }
 
 async function safeStop(client: PooledClient): Promise<void> {

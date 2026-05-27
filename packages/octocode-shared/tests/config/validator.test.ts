@@ -25,9 +25,6 @@ describe('config/validator', () => {
         github: {
           apiUrl: 'https://api.github.com',
         },
-        gitlab: {
-          host: 'https://gitlab.com',
-        },
         local: {
           enabled: true,
           allowedPaths: ['/home/user/projects'],
@@ -302,49 +299,6 @@ describe('config/validator', () => {
           output: { pagination: { defaultCharLength: 12000 } },
         });
         expect(result.valid).toBe(true);
-      });
-    });
-
-    describe('gitlab validation', () => {
-      it('accepts valid host URL', () => {
-        const result = validateConfig({
-          gitlab: { host: 'https://gitlab.example.com' },
-        });
-        expect(result.valid).toBe(true);
-      });
-
-      it('rejects invalid host URL', () => {
-        const result = validateConfig({
-          gitlab: { host: 'not-a-url' },
-        });
-        expect(result.valid).toBe(false);
-        expect(result.errors.some(e => e.includes('gitlab.host'))).toBe(true);
-      });
-
-      it('rejects non-http/https host URL', () => {
-        const result = validateConfig({
-          gitlab: { host: 'ftp://gitlab.example.com' },
-        });
-        expect(result.valid).toBe(false);
-        expect(result.errors.some(e => e.includes('Only http/https'))).toBe(
-          true
-        );
-      });
-
-      it('rejects non-object gitlab', () => {
-        const result = validateConfig({ gitlab: 'invalid' });
-        expect(result.valid).toBe(false);
-        expect(
-          result.errors.some(e => e.includes('gitlab: Must be an object'))
-        ).toBe(true);
-      });
-
-      it('rejects array gitlab', () => {
-        const result = validateConfig({ gitlab: [] });
-        expect(result.valid).toBe(false);
-        expect(
-          result.errors.some(e => e.includes('gitlab: Must be an object'))
-        ).toBe(true);
       });
     });
 

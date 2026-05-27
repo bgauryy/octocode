@@ -19,6 +19,8 @@ import {
   executeFindReferences,
   executeCallHierarchy,
   searchPackages,
+  formatCallToolResultForOutput,
+  DEFAULT_TOOL_RESPONSE_FORMAT,
   GitHubCodeSearchQuerySchema,
   GitHubViewRepoStructureQuerySchema,
   GitHubReposSearchSingleQuerySchema,
@@ -692,46 +694,7 @@ function printToolResult(
   result: ToolResult,
   outputMode: 'text' | 'json'
 ): void {
-  if (outputMode === 'json') {
-    const payload =
-      result.structuredContent !== undefined
-        ? result.structuredContent
-        : result;
-    console.log(JSON.stringify(stripTsvRedundantResults(payload)));
-    return;
-  }
-
-  const textBlocks = Array.isArray(result.content)
-    ? result.content
-        .map(block => (typeof block.text === 'string' ? block.text : ''))
-        .filter(block => block.length > 0)
-    : [];
-
-  if (textBlocks.length > 0) {
-    console.log(textBlocks.join('\n\n'));
-    return;
-  }
-
-  if (result.structuredContent !== undefined) {
-    console.log(JSON.stringify(result.structuredContent, null, 2));
-    return;
-  }
-
-  console.log(JSON.stringify(result, null, 2));
-}
-
-/**
- * In TSV envelope mode (format='tsv'), the bulk runner still includes a
- * verbose `results[]` alongside `{columns, rows}` as a structured fallback.
- * Agents reading the envelope don't need both — drop `results` so callers
- * pay only for the TSV view they asked for. Non-TSV payloads pass through.
- */
-function stripTsvRedundantResults(payload: unknown): unknown {
-  if (!payload || typeof payload !== 'object') return payload;
-  const obj = payload as Record<string, unknown>;
-  if (obj.format !== 'tsv' || typeof obj.rows !== 'string') return payload;
-  const { results: _drop, ...rest } = obj;
-  return rest;
+  console.log(formatCallToolResultForOutput(result, outputMode));
 }
 
 function printToolError(message: string, details: string[] = []): void {
@@ -842,7 +805,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       queries,
       responseCharLength: payload.responseCharLength,
       responseCharOffset: payload.responseCharOffset,
-      format: 'tsv',
+      format: DEFAULT_TOOL_RESPONSE_FORMAT,
     });
     printToolResult(result, getOutputMode(args));
     return !result.isError;

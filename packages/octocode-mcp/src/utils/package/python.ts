@@ -87,7 +87,6 @@ async function searchPythonPackageInternal(
           'homepage',
           'source code',
           'github',
-          'gitlab',
         ];
         const projectUrlKeys = Object.keys(info.project_urls);
         for (const targetKey of urlKeys) {
@@ -96,12 +95,7 @@ async function searchPythonPackageInternal(
           );
           if (matchedKey) {
             const url = info.project_urls[matchedKey];
-            if (
-              url &&
-              (url.includes('github') ||
-                url.includes('gitlab') ||
-                url.includes('bitbucket'))
-            ) {
+            if (url && url.includes('github')) {
               repositoryUrl = url;
               break;
             }
@@ -111,11 +105,7 @@ async function searchPythonPackageInternal(
 
       if (!repositoryUrl && info.home_page) {
         const homeUrl = info.home_page;
-        if (
-          homeUrl.includes('github') ||
-          homeUrl.includes('gitlab') ||
-          homeUrl.includes('bitbucket')
-        ) {
+        if (homeUrl.includes('github')) {
           repositoryUrl = homeUrl;
         }
       }

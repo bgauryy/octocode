@@ -34,7 +34,6 @@ describe('config/resolver', () => {
     _resetConfigCache();
     // Reset ALL config-related env vars (must match resolver.ts env var checks)
     delete process.env.GITHUB_API_URL;
-    delete process.env.GITLAB_HOST;
     delete process.env.ENABLE_LOCAL;
     delete process.env.ENABLE_CLONE;
     delete process.env.WORKSPACE_ROOT;
@@ -142,12 +141,6 @@ describe('config/resolver', () => {
         process.env.GITHUB_API_URL = 'https://custom.github.com/api';
         const config = resolveConfigSync();
         expect(config.github.apiUrl).toBe('https://custom.github.com/api');
-      });
-
-      it('parses GITLAB_HOST', () => {
-        process.env.GITLAB_HOST = 'https://gitlab.example.com';
-        const config = resolveConfigSync();
-        expect(config.gitlab.host).toBe('https://gitlab.example.com');
       });
 
       it('parses ENABLE_LOCAL as boolean', () => {
@@ -397,40 +390,6 @@ describe('config/resolver', () => {
 
         const config = resolveConfigSync();
         expect(config.github.apiUrl).toBe(DEFAULT_CONFIG.github.apiUrl);
-      });
-    });
-
-    describe('gitlab.host', () => {
-      it('env overrides file', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            gitlab: { host: 'https://file.gitlab.com' },
-          })
-        );
-        process.env.GITLAB_HOST = 'https://env.gitlab.com';
-
-        const config = resolveConfigSync();
-        expect(config.gitlab.host).toBe('https://env.gitlab.com');
-      });
-
-      it('file overrides default', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            gitlab: { host: 'https://file.gitlab.com' },
-          })
-        );
-
-        const config = resolveConfigSync();
-        expect(config.gitlab.host).toBe('https://file.gitlab.com');
-      });
-
-      it('falls back to default when neither env nor file', () => {
-        vi.mocked(existsSync).mockReturnValue(false);
-
-        const config = resolveConfigSync();
-        expect(config.gitlab.host).toBe(DEFAULT_CONFIG.gitlab.host);
       });
     });
 
@@ -1052,8 +1011,6 @@ describe('config/resolver', () => {
 
       expect(config.version).toBe(DEFAULT_CONFIG.version);
       expect(config.github).toEqual(DEFAULT_CONFIG.github);
-      expect(config.gitlab).toEqual(DEFAULT_CONFIG.gitlab);
-      expect(config.bitbucket).toEqual(DEFAULT_CONFIG.bitbucket);
       expect(config.local).toEqual(DEFAULT_CONFIG.local);
       expect(config.tools).toEqual(DEFAULT_CONFIG.tools);
       expect(config.network).toEqual(DEFAULT_CONFIG.network);
@@ -1070,8 +1027,6 @@ describe('config/resolver', () => {
 
       expect(config.version).toBe(DEFAULT_CONFIG.version);
       expect(config.github).toEqual(DEFAULT_CONFIG.github);
-      expect(config.gitlab).toEqual(DEFAULT_CONFIG.gitlab);
-      expect(config.bitbucket).toEqual(DEFAULT_CONFIG.bitbucket);
       expect(config.local).toEqual(DEFAULT_CONFIG.local);
       expect(config.tools).toEqual(DEFAULT_CONFIG.tools);
       expect(config.network).toEqual(DEFAULT_CONFIG.network);
@@ -1096,8 +1051,6 @@ describe('config/resolver', () => {
       vi.mocked(readFileSync).mockReturnValue(
         JSON.stringify({
           github: {},
-          gitlab: {},
-          bitbucket: {},
           local: {},
           tools: {},
           network: {},
@@ -1110,8 +1063,6 @@ describe('config/resolver', () => {
       const config = resolveConfigSync();
 
       expect(config.github).toEqual(DEFAULT_CONFIG.github);
-      expect(config.gitlab).toEqual(DEFAULT_CONFIG.gitlab);
-      expect(config.bitbucket).toEqual(DEFAULT_CONFIG.bitbucket);
       expect(config.local).toEqual(DEFAULT_CONFIG.local);
       expect(config.tools).toEqual(DEFAULT_CONFIG.tools);
       expect(config.network).toEqual(DEFAULT_CONFIG.network);

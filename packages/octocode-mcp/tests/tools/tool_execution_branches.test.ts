@@ -100,6 +100,36 @@ describe('Tool Execution Branch Coverage Tests', () => {
   });
 
   describe('lspReferencesCore.ts - findReferencesWithLSP', () => {
+    it('returns structured error when references capability is unsupported', async () => {
+      const mockClient = {
+        hasCapability: vi.fn().mockReturnValue(false),
+        findReferences: vi.fn(),
+      };
+      vi.mocked(acquirePooledClient).mockResolvedValue(mockClient as any);
+
+      const query: LSPFindReferencesQuery = {
+        uri: '/workspace/src/file.ts',
+        symbolName: 'testFunction',
+        lineHint: 5,
+        researchGoal: 'test',
+        reasoning: 'test',
+      } as any;
+
+      const result = await findReferencesWithLSP(
+        '/workspace/src/file.ts',
+        '/workspace',
+        { line: 0, character: 9 },
+        query
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        errorCode: 'LSP_CAPABILITY_UNSUPPORTED',
+        lspMode: 'semantic',
+      });
+      expect(mockClient.findReferences).not.toHaveBeenCalled();
+    });
+
     it('should return empty result when LSP returns no locations (line 47)', async () => {
       const mockClient = {
         findReferences: vi.fn().mockResolvedValue([]),

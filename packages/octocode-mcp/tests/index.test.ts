@@ -619,55 +619,6 @@ describe('Index Module', () => {
       stderrSpy.mockRestore();
     });
 
-    it('should not warn about a missing GitHub token when GitLab is the active provider', async () => {
-      mockGetActiveProvider.mockReturnValue('gitlab');
-      mockGetGitHubToken.mockResolvedValue(null);
-
-      const { LoggerFactory } = await import('../src/utils/core/logger.js');
-      const mockLogger = {
-        info: vi.fn().mockResolvedValue(undefined),
-        warning: vi.fn().mockResolvedValue(undefined),
-        error: vi.fn().mockResolvedValue(undefined),
-      };
-      vi.mocked(LoggerFactory.getLogger).mockReturnValue(
-        mockLogger as unknown as ReturnType<typeof LoggerFactory.getLogger>
-      );
-
-      const { registerAllTools } = await import('../src/index.js');
-      const stderrSpy = vi
-        .spyOn(process.stderr, 'write')
-        .mockImplementation(() => true);
-
-      const mockContent = {
-        instructions: 'test',
-        prompts: {},
-        toolNames: TOOL_NAMES,
-        baseSchema: {
-          mainResearchGoal: '',
-          researchGoal: '',
-          reasoning: '',
-          bulkQuery: () => '',
-        },
-        tools: {},
-        baseHints: { hasResults: [], empty: [] },
-        genericErrorHints: [],
-      };
-
-      await registerAllTools(
-        mockMcpServer as unknown as McpServer,
-        mockContent
-      );
-
-      expect(mockRegisterTools).toHaveBeenCalled();
-      expect(mockGetGitHubToken).not.toHaveBeenCalled();
-      expect(mockLogger.warning).not.toHaveBeenCalledWith(
-        'No GitHub token - limited functionality'
-      );
-      expect(stderrSpy).not.toHaveBeenCalled();
-
-      stderrSpy.mockRestore();
-    });
-
     it('should handle GitHub token available', async () => {
       mockGetGitHubToken.mockResolvedValue('test-token');
       const { registerAllTools } = await import('../src/index.js');

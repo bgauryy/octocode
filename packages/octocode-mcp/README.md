@@ -659,8 +659,8 @@ Demonstrates progressive research workflow:
 | **Official Website** | Interactive tutorials, demos, community | [octocode.ai](https://octocode.ai) |
 | **Docs Index** | All configuration, development, workflow, and reference docs | [docs/README.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md) |
 | **Configuration Guide** | Environment variables and server configuration | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) |
-| **Authentication Guide** | Setup instructions for GitHub, GitLab, and Bitbucket | [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) |
-| **Remote Tool Reference** | GitHub/GitLab/Bitbucket tool behavior and schemas | [GitHub, GitLab & Bitbucket Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md) |
+| **Authentication Guide** | Setup instructions for GitHub | [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) |
+| **Remote Tool Reference** | GitHub tool behavior and schemas | [GitHub Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) |
 | **Local + LSP Reference** | Local filesystem and semantic navigation tools | [Local & LSP Tools](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) |
 | **Clone Workflow** | Clone GitHub repos, then analyze locally with LSP | [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) |
 | **Troubleshooting** | Common issues and solutions | [Troubleshooting Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) |

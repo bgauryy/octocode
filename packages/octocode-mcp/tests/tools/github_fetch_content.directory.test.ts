@@ -115,7 +115,7 @@ function createMockProvider(type?: string) {
         ref: 'main',
       },
       status: 200,
-      provider: type === 'gitlab' ? 'gitlab' : 'github',
+      provider: 'github',
     }),
   };
 }
@@ -361,104 +361,6 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
     const text =
       result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
     expect(text).toContain('error');
-  });
-
-  it('should reject directory fetch when provider is gitlab', async () => {
-    mockGetActiveProvider.mockReturnValue('gitlab');
-
-    const result = await fetchMultipleGitHubFileContents({
-      queries: [
-        {
-          owner: 'group',
-          repo: 'project',
-          path: 'src',
-          branch: 'main',
-          type: 'directory',
-          mainResearchGoal: 'test',
-          researchGoal: 'test',
-          reasoning: 'test',
-        },
-      ],
-    });
-
-    const text =
-      result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
-    expect(text).toContain('GitHub provider');
-    expect(text).toContain('error');
-    expect(text).not.toContain('localPath');
-  });
-
-  it('should reject directory fetch for any non-github provider', async () => {
-    mockGetActiveProvider.mockReturnValue('bitbucket');
-
-    const result = await fetchMultipleGitHubFileContents({
-      queries: [
-        {
-          owner: 'owner',
-          repo: 'repo',
-          path: 'src',
-          branch: 'main',
-          type: 'directory',
-          mainResearchGoal: 'test',
-          researchGoal: 'test',
-          reasoning: 'test',
-        },
-      ],
-    });
-
-    const text =
-      result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
-    expect(text).toContain('GitHub provider');
-    expect(text).toContain('error');
-  });
-
-  it('should allow file mode when provider is gitlab', async () => {
-    mockGetActiveProvider.mockReturnValue('gitlab');
-
-    const result = await fetchMultipleGitHubFileContents({
-      queries: [
-        {
-          owner: 'group',
-          repo: 'project',
-          path: 'src/main.ts',
-          branch: 'main',
-          type: 'file',
-          mainResearchGoal: 'test',
-          researchGoal: 'test',
-          reasoning: 'test',
-        },
-      ],
-    });
-
-    const text =
-      result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
-    expect(text).not.toContain('GitHub provider');
-    expect(text).not.toContain('Provider not supported');
-  });
-
-  it('should check provider AFTER clone-enabled check', async () => {
-    mockIsCloneEnabled.mockReturnValue(false);
-    mockGetActiveProvider.mockReturnValue('gitlab');
-
-    const result = await fetchMultipleGitHubFileContents({
-      queries: [
-        {
-          owner: 'group',
-          repo: 'project',
-          path: 'src',
-          branch: 'main',
-          type: 'directory',
-          mainResearchGoal: 'test',
-          researchGoal: 'test',
-          reasoning: 'test',
-        },
-      ],
-    });
-
-    const text =
-      result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
-    expect(text).toContain('ENABLE_LOCAL=true');
-    expect(text).toContain('ENABLE_CLONE=true');
   });
 
   it('should resolve default branch via API when not specified', async () => {

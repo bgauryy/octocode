@@ -291,7 +291,7 @@ const deleted = deleteSession();
 incrementToolCalls();
 incrementErrors();
 incrementRateLimits();
-incrementRateLimitByProvider('gitlab');
+incrementRateLimitByProvider('github');
 incrementPackageRegistryFailures('npm');
 
 // Increment by N

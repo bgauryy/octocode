@@ -18,7 +18,7 @@ export const FLOW_CATALOG = {
     description:
       'Search remote code through the active provider and fetch one matched file.',
     docUrl:
-      'https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_GITLAB_TOOLS_REFERENCE.md',
+      'https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md',
   },
 } as const;
 

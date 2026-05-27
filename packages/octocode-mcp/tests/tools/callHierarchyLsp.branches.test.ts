@@ -70,6 +70,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
   } as any;
 
   const mockClient = {
+    hasCapability: vi.fn(),
     prepareCallHierarchy: vi.fn(),
     getIncomingCalls: vi.fn(),
     getOutgoingCalls: vi.fn(),
@@ -99,6 +100,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
     vi.mocked(lspModule.acquirePooledClient).mockResolvedValue(
       mockClient as any
     );
+    vi.mocked(mockClient.hasCapability).mockReturnValue(true);
     vi.mocked(mockClient.prepareCallHierarchy).mockResolvedValue([
       mockCallHierarchyItem,
     ]);
@@ -108,6 +110,27 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
   });
 
   describe('callHierarchyWithLSP - Direction and Client Branches', () => {
+    it('returns structured error when call hierarchy capability is unsupported', async () => {
+      vi.mocked(mockClient.hasCapability).mockReturnValue(false);
+
+      const result = await callHierarchyWithLSP(
+        '/workspace/src/file.ts',
+        '/workspace',
+        { line: 4, character: 0 },
+        { ...baseQuery, direction: 'incoming' },
+        'export function testFunction() {}'
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        errorCode: 'LSP_CAPABILITY_UNSUPPORTED',
+        lspMode: 'semantic',
+        direction: 'incoming',
+        depth: 1,
+      });
+      expect(mockClient.prepareCallHierarchy).not.toHaveBeenCalled();
+    });
+
     it('should handle incoming direction path', async () => {
       const incomingCall = {
         from: {

@@ -914,7 +914,6 @@ interface OctocodeConfig {
   $schema?: string;
   version?: number;
   github?: { apiUrl?: string };
-  gitlab?: { host?: string };
   local?: { enabled?: boolean; allowedPaths?: string[]; workspaceRoot?: string };
   tools?: { enabled?: string[] | null; enableAdditional?: string[] | null; disabled?: string[] | null };
   network?: { timeout?: number; maxRetries?: number };
@@ -934,7 +933,6 @@ Fully resolved configuration with all defaults applied.
 interface ResolvedConfig {
   version: number;
   github: { apiUrl: string };
-  gitlab: { host: string };
   local: { enabled: boolean; allowedPaths: string[]; workspaceRoot: string | undefined };
   tools: { enabled: string[] | null; enableAdditional: string[] | null; disabled: string[] | null };
   network: { timeout: number; maxRetries: number };

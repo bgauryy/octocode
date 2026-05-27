@@ -94,7 +94,7 @@ export interface HintContext {
   flagFiles?: string[];
 }
 
-export type HintGenerator = (context: HintContext) => (string | undefined)[];
+type HintGenerator = (context: HintContext) => (string | undefined)[];
 
 export interface ToolHintGenerators {
   hasResults: HintGenerator;

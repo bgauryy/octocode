@@ -205,10 +205,7 @@ describe('tsvColumns fallback chains', () => {
         'page',
         'limit',
       ],
-      [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: [
-        'branch',
-        'matchString',
-      ],
+      [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: ['branch', 'matchString'],
       [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: [
         'created',
         'updated',
@@ -222,21 +219,11 @@ describe('tsvColumns fallback chains', () => {
         'sort',
         'order',
       ],
-      [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]: [
-        'branch',
-      ],
+      [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]: ['branch'],
       [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: ['pattern', 'sort'],
-      [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: [
-        'name',
-        'sortBy',
-      ],
-      [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: [
-        'pattern',
-        'extension',
-      ],
-      [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: [
-        'matchString',
-      ],
+      [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: ['name', 'sortBy'],
+      [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: ['pattern', 'extension'],
+      [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: ['matchString'],
       [STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION]: [
         'symbolName',
         'lineHint',

@@ -127,6 +127,38 @@ export interface Config {
   });
 
   describe('Error Handling', () => {
+    it('returns structured error when definition capability is unsupported', async () => {
+      vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
+        true
+      );
+      const mockClient = {
+        hasCapability: vi.fn().mockReturnValue(false),
+        gotoDefinition: vi.fn(),
+      };
+      vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(
+        mockClient as any
+      );
+
+      const handler = createHandler();
+      const result = await handler({
+        queries: [
+          {
+            uri: `${process.cwd()}/src/file.ts`,
+            symbolName: 'helper',
+            lineHint: 4,
+            researchGoal: 'Find def',
+            reasoning: 'Testing capability gating',
+          },
+        ],
+      });
+
+      const text = result.content?.[0]?.text ?? '';
+      expect(text).toContain('status: "error"');
+      expect(text).toContain('errorCode: "LSP_CAPABILITY_UNSUPPORTED"');
+      expect(text).toContain('lspMode: "semantic"');
+      expect(mockClient.gotoDefinition).not.toHaveBeenCalled();
+    });
+
     it('should handle file read errors', async () => {
       vi.mocked(fs.readFile).mockRejectedValue(new Error('Permission denied'));
 

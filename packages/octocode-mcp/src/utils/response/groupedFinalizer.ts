@@ -2,7 +2,8 @@ import {
   createResponseFormat,
   sanitizeStructuredContent,
 } from '../../responses.js';
-import type { BulkFinalizerOutput, FlatQueryResult } from '../../types.js';
+import type { BulkFinalizerOutput } from '../../types/bulk.js';
+import type { FlatQueryResult } from '../../types/toolResults.js';
 import { countSerializedChars } from './charSavings.js';
 
 export type CharPagination = {
@@ -59,7 +60,7 @@ export function readNonNegativeNumber(value: unknown): number | undefined {
   return readNumber(value, n => n >= 0);
 }
 
-export function buildCharPagination(
+function buildCharPagination(
   charOffset: number,
   requestedLength: number,
   consumedLength: number,

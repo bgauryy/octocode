@@ -49,12 +49,6 @@ const mockDefaultConfig = {
   github: {
     apiUrl: 'https://api.github.com',
   },
-  gitlab: {
-    host: 'https://gitlab.com',
-  },
-  bitbucket: {
-    host: 'https://api.bitbucket.org/2.0',
-  },
   local: {
     enabled: true,
     enableClone: false,
@@ -133,8 +127,6 @@ const buildMockConfig = () => {
   const envTimeout = mockParseIntEnv(process.env.REQUEST_TIMEOUT);
   const envMaxRetries = mockParseIntEnv(process.env.MAX_RETRIES);
   const envApiUrl = process.env.GITHUB_API_URL?.trim();
-  const envGitlabHost = process.env.GITLAB_HOST?.trim();
-  const envBitbucketHost = process.env.BITBUCKET_HOST?.trim();
   const envToolsToRun = mockParseStringArrayEnv(process.env.TOOLS_TO_RUN);
   const envEnableTools = mockParseStringArrayEnv(process.env.ENABLE_TOOLS);
   const envDisableTools = mockParseStringArrayEnv(process.env.DISABLE_TOOLS);
@@ -149,12 +141,6 @@ const buildMockConfig = () => {
     ...mockDefaultConfig,
     github: {
       apiUrl: envApiUrl || mockDefaultConfig.github.apiUrl,
-    },
-    gitlab: {
-      host: envGitlabHost || mockDefaultConfig.gitlab.host,
-    },
-    bitbucket: {
-      host: envBitbucketHost || mockDefaultConfig.bitbucket.host,
     },
     local: {
       ...mockDefaultConfig.local,
