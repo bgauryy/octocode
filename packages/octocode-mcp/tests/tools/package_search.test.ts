@@ -16,23 +16,10 @@ import {
 } from '../fixtures/mcp-fixtures.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 
-/** Delegates PyPI HTTPS calls from setupDefaultFetchMock */
-const mockPypiFetch = vi.fn();
-
 function fetchUrlString(url: string | URL | Request): string {
   if (typeof url === 'string') return url;
   if (url instanceof URL) return url.href;
   return url.url;
-}
-
-/** Build a 200 Response from legacy axios-shaped mocks `{ data: PyPI body }` */
-function pypiJsonResponse(axiosStyle: {
-  data: Record<string, unknown>;
-}): Response {
-  return new Response(JSON.stringify(axiosStyle.data), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
 }
 
 // Store for npm registry responses (package name -> repository URL)
@@ -247,11 +234,8 @@ let lastSearchResult: {
 
 function setupDefaultFetchMock(): void {
   mockFetch.mockImplementation(
-    (url: string | URL | Request, init?: RequestInit) => {
+    (url: string | URL | Request, _init?: RequestInit) => {
       const urlStr = fetchUrlString(url);
-      if (urlStr.includes('pypi.org/pypi/')) {
-        return mockPypiFetch(urlStr, init);
-      }
       // Handle registry root URL ping (for checkNpmRegistryReachable)
       if (/^https?:\/\/[^/]+\/?$/.test(urlStr)) {
         return Promise.resolve({
@@ -317,7 +301,7 @@ vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
     DESCRIPTIONS: new Proxy(actual.DESCRIPTIONS, {
       get(target, prop: string) {
         if (prop === 'packageSearch') {
-          return 'Search for packages in npm or Python ecosystems';
+          return 'Search for packages in the npm ecosystem';
         }
         return Reflect.get(target, prop);
       },
@@ -330,8 +314,6 @@ import {
   searchPackage,
   type PackageSearchInput,
   type NpmPackageResult,
-  type MinimalPackageResult,
-  type PythonPackageResult,
 } from '../../src/utils/package/common.js';
 import { registerPackageSearchTool } from '../../src/tools/package_search/package_search.js';
 import { _resetNpmRegistryUrlCache } from '../../src/utils/package/npm.js';
@@ -407,36 +389,6 @@ describe('PackageSearchQuerySchema', () => {
 
       const result = PackageSearchQuerySchema.safeParse(query);
       expect(result.success).toBe(false);
-    });
-  });
-
-  describe('Python ecosystem validation', () => {
-    it('should validate Python package query', () => {
-      const query = withResearchFields({
-        ecosystem: 'python',
-        name: 'requests',
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.ecosystem).toBe('python');
-        expect(result.data.name).toBe('requests');
-      }
-    });
-
-    it('should validate Python query with searchLimit', () => {
-      const query = withResearchFields({
-        ecosystem: 'python',
-        name: 'numpy',
-        searchLimit: 3,
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.searchLimit).toBe(3);
-      }
     });
   });
 
@@ -1007,270 +959,6 @@ describe('searchPackage - NPM (CLI)', () => {
   });
 });
 
-describe('searchPackage - Python', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearAllCache();
-    setupDefaultFetchMock();
-  });
-
-  it('should return minimal Python package results by default (name and repository only)', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'requests',
-          version: '2.31.0',
-          summary: 'Python HTTP for Humans.',
-          keywords: 'http,client,requests',
-          license: 'Apache 2.0',
-          author: 'Kenneth Reitz',
-          home_page: 'https://requests.readthedocs.io',
-          project_urls: {
-            Source: 'https://github.com/psf/requests',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'requests',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      expect(result.packages.length).toBe(1);
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.name).toBe('requests');
-      expect(pkg.repository).toBe('https://github.com/psf/requests');
-      // By default, should NOT have these fields
-      expect('version' in pkg).toBe(false);
-      expect('description' in pkg).toBe(false);
-      expect('keywords' in pkg).toBe(false);
-      expect(result.ecosystem).toBe('python');
-      expect(result.totalFound).toBe(1);
-    }
-  });
-
-  it('should return full Python package results when pythonFetchMetadata is true', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'requests',
-          version: '2.31.0',
-          summary: 'Python HTTP for Humans.',
-          keywords: 'http,client,requests',
-          license: 'Apache 2.0',
-          author: 'Kenneth Reitz',
-          home_page: 'https://requests.readthedocs.io',
-          project_urls: {
-            Source: 'https://github.com/psf/requests',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'requests',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      expect(result.packages.length).toBe(1);
-      const pkg = result.packages[0] as PythonPackageResult;
-      expect(pkg.name).toBe('requests');
-      expect(pkg.repository).toBe('https://github.com/psf/requests');
-      // With pythonFetchMetadata: true, should have full fields
-      expect('version' in pkg).toBe(true);
-      expect('description' in pkg).toBe(true);
-      expect('keywords' in pkg).toBe(true);
-      expect(pkg.version).toBe('2.31.0');
-      expect(result.ecosystem).toBe('python');
-      expect(result.totalFound).toBe(1);
-    }
-  });
-
-  it('should extract repository from project_urls', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'numpy',
-          version: '1.26.0',
-          summary: 'Numerical Python',
-          keywords: '',
-          project_urls: {
-            Repository: 'https://github.com/numpy/numpy',
-            Homepage: 'https://numpy.org',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'numpy',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.repository).toBe('https://github.com/numpy/numpy');
-    }
-  });
-
-  it('should handle Python package not found with empty result (consistent with NPM)', async () => {
-    mockPypiFetch.mockResolvedValue(new Response('', { status: 404 }));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'nonexistent-package-xyz',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    // Should return empty packages array (not error) - consistent with NPM behavior
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      expect(result.packages).toEqual([]);
-      expect(result.ecosystem).toBe('python');
-      expect(result.totalFound).toBe(0);
-    }
-  });
-
-  it('should parse comma-separated keywords when pythonFetchMetadata is true', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test package',
-          keywords: 'http, client, api, rest',
-          project_urls: {},
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as { keywords: string[] };
-      expect(pkg.keywords.length).toBeGreaterThan(0);
-      expect(pkg.keywords).toContain('http');
-    }
-  });
-
-  it('should limit keywords to MAX_KEYWORDS when pythonFetchMetadata is true', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test package',
-          keywords: 'a,b,c,d,e,f,g,h,i,j,k,l,m,n,o',
-          project_urls: {},
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as { keywords: string[] };
-      expect(pkg.keywords.length).toBeLessThanOrEqual(10);
-    }
-  });
-});
-
-describe('searchPackage - Name normalization', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearAllCache();
-    setupDefaultFetchMock();
-  });
-
-  it('should normalize Python package name with underscores', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'some_package',
-          version: '1.0.0',
-          summary: 'Test package',
-          keywords: '',
-          project_urls: {},
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'some_package',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.name).toBe('some_package');
-    }
-  });
-});
-
 describe('searchPackage - NPM Edge Cases', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1308,243 +996,10 @@ describe('searchPackage - NPM Edge Cases', () => {
   });
 });
 
-describe('searchPackage - Python Edge Cases', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearAllCache();
-    setupDefaultFetchMock();
-  });
-
-  it('should fallback to home_page for repository URL', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test package',
-          keywords: '',
-          project_urls: {}, // No project_urls with repo
-          home_page: 'https://github.com/test/test-pkg', // But home_page has github
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.repository).toBe('https://github.com/test/test-pkg');
-    }
-  });
-
-  it('should not use home_page if not a known repo host', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test package',
-          keywords: '',
-          project_urls: {},
-          home_page: 'https://example.com/docs', // Not github
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.repository).toBeNull();
-    }
-  });
-
-  it('should handle keywords as array when pythonFetchMetadata is true', async () => {
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: 'Test package',
-          keywords: ['keyword1', 'keyword2', 'keyword3'], // Array instead of string
-          project_urls: {},
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as { keywords: string[] };
-      expect(pkg.keywords).toEqual(['keyword1', 'keyword2', 'keyword3']);
-    }
-  });
-
-  it('should truncate long Python description when pythonFetchMetadata is true', async () => {
-    const longDescription = 'B'.repeat(300);
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'test-pkg',
-          version: '1.0.0',
-          summary: longDescription,
-          keywords: '',
-          project_urls: {},
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as { description: string };
-      expect(pkg.description!.length).toBeLessThanOrEqual(203); // 200 + '...'
-      expect(pkg.description!.endsWith('...')).toBe(true);
-    }
-  });
-
-  it('should re-throw non-404 errors', async () => {
-    mockPypiFetch.mockRejectedValue(new Error('Network error'));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    // This should throw and be caught by the outer error handler
-    await expect(searchPackage(query)).rejects.toThrow();
-  });
-
-  it('should skip packages without info object', async () => {
-    // First call returns no info, second call (with different name variation) succeeds
-    mockPypiFetch
-      .mockResolvedValueOnce(pypiJsonResponse({ data: {} })) // No info object
-      .mockResolvedValueOnce(
-        pypiJsonResponse({
-          data: {
-            info: {
-              name: 'test-pkg',
-              version: '1.0.0',
-              summary: 'Found on second try',
-              keywords: '',
-              project_urls: {
-                Source: 'https://github.com/test/test-pkg',
-              },
-            },
-          },
-        })
-      );
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      // By default (minimal), should have name and repository
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.name).toBe('test-pkg');
-      expect(pkg.repository).toBe('https://github.com/test/test-pkg');
-    }
-  });
-
-  it('should skip packages without info object and return description when pythonFetchMetadata is true', async () => {
-    // First call returns no info, second call (with different name variation) succeeds
-    mockPypiFetch
-      .mockResolvedValueOnce(pypiJsonResponse({ data: {} }))
-      .mockResolvedValueOnce(
-        pypiJsonResponse({
-          data: {
-            info: {
-              name: 'test-pkg',
-              version: '1.0.0',
-              summary: 'Found on second try',
-              keywords: '',
-              project_urls: {},
-            },
-          },
-        })
-      );
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'test-pkg',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as { description: string };
-      expect(pkg.description).toBe('Found on second try');
-    }
-  });
-});
-
 describe('Package search response structure', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearAllCache();
-    mockPypiFetch.mockReset();
     mockExecuteNpmCommand.mockReset();
     clearNpmRegistryMocks();
     clearNpmCliViewMocks();
@@ -1655,7 +1110,6 @@ describe('registerPackageSearchTool', () => {
     clearAllCache();
     clearNpmCliViewMocks();
     mockExecuteNpmCommand.mockReset();
-    mockPypiFetch.mockReset();
     clearNpmRegistryMocks();
     _resetNpmRegistryUrlCache();
     // Default: npm is available
@@ -1789,98 +1243,6 @@ describe('registerPackageSearchTool', () => {
 
       const text = (result.content[0] as { text: string }).text;
       expect(text).not.toContain('Install: npm install lodash');
-    });
-  });
-
-  describe('Tool Execution - Python', () => {
-    it('should execute python package search and return results', async () => {
-      const mockPyPIResponse = {
-        data: {
-          info: {
-            name: 'requests',
-            version: '2.31.0',
-            summary: 'HTTP library',
-            keywords: 'http',
-            project_urls: {
-              Source: 'https://github.com/psf/requests',
-            },
-          },
-        },
-      };
-
-      mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-      await registerPackageSearchTool(mockServer.server, mockCallback);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'requests',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      expect(result.isError).toBeFalsy();
-      expect(result.content).toBeDefined();
-    });
-
-    it('should include install hint for python packages', async () => {
-      const mockPyPIResponse = {
-        data: {
-          info: {
-            name: 'numpy',
-            version: '1.26.0',
-            summary: 'Numerical Python',
-            keywords: '',
-            project_urls: {},
-          },
-        },
-      };
-
-      mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'numpy',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).not.toContain('Install: pip install numpy');
-    });
-
-    it('should generate empty hints for not found (python)', async () => {
-      mockPypiFetch.mockResolvedValue(new Response('', { status: 404 }));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'nonexistent-pkg-xyz',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-      // The response contains either error message or empty status hints
-      expect(text).toMatch(/not found|No python packages found/);
     });
   });
 
@@ -2035,30 +1397,6 @@ describe('registerPackageSearchTool', () => {
     });
   });
 
-  describe('Catch Error Handling', () => {
-    it('should handle thrown errors via handleCatchError (line 115)', async () => {
-      mockPypiFetch.mockRejectedValue(new Error('Connection refused'));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'test-pkg',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      expect(result.content).toBeDefined();
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('error');
-    });
-  });
-
   describe('Success Hints Generation', () => {
     it('should not include repo hint when packages have no repository', async () => {
       mockNpmViewFull('no-repo-pkg', {
@@ -2127,45 +1465,6 @@ describe('registerPackageSearchTool', () => {
       // Verify result status (YAML format uses quoted strings)
       expect(text).toContain('status: "hasResults"');
     });
-    it('should return hasResultsStatusHints with only install hint when python package has no repository', async () => {
-      const mockPyPIResponse = {
-        data: {
-          info: {
-            name: 'no-repo-pkg',
-            version: '1.0.0',
-            summary: 'Package without repo',
-            keywords: '',
-            project_urls: {}, // No repository
-          },
-        },
-      };
-
-      mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'no-repo-pkg',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-
-      // Hints are inside each result - verify install hint
-      expect(text).not.toContain('Install: pip install no-repo-pkg');
-      expect(text).not.toContain('githubViewRepoStructure');
-
-      // Verify result status (YAML format uses quoted strings)
-      expect(text).toContain('status: "hasResults"');
-    });
-
     it('should return emptyStatusHints with browse link when no npm packages found', async () => {
       // Use keyword search (with space) to test npm search flow empty results
       mockExecuteNpmCommand.mockResolvedValue({
@@ -2196,37 +1495,6 @@ describe('registerPackageSearchTool', () => {
       );
       expect(text).not.toContain(
         'Browse: https://npmjs.com/search?q=nonexistent%20pkg%20xyz123%20keyword'
-      );
-
-      // Verify result status (YAML format uses quoted strings)
-      expect(text).toContain('status: "empty"');
-    });
-
-    it('should return emptyStatusHints with browse link when no python packages found', async () => {
-      mockPypiFetch.mockResolvedValue(new Response('', { status: 404 }));
-
-      await registerPackageSearchTool(mockServer.server);
-
-      const result = await mockServer.callTool('packageSearch', {
-        queries: [
-          {
-            ecosystem: 'python',
-            name: 'nonexistent-pkg-xyz123',
-            mainResearchGoal: 'Test',
-            researchGoal: 'Test',
-            reasoning: 'Test',
-          },
-        ],
-      });
-
-      const text = (result.content[0] as { text: string }).text;
-
-      // Hints are inside each result - verify empty hints
-      expect(text).toContain(
-        "No python packages found for 'nonexistent-pkg-xyz123'"
-      );
-      expect(text).not.toContain(
-        'Browse: https://pypi.org/search/?q=nonexistent-pkg-xyz123'
       );
 
       // Verify result status (YAML format uses quoted strings)
@@ -2282,27 +1550,6 @@ describe('Task 2: Name Variation Suggestions', () => {
     expect(text).toContain("No npm packages found for 'date-fns keyword'");
   });
 
-  it('should suggest name variations with underscores converted to hyphens for Python', async () => {
-    mockPypiFetch.mockResolvedValue(new Response('', { status: 404 }));
-
-    await registerPackageSearchTool(mockServer.server);
-
-    const result = await mockServer.callTool('packageSearch', {
-      queries: [
-        {
-          ecosystem: 'python',
-          name: 'scikit_learn',
-          mainResearchGoal: 'Test',
-          researchGoal: 'Test',
-          reasoning: 'Test',
-        },
-      ],
-    });
-
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('Try: scikit-learn');
-  });
-
   it('should suggest unscoped name for @scope/name packages', async () => {
     // Scoped package not found - uses npm view which returns empty
     mockExecuteNpmCommand.mockImplementation(
@@ -2356,27 +1603,6 @@ describe('Task 2: Name Variation Suggestions', () => {
     const text = (result.content[0] as { text: string }).text;
     // Name variation suggestions include js suffix hint
     expect(text).toContain("No npm packages found for 'chart library'");
-  });
-
-  it('should suggest py prefix for Python packages', async () => {
-    mockPypiFetch.mockResolvedValue(new Response('', { status: 404 }));
-
-    await registerPackageSearchTool(mockServer.server);
-
-    const result = await mockServer.callTool('packageSearch', {
-      queries: [
-        {
-          ecosystem: 'python',
-          name: 'test',
-          mainResearchGoal: 'Test',
-          researchGoal: 'Test',
-          reasoning: 'Test',
-        },
-      ],
-    });
-
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('pytest');
   });
 
   it('should add outputPagination for large npm alternative lists and resume with charOffset', async () => {
@@ -2595,140 +1821,6 @@ describe('Task 3: Deprecation Detection', () => {
     expect(text).not.toContain('DEPRECATED');
   });
 });
-
-// NEW TESTS: Task 4 - pythonFetchMetadata Parameter
-describe('Task 4: pythonFetchMetadata Parameter', () => {
-  const withResearchFields = <T extends object>(query: T) => ({
-    id: 'test:pkg-search',
-    ...query,
-    mainResearchGoal: 'Test research goal',
-    researchGoal: 'Testing package search',
-    reasoning: 'Unit test for schema',
-  });
-
-  it('should validate Python query with pythonFetchMetadata', () => {
-    const query = withResearchFields({
-      ecosystem: 'python',
-      name: 'requests',
-      pythonFetchMetadata: true,
-    });
-
-    const result = PackageSearchQuerySchema.safeParse(query);
-    expect(result.success).toBe(true);
-    if (result.success && result.data.ecosystem === 'python') {
-      expect(result.data.pythonFetchMetadata).toBe(true);
-    }
-  });
-
-  it('should default pythonFetchMetadata to false', () => {
-    const query = withResearchFields({
-      ecosystem: 'python',
-      name: 'requests',
-    });
-
-    const result = PackageSearchQuerySchema.safeParse(query);
-    expect(result.success).toBe(true);
-    if (result.success && result.data.ecosystem === 'python') {
-      expect(result.data.pythonFetchMetadata).toBe(false);
-    }
-  });
-
-  it('should return minimal Python package results by default', async () => {
-    vi.clearAllMocks();
-    clearAllCache();
-    setupDefaultFetchMock();
-
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'requests',
-          version: '2.31.0',
-          summary: 'HTTP library',
-          keywords: 'http client web',
-          author: 'Kenneth Reitz',
-          license: 'Apache 2.0',
-          home_page: 'https://requests.readthedocs.io',
-          project_urls: {
-            Source: 'https://github.com/psf/requests',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'requests',
-      pythonFetchMetadata: false,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as MinimalPackageResult;
-      expect(pkg.name).toBe('requests');
-      expect(pkg.repository).toBe('https://github.com/psf/requests');
-      // Should NOT have full metadata fields
-      expect('version' in pkg).toBe(false);
-      expect('description' in pkg).toBe(false);
-      expect('author' in pkg).toBe(false);
-    }
-  });
-
-  it('should return full Python package results when pythonFetchMetadata is true', async () => {
-    vi.clearAllMocks();
-    clearAllCache();
-    setupDefaultFetchMock();
-
-    const mockPyPIResponse = {
-      data: {
-        info: {
-          name: 'requests',
-          version: '2.31.0',
-          summary: 'HTTP library',
-          keywords: 'http client web',
-          author: 'Kenneth Reitz',
-          license: 'Apache 2.0',
-          home_page: 'https://requests.readthedocs.io',
-          project_urls: {
-            Source: 'https://github.com/psf/requests',
-          },
-        },
-      },
-    };
-
-    mockPypiFetch.mockResolvedValue(pypiJsonResponse(mockPyPIResponse));
-
-    const query: PackageSearchInput = {
-      ecosystem: 'python',
-      name: 'requests',
-      pythonFetchMetadata: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    };
-
-    const result = await searchPackage(query);
-
-    expect('packages' in result).toBe(true);
-    if ('packages' in result) {
-      const pkg = result.packages[0] as PythonPackageResult;
-      expect(pkg.name).toBe('requests');
-      expect('version' in pkg).toBe(true);
-      expect('description' in pkg).toBe(true);
-      expect('author' in pkg).toBe(true);
-      expect(pkg.version).toBe('2.31.0');
-      expect(pkg.author).toBe('Kenneth Reitz');
-    }
-  });
-});
-
-// NEW TESTS: Task 5 - PyPI Fuzzy Search (REMOVED)
 
 describe('searchPackage - NPM CLI Repository Fetching', () => {
   beforeEach(() => {

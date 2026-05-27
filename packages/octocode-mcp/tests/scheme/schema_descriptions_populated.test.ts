@@ -157,7 +157,6 @@ const EXPECTED_FIELDS: Record<string, readonly string[]> = {
     'searchLimit',
     'ecosystem',
     'npmFetchMetadata',
-    'pythonFetchMetadata',
   ],
   local_ripgrep: [
     'queries',

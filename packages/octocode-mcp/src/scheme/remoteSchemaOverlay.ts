@@ -33,7 +33,6 @@ import { z } from 'zod/v4';
 import {
   GitHubPullRequestSearchQuerySchema,
   NpmPackageQuerySchema,
-  PythonPackageQuerySchema,
   FileContentQuerySchema as UpstreamFileContentQuerySchema,
   GitHubCodeSearchQuerySchema as UpstreamGitHubCodeSearchQuerySchema,
   GitHubViewRepoStructureQuerySchema as UpstreamGitHubViewRepoStructureQuerySchema,
@@ -446,31 +445,20 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
   );
 
 // ---------------------------------------------------------------------------
-// packageSearch — default ecosystem to "npm" when the field is absent
+// packageSearch — npm only; defaults ecosystem to "npm" when the field is absent
 // ---------------------------------------------------------------------------
 
 const packageLimitField = relaxedPaginationLimitField
   .default(5)
-  .describe('Max results (Python is always 1)');
+  .describe('Max results');
 
-const packageQueryUnionWithLimit = z.discriminatedUnion('ecosystem', [
-  NpmPackageQuerySchema.extend({
-    ...describeShapeFields(NpmPackageQuerySchema.shape, {
-      ecosystem: '"npm" | "python" (defaults to "npm")',
-    }),
-    limit: packageLimitField,
-    searchLimit: packageLimitField,
+const npmPackageQueryWithLimit = NpmPackageQuerySchema.extend({
+  ...describeShapeFields(NpmPackageQuerySchema.shape, {
+    ecosystem: '"npm" (defaults to "npm")',
   }),
-  PythonPackageQuerySchema.extend({
-    ...describeShapeFields(PythonPackageQuerySchema.shape, {
-      ecosystem: '"npm" | "python" (defaults to "npm")',
-      pythonFetchMetadata:
-        'Fetch full Python metadata (version/author/license)',
-    }),
-    limit: packageLimitField,
-    searchLimit: packageLimitField,
-  }),
-]);
+  limit: packageLimitField,
+  searchLimit: packageLimitField,
+});
 
 const packageQueryWithEcosystemDefault = z.preprocess(
   val => {
@@ -483,7 +471,7 @@ const packageQueryWithEcosystemDefault = z.preprocess(
     }
     return val;
   },
-  packageQueryUnionWithLimit.transform(val => {
+  npmPackageQueryWithLimit.transform(val => {
     // Map 'limit' to 'searchLimit' which is what the execution layer/upstream might expect
     const { limit, ...rest } = val as { limit: number; [key: string]: unknown };
     return { ...rest, searchLimit: limit };

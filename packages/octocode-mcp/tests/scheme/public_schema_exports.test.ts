@@ -40,7 +40,6 @@ import {
   // Package Search Schemas
   PackageSearchQuerySchema,
   NpmPackageQuerySchema,
-  PythonPackageQuerySchema,
   PackageSearchBulkQuerySchema,
   // Base Schemas & Utilities
   BaseQuerySchema,
@@ -150,9 +149,6 @@ describe('Public Schema Exports', () => {
 
       expect(NpmPackageQuerySchema).toBeDefined();
       expect(NpmPackageQuerySchema instanceof z.ZodType).toBe(true);
-
-      expect(PythonPackageQuerySchema).toBeDefined();
-      expect(PythonPackageQuerySchema instanceof z.ZodType).toBe(true);
 
       expect(PackageSearchBulkQuerySchema).toBeDefined();
       expect(PackageSearchBulkQuerySchema instanceof z.ZodType).toBe(true);
@@ -397,20 +393,6 @@ describe('Public Schema Exports', () => {
       };
 
       const result = NpmPackageQuerySchema.safeParse(validQuery);
-      expect(result.success).toBe(true);
-    });
-
-    it('PythonPackageQuerySchema should accept python ecosystem', () => {
-      const validQuery = {
-        id: 'python_package_query',
-        mainResearchGoal: 'Find python package',
-        researchGoal: 'Get package info',
-        reasoning: 'Need to check package',
-        name: 'requests',
-        ecosystem: 'python',
-      };
-
-      const result = PythonPackageQuerySchema.safeParse(validQuery);
       expect(result.success).toBe(true);
     });
 
@@ -684,7 +666,7 @@ describe('Public Schema Exports', () => {
   });
 
   describe('Complete Export Inventory', () => {
-    it('should export all 14 single query schemas', () => {
+    it('should export all 13 single query schemas', () => {
       const singleSchemas = [
         GitHubCodeSearchQuerySchema,
         GitHubViewRepoStructureQuerySchema,
@@ -699,7 +681,6 @@ describe('Public Schema Exports', () => {
         LSPFindReferencesQuerySchema,
         LSPCallHierarchyQuerySchema,
         NpmPackageQuerySchema,
-        PythonPackageQuerySchema,
       ];
 
       singleSchemas.forEach(schema => {
@@ -707,7 +688,7 @@ describe('Public Schema Exports', () => {
         expect(schema instanceof z.ZodType).toBe(true);
       });
 
-      expect(singleSchemas.length).toBe(14);
+      expect(singleSchemas.length).toBe(13);
     });
 
     it('should export all 14 bulk query schemas', () => {

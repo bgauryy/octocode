@@ -4,7 +4,7 @@
 
 ## Tool Overview
 
-Searches npm and PyPI package registries. Returns package metadata including name, description, version, repository URL, and publish date. **Environment note:** npm search uses `npm config get registry`. When that points to a private registry (e.g. corporate Artifactory), public packages like `express`/`zod` may return empty. Public registry works.
+Searches the npm package registry. Returns package metadata including name, description, version, repository URL, and publish date. **Environment note:** npm search uses `npm config get registry`. When that points to a private registry (e.g. corporate Artifactory), public packages like `express`/`zod` may return empty. Public registry works.
 
 ## Enhanced Testing Requirements
 
@@ -97,54 +97,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-4: Python — requests
-
-**Goal:** Verify PyPI search for well-known package.
-
-```json
-{
-  "queries": [{
-    "mainResearchGoal": "Find requests package",
-    "researchGoal": "PyPI search for requests",
-    "reasoning": "Python search works perfectly — verify",
-    "name": "requests",
-    "ecosystem": "python"
-  }]
-}
-```
-
-**Expected:**
-- [ ] Found `psf/requests` with repo URL
-- [ ] Rich metadata (version, description)
-- [ ] Repository URL links to GitHub
-
----
-
-### TC-5: Python — flask with Metadata
-
-**Goal:** Verify PyPI metadata fetch works.
-
-```json
-{
-  "queries": [{
-    "mainResearchGoal": "Find flask with full metadata",
-    "researchGoal": "PyPI search with metadata",
-    "reasoning": "Python metadata fetch should provide rich info",
-    "name": "flask",
-    "ecosystem": "python",
-    "pythonFetchMetadata": true
-  }]
-}
-```
-
-**Expected:**
-- [ ] Found with version, description, lastPublished
-- [ ] Repository URL present
-- [ ] `pythonFetchMetadata` provides extra fields
-
----
-
-### TC-6: npm — Search Limit
+### TC-4: npm — Search Limit
 
 **Goal:** Verify `searchLimit` controls number of results.
 
@@ -173,7 +126,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-7: Python — Unknown Package
+### TC-5: npm — Unknown Package
 
 **Goal:** Verify graceful handling of non-existent package.
 
@@ -183,7 +136,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
   "researchGoal": "Search for non-existent package",
   "reasoning": "Tool should handle missing packages gracefully",
   "name": "this-package-does-not-exist-xyz-99999",
-  "ecosystem": "python"
+  "ecosystem": "npm"
 }
 ```
 
@@ -201,7 +154,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-8: npm — Specific Scoped Package
+### TC-6: npm — Specific Scoped Package
 
 **Goal:** Verify npm finds a known scoped package directly.
 
@@ -232,7 +185,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-9: Search Limit Maximum (Boundary)
+### TC-7: Search Limit Maximum (Boundary)
 
 **Goal:** Verify `searchLimit: 10` (maximum) works correctly.
 
@@ -264,7 +217,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-10: Search Limit Minimum (Boundary)
+### TC-8: Search Limit Minimum (Boundary)
 
 **Goal:** Verify `searchLimit: 1` (minimum/default) returns exactly one result.
 
@@ -274,8 +227,8 @@ Searches npm and PyPI package registries. Returns package metadata including nam
     "mainResearchGoal": "Test searchLimit boundary",
     "researchGoal": "Minimum search limit",
     "reasoning": "Default limit is 1, verify exact behavior",
-    "name": "flask",
-    "ecosystem": "python",
+    "name": "express",
+    "ecosystem": "npm",
     "searchLimit": 1
   }]
 }
@@ -283,7 +236,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 **Expected:**
 - [ ] Exactly 1 package returned
-- [ ] The most relevant match for "flask"
+- [ ] The most relevant match for "express"
 - [ ] Rich metadata present
 - [ ] **Response Validation:**
   - [ ] `instructions` field describes bulk response summary
@@ -296,7 +249,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-11: Empty Name (Validation)
+### TC-9: Empty Name (Validation)
 
 **Goal:** Verify empty `name` is rejected.
 
@@ -326,7 +279,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-12: Name with Special Characters
+### TC-10: Name with Special Characters
 
 **Goal:** Verify package names with special characters are handled.
 
@@ -358,39 +311,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-13: Python — Search Limit Behavior
-
-**Goal:** Verify Python `searchLimit` behavior (PyPI always returns 1).
-
-```json
-{
-  "queries": [{
-    "mainResearchGoal": "Test Python searchLimit",
-    "researchGoal": "Python search limit behavior",
-    "reasoning": "PyPI limitation: always returns 1 result regardless of searchLimit",
-    "name": "django",
-    "ecosystem": "python",
-    "searchLimit": 5
-  }]
-}
-```
-
-**Expected:**
-- [ ] Returns 1 result (PyPI limitation)
-- [ ] `searchLimit: 5` does not cause error
-- [ ] Result is the correct "django" package
-- [ ] **Response Validation:**
-  - [ ] `instructions` field describes bulk response summary
-  - [ ] `results` array contains per-query `status` (`hasResults` | `empty` | `error`)
-  - [ ] `data` object present with package metadata
-  - [ ] Status-specific hints present
-  - [ ] Hints suggest actionable next steps relevant to the query
-- [ ] **Hints Validation:**
-  - [ ] Hints suggest githubViewRepoStructure, package exploration, or further analysis
-
----
-
-### TC-14: npm — npmFetchMetadata with Scoped Package
+### TC-11: npm — npmFetchMetadata with Scoped Package
 
 **Goal:** Verify `npmFetchMetadata: true` works with scoped packages.
 
@@ -423,26 +344,25 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-15: Bulk Queries (Mixed Ecosystems)
+### TC-12: Bulk Queries
 
-**Goal:** Verify bulk queries across npm and Python ecosystems.
+**Goal:** Verify bulk queries against the npm ecosystem.
 
 ```json
 {
   "queries": [
     {"mainResearchGoal": "Bulk test", "researchGoal": "npm package", "reasoning": "Test", "name": "mcp", "ecosystem": "npm", "searchLimit": 3},
-    {"mainResearchGoal": "Bulk test", "researchGoal": "Python package", "reasoning": "Test", "name": "requests", "ecosystem": "python"},
-    {"mainResearchGoal": "Bulk test", "researchGoal": "Non-existent", "reasoning": "Test", "name": "nonexistent-pkg-xyz-99999", "ecosystem": "python"}
+    {"mainResearchGoal": "Bulk test", "researchGoal": "npm package", "reasoning": "Test", "name": "lodash", "ecosystem": "npm"},
+    {"mainResearchGoal": "Bulk test", "researchGoal": "Non-existent", "reasoning": "Test", "name": "nonexistent-pkg-xyz-99999", "ecosystem": "npm"}
   ]
 }
 ```
 
 **Expected:**
 - [ ] First query returns npm results
-- [ ] Second query returns Python result
+- [ ] Second query returns npm result
 - [ ] Third query returns empty/not-found
 - [ ] Each result isolated per query
-- [ ] Mixed ecosystem queries work
 - [ ] **Response Validation:**
   - [ ] `instructions` field describes bulk response summary
   - [ ] `results` array contains per-query `status` (`hasResults` | `empty` | `error`)
@@ -454,7 +374,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ---
 
-### TC-16: Pagination — searchLimit Returns Different Counts
+### TC-13: Pagination — searchLimit Returns Different Counts
 
 **Goal:** Dedicated pagination test — verify `searchLimit` controls result count; searchLimit 1 vs 5 returns different counts when multiple matches exist.
 
@@ -507,13 +427,12 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 |-------|--------|---------|
 | npm public packages empty | **ENV-DEPENDENT** | When `npm config get registry` points to private registry, `express`/`zod` return empty. Public registry works. |
 | npm timeout | **FIXED** | `mcp` search no longer times out |
-| Python search | **Working** | All Python/PyPI searches work perfectly |
 
 ---
 
 ## Schema Edge Cases & Boundary Tests
 
-**Schema reference (input):** `queries` length **1–3**. Per query: `ecosystem` **`npm` | `python`** (discriminated union); `searchLimit` **1–10**; `name` **minLength 1**; optional response shaping: **`charLength` 1–50000** where the tool exposes it. Each query includes **`mainResearchGoal`**, **`researchGoal`**, and **`reasoning`**.
+**Schema reference (input):** `queries` length **1–3**. Per query: `ecosystem` **`npm`** (defaults to `npm`); `searchLimit` **1–10**; `name` **minLength 1**; optional response shaping: **`charLength` 1–50000** where the tool exposes it. Each query includes **`mainResearchGoal`**, **`researchGoal`**, and **`reasoning`**.
 
 ### SE-1: Empty `queries` array
 
@@ -549,16 +468,16 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 - [ ] Validation error (too many queries)
 - [ ] Message or hints reference maximum **3**
 
-### SE-3: Invalid `ecosystem` (not `npm` or `python`)
+### SE-3: Invalid `ecosystem` (not `npm`)
 
-**Goal:** Reject values outside the discriminated union.
+**Goal:** Reject values outside `npm`.
 
 ```json
 {
   "queries": [{
     "mainResearchGoal": "Test",
     "researchGoal": "invalid ecosystem",
-    "reasoning": "Only npm|python allowed",
+    "reasoning": "Only npm allowed",
     "name": "lodash",
     "ecosystem": "rust"
   }]
@@ -567,7 +486,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 **Expected:**
 - [ ] Validation error on `ecosystem`
-- [ ] No npm/PyPI call with invalid ecosystem
+- [ ] No npm call with invalid ecosystem
 
 ### SE-4: `searchLimit` 0 and 11 (outside 1–10)
 
@@ -607,7 +526,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 
 ### SE-5: Empty `name` (`minLength` 1)
 
-**Goal:** Reject zero-length package name (schema edge; overlaps TC-11).
+**Goal:** Reject zero-length package name (schema edge; overlaps TC-9).
 
 ```json
 {
@@ -625,28 +544,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 - [ ] Validation error; no search executed
 - [ ] **Response Validation:** per-query `error` / validation path matches bulk conventions
 
-### SE-6: Wrong branch field — `npmFetchMetadata` on `python` query
-
-**Goal:** npm-only field must not validate on the python branch (discriminated union).
-
-```json
-{
-  "queries": [{
-    "mainResearchGoal": "Test",
-    "researchGoal": "npm field on python",
-    "reasoning": "Cross-branch field",
-    "name": "requests",
-    "ecosystem": "python",
-    "npmFetchMetadata": true
-  }]
-}
-```
-
-**Expected:**
-- [ ] Strict schema: validation error **or** document actual stripping/coercion if the server allows it
-- [ ] No npm metadata path run for a PyPI query
-
-### SE-7: Response-level pagination / truncation
+### SE-6: Response-level pagination / truncation
 
 **Goal:** If the response is paginated, truncated, or chunked (`charLength` / continuation hints), behavior is consistent and documented.
 
@@ -655,7 +553,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 - [ ] When more data exists, hints or fields point to the next page/chunk
 - [ ] If `charLength` applies, values stay within **1–50000**
 
-### SE-8: Duplicate query `id` values
+### SE-7: Duplicate query `id` values
 
 **Goal:** Duplicate `id` in one request is rejected or handled deterministically.
 
@@ -672,7 +570,7 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 - [ ] Validation error **or** explicit dedup/merge rules (record observed behavior)
 - [ ] **Response Validation:** `results[].id` matches accepted queries 1:1 when duplicates are rejected
 
-### SE-9: Minimal query — only required fields
+### SE-8: Minimal query — only required fields
 
 **Goal:** Smallest valid query; optional fields use defaults.
 
@@ -701,15 +599,13 @@ Searches npm and PyPI package registries. Returns package metadata including nam
 | 1 | npm express (env-dependent) | |
 | 2 | npm zod + metadata (env-dependent) | |
 | 3 | npm scoped mcp | |
-| 4 | Python requests | |
-| 5 | Python flask + metadata | |
-| 6 | npm search limit | |
-| 7 | Python unknown package | |
-| 8 | npm scoped package | |
-| 9 | Search Limit Maximum (Boundary) | |
-| 10 | Search Limit Minimum (Boundary) | |
-| 11 | Empty Name (Validation) | |
-| 12 | Name with Special Characters | |
-| 13 | Python — Search Limit Behavior | |
-| 14 | npm — npmFetchMetadata with Scoped Package | |
-| 15 | Bulk Queries (Mixed Ecosystems) | |
+| 4 | npm search limit | |
+| 5 | npm unknown package | |
+| 6 | npm scoped package | |
+| 7 | Search Limit Maximum (Boundary) | |
+| 8 | Search Limit Minimum (Boundary) | |
+| 9 | Empty Name (Validation) | |
+| 10 | Name with Special Characters | |
+| 11 | npm — npmFetchMetadata with Scoped Package | |
+| 12 | Bulk Queries | |
+| 13 | Pagination — searchLimit Returns Different Counts | |

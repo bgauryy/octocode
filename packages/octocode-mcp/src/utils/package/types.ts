@@ -25,28 +25,11 @@ export interface NpmPackageResult {
   peerDependencies?: Record<string, string>;
 }
 
-export interface PythonPackageResult {
-  name: string;
-  version: string;
-  description: string | null;
-  keywords: string[];
-  repository: string | null;
-  homepage?: string;
-  author?: string;
-  license?: string;
-  lastPublished?: string;
-  owner?: string;
-  repo?: string;
-}
-
-type PackageResult =
-  | MinimalPackageResult
-  | NpmPackageResult
-  | PythonPackageResult;
+type PackageResult = MinimalPackageResult | NpmPackageResult;
 
 export interface PackageSearchAPIResult {
   packages: PackageResult[];
-  ecosystem: 'npm' | 'python';
+  ecosystem: 'npm';
   totalFound: number;
   rawResponseChars?: number;
 }

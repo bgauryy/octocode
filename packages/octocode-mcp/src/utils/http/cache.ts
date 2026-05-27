@@ -44,7 +44,6 @@ const CACHE_TTL_CONFIG = {
   'lsp-call-hierarchy': 86400,
   'github-user': 900,
   'npm-search': 14400, // 4 hours
-  'pypi-search': 14400, // 4 hours
   default: 86400,
 } as const;
 
@@ -304,7 +303,6 @@ export function clearRemoteAPICache(): number {
   cleared += clearCacheByPrefix('bb-repo-');
   cleared += clearCacheByPrefix('github-user');
   cleared += clearCacheByPrefix('npm-search');
-  cleared += clearCacheByPrefix('pypi-search');
   return cleared;
 }
 

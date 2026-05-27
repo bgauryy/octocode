@@ -25,7 +25,7 @@ describe('package_search execution branches', () => {
     vi.clearAllMocks();
   });
 
-  describe('missing ecosystem or name validation', () => {
+  describe('input validation', () => {
     it('should return error when name is missing', async () => {
       const result = await searchPackages({
         queries: [{ ...baseQuery, ecosystem: 'npm' } as never],
@@ -43,9 +43,11 @@ describe('package_search execution branches', () => {
       expect(mockSearchPackage).not.toHaveBeenCalled();
     });
 
-    it('should return error when ecosystem is missing', async () => {
+    it('should return error when ecosystem is not npm', async () => {
       const result = await searchPackages({
-        queries: [{ ...baseQuery, name: 'axios' } as never],
+        queries: [
+          { ...baseQuery, name: 'requests', ecosystem: 'python' } as never,
+        ],
       });
 
       expect(result.content).toBeDefined();
@@ -56,16 +58,16 @@ describe('package_search execution branches', () => {
         .map((c: { text?: string }) => c.text)
         .join('')
         .toLowerCase();
-      expect(text).toContain('required');
+      expect(text).toContain('unsupported ecosystem');
       expect(mockSearchPackage).not.toHaveBeenCalled();
     });
 
-    it('should return error when both ecosystem and name are empty', async () => {
+    it('should return error when name is empty', async () => {
       const result = await searchPackages({
         queries: [
           {
             ...baseQuery,
-            ecosystem: '',
+            ecosystem: 'npm',
             name: '',
           } as never,
         ],

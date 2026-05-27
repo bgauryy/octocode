@@ -1,12 +1,10 @@
 import { searchNpmPackage, checkNpmDeprecation } from './npm.js';
-import { searchPythonPackage } from './python.js';
 
 export interface PackageSearchInput {
-  ecosystem: 'npm' | 'python';
+  ecosystem: 'npm';
   name: string;
   searchLimit?: number;
   npmFetchMetadata?: boolean;
-  pythonFetchMetadata?: boolean;
   mainResearchGoal?: string;
   researchGoal?: string;
   reasoning?: string;
@@ -41,28 +39,11 @@ export interface NpmPackageResult {
   peerDependencies?: Record<string, string>;
 }
 
-export interface PythonPackageResult {
-  name: string;
-  version: string;
-  description: string | null;
-  keywords: string[];
-  repository: string | null;
-  homepage?: string;
-  author?: string;
-  license?: string;
-  lastPublished?: string;
-  owner?: string;
-  repo?: string;
-}
-
-export type PackageResult =
-  | MinimalPackageResult
-  | NpmPackageResult
-  | PythonPackageResult;
+export type PackageResult = MinimalPackageResult | NpmPackageResult;
 
 export interface PackageSearchAPIResult {
   packages: PackageResult[];
-  ecosystem: 'npm' | 'python';
+  ecosystem: 'npm';
   totalFound: number;
   rawResponseChars?: number;
 }
@@ -80,25 +61,10 @@ export interface DeprecationInfo {
 export async function searchPackage(
   query: PackageSearchInput
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
-  const fetchMetadata =
-    query.ecosystem === 'npm'
-      ? (query.npmFetchMetadata ?? false)
-      : (query.pythonFetchMetadata ?? false);
-
+  const fetchMetadata = query.npmFetchMetadata ?? false;
   const searchLimit = query.searchLimit ?? 1;
 
-  // Call cached API functions (caching is done at the API layer)
-  if (query.ecosystem === 'npm') {
-    const result = await searchNpmPackage(
-      query.name,
-      searchLimit,
-      fetchMetadata
-    );
-
-    return result;
-  } else {
-    return searchPythonPackage(query.name, fetchMetadata);
-  }
+  return searchNpmPackage(query.name, searchLimit, fetchMetadata);
 }
 
 export { checkNpmDeprecation };

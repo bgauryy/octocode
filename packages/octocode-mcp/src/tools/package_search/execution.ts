@@ -66,14 +66,23 @@ export async function searchPackages(
     queries,
     async (query: PackageSearchQuery, _index: number) => {
       try {
-        if (!query.ecosystem || !query.name) {
+        if (!query.name) {
           return createErrorResult(
-            'Both ecosystem and name are required for package search',
+            'Package name is required for package search',
             query
           );
         }
-        const validatedQuery = query as PackageSearchQuery & {
-          ecosystem: 'npm' | 'python';
+        if (query.ecosystem && query.ecosystem !== 'npm') {
+          return createErrorResult(
+            `Unsupported ecosystem '${query.ecosystem}'. Only 'npm' is supported.`,
+            query
+          );
+        }
+        const validatedQuery = {
+          ...query,
+          ecosystem: 'npm' as const,
+        } as PackageSearchQuery & {
+          ecosystem: 'npm';
           name: string;
         };
         const apiResult = await searchPackage(validatedQuery);
@@ -99,14 +108,14 @@ export async function searchPackages(
         const hasContent = result.packages.length > 0;
 
         let deprecationInfo: DeprecationInfo | null = null;
-        if (hasContent && query.ecosystem === 'npm' && result.packages[0]) {
+        if (hasContent && result.packages[0]) {
           deprecationInfo = await checkNpmDeprecation(
             getPackageName(result.packages[0])
           );
         }
 
         const extraHints = hasContent
-          ? generateSuccessHints(result, query.ecosystem, deprecationInfo)
+          ? generateSuccessHints(result, deprecationInfo)
           : generateEmptyHints(query);
 
         return createSuccessResult(
@@ -136,7 +145,6 @@ function generateSuccessHints(
   result: {
     packages: PackageResult[];
   },
-  ecosystem: 'npm' | 'python',
   deprecationInfo?: DeprecationInfo | null
 ): string[] {
   const hints: string[] = [];
@@ -144,33 +152,22 @@ function generateSuccessHints(
   if (!pkg) return hints;
 
   const name = getPackageName(pkg);
-  const repo = getPackageRepo(pkg);
 
-  // Only emit recovery-actionable hints. Data-echo hints
-  // (Explore/Install/Browse/Compare) are dropped — the caller already has
-  // name/repo/license on `packages[]` and can construct any URL themselves.
   if (deprecationInfo?.deprecated) {
     const msg = deprecationInfo.message || 'This package is deprecated';
     hints.push(`DEPRECATED: ${name} - ${msg}`);
   }
 
-  // Reference args to satisfy noUnusedParameters without changing the signature
-  // (kept for back-compat with the call site).
-  void ecosystem;
-  void repo;
-
   return hints;
 }
 
 function generateEmptyHints(query: PackageSearchQuery): string[] {
-  // Only emit recovery hints: a stated reason + concrete name variations
-  // to retry. Drop the `Browse:` URL — pure data echo (agent can build it).
   const hints: string[] = [];
   const name = query.name;
 
-  hints.push(`No ${query.ecosystem} packages found for '${name}'`);
+  hints.push(`No npm packages found for '${name}'`);
 
-  const variations = generateNameVariations(name, query.ecosystem);
+  const variations = generateNameVariations(name);
   if (variations.length > 0) {
     hints.push(`Try: ${variations.join(', ')}`);
   }
@@ -178,10 +175,7 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
   return hints;
 }
 
-function generateNameVariations(
-  name: string,
-  ecosystem: 'npm' | 'python'
-): string[] {
+function generateNameVariations(name: string): string[] {
   const variations: string[] = [];
 
   if (name.includes('-')) {
@@ -197,11 +191,8 @@ function generateNameVariations(
     if (unscoped) variations.push(unscoped);
   }
 
-  if (ecosystem === 'npm' && !name.endsWith('js')) {
+  if (!name.endsWith('js')) {
     variations.push(name + 'js');
-  }
-  if (ecosystem === 'python' && !name.startsWith('py')) {
-    variations.push('py' + name);
   }
 
   return [...new Set(variations)].filter(v => v !== name).slice(0, 3);
