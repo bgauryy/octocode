@@ -430,41 +430,33 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(hints.some(h => h.includes('Retry after 30s'))).toBe(true);
   });
 
-  it('githubSearchCode empty + match=path emits an actionable redirect', () => {
+  it('githubSearchCode empty names the scope when owner/repo set', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'empty', {
-      match: 'path',
-    });
-    expect(hints.some(h => h.includes('match="file"'))).toBe(true);
-  });
-
-  it('githubSearchCode hasResults emits nothing when hasMore is not set (single-page result)', () => {
-    expect(
-      getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'hasResults', {
-        hasOwnerRepo: true,
-      })
-    ).toEqual([]);
-  });
-
-  it('githubSearchCode hasResults emits exhaustive-enumeration warning when hasMore=true', () => {
-    const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'hasResults', {
       hasOwnerRepo: true,
-      hasMore: true,
-      currentPage: 1,
-      totalPages: 3,
-      totalMatches: 28,
+      owner: 'a',
+      repo: 'b',
     });
-    expect(hints.length).toBe(1);
-    expect(hints[0]).toContain('exhaustive');
-    expect(hints[0]).toContain('page=2');
+    expect(hints.some(h => h.includes('a/b'))).toBe(true);
   });
 
-  it('githubGetFileContent isPartial emits a continuation cursor hint', () => {
-    const hints = getHints(
-      STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      'hasResults',
-      { isPartial: true, endLine: 80 } as Record<string, unknown>
-    );
-    expect(hints.some(h => h.includes('startLine=81'))).toBe(true);
+  it('per-tool hints fire only on empty/error — hasResults channel is type-narrowed away', () => {
+    // The HintStatus type no longer includes 'hasResults'. Pagination signals
+    // live in the response envelope (pagination/hints from executor extraHints).
+    const emptyHints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'empty', {
+      hasOwnerRepo: true,
+      owner: 'a',
+      repo: 'b',
+    });
+    expect(emptyHints.length).toBeGreaterThan(0);
+  });
+
+  it('githubGetFileContent error not_found emits path-aware recovery', () => {
+    const hints = getHints(STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT, 'error', {
+      errorType: 'not_found',
+      path: 'src/foo.ts',
+      branch: 'main',
+    });
+    expect(hints.some(h => h.includes('src/foo.ts'))).toBe(true);
   });
 });
 

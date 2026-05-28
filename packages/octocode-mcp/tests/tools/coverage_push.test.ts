@@ -31,7 +31,7 @@ describe('github_search_code hints - error branches', () => {
       status: 403,
       isRateLimited: false,
     });
-    expect(result.some(h => h?.includes('Permission denied'))).toBe(true);
+    expect(result.some(h => h?.includes('repo'))).toBe(true);
   });
 
   it('should not generate 403 hint when rate limited', () => {

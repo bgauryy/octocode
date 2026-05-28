@@ -175,19 +175,12 @@ export async function callHierarchyWithLSP(
         depth,
         incomingCalls: enhancedItems,
         pagination,
-        hints: [
-          ...getHints(TOOL_NAME, 'hasResults', {
-            direction: 'incoming',
-            callCount: allIncomingCalls.length,
-            depth,
-            hasMorePages: pagination ? pagination.totalPages > 1 : false,
-            currentPage: pagination?.currentPage,
-            totalPages: pagination?.totalPages,
-          }),
-          `Found ${allIncomingCalls.length} caller(s) via Language Server (depth ${depth})`,
-          'Each incomingCall.from = a function that calls this symbol; fromRanges = exact call sites',
-          'Use lspGotoDefinition to navigate to each caller',
-        ],
+        hints:
+          pagination && pagination.totalPages > 1
+            ? [
+                `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
+              ]
+            : [],
       });
     } else {
       const contextLines = query.contextLines ?? 2;
@@ -261,19 +254,12 @@ export async function callHierarchyWithLSP(
         depth,
         outgoingCalls: enhancedItems,
         pagination,
-        hints: [
-          ...getHints(TOOL_NAME, 'hasResults', {
-            direction: 'outgoing',
-            callCount: allOutgoingCalls.length,
-            depth,
-            hasMorePages: pagination ? pagination.totalPages > 1 : false,
-            currentPage: pagination?.currentPage,
-            totalPages: pagination?.totalPages,
-          }),
-          `Found ${allOutgoingCalls.length} callee(s) via Language Server (depth ${depth})`,
-          'Each outgoingCall.to = a function called by this symbol; fromRanges = exact call sites',
-          'Use lspGotoDefinition to navigate to each callee',
-        ],
+        hints:
+          pagination && pagination.totalPages > 1
+            ? [
+                `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
+              ]
+            : [],
       });
     }
   } catch {

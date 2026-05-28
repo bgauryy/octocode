@@ -24,6 +24,9 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
+// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
+export { applyGithubFetchContentVerbosity } from './finalizer.js';
+
 export async function fetchMultipleGitHubFileContents(
   args: ToolExecutionArgs<PartialFileContentQuery>
 ): Promise<CallToolResult> {

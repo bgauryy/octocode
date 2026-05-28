@@ -2,13 +2,11 @@ import { completeMetadata } from '@octocodeai/octocode-core';
 import { getMetadataOrNull } from './state.js';
 import { isLocalTool } from '../toolNames.js';
 
-type ToolHintsType = Record<
-  string,
-  { hasResults: readonly string[]; empty: readonly string[] }
-> & { base: { hasResults: readonly string[]; empty: readonly string[] } };
+type ToolHintsType = Record<string, { empty: readonly string[] }> & {
+  base: { empty: readonly string[] };
+};
 
 const EMPTY_HINTS = {
-  hasResults: [] as readonly string[],
   empty: [] as readonly string[],
 };
 
@@ -44,7 +42,7 @@ export const TOOL_HINTS = new Proxy({} as ToolHintsType, {
 
 export function getToolHintsSync(
   toolName: string,
-  resultType: 'hasResults' | 'empty'
+  resultType: 'empty'
 ): readonly string[] {
   const metadata = getMetadataOrNull() ?? completeMetadata;
   if (!metadata.tools[toolName]) return [];

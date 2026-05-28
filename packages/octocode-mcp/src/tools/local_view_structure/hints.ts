@@ -9,8 +9,6 @@
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
-  hasResults: (_ctx: HintContext = {}) => [],
-
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
@@ -21,22 +19,15 @@ export const hints: ToolHintGenerators = {
     if (pattern) filters.push(`pattern="${pattern}"`);
     if (filters.length > 0) {
       return [
-        `No entries in ${path ?? 'this directory'} matching ${filters.join(' + ')}. Drop a filter or try a parent path.`,
+        `No entries in ${path ?? 'this directory'} matching ${filters.join(' + ')}.`,
       ];
     }
-    return [
-      `Empty directory ${path ?? 'at this path'}. Try a parent directory or verify the path.`,
-    ];
+    return [];
   },
 
   error: (ctx: HintContext = {}) => {
     if (ctx.errorType === 'size_limit' && ctx.entryCount) {
-      const tokens = ctx.tokenEstimate
-        ? ` (~${ctx.tokenEstimate.toLocaleString()} tokens)`
-        : '';
-      return [
-        `Directory has ${ctx.entryCount} entries${tokens}. Narrow with depth or path.`,
-      ];
+      return [`Directory has ${ctx.entryCount} entries.`];
     }
     return [];
   },

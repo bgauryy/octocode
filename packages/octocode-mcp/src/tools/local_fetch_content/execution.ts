@@ -10,6 +10,11 @@ import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 
+// Verbosity shaping is defined alongside fetchContent (used internally before
+// `createSuccessResult`). Re-exported here so every tool exposes
+// `apply<Tool>Verbosity` from execution.ts.
+export { applyFetchContentVerbosity } from './fetchContent.js';
+
 /**
  * Execute bulk fetch content operation.
  * Wraps fetchContent with bulk operation handling for multiple queries.

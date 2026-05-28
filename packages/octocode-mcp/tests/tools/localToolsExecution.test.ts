@@ -47,10 +47,22 @@ const mockSafeParse = (query: object) => ({
   success: true,
   data: withParsedDefaults(query),
 });
-vi.mock('@octocodeai/octocode-core', async importOriginal => ({
-  ...(await importOriginal<object>()),
-  FetchContentQuerySchema: { safeParse: mockSafeParse },
-}));
+vi.mock('@octocodeai/octocode-core', async importOriginal => {
+  const { z } = await import('zod/v4');
+  const out = () => z.object({}).passthrough();
+  return {
+    ...(await importOriginal<object>()),
+    FetchContentQuerySchema: { safeParse: mockSafeParse },
+    LOCAL_RIPGREP_DESCRIPTION: 'localSearchCode',
+    LOCAL_FIND_FILES_DESCRIPTION: 'localFindFiles',
+    LOCAL_VIEW_STRUCTURE_DESCRIPTION: 'localViewStructure',
+    LOCAL_FETCH_CONTENT_DESCRIPTION: 'localGetFileContent',
+    LocalSearchCodeOutputSchema: out(),
+    LocalFindFilesOutputSchema: out(),
+    LocalViewStructureOutputSchema: out(),
+    LocalGetFileContentOutputSchema: out(),
+  };
+});
 
 // localSchemaOverlay re-publishes the ripgrep/find/view schemas with relaxed
 // caps. Stub the overlay so tests can verify orchestration without exercising Zod.
@@ -63,16 +75,18 @@ vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   BulkFindFilesSchema: {},
   BulkViewStructureSchema: {},
   BulkFetchContentQuerySchema: {},
-  VERBOSITY_VALUES: ['compact', 'verbose', 'ultra'] as const,
+  VERBOSITY_VALUES: ['basic', 'compact', 'ultra'] as const,
   verbosityField: {},
   isUltra: (_v: unknown) => false,
   ultraDrillBackHint: (_s: string) => [] as string[],
 }));
 
-// Verbosity helper module — stub `isUltra` so handler stays on default path
-// when tests don't pass verbosity (preserves byte-identical behaviour).
+// Verbosity helper module — stub helpers so handlers stay on the default
+// (basic) path when tests don't pass a verbosity value.
 vi.mock('../../src/scheme/verbosity.js', () => ({
   isUltra: (v: unknown) => v === 'ultra',
+  isCompact: (v: unknown) => v === 'compact',
+  isBasic: (v: unknown) => v === undefined || v === 'basic',
   ultraDrillBackHint: (s: string) => [`Drill-back: ${s}`],
 }));
 

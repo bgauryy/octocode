@@ -9,6 +9,24 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+
+/** Advisory hints githubViewRepoStructure emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryViewRepoStructureHint = makeAdvisoryPredicate([
+  'tree may report',
+  'truncated at depth',
+  'monorepo',
+  'sibling config',
+  'sibling files',
+]);
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { shouldIgnoreFile, shouldIgnoreDir } from '../../utils/file/filters.js';
 import { handleCatchError, createSuccessResult } from '../utils.js';
@@ -119,9 +137,19 @@ export async function exploreMultipleRepositoryStructures(
           );
         }
 
+        const shaped = applyGithubViewRepoStructureVerbosity(
+          {
+            data: resultData as Record<string, unknown>,
+            entryCount,
+            summary,
+            extraHints: apiHints,
+          },
+          query
+        );
+
         return createSuccessResult(
           query,
-          resultData,
+          shaped.data,
           hasContent,
           TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
           {
@@ -143,7 +171,7 @@ export async function exploreMultipleRepositoryStructures(
               ),
             },
             prefixHints: branchHints,
-            extraHints: apiHints,
+            extraHints: shaped.extraHints,
             evidence: {
               kind: 'structure',
               answerReady: hasContent,
@@ -179,4 +207,47 @@ export async function exploreMultipleRepositoryStructures(
       peerEvidence: true,
     }
   );
+}
+
+/**
+ * Per-tool verbosity shaping for githubViewRepoStructure. Under ultra, replaces
+ * the full `structure` payload with `{path, summary, entryCount}` + a
+ * drill-back hint. Under compact, advisory hints are trimmed to 2. Basic /
+ * omitted: passthrough.
+ */
+export function applyGithubViewRepoStructureVerbosity(
+  input: {
+    data: Record<string, unknown>;
+    entryCount: number;
+    summary: { truncated?: boolean; filtered?: boolean } | undefined;
+    extraHints: string[];
+  },
+  query: PartialRepoStructureQuery
+): { data: Record<string, unknown>; extraHints: string[] } {
+  const verbosity = (query as { verbosity?: Verbosity }).verbosity;
+  if (isUltra(verbosity)) {
+    return {
+      data: {
+        path: (input.data as { path?: string }).path,
+        summary: input.summary,
+        entryCount: input.entryCount,
+      },
+      extraHints: [
+        `${input.entryCount} entries${input.summary ? ` (${JSON.stringify(input.summary)})` : ''}`,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) and entryPageNumber + entriesPerPage'
+        ),
+        ...input.extraHints,
+      ],
+    };
+  }
+  if (isCompact(verbosity)) {
+    return {
+      data: input.data,
+      extraHints:
+        compactTrimHints(input.extraHints, isAdvisoryViewRepoStructureHint, 2) ??
+        [],
+    };
+  }
+  return { data: input.data, extraHints: input.extraHints };
 }

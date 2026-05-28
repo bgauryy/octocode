@@ -162,12 +162,10 @@ export interface PullRequestQuery extends BaseProviderQuery {
   reactions?: number | string;
   /** Interactions count filter */
   interactions?: number | string;
-  /** Merged filter */
-  merged?: boolean;
   /** Draft filter */
   draft?: boolean;
   /** Match scope: title, body, comments */
-  match?: Array<'title' | 'body' | 'comments'>;
+  matchScope?: Array<'title' | 'body' | 'comments'>;
   /** Include PR comments */
   withComments?: boolean;
   /** Include commit details */

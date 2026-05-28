@@ -231,7 +231,12 @@ async function findIncomingCallsWithPatternMatching(
     depth,
     incomingCalls,
     pagination,
-    hints: [...getHints(TOOL_NAME, 'hasResults')],
+    hints:
+      page < totalPages
+        ? [
+            `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`,
+          ]
+        : [],
   };
 }
 
@@ -431,10 +436,12 @@ async function findOutgoingCallsWithPatternMatching(
     depth,
     outgoingCalls,
     pagination,
-    hints: [
-      ...getHints(TOOL_NAME, 'hasResults'),
-      'Use lspGotoDefinition to find where each callee is defined',
-    ],
+    hints:
+      page < totalPages
+        ? [
+            `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`,
+          ]
+        : [],
   };
 }
 

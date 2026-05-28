@@ -12,6 +12,25 @@ import type {
 } from '../../utils/package/common.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+
+const ULTRA_PACKAGE_SEARCH_LIMIT = 1;
+
+/** Advisory hints packageSearch emits; stripped under compact. Substring-OR,
+ * case-insensitive — tolerates wording shifts and surrounding wrappers. */
+const isAdvisoryPackageSearchHint = makeAdvisoryPredicate([
+  'searchlimit',
+  'scoped package',
+  'spelling',
+  'alternative',
+]);
+import {
   handleCatchError,
   createSuccessResult,
   createErrorResult,
@@ -66,6 +85,29 @@ export async function searchPackages(
     queries,
     async (query: PackageSearchQuery, _index: number) => {
       try {
+        // Pre-flight verbosity caps under ultra: cap searchLimit to 1;
+        // force npmFetchMetadata=false. Record downgrades for warning.
+        const pkgVerbosityIsUltra = isUltra(
+          (query as { verbosity?: Verbosity }).verbosity
+        );
+        const pkgDowngradeFields: string[] = [];
+        if (pkgVerbosityIsUltra) {
+          const userSearchLimit = (query as { searchLimit?: number })
+            .searchLimit;
+          if (
+            typeof userSearchLimit === 'number' &&
+            userSearchLimit > ULTRA_PACKAGE_SEARCH_LIMIT
+          ) {
+            (query as { searchLimit?: number }).searchLimit =
+              ULTRA_PACKAGE_SEARCH_LIMIT;
+            pkgDowngradeFields.push(`searchLimit→${ULTRA_PACKAGE_SEARCH_LIMIT}`);
+          }
+          if ((query as { npmFetchMetadata?: boolean }).npmFetchMetadata === true) {
+            (query as { npmFetchMetadata?: boolean }).npmFetchMetadata = false;
+            pkgDowngradeFields.push('npmFetchMetadata→false');
+          }
+        }
+
         if (!query.name) {
           return createErrorResult(
             'Package name is required for package search',
@@ -118,12 +160,20 @@ export async function searchPackages(
           ? generateSuccessHints(result, deprecationInfo)
           : generateEmptyHints(query);
 
+        const shaped = applyPackageSearchVerbosity(
+          { data: result, extraHints, downgradeFields: pkgDowngradeFields },
+          query
+        );
+
         return createSuccessResult(
           query,
-          result,
+          shaped.data,
           hasContent,
           TOOL_NAMES.PACKAGE_SEARCH,
-          { extraHints, rawResponse: apiResult.rawResponseChars ?? apiResult }
+          {
+            extraHints: shaped.extraHints,
+            rawResponse: apiResult.rawResponseChars ?? apiResult,
+          }
         );
       } catch (error) {
         return handleCatchError(error, query);
@@ -173,6 +223,61 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
   }
 
   return hints;
+}
+
+/**
+ * Per-tool verbosity shaping for packageSearch. Under ultra, projects each
+ * package to {name, version, repository, deprecated} (cap 1) and emits a
+ * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
+ * Basic / omitted: passthrough.
+ */
+export function applyPackageSearchVerbosity(
+  input: {
+    data: { packages: PackageResult[]; totalFound: number };
+    extraHints: string[];
+    downgradeFields: string[];
+  },
+  query: PackageSearchQuery
+): {
+  data: { packages: unknown[]; totalFound: number };
+  extraHints: string[];
+} {
+  const verbosity = (query as { verbosity?: Verbosity }).verbosity;
+  const downgradeHint =
+    input.downgradeFields.length > 0
+      ? [`verbosity-downgrade: ${input.downgradeFields.join(', ')} (ultra)`]
+      : [];
+
+  if (isUltra(verbosity)) {
+    const projected = (input.data.packages ?? []).slice(0, 1).map(p => ({
+      name: (p as { name?: string }).name,
+      version: (p as { version?: string }).version,
+      repository: (p as { repository?: string }).repository,
+      deprecated: (p as { deprecated?: unknown }).deprecated,
+    }));
+    const summary = `${input.data.packages?.length ?? 0} packages found`;
+    return {
+      data: { packages: projected, totalFound: input.data.totalFound },
+      extraHints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) or npmFetchMetadata:true for repo URL'
+        ),
+        ...downgradeHint,
+        ...input.extraHints,
+      ],
+    };
+  }
+
+  const allHints = [...downgradeHint, ...input.extraHints];
+  if (isCompact(verbosity)) {
+    return {
+      data: input.data,
+      extraHints:
+        compactTrimHints(allHints, isAdvisoryPackageSearchHint, 2) ?? [],
+    };
+  }
+  return { data: input.data, extraHints: allHints };
 }
 
 function generateNameVariations(name: string): string[] {

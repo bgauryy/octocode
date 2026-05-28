@@ -23,7 +23,23 @@ import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
-import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+
+/** Advisory hints localGetFileContent emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryFetchContentHint = makeAdvisoryPredicate([
+  'regex is per-line',
+  'casesensitive=true is active',
+  'not found',
+  'continuation:',
+  'fuzzier matching',
+]);
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
 type FetchContentQuery = WithOptionalMeta<UpstreamFetchContentQuery> & {
@@ -138,12 +154,7 @@ function createLargeFileErrorResult(
   return createErrorResult(toolError, query, {
     toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
     extra: { resolvedPath: absolutePath },
-    customHints: [
-      'Best approach: Use matchString to extract specific functions/classes you actually need',
-      'Alternative: Use charLength for pagination if you need to browse through the file systematically',
-      'Why matchString works better: Gets only relevant sections, faster, and uses fewer tokens',
-      'Critical: fullContent without charLength will fail on large files - always specify a reading strategy',
-    ],
+    hintContext: { fileSize: fileSizeKB * 1024, isLarge: true },
   }) as LocalGetFileContentToolResult;
 }
 
@@ -156,12 +167,7 @@ function createBinaryFileErrorResult(
   return createErrorResult(toolError, query, {
     toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
     extra: { resolvedPath: absolutePath },
-    customHints: [
-      'This appears to be binary or non-UTF-8 content, not text.',
-      'Use localSearchCode with binaryFiles="text" only when you need to scan for specific ASCII strings.',
-      'Use localFindFiles for metadata discovery before choosing a text file to read.',
-      'localGetFileContent is intentionally limited to UTF-8 text to avoid garbled output.',
-    ],
+    customHints: ['Binary or non-UTF-8 content.'],
   }) as LocalGetFileContentToolResult;
 }
 
@@ -365,12 +371,9 @@ function buildMatchExtractionState(
         warnings: [
           `Auto-paginated: ${result.matchCount} matches exceeded display limit`,
         ],
-        hints: [
-          ...getHints(TOOL_NAMES.LOCAL_FETCH_CONTENT, 'hasResults'),
-          ...generatePaginationHints(autoPagination, {
-            toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
-          }),
-        ],
+        hints: generatePaginationHints(autoPagination, {
+          toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
+        }),
       },
     };
   }
@@ -501,21 +504,9 @@ function buildSuccessResult(
     effectiveCharLength
   );
 
-  const hasMoreContent =
-    extraction.isPartial ||
-    pagination.hasMore ||
-    (extraction.actualEndLine !== undefined &&
-      extraction.actualEndLine < totalLines);
   const isPartial = extraction.isPartial || pagination.hasMore;
 
-  const baseHints = getHints(TOOL_NAMES.LOCAL_FETCH_CONTENT, 'hasResults', {
-    hasMoreContent,
-    isPartial,
-    endLine: extraction.actualEndLine,
-    totalLines,
-    nextCharOffset: pagination.nextCharOffset,
-    totalChars: pagination.totalChars,
-  });
+  const baseHints: string[] = [];
 
   const paginationHints =
     effectiveCharLength || autoPaginated
@@ -633,9 +624,9 @@ export async function fetchContent(
 }
 
 /**
- * RFC §4.7.4: when `verbosity:"ultra"` is requested, drop the file `content`
- * field and return a `{filePath, summary}` line only. Compact / verbose /
- * omitted behave identically to today (default-invariance contract).
+ * When `verbosity:"ultra"` is requested, drop the file `content` field and
+ * return a `{filePath, summary}` line only. Omitted / `"basic"` / `"compact"`
+ * all preserve `content` here; compact's hint-trim is a follow-up (Task #9).
  *
  * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
  */
@@ -644,22 +635,28 @@ export function applyFetchContentVerbosity(
   query: FetchContentQuery,
   totalLines: number
 ): LocalGetFileContentToolResult {
-  if (!isUltra(query.verbosity)) return result;
-  if (result.status !== 'hasResults') return result;
-
-  const contentLen = result.content?.length ?? 0;
-  const approxTokens = Math.ceil(contentLen / 4);
-  const filePath = result.filePath ?? query.path;
-  const summary = `${filePath}: ${totalLines} lines, ~${approxTokens} tokens raw`;
-
-  return {
-    ...result,
-    content: '',
-    hints: [
-      summary,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"compact" (default) for content, or use matchString/lineRange for a slice'
-      ),
-    ],
-  };
+  if (isUltra(query.verbosity)) {
+    if (result.status !== 'hasResults') return result;
+    const contentLen = result.content?.length ?? 0;
+    const approxTokens = Math.ceil(contentLen / 4);
+    const filePath = result.filePath ?? query.path;
+    const summary = `${filePath}: ${totalLines} lines, ~${approxTokens} tokens raw`;
+    return {
+      ...result,
+      content: '',
+      hints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) for content, or use matchString/lineRange for a slice'
+        ),
+      ],
+    };
+  }
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryFetchContentHint, 2),
+    };
+  }
+  return result;
 }

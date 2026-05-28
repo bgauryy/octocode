@@ -22,6 +22,9 @@ export function getHints(
   status: HintStatus,
   context?: HintContext
 ): string[] {
+  // Hints only fire on empty/error (enforced by HintStatus). On success the
+  // response data + pagination/evidence/warnings carry the signal — usage
+  // guidance lives in the tool description.
   if (!hasDynamicHints(toolName)) return [];
   const hints = getDynamicHints(toolName, status, context);
   return [...new Set(hints)];

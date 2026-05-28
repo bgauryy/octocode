@@ -5,12 +5,72 @@ import type {
 } from '@octocodeai/octocode-core';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+
+const ULTRA_REPOS_LIMIT = 3;
+
+/** Advisory hints githubSearchRepositories emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisorySearchReposHint = makeAdvisoryPredicate([
+  'synonym',
+  'high star filter',
+  'language filtering',
+  'topics are self-reported',
+  'sparse',
+]);
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
 } from '../../types/execution.js';
 
 type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchQuery>;
+type ReposQueryWithVerbosity = PartialReposSearchQuery & {
+  verbosity?: Verbosity;
+};
+
+/**
+ * Per-tool verbosity shaping for githubSearchRepositories. Under ultra,
+ * projects each repo to {full_name, stars, language?} and caps to 3, and
+ * emits a drill-back hint. Basic / compact pass through (compact-trim of
+ * advisory hints is handled at the bulk-finalizer pass).
+ */
+export function applyGithubSearchReposVerbosity(
+  data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
+  query: ReposQueryWithVerbosity
+): {
+  data: { repositories: unknown[]; pagination?: unknown };
+  extraHints: string[];
+} {
+  if (isUltra(query.verbosity)) {
+    const projected = (data.repositories ?? [])
+      .slice(0, 3)
+      .map(r => ({
+        full_name: (r as { full_name?: string }).full_name,
+        stars: (r as { stars?: number }).stars,
+        language: (r as { language?: string }).language,
+      }));
+    const summary = `${data.repositories?.length ?? 0} repos${
+      projected[0]?.full_name ? ` (top: ${projected[0].full_name})` : ''
+    }`;
+    return {
+      data: { repositories: projected },
+      extraHints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) or narrow keywordsToSearch'
+        ),
+      ],
+    };
+  }
+  return { data, extraHints: [] };
+}
 import {
   handleCatchError,
   handleProviderError,
@@ -223,6 +283,23 @@ export async function searchMultipleGitHubRepos(
     async (query: PartialReposSearchQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
+        // Pre-flight: cap user-passed `limit` under ultra so the upstream
+        // fetch reflects the trimmed response. Emit verbosity-downgrade
+        // warning when the cap actually fires.
+        const userLimit = (query as { limit?: number }).limit;
+        const verbosityIsUltra = isUltra(
+          (query as { verbosity?: Verbosity }).verbosity
+        );
+        const capFired =
+          verbosityIsUltra &&
+          typeof userLimit === 'number' &&
+          userLimit > ULTRA_REPOS_LIMIT;
+        if (verbosityIsUltra) {
+          (query as { limit?: number }).limit = Math.min(
+            userLimit ?? ULTRA_REPOS_LIMIT,
+            ULTRA_REPOS_LIMIT
+          );
+        }
         const variants = createSearchVariants(query);
         const { successes, failures } = await executeProviderOperations(
           variants.map(variant => ({
@@ -301,18 +378,43 @@ export async function searchMultipleGitHubRepos(
         const variantsPartial =
           variants.length > 1 && successfulVariants.length < variants.length;
 
+        const verbosityShape = applyGithubSearchReposVerbosity(
+          { repositories, pagination: resultPagination },
+          query as ReposQueryWithVerbosity
+        );
+
+        const downgradeHint =
+          capFired && verbosityIsUltra
+            ? [
+                `verbosity-downgrade: limit capped to ${ULTRA_REPOS_LIMIT} (ultra); caller passed ${userLimit}`,
+              ]
+            : [];
+
+        const allExtraHints = [
+          ...verbosityShape.extraHints,
+          ...downgradeHint,
+          ...mergeHints,
+          ...partialFailureHints,
+          ...paginationHints,
+          ...(searchHints || []),
+        ];
+        // Compact trim: drop advisory hints (recovery prose, synonym
+        // suggestions) while keeping pagination + downgrade + drill-back.
+        const compactMode = isCompact(
+          (query as { verbosity?: Verbosity }).verbosity
+        );
+        const finalExtraHints = compactMode
+          ? (compactTrimHints(allExtraHints, isAdvisorySearchReposHint, 2) ??
+            [])
+          : allExtraHints;
+
         return createSuccessResult(
           query,
-          { repositories, pagination: resultPagination },
+          verbosityShape.data,
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {
-            extraHints: [
-              ...mergeHints,
-              ...partialFailureHints,
-              ...paginationHints,
-              ...(searchHints || []),
-            ],
+            extraHints: finalExtraHints,
             evidence: {
               kind: 'repo',
               answerReady: hasContent,

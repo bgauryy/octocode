@@ -129,7 +129,7 @@ export async function searchPullRequests(
         : query.state === 'all'
           ? undefined
           : query.state,
-    merged: query.merged ?? (query.state === 'merged' ? true : undefined),
+    merged: query.state === 'merged' ? true : undefined,
     draft: query.draft,
     author: query.author,
     assignee: query.assignee,
@@ -152,7 +152,7 @@ export async function searchPullRequests(
     comments: query.comments,
     reactions: query.reactions,
     interactions: query.interactions,
-    match: query.match,
+    match: query.matchScope,
     withComments: query.withComments,
     withCommits: query.withCommits,
     type: query.type,

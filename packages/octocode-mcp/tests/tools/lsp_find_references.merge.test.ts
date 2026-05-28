@@ -146,11 +146,8 @@ describe('mergeReferenceResults - branch coverage', () => {
     };
     const result = mergeReferenceResults(lspResult, patternResult, baseQuery);
     expect(result.status).toBe('hasResults');
-    expect(
-      result.hints!.some((h: string) =>
-        h.includes('Added 1 reference(s) from text search')
-      )
-    ).toBe(true);
+    // hasResults-time narration removed; merge still produces a hasResults envelope.
+    expect(result.locations.length).toBeGreaterThan(0);
   });
 
   it('should preserve references on same line with different columns', () => {
@@ -272,9 +269,6 @@ describe('mergeReferenceResults - branch coverage', () => {
       totalReferences: 2,
     };
     const result = mergeReferenceResults(lspResult, patternResult, baseQuery);
-    expect(result.hints).toBeDefined();
-    expect(
-      result.hints!.some((h: string) => h.includes('Added 1 reference(s)'))
-    ).toBe(true);
+    expect(result.locations.length).toBeGreaterThan(0);
   });
 });

@@ -100,8 +100,11 @@ export function createSuccessResult<T extends object>(
     ...data,
   };
 
-  // Use unified getHints() which combines static + dynamic hints
-  const hints = getHints(toolName, status, options?.hintContext);
+  // Per-tool hints fire only on empty (no-result) paths. Success-path signals
+  // (pagination, evidence, deprecation, etc.) come via extraHints from the
+  // executor itself, not from the hints registry.
+  const hints =
+    status === 'empty' ? getHints(toolName, 'empty', options?.hintContext) : [];
   const prefixHints = options?.prefixHints || [];
   const extraHints = options?.extraHints || [];
 

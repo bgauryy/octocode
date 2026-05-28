@@ -9,27 +9,12 @@
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
-  hasResults: (ctx: HintContext = {}) => {
-    const out: string[] = [];
-    const { locationCount, fileCount, hasMultipleFiles } = ctx;
-
-    if (locationCount && locationCount > 20) {
-      out.push(`Found ${locationCount} references.`);
-    }
-    if (hasMultipleFiles) {
-      out.push(`References span ${fileCount || 'multiple'} files.`);
-    }
-    return out;
-  },
-
   empty: (ctx: HintContext = {}) => {
     if (ctx.filteredAll) {
-      return [
-        'All references were excluded by file patterns. Broaden include/exclude.',
-      ];
+      return ['All references were excluded by include/exclude patterns.'];
     }
     return [];
   },
 
-  error: (_ctx: HintContext = {}) => [],
+  error: () => [],
 };

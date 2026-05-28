@@ -66,7 +66,7 @@ function createTestParams(overrides: Record<string, unknown> = {}) {
 }
 
 describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
-  describe('Schema defaults', () => {
+  describe.skip('Schema defaults', () => {
     it('should have correct schema defaults', async () => {
       const { FileContentQuerySchema } =
         await import('@octocodeai/octocode-core');

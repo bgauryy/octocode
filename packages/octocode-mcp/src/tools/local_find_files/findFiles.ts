@@ -26,7 +26,22 @@ import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
-import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+
+/** Advisory hints localFindFiles emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryFindFilesHint = makeAdvisoryPredicate([
+  'excludedir',
+  'raw name globs',
+  'metadata only',
+  'noisy dir',
+]);
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
 type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery> & {
@@ -212,15 +227,17 @@ export async function findFiles(
               `Results capped at ${maxFiles} of ${discoveredFileCount}. Narrow with name/type/time filters or increase limit.`,
             ]
           : []),
-        ...getHints(TOOL_NAMES.LOCAL_FIND_FILES, status, {
-          fileCount: totalFiles,
-          hasConfigFiles,
-          path: query.path,
-          name: query.name ?? query.iname,
-          modifiedWithin: query.modifiedWithin,
-          sizeGreater: query.sizeGreater,
-          sizeLess: query.sizeLess,
-        } as Record<string, unknown>),
+        ...(status === 'empty'
+          ? getHints(TOOL_NAMES.LOCAL_FIND_FILES, 'empty', {
+              fileCount: totalFiles,
+              hasConfigFiles,
+              path: query.path,
+              name: query.name ?? query.iname,
+              modifiedWithin: query.modifiedWithin,
+              sizeGreater: query.sizeGreater,
+              sizeLess: query.sizeLess,
+            } as Record<string, unknown>)
+          : []),
         ...(paginationMetadata
           ? generatePaginationHints(paginationMetadata, {
               toolName: TOOL_NAMES.LOCAL_FIND_FILES,
@@ -241,9 +258,9 @@ export async function findFiles(
 }
 
 /**
- * RFC §4.7.3: ultra payload is a one-line summary with a `newest:` drill-back
- * hint pointing at the first file. Compact / verbose / omitted behave
- * identically to today (default-invariance contract).
+ * Ultra payload is a one-line summary with a `newest:` drill-back hint
+ * pointing at the first file. Omitted / `"basic"` / `"compact"` all preserve
+ * `files[]` here; compact's hint-trim is a follow-up (Task #8).
  *
  * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
  */
@@ -252,28 +269,34 @@ export function applyFindFilesVerbosity(
   query: FindFilesQuery,
   totals: { totalFiles: number }
 ): LocalFindFilesToolResult {
-  if (!isUltra(query.verbosity)) return result;
-  if (result.status !== 'hasResults') return result;
-
-  const topFile = result.files?.[0];
-  const newest = topFile?.path ?? '';
-  const dirs = new Set(
-    (result.files ?? []).map(f => f.path.split('/').slice(0, -1).join('/'))
-  );
-  const summary =
-    `${totals.totalFiles} files in ${dirs.size} dirs` +
-    (newest ? ` (newest: ${newest})` : '');
-
-  return {
-    ...result,
-    files: [],
-    hints: [
-      summary,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"compact" or narrow with name/type/time filters'
-      ),
-    ],
-  };
+  if (isUltra(query.verbosity)) {
+    if (result.status !== 'hasResults') return result;
+    const topFile = result.files?.[0];
+    const newest = topFile?.path ?? '';
+    const dirs = new Set(
+      (result.files ?? []).map(f => f.path.split('/').slice(0, -1).join('/'))
+    );
+    const summary =
+      `${totals.totalFiles} files in ${dirs.size} dirs` +
+      (newest ? ` (newest: ${newest})` : '');
+    return {
+      ...result,
+      files: [],
+      hints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) or narrow with name/type/time filters'
+        ),
+      ],
+    };
+  }
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryFindFilesHint, 2),
+    };
+  }
+  return result;
 }
 
 function sortLocalFindFilesEntrys(

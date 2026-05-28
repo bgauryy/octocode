@@ -1,4 +1,3 @@
-import { getHints } from '../../hints/index.js';
 import type { RipgrepQuery as UpstreamRipgrepQuery } from '@octocodeai/octocode-core';
 import type {
   LocalSearchCodeFile,
@@ -6,10 +5,24 @@ import type {
 } from '@octocodeai/octocode-core';
 import type { SearchStats } from '../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { promises as fs } from 'fs';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
-import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+
+/** Advisory hints localSearchCode emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryRipgrepHint = makeAdvisoryPredicate([
+  'large result',
+  'payload is large',
+  'narrow:',
+  'timed out',
+]);
 
 type RipgrepQuery = UpstreamRipgrepQuery & { verbosity?: Verbosity };
 
@@ -153,11 +166,7 @@ export async function buildSearchResult(
       hasMore: filePageNumber < totalFilePages,
     },
     warnings,
-    hints: [
-      ...paginationHints,
-      ...refinementHints,
-      ...getHints(TOOL_NAMES.LOCAL_RIPGREP, 'hasResults'),
-    ],
+    hints: [...paginationHints, ...refinementHints],
   };
 
   return applyRipgrepVerbosity(fullResult, configuredQuery, {
@@ -167,41 +176,44 @@ export async function buildSearchResult(
 }
 
 /**
- * RFC §4.7.1: when `verbosity:"ultra"` is requested, drop `files[]` and emit
- * a one-line summary plus a path:line drill-back hint pointing at the first
- * matching file. `compact` (default) and `verbose` remain byte-identical to
- * today's behaviour — only `ultra` is lossy.
- *
- * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ * When `verbosity:"ultra"` is requested, drop `files[]` and emit a one-line
+ * summary plus a path:line drill-back hint pointing at the first matching
+ * file. Omitted / `"basic"` preserves `files[]`; compact trims advisory hints.
  */
 export function applyRipgrepVerbosity(
   result: LocalSearchCodeToolResult,
   query: RipgrepQuery,
   totals: { totalMatches: number; totalFiles: number }
 ): LocalSearchCodeToolResult {
-  if (!isUltra(query.verbosity)) return result;
-  if (result.status !== 'hasResults') return result;
-
-  const topFile = result.files?.[0];
-  const topMatch = topFile?.matches?.[0];
-  const topHint =
-    topFile && topMatch
-      ? `${topFile.path}:${topMatch.line}`
-      : (topFile?.path ?? '');
-  const summary =
-    `${totals.totalMatches} matches in ${totals.totalFiles} files` +
-    (topHint ? ` (top: ${topHint})` : '');
-
-  return {
-    ...result,
-    files: [],
-    hints: [
-      summary,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"compact" (default) or scope the pattern to the top path'
-      ),
-    ],
-  };
+  if (isUltra(query.verbosity)) {
+    if (result.status !== 'hasResults') return result;
+    const topFile = result.files?.[0];
+    const topMatch = topFile?.matches?.[0];
+    const topHint =
+      topFile && topMatch
+        ? `${topFile.path}:${topMatch.line}`
+        : (topFile?.path ?? '');
+    const summary =
+      `${totals.totalMatches} matches in ${totals.totalFiles} files` +
+      (topHint ? ` (top: ${topHint})` : '');
+    return {
+      ...result,
+      files: [],
+      hints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) or scope the pattern to the top path'
+        ),
+      ],
+    };
+  }
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryRipgrepHint, 2),
+    };
+  }
+  return result;
 }
 
 function _getStructuredResultSizeHints(

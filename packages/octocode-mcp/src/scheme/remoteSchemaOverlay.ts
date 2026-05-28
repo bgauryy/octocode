@@ -42,7 +42,7 @@ import {
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
-  describeShapeFields,
+  createVerbosityField,
   localCharLengthField,
   matchStringContextLinesField,
   relaxedPaginationLimitField,
@@ -55,32 +55,32 @@ import {
 
 /**
  * Relaxed version of BulkCloneRepoSchema.
- * Since UpstreamBulkCloneRepoSchema is already a bulk schema, we extract its element schema.
+ * Since UpstreamBulkCloneRepoSchema is already a bulk schema, we extract its
+ * element schema and extend it with the cross-tool verbosity field.
  */
+const CloneRepoElementSchema = (
+  UpstreamBulkCloneRepoSchema.shape.queries as z.ZodArray<z.ZodTypeAny>
+).element as unknown as z.ZodObject<z.ZodRawShape>;
+
+// Clone is a one-shot side-effecting action — no verbosity field.
+const CloneRepoQueryLocalSchema = CloneRepoElementSchema;
+
 export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
-  (UpstreamBulkCloneRepoSchema.shape.queries as z.ZodArray<z.ZodTypeAny>)
-    .element
+  CloneRepoQueryLocalSchema
 );
 
 // ---------------------------------------------------------------------------
 // githubGetFileContent
 // ---------------------------------------------------------------------------
 
+// Description text for every field lives upstream in
+// octocode-core/src/resources/tools/githubGetFileContent.ts — no overlay
+// redescribes here. Only pagination defaults / numeric ranges remain.
 const FileContentQueryLocalSchema = UpstreamFileContentQuerySchema.extend({
-  ...describeShapeFields(UpstreamFileContentQuerySchema.shape, {
-    branch: 'Branch/tag/SHA (defaults to repo default branch)',
-    path: 'File path from root, no leading slash, exact case',
-    startLine: 'Start line (with endLine)',
-    endLine: 'End line (with startLine)',
-    fullContent: 'Return entire file',
-    matchString: 'Search pattern to extract',
-    charOffset: 'Pagination offset',
-  }),
-  charLength: localCharLengthField.describe('Max chars per page'),
-  matchStringContextLines: matchStringContextLinesField.describe(
-    'Context lines around match'
-  ),
+  charLength: localCharLengthField,
+  matchStringContextLines: matchStringContextLinesField,
+  verbosity: createVerbosityField(),
 });
 
 export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
@@ -137,7 +137,7 @@ const PerQueryPaginationSchema = CharPaginationSchema.extend({
  * Structured non-fatal signal shared across the grouped GitHub tools.
  * Discriminated by `kind` so callers branch on enum identity rather than
  * inline magic strings — and so new kinds extend cleanly without breaking
- * existing consumers.  Two kinds today:
+ * existing consumers.  Three kinds today:
  *
  *  - `match-value-truncated` — `githubSearchCode` had to clip a single match
  *    value to honour `responseCharLength`.  Re-query with a larger budget or
@@ -145,6 +145,11 @@ const PerQueryPaginationSchema = CharPaginationSchema.extend({
  *  - `content-truncated` — `githubGetFileContent` had to clip a file's
  *    content for the same reason. The file is still listed, but its `content`
  *    no longer includes everything past `truncatedAt`.
+ *  - `verbosity-downgrade` — an explicit caller option was capped or coerced
+ *    because the caller requested `verbosity:"ultra"` (e.g. `limit > 3`,
+ *    `fullContent=true`, `npmFetchMetadata=true`). The response still
+ *    succeeded; the warning names which field was overridden so the agent
+ *    can re-call with `basic` if it needs the full payload.
  */
 const GroupedToolWarningSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -162,6 +167,11 @@ const GroupedToolWarningSchema = z.discriminatedUnion('kind', [
     fullContentLength: z.number(),
     truncatedAt: z.number(),
     recovery: z.string(),
+  }),
+  z.object({
+    kind: z.literal('verbosity-downgrade'),
+    field: z.string(),
+    detail: z.string(),
   }),
 ]);
 
@@ -242,16 +252,14 @@ export type GitHubFetchContentOutputLocal = z.infer<
 // githubSearchCode
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (githubSearchCode.ts). Overlay supplies
+// only pagination defaults and the local char-budget field.
 const GitHubCodeSearchQueryLocalSchema =
   UpstreamGitHubCodeSearchQuerySchema.extend({
-    ...describeShapeFields(UpstreamGitHubCodeSearchQuerySchema.shape, {
-      keywordsToSearch:
-        'Search terms (AND logic). match=file returns text_matches[]',
-      path: 'Directory path (strict prefix)',
-    }),
     charLength: localCharLengthField,
-    page: relaxedPageNumberField.default(1).describe('Page number'),
-    limit: relaxedPaginationLimitField.default(10).describe('Max results'),
+    page: relaxedPageNumberField.default(1),
+    limit: relaxedPaginationLimitField.default(10),
+    verbosity: createVerbosityField(),
   });
 
 export const GitHubCodeSearchBulkQueryLocalSchema =
@@ -350,16 +358,13 @@ export type GitHubCodeSearchWarning = GroupedToolWarning;
 // githubViewRepoStructure
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (githubViewRepoStructure.ts). Overlay
+// supplies only pagination defaults.
 const GitHubViewRepoStructureQueryLocalSchema =
   UpstreamGitHubViewRepoStructureQuerySchema.extend({
-    ...describeShapeFields(UpstreamGitHubViewRepoStructureQuerySchema.shape, {
-      branch: 'Branch/tag/SHA (defaults to repo default branch)',
-      depth: '1 (current) | 2 (subdirs)',
-    }),
-    entriesPerPage: relaxedPaginationLimitField
-      .default(20)
-      .describe('Entries per page'),
-    entryPageNumber: relaxedPageNumberField.default(1).describe('1-based page'),
+    entriesPerPage: relaxedPaginationLimitField.default(20),
+    entryPageNumber: relaxedPageNumberField.default(1),
+    verbosity: createVerbosityField(),
   });
 
 export const GitHubViewRepoStructureBulkQueryLocalSchema =
@@ -372,28 +377,15 @@ export const GitHubViewRepoStructureBulkQueryLocalSchema =
 // githubSearchRepositories
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (githubSearchRepositories.ts). Overlay
+// supplies pagination defaults only; `language` is kept relaxed as an
+// optional string so the bulk relaxer accepts it.
 const GitHubReposSearchSingleQueryLocalSchema =
   UpstreamGitHubReposSearchSingleQuerySchema.extend({
-    ...describeShapeFields(UpstreamGitHubReposSearchSingleQuerySchema.shape, {
-      keywordsToSearch: 'Keywords (AND) across name/description/README',
-      topicsToSearch: 'GitHub topic tags (self-reported, often sparse)',
-      owner: 'Owner/org scope',
-      stars: 'Stars: ">500", "100..500"',
-      updated: 'Last code push (pushed: qualifier, not metadata-only)',
-      match: '["name"|"description"|"readme"] — restrictive',
-    }),
-    language: z
-      .string()
-      .optional()
-      .describe(
-        'Primary language ("TypeScript", "Python", "Go"). More reliable than topicsToSearch for language filtering'
-      ),
-    updated: z
-      .string()
-      .optional()
-      .describe('Last code push (pushed: qualifier, not metadata-only)'),
-    page: relaxedPageNumberField.default(1).describe('Page number'),
-    limit: relaxedPaginationLimitField.default(10).describe('Max repos'),
+    language: z.string().optional(),
+    page: relaxedPageNumberField.default(1),
+    limit: relaxedPaginationLimitField.default(10),
+    verbosity: createVerbosityField(),
   });
 
 export const GitHubReposSearchBulkQueryLocalSchema =
@@ -406,36 +398,20 @@ export const GitHubReposSearchBulkQueryLocalSchema =
 // githubSearchPullRequests — "merged" is a valid state shorthand
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (githubSearchPullRequests.ts). Overlay
+// keeps only:
+//  - the `state` enum tightening with "merged" shorthand
+//  - the `matchScope` array enum (upstream rename from `match`)
+//  - the `sort` enum tightening
+//  - pagination defaults
 const GitHubPullRequestSearchQueryLocalSchema =
   GitHubPullRequestSearchQuerySchema.extend({
-    ...describeShapeFields(GitHubPullRequestSearchQuerySchema.shape, {
-      query: 'Search across title/body/comments (max 256 chars)',
-      created: 'Date: ">=YYYY-MM-DD" or "YYYY-MM-DD..YYYY-MM-DD"',
-      updated: 'Same format as created',
-      closed: 'Same format as created',
-      'merged-at': 'Same format as created',
-      comments: 'Count: ">5", "10..20"',
-      match: '["title"|"body"|"comments"]; default all three',
-      order: 'desc | asc',
-      withComments: 'Include discussions (expensive)',
-      type: 'metadata | fullContent | partialContent',
-    }),
-    state: z
-      .enum(['open', 'closed', 'merged'])
-      .optional()
-      .describe(
-        '"open" | "closed" | "merged" (shorthand for closed + merged:true)'
-      ),
-    match: z
-      .array(z.enum(['title', 'body', 'comments']))
-      .optional()
-      .describe('["title"|"body"|"comments"]; default all three'),
-    sort: z
-      .enum(['created', 'updated', 'best-match'])
-      .optional()
-      .describe('created | updated | best-match'),
-    page: relaxedPageNumberField.default(1).describe('Page number'),
-    limit: relaxedPaginationLimitField.default(10).describe('Max PRs'),
+    state: z.enum(['open', 'closed', 'merged']).optional(),
+    matchScope: z.array(z.enum(['title', 'body', 'comments'])).optional(),
+    sort: z.enum(['created', 'updated', 'best-match']).optional(),
+    page: relaxedPageNumberField.default(1),
+    limit: relaxedPaginationLimitField.default(10),
+    verbosity: createVerbosityField(),
   });
 
 export const GitHubPullRequestSearchBulkQueryLocalSchema =
@@ -448,16 +424,15 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
 // packageSearch — npm only; defaults ecosystem to "npm" when the field is absent
 // ---------------------------------------------------------------------------
 
-const packageLimitField = relaxedPaginationLimitField
-  .default(5)
-  .describe('Max results');
+// Field descriptions are upstream (packageSearch.ts). Overlay supplies the
+// pagination default and accepts a `limit` alias that the preprocess below
+// re-maps to `searchLimit` for upstream compatibility.
+const packageLimitField = relaxedPaginationLimitField.default(5);
 
 const npmPackageQueryWithLimit = NpmPackageQuerySchema.extend({
-  ...describeShapeFields(NpmPackageQuerySchema.shape, {
-    ecosystem: '"npm" (defaults to "npm")',
-  }),
   limit: packageLimitField,
   searchLimit: packageLimitField,
+  verbosity: createVerbosityField(),
 });
 
 const packageQueryWithEcosystemDefault = z.preprocess(

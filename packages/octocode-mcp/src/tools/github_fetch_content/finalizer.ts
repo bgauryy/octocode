@@ -16,7 +16,24 @@ import type {
   GitHubFetchContentOutputLocal,
   GroupedToolWarning,
 } from '../../scheme/remoteSchemaOverlay.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
+
+/** Advisory hints githubGetFileContent emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryFetchContentHint = makeAdvisoryPredicate([
+  'content may be truncated',
+  'content-truncated',
+  'file_too_large',
+  'too large',
+]);
 import { tsvFormat } from '../../utils/response/tsvFormat.js';
 import { getTsvProjection } from '../../utils/response/tsvColumns.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
@@ -295,9 +312,6 @@ function buildRuntimeHints(
     }
 
     for (const directory of group.directories ?? []) {
-      hints.push(
-        `Directory ${group.id}:${directory.path} saved to localPath; use local tools on that path.`
-      );
       if (directory.cached)
         hints.push(
           `Directory ${group.id}:${directory.path} served from cache.`
@@ -385,7 +399,10 @@ export function buildGithubFetchContentFinalizer<
     if (warnings.length > 0) responseData.warnings = warnings;
     if (errors && errors.length > 0) responseData.errors = errors;
 
-    if (config.format === 'tsv') {
+    // ── Verbosity shaping ───────────────────────────────────────────────
+    const allUltra = applyGithubFetchContentVerbosity(responseData, queries);
+
+    if (config.format === 'tsv' && !allUltra) {
       const projection = getTsvProjection(
         STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT
       );
@@ -426,4 +443,75 @@ export function buildGithubFetchContentFinalizer<
       groups.length === 0 && Boolean(errors && errors.length > 0)
     );
   };
+}
+
+/**
+ * Per-tool verbosity shaping for githubGetFileContent. Under ultra (when every
+ * query asks for it), strips `content` from every file and emits a token
+ * estimate + drill-back hint. Under compact (any query opts in), trims
+ * advisory hints. Basic / omitted: passthrough.
+ *
+ * Mutates `responseData` in place; returns `true` when ultra was applied so
+ * the caller can skip downstream formats (TSV) that no longer make sense.
+ */
+export function applyGithubFetchContentVerbosity(
+  responseData: GitHubFetchContentOutputLocal,
+  queries: readonly PartialFileContentQuery[]
+): boolean {
+  const queriesWithVerbosity = queries as Array<
+    PartialFileContentQuery & { verbosity?: Verbosity; fullContent?: boolean }
+  >;
+  const allUltra =
+    queriesWithVerbosity.length > 0 &&
+    queriesWithVerbosity.every(q => isUltra(q.verbosity));
+  const anyCompact = queriesWithVerbosity.some(q => isCompact(q.verbosity));
+
+  if (allUltra) {
+    let totalLines = 0;
+    let totalContentLen = 0;
+    const strippedGroups = (responseData.results ?? []).map(g => ({
+      ...g,
+      files: (g.files ?? []).map(f => {
+        totalLines += f.totalLines ?? 0;
+        totalContentLen += f.content?.length ?? 0;
+        const stripped: FileEntry = { ...f, content: '' };
+        delete (stripped as { lastModified?: string }).lastModified;
+        delete (stripped as { lastModifiedBy?: string }).lastModifiedBy;
+        return stripped;
+      }),
+    }));
+    const approxTokens = Math.ceil(totalContentLen / 4);
+    const fileCount = strippedGroups.reduce(
+      (n, g) => n + (g.files?.length ?? 0),
+      0
+    );
+    responseData.results = strippedGroups as typeof responseData.results;
+    responseData.hints = [
+      `${fileCount} files, ${totalLines} lines, ~${approxTokens} tokens raw`,
+      ...ultraDrillBackHint(
+        're-call with verbosity:"basic" (default), matchString, or startLine/endLine'
+      ),
+    ];
+    const userPassedFullContent = queriesWithVerbosity.some(
+      q => q.fullContent === true
+    );
+    if (userPassedFullContent) {
+      const downgrade: GroupedToolWarning = {
+        kind: 'verbosity-downgrade',
+        field: 'fullContent',
+        detail: 'fullContent=true ignored under ultra; content was stripped',
+      };
+      responseData.warnings = [...(responseData.warnings ?? []), downgrade];
+    }
+    return true;
+  }
+
+  if (anyCompact) {
+    responseData.hints = compactTrimHints(
+      responseData.hints,
+      isAdvisoryFetchContentHint,
+      2
+    );
+  }
+  return false;
 }

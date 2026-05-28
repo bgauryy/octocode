@@ -3,7 +3,6 @@
  */
 import { RipgrepCommandBuilder } from '../../commands/RipgrepCommandBuilder.js';
 import { safeExec } from '../../utils/exec/safe.js';
-import { getLargeFileWorkflowHints } from '../../hints/dynamic.js';
 import {
   validateRipgrepQuery,
   type RipgrepQuery,
@@ -147,15 +146,15 @@ export async function executeRipgrepSearchInternal(
 
   const parsed = parseRipgrepOutput(result.stdout, configuredQuery);
 
-  // Post-flight large-result guidance based on ripgrep's own output size.
+  // Post-flight large-result evidence — single conditional warning carrying
+  // the actual payload size. Recovery moves are described in the tool spec.
   if (
     !queryForExec.filesOnly &&
     result.stdout.length > RESOURCE_LIMITS.LARGE_RESULT_BYTES_HINT
   ) {
     chunkingWarnings.push(
-      `Result payload is large (~${Math.round(result.stdout.length / 1024)}KB). Narrow the search with type/include filters or use filesOnly=true.`
+      `Result payload is large (~${Math.round(result.stdout.length / 1024)}KB).`
     );
-    chunkingWarnings.push(...getLargeFileWorkflowHints('search'));
   }
 
   const searchResult = await buildSearchResult(

@@ -2685,13 +2685,11 @@ describe('localViewStructure', () => {
   });
 
   /**
-   * RFC `.octocode/rfc/rtk-token-techniques/RFC.md` §4.7.2 — `verbosity:"ultra"`
-   * drops `entries[]` and returns the one-line summary. RFC §3.1 — omitted
-   * verbosity is byte-identical to current behavior. RFC §4.7.9 — the response
-   * carries an explicit drill-back breadcrumb so the agent never lands in a
-   * dead end.
+   * `verbosity:"ultra"` drops `entries[]` and returns the one-line summary.
+   * Omitted ≡ `"basic"` (default) preserves entries. The ultra response carries
+   * an explicit drill-back breadcrumb so the agent never lands in a dead end.
    */
-  describe('verbosity:"ultra" — RFC §4.7.2 (less tokens, more quality research)', () => {
+  describe('verbosity:"ultra" (less tokens, more quality research)', () => {
     beforeEach(() => {
       mockSafeExec.mockResolvedValue({
         success: true,

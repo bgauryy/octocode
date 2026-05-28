@@ -225,8 +225,6 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
       result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
     expect(text).toContain('localPath');
     expect(text).toContain('fileCount');
-    // Directory finalizer hint wording: "Directory <id>:<path> saved to localPath; use local tools on that path."
-    expect(text).toContain('saved to localPath');
   });
 
   it('should handle directory type with cache hit', async () => {

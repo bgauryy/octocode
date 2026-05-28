@@ -8,10 +8,7 @@ import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import type { HintContext, HintStatus, ToolHintGenerators } from './types.js';
 
 import { hints as localRipgrepHints } from '../tools/local_ripgrep/hints.js';
-import {
-  hints as localFetchContentHints,
-  getLargeFileWorkflowHints as getLocalLargeFileHints,
-} from '../tools/local_fetch_content/hints.js';
+import { hints as localFetchContentHints } from '../tools/local_fetch_content/hints.js';
 import { hints as localViewStructureHints } from '../tools/local_view_structure/hints.js';
 import { hints as localFindFilesHints } from '../tools/local_find_files/hints.js';
 import { hints as githubSearchCodeHints } from '../tools/github_search_code/hints.js';
@@ -79,24 +76,4 @@ export function getDynamicHints(
 
   // Filter out undefined values from conditional hints
   return rawHints.filter((h): h is string => typeof h === 'string');
-}
-
-/**
- * Get adaptive workflow guidance for large files/directories
- * Explains reasoning behind chunking strategies
- *
- * @param context - Whether for 'search' (ripgrep) or 'read' (fetch_content)
- * @returns Intelligent workflow guidance with reasoning
- */
-export function getLargeFileWorkflowHints(
-  context: 'search' | 'read'
-): string[] {
-  if (context === 'search') {
-    return [
-      'Large codebase: avoid floods.',
-      'Flow: localSearchCode filesOnly → add type/path filters → localGetFileContent matchString → localSearchCode links.',
-      'Parallelize where safe.',
-    ];
-  }
-  return getLocalLargeFileHints();
 }

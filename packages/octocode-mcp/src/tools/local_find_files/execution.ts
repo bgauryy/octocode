@@ -10,6 +10,9 @@ import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 
+// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
+export { applyFindFilesVerbosity } from './findFiles.js';
+
 /**
  * Execute bulk find files operation.
  * Wraps findFiles with bulk operation handling for multiple queries.

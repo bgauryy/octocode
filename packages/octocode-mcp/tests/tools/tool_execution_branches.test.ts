@@ -234,9 +234,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(result?.status).toBe('hasResults');
       expect(result?.locations).toHaveLength(1);
       expect(result?.hasMultipleFiles).toBe(true);
-      expect(result?.hints).toContainEqual(
-        expect.stringContaining('References span 2 files')
-      );
       expect(mockClient.stop).not.toHaveBeenCalled();
     });
 

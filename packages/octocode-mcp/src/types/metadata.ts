@@ -1,10 +1,12 @@
 /**
- * Hint status types for determining which hints to return
- * - 'hasResults': Tool returned results successfully
+ * Hint status types — hints fire only on no-result paths.
  * - 'empty': Tool returned no results (but no error)
  * - 'error': Tool encountered an error
+ *
+ * Success-path signals live in the response envelope (pagination/evidence/
+ * warnings) and the tool description.
  */
-export type HintStatus = 'hasResults' | 'empty' | 'error';
+export type HintStatus = 'empty' | 'error';
 
 /**
  * Context that tools can provide to generate smarter, context-aware hints.
@@ -97,7 +99,6 @@ export interface HintContext {
 type HintGenerator = (context: HintContext) => (string | undefined)[];
 
 export interface ToolHintGenerators {
-  hasResults: HintGenerator;
   empty: HintGenerator;
   error: HintGenerator;
 }

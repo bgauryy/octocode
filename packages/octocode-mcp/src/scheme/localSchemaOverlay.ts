@@ -4,8 +4,15 @@ import {
   FindFilesQuerySchema as UpstreamFindFilesQuerySchema,
   ViewStructureQuerySchema as UpstreamViewStructureQuerySchema,
   FetchContentQuerySchema as UpstreamFetchContentQuerySchema,
+  VERBOSITY_VALUES,
+  type Verbosity,
 } from '@octocodeai/octocode-core';
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
+
+// Re-export the canonical enum + type so consumers in this package don't have
+// to import from @octocodeai/octocode-core directly.
+export { VERBOSITY_VALUES };
+export type { Verbosity };
 
 export const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 100_000;
 
@@ -70,78 +77,26 @@ export const relaxedPageNumberField = z
   .max(LOCAL_OVERLAY_MAX_PAGINATION_LIMIT)
   .optional();
 
-export const VERBOSITY_VALUES = ['compact', 'verbose', 'ultra'] as const;
-export type Verbosity = (typeof VERBOSITY_VALUES)[number];
+// All field-description text lives upstream in
+// octocode-core/src/resources/global.ts `baseSchema.verbosity`. Overlay
+// supplies only the Zod enum so bulk validation accepts the field.
+export const verbosityField = z.enum(VERBOSITY_VALUES).optional();
 
-export const verbosityField = z
-  .enum(VERBOSITY_VALUES)
-  .optional()
-  .describe(
-    'Choose response size. Less tokens per call leaves more budget for follow-up. ' +
-      "'compact' is the default and returns actionable detail. " +
-      "'ultra' returns lossy counts/summaries for cheap broad probes. " +
-      "'verbose' currently equals compact; skip it unless tool docs say otherwise. " +
-      "Drill-back: re-call with 'compact' for paths, lines, snippets, or entries."
-  );
-
-export function createVerbosityField(
-  toolDetail: string,
-  ultraDetail: string,
-  drillBack: string
-) {
-  return z
-    .enum(VERBOSITY_VALUES)
-    .optional()
-    .describe(
-      `Choose response size. compact (default): ${toolDetail}; use for normal work and follow-up line hints. ` +
-        `ultra: ${ultraDetail}; use first for broad/large probes when counts or top locations are enough. ` +
-        'verbose: currently same as compact; skip it unless future docs say it adds detail. ' +
-        `Drill-back from ultra: ${drillBack}.`
-    );
+/**
+ * Per-tool verbosity field. Description text comes from upstream
+ * `baseSchema.verbosity` — do not redescribe here.
+ */
+export function createVerbosityField() {
+  return z.enum(VERBOSITY_VALUES).optional();
 }
 
-export function describeShapeFields<
-  Shape extends z.ZodRawShape,
-  const Keys extends keyof Shape & string,
->(shape: Shape, descriptions: Record<Keys, string>): Pick<Shape, Keys> {
-  const overrides = {} as Pick<Shape, Keys>;
-
-  for (const [key, description] of Object.entries(descriptions)) {
-    const shapeKey = key as Keys;
-    const field = shape[shapeKey];
-    if (field) {
-      overrides[shapeKey] = (field as unknown as z.ZodTypeAny).describe(
-        description as string
-      ) as unknown as Shape[Keys];
-    }
-  }
-
-  return overrides;
-}
-
-const ripgrepVerbosityField = createVerbosityField(
-  'files[] with path:line matches, snippets, match counts, search engine, and pagination',
-  'match/file counts plus the top path:line; files[] and match snippets are dropped',
-  're-call with verbosity:"compact" or scope path/include to the top path'
-);
-
-const findFilesVerbosityField = createVerbosityField(
-  'files[] with paths, type, size, permissions, timestamps, and pagination',
-  'file/dir counts plus the newest path; files[] is dropped',
-  're-call with verbosity:"compact" or narrow name/type/time filters'
-);
-
-const fetchContentVerbosityField = createVerbosityField(
-  'content for the requested file/slice plus line ranges, matchRanges, partial flag, and pagination',
-  'line/token estimates and ranges with content set to empty',
-  're-call with verbosity:"compact", matchString, or a startLine/endLine range'
-);
-
-const viewStructureVerbosityField = createVerbosityField(
-  'entries[] with names, types, size/modified metadata, summary, and pagination',
-  'entry/file/dir counts and summary; entries[] is dropped',
-  're-call with verbosity:"compact" and entryPageNumber/entriesPerPage'
-);
+// All tools share the same Zod field; description text comes from upstream
+// baseSchema.verbosity. Tool-specific guidance for verbosity goes into the
+// tool's own <gotchas> in octocode-core/src/resources/tools/*.ts.
+const ripgrepVerbosityField = createVerbosityField();
+const findFilesVerbosityField = createVerbosityField();
+const fetchContentVerbosityField = createVerbosityField();
+const viewStructureVerbosityField = createVerbosityField();
 
 /**
  * Creates a bulk query schema that is less strict than the upstream one.
@@ -227,53 +182,16 @@ const optionalMetaFields = {
     .describe('Why this query helps achieve the research goal.'),
 } as const;
 
+// Field descriptions are upstream (localSearchCode.ts). Overlay supplies only
+// the verbosity field, the relaxed numeric ranges, and pagination defaults.
 export const RipgrepQuerySchema = UpstreamRipgrepQuerySchema.extend({
   ...optionalMetaFields,
-  ...describeShapeFields(UpstreamRipgrepQuerySchema.shape, {
-    pattern: 'Pattern/regex (required)',
-    mode: '"discovery" (file list, cheapest) | "paginated" (default) | "detailed" (full context, costliest)',
-    fixedString: 'Literal match, no regex',
-    smartCase: 'Case-insensitive unless pattern has uppercase',
-    invertMatch: 'Return non-matching lines',
-    type: 'Ripgrep language type ("ts", "js", "py", "go"...)',
-    include: 'Include globs (["*.ts", "src/**"])',
-    exclude: 'Exclude globs (["*.test.ts"])',
-    excludeDir: 'Dir names to skip (["node_modules", "dist"])',
-    noIgnore: 'Bypass .gitignore/.ignore',
-    hidden: 'Include dotfiles',
-    filesOnly: 'Filenames only, no content',
-    filesWithoutMatch: 'Files NOT containing the pattern',
-    count: 'Matching-line count per file',
-    countMatches: 'Total match count per file (multi-match aware)',
-    contextLines: 'Symmetric context around match',
-    beforeContext: 'Lines before (overrides contextLines on that side)',
-    afterContext: 'Lines after (overrides contextLines on that side)',
-    maxMatchesPerFile: 'Cap matches per file',
-    maxFiles: 'Cap total files scanned',
-    multiline: 'Patterns may span newlines (slower)',
-    multilineDotall: "In multiline, '.' matches newlines",
-    binaryFiles: '"skip" | "text" | "binary"',
-    includeStats: 'Include scan stats in response',
-    encoding: 'Force encoding ("utf-8", "latin1"); else auto',
-    sortReverse: 'Reverse sort order',
-    noMessages: 'Suppress non-fatal errors',
-    lineRegexp: 'Pattern must match entire line',
-    passthru: 'Print every line; highlight matches',
-    debug: 'Emit debug diagnostics',
-    showFileLastModified: 'Include lastModified timestamps',
-  }),
-  matchContentLength: matchContentLengthField.describe(
-    'Truncate each match line to N chars'
-  ),
+  matchContentLength: matchContentLengthField,
   verbosity: ripgrepVerbosityField,
   charLength: localCharLengthField,
-  filesPerPage: relaxedPaginationLimitField
-    .default(10)
-    .describe('Files per page'),
-  matchesPerPage: relaxedPaginationLimitField
-    .default(10)
-    .describe('Matches per file in response'),
-  filePageNumber: relaxedPageNumberField.default(1).describe('1-indexed page'),
+  filesPerPage: relaxedPaginationLimitField.default(10),
+  matchesPerPage: relaxedPaginationLimitField.default(10),
+  filePageNumber: relaxedPageNumberField.default(1),
 });
 
 export type RipgrepQuery = z.infer<typeof UpstreamRipgrepQuerySchema> & {
@@ -290,41 +208,14 @@ export const BulkRipgrepQuerySchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
+// Field descriptions are upstream (localFindFiles.ts). Overlay supplies only
+// the verbosity field, the relaxed numeric ranges, and pagination defaults.
 export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.extend({
   ...optionalMetaFields,
-  ...describeShapeFields(UpstreamFindFilesQuerySchema.shape, {
-    maxDepth: 'Max recursion depth',
-    minDepth: 'Min depth from start',
-    name: 'Glob name pattern (e.g. "*.js")',
-    iname: 'Case-insensitive name glob',
-    names: 'Glob array, OR-combined',
-    pathPattern: 'Glob against full path, not basename',
-    regex: 'Regex against name (or path with pathPattern semantics)',
-    type: 'f (file) | d (dir) | l (symlink) | b | c | p | s',
-    empty: 'true = match only empty files/dirs',
-    modifiedWithin: 'Within duration ("7d", "2h", "30m")',
-    modifiedBefore: 'Before duration ("30d")',
-    accessedWithin: 'Accessed within ("7d")',
-    sizeGreater: '">" size ("10M", "500k", "1G")',
-    sizeLess: '"<" size ("1M")',
-    permissions: 'Octal ("755") or symbolic ("u=rwx")',
-    executable: 'true = executable by current user',
-    readable: 'true = readable by current user',
-    writable: 'true = writable by current user',
-    excludeDir: 'Dir names to skip (e.g. ["node_modules", ".git"])',
-    limit: 'Hard cap before paging',
-    details: 'Include perms/size/dates',
-    showFileLastModified: 'Include lastModified timestamps',
-  }),
-  charLength: localCharLengthField.describe('Max chars per payload page'),
-  charOffset: UpstreamFindFilesQuerySchema.shape.charOffset.describe(
-    'Char-level pagination offset'
-  ),
+  charLength: localCharLengthField,
   verbosity: findFilesVerbosityField,
-  filesPerPage: relaxedPaginationLimitField
-    .default(10)
-    .describe('Results per page'),
-  filePageNumber: relaxedPageNumberField.default(1).describe('1-indexed page'),
+  filesPerPage: relaxedPaginationLimitField.default(10),
+  filePageNumber: relaxedPageNumberField.default(1),
 });
 
 export type FindFilesQuery = z.infer<typeof UpstreamFindFilesQuerySchema> & {
@@ -341,17 +232,13 @@ export const BulkFindFilesSchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
+// Field descriptions are upstream (localGetFileContent.ts). Overlay supplies
+// only the verbosity field, char-budget range, and matchStringContextLines default.
 export const FetchContentQuerySchema = UpstreamFetchContentQuerySchema.extend({
   ...optionalMetaFields,
-  ...describeShapeFields(UpstreamFetchContentQuerySchema.shape, {
-    matchStringContextLines: 'Context lines around match',
-    matchStringIsRegex: 'Treat matchString as regex',
-  }),
   verbosity: fetchContentVerbosityField,
-  charLength: localCharLengthField.describe('Max chars'),
-  matchStringContextLines: matchStringContextLinesField
-    .default(5)
-    .describe('Context lines around match'),
+  charLength: localCharLengthField,
+  matchStringContextLines: matchStringContextLinesField.default(5),
 });
 
 export type FetchContentQuery = z.infer<
@@ -370,25 +257,15 @@ export const BulkFetchContentQuerySchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
+// Field descriptions are upstream (localViewStructure.ts). Overlay supplies
+// only the verbosity field, char-budget range, and pagination defaults.
 export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.extend(
   {
     ...optionalMetaFields,
-    ...describeShapeFields(UpstreamViewStructureQuerySchema.shape, {
-      details: 'Show perms/size/dates',
-      humanReadable: 'Human sizes',
-      entriesPerPage: 'Entries per page',
-      depth: 'Recursion depth',
-    }),
-    charLength: localCharLengthField.describe('Max chars'),
-    charOffset:
-      UpstreamViewStructureQuerySchema.shape.charOffset.describe(
-        'Pagination offset'
-      ),
+    charLength: localCharLengthField,
     verbosity: viewStructureVerbosityField,
-    entriesPerPage: relaxedPaginationLimitField
-      .default(20)
-      .describe('Entries per page'),
-    entryPageNumber: relaxedPageNumberField.default(1).describe('Page number'),
+    entriesPerPage: relaxedPaginationLimitField.default(20),
+    entryPageNumber: relaxedPageNumberField.default(1),
   }
 );
 

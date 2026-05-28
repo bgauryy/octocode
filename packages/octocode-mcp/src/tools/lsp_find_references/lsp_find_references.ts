@@ -12,7 +12,23 @@ import { readFile, stat } from 'fs/promises';
 import { type LSPFindReferencesQuery as UpstreamLSPFindReferencesQuery } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
-import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+
+/** Advisory hints lspFindReferences emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryFindReferencesHint = makeAdvisoryPredicate([
+  'groupbyfile',
+  'includepattern',
+  'excludepattern',
+  'fallback',
+  'impact analysis',
+]);
 
 type LSPFindReferencesQuery =
   WithOptionalMeta<UpstreamLSPFindReferencesQuery> & {
@@ -50,8 +66,8 @@ import { attachLspEvidence } from '../../lsp/evidence.js';
 /**
  * Find all references to a symbol.
  *
- * Wraps the internal core logic with the RFC §4.7.6 verbosity transformer so
- * that `verbosity:"ultra"` shrinks the payload to a flat `refs[]` array of
+ * Wraps the internal core logic with the verbosity transformer so that
+ * `verbosity:"ultra"` shrinks the payload to a flat `refs[]` array of
  * `file:line` strings (≤ 500 refs) or a `byFile` rollup (≥ 500 refs).
  */
 export async function findReferences(
@@ -309,7 +325,6 @@ export function mergeReferenceResults(
       hints: [
         ...(lspResult.hints || []),
         `Requested page ${page} is outside available range (1-${totalPages}).`,
-        `Use page=${totalPages} for the last available page.`,
       ],
     };
   }
@@ -317,11 +332,7 @@ export function mergeReferenceResults(
   const endIndex = Math.min(startIndex + referencesPerPage, totalReferences);
   const paginatedLocations = mergedLocations.slice(startIndex, endIndex);
 
-  const hints = [
-    ...(lspResult.hints || []),
-    `Added ${additionalRefs.length} reference(s) from text search that LSP missed`,
-  ];
-
+  const hints = [...(lspResult.hints || [])];
   if (page < totalPages) {
     hints.push(
       `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
@@ -438,7 +449,7 @@ function paginateGlobalBranchResult(
 }
 
 /**
- * RFC §4.7.6 adaptive ultra threshold. Below this fanout the response is a
+ * Adaptive ultra threshold. Below this fanout the response is a
  * flat `refs[]` of "file:line" strings (still fits one 8 KB page); at or above
  * it the response auto-degrades to a `byFile` rollup so the payload is
  * bounded regardless of fanout. Validated by `measure.mjs::demo9` (≤ 443
@@ -447,8 +458,8 @@ function paginateGlobalBranchResult(
 const ULTRA_REFS_FLAT_THRESHOLD = 500;
 
 /**
- * RFC §4.7.6 + §4.7.9: shape the response according to `verbosity` /
- * `groupByFile`. Compact and verbose are unchanged from today; ultra is
+ * Shape the response according to `verbosity` / `groupByFile`. Omitted /
+ * `"basic"` / `"compact"` preserve full results; ultra is
  * lossy by design and carries an explicit drill-back hint.
  */
 export function applyFindReferencesVerbosity(
@@ -458,6 +469,8 @@ export function applyFindReferencesVerbosity(
   if (result.status !== 'hasResults' || !result.locations?.length)
     return result;
 
+  // groupByFile is a tier-orthogonal product mode — short-circuits the
+  // verbosity switch regardless of basic/compact/ultra.
   if (query.groupByFile) {
     const byFile: Record<string, number> = {};
     for (const loc of result.locations) {
@@ -473,6 +486,13 @@ export function applyFindReferencesVerbosity(
           're-call with includePattern scoped to the top file(s) for individual line numbers'
         ),
       ],
+    };
+  }
+
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryFindReferencesHint, 2),
     };
   }
 
@@ -492,7 +512,7 @@ export function applyFindReferencesVerbosity(
         summary,
         `refs: ${refs.join(', ')}`,
         ...ultraDrillBackHint(
-          're-call with verbosity:"compact" (default) for full context per ref'
+          're-call with verbosity:"basic" (default) for full context per ref'
         ),
       ],
     };

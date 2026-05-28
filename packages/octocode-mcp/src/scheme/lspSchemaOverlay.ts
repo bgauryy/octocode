@@ -3,13 +3,13 @@
  *
  * Mirrors the pattern in `localSchemaOverlay.ts` for LSP tools. The Zod
  * schemas for the LSP tools ship in `@octocodeai/octocode-core`; this overlay
- * re-publishes them with the cross-cutting `verbosity` field so the agent
- * sees the cost-aware mode selector in the tool's input schema.
+ * re-publishes them with the cross-cutting `verbosity` field (basic | compact
+ * | ultra, default "basic") so the agent sees the cost lever in the tool's
+ * input schema.
  *
- * Behaviour is wired per-tool in each handler. Omitted `verbosity` ⇒
- * byte-identical to current behaviour (§3.1 of the RFC).
- *
- * @see `.octocode/rfc/rtk-token-techniques/RFC.md` §4.7.5–§4.7.9
+ * Behaviour is wired per-tool in each handler. Omitted ≡ `"basic"` (full
+ * content + full hints). Description text comes from upstream
+ * `baseSchema.verbosity` — no per-tool describe.
  */
 
 import { z } from 'zod/v4';
@@ -22,7 +22,6 @@ import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
   createVerbosityField,
-  describeShapeFields,
   contextLinesField,
   relaxedPaginationLimitField,
   relaxedPageNumberField,
@@ -44,38 +43,23 @@ const lspOptionalMetaFields = {
     .describe('Why this query helps achieve the research goal.'),
 } as const;
 
-const gotoDefinitionVerbosityField = createVerbosityField(
-  'definition locations with ranges, snippets, resolved position, and semantic/fallback mode',
-  'definition count plus top path:line:column; location content is empty',
-  're-call with verbosity:"compact" for snippets around the location'
-);
-
-const findReferencesVerbosityField = createVerbosityField(
-  'reference locations with ranges, snippets, definition markers, pagination, and semantic/fallback mode',
-  'reference counts plus path:line refs, or a per-file rollup with groupByFile; snippets are dropped',
-  're-call with verbosity:"compact", groupByFile, or includePattern'
-);
-
-const callHierarchyVerbosityField = createVerbosityField(
-  'target item plus caller/callee nodes, snippets, call ranges, pagination, and semantic/fallback mode',
-  'edge counts and a compact A -> B edge list; node content and call arrays are dropped',
-  're-call with verbosity:"compact" for full per-node context'
-);
+// Description text lives upstream in octocode-core baseSchema.verbosity;
+// LSP-specific guidance belongs in each tool's <gotchas>.
+const gotoDefinitionVerbosityField = createVerbosityField();
+const findReferencesVerbosityField = createVerbosityField();
+const callHierarchyVerbosityField = createVerbosityField();
 
 // ---------------------------------------------------------------------------
 // lspGotoDefinition
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (lspGotoDefinition.ts). Overlay supplies
+// only the verbosity field and context-lines range.
 export const LSPGotoDefinitionQuerySchema =
   UpstreamGotoDefinitionQuerySchema.extend({
     ...lspOptionalMetaFields,
-    ...describeShapeFields(UpstreamGotoDefinitionQuerySchema.shape, {
-      symbolName: 'EXACT symbol text, no parens, no partials',
-      lineHint: '1-indexed line. Tool searches ±2 lines',
-      orderHint: '0-indexed occurrence if multiple on line',
-    }),
     verbosity: gotoDefinitionVerbosityField,
-    contextLines: contextLinesField.describe('Context lines around match'),
+    contextLines: contextLinesField,
   }).strip();
 
 export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
@@ -88,30 +72,17 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
 // lspFindReferences
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (lspFindReferences.ts). Overlay supplies
+// only the verbosity field, context-lines/pagination ranges, and the
+// `groupByFile` boolean (which has no upstream description today).
 export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.extend({
     ...lspOptionalMetaFields,
-    ...describeShapeFields(UpstreamFindReferencesQuerySchema.shape, {
-      uri: 'File path. Example: "src/api/client.ts"',
-      symbolName: 'EXACT symbol text, no parens, no partials',
-      lineHint: '1-indexed line. Tool searches ±2 lines',
-      orderHint: '0-indexed occurrence if multiple on line',
-      includeDeclaration: 'Include definition in results',
-      includePattern: 'Glob array — restrict search to these paths',
-      excludePattern: 'Glob array — exclude these paths',
-    }),
     verbosity: findReferencesVerbosityField,
-    contextLines: contextLinesField.describe('Context lines around match'),
-    referencesPerPage: relaxedPaginationLimitField
-      .default(10)
-      .describe('Max refs per page'),
-    page: relaxedPageNumberField.default(1).describe('1-indexed page'),
-    groupByFile: z
-      .boolean()
-      .optional()
-      .describe(
-        'Roll up references into per-file counts (cheaper, for impact analysis)'
-      ),
+    contextLines: contextLinesField,
+    referencesPerPage: relaxedPaginationLimitField.default(10),
+    page: relaxedPageNumberField.default(1),
+    groupByFile: z.boolean().optional(),
   }).strip();
 
 export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
@@ -124,23 +95,15 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
 // lspCallHierarchy
 // ---------------------------------------------------------------------------
 
+// Field descriptions are upstream (lspCallHierarchy.ts). Overlay supplies
+// only the verbosity field and context/pagination ranges.
 export const LSPCallHierarchyQuerySchema =
   UpstreamCallHierarchyQuerySchema.extend({
     ...lspOptionalMetaFields,
-    ...describeShapeFields(UpstreamCallHierarchyQuerySchema.shape, {
-      uri: 'File path. Example: "src/api/handler.ts"',
-      symbolName: 'EXACT function/method name, no parens',
-      lineHint: '1-indexed line where function is defined or called',
-      orderHint: '0-indexed occurrence if multiple on line',
-      direction: '"incoming" (callers) | "outgoing" (callees)',
-      depth: 'Recursion depth',
-    }),
     verbosity: callHierarchyVerbosityField,
-    contextLines: contextLinesField.describe('Context lines around match'),
-    callsPerPage: relaxedPaginationLimitField
-      .default(10)
-      .describe('Max call sites per page'),
-    page: relaxedPageNumberField.default(1).describe('1-indexed page'),
+    contextLines: contextLinesField,
+    callsPerPage: relaxedPaginationLimitField.default(10),
+    page: relaxedPageNumberField.default(1),
   }).strip();
 
 export const BulkLSPCallHierarchyQuerySchema = createRelaxedBulkQuerySchema(

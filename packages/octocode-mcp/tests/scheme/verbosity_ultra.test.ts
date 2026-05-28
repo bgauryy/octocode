@@ -1,17 +1,17 @@
 /**
- * Verbosity:"ultra" — RFC §4.7 acceptance tests for every tool.
+ * Verbosity:"ultra" — acceptance tests for every tool.
  *
  * Each `apply*Verbosity` helper is a pure function on the tool's result type.
  * These tests pin the four shared invariants of the ultra contract:
  *
- *   1. Default invariance — undefined / "compact" / "verbose" are byte-identical
- *      to the input (RFC §3.1).
+ *   1. Default invariance — undefined / "basic" / "compact" preserve the
+ *      data payload (per octocode-core baseSchema.verbosity, default = "basic").
  *   2. Lossiness — "ultra" drops the heavy field (matches, content, locations,
  *      entries, calls) for hasResults.
  *   3. Drill-back hint — every ultra response carries a `Drill-back:` line
- *      so the agent never lands in a dead end (RFC §4.7.9).
- *   4. Bounded payload — the synthetic summary fits the per-tool char budget
- *      stated in RFC §4.7.1–§4.7.7.
+ *      so the agent never lands in a dead end.
+ *   4. Bounded payload — the synthetic summary fits a small per-tool char
+ *      budget.
  *
  * Special-case: `applyFindReferencesVerbosity` is adaptive — flat refs[] of
  * `file:line` strings below 500 refs, `topFiles`-style rollup above. Both
@@ -27,10 +27,14 @@ import { applyFindReferencesVerbosity } from '../../src/tools/lsp_find_reference
 import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import type { Verbosity } from '../../src/scheme/localSchemaOverlay.js';
 
+// Canonical default is `basic` per octocode-core/src/resources/global.ts
+// baseSchema.verbosity. `compact` trims hints but keeps content; only `ultra`
+// drops content. Both `basic` (default) and `compact` must preserve the
+// data payload below — these tests assert that.
 const VERBOSITIES_PRESERVING_DEFAULT: Array<Verbosity | undefined> = [
   undefined,
+  'basic',
   'compact',
-  'verbose',
 ];
 
 function hintsBlob(result: { hints?: string[] }): string {
@@ -38,10 +42,10 @@ function hintsBlob(result: { hints?: string[] }): string {
 }
 
 // ---------------------------------------------------------------------------
-// localSearchCode (ripgrep) — RFC §4.7.1
+// localSearchCode (ripgrep)
 // ---------------------------------------------------------------------------
 
-describe('applyRipgrepVerbosity — RFC §4.7.1', () => {
+describe('applyRipgrepVerbosity', () => {
   const baseResult = {
     status: 'hasResults' as const,
     files: [
@@ -95,7 +99,7 @@ describe('applyRipgrepVerbosity — RFC §4.7.1', () => {
     expect(blob.toLowerCase()).toMatch(/drill-back|re-call/);
   });
 
-  it('ultra summary fits the ≤ 200 char budget (RFC §4.7.1)', () => {
+  it('ultra summary fits the ≤ 200 char budget', () => {
     const out = applyRipgrepVerbosity(
       baseResult,
       { ...baseQuery, verbosity: 'ultra' },
@@ -107,10 +111,10 @@ describe('applyRipgrepVerbosity — RFC §4.7.1', () => {
 });
 
 // ---------------------------------------------------------------------------
-// localFindFiles — RFC §4.7.3
+// localFindFiles
 // ---------------------------------------------------------------------------
 
-describe('applyFindFilesVerbosity — RFC §4.7.3', () => {
+describe('applyFindFilesVerbosity', () => {
   const baseResult = {
     status: 'hasResults' as const,
     files: [
@@ -167,10 +171,10 @@ describe('applyFindFilesVerbosity — RFC §4.7.3', () => {
 });
 
 // ---------------------------------------------------------------------------
-// localGetFileContent (fetchContent) — RFC §4.7.4
+// localGetFileContent (fetchContent)
 // ---------------------------------------------------------------------------
 
-describe('applyFetchContentVerbosity — RFC §4.7.4', () => {
+describe('applyFetchContentVerbosity', () => {
   const baseResult = {
     status: 'hasResults' as const,
     filePath: '/repo/src/foo.ts',
@@ -207,10 +211,10 @@ describe('applyFetchContentVerbosity — RFC §4.7.4', () => {
 });
 
 // ---------------------------------------------------------------------------
-// lspGotoDefinition — RFC §4.7.5
+// lspGotoDefinition
 // ---------------------------------------------------------------------------
 
-describe('applyGotoDefinitionVerbosity — RFC §4.7.5', () => {
+describe('applyGotoDefinitionVerbosity', () => {
   const baseResult = {
     status: 'hasResults' as const,
     locations: [
@@ -268,10 +272,10 @@ describe('applyGotoDefinitionVerbosity — RFC §4.7.5', () => {
 });
 
 // ---------------------------------------------------------------------------
-// lspFindReferences — RFC §4.7.6 (adaptive ultra)
+// lspFindReferences (adaptive ultra)
 // ---------------------------------------------------------------------------
 
-describe('applyFindReferencesVerbosity — RFC §4.7.6 (adaptive)', () => {
+describe('applyFindReferencesVerbosity (adaptive)', () => {
   function makeRefs(n: number, filesCount = 4) {
     return Array.from({ length: n }).map((_, i) => ({
       uri: `/repo/src/file${i % filesCount}.ts`,
@@ -366,10 +370,10 @@ describe('applyFindReferencesVerbosity — RFC §4.7.6 (adaptive)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// lspCallHierarchy — RFC §4.7.7
+// lspCallHierarchy
 // ---------------------------------------------------------------------------
 
-describe('applyCallHierarchyVerbosity — RFC §4.7.7', () => {
+describe('applyCallHierarchyVerbosity', () => {
   const baseResult = {
     status: 'hasResults' as const,
     direction: 'incoming' as const,

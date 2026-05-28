@@ -89,12 +89,40 @@ function cleanupStalePendingRequests(): void {
   }
 }
 
+/**
+ * Fields that MUST NOT be part of the cache key. Verbosity is a per-request
+ * response-shaping lever — basic / compact / ultra all share the same upstream
+ * fetch and the same cached payload (shape-down happens post-fetch).
+ * Including it would create N separate cache entries per semantic query and
+ * defeat the cache.
+ */
+const CACHE_KEY_EXCLUDED_FIELDS: ReadonlySet<string> = new Set(['verbosity']);
+
+function stripCacheKeyExcludedFields(params: unknown): unknown {
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+    return params;
+  }
+  const obj = params as Record<string, unknown>;
+  let touched = false;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj)) {
+    if (CACHE_KEY_EXCLUDED_FIELDS.has(k)) {
+      touched = true;
+      continue;
+    }
+    out[k] = obj[k];
+  }
+  return touched ? out : params;
+}
+
 export function generateCacheKey(
   prefix: string,
   params: unknown,
   sessionId?: string
 ): string {
-  const paramString = createStableParamString(params);
+  const paramString = createStableParamString(
+    stripCacheKeyExcludedFields(params)
+  );
 
   const finalParamString = sessionId
     ? `${sessionId}:${paramString}`

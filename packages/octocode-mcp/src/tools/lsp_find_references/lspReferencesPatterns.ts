@@ -230,18 +230,12 @@ export async function findReferencesWithPatternMatching(
     resultsPerPage: referencesPerPage,
   };
 
-  const hints = [
-    ...getHints(TOOL_NAME, 'hasResults'),
-    `Found ${totalReferences} reference(s) using text search`,
-    'Each location = a usage of this symbol; isDefinition=true marks the declaration',
-  ];
-
+  const hints: string[] = [];
   if (hasFilters && totalUnfiltered !== totalReferences) {
     hints.push(
       `Filtered: ${totalReferences} of ${totalUnfiltered} total references match patterns.`
     );
   }
-
   if (pagination.hasMore) {
     hints.push(
       `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`

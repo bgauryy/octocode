@@ -270,9 +270,10 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     comments: query.comments,
     reactions: query.reactions,
     interactions: query.interactions,
-    merged: query.merged,
     draft: query.draft,
-    match: query.match as Array<'title' | 'body' | 'comments'> | undefined,
+    matchScope: query.matchScope as
+      | Array<'title' | 'body' | 'comments'>
+      | undefined,
     withComments: query.withComments,
     withCommits: query.withCommits,
     type: query.type as

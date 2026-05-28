@@ -16,6 +16,13 @@ import type {
   ViewStructureQuery as UpstreamViewStructureQuery,
 } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 /**
@@ -138,7 +145,7 @@ export async function viewStructure(
     const summary = summarizeEntries(filteredEntries);
 
     return attachRawResponseChars(
-      applyVerbosity(
+      applyViewStructureVerbosity(
         {
           status,
           entries: outputEntries,
@@ -147,18 +154,20 @@ export async function viewStructure(
           ...(warnings.length > 0 && { warnings }),
           hints: [
             ...entryPaginationHints,
-            ...getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, status, {
-              entryCount: totalEntries,
-              path: query.path,
-              extension: query.extension,
-              pattern:
-                typeof (query as { pattern?: unknown }).pattern === 'string'
-                  ? (query as { pattern?: string }).pattern
-                  : undefined,
-            } as Record<string, unknown>),
+            ...(status === 'empty'
+              ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
+                  entryCount: totalEntries,
+                  path: query.path,
+                  extension: query.extension,
+                  pattern:
+                    typeof (query as { pattern?: unknown }).pattern === 'string'
+                      ? (query as { pattern?: string }).pattern
+                      : undefined,
+                } as Record<string, unknown>)
+              : []),
           ],
         },
-        query.verbosity
+        query
       ),
       result.stdout.length
     );
@@ -218,12 +227,8 @@ async function viewStructureRecursive(
     return createErrorResult(toolError, query, {
       toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
       customHints: isNotFound
-        ? [
-            'Path does not exist or is not a directory',
-            'Verify the path using localFindFiles',
-            'To read a file, use localGetFileContent instead',
-          ]
-        : ['Check file/directory permissions'],
+        ? [`Path not found: ${basePath}`]
+        : [`Permission denied: ${basePath}`],
     }) as LocalViewStructureToolResult;
   }
 
@@ -272,7 +277,10 @@ async function viewStructureRecursive(
   const outputEntries = paginatedEntries.map(entry => toEntryObject(entry));
   const warnings = buildWalkWarnings(walkStats);
   const status = totalEntries > 0 ? 'hasResults' : 'empty';
-  const baseHints = getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, status);
+  const baseHints =
+    status === 'empty'
+      ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
+      : [];
   const entryPaginationHints = buildEntryPaginationHints(
     filteredEntries,
     paginatedEntries.length,
@@ -282,7 +290,7 @@ async function viewStructureRecursive(
   const summary = summarizeEntries(filteredEntries);
 
   return attachRawResponseChars(
-    applyVerbosity(
+    applyViewStructureVerbosity(
       {
         status,
         entries: outputEntries,
@@ -291,35 +299,58 @@ async function viewStructureRecursive(
         ...(warnings.length > 0 && { warnings }),
         hints: [...baseHints, ...entryPaginationHints],
       },
-      query.verbosity
+      query
     ),
     countSerializedChars(entries)
   );
 }
 
 /**
+ * Predicate identifying advisory hints this tool emits — recovery prose,
+ * monorepo suggestions, large-tree warnings. Stripped under `compact`.
+ * Substring-OR, case-insensitive.
+ */
+const isAdvisoryViewStructureHint = makeAdvisoryPredicate([
+  'monorepo',
+  'workspace root',
+  'auto-excludes',
+  'large tree',
+  'large payload',
+  'large directory',
+]);
+
+/**
  * Shape the result for the requested verbosity.
  *
- * RFC §4.7.2 + §4.7.9: when the agent opts into `verbosity: "ultra"`, drop
- * `entries[]` and return the one-line `summary` only. `pagination` is kept so
- * the agent still sees `totalEntries` and can decide whether to drill in.
- *
- * Compact / verbose / omitted → byte-identical to today (§3.1 contract).
+ * - ultra: drop `entries[]`, emit summary + drill-back hint via
+ *   `ultraDrillBackHint()`. `pagination` is kept so the agent still sees
+ *   `totalEntries` and can decide whether to drill in.
+ * - compact: trim advisory hints via `compactTrimHints()`; `entries[]`
+ *   unchanged.
+ * - omitted / basic: passthrough.
  */
-function applyVerbosity(
+export function applyViewStructureVerbosity(
   result: LocalViewStructureToolResult,
-  verbosity: ViewStructureQuery['verbosity']
+  query: ViewStructureQuery
 ): LocalViewStructureToolResult {
-  if (verbosity !== 'ultra') return result;
-  if (result.status === 'error' || result.status === 'empty') return result;
-
-  return {
-    ...result,
-    entries: [],
-    hints: [
-      `verbosity:"ultra" — entries[] dropped. summary: ${result.summary ?? ''}`,
-      'Drill-back: re-call with verbosity:"compact" (default) to see entries; ' +
-        'use entryPageNumber + entriesPerPage if there are many.',
-    ],
-  };
+  if (isUltra(query.verbosity)) {
+    if (result.status !== 'hasResults') return result;
+    return {
+      ...result,
+      entries: [],
+      hints: [
+        `entries[] dropped. summary: ${result.summary ?? ''}`,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" to see entries; use entryPageNumber + entriesPerPage if many.'
+        ),
+      ],
+    };
+  }
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryViewStructureHint, 2),
+    };
+  }
+  return result;
 }

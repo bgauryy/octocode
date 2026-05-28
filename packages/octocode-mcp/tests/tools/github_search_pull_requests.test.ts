@@ -554,7 +554,6 @@ describe('GitHub Search Pull Requests Tool', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('35+ file changes');
-      expect(responseText).toContain('charOffset/charLength');
     });
   });
 

@@ -20,6 +20,9 @@ import {
 } from '../providerExecution.js';
 import { buildGithubSearchCodeFinalizer } from './finalizer.js';
 
+// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
+export { applyGithubSearchCodeVerbosity } from './finalizer.js';
+
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
 export async function searchMultipleGitHubCode(

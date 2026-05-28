@@ -5,6 +5,28 @@ import type {
 } from '@octocodeai/octocode-core';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+
+const ULTRA_PR_LIMIT = 3;
+
+/** Advisory hints githubSearchPullRequests emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisorySearchPRsHint = makeAdvisoryPredicate([
+  'pr archaeology',
+  'title-only',
+  'withcomments',
+  'withcommits',
+  'add tokens',
+  'start with type',
+  'merged shorthand',
+]);
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
@@ -51,6 +73,43 @@ export async function searchMultipleGitHubPullRequests(
     async (query: PartialPRQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
+
+        // Pre-flight verbosity caps under ultra: cap limit to 3; coerce
+        // type→"metadata" unless caller passed prNumber + explicit type;
+        // drop partialContentMetadata when type is coerced. Record what
+        // fired so we can emit a verbosity-downgrade warning later.
+        const prVerbosityIsUltra = isUltra(
+          (query as { verbosity?: Verbosity }).verbosity
+        );
+        const prDowngradeFields: string[] = [];
+        if (prVerbosityIsUltra) {
+          const userLimit = (query as { limit?: number }).limit;
+          if (typeof userLimit === 'number' && userLimit > ULTRA_PR_LIMIT) {
+            (query as { limit?: number }).limit = ULTRA_PR_LIMIT;
+            prDowngradeFields.push(`limit→${ULTRA_PR_LIMIT}`);
+          }
+          const hasExplicitType =
+            (query as { type?: string }).type !== undefined;
+          const hasPrNumber = query.prNumber !== undefined;
+          const shouldCoerceType = !(hasPrNumber && hasExplicitType);
+          if (shouldCoerceType) {
+            const currentType = (query as { type?: string }).type;
+            if (currentType && currentType !== 'metadata') {
+              (query as { type?: string }).type = 'metadata';
+              prDowngradeFields.push('type→metadata');
+            } else if (!currentType) {
+              (query as { type?: string }).type = 'metadata';
+            }
+            if (
+              (query as { partialContentMetadata?: unknown })
+                .partialContentMetadata !== undefined
+            ) {
+              delete (query as { partialContentMetadata?: unknown })
+                .partialContentMetadata;
+              prDowngradeFields.push('partialContentMetadata dropped');
+            }
+          }
+        }
 
         if (query.query && String(query.query).length > 256) {
           return createErrorResult(
@@ -155,9 +214,7 @@ export async function searchMultipleGitHubPullRequests(
             })
           );
           fileChangeHints.push(
-            `Large PR(s) ${prNumbers} have ${maxFiles}+ file changes`,
-            'Use charOffset/charLength to paginate through full output',
-            'Or use type=\'partialContent\' with partialContentMetadata=[{file: "path/to/file.ts"}] for targeted file diffs'
+            `Large PR(s) ${prNumbers} have ${maxFiles}+ file changes.`
           );
         }
 
@@ -166,9 +223,23 @@ export async function searchMultipleGitHubPullRequests(
           (sizeLimitResult.wasLimited && sizeLimitResult.pagination?.hasMore)
         );
 
+        const shaped = applyGithubSearchPullRequestsVerbosity(
+          {
+            data: outputLimitData,
+            pullRequests,
+            extraHints: [
+              ...paginationHints,
+              ...outputLimitHints,
+              ...fileChangeHints,
+            ],
+            downgradeFields: prDowngradeFields,
+          },
+          query as PartialPRQuery
+        );
+
         return createSuccessResult(
           query,
-          outputLimitData,
+          shaped.data,
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
           {
@@ -184,11 +255,7 @@ export async function searchMultipleGitHubPullRequests(
               query: query.query,
               prNumber: query.prNumber,
             },
-            extraHints: [
-              ...paginationHints,
-              ...outputLimitHints,
-              ...fileChangeHints,
-            ],
+            extraHints: shaped.extraHints,
             evidence: {
               kind: 'pr',
               answerReady: hasContent,
@@ -224,4 +291,61 @@ export async function searchMultipleGitHubPullRequests(
       peerEvidence: true,
     }
   );
+}
+
+/**
+ * Per-tool verbosity shaping for githubSearchPullRequests. Under ultra,
+ * projects each PR to {number, title, state, merged} (cap 3) and emits a
+ * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
+ * Basic / omitted: passthrough.
+ */
+export function applyGithubSearchPullRequestsVerbosity(
+  input: {
+    data: Record<string, unknown>;
+    pullRequests: Array<Record<string, unknown>>;
+    extraHints: string[];
+    downgradeFields: string[];
+  },
+  query: PartialPRQuery
+): { data: Record<string, unknown>; extraHints: string[] } {
+  const verbosity = (query as { verbosity?: Verbosity }).verbosity;
+  const downgradeHint =
+    input.downgradeFields.length > 0
+      ? [`verbosity-downgrade: ${input.downgradeFields.join(', ')} (ultra)`]
+      : [];
+
+  if (isUltra(verbosity)) {
+    const ultraData = {
+      ...input.data,
+      pull_requests: input.pullRequests.slice(0, 3).map(pr => ({
+        number: (pr as { number?: number }).number,
+        title: (pr as { title?: string }).title,
+        state: (pr as { state?: string }).state,
+        merged: (pr as { merged?: boolean }).merged,
+      })),
+    };
+    const summary = `${input.pullRequests.length} PRs (top: #${
+      (input.pullRequests[0] as { number?: number })?.number ?? '?'
+    })`;
+    return {
+      data: ultraData,
+      extraHints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) and prNumber=<top> for diff/comments'
+        ),
+        ...downgradeHint,
+        ...input.extraHints,
+      ],
+    };
+  }
+
+  const allHints = [...downgradeHint, ...input.extraHints];
+  if (isCompact(verbosity)) {
+    return {
+      data: input.data,
+      extraHints: compactTrimHints(allHints, isAdvisorySearchPRsHint, 2) ?? [],
+    };
+  }
+  return { data: input.data, extraHints: allHints };
 }

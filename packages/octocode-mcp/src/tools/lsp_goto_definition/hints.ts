@@ -9,27 +9,16 @@
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
-  hasResults: (ctx: HintContext = {}) => {
-    const { locationCount } = ctx;
-    if (locationCount && locationCount > 1) {
-      return [`Found ${locationCount} definitions.`];
-    }
-    return [];
-  },
-
   empty: (ctx: HintContext = {}) => {
     const { searchRadius, lineHint } = ctx;
     if (searchRadius) {
-      return [
-        `Searched ±${searchRadius} lines from lineHint=${lineHint}. Adjust hint.`,
-      ];
+      return [`Searched ±${searchRadius} lines from lineHint=${lineHint}.`];
     }
     return [];
   },
 
   error: (ctx: HintContext = {}) => {
     const { symbolName, lineHint, uri, errorType } = ctx;
-
     if (errorType === 'symbol_not_found') {
       return [`Symbol "${symbolName}" not found at line ${lineHint}.`];
     }

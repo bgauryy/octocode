@@ -463,7 +463,6 @@ export interface Config {
       const text = result.content?.[0]?.text ?? '';
       // Note: YAML output uses quotes around string values
       expect(text).toContain('status: "hasResults"');
-      expect(text).toContain('Found 1 definition(s) via Language Server');
       expect(text).toContain('>   2| beta');
     });
 

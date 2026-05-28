@@ -10,6 +10,11 @@ import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 
+// Verbosity shaping is defined alongside the result builder to avoid a circular
+// import (execution → searchContentRipgrep → ripgrepExecutor → builder).
+// Re-exported here so every tool exposes `apply<Tool>Verbosity` from execution.ts.
+export { applyRipgrepVerbosity } from './ripgrepResultBuilder.js';
+
 /**
  * Execute bulk ripgrep search operation.
  * Wraps searchContentRipgrep with bulk operation handling for multiple queries.

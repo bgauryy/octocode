@@ -9,7 +9,23 @@ import { dirname, resolve as resolvePath } from 'path';
 
 import type { LSPGotoDefinitionQuery as UpstreamLSPGotoDefinitionQuery } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
-import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+
+/** Advisory hints lspGotoDefinition emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryGotoDefinitionHint = makeAdvisoryPredicate([
+  'multiple definitions',
+  'dynamic import',
+  'fallback',
+  'overload',
+  're-export',
+]);
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type LSPGotoDefinitionQuery =
@@ -143,10 +159,7 @@ async function gotoDefinition(
       return createErrorResult(error, query, {
         toolName: TOOL_NAME,
         extra: { resolvedPath: absolutePath },
-        customHints: [
-          `Could not read file: ${query.uri}`,
-          'Verify the file exists and is accessible',
-        ],
+        customHints: [`Could not read file: ${query.uri}`],
       }) as GotoDefinitionResult;
     }
 
@@ -371,11 +384,7 @@ async function gotoDefinitionWithLSP(
             locations: [manualLocation],
             resolvedPosition: _position,
             searchRadius: 5,
-            hints: [
-              ...getHints(TOOL_NAME, 'hasResults'),
-              'Resolved via dynamic import module path (.js → .ts)',
-              'Use lspFindReferences to find all usages',
-            ],
+            hints: ['Resolved via dynamic import module path (.js → .ts)'],
           },
           query
         );
@@ -502,15 +511,10 @@ async function gotoDefinitionWithLSP(
     resolvedPosition: _position,
     searchRadius: 5,
     hints: [
-      ...getHints(TOOL_NAME, 'hasResults'),
-      `Found ${locations.length} definition(s) via Language Server`,
-      'Each location = a definition site; use range.start.line+1 as lineHint for follow-up LSP calls',
       followedImport ? 'Followed import chain to source definition' : undefined,
       locations.length > 1
         ? 'Multiple definitions - check overloads or re-exports'
         : undefined,
-      'Use lspFindReferences to find all usages',
-      'Use lspCallHierarchy to trace call graph',
     ].filter(Boolean) as string[],
   };
 }
@@ -621,20 +625,17 @@ function createFallbackResult(
     hints: [
       options.lspUnavailable ? LSP_UNAVAILABLE_HINT : undefined,
       options.semanticFallbackHint,
-      ...getHints(TOOL_NAME, 'hasResults'),
-      'Each location = a definition site; use range.start.line+1 as lineHint for follow-up LSP calls',
       resolvedSymbol.foundAtLine !== query.lineHint
         ? `Symbol found at line ${resolvedSymbol.foundAtLine} (hint was ${query.lineHint})`
         : undefined,
-      'Use lspFindReferences to find all usages',
     ].filter(Boolean) as string[],
   };
 }
 
 /**
- * RFC §4.7.5: when `verbosity:"ultra"` is requested, collapse each location
+ * When `verbosity:"ultra"` is requested, collapse each location
  * to a `file:line:col` string (drop `content` snippets) and emit a single
- * summary hint. Compact / verbose / omitted behave identically to today.
+ * summary hint. Omitted / `"basic"` / `"compact"` behave identically to today.
  *
  * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
  */
@@ -642,31 +643,37 @@ export function applyGotoDefinitionVerbosity(
   result: GotoDefinitionResult,
   query: LSPGotoDefinitionQuery
 ): GotoDefinitionResult {
-  if (!isUltra(query.verbosity)) return result;
-  if (result.status !== 'hasResults') return result;
-
-  const refs = (result.locations ?? []).map(loc => {
-    const line = loc.range?.start?.line ?? 0;
-    const col = loc.range?.start?.character ?? 0;
-    return `${loc.uri}:${line + 1}:${col + 1}`;
-  });
-  const top = refs[0] ?? '';
-  const summary = `${refs.length} definition(s)${top ? ` (top: ${top})` : ''}`;
-
-  return {
-    ...result,
-    locations: (result.locations ?? []).map(loc => ({
-      uri: loc.uri,
-      range: loc.range,
-      content: '',
-    })),
-    hints: [
-      summary,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"compact" (default) for snippets around the location'
-      ),
-    ],
-  };
+  if (isUltra(query.verbosity)) {
+    if (result.status !== 'hasResults') return result;
+    const refs = (result.locations ?? []).map(loc => {
+      const line = loc.range?.start?.line ?? 0;
+      const col = loc.range?.start?.character ?? 0;
+      return `${loc.uri}:${line + 1}:${col + 1}`;
+    });
+    const top = refs[0] ?? '';
+    const summary = `${refs.length} definition(s)${top ? ` (top: ${top})` : ''}`;
+    return {
+      ...result,
+      locations: (result.locations ?? []).map(loc => ({
+        uri: loc.uri,
+        range: loc.range,
+        content: '',
+      })),
+      hints: [
+        summary,
+        ...ultraDrillBackHint(
+          're-call with verbosity:"basic" (default) for snippets around the location'
+        ),
+      ],
+    };
+  }
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryGotoDefinitionHint, 2),
+    };
+  }
+  return result;
 }
 
 /**

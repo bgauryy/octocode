@@ -215,8 +215,17 @@ function createBulkResponse<
   }
 
   // TSV mode — emit columns/rows derived from the per-tool projection and
-  // mark the envelope with `format: "tsv"`.
-  if (config.format === 'tsv') {
+  // mark the envelope with `format: "tsv"`. Skip TSV entirely when every
+  // query is verbosity:"ultra" (ultra wipes the data field, so there are
+  // no rows to emit; emitting empty columns/rows is just noise).
+  const allUltra =
+    queries.length > 0 &&
+    queries.every(
+      (q): boolean =>
+        (q as Record<string, unknown> | undefined)?.verbosity === 'ultra'
+    );
+  const tsvEmitted = config.format === 'tsv' && !allUltra;
+  if (tsvEmitted) {
     const projection = getTsvProjection(config.toolName);
     if (projection) {
       const rows = queryPaginatedResults.flatMap(q =>
@@ -233,10 +242,9 @@ function createBulkResponse<
   // The complete `results` array is still available via structuredContent.
   type BulkResponseForText = Omit<BulkToolResponse, 'results'> &
     Partial<Pick<BulkToolResponse, 'results'>>;
-  const textPayload: BulkResponseForText =
-    config.format === 'tsv'
-      ? { ...responseData, results: undefined }
-      : responseData;
+  const textPayload: BulkResponseForText = tsvEmitted
+    ? { ...responseData, results: undefined }
+    : responseData;
   const text = createResponseFormat(
     textPayload as BulkToolResponse,
     fullKeysPriority

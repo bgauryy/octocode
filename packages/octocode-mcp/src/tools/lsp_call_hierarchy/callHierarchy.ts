@@ -19,7 +19,22 @@ import type { CallHierarchyResult } from '../../lsp/types.js';
 import type { LSPCallHierarchyQuery as UpstreamLSPCallHierarchyQuery } from '@octocodeai/octocode-core';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
-import { isUltra, ultraDrillBackHint } from '../../scheme/verbosity.js';
+import {
+  isUltra,
+  isCompact,
+  compactTrimHints,
+  makeAdvisoryPredicate,
+  ultraDrillBackHint,
+} from '../../scheme/verbosity.js';
+
+/** Advisory hints lspCallHierarchy emits; stripped under compact.
+ * Substring-OR, case-insensitive. */
+const isAdvisoryCallHierarchyHint = makeAdvisoryPredicate([
+  'prefer depth=1',
+  'risks timeouts',
+  'hot function',
+  'fallback',
+]);
 
 type LSPCallHierarchyQuery = WithOptionalMeta<UpstreamLSPCallHierarchyQuery> & {
   verbosity?: Verbosity;
@@ -43,8 +58,8 @@ import {
 /**
  * Process a single call hierarchy query.
  *
- * Wraps the internal core logic with the RFC §4.7.7 verbosity transformer
- * so that `verbosity:"ultra"` returns graph edges only (no per-node content).
+ * Wraps the internal core logic with the verbosity transformer so that
+ * `verbosity:"ultra"` returns graph edges only (no per-node content).
  */
 export async function processCallHierarchy(
   query: LSPCallHierarchyQuery
@@ -289,8 +304,8 @@ function applyCallHierarchyOutputLimit(
 }
 
 /**
- * RFC §4.7.7: when `verbosity:"ultra"` is requested, drop tree node content
- * and emit graph edges only. Compact / verbose / omitted behave identically
+ * When `verbosity:"ultra"` is requested, drop tree node content and emit
+ * graph edges only. Omitted / `"basic"` / `"compact"` behave identically
  * to today.
  *
  * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
@@ -299,8 +314,14 @@ export function applyCallHierarchyVerbosity(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryCallHierarchyHint, 2),
+    };
+  }
   if (!isUltra(query.verbosity)) return result;
-  if (result.status === 'error') return result;
+  if (result.status !== 'hasResults') return result;
 
   const direction = (result.direction ?? query.direction ?? 'incoming') as
     | 'incoming'
@@ -355,7 +376,7 @@ export function applyCallHierarchyVerbosity(
       summary,
       `edges: ${edges.join('; ')}`,
       ...ultraDrillBackHint(
-        're-call with verbosity:"compact" (default) for full per-node context'
+        're-call with verbosity:"basic" (default) for full per-node context'
       ),
     ],
   };
