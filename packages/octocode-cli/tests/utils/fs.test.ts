@@ -1,6 +1,4 @@
-/**
- * File System Utilities Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -22,16 +20,16 @@ describe('File System Utilities', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    // Create a unique temp directory for each test
+
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-test-'));
   });
 
   afterEach(() => {
-    // Clean up temp directory
+
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {
-      // Ignore cleanup errors
+
     }
   });
 
@@ -51,7 +49,7 @@ describe('File System Utilities', () => {
     });
 
     it('should return false on error (invalid path)', () => {
-      // Test with null byte which is invalid on most systems
+
       expect(dirExists('\0')).toBe(false);
     });
   });
@@ -235,7 +233,7 @@ describe('File System Utilities', () => {
 
   describe('copyDirectory', () => {
     it('should copy directory recursively', () => {
-      // Create source structure
+
       const srcDir = path.join(tempDir, 'src');
       fs.mkdirSync(srcDir);
       fs.writeFileSync(path.join(srcDir, 'file1.txt'), 'content1');
@@ -295,12 +293,11 @@ describe('File System Utilities', () => {
     });
 
     it('should work when destination directory already exists', () => {
-      // Create source structure
+
       const srcDir = path.join(tempDir, 'existing-src');
       fs.mkdirSync(srcDir);
       fs.writeFileSync(path.join(srcDir, 'file.txt'), 'content');
 
-      // Create destination directory beforehand
       const destDir = path.join(tempDir, 'existing-dest');
       fs.mkdirSync(destDir);
 

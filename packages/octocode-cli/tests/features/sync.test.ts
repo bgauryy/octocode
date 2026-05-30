@@ -1,6 +1,4 @@
-/**
- * Sync Feature Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
@@ -21,7 +19,6 @@ import {
 } from '../../src/features/sync.js';
 import type { MCPServer, MCPConfig } from '../../src/types/index.js';
 
-// Mock dependencies
 vi.mock('../../src/utils/mcp-paths.js', () => ({
   detectAvailableClients: vi.fn(),
   getMCPConfigPath: vi.fn(),

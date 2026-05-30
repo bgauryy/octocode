@@ -1,6 +1,4 @@
-/**
- * MCP marketplace command (`src/cli/commands/mcp.ts`)
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

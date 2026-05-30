@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// We need to test the validation functions indirectly by testing buildServerConfig
-// through the installExternalMCP flow or by extracting them for testing
-
-// Since the validation functions are not exported, we test them through the flow
-// by mocking the dependencies and testing the behavior
-
-// Mock the prompts module
 vi.mock('../../src/utils/prompts.js', () => ({
   loadInquirer: vi.fn(),
   input: vi.fn(),
@@ -14,24 +7,18 @@ vi.mock('../../src/utils/prompts.js', () => ({
   Separator: class {},
 }));
 
-// Mock the MCP IO module
 vi.mock('../../src/utils/mcp-io.js', () => ({
   readMCPConfig: vi.fn(),
   writeMCPConfig: vi.fn(),
 }));
 
-// Mock the MCP paths module
 vi.mock('../../src/utils/mcp-paths.js', () => ({
   getMCPConfigPath: vi.fn().mockReturnValue('/mock/path/config.json'),
 }));
 
-// Import the mock functions for control
 import { readMCPConfig, writeMCPConfig } from '../../src/utils/mcp-io.js';
 import type { MCPRegistryEntry } from '../../src/configs/mcp-registry.js';
 
-/**
- * Test helper to create a mock MCP registry entry
- */
 function createMockMCP(
   overrides: Partial<MCPRegistryEntry> = {}
 ): MCPRegistryEntry {
@@ -63,8 +50,7 @@ describe('External MCP Flow - Argument Validation', () => {
 
   describe('Safe CLI Flags', () => {
     it('should accept single-letter flags like -y', () => {
-      // This test validates that -y flag is accepted
-      // The fix should allow this to work
+
       const mcp = createMockMCP({
         installConfig: {
           command: 'npx',
@@ -72,12 +58,10 @@ describe('External MCP Flow - Argument Validation', () => {
         },
       });
 
-      // If we can create the MCP without throwing, the validation passed
       expect(() => {
-        // We can't directly test buildServerConfig since it's not exported
-        // but we can verify the fix through the registry entries
+
         const args = mcp.installConfig.args;
-        // The -y flag should be considered safe
+
         expect(args).toContain('-y');
       }).not.toThrow();
     });
@@ -99,9 +83,8 @@ describe('External MCP Flow - Argument Validation', () => {
     it('should accept long flags like --yes, --no-cache', () => {
       const args = ['--yes', '--no-cache', '--port=8080', '--host=localhost'];
 
-      // All of these should be valid flags
       args.forEach(arg => {
-        // Safe flag pattern: --?[a-zA-Z][a-zA-Z0-9-]*(=\S+)?
+
         const safeFlagPattern = /^--?[a-zA-Z][a-zA-Z0-9-]*(=\S+)?$/;
         expect(safeFlagPattern.test(arg)).toBe(true);
       });
@@ -204,8 +187,6 @@ describe('External MCP Flow - Argument Validation', () => {
         await import('../../src/configs/mcp-registry.js');
 
       const safeFlagPattern = /^--?[a-zA-Z][a-zA-Z0-9-]*(=\S+)?$/;
-      // Pattern for environment variable placeholders like ${VAR_NAME}
-      // These may appear standalone or embedded in paths like ${VAR}:/path
       const containsPlaceholderPattern = /\$\{[A-Z_][A-Z0-9_]*\}/;
       const dangerousPatterns = [
         /[;&|`$]/,
@@ -220,22 +201,17 @@ describe('External MCP Flow - Argument Validation', () => {
 
       for (const mcp of MCP_REGISTRY) {
         for (const arg of mcp.installConfig.args) {
-          // Skip safe flags
           if (safeFlagPattern.test(arg)) {
             continue;
           }
 
-          // Skip arguments containing environment variable placeholders
-          // These get replaced by user-provided values before validation
           if (containsPlaceholderPattern.test(arg)) {
             continue;
           }
 
-          // Check none of the dangerous patterns match
           for (const pattern of dangerousPatterns) {
             const isMatch = pattern.test(arg);
             if (isMatch) {
-              // Provide helpful error message
               expect(
                 isMatch,
                 `MCP "${mcp.id}" has potentially unsafe arg "${arg}" matching pattern ${pattern}`
@@ -250,8 +226,6 @@ describe('External MCP Flow - Argument Validation', () => {
       const { MCP_REGISTRY } =
         await import('../../src/configs/mcp-registry.js');
 
-      // Extended list includes all commands used in the registry
-      // Note: Some MCPs use non-standard commands that require source installation
       const allowedCommands = [
         'npx',
         'node',
@@ -269,7 +243,6 @@ describe('External MCP Flow - Argument Validation', () => {
         'pip',
       ];
 
-      // Count MCPs with allowed vs non-allowed commands
       const mcpsWithNonAllowedCommands: string[] = [];
 
       for (const mcp of MCP_REGISTRY) {
@@ -281,8 +254,6 @@ describe('External MCP Flow - Argument Validation', () => {
         }
       }
 
-      // Log MCPs with non-allowed commands for visibility
-      // Some MCPs use source installation which may have custom commands
       if (mcpsWithNonAllowedCommands.length > 0) {
         console.log(
           'MCPs with non-standard commands (may be source installs):',
@@ -290,12 +261,10 @@ describe('External MCP Flow - Argument Validation', () => {
         );
       }
 
-      // Most MCPs should use allowed commands
       const totalMcps = MCP_REGISTRY.length;
       const nonStandardCount = mcpsWithNonAllowedCommands.length;
       const standardCount = totalMcps - nonStandardCount;
 
-      // At least 90% should use standard commands
       expect(standardCount / totalMcps).toBeGreaterThan(0.9);
     });
   });
@@ -308,7 +277,6 @@ describe('External MCP Flow - Argument Validation', () => {
     });
 
     it('should handle package names with @ symbol', () => {
-      // Package names like @playwright/mcp@latest should be valid
       const packageNames = [
         '@playwright/mcp@latest',
         '@modelcontextprotocol/server-filesystem',
@@ -316,8 +284,6 @@ describe('External MCP Flow - Argument Validation', () => {
         'test-package@1.0.0',
       ];
 
-      // These should not match dangerous patterns
-      // The @ symbol is used in npm scoped packages, not as a shell metacharacter
       const dangerousPatterns = [
         /[;&|`$]/,
         /[(){}[\]]/,
@@ -334,12 +300,8 @@ describe('External MCP Flow - Argument Validation', () => {
     });
 
     it('should handle environment variable placeholders', () => {
-      // Some MCPs use ${VAR} placeholders that get replaced
-      // These contain $ but are in the registry format, not user input
       const placeholders = ['${DATABASE_PATH}', '${ALLOWED_DIRECTORIES}'];
 
-      // These will match the $ pattern and should be flagged
-      // But they're in the registry and replaced before validation
       const dollarPattern = /[;&|`$]/;
       placeholders.forEach(placeholder => {
         expect(dollarPattern.test(placeholder)).toBe(true);
@@ -347,12 +309,8 @@ describe('External MCP Flow - Argument Validation', () => {
     });
 
     it('should handle path-like arguments', () => {
-      // Arguments like /path/to/file should be valid
-      // Paths should not be flagged as dangerous unless they contain
-      // actual shell metacharacters
       const safePathPattern = /^[a-zA-Z0-9_./-]+$/;
 
-      // Most Unix paths should be safe
       expect(safePathPattern.test('/usr/bin/node')).toBe(true);
       expect(safePathPattern.test('./relative/path')).toBe(true);
       expect(safePathPattern.test('/home/user/project')).toBe(true);
@@ -360,17 +318,13 @@ describe('External MCP Flow - Argument Validation', () => {
     });
 
     it('should handle URL-like arguments', () => {
-      // Arguments like https://... should be handled
       const urls = [
         'https://gitmcp.io/docs',
         'http://localhost:8888',
         'git+https://github.com/repo',
       ];
 
-      // URLs may contain special chars but in specific contexts
-      // The colon and slashes are common in URLs
       urls.forEach(url => {
-        // URLs should not match dangerous injection patterns
         expect(/[;&|`$]/.test(url)).toBe(false);
         expect(/[(){}[\]]/.test(url)).toBe(false);
       });

@@ -1,11 +1,8 @@
-/**
- * MCP I/O Utilities Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MCPConfig } from '../../src/types/index.js';
 
-// Mock fs utilities
 vi.mock('../../src/utils/fs.js', () => ({
   fileExists: vi.fn(),
   readJsonFile: vi.fn(),
@@ -14,7 +11,6 @@ vi.mock('../../src/utils/fs.js', () => ({
   dirExists: vi.fn(),
 }));
 
-// Mock node:fs for directory creation
 vi.mock('node:fs', () => ({
   default: {
     mkdirSync: vi.fn(),

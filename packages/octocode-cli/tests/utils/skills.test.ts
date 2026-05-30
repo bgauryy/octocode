@@ -1,11 +1,8 @@
-/**
- * Skills Utilities Tests
- */
+
 
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock the fs utilities module
 vi.mock('../../src/utils/fs.js', () => ({
   dirExists: vi.fn(),
   copyDirectory: vi.fn(),
@@ -23,7 +20,6 @@ vi.mock('node:fs', () => ({
   symlinkSync: vi.fn(),
 }));
 
-// Import the mocked module
 import {
   dirExists,
   copyDirectory,
@@ -52,7 +48,7 @@ describe('Skills Utilities', () => {
   describe('getSkillsSourcePath', () => {
     it('should return fromOut path when it exists', () => {
       vi.mocked(dirExists).mockImplementation((p: string) => {
-        // Check if path ends with 'skills' and parent is one level up (fromOut pattern)
+
         return p.includes('skills') && !p.includes('../..');
       });
 
@@ -65,7 +61,7 @@ describe('Skills Utilities', () => {
       let callCount = 0;
       vi.mocked(dirExists).mockImplementation(() => {
         callCount++;
-        // First call (fromOut) returns false, second call (fromSrc) returns true
+
         return callCount === 2;
       });
 
@@ -85,12 +81,11 @@ describe('Skills Utilities', () => {
       const checkedPaths: string[] = [];
       vi.mocked(dirExists).mockImplementation((p: string) => {
         checkedPaths.push(p);
-        return true; // Return true on first call
+        return true;
       });
 
       getSkillsSourcePath();
 
-      // Should only check one path since first one exists
       expect(checkedPaths).toHaveLength(1);
       expect(checkedPaths[0]).toMatch(/skills$/);
     });
@@ -167,12 +162,11 @@ describe('Skills Utilities', () => {
     });
 
     it('should return false when skill directory does not exist', () => {
-      // First call for getSkillsSourcePath succeeds
-      // Second call for skill path check fails
+
       let callCount = 0;
       vi.mocked(dirExists).mockImplementation(() => {
         callCount++;
-        return callCount === 1; // Only source path exists, skill path doesn't
+        return callCount === 1;
       });
 
       const result = copySkill('nonexistent-skill', '/dest/skills');
@@ -335,15 +329,12 @@ describe('Skills Utilities', () => {
       ]);
       vi.mocked(copyDirectory).mockReturnValue(true);
 
-      // Get available skills
       const skills = getAvailableSkills();
       expect(skills).toHaveLength(4);
 
-      // Copy all skills
       const copyAllResult = copySkills('/home/user/.claude/skills');
       expect(copyAllResult).toBe(true);
 
-      // Copy individual skill
       const copyOneResult = copySkill(
         'octocode-research',
         '/home/user/.claude/skills'
@@ -354,8 +345,8 @@ describe('Skills Utilities', () => {
     it('should handle partial failure gracefully', () => {
       vi.mocked(dirExists).mockReturnValue(true);
       vi.mocked(copyDirectory)
-        .mockReturnValueOnce(true) // First copy succeeds
-        .mockReturnValueOnce(false); // Second copy fails
+        .mockReturnValueOnce(true)
+        .mockReturnValueOnce(false);
 
       const result1 = copySkill('octocode-research', '/dest');
       const result2 = copySkill('octocode-plan', '/dest');
@@ -519,7 +510,6 @@ description: Valid skill
   });
 });
 
-// Separate describe block for config-related tests since they use different mocks
 describe('Skills Config', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -642,7 +632,6 @@ describe('Skills Config', () => {
         await import('../../src/utils/skills.js');
       const result = getDefaultSkillsDestDir();
 
-      // Should end with .claude/skills or Claude/skills
       expect(result).toMatch(/[Cc]laude.*skills$/);
     });
 

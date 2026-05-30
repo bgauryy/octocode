@@ -1,17 +1,13 @@
-/**
- * MCP Config Coverage Tests - Additional tests to achieve 90%+ coverage
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MCPConfig } from '../../src/types/index.js';
 import type { MCPRegistryEntry } from '../../src/configs/mcp-registry.js';
 
-// Mock platform module
 vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,
 }));
 
-// Mock mcp-paths
 vi.mock('../../src/utils/mcp-paths.js', () => ({
   getMCPConfigPath: vi.fn(),
   clientConfigExists: vi.fn(),
@@ -21,7 +17,6 @@ vi.mock('../../src/utils/mcp-paths.js', () => ({
   MCP_CLIENTS: {},
 }));
 
-// Mock mcp-io
 vi.mock('../../src/utils/mcp-io.js', () => ({
   readMCPConfig: vi.fn(),
   writeMCPConfig: vi.fn(),
@@ -239,7 +234,7 @@ describe('MCP Config Coverage Tests', () => {
 
       const result = registryEntryToServerConfig(mockEntry, {
         API_KEY: 'my-api-key',
-        // ENDPOINT is missing
+
       });
 
       expect(result.args).toContain('my-api-key');
@@ -619,7 +614,7 @@ describe('MCP Config Coverage Tests', () => {
 
       const result = validateRequiredEnvVars(entryWithRequiredVars, {
         API_KEY: 'key123',
-        // SECRET and ENDPOINT are missing
+
       });
 
       expect(result.valid).toBe(false);
@@ -759,7 +754,7 @@ describe('MCP Config Coverage Tests', () => {
       let callIndex = 0;
       vi.mocked(readMCPConfig).mockImplementation((): MCPConfig | null => {
         callIndex++;
-        // cursor (1st) and claude-code (3rd) have octocode installed
+
         if (callIndex === 1 || callIndex === 3) {
           return { mcpServers: { octocode: { command: 'npx', args: [] } } };
         }
@@ -815,7 +810,7 @@ describe('MCP Config Coverage Tests', () => {
 
   describe('mergeOctocodeConfig Windows behavior', () => {
     it('should use Windows config when isWindows is true', async () => {
-      // Reset and re-mock with Windows flag
+
       vi.resetModules();
 
       vi.doMock('../../src/utils/platform.js', () => ({
@@ -841,7 +836,6 @@ describe('MCP Config Coverage Tests', () => {
 
       const result = mergeOctocodeConfig({ mcpServers: {} }, 'direct');
 
-      // On Windows, direct method should use powershell
       expect(result.mcpServers!.octocode.command).toBe('powershell');
     });
   });

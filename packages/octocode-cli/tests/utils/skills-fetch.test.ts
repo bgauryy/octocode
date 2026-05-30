@@ -1,6 +1,4 @@
-/**
- * Skills Fetch Utilities Tests
- */
+
 
 import { join } from 'node:path';
 import os from 'node:os';
@@ -10,7 +8,6 @@ import type {
   MarketplaceSkill,
 } from '../../src/configs/skills-marketplace.js';
 
-// Mock fs utilities
 vi.mock('../../src/utils/fs.js', () => ({
   dirExists: vi.fn(),
   writeFileContent: vi.fn(),
@@ -19,7 +16,6 @@ vi.mock('../../src/utils/fs.js', () => ({
   copyDirectory: vi.fn(),
 }));
 
-// Mock node:fs
 vi.mock('node:fs', () => ({
   mkdirSync: vi.fn(),
   readdirSync: vi.fn(() => []),
@@ -50,7 +46,6 @@ import {
 } from '../../src/utils/fs.js';
 import * as nodeFs from 'node:fs';
 
-// Sample marketplace source for testing
 const mockSource: MarketplaceSource = {
   id: 'test-marketplace',
   name: 'Test Marketplace',
@@ -71,7 +66,6 @@ const mockFolderSource: MarketplaceSource = {
   skillPattern: 'skill-folders',
 };
 
-// Mock tree response
 const mockTreeResponse = {
   sha: 'abc123',
   url: 'https://api.github.com/repos/test/test/git/trees/main',
@@ -104,7 +98,6 @@ const mockTreeResponse = {
   truncated: false,
 };
 
-// Mock skill content
 const mockSkillContent = `---
 description: A test skill for code review
 category: utilities
@@ -201,13 +194,12 @@ describe('Skills Fetch Utilities', () => {
 
   describe('fetchMarketplaceSkills', () => {
     it('should fetch and parse flat-md skills', async () => {
-      // Mock tree fetch
+
       vi.mocked(global.fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => mockTreeResponse,
       } as Response);
 
-      // Mock content fetch for each skill file
       vi.mocked(global.fetch).mockResolvedValue({
         ok: true,
         text: async () => mockSkillContent,
@@ -355,7 +347,6 @@ category: LocalCat
       vi.mocked(dirExists).mockReturnValue(false);
       vi.mocked(writeFileContent).mockReturnValue(true);
 
-      // Mock tree and content fetch
       vi.mocked(global.fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => mockTreeResponse,
@@ -556,7 +547,7 @@ category: LocalCat
         const now = Date.now();
         vi.mocked(fileExists).mockReturnValue(true);
         vi.mocked(nodeFs.statSync).mockReturnValue({
-          mtimeMs: now - 60000, // 1 minute ago
+          mtimeMs: now - 60000,
         } as import('node:fs').Stats);
 
         const info = getCacheInfo(mockSource);
@@ -570,7 +561,7 @@ category: LocalCat
         const now = Date.now();
         vi.mocked(fileExists).mockReturnValue(true);
         vi.mocked(nodeFs.statSync).mockReturnValue({
-          mtimeMs: now - 86400000, // 24 hours ago
+          mtimeMs: now - 86400000,
         } as import('node:fs').Stats);
 
         const info = getCacheInfo(mockSource);
@@ -906,7 +897,6 @@ It should extract the first paragraph as description.
 
       const skills = await fetchMarketplaceSkills(mockSource);
 
-      // Should return empty or partial list, not throw
       expect(Array.isArray(skills)).toBe(true);
     });
 
@@ -1023,7 +1013,6 @@ Body.
 
       const skills = await fetchMarketplaceSkills(mockFolderSource);
 
-      // Should not include hidden skills
       const hasHidden = skills.some(s => s.name.startsWith('.'));
       expect(hasHidden).toBe(false);
     });

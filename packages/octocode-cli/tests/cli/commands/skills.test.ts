@@ -1,6 +1,4 @@
-/**
- * Skills command (`src/cli/commands/skills.ts`)
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

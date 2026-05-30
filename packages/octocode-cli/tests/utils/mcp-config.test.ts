@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock octocode-shared to control platform values
 vi.mock('octocode-shared', () => ({
   isWindows: false,
   isMac: true,

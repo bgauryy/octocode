@@ -1,12 +1,4 @@
-/**
- * TDD: OAuth Security Gaps
- *
- * Fills gaps:
- * - getAuthStatusAsync: async path (uses await getCredentials) — zero tests existed
- * - logout with clientSecret: token revocation path — never tested
- * - getOctocodeToken / getGhCliToken: direct calls — never tested
- * - Token NOT leaked in error messages
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

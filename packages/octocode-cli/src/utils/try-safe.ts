@@ -1,7 +1,4 @@
-/**
- * Safe execution wrapper that replaces silent catch blocks.
- * Returns the fallback value on error; logs in debug mode.
- */
+
 const DEBUG = process.env.OCTOCODE_DEBUG === '1';
 
 export function trySafe<T>(fn: () => T, fallback: T): T {

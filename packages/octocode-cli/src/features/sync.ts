@@ -346,7 +346,7 @@ export async function quickSync(options: {
 
   const resolutions: ConflictResolution[] = [];
   if (options.force) {
-    // Non-interactive force mode resolves by using the first discovered variant.
+
     for (const diff of analysis.conflicts) {
       const firstVariant = Array.from(diff.variants.entries())[0];
       if (firstVariant) {

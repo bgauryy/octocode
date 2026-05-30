@@ -8,7 +8,6 @@ import {
 } from '../../src/github/queryBuilders.js';
 import type { GitHubCodeSearchQuery } from '@octocodeai/octocode-core';
 
-// Type assertion helper for test data - allows arrays for test flexibility
 const toCodeSearchQuery = (params: {
   keywordsToSearch: string[];
   owner?: string | string[];
@@ -444,6 +443,41 @@ describe('Query Builders', () => {
       expect(query).toBe(
         'is:pr comments:>5 reactions:>10 interactions:>20 archived:false'
       );
+    });
+
+    it('applies matchScope as an in: qualifier when a query term is present', () => {
+      const params = {
+        query: 'Suspense',
+        match: ['title'] as ('title' | 'body' | 'comments')[],
+      };
+      const query = buildPullRequestSearchQuery(params);
+      expect(query).toContain('Suspense');
+      expect(query).toContain('in:title');
+    });
+
+    it('joins multiple matchScope values into one comma-separated in: qualifier', () => {
+      const params = {
+        query: 'Suspense',
+        match: ['title', 'body'] as ('title' | 'body' | 'comments')[],
+      };
+      const query = buildPullRequestSearchQuery(params);
+      expect(query).toContain('in:title,body');
+      expect(query).not.toContain('in:title in:body');
+    });
+
+    it('omits in: when matchScope is set but there is no free-text query to scope', () => {
+      const params = {
+        match: ['title'] as ('title' | 'body' | 'comments')[],
+        state: 'open' as const,
+      };
+      const query = buildPullRequestSearchQuery(params);
+      expect(query).not.toContain('in:');
+    });
+
+    it('omits in: when no matchScope is provided', () => {
+      const params = { query: 'Suspense' };
+      const query = buildPullRequestSearchQuery(params);
+      expect(query).not.toContain('in:');
     });
 
     it('should build query with label filters', () => {

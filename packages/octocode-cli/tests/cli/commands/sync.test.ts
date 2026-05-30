@@ -1,6 +1,4 @@
-/**
- * Sync command (`src/cli/commands/sync.ts`)
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

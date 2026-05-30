@@ -1,15 +1,11 @@
-/**
- * Context Utilities Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock shell module first (before importing context)
 vi.mock('../../src/utils/shell.js', () => ({
   runCommand: vi.fn(),
 }));
 
-// Mock os module with proper default export
 vi.mock('node:os', async importOriginal => {
   const actual = await importOriginal<typeof import('node:os')>();
   return {
@@ -30,7 +26,7 @@ describe('Context Utilities', () => {
 
   describe('getAppContext', () => {
     it('should return context with cwd, ide, and git info', async () => {
-      // Setup mocks
+
       const os = await import('node:os');
       vi.mocked(os.homedir).mockReturnValue('/Users/test');
 
@@ -49,7 +45,6 @@ describe('Context Utilities', () => {
           exitCode: 0,
         });
 
-      // Mock process.cwd
       const originalCwd = process.cwd;
       process.cwd = vi.fn().mockReturnValue('/Users/test/project');
 

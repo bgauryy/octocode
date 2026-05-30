@@ -272,10 +272,6 @@ export function getMCPConfigPath(
   }
 }
 
-/**
- * Checks whether the client's config directory exists (NOT the config file itself).
- * Use `configFileExists()` to check for the actual config file.
- */
 export function clientConfigExists(
   client: MCPClient,
   customPath?: string

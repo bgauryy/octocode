@@ -1,11 +1,3 @@
-/**
- * GitHub Pull Request Search
- *
- * Extracted from GitHubProvider for better modularity.
- *
- * @module providers/github/githubPullRequests
- */
-
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
   ProviderResponse,
@@ -27,9 +19,6 @@ import { countSerializedChars } from '../../utils/response/charSavings.js';
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
-/**
- * Transform GitHub pull request result to unified format.
- */
 export function transformPullRequestResult(
   data: GitHubPullRequestSearchApiData,
   query: PullRequestQuery,
@@ -97,14 +86,12 @@ export function transformPullRequestResult(
       totalPages: data.pagination?.totalPages || 1,
       hasMore: data.pagination?.hasMore || false,
       totalMatches: data.pagination?.totalMatches,
+      entriesPerPage: data.pagination?.perPage,
     },
     repositoryContext: owner && repo ? { owner, repo } : undefined,
   };
 }
 
-/**
- * Search pull requests on GitHub.
- */
 export async function searchPullRequests(
   query: PullRequestQuery,
   authInfo?: AuthInfo,

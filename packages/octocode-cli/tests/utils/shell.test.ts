@@ -1,11 +1,8 @@
-/**
- * Shell Utilities Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 
-// Mock child_process
 vi.mock('node:child_process', () => ({
   spawnSync: vi.fn(),
 }));

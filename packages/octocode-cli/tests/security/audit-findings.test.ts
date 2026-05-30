@@ -1,18 +1,4 @@
-/**
- * Security Audit Regression Tests — CLI Package
- * Issue #321 (AgentAudit Report #112)
- *
- * Each test calls REAL code. No source-code string matching.
- *
- * Mocking strategy:
- *   - global.fetch: mocked (external HTTP) — Finding 5 only
- *   - Everything else: REAL imports, REAL execution
- *
- * Findings covered:
- *   Finding 3 — writeFileContent/writeJsonFile file permissions (real fs)
- *   Finding 4 — getOctocodeServerConfig temp directory safety (pure function)
- *   Finding 5 — fetchRawContent size guardrails (mocked fetch)
- */
+
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { statSync, mkdirSync, rmSync, existsSync } from 'node:fs';

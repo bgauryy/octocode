@@ -1,20 +1,4 @@
 #!/usr/bin/env npx tsx
-/**
- * MCP Registry Validation Script
- *
- * Validates all MCP entries in the registry by checking:
- * - GitHub repositories exist and are accessible
- * - npm packages exist (for npx installations)
- * - pip packages exist (for pip/uvx installations)
- * - Repositories are not archived/disabled
- * - Repositories are not stale (no updates in 1+ year) - flagged for removal
- *
- * Usage:
- *   npx tsx scripts/validate-mcp-registry.ts
- *   yarn validate:mcp
- *   yarn validate:mcp --json
- *   yarn validate:mcp --check-packages
- */
 
 import {
   MCP_REGISTRY,
@@ -62,9 +46,6 @@ interface PyPIPackageInfo {
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-/**
- * Extract owner and repo from a GitHub URL
- */
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const patterns = [
     /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\/.*)?$/,
@@ -84,9 +65,6 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   return null;
 }
 
-/**
- * Check if an npm package exists
- */
 async function checkNpmPackage(
   packageName: string
 ): Promise<{ exists: boolean; error?: string; data?: NpmPackageInfo }> {
@@ -118,9 +96,6 @@ async function checkNpmPackage(
   }
 }
 
-/**
- * Check if a pip package exists on PyPI
- */
 async function checkPipPackage(
   packageName: string
 ): Promise<{ exists: boolean; error?: string; data?: PyPIPackageInfo }> {
@@ -152,9 +127,6 @@ async function checkPipPackage(
   }
 }
 
-/**
- * Validate a single MCP entry
- */
 async function validateMCP(
   mcp: MCPRegistryEntry,
   checkPackages: boolean
@@ -188,7 +160,6 @@ async function validateMCP(
     };
   }
 
-  // Check if repo is archived or disabled
   if (result.data?.archived) {
     return {
       id: mcp.id,
@@ -213,7 +184,6 @@ async function validateMCP(
     };
   }
 
-  // Check for stale repos (no updates in 1+ year)
   const lastPushed = result.data?.pushed_at
     ? new Date(result.data.pushed_at)
     : null;
@@ -232,7 +202,6 @@ async function validateMCP(
     lastPushed: result.data?.pushed_at,
   };
 
-  // Check npm package if requested
   if (checkPackages && mcp.npmPackage && mcp.installationType === 'npx') {
     const npmResult = await checkNpmPackage(mcp.npmPackage);
     validationResult.npmPackage = mcp.npmPackage;
@@ -246,7 +215,6 @@ async function validateMCP(
     }
   }
 
-  // Check pip package if requested
   if (checkPackages && mcp.pipPackage && mcp.installationType === 'pip') {
     const pipResult = await checkPipPackage(mcp.pipPackage);
     validationResult.pipPackage = mcp.pipPackage;
@@ -263,9 +231,6 @@ async function validateMCP(
   return validationResult;
 }
 
-/**
- * Validate all MCPs with rate limiting
- */
 async function validateAllMCPs(
   concurrency: number = 5,
   delayMs: number = 100,
@@ -302,9 +267,6 @@ async function validateAllMCPs(
   return results;
 }
 
-/**
- * Print validation report
- */
 function printReport(results: ValidationResult[]): void {
   const { valid, warnings, invalid, errors, staleWarnings, otherWarnings } =
     splitValidationResults(results);
@@ -319,7 +281,6 @@ function printReport(results: ValidationResult[]): void {
     ['🔴 Errors:', errors.length],
   ]);
 
-  // Invalid MCPs
   if (invalid.length > 0) {
     printSectionHeader(
       '❌ INVALID MCPs (Repository not found or inaccessible)'
@@ -336,7 +297,6 @@ function printReport(results: ValidationResult[]): void {
     }
   }
 
-  // Stale repos (no updates in 1+ year)
   if (staleWarnings.length > 0) {
     printSectionHeader('🗑️  STALE MCPs - CONSIDER REMOVING FROM REGISTRY');
     console.log(
@@ -360,7 +320,6 @@ function printReport(results: ValidationResult[]): void {
     );
   }
 
-  // Other warnings (package issues)
   if (otherWarnings.length > 0) {
     printSectionHeader('⚠️  WARNINGS (Package issues)');
     for (const mcp of otherWarnings) {
@@ -384,7 +343,6 @@ function printReport(results: ValidationResult[]): void {
     }
   }
 
-  // Errors
   if (errors.length > 0) {
     printSectionHeader('🔴 ERRORS (Could not validate)');
     for (const mcp of errors) {
@@ -396,7 +354,6 @@ function printReport(results: ValidationResult[]): void {
     }
   }
 
-  // Top 10 by stars
   const sortedByStars = topByStars(results, 10);
 
   if (sortedByStars.length > 0) {
@@ -408,7 +365,6 @@ function printReport(results: ValidationResult[]): void {
     console.log();
   }
 
-  // All valid
   if (invalid.length === 0 && errors.length === 0) {
     console.log('✅ All MCP repositories are valid!\n');
   }
@@ -416,16 +372,10 @@ function printReport(results: ValidationResult[]): void {
   console.log('═'.repeat(80));
 }
 
-/**
- * Output results as JSON
- */
 function outputJson(results: ValidationResult[]): void {
   console.log(JSON.stringify(buildValidationJsonSummary(results), null, 2));
 }
 
-/**
- * Main entry point
- */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const jsonOutput = args.includes('--json');
@@ -453,7 +403,6 @@ async function main(): Promise<void> {
     printReport(results);
   }
 
-  // Exit with error code if any invalid MCPs found (warnings don't cause failure)
   process.exit(hasBlockingValidationFailures(results) ? 1 : 0);
 }
 

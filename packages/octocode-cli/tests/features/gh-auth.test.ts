@@ -1,11 +1,8 @@
-/**
- * GitHub Auth Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 
-// Mock child_process
 vi.mock('node:child_process', () => ({
   spawnSync: vi.fn(),
   spawn: vi.fn(),
@@ -70,7 +67,7 @@ describe('GitHub Auth', () => {
     it('should return authenticated with username', async () => {
       vi.mocked(spawnSync)
         .mockReturnValueOnce({
-          // which gh
+
           status: 0,
           stdout: '/usr/local/bin/gh',
           stderr: '',
@@ -79,7 +76,7 @@ describe('GitHub Auth', () => {
           signal: null,
         })
         .mockReturnValueOnce({
-          // gh auth status
+
           status: 0,
           stdout: 'Logged in to github.com account testuser (keyring)',
           stderr: '',
@@ -99,7 +96,7 @@ describe('GitHub Auth', () => {
     it('should return not authenticated when auth fails', async () => {
       vi.mocked(spawnSync)
         .mockReturnValueOnce({
-          // which gh
+
           status: 0,
           stdout: '/usr/local/bin/gh',
           stderr: '',
@@ -108,7 +105,7 @@ describe('GitHub Auth', () => {
           signal: null,
         })
         .mockReturnValueOnce({
-          // gh auth status
+
           status: 1,
           stdout: '',
           stderr: 'You are not logged in',
@@ -411,7 +408,7 @@ describe('GitHub Auth', () => {
     });
 
     it('should return token when authenticated', async () => {
-      // First call - which gh (check if installed)
+
       vi.mocked(spawnSync).mockReturnValueOnce({
         status: 0,
         stdout: '/usr/local/bin/gh',
@@ -421,7 +418,6 @@ describe('GitHub Auth', () => {
         signal: null,
       });
 
-      // Second call - gh auth token
       vi.mocked(spawnSync).mockReturnValueOnce({
         status: 0,
         stdout: 'gho_test_token_123',

@@ -1,6 +1,4 @@
-/**
- * Tests for cli/commands/auth.ts
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

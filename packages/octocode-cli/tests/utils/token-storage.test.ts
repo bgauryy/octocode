@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock octocode-shared with all the credential functions
 vi.mock('octocode-shared', () => ({
-  // Core credential functions
+
   storeCredentials: vi.fn().mockResolvedValue({ success: true }),
   getCredentials: vi.fn().mockResolvedValue(null),
   getCredentialsSync: vi.fn().mockReturnValue(null),
@@ -31,7 +30,7 @@ vi.mock('octocode-shared', () => ({
   hasEnvToken: vi.fn().mockReturnValue(false),
   ENV_TOKEN_VARS: ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
   resolveTokenFull: vi.fn().mockResolvedValue(null),
-  // Platform values needed by some tests
+
   isWindows: false,
   isMac: true,
   isLinux: false,
@@ -56,7 +55,7 @@ function createTestCredentials(overrides = {}) {
 describe('Token Storage (CLI re-exports from octocode-shared)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Reset mock return values after clearAllMocks
+
     const shared = await import('octocode-shared');
     vi.mocked(shared.storeCredentials).mockResolvedValue({ success: true });
     vi.mocked(shared.getCredentials).mockResolvedValue(null);

@@ -1,10 +1,7 @@
-/**
- * Installation Feature Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock dependencies
 vi.mock('../../src/utils/mcp-config.js', () => ({
   getMCPConfigPath: vi.fn(),
   readMCPConfig: vi.fn(),

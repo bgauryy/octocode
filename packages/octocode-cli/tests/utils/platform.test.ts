@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Mock octocode-shared to control platform values
 vi.mock('octocode-shared', () => ({
   isWindows: false,
   isMac: true,
@@ -321,7 +320,7 @@ describe('Platform Utilities', () => {
       const result = openInEditor('/path/to/file.txt', 'default');
 
       expect(result).toBe(true);
-      // Should use 'open' on macOS (default)
+
       expect(spawnSync).toHaveBeenCalledWith(
         'open',
         ['/path/to/file.txt'],

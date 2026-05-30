@@ -1,10 +1,7 @@
-/**
- * CLI Commands Tests - Token and Status Commands
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock node:fs to prevent any real file operations
 vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
   readFileSync: vi.fn(),
@@ -22,7 +19,6 @@ vi.mock('node:fs', () => ({
   },
 }));
 
-// Mock node:crypto to prevent real encryption
 vi.mock('node:crypto', () => ({
   randomBytes: vi.fn().mockReturnValue(Buffer.alloc(32)),
   createCipheriv: vi.fn().mockReturnValue({
@@ -37,7 +33,6 @@ vi.mock('node:crypto', () => ({
   }),
 }));
 
-// Mock all external dependencies
 vi.mock('../../src/features/github-oauth.js', () => ({
   login: vi.fn(),
   logout: vi.fn(),
@@ -178,11 +173,10 @@ describe('CLI Commands', () => {
         options: {},
       });
 
-      // Should not output a token
       expect(consoleSpy).not.toHaveBeenCalledWith(
         expect.stringMatching(/^gho_/)
       );
-      // Should show warning about not authenticated (default type is now 'auto')
+
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Not authenticated')
       );
@@ -206,7 +200,6 @@ describe('CLI Commands', () => {
         options: { hostname: 'github.enterprise.com' },
       });
 
-      // getToken is now called with hostname and tokenSource ('auto' is the new default)
       expect(getToken).toHaveBeenCalledWith('github.enterprise.com', 'auto');
       expect(consoleSpy).toHaveBeenCalledWith('gho_enterprise_token');
     });
@@ -315,7 +308,6 @@ describe('CLI Commands', () => {
           options: { json: true },
         });
 
-        // Get the output from console.log
         const output = consoleSpy.mock.calls.find(
           (call: unknown[]) =>
             typeof call[0] === 'string' && call[0].includes('"token"')
@@ -561,7 +553,6 @@ describe('CLI Commands', () => {
         options: {},
       });
 
-      // Check that logged in message is shown
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Logged in')
       );

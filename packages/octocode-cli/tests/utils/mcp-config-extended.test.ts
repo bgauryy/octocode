@@ -1,16 +1,12 @@
-/**
- * MCP Config Extended Tests - Additional coverage for mcp-config.ts
- */
+
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MCPConfig } from '../../src/types/index.js';
 
-// Mock platform module
 vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,
 }));
 
-// Mock mcp-paths
 vi.mock('../../src/utils/mcp-paths.js', () => ({
   getMCPConfigPath: vi.fn(),
   clientConfigExists: vi.fn(),
@@ -20,7 +16,6 @@ vi.mock('../../src/utils/mcp-paths.js', () => ({
   MCP_CLIENTS: {},
 }));
 
-// Mock mcp-io
 vi.mock('../../src/utils/mcp-io.js', () => ({
   readMCPConfig: vi.fn(),
   writeMCPConfig: vi.fn(),
@@ -338,7 +333,7 @@ describe('MCP Config Extended', () => {
       let callCount = 0;
       vi.mocked(readMCPConfig).mockImplementation((): MCPConfig => {
         callCount++;
-        // Only first call returns octocode installed
+
         if (callCount === 1) {
           return { mcpServers: { octocode: { command: 'npx', args: [] } } };
         }

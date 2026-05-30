@@ -1,20 +1,4 @@
 #!/usr/bin/env npx tsx
-/**
- * Skills Marketplace Validation Script
- *
- * Validates all skills marketplace entries in the registry by checking:
- * - GitHub repositories exist and are accessible
- * - Skills path exists in the repository
- * - Repositories are not archived/disabled
- * - Repositories are not stale (no updates in 1+ year) - flagged for removal
- * - Skills directory contains actual skills
- *
- * Usage:
- *   npx tsx scripts/validate-skills-marketplace.ts
- *   yarn validate:skills
- *   yarn validate:skills --json
- *   yarn validate:skills --check-skills
- */
 
 import {
   SKILLS_MARKETPLACES,
@@ -54,9 +38,6 @@ interface GitHubContentItem {
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-/**
- * Check if a path exists in a GitHub repository and count skills
- */
 async function checkSkillsPath(
   owner: string,
   repo: string,
@@ -68,7 +49,7 @@ async function checkSkillsPath(
   error?: string;
   skillsCount?: number;
 }> {
-  // Empty path means root directory - always exists if repo exists
+
   const apiPath = path || '';
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${apiPath}?ref=${branch}`;
 
@@ -90,10 +71,9 @@ async function checkSkillsPath(
       return { exists: false, error: 'Skills path is not a directory' };
     }
 
-    // Count skills based on pattern
     let skillsCount = 0;
     if (skillPattern === 'flat-md') {
-      // Count .md files (excluding README.md)
+
       skillsCount = contents.filter(
         item =>
           item.type === 'file' &&
@@ -101,7 +81,7 @@ async function checkSkillsPath(
           item.name.toLowerCase() !== 'readme.md'
       ).length;
     } else {
-      // skill-folders: count directories that likely contain skills
+
       skillsCount = contents.filter(
         item =>
           item.type === 'dir' &&
@@ -119,9 +99,6 @@ async function checkSkillsPath(
   }
 }
 
-/**
- * Validate a single marketplace entry
- */
 async function validateMarketplace(
   marketplace: MarketplaceSource,
   checkSkills: boolean
@@ -145,7 +122,6 @@ async function validateMarketplace(
     };
   }
 
-  // Check if repo is archived or disabled
   if (result.data?.archived) {
     return {
       id: marketplace.id,
@@ -174,7 +150,6 @@ async function validateMarketplace(
     };
   }
 
-  // Check for stale repos (no updates in 1+ year)
   const lastPushed = result.data?.pushed_at
     ? new Date(result.data.pushed_at)
     : null;
@@ -195,7 +170,6 @@ async function validateMarketplace(
     lastPushed: result.data?.pushed_at,
   };
 
-  // Check skills path if requested
   if (checkSkills) {
     const skillsResult = await checkSkillsPath(
       marketplace.owner,
@@ -226,9 +200,6 @@ async function validateMarketplace(
   return validationResult;
 }
 
-/**
- * Validate all marketplaces with rate limiting
- */
 async function validateAllMarketplaces(
   concurrency: number = 3,
   delayMs: number = 200,
@@ -265,9 +236,6 @@ async function validateAllMarketplaces(
   return results;
 }
 
-/**
- * Print validation report
- */
 function printReport(results: ValidationResult[]): void {
   const { valid, warnings, invalid, errors, staleWarnings, otherWarnings } =
     splitValidationResults(results);
@@ -289,7 +257,6 @@ function printReport(results: ValidationResult[]): void {
   printReportHeader('SKILLS MARKETPLACE VALIDATION REPORT');
   printSummary(summaryRows);
 
-  // Invalid marketplaces
   if (invalid.length > 0) {
     printSectionHeader(
       '❌ INVALID MARKETPLACES (Repository not found or inaccessible)'
@@ -307,7 +274,6 @@ function printReport(results: ValidationResult[]): void {
     }
   }
 
-  // Stale repos (no updates in 1+ year)
   if (staleWarnings.length > 0) {
     printSectionHeader(
       '🗑️  STALE MARKETPLACES - CONSIDER REMOVING FROM REGISTRY'
@@ -333,7 +299,6 @@ function printReport(results: ValidationResult[]): void {
     );
   }
 
-  // Other warnings (skills path issues)
   if (otherWarnings.length > 0) {
     printSectionHeader('⚠️  WARNINGS (Skills path issues)');
     for (const m of otherWarnings) {
@@ -354,7 +319,6 @@ function printReport(results: ValidationResult[]): void {
     }
   }
 
-  // Errors
   if (errors.length > 0) {
     printSectionHeader('🔴 ERRORS (Could not validate)');
     for (const m of errors) {
@@ -366,7 +330,6 @@ function printReport(results: ValidationResult[]): void {
     }
   }
 
-  // Marketplaces by stars
   const sortedByStars = topByStars(results);
 
   if (sortedByStars.length > 0) {
@@ -380,7 +343,6 @@ function printReport(results: ValidationResult[]): void {
     console.log();
   }
 
-  // All valid
   if (invalid.length === 0 && errors.length === 0) {
     console.log('✅ All skills marketplace repositories are valid!\n');
   }
@@ -388,9 +350,6 @@ function printReport(results: ValidationResult[]): void {
   console.log('═'.repeat(80));
 }
 
-/**
- * Output results as JSON
- */
 function outputJson(results: ValidationResult[]): void {
   console.log(
     JSON.stringify(
@@ -403,9 +362,6 @@ function outputJson(results: ValidationResult[]): void {
   );
 }
 
-/**
- * Main entry point
- */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const jsonOutput = args.includes('--json');
@@ -433,7 +389,6 @@ async function main(): Promise<void> {
     printReport(results);
   }
 
-  // Exit with error code if any invalid marketplaces found (warnings don't cause failure)
   process.exit(hasBlockingValidationFailures(results) ? 1 : 0);
 }
 

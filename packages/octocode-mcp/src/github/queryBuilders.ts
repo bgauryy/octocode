@@ -15,10 +15,6 @@ export function getOwnerQualifier(owner: string): string {
   return `user:${owner}`;
 }
 
-/**
- * Characters that break GitHub search query syntax when used unquoted in keywords.
- * Wrapping the keyword in double quotes forces GitHub to treat it as a literal term.
- */
 const GITHUB_SEARCH_SPECIAL_CHARS = /[@/]/;
 
 function quoteKeywordIfNeeded(keyword: string): string {
@@ -116,11 +112,6 @@ abstract class BaseQueryBuilder {
     return this;
   }
 
-  /**
-   * Like addSimpleFilter but wraps the value in quotes.
-   * Required for GitHub qualifiers whose values contain special chars
-   * (e.g. path:"src/utils" — unquoted `/` is silently ignored by GitHub).
-   */
   addQuotedFilter(value: string | null | undefined, key: string): this {
     if (value !== undefined && value !== null) {
       const needsQuoting =
@@ -199,7 +190,6 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
       this.queryParts.push(`pushed:${params.updated}`);
     }
 
-    // language: filter by primary repo language (e.g. language:TypeScript)
     const language = (params as Record<string, unknown>).language;
     if (language && typeof language === 'string') {
       this.queryParts.push(`language:${language}`);
@@ -238,6 +228,10 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
   addBasicFilters(params: GitHubPullRequestsSearchParams): this {
     if (params.query && params.query.trim()) {
       this.queryParts.push(params.query.trim());
+
+      if (params.match && params.match.length > 0) {
+        this.queryParts.push(`in:${params.match.join(',')}`);
+      }
     }
 
     this.queryParts.push('is:pr');

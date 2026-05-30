@@ -1,6 +1,4 @@
-/**
- * Spinner Utility Tests
- */
+
 
 import {
   describe,
@@ -19,13 +17,13 @@ describe('Spinner', () => {
   let originalMaxListeners: number;
 
   beforeAll(() => {
-    // Increase max listeners to avoid warnings during tests
+
     originalMaxListeners = process.getMaxListeners();
     process.setMaxListeners(30);
   });
 
   afterAll(() => {
-    // Restore original max listeners
+
     process.setMaxListeners(originalMaxListeners);
   });
 
@@ -34,7 +32,6 @@ describe('Spinner', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
 
-    // Capture stdout writes
     writtenOutput = [];
     originalWrite = process.stdout.write;
     process.stdout.write = vi.fn((chunk: string | Uint8Array) => {
@@ -62,11 +59,10 @@ describe('Spinner', () => {
 
       spinner.start();
 
-      // Advance time to trigger frame update
       vi.advanceTimersByTime(80);
 
       expect(writtenOutput.length).toBeGreaterThan(0);
-      // Should contain the text
+
       expect(writtenOutput.some(output => output.includes('Loading...'))).toBe(
         true
       );
@@ -80,7 +76,6 @@ describe('Spinner', () => {
 
       spinner.start();
 
-      // Should contain cursor hide sequence
       expect(writtenOutput.some(output => output.includes('\x1B[?25l'))).toBe(
         true
       );
@@ -95,7 +90,6 @@ describe('Spinner', () => {
       spinner.start();
       spinner.stop();
 
-      // Should contain cursor show sequence
       expect(writtenOutput.some(output => output.includes('\x1B[?25h'))).toBe(
         true
       );
@@ -216,7 +210,7 @@ describe('Spinner', () => {
 
       spinner.start();
       spinner.stop();
-      spinner.stop(); // Should not throw
+      spinner.stop();
 
       expect(true).toBe(true);
     });
@@ -227,14 +221,12 @@ describe('Spinner', () => {
 
       spinner.start();
 
-      // Advance through multiple frames
       for (let i = 0; i < 10; i++) {
         vi.advanceTimersByTime(80);
       }
 
       spinner.stop();
 
-      // Should have output multiple frames
       expect(writtenOutput.length).toBeGreaterThan(5);
     });
 
@@ -243,7 +235,7 @@ describe('Spinner', () => {
       const spinner = new Spinner('Test');
 
       spinner.start();
-      spinner.stop(); // Default stop uses ✓ and green
+      spinner.stop();
 
       expect(writtenOutput.some(output => output.includes('✓'))).toBe(true);
     });
@@ -267,13 +259,12 @@ describe('Spinner', () => {
 
       const clearResult = spinner.clear();
 
-      // Should return this for chaining
       expect(clearResult).toBe(spinner);
-      // Should contain cursor show sequence after clear
+
       expect(writtenOutput.some(output => output.includes('\x1B[?25h'))).toBe(
         true
       );
-      // Should contain line clear sequence
+
       expect(writtenOutput.some(output => output.includes('\x1B[2K'))).toBe(
         true
       );
@@ -283,7 +274,6 @@ describe('Spinner', () => {
       const { Spinner } = await import('../../src/utils/spinner.js');
       const spinner = new Spinner('Test');
 
-      // Clear without starting should not throw
       const result = spinner.clear();
       expect(result).toBe(spinner);
     });
@@ -295,7 +285,6 @@ describe('Spinner', () => {
       spinner.start('Indented', 4);
       vi.advanceTimersByTime(80);
 
-      // Output should contain spaces for indent
       expect(
         writtenOutput.some(
           output => output.includes('    ') || output.includes('Indented')
@@ -310,7 +299,7 @@ describe('Spinner', () => {
       const spinner = new Spinner('Original');
 
       spinner.start();
-      spinner.succeed(); // No custom text
+      spinner.succeed();
 
       expect(writtenOutput.some(output => output.includes('Original'))).toBe(
         true
@@ -322,7 +311,7 @@ describe('Spinner', () => {
       const spinner = new Spinner('Original');
 
       spinner.start();
-      spinner.fail(); // No custom text
+      spinner.fail();
 
       expect(writtenOutput.some(output => output.includes('Original'))).toBe(
         true
@@ -334,7 +323,7 @@ describe('Spinner', () => {
       const spinner = new Spinner('Original');
 
       spinner.start();
-      spinner.info(); // No custom text
+      spinner.info();
 
       expect(writtenOutput.some(output => output.includes('Original'))).toBe(
         true
@@ -346,7 +335,7 @@ describe('Spinner', () => {
       const spinner = new Spinner('Original');
 
       spinner.start();
-      spinner.warn(); // No custom text
+      spinner.warn();
 
       expect(writtenOutput.some(output => output.includes('Original'))).toBe(
         true

@@ -1,6 +1,4 @@
-/**
- * Skills Marketplace Registry Tests
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -134,7 +132,7 @@ describe('Skills Marketplace Registry', () => {
     });
 
     it('should return true for local sources', () => {
-      // Create a mock local source to test the function
+
       const mockLocalSource = {
         ...SKILLS_MARKETPLACES[0],
         type: 'local' as const,
@@ -146,7 +144,7 @@ describe('Skills Marketplace Registry', () => {
   describe('getLocalMarketplaces', () => {
     it('should return only local sources', () => {
       const localSources = getLocalMarketplaces();
-      // Currently all marketplaces are GitHub sources
+
       expect(localSources.length).toBe(0);
       for (const source of localSources) {
         expect(source.type).toBe('local');
@@ -179,7 +177,7 @@ describe('Skills Marketplace Registry', () => {
 
     beforeEach(() => {
       vi.resetAllMocks();
-      clearStarsCache(); // Clear cache between tests
+      clearStarsCache();
     });
 
     afterEach(() => {
@@ -189,7 +187,6 @@ describe('Skills Marketplace Registry', () => {
     it('should return null for local sources without making API call', async () => {
       global.fetch = vi.fn();
 
-      // Create a mock local source since all current marketplaces are GitHub sources
       const mockLocalSource = {
         ...SKILLS_MARKETPLACES[0],
         type: 'local' as const,
@@ -252,14 +249,12 @@ describe('Skills Marketplace Registry', () => {
 
       const source = getGitHubMarketplaces()[0];
 
-      // First call
       await fetchMarketplaceStars(source);
 
-      // Second call should use cache
       const stars = await fetchMarketplaceStars(source);
 
       expect(stars).toBe(999);
-      // Should only be called once due to caching
+
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
   });
@@ -268,7 +263,7 @@ describe('Skills Marketplace Registry', () => {
     const originalFetch = global.fetch;
 
     beforeEach(() => {
-      clearStarsCache(); // Clear cache between tests
+      clearStarsCache();
     });
 
     afterEach(() => {
@@ -302,7 +297,6 @@ describe('Skills Marketplace Registry', () => {
 
       const starsMap = await fetchAllMarketplaceStars();
 
-      // Should have at least one result
       expect(starsMap.size).toBeGreaterThanOrEqual(0);
     });
   });

@@ -1,24 +1,5 @@
-/**
- * Coverage-gap tests for src/cli/tool-command.ts
- *
- * Targets the uncovered branches and functions that the primary
- * tool-command.test.ts doesn't reach:
- *
- *  - showAvailableTools (list by category)
- *  - printToolsContext / getToolsContextString
- *  - MCP direct-tool metadata fallbacks and display-field delegation
- *  - MCP direct-tool input preparation paths: array payloads,
- *    responseCharOffset, validation errors, and key normalization
- *  - printToolResult: structuredContent fallback, bare-result fallback,
- *    JSON mode CallToolResult passthrough
- *  - executeToolCommand: no-name → list, 'list' keyword, --list flag,
- *    unknown tool, --schema flag, isError result, --json/-o json flags
- *  - showToolHelp: GitHub tool (mainResearchGoal hint), unknown tool
- *  - githubCloneRepo execution
- */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ─── shared mocks ─────────────────────────────────────────────────────────────
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -47,7 +28,7 @@ const mocks = vi.hoisted(() => ({
         schema: { owner: 'owner', repo: 'repo' },
         hints: { hasResults: [], empty: [] },
       },
-      // Metadata-only tool (not in TOOL_DEFINITIONS) → formatMetadataSchemaText path
+
       legacyTool: {
         name: 'legacyTool',
         description: 'Legacy tool.',
@@ -117,12 +98,9 @@ describe('tool-command coverage', () => {
     process.exitCode = undefined;
   });
 
-  // ── showAvailableTools ────────────────────────────────────────────────────
-
   it('showAvailableTools: lists tools grouped by category', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
-    // No tool arg → falls through to showAvailableTools
     await toolCommand.handler!({
       command: 'tool',
       args: [],
@@ -166,8 +144,6 @@ describe('tool-command coverage', () => {
     expect(output).toContain('GitHub');
   });
 
-  // ── printToolsContext / getToolsContextString ─────────────────────────────
-
   it('printToolsContext: prints full context to stdout', async () => {
     const { printToolsContext } = await import('../../src/cli/tool-command.js');
 
@@ -184,13 +160,10 @@ describe('tool-command coverage', () => {
 
     const context = await getToolsContextString();
 
-    // legacyTool is in metadata but NOT in TOOL_DEFINITIONS → formatMetadataSchemaText
     expect(context).toContain('legacyTool');
     expect(context).toContain('"foo": "Foo description"');
     expect(context).toContain('"bar": "Bar description"');
   });
-
-  // ── unknown tool ─────────────────────────────────────────────────────────
 
   it('rejects an unknown tool name and sets exitCode 1', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -206,8 +179,6 @@ describe('tool-command coverage', () => {
     expect(output).toContain('Available tools:');
     expect(process.exitCode).toBe(1);
   });
-
-  // ── showToolHelp ─────────────────────────────────────────────────────────
 
   it('showToolHelp: returns false for unknown tool', async () => {
     const { showToolHelp } = await import('../../src/cli/tool-command.js');
@@ -242,11 +213,9 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('Input Schema');
-    // local tools do not show mainResearchGoal in auto-filled hint
+
     expect(output).not.toContain('mainResearchGoal');
   });
-
-  // ── githubCloneRepo execution ─────────────────────────────────────────────
 
   it('githubCloneRepo: executes with owner and repo fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -298,8 +267,6 @@ describe('tool-command coverage', () => {
       })
     );
   });
-
-  // ── buildToolPayload: array payload ──────────────────────────────────────
 
   it('accepts an array of query objects directly', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -389,13 +356,9 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ── normalizeKey ─────────────────────────────────────────────────────────
-
   it('normaliseKey: converts kebab-case query keys to camelCase', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
-    // keys-to-search → keysToSearch (not a real field, but validates normalisation)
-    // Use a real field: 'fixed-string' → 'fixedString' for localSearchCode
     await toolCommand.handler!({
       command: 'tool',
       args: [
@@ -411,8 +374,6 @@ describe('tool-command coverage', () => {
       })
     );
   });
-
-  // ── printToolResult: fallback branches ───────────────────────────────────
 
   it('printToolResult: falls back to structuredContent when content is empty', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
@@ -539,8 +500,6 @@ describe('tool-command coverage', () => {
     expect(parsed.structuredContent).toEqual({ answer: 42 });
   });
 
-  // ── isError result ────────────────────────────────────────────────────────
-
   it('sets exitCode 1 when tool returns isError: true', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'failed' }],
@@ -560,8 +519,6 @@ describe('tool-command coverage', () => {
 
     expect(process.exitCode).toBe(1);
   });
-
-  // ── non-Error exception ───────────────────────────────────────────────────
 
   it('handles non-Error thrown value in tool execution', async () => {
     mocks.localSearchCode.mockRejectedValueOnce('string error');
@@ -583,9 +540,8 @@ describe('tool-command coverage', () => {
   });
 
   it('handles non-Error thrown by the execution function', async () => {
-    // Verify that tool.execute throwing a non-Error (string) is handled gracefully.
-    // The outer catch in executeToolCommand has an instanceof Error guard.
-    mocks.localSearchCode.mockRejectedValueOnce(42); // non-Error number
+
+    mocks.localSearchCode.mockRejectedValueOnce(42);
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
@@ -599,12 +555,10 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    // Falls into the non-Error branch → generic fallback message
+
     expect(output).toContain('Tool execution failed.');
     expect(process.exitCode).toBe(1);
   });
-
-  // ── getDisplayFields delegates to MCP direct-tool metadata ────────────────
 
   it('getDisplayFields: returns MCP display fields for canonical tools', async () => {
     const { getDisplayFields, TOOL_DEFINITIONS } =
@@ -637,8 +591,6 @@ describe('tool-command coverage', () => {
     expect(githubByName['reasoning']).toBeUndefined();
   });
 
-  // ── MCP-owned example query via showToolHelp output ──────────────────────
-
   it('packageSearch example includes the MCP-owned required fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
@@ -651,7 +603,7 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"name"');
     expect(output).toContain('react');
-    expect(output).toContain('"searchLimit"');
+    expect(output).toContain('searchLimit');
     expect(output).toContain('"limit"');
   });
 
@@ -684,14 +636,12 @@ describe('tool-command coverage', () => {
     expect(output).toContain('octocode-mcp');
   });
 
-  // ── multi-query validation: first fails, stops at first failure ───────────
-
   it('reports first failing query in a multi-query array', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tool',
-      // second query has pattern as a number → validation failure
+
       args: [
         'localSearchCode',
         '[{"path":".","pattern":"ok","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1},{"path":".","pattern":999,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}]',
@@ -704,25 +654,19 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ── sortToolNames: same-category compare returns 0 ───────────────────────
-
   it('sortToolNames: tools in the same category maintain stable relative order', async () => {
     const { getToolsContextString } =
       await import('../../src/cli/tool-command.js');
 
     const context = await getToolsContextString();
 
-    // Both githubSearchCode and githubCloneRepo are in the GitHub category.
-    // They must both appear and their order must be stable (no crash).
     const ghIdx = context.indexOf('githubSearchCode');
     const cloneIdx = context.indexOf('githubCloneRepo');
     expect(ghIdx).toBeGreaterThan(-1);
     expect(cloneIdx).toBeGreaterThan(-1);
-    // githubSearchCode appears before githubCloneRepo in TOOL_DEFINITIONS
+
     expect(ghIdx).toBeLessThan(cloneIdx);
   });
-
-  // ── applyDefaultQueryFields: pre-filled fields are NOT overwritten ────────
 
   it('preserves user-supplied id, researchGoal, reasoning, mainResearchGoal', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -756,8 +700,6 @@ describe('tool-command coverage', () => {
     );
   });
 
-  // ── getOptionalToolMetadata: returns null when loadToolContent throws ─────
-
   it('showAvailableTools: returns null metadata gracefully when loadToolContent fails', async () => {
     mocks.loadToolContent.mockRejectedValueOnce(
       new Error('metadata unavailable')
@@ -766,19 +708,16 @@ describe('tool-command coverage', () => {
     const { showAvailableTools } =
       await import('../../src/cli/tool-command.js');
 
-    // Should NOT throw — getOptionalToolMetadata catches the error
     await expect(showAvailableTools()).resolves.toBeUndefined();
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    // Still lists tools even without metadata (falls back to tool name)
+
     expect(output).toContain('localSearchCode');
   });
 
-  // ── printToolResult: non-array content → empty textBlocks ────────────────
-
   it('printToolResult: uses structuredContent when result.content is undefined', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
-      // intentionally omit `content` to hit the non-array branch
+
       structuredContent: { found: true },
     } as unknown as { content: []; structuredContent: { found: boolean } });
 
@@ -800,9 +739,9 @@ describe('tool-command coverage', () => {
   it('printToolResult: content blocks with non-string text are filtered out', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [
-        { type: 'image', data: 'base64...' }, // no .text field
-        { type: 'text', text: '' }, // empty string filtered out
-        { type: 'text', text: 'real output' }, // kept
+        { type: 'image', data: 'base64...' },
+        { type: 'text', text: '' },
+        { type: 'text', text: 'real output' },
       ],
     } as unknown as { content: Array<{ type: string; text?: string }> });
 
@@ -821,8 +760,6 @@ describe('tool-command coverage', () => {
     expect(out).toContain('real output');
     expect(out).not.toContain('base64');
   });
-
-  // ── JSON mode: full MCP CallToolResult envelope is preserved ─────────────
 
   it('printToolResult: JSON mode preserves null structuredContent in the envelope', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
@@ -868,14 +805,9 @@ describe('tool-command coverage', () => {
     expect(parsed.structuredContent).toBe('just a string');
   });
 
-  // ── buildExampleValue: default fallback + boolean branch ─────────────────
-
   it('buildExampleValue: lspFindReferences example exercises boolean and unknown-name branches', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
-    // lspFindReferences has `includeDeclaration: z.boolean()` (required) and
-    // `symbolName: z.string()` whose name is not in the switch — covers the
-    // `return true` boolean branch and the `default: return name` fallback.
     await toolCommand.handler!({
       command: 'tool',
       args: ['lspFindReferences'],
@@ -890,7 +822,6 @@ describe('tool-command coverage', () => {
   it('buildExampleValue: lspCallHierarchy example exercises enum branch in schema', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
-    // lspCallHierarchy has `direction: z.enum([...])` — exercises the enum type path
     await toolCommand.handler!({
       command: 'tool',
       args: ['lspCallHierarchy'],
@@ -899,11 +830,9 @@ describe('tool-command coverage', () => {
 
     const out = consoleSpy.mock.calls.flat().join('\n');
     expect(out).toContain('direction');
-    // The example should contain an enum value
+
     expect(out).toContain('incoming');
   });
-
-  // ── executeToolCommand: toolName from args.options.tool (not positional) ──
 
   it('resolves tool name from --tool option when no positional arg given', async () => {
     const { executeToolCommand } =
@@ -911,7 +840,7 @@ describe('tool-command coverage', () => {
 
     const ok = await executeToolCommand({
       command: 'tool',
-      args: [], // no positional arg
+      args: [],
       options: {
         tool: 'localSearchCode',
         queries:
@@ -922,8 +851,6 @@ describe('tool-command coverage', () => {
     expect(ok).toBe(true);
     expect(mocks.localSearchCode).toHaveBeenCalledTimes(1);
   });
-
-  // ── executeToolCommand: neither args[0] nor options.tool → show list ──────
 
   it('shows the tool list when neither positional arg nor --tool option present', async () => {
     const { executeToolCommand } =

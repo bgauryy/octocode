@@ -1,11 +1,8 @@
-/**
- * MCP Paths Utilities Tests
- */
+
 
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock platform module
 vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,
   isMac: true,
@@ -14,7 +11,6 @@ vi.mock('../../src/utils/platform.js', () => ({
   getAppDataPath: vi.fn(() => 'C:\\Users\\test\\AppData\\Roaming'),
 }));
 
-// Mock fs module
 vi.mock('../../src/utils/fs.js', () => ({
   dirExists: vi.fn(),
   fileExists: vi.fn(),
@@ -411,9 +407,8 @@ describe('MCP Paths Utilities', () => {
       expect(result.extension.length).toBeGreaterThan(0);
       expect(result.cli.length).toBeGreaterThan(0);
 
-      // Verify cursor is in IDE category
       expect(result.ide.some(c => c.id === 'cursor')).toBe(true);
-      // Verify claude-desktop is in desktop category
+
       expect(result.desktop.some(c => c.id === 'claude-desktop')).toBe(true);
     });
 
@@ -433,11 +428,6 @@ describe('MCP Paths Utilities', () => {
   });
 
   describe('Cross-registry consistency (CLI ↔ VSCode contract)', () => {
-    /**
-     * The VSCode extension (extension.ts) hardcodes MCP client paths.
-     * These tests assert the CLI paths match, preventing future drift.
-     * If a path changes here, the VSCode extension must be updated too.
-     */
 
     it('Roo Code path should use mcp_settings.json (matches VSCode extension)', async () => {
       const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');

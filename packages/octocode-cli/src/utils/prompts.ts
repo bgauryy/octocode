@@ -108,8 +108,6 @@ export const checkbox = _checkbox as unknown as CheckboxFunction;
 export const search = _search as unknown as SearchFunction;
 export const Separator = _Separator as unknown as SeparatorClass;
 
-// Kept for backward compatibility -- all callers already call this before
-// using prompts. Now a no-op since @inquirer/prompts is statically imported.
 export async function loadInquirer(): Promise<void> {}
 
 export function isInquirerLoaded(): boolean {
