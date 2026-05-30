@@ -20,6 +20,8 @@ import {
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
 import { tsvFormat } from './tsvFormat.js';
 import { getTsvProjection } from './tsvColumns.js';
+import { isConcise } from '../../scheme/verbosity.js';
+import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 
 /** Default concurrency for bulk operations */
 const DEFAULT_BULK_CONCURRENCY = 3;
@@ -124,9 +126,12 @@ function createBulkResponse<
   );
 
   results.forEach(r => {
+    // Omit status when absent — success is signaled by the lack of a
+    // status field. Only 'empty' / 'error' are emitted.
+    const status = r.result.status;
     orderedQueries[r.queryIndex] = {
       id: resolveQueryId(r.originalQuery, r.queryIndex),
-      status: r.result.status,
+      ...(status !== undefined ? { status } : {}),
       data: extractToolData(r.result),
     };
   });
@@ -206,8 +211,24 @@ function createBulkResponse<
     config.toolName
   );
 
-  if (aggregatedHints.length > 0) {
-    responseData.hints = aggregatedHints;
+  // Second lift-and-dedupe pass: applyBulkResponsePagination can re-introduce
+  // hints into per-query `data` (via withPaginationHints) AFTER the initial
+  // dedupePeerHints pass ran. Lift those once more so each pagination
+  // breadcrumb shows up exactly once at the top-level `hints[]`.
+  const postPaginationHints = config.peerHints
+    ? dedupePeerHints(
+        Array.isArray(responseData.results)
+          ? (responseData.results as FlatQueryResult[])
+          : []
+      )
+    : [];
+
+  const mergedHints = config.peerHints
+    ? Array.from(new Set([...aggregatedHints, ...postPaginationHints]))
+    : aggregatedHints;
+
+  if (mergedHints.length > 0) {
+    responseData.hints = mergedHints;
   }
 
   if (aggregatedEvidence) {
@@ -216,15 +237,14 @@ function createBulkResponse<
 
   // TSV mode — emit columns/rows derived from the per-tool projection and
   // mark the envelope with `format: "tsv"`. Skip TSV entirely when every
-  // query is verbosity:"ultra" (ultra wipes the data field, so there are
+  // query is verbosity:"concise" (concise wipes the data field, so there are
   // no rows to emit; emitting empty columns/rows is just noise).
-  const allUltra =
+  const allConcise =
     queries.length > 0 &&
-    queries.every(
-      (q): boolean =>
-        (q as Record<string, unknown> | undefined)?.verbosity === 'ultra'
+    queries.every((q): boolean =>
+      isConcise((q as { verbosity?: Verbosity } | undefined)?.verbosity)
     );
-  const tsvEmitted = config.format === 'tsv' && !allUltra;
+  const tsvEmitted = config.format === 'tsv' && !allConcise;
   if (tsvEmitted) {
     const projection = getTsvProjection(config.toolName);
     if (projection) {
@@ -237,13 +257,26 @@ function createBulkResponse<
     }
   }
 
-  // In TSV mode, exclude `results` from content[0].text — agents reading the
-  // text only need the compact rows, not the full per-query JSON structs.
-  // The complete `results` array is still available via structuredContent.
+  // In TSV mode, exclude *successful* `results` from content[0].text — agents
+  // reading the text only need the compact rows, not the full per-query JSON
+  // structs (the complete array is still available via structuredContent).
+  // BUT error results carry their message in `data.error`, which never makes
+  // it into the TSV rows; dropping them would hide failures entirely — and
+  // when every query errors that text is the only thing surfaced. So retain
+  // error entries in the text payload while still trimming success structs.
   type BulkResponseForText = Omit<BulkToolResponse, 'results'> &
     Partial<Pick<BulkToolResponse, 'results'>>;
+  const errorResultsForText = Array.isArray(responseData.results)
+    ? (responseData.results as FlatQueryResult[]).filter(
+        r => r.status === 'error'
+      )
+    : [];
   const textPayload: BulkResponseForText = tsvEmitted
-    ? { ...responseData, results: undefined }
+    ? {
+        ...responseData,
+        results:
+          errorResultsForText.length > 0 ? errorResultsForText : undefined,
+      }
     : responseData;
   const text = createResponseFormat(
     textPayload as BulkToolResponse,

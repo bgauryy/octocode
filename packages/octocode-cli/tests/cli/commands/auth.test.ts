@@ -58,6 +58,8 @@ vi.mock('../../../src/features/github-oauth.js', () => ({
   getStoragePath: vi.fn().mockReturnValue('/mock/.octocode/credentials.json'),
   getOctocodeToken: vi.fn(),
   getGhCliToken: vi.fn(),
+  getToken: vi.fn(),
+  getTokenType: vi.fn(),
 }));
 
 vi.mock('../../../src/utils/prompts.js', () => ({
@@ -154,6 +156,48 @@ describe('cli/commands/auth', () => {
         expect.stringContaining('Authentication complete')
       );
       expect(process.exitCode).toBeUndefined();
+    });
+
+    it('uses short -p git protocol alias', async () => {
+      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+      });
+      vi.mocked(login).mockResolvedValue({
+        success: true,
+        username: 'newuser',
+      });
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: { p: 'ssh' },
+      });
+
+      expect(login).toHaveBeenCalledWith(
+        expect.objectContaining({ gitProtocol: 'ssh' })
+      );
+    });
+
+    it('rejects invalid git protocol values', async () => {
+      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+      });
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: { p: 'ftp' },
+      });
+
+      expect(login).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid git protocol')
+      );
+      expect(process.exitCode).toBe(1);
     });
 
     it('shows verification UI when OAuth provides verification info', async () => {
@@ -342,6 +386,24 @@ describe('cli/commands/auth', () => {
       );
     });
 
+    it('passes hostname alias through auth status', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: true,
+        username: 'enterprise',
+        hostname: 'github.enterprise.test',
+        tokenSource: 'octocode',
+      });
+
+      await authCommand.handler!({
+        command: 'auth',
+        args: ['status'],
+        options: { H: 'github.enterprise.test' },
+      });
+
+      expect(getAuthStatus).toHaveBeenCalledWith('github.enterprise.test');
+    });
+
     it('shows tokenExpired warning on status when applicable', async () => {
       const { authCommand, getAuthStatus } = await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
@@ -362,9 +424,9 @@ describe('cli/commands/auth', () => {
       );
     });
 
-    it('subcommand token prints octocode token (masked in TTY)', async () => {
-      const { authCommand, getOctocodeToken } = await loadAuthModule();
-      vi.mocked(getOctocodeToken).mockResolvedValue({
+    it('subcommand token delegates to token command and prints octocode token', async () => {
+      const { authCommand, getToken } = await loadAuthModule();
+      vi.mocked(getToken).mockResolvedValue({
         token: 'gho_1234567890abcdefghijklmnopqrst',
         source: 'octocode',
       } as never);
@@ -375,17 +437,29 @@ describe('cli/commands/auth', () => {
         options: {},
       });
 
+      expect(getToken).toHaveBeenCalledWith('github.com', 'auto');
       expect(consoleSpy).toHaveBeenCalledWith('gho_****qrst');
     });
 
-    it('subcommand token falls back to gh-cli token', async () => {
-      const { authCommand, getOctocodeToken, getGhCliToken } =
-        await loadAuthModule();
-      vi.mocked(getOctocodeToken).mockResolvedValue({
-        token: null,
-        source: 'none',
+    it('subcommand token uses short hostname alias', async () => {
+      const { authCommand, getToken } = await loadAuthModule();
+      vi.mocked(getToken).mockResolvedValue({
+        token: 'gho_1234567890abcdefghijklmnopqrst',
+        source: 'octocode',
       } as never);
-      vi.mocked(getGhCliToken).mockReturnValue({
+
+      await authCommand.handler!({
+        command: 'auth',
+        args: ['token'],
+        options: { H: 'github.enterprise.test' },
+      });
+
+      expect(getToken).toHaveBeenCalledWith('github.enterprise.test', 'auto');
+    });
+
+    it('subcommand token falls back to gh-cli token', async () => {
+      const { authCommand, getToken } = await loadAuthModule();
+      vi.mocked(getToken).mockResolvedValue({
         token: 'ghp_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
         source: 'gh-cli',
       } as never);
@@ -400,13 +474,8 @@ describe('cli/commands/auth', () => {
     });
 
     it('subcommand token with no token shows help and sets exitCode', async () => {
-      const { authCommand, getOctocodeToken, getGhCliToken } =
-        await loadAuthModule();
-      vi.mocked(getOctocodeToken).mockResolvedValue({
-        token: null,
-        source: 'none',
-      } as never);
-      vi.mocked(getGhCliToken).mockReturnValue({
+      const { authCommand, getToken } = await loadAuthModule();
+      vi.mocked(getToken).mockResolvedValue({
         token: null,
         source: 'none',
       } as never);
@@ -418,10 +487,10 @@ describe('cli/commands/auth', () => {
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No GitHub token found')
+        expect.stringContaining('Not authenticated')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode auth login')
+        expect.stringContaining('octocode-cli login')
       );
       expect(process.exitCode).toBe(1);
     });
@@ -467,22 +536,22 @@ describe('cli/commands/auth', () => {
       );
     });
 
-    it('menu login runs full login flow when not authenticated', async () => {
+    it('menu login keeps the selected hostname', async () => {
       const { authCommand, getAuthStatus, select, login } =
         await loadAuthModule();
 
       vi.mocked(getAuthStatus)
         .mockReturnValueOnce({
           authenticated: false,
-          hostname: 'github.com',
+          hostname: 'enterprise.github.com',
         })
         .mockReturnValueOnce({
           authenticated: false,
-          hostname: 'github.com',
+          hostname: 'enterprise.github.com',
         })
         .mockReturnValue({
           authenticated: false,
-          hostname: 'github.com',
+          hostname: 'enterprise.github.com',
         });
 
       vi.mocked(select).mockResolvedValue('login');
@@ -494,10 +563,12 @@ describe('cli/commands/auth', () => {
       await authCommand.handler!({
         command: 'auth',
         args: [],
-        options: {},
+        options: { hostname: 'enterprise.github.com' },
       });
 
-      expect(login).toHaveBeenCalled();
+      expect(login).toHaveBeenCalledWith(
+        expect.objectContaining({ hostname: 'enterprise.github.com' })
+      );
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Authentication complete')
       );
@@ -556,7 +627,7 @@ describe('cli/commands/auth', () => {
         options: {},
       });
 
-      expect(logout).toHaveBeenCalledWith();
+      expect(logout).toHaveBeenCalledWith('github.com');
       expect(login).toHaveBeenCalled();
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Starting new login')
@@ -580,7 +651,7 @@ describe('cli/commands/auth', () => {
         expect.stringContaining('Not authenticated')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode login')
+        expect.stringContaining('octocode-cli login')
       );
     });
   });

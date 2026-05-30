@@ -7,10 +7,7 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
 import type { FindFilesResult } from '../../src/utils/core/types.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
-import {
-  checkCommandAvailability,
-  getMissingCommandError,
-} from '../../src/utils/exec/commandAvailability.js';
+import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 
 // Mock dependencies
@@ -80,10 +77,28 @@ describe('localFindFiles', () => {
         name: '*.js',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files).toHaveLength(2);
       expect(files[0]!.path).toBe('/test/path/file1.js');
+    });
+
+    it('signals page-out-of-range instead of silent empty (E2)', async () => {
+      mockSafeExec.mockResolvedValue({
+        success: true,
+        code: 0,
+        stdout: '/test/path/a.ts\0/test/path/b.ts\0/test/path/c.ts\0',
+        stderr: '',
+      });
+
+      const result = await findFiles({
+        path: '/test/path',
+        name: '*.ts',
+        filePageNumber: 999,
+      });
+
+      const hints = (result.hints ?? []).join('\n');
+      expect(hints).toMatch(/outside available range|page 999 is/i);
     });
 
     it('should include metadata by default', async () => {
@@ -107,14 +122,16 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({ path: '/test/path' });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
 
       const files = expectDefinedFiles(result);
 
+      // Raw `size` field dropped to remove redundancy with `sizeFormatted`
+      // (human-readable). 123 bytes → "123.0B".
       expect(files[0]).toMatchObject({
         path: '/test/path/file1.js',
         type: 'file',
-        size: 123,
+        sizeFormatted: '123.0B',
         permissions: '644',
       });
     });
@@ -132,7 +149,7 @@ describe('localFindFiles', () => {
         iname: '*.js',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-iname', '*.js'])
@@ -169,7 +186,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({ path: '/test/path' });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.totalFiles).toBe(1000);
       expect(result.hints?.some(h => /capped at 1000/i.test(h))).toBe(true);
       expect(result.hints?.some(h => h.includes('1002'))).toBe(true);
@@ -190,7 +207,7 @@ describe('localFindFiles', () => {
         type: 'f',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-type', 'f'])
@@ -210,7 +227,7 @@ describe('localFindFiles', () => {
         type: 'd',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-type', 'd'])
@@ -232,7 +249,7 @@ describe('localFindFiles', () => {
         modifiedWithin: '7d',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-mtime', '-7'])
@@ -252,7 +269,7 @@ describe('localFindFiles', () => {
         modifiedBefore: '30d',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-mtime', '+30'])
@@ -274,7 +291,7 @@ describe('localFindFiles', () => {
         sizeGreater: '1M',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Platform-aware: macOS converts M/G to bytes (c suffix), Linux keeps M/G
       // BUG FIX: macOS BSD find only supports 'c' (bytes) and 'k' (kilobytes)
       const isMacOS = process.platform === 'darwin';
@@ -298,7 +315,7 @@ describe('localFindFiles', () => {
         sizeLess: '1k',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-size', '-1k'])
@@ -320,7 +337,7 @@ describe('localFindFiles', () => {
         executable: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Platform-specific: Linux uses -executable, macOS uses -perm +111
       if (process.platform === 'linux') {
         expect(mockSafeExec).toHaveBeenCalledWith(
@@ -348,7 +365,7 @@ describe('localFindFiles', () => {
         permissions: '755',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-perm', '755'])
@@ -370,7 +387,7 @@ describe('localFindFiles', () => {
         maxDepth: 2,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-maxdepth', '2'])
@@ -390,7 +407,7 @@ describe('localFindFiles', () => {
         minDepth: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-mindepth', '1'])
@@ -412,7 +429,7 @@ describe('localFindFiles', () => {
         excludeDir: ['node_modules', '.git'],
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // The implementation uses a more complex pattern for excluding directories:
       // ( -path */node_modules -o -path */node_modules/* ) -prune -o
       expect(mockSafeExec).toHaveBeenCalledWith(
@@ -430,7 +447,7 @@ describe('localFindFiles', () => {
       });
 
       const result = await findFiles({ path: '/test/path' });
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
 
       const args = mockSafeExec.mock.calls[0]![1] as string[];
       // Regression: localFindFiles was returning .octocode/scan/* artifacts
@@ -474,7 +491,7 @@ describe('localFindFiles', () => {
         name: '*.ts',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
 
       const args = mockSafeExec.mock.calls[0]![1] as string[];
       // .context must NOT be in the prune list when the search path contains it
@@ -499,7 +516,7 @@ describe('localFindFiles', () => {
         name: '*.js',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
 
       const args = mockSafeExec.mock.calls[0]![1] as string[];
       const idx = args.indexOf('*/node_modules');
@@ -546,7 +563,7 @@ describe('localFindFiles', () => {
         limit: 50,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const limitedFiles = expectDefinedFiles(result);
       expect(limitedFiles.length).toBeLessThanOrEqual(50);
     });
@@ -569,7 +586,7 @@ describe('localFindFiles', () => {
       });
 
       // Should either return results or error requesting pagination
-      expect(['hasResults', 'error']).toContain(result.status);
+      expect([undefined, 'error']).toContain(result.status);
       if (result.status === 'error') {
         // Should have error code for pagination
         expect(result.errorCode).toBeDefined();
@@ -610,7 +627,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({ path: '/test/path', details: true });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Bounded concurrency should never exceed 24
       expect(maxInFlight).toBeLessThanOrEqual(24);
     });
@@ -630,7 +647,7 @@ describe('localFindFiles', () => {
         names: ['*.ts', '*.js'],
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files).toHaveLength(2);
     });
@@ -759,7 +776,7 @@ describe('localFindFiles', () => {
         details: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files.length).toBe(3);
       // Should be sorted by modification time (most recent first)
@@ -790,7 +807,7 @@ describe('localFindFiles', () => {
         details: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files.length).toBe(3);
       // Should be sorted by path
@@ -841,7 +858,7 @@ describe('localFindFiles', () => {
         showFileLastModified: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should handle lstat failure gracefully in fallback', async () => {
@@ -876,7 +893,7 @@ describe('localFindFiles', () => {
       });
 
       // Should still succeed, just with missing data
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
   });
 
@@ -909,7 +926,7 @@ describe('localFindFiles', () => {
       });
 
       // Should paginate large result sets
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files2 = expectDefinedFiles(result);
       expect(files2.length).toBeLessThanOrEqual(10);
     });
@@ -934,7 +951,7 @@ describe('localFindFiles', () => {
       });
 
       // Should succeed with partial data
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files[0]!.type).toBe('file'); // Default type
     });
@@ -961,7 +978,7 @@ describe('localFindFiles', () => {
         details: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files[0]!.type).toBe('symlink');
     });
@@ -988,7 +1005,7 @@ describe('localFindFiles', () => {
         details: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files[0]!.type).toBe('directory');
     });
@@ -1012,7 +1029,7 @@ describe('localFindFiles', () => {
         name: '*.txt',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesDefaultPage = expectDefinedFiles(result);
       expect(filesDefaultPage.length).toBeLessThanOrEqual(20);
       expect(result.pagination?.totalPages).toBe(3);
@@ -1037,7 +1054,7 @@ describe('localFindFiles', () => {
         filePageNumber: 2,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.currentPage).toBe(2);
       expect(result.pagination?.hasMore).toBe(true);
     });
@@ -1060,7 +1077,7 @@ describe('localFindFiles', () => {
         filesPerPage: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesCustomPerPage = expectDefinedFiles(result);
       expect(filesCustomPerPage.length).toBeLessThanOrEqual(10);
       expect(result.pagination?.totalPages).toBe(5);
@@ -1085,7 +1102,7 @@ describe('localFindFiles', () => {
         filePageNumber: 2,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesLastPage = expectDefinedFiles(result);
       expect(filesLastPage.length).toBe(5);
       expect(result.pagination?.hasMore).toBe(false);
@@ -1106,7 +1123,7 @@ describe('localFindFiles', () => {
         name: '*.txt',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesSorted = expectDefinedFiles(result);
       expect(filesSorted.length).toBe(3);
     });
@@ -1128,7 +1145,7 @@ describe('localFindFiles', () => {
         filesPerPage: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should sort with time-based filters', async () => {
@@ -1144,7 +1161,7 @@ describe('localFindFiles', () => {
         modifiedWithin: '7d',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
   });
 
@@ -1166,7 +1183,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
       expect(result.hints).toBeDefined();
       expect(result.hints!.length).toBeGreaterThan(0);
@@ -1189,7 +1206,7 @@ describe('localFindFiles', () => {
         reasoning: 'Need to locate documentation',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result).not.toHaveProperty('mainResearchGoal');
       expect(result).not.toHaveProperty('researchGoal');
       expect(result).not.toHaveProperty('reasoning');
@@ -1255,7 +1272,7 @@ describe('localFindFiles', () => {
         charOffset: 0,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // charPagination is only added when pagination is actually applied
       if (result.charPagination) {
         // We allow slightly more than requested to complete the last item
@@ -1287,7 +1304,7 @@ describe('localFindFiles', () => {
         charLength: 1000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.charPagination?.charOffset).toBe(0);
     });
 
@@ -1309,7 +1326,7 @@ describe('localFindFiles', () => {
         charOffset: 1000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // charPagination is only added when pagination is actually applied
       if (result.charPagination) {
         expect(result.charPagination.charOffset).toBe(1000);
@@ -1331,7 +1348,7 @@ describe('localFindFiles', () => {
         charLength: 100,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.charPagination?.charOffset).toBe(0);
     });
 
@@ -1350,7 +1367,7 @@ describe('localFindFiles', () => {
       });
 
       // When charOffset is beyond content, we still get hasResults with empty data
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should handle charLength = 1', async () => {
@@ -1370,7 +1387,7 @@ describe('localFindFiles', () => {
         charLength: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // charPagination is only added when pagination is actually applied
       if (result.charPagination) {
         // Minimal valid JSON is "[]" (2 chars), so even if we asked for 1, we get 2
@@ -1395,7 +1412,7 @@ describe('localFindFiles', () => {
         charLength: 10000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.charPagination?.charLength).toBeLessThanOrEqual(10000);
     });
 
@@ -1413,7 +1430,7 @@ describe('localFindFiles', () => {
         charLength: 1000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesUtf = expectDefinedFiles(result);
       expect(filesUtf.some(f => f.path.includes('café'))).toBe(true);
     });
@@ -1432,7 +1449,7 @@ describe('localFindFiles', () => {
         charLength: 500,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesUtf2 = expectDefinedFiles(result);
       expect(JSON.stringify(filesUtf2)).not.toMatch(/\uFFFD/);
     });
@@ -1451,7 +1468,7 @@ describe('localFindFiles', () => {
         charLength: 500,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesUtf3 = expectDefinedFiles(result);
       expect(JSON.stringify(filesUtf3)).not.toMatch(/\uFFFD/);
     });
@@ -1470,7 +1487,7 @@ describe('localFindFiles', () => {
         charLength: 500,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesEmoji = expectDefinedFiles(result);
       expect(JSON.stringify(filesEmoji)).not.toMatch(/\uFFFD/);
     });
@@ -1492,7 +1509,7 @@ describe('localFindFiles', () => {
         charLength: 500,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       if (result.charPagination?.hasMore) {
         expect(result.hints).toBeDefined();
       }
@@ -1516,7 +1533,7 @@ describe('localFindFiles', () => {
         charOffset: 0,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       if (result.charPagination?.hasMore) {
         expect(result.hints).toBeDefined();
         const hasCharOffsetHint = result.hints?.some(
@@ -1542,7 +1559,7 @@ describe('localFindFiles', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Should have pagination info
       expect(result.charPagination).toBeDefined();
     });
@@ -1568,7 +1585,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.currentPage).toBe(1);
     });
 
@@ -1590,7 +1607,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(['hasResults', 'empty']).toContain(result.status);
+      expect([undefined, 'empty']).toContain(result.status);
       if (result.status === 'hasResults') {
         expect(result.pagination?.currentPage).toBe(10);
       }
@@ -1613,7 +1630,7 @@ describe('localFindFiles', () => {
         filesPerPage: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesPerPageOne = expectDefinedFiles(result);
       expect(filesPerPageOne.length).toBe(1);
       expect(result.pagination?.totalPages).toBe(5);
@@ -1636,7 +1653,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesMaxPerPage = expectDefinedFiles(result);
       expect(filesMaxPerPage.length).toBeLessThanOrEqual(20);
       expect(result.pagination?.totalPages).toBe(8);
@@ -1655,7 +1672,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesSingle = expectDefinedFiles(result);
       expect(filesSingle.length).toBe(1);
       expect(result.pagination?.totalPages).toBe(1);
@@ -1679,7 +1696,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesExactBoundary = expectDefinedFiles(result);
       expect(filesExactBoundary.length).toBe(20);
       expect(result.pagination?.totalPages).toBe(1);
@@ -1703,7 +1720,7 @@ describe('localFindFiles', () => {
         filesPerPage: 20,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const filesOverBoundary = expectDefinedFiles(result);
       expect(filesOverBoundary.length).toBe(20);
       expect(result.pagination?.totalPages).toBe(2);

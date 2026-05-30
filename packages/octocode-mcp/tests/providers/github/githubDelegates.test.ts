@@ -162,6 +162,28 @@ describe('GitHub Provider Delegates', () => {
         const result = transformFileContentResult(data as any, query);
         expect(result.ref).toBe('');
       });
+
+      it('surfaces a noMatches warning on a matchString miss instead of silent empty (F2)', () => {
+        const query: FileContentQuery = {
+          projectId: 'owner/repo',
+          path: 'test.ts',
+          matchString: 'NO_SUCH_ANCHOR_ZZ',
+        };
+        const data = {
+          path: 'test.ts',
+          content: '',
+          totalLines: 42,
+          matchNotFound: true,
+          searchedFor: 'NO_SUCH_ANCHOR_ZZ',
+        };
+        const result = transformFileContentResult(data as any, query);
+        expect(result.content).toBe('');
+        expect(
+          result.warnings?.some(w =>
+            /no matches for "NO_SUCH_ANCHOR_ZZ".*42 lines scanned/i.test(w)
+          )
+        ).toBe(true);
+      });
     });
 
     describe('getFileContent', () => {

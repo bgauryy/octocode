@@ -22,12 +22,13 @@
 ```bash
 npx octocode-cli install           # Interactive setup
 octocode-cli install --ide cursor  # Non-interactive install
+octocode-cli install --ide codex -m direct
 octocode-cli auth                  # GitHub authentication
 ```
 
 ## Run Tools
 
-Call any Octocode tool directly — works for agents, scripts, and humans. Shared fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-filled.
+Call any Octocode tool directly — works for agents, scripts, and humans. The CLI imports the canonical Octocode MCP public tool catalog, schemas, and executors; it only handles CLI parsing, autofill, and terminal output. Shared fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-filled.
 
 ```bash
 octocode-cli --tool localSearchCode --queries '{"path":".","pattern":"runCLI"}'
@@ -50,7 +51,7 @@ octocode-cli --tools-context                      # Full MCP instructions + all 
 
 ## Supported Clients
 
-`cursor`, `claude-desktop`, `claude-code`, `windsurf`, `zed`, `vscode-cline`, `vscode-roo`, `vscode-continue`, `opencode`, `trae`, `antigravity`, `codex`, `gemini-cli`, `goose`, `kiro`.
+`cursor`, `claude`/`claude-desktop`, `claude-code`, `windsurf`, `zed`, `vscode-cline`, `vscode-roo`, `vscode-continue`, `opencode`, `trae`, `antigravity`, `codex`, `gemini-cli`, `goose`, `kiro`.
 
 ## Docs
 
@@ -65,6 +66,7 @@ octocode-cli --tools-context                      # Full MCP instructions + all 
 ```bash
 octocode-cli status          # Check auth
 octocode-cli token --source  # Debug token resolution
+octocode-cli token -t gh     # Force GitHub CLI token source
 octocode-cli sync --status   # Check config consistency
 ```
 

@@ -25,7 +25,6 @@ describe('Hint conciseness', () => {
     it('should strip empty strings from hints in hasResults result', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { foo: 1 },
         hints: ['Valid hint', '', '  ', 'Another valid hint'],
       });

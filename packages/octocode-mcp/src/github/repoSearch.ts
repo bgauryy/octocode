@@ -3,13 +3,16 @@ import type {
   RepoSearchResultItem,
   GitHubAPIResponse,
 } from './githubAPI.js';
-import type {
-  GitHubReposSearchQuery,
-  GitHubRepositoryOutput,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
+
+type GitHubReposSearchSingleQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { getOctokit } from './client.js';
-import { handleGitHubAPIError } from './errors.js';
+import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildRepoSearchQuery } from './queryBuilders.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
@@ -28,7 +31,7 @@ interface RepoSearchPagination {
 }
 
 export async function searchGitHubReposAPI(
-  params: WithOptionalMeta<GitHubReposSearchQuery>,
+  params: WithOptionalMeta<GitHubReposSearchSingleQuery>,
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<
@@ -78,7 +81,7 @@ export async function searchGitHubReposAPI(
 }
 
 async function searchGitHubReposAPIInternal(
-  params: WithOptionalMeta<GitHubReposSearchQuery>,
+  params: WithOptionalMeta<GitHubReposSearchSingleQuery>,
   authInfo?: AuthInfo
 ): Promise<
   GitHubAPIResponse<{
@@ -159,7 +162,7 @@ async function searchGitHubReposAPIInternal(
 
     return {
       data: {
-        repositories,
+        repositories: repositories as GitHubRepositoryOutput[],
         pagination: {
           currentPage: clampedPage,
           totalPages,
@@ -169,10 +172,29 @@ async function searchGitHubReposAPIInternal(
         },
       },
       status: 200,
-      headers: result.headers,
+      headers: result.headers as unknown as Record<string, string>,
       rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
+    // A 422 referencing a nonexistent entity (e.g. owner:/user: that does not
+    // exist) is "no matches", not a failure — return a clean empty result.
+    if (isNoResultsSearchError(error)) {
+      const perPage = Math.min(params.limit || 30, 100);
+      return {
+        data: {
+          repositories: [],
+          pagination: {
+            currentPage: params.page || 1,
+            totalPages: 0,
+            perPage,
+            totalMatches: 0,
+            hasMore: false,
+          },
+        },
+        status: 200,
+        rawResponseChars: 0,
+      };
+    }
     return handleGitHubAPIError(error);
   }
 }

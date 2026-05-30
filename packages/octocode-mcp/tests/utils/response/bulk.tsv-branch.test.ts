@@ -16,7 +16,6 @@ describe('bulk.ts — TSV branch in the generic path', () => {
     const result = await executeBulkOperation(
       [{ id: 'q1' }],
       vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         repositories: [
           {
             owner: 'o',
@@ -50,7 +49,6 @@ describe('bulk.ts — TSV branch in the generic path', () => {
     const result = await executeBulkOperation(
       [{ id: 'q1' }],
       vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         repositories: [{ owner: 'o', repo: 'r' }],
       }),
       {
@@ -69,7 +67,6 @@ describe('bulk.ts — TSV branch in the generic path', () => {
     const result = await executeBulkOperation(
       [{ id: 'q1' }],
       vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { x: 1 },
       }),
       {

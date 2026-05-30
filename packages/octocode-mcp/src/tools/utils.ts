@@ -93,12 +93,15 @@ export function createSuccessResult<T extends object>(
   toolName: string,
   options?: SuccessResultOptions
 ): ToolSuccessResult & T {
-  const status = hasContent ? ('hasResults' as const) : ('empty' as const);
+  // hasResults is the happy path — signaled by ABSENT status, so only
+  // 'empty' is emitted explicitly. Keeps responses lean and matches the
+  // bulk-runner serialization contract.
+  const status = hasContent ? undefined : ('empty' as const);
 
   const result: ToolSuccessResult & T = {
-    status,
+    ...(status !== undefined ? { status } : {}),
     ...data,
-  };
+  } as ToolSuccessResult & T;
 
   // Per-tool hints fire only on empty (no-result) paths. Success-path signals
   // (pagination, evidence, deprecation, etc.) come via extraHints from the

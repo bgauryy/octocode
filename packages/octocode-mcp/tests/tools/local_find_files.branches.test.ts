@@ -78,11 +78,14 @@ describe('findFiles sortBy branches', () => {
       details: true,
     });
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     const files = result.files!;
-    expect(files[0]!.size).toBe(5000);
-    expect(files[1]!.size).toBe(2000);
-    expect(files[2]!.size).toBe(100);
+    // sortBy='size' still sorts by underlying size, but the response field
+    // is `sizeFormatted` (human-readable) — raw `size` was dropped to remove
+    // redundancy. Verify ordering via sizeFormatted.
+    expect(files[0]!.sizeFormatted).toBe('4.9KB');
+    expect(files[1]!.sizeFormatted).toBe('2.0KB');
+    expect(files[2]!.sizeFormatted).toBe('100.0B');
   });
 
   it('should sort by name alphabetically when sortBy is "name"', async () => {
@@ -109,7 +112,7 @@ describe('findFiles sortBy branches', () => {
       details: true,
     });
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     const files = result.files!;
     expect(files[0]!.path).toContain('alpha');
     expect(files[1]!.path).toContain('bravo');
@@ -140,7 +143,7 @@ describe('findFiles sortBy branches', () => {
       details: true,
     });
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     const files = result.files!;
     expect(files[0]!.path).toContain('/a/');
     expect(files[1]!.path).toContain('/m/');
@@ -194,7 +197,7 @@ describe('findFiles sortBy branches', () => {
       details: true,
     });
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     const files = result.files!;
     expect(files[0]!.path).toContain('new.ts');
     expect(files[1]!.path).toContain('old.ts');
@@ -223,7 +226,7 @@ describe('findFiles sortBy branches', () => {
       charOffset: 10000,
     });
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     expect(result.files).toEqual([]);
     expect(result.charPagination?.hasMore).toBe(false);
   });

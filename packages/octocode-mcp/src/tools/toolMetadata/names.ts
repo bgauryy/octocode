@@ -1,5 +1,5 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
-import type { CompleteMetadata } from '@octocodeai/octocode-core';
+import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
 import { getMetadataOrNull } from './state.js';
 
 export const TOOL_NAMES = new Proxy({} as CompleteMetadata['toolNames'], {

@@ -176,7 +176,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.locations!.length).toBe(2);
     });
 
@@ -285,7 +285,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.locations).toHaveLength(1);
       expect(result.hasMultipleFiles).toBe(true);
     });
@@ -365,7 +365,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints!.some(h => h.includes('Filtered:'))).toBe(true);
     });
 
@@ -438,7 +438,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.locations!.length).toBe(10);
       expect(result.hints!.some(h => h.includes('page'))).toBe(true);
     });
@@ -477,7 +477,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       const content = result.locations![0]!.content;
       expect(content).toContain('line1');
     });
@@ -514,7 +514,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.locations![0]!.content).toBe('const x = myFunc();');
     });
 
@@ -583,7 +583,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should sort refs: definition first, then by uri (sort comparisons)', async () => {
@@ -633,7 +633,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.locations!.length).toBe(3);
       expect(result.locations![0]!.isDefinition).toBe(true);
       expect(result.locations![1]!.uri).toBeDefined();
@@ -747,7 +747,7 @@ describe('lspReferencesPatterns - Branch Coverage', () => {
         }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       if (result.status === 'hasResults') {
         expect(result.locations?.length).toBeGreaterThan(0);
         const hasDefinition = result.locations?.some(r => r.isDefinition);

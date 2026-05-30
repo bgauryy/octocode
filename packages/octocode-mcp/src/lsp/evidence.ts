@@ -18,13 +18,15 @@ export function attachLspEvidence<T>(
   }
 ): T {
   // Only annotate well-shaped LSP results. Raw error envelopes
-  // (`{ isError, message }` or `{ error }`) lack `status` and are returned
-  // as-is — tests assert those shapes verbatim.
+  // (`{ isError, message }`) lack `status` and are returned as-is. The
+  // lean contract: ABSENT status ≡ success; only 'empty' / 'error' emit.
   const status = (result as { status?: string }).status;
-  if (status !== 'hasResults' && status !== 'empty') return result;
+  if (status !== undefined && status !== 'empty') return result;
 
-  const hasResults = status === 'hasResults';
+  const hasResults = status === undefined;
+  // lspMode absent ≡ semantic; only 'fallback' is emitted explicitly.
   const mode = (result as { lspMode?: 'semantic' | 'fallback' }).lspMode;
+  const isSemantic = mode === undefined || mode === 'semantic';
   const pagination = (
     result as Record<string, { hasMore?: boolean } | undefined>
   )[opts.paginationKey];
@@ -33,12 +35,7 @@ export function attachLspEvidence<T>(
     kind: opts.kind,
     answerReady: hasResults,
     complete: hasResults && !(pagination?.hasMore ?? false),
-    confidence:
-      mode === 'semantic'
-        ? ('high' as const)
-        : mode === 'fallback'
-          ? ('low' as const)
-          : undefined,
+    confidence: isSemantic ? ('high' as const) : ('low' as const),
     ...(mode === 'fallback' ? { reason: opts.fallbackReason } : {}),
   };
 

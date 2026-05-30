@@ -14,6 +14,15 @@ vi.mock('../../src/utils/fs.js', () => ({
   readFileContent: vi.fn(),
 }));
 
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(),
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+  rmSync: vi.fn(),
+  symlinkSync: vi.fn(),
+}));
+
 // Import the mocked module
 import {
   dirExists,
@@ -30,6 +39,9 @@ import {
   getAvailableSkills,
   getSkillMetadata,
   getAllSkillsMetadata,
+  isSafeSkillName,
+  resolveModeForTarget,
+  resolveSkillDestination,
 } from '../../src/utils/skills.js';
 
 describe('Skills Utilities', () => {
@@ -196,6 +208,40 @@ describe('Skills Utilities', () => {
       expect(() => copySkill('octocode-research', '/dest')).toThrow(
         'Skills directory not found'
       );
+    });
+
+    it('should reject unsafe skill names before copying', () => {
+      vi.mocked(dirExists).mockReturnValue(true);
+
+      const result = copySkill('../evil', '/dest/skills');
+
+      expect(result).toBe(false);
+      expect(copyDirectory).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('shared install helpers', () => {
+    it('validates skill names as path segments only', () => {
+      expect(isSafeSkillName('octocode-research')).toBe(true);
+      expect(isSafeSkillName('../evil')).toBe(false);
+      expect(isSafeSkillName('octocode/evil')).toBe(false);
+      expect(isSafeSkillName('octocode\\evil')).toBe(false);
+      expect(isSafeSkillName('.')).toBe(false);
+      expect(isSafeSkillName(' octocode-research')).toBe(false);
+    });
+
+    it('resolves skill destinations only under the destination directory', () => {
+      expect(resolveSkillDestination('/dest/skills', 'octocode-plan')).toBe(
+        '/dest/skills/octocode-plan'
+      );
+      expect(resolveSkillDestination('/dest/skills', '../evil')).toBeNull();
+    });
+
+    it('keeps hybrid mode policy in the shared utility', () => {
+      expect(resolveModeForTarget('hybrid', 'claude-code')).toBe('copy');
+      expect(resolveModeForTarget('hybrid', 'claude-desktop')).toBe('copy');
+      expect(resolveModeForTarget('hybrid', 'cursor')).toBe('symlink');
+      expect(resolveModeForTarget('copy', 'cursor')).toBe('copy');
     });
   });
 
@@ -475,14 +521,6 @@ description: Valid skill
 
 // Separate describe block for config-related tests since they use different mocks
 describe('Skills Config', () => {
-  // Mock node:fs for config tests
-  vi.mock('node:fs', () => ({
-    existsSync: vi.fn(),
-    readFileSync: vi.fn(),
-    writeFileSync: vi.fn(),
-    mkdirSync: vi.fn(),
-  }));
-
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();

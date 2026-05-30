@@ -67,7 +67,6 @@ describe('github_search_pull_requests/execution', () => {
         {
           id: 'pr_exec_2',
           state: 'open',
-          merged: false,
           draft: false,
           mainResearchGoal: 'test',
           researchGoal: 'test',

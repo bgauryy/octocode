@@ -1,15 +1,17 @@
 # GitHub Research Benchmark
 
-This directory contains a benchmark for comparing GitHub research agents by **semantic answer quality per measured character**. Elapsed time is recorded for context only; it does not decide the winner.
+This directory contains a benchmark for comparing GitHub research agents by **semantic answer quality per measured character**. Characters are the deterministic token-usage proxy: every metered call records `in_chars + out_chars`, and the Octocode run also pays the one-time MCP context cost from `initialize` and `tools/list` because tool schemas and server instructions enter the agent context. Elapsed time is recorded for context only; it does not decide the winner.
 
-Questions live in `benchmark/github/QUESTIONS.md`. `scripts/init-run.sh` derives the question count from that file so the benchmark is not tied to a hard-coded total. Two researcher runs answer the same questions:
+The benchmark has two phases:
 
-- `octocode` researcher: uses only Octocode MCP tools, routed through `scripts/mcp-meas.mjs`.
-- `gh` researcher: uses only GitHub CLI, routed through `scripts/gh-meas.sh`.
+1. **Research:** two blind researchers answer `benchmark/github/QUESTIONS.md` sequentially, one question at a time:
 
-A judge run then reads both outputs plus `EXPECTED_FACTS.md`, scores answer quality semantically, and writes `benchmark/github/output/summary.md`.
+   - `octocode` researcher: uses only Octocode MCP tools, routed through `scripts/mcp-meas.mjs`.
+   - `gh` researcher: uses only GitHub CLI, routed through `scripts/gh-meas.sh`.
 
-> **Researcher agents must never read `EXPECTED_FACTS.md`.** It is judge-only. Reading it invalidates the run.
+2. **Judge:** a separate judge reads the completed `octocode` and `gh` outputs, independently fact-checks each answer against the live GitHub repositories/PRs, assigns semantic quality scores, combines those scores with measured character usage, and writes `benchmark/github/output/summary.md`.
+
+There is intentionally no `EXPECTED_FACTS.md` answer key. Quality is judged by an independent validation pass, not by a static checklist.
 
 ---
 
@@ -17,11 +19,11 @@ A judge run then reads both outputs plus `EXPECTED_FACTS.md`, scores answer qual
 
 You must know which role you were assigned before acting.
 
-| Assigned role | What you do | May read `EXPECTED_FACTS.md`? | Output directory/file |
-|---|---|---:|---|
-| `researcher: octocode` | Answer all questions using only metered Octocode MCP calls | No | `benchmark/github/output/octocode/` |
-| `researcher: gh` | Answer all questions using only metered `gh` CLI calls | No | `benchmark/github/output/gh/` |
-| `judge` | Compare completed `octocode` and `gh` runs semantically and by efficiency | Yes | `benchmark/github/output/summary.md` |
+| Assigned role | What you do | Fact-checking mode | Output directory/file |
+|---|---|---|---|
+| `researcher: octocode` | Answer all questions using only metered Octocode MCP calls | Blind research only | `benchmark/github/output/octocode/` |
+| `researcher: gh` | Answer all questions using only metered `gh` CLI calls | Blind research only | `benchmark/github/output/gh/` |
+| `judge` | Compare completed `octocode` and `gh` runs semantically and by efficiency | Independent verification | `benchmark/github/output/summary.md` |
 
 If your assigned role is unclear, stop and ask whether you are `researcher: octocode`, `researcher: gh`, or `judge`.
 
@@ -128,7 +130,7 @@ Use this section only if your assigned role is `researcher: octocode`.
 ## Hard rules
 
 - Read `benchmark/github/QUESTIONS.md`.
-- Do **not** read `benchmark/github/EXPECTED_FACTS.md`.
+- Do **not** read the other agent's output or `benchmark/github/output/summary.md` during the run.
 - You may use **any Octocode MCP tool** needed to answer the questions, as long as every call is routed through `scripts/mcp-meas.mjs`.
 - Do not use direct/unmetered Octocode tools, `gh`, web search, `curl`, `wget`, `git clone`, or local repository files.
 - Run questions sequentially: finish and record Q`n` before starting Q`n+1`.
@@ -225,7 +227,7 @@ Use this section only if your assigned role is `researcher: gh`.
 ## Hard rules
 
 - Read `benchmark/github/QUESTIONS.md`.
-- Do **not** read `benchmark/github/EXPECTED_FACTS.md`.
+- Do **not** read the other agent's output or `benchmark/github/output/summary.md` during the run.
 - You may use **any `gh` CLI command** needed to answer the questions, as long as every call is routed through `scripts/gh-meas.sh`.
 - Do not use bare `gh`, Octocode tools, web search, `curl`, `wget`, `git clone`, or local repository files.
 - Run questions sequentially: finish and record Q`n` before starting Q`n+1`.
@@ -316,14 +318,13 @@ Use this section only if your assigned role is `judge`.
 Read:
 
 1. `benchmark/github/QUESTIONS.md`
-2. `benchmark/github/EXPECTED_FACTS.md`
-3. `benchmark/github/output/octocode/output.md`
-4. `benchmark/github/output/octocode/summary.json`
-5. `benchmark/github/output/gh/output.md`
-6. `benchmark/github/output/gh/summary.json`
-7. Every `q<n>.md` and `q<n>.json` in both run directories.
+2. `benchmark/github/output/octocode/output.md`
+3. `benchmark/github/output/octocode/summary.json`
+4. `benchmark/github/output/gh/output.md`
+5. `benchmark/github/output/gh/summary.json`
+6. Every `q<n>.md` and `q<n>.json` in both run directories.
 
-You are the only role allowed to read `EXPECTED_FACTS.md`. Do not quote it verbatim in the output; paraphrase.
+There is intentionally no expected-facts file. The judge must independently verify the relevant facts for each question before assigning scores. Judge research/tool calls are outside the measured researcher runs and do not affect token-usage totals.
 
 ## Quality scoring
 
@@ -339,7 +340,7 @@ Score each answer semantically from 0 to 3:
 Rules:
 
 - Do not use a rigid keyword checklist.
-- Score against the exact question wording and ground-truth facts.
+- Score against the exact question wording and facts you independently verify from GitHub repositories, files, PRs, comments, reviews, and release/source history as needed.
 - Accept equivalent identifiers, moved/renamed files, paraphrases, and extra correct context.
 - Penalize missing required facts, unsupported claims, or contradictions.
 - For multi-part questions, score parts separately and average.
@@ -419,9 +420,9 @@ Do not write additional files.
 
 ## Scoring model summary
 
-Evaluation is semantic and intentionally not rigid. The benchmark winner is based on quality-adjusted token/character usage: answer quality per measured character, with MCP init/context chars charged to Octocode. Elapsed time is reported as context only.
+Evaluation is semantic and intentionally not rigid. The judge independently fact-checks the answers instead of reading a static answer key. The benchmark winner is based on quality-adjusted token/character usage: answer quality per measured character, with MCP init/context chars charged to Octocode. Elapsed time is reported as context only.
 
-Drift questions (heading suffix `[drift]` in `EXPECTED_FACTS.md`, if present) are scored loosely and reported separately.
+Drift questions (heading suffix `[drift]` in `QUESTIONS.md`, if present, or questions the judge flags as date-sensitive) are scored loosely and reported separately.
 
 ---
 
@@ -429,7 +430,7 @@ Drift questions (heading suffix `[drift]` in `EXPECTED_FACTS.md`, if present) ar
 
 | Mistake | Why it invalidates or weakens the run | Fix |
 |---|---|---|
-| Researcher reads `EXPECTED_FACTS.md` | Not blind anymore | Discard and rerun |
+| Researcher reads the other agent's output or final judge summary before finishing | Not blind anymore | Discard and rerun |
 | Octocode MCP not routed through `mcp-meas.mjs` | Tool calls and MCP context are unmetered | Reconfigure MCP client and rerun |
 | Missing `_initialize` / `_tools/list` rows | MCP system prompt/tool schema context was not counted | Reconfigure MCP client and rerun |
 | Bare `gh` instead of `gh-meas.sh` | CLI call is unmetered | Redo the question through wrapper |
@@ -444,4 +445,3 @@ Drift questions (heading suffix `[drift]` in `EXPECTED_FACTS.md`, if present) ar
 - Questions: [`benchmark/github/QUESTIONS.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/QUESTIONS.md)
 - Researcher prompt: [`benchmark/github/prompts/researcher.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/prompts/researcher.md)
 - Judge prompt: [`benchmark/github/prompts/judge.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/prompts/judge.md)
-- Expected facts, judge-only: [`benchmark/github/EXPECTED_FACTS.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/EXPECTED_FACTS.md)

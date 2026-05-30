@@ -36,13 +36,8 @@ vi.mock('node:crypto', () => ({
   }),
 }));
 
-const quickSyncMock = vi.fn();
-
-vi.mock('../../../src/ui/sync/index.js', () => ({
-  quickSync: quickSyncMock,
-}));
-
 const featureSyncMocks = vi.hoisted(() => ({
+  quickSync: vi.fn(),
   readAllClientConfigs: vi.fn().mockReturnValue([]),
   analyzeSyncState: vi.fn().mockReturnValue({
     clients: [],
@@ -58,6 +53,7 @@ const featureSyncMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/features/sync.js', () => ({
+  quickSync: featureSyncMocks.quickSync,
   readAllClientConfigs: featureSyncMocks.readAllClientConfigs,
   analyzeSyncState: featureSyncMocks.analyzeSyncState,
   getClientDisplayName: featureSyncMocks.getClientDisplayName,
@@ -100,7 +96,7 @@ describe('syncCommand', () => {
       },
     } as unknown as ReturnType<typeof features.analyzeSyncState>);
 
-    quickSyncMock.mockReset();
+    vi.mocked(features.quickSync).mockReset();
   });
 
   afterEach(() => {
@@ -176,7 +172,7 @@ describe('syncCommand', () => {
       expect.stringContaining('have conflicts')
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('octocode sync')
+      expect.stringContaining('octocode-cli sync')
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--force'));
   });
@@ -275,7 +271,7 @@ describe('syncCommand', () => {
   });
 
   it('status: uses short option alias -n is not status (default sync path)', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: true,
       message: 'ok',
       syncPerformed: false,
@@ -288,13 +284,13 @@ describe('syncCommand', () => {
       options: { n: true },
     });
 
-    expect(quickSyncMock).toHaveBeenCalledWith(
+    expect(featureSyncMocks.quickSync).toHaveBeenCalledWith(
       expect.objectContaining({ dryRun: true })
     );
   });
 
   it('sync (default): successful sync performed', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: true,
       message: 'Synced!',
       syncPerformed: true,
@@ -314,7 +310,7 @@ describe('syncCommand', () => {
   });
 
   it('sync (default): sync performed but failure sets exit code', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: false,
       message: 'Write failed',
       syncPerformed: true,
@@ -331,7 +327,7 @@ describe('syncCommand', () => {
   });
 
   it('sync (default): already synced shows success message', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: true,
       message: 'All MCPs are already in sync',
       syncPerformed: false,
@@ -351,7 +347,7 @@ describe('syncCommand', () => {
   });
 
   it('sync (default): conflicts without --force prints options', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: false,
       message:
         '2 conflict(s) found. Use --force to auto-resolve or run interactive mode.',
@@ -375,7 +371,7 @@ describe('syncCommand', () => {
   });
 
   it('sync (default): conflicts with --force skips conflict hints but still fails', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: false,
       message: 'Still broken after conflict resolution',
       syncPerformed: false,
@@ -397,7 +393,7 @@ describe('syncCommand', () => {
   });
 
   it('sync with --force forwards to quickSync', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: true,
       message: 'done',
       syncPerformed: true,
@@ -410,13 +406,13 @@ describe('syncCommand', () => {
       options: { f: true },
     });
 
-    expect(quickSyncMock).toHaveBeenCalledWith(
+    expect(featureSyncMocks.quickSync).toHaveBeenCalledWith(
       expect.objectContaining({ force: true })
     );
   });
 
   it('sync with --dry-run forwards to quickSync', async () => {
-    quickSyncMock.mockResolvedValue({
+    featureSyncMocks.quickSync.mockResolvedValue({
       success: true,
       message: 'Would sync',
       syncPerformed: false,
@@ -429,7 +425,7 @@ describe('syncCommand', () => {
       options: { 'dry-run': true },
     });
 
-    expect(quickSyncMock).toHaveBeenCalledWith(
+    expect(featureSyncMocks.quickSync).toHaveBeenCalledWith(
       expect.objectContaining({ dryRun: true })
     );
   });

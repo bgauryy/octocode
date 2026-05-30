@@ -163,7 +163,8 @@ describe('LSP Call Hierarchy Handler Tests', () => {
         results: [
           {
             id: 'call-hierarchy-incoming',
-            status: 'hasResults',
+            // status: 'hasResults' omitted — the lean contract signals
+            // the happy path by ABSENCE of status; only empty/error emit.
             data: {
               item: {
                 name: 'registerTools',
@@ -204,7 +205,7 @@ describe('LSP Call Hierarchy Handler Tests', () => {
                 hasMore: false,
                 resultsPerPage: 5,
               },
-              lspMode: 'semantic',
+              // lspMode omitted — absent ≡ semantic per the lean contract.
               hints: ['Found 1 caller'],
             },
           },
@@ -541,7 +542,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
   describe('Result structure', () => {
     it('should create valid incoming call result', () => {
       const result = {
-        status: 'hasResults' as const,
         item: {
           name: 'myFunction',
           kind: 'function' as const,
@@ -571,14 +571,13 @@ describe('LSP Call Hierarchy Handler Tests', () => {
         hints: ['No callers found'],
       };
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.direction).toBe('incoming');
       expect(result.item.name).toBe('myFunction');
     });
 
     it('should create valid outgoing call result', () => {
       const result = {
-        status: 'hasResults' as const,
         item: {
           name: 'myFunction',
           kind: 'function' as const,
@@ -608,7 +607,7 @@ describe('LSP Call Hierarchy Handler Tests', () => {
         hints: ['No callees found'],
       };
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.direction).toBe('outgoing');
     });
 

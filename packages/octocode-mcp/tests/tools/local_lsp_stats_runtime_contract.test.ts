@@ -77,7 +77,6 @@ describe('local + LSP tool stats runtime contract', () => {
     mockSearchContentRipgrep.mockResolvedValue(
       attachRawResponseChars(
         {
-          status: 'hasResults' as const,
           files: [
             {
               path: '/workspace/src/a.ts',
@@ -95,7 +94,6 @@ describe('local + LSP tool stats runtime contract', () => {
     mockViewStructure.mockResolvedValue(
       attachRawResponseChars(
         {
-          status: 'hasResults' as const,
           path: '/workspace',
           depth: 1,
           entries: [{ name: 'src', type: 'directory' }],
@@ -109,7 +107,6 @@ describe('local + LSP tool stats runtime contract', () => {
     mockFindFiles.mockResolvedValue(
       attachRawResponseChars(
         {
-          status: 'hasResults' as const,
           files: [{ path: '/workspace/a.ts' }],
           pagination: {
             currentPage: 1,
@@ -127,7 +124,6 @@ describe('local + LSP tool stats runtime contract', () => {
     mockFetchContent.mockResolvedValue(
       attachRawResponseChars(
         {
-          status: 'hasResults' as const,
           path: '/workspace/a.ts',
           content: 'export const a = 1;\n',
           totalLines: 1,
@@ -140,7 +136,6 @@ describe('local + LSP tool stats runtime contract', () => {
     mockFindReferences.mockResolvedValue(
       attachRawResponseChars(
         {
-          status: 'hasResults' as const,
           symbolName: 'foo',
           references: [
             {
@@ -168,7 +163,6 @@ describe('local + LSP tool stats runtime contract', () => {
     mockProcessCallHierarchy.mockResolvedValue(
       attachRawResponseChars(
         {
-          status: 'hasResults' as const,
           symbolName: 'foo',
           calls: [],
           hints: ['call hierarchy hint'],

@@ -105,12 +105,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               matches: [
                 {
@@ -145,12 +143,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               content: `const stripe = "${SECRETS.STRIPE_KEY}";\nconst openai = "${SECRETS.OPENAI_KEY}";`,
               path: 'config/secrets.ts',
@@ -170,7 +166,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         tree: [
           {
@@ -191,7 +186,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         repositories: [
           {
@@ -216,12 +210,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               number: 42,
               title: 'Rotate secrets',
@@ -258,7 +250,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         packages: [
           {
@@ -297,12 +288,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               matches: [
                 {
@@ -339,12 +328,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               content: secretPayload('line'),
               path: '/workspace/config/env.ts',
@@ -364,7 +351,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         tree: {
           name: 'project',
@@ -384,7 +370,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         files: [
           {
@@ -411,12 +396,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               locations: [
                 {
@@ -445,12 +428,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               references: [
                 {
@@ -485,12 +466,10 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     ],
     structuredContent: {
-      status: 'hasResults',
       data: {
         results: [
           {
             id: 'q1',
-            status: 'hasResults',
             data: {
               target: {
                 name: 'getSecret',
@@ -710,7 +689,6 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
             },
           ],
           structuredContent: {
-            status: 'hasResults',
             data: {
               count: 42,
               name: 'test-project',

@@ -239,6 +239,27 @@ describe('CLI Commands', () => {
       expect(consoleSpy).toHaveBeenCalledWith('gho_gh_cli_token');
     });
 
+    it('should accept octocode-cli as a compatibility alias for octocode token source', async () => {
+      const { getToken } = await import('../../src/features/github-oauth.js');
+      vi.mocked(getToken).mockResolvedValue({
+        token: 'gho_octocode_cli_alias',
+        source: 'octocode',
+        username: 'octouser',
+      });
+
+      const { findCommand } = await import('../../src/cli/commands.js');
+      const tokenCmd = findCommand('token');
+
+      await tokenCmd!.handler!({
+        command: 'token',
+        args: [],
+        options: { type: 'octocode-cli' },
+      });
+
+      expect(getToken).toHaveBeenCalledWith('github.com', 'octocode');
+      expect(consoleSpy).toHaveBeenCalledWith('gho_octocode_cli_alias');
+    });
+
     it('should use auto type when --type=auto is provided', async () => {
       const { getToken } = await import('../../src/features/github-oauth.js');
       vi.mocked(getToken).mockResolvedValue({
@@ -455,7 +476,7 @@ describe('CLI Commands', () => {
         expect.stringContaining('No Octocode token found')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode login')
+        expect.stringContaining('octocode-cli login')
       );
       expect(process.exitCode).toBe(1);
     });
@@ -668,7 +689,7 @@ describe('CLI Commands', () => {
         expect.stringContaining('Missing clean target')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode cache clean --all')
+        expect.stringContaining('octocode-cli cache clean --all')
       );
       expect(process.exitCode).toBe(1);
     });
@@ -836,9 +857,8 @@ describe('CLI Commands', () => {
         configurable: true,
       });
 
-      const { getOctocodeToken } =
-        await import('../../src/features/github-oauth.js');
-      vi.mocked(getOctocodeToken).mockResolvedValue({
+      const { getToken } = await import('../../src/features/github-oauth.js');
+      vi.mocked(getToken).mockResolvedValue({
         token: 'ghp_auth_secret_token_xyz',
         source: 'octocode',
       } as any);
@@ -866,13 +886,8 @@ describe('CLI Commands', () => {
         configurable: true,
       });
 
-      const { getOctocodeToken, getGhCliToken } =
-        await import('../../src/features/github-oauth.js');
-      vi.mocked(getOctocodeToken).mockResolvedValue({
-        token: null,
-        source: 'none',
-      } as any);
-      vi.mocked(getGhCliToken).mockReturnValue({
+      const { getToken } = await import('../../src/features/github-oauth.js');
+      vi.mocked(getToken).mockResolvedValue({
         token: 'ghp_fallback_cli_token_end',
         source: 'gh-cli',
       } as any);

@@ -6,7 +6,10 @@
  */
 
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { CloneRepoQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 import { getDirectorySizeBytes } from 'octocode-shared';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';

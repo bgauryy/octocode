@@ -13,6 +13,15 @@ type GitHubProviderErrorSource = Pick<GitHubAPIError, 'error'> &
     >
   >;
 
+type GitHubProviderErrorLike = {
+  error: string | { toString(): string };
+  status?: number;
+  hints?: string[];
+  rateLimitRemaining?: number;
+  rateLimitReset?: number;
+  retryAfter?: number;
+};
+
 /**
  * Parse a GitHub projectId string into owner/repo components.
  * @throws {Error} if projectId is provided but not in 'owner/repo' format.
@@ -71,4 +80,42 @@ export function createGitHubProviderError(
     hints: apiError.hints,
     rateLimit: extractGitHubRateLimit(apiError),
   };
+}
+
+export function createGitHubProviderErrorFromResult(
+  result: unknown
+): ProviderResponse<never> | null {
+  if (!isGitHubProviderErrorLike(result)) {
+    return null;
+  }
+
+  return createGitHubProviderError({
+    error:
+      typeof result.error === 'string' ? result.error : String(result.error),
+    status: result.status || 500,
+    hints: result.hints,
+    rateLimitRemaining: result.rateLimitRemaining,
+    rateLimitReset: result.rateLimitReset,
+    retryAfter: result.retryAfter,
+  });
+}
+
+function isGitHubProviderErrorLike(
+  value: unknown
+): value is GitHubProviderErrorLike {
+  if (typeof value !== 'object' || value === null || !('error' in value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const error = record.error;
+  return typeof error === 'string' || hasToString(error);
+}
+
+function hasToString(value: unknown): value is { toString(): string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { toString?: unknown }).toString === 'function'
+  );
 }

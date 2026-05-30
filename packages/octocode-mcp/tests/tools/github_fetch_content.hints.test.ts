@@ -58,7 +58,7 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
         { extraHints: paginationHints }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
       expect(result.hints).toContain('📄 More available: This is page 1 of 10');
       expect(result.hints).toContain(
@@ -93,7 +93,7 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
         { extraHints: paginationHints }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Empty hints array results in no hints being added (or empty array)
       expect(result.hints === undefined || result.hints?.length === 0).toBe(
         true
@@ -128,7 +128,7 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
         { extraHints: paginationHints }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeUndefined();
     });
 

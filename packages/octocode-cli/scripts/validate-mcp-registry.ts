@@ -20,35 +20,30 @@ import {
   MCP_REGISTRY,
   type MCPRegistryEntry,
 } from '../src/configs/mcp-registry.js';
+import {
+  buildValidationJsonSummary,
+  checkGitHubRepository,
+  formatRelativeTime,
+  hasBlockingValidationFailures,
+  printRateLimitTip,
+  printReportHeader,
+  printSectionHeader,
+  printSummary,
+  printValidatorBanner,
+  splitValidationResults,
+  topByStars,
+  writeValidationProgress,
+  type BaseValidationResult,
+} from './validation-report-helpers.js';
 
-interface ValidationResult {
-  id: string;
-  name: string;
+interface ValidationResult extends BaseValidationResult {
   repository: string;
-  status: 'valid' | 'invalid' | 'error' | 'warning';
-  error?: string;
-  statusCode?: number;
-  stars?: number;
-  lastPushed?: string;
   npmPackage?: string;
   npmValid?: boolean;
   npmError?: string;
   pipPackage?: string;
   pipValid?: boolean;
   pipError?: string;
-}
-
-interface GitHubRepoInfo {
-  id: number;
-  name: string;
-  full_name: string;
-  private: boolean;
-  html_url: string;
-  description: string | null;
-  archived: boolean;
-  disabled: boolean;
-  stargazers_count: number;
-  pushed_at: string;
 }
 
 interface NpmPackageInfo {
@@ -72,8 +67,8 @@ const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
  */
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const patterns = [
-    /^https?:\/\/github\.com\/([^\/]+)\/([^\/]+?)(?:\/.*)?$/,
-    /^github\.com\/([^\/]+)\/([^\/]+?)(?:\/.*)?$/,
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\/.*)?$/,
+    /^github\.com\/([^/]+)\/([^/]+?)(?:\/.*)?$/,
   ];
 
   for (const pattern of patterns) {
@@ -87,77 +82,6 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   }
 
   return null;
-}
-
-/**
- * Check if a GitHub repository exists
- */
-async function checkRepository(
-  owner: string,
-  repo: string
-): Promise<{
-  exists: boolean;
-  error?: string;
-  statusCode?: number;
-  data?: GitHubRepoInfo;
-}> {
-  const url = `https://api.github.com/repos/${owner}/${repo}`;
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'octocode-mcp-validator',
-        ...(process.env.GITHUB_TOKEN && {
-          Authorization: `token ${process.env.GITHUB_TOKEN}`,
-        }),
-        ...(process.env.GITHUB_PERSONAL_ACCESS_TOKEN && {
-          Authorization: `token ${process.env.GITHUB_PERSONAL_ACCESS_TOKEN}`,
-        }),
-      },
-    });
-
-    if (response.ok) {
-      const data = (await response.json()) as GitHubRepoInfo;
-      return { exists: true, statusCode: response.status, data };
-    }
-
-    if (response.status === 404) {
-      return {
-        exists: false,
-        error: 'Repository not found',
-        statusCode: response.status,
-      };
-    }
-
-    if (response.status === 403) {
-      const remaining = response.headers.get('x-ratelimit-remaining');
-      if (remaining === '0') {
-        return {
-          exists: false,
-          error:
-            'Rate limit exceeded. Set GITHUB_TOKEN env var for higher limits.',
-          statusCode: response.status,
-        };
-      }
-      return {
-        exists: false,
-        error: 'Access forbidden',
-        statusCode: response.status,
-      };
-    }
-
-    return {
-      exists: false,
-      error: `HTTP ${response.status}: ${response.statusText}`,
-      statusCode: response.status,
-    };
-  } catch (err) {
-    return {
-      exists: false,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    };
-  }
 }
 
 /**
@@ -247,7 +171,11 @@ async function validateMCP(
     };
   }
 
-  const result = await checkRepository(parsed.owner, parsed.repo);
+  const result = await checkGitHubRepository(
+    parsed.owner,
+    parsed.repo,
+    'octocode-mcp-validator'
+  );
 
   if (!result.exists) {
     return {
@@ -363,14 +291,7 @@ async function validateAllMCPs(
     results.push(...batchResults);
 
     const progress = Math.min(i + concurrency, total);
-    const validCount = results.filter(r => r.status === 'valid').length;
-    const warningCount = results.filter(r => r.status === 'warning').length;
-    const invalidCount = results.filter(r => r.status === 'invalid').length;
-    const errorCount = results.filter(r => r.status === 'error').length;
-
-    process.stdout.write(
-      `\r  Progress: ${progress}/${total} | ✅ ${validCount} | ⚠️  ${warningCount} | ❌ ${invalidCount} | 🔴 ${errorCount}`
-    );
+    writeValidationProgress(results, progress, total);
 
     if (i + concurrency < total) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -382,53 +303,27 @@ async function validateAllMCPs(
 }
 
 /**
- * Format date as relative time
- */
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 30) return `${diffDays} days ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-  return `${(diffDays / 365).toFixed(1)} years ago`;
-}
-
-/**
  * Print validation report
  */
 function printReport(results: ValidationResult[]): void {
-  const valid = results.filter(r => r.status === 'valid');
-  const warnings = results.filter(r => r.status === 'warning');
-  const invalid = results.filter(r => r.status === 'invalid');
-  const errors = results.filter(r => r.status === 'error');
+  const { valid, warnings, invalid, errors, staleWarnings, otherWarnings } =
+    splitValidationResults(results);
 
-  console.log('═'.repeat(80));
-  console.log('                        MCP REGISTRY VALIDATION REPORT');
-  console.log('═'.repeat(80));
-  console.log();
-
-  // Count stale repos
-  const staleCount = warnings.filter(w =>
-    w.error?.includes('not been updated in over 1 year')
-  ).length;
-
-  // Summary
-  console.log('📊 SUMMARY');
-  console.log('─'.repeat(40));
-  console.log(`  Total MCPs:     ${results.length}`);
-  console.log(`  ✅ Valid:       ${valid.length}`);
-  console.log(`  ⚠️  Warnings:    ${warnings.length}`);
-  console.log(`  🗑️  Stale:       ${staleCount}`);
-  console.log(`  ❌ Invalid:     ${invalid.length}`);
-  console.log(`  🔴 Errors:      ${errors.length}`);
-  console.log();
+  printReportHeader('MCP REGISTRY VALIDATION REPORT');
+  printSummary([
+    ['Total MCPs:', results.length],
+    ['✅ Valid:', valid.length],
+    ['⚠️  Warnings:', warnings.length],
+    ['🗑️  Stale:', staleWarnings.length],
+    ['❌ Invalid:', invalid.length],
+    ['🔴 Errors:', errors.length],
+  ]);
 
   // Invalid MCPs
   if (invalid.length > 0) {
-    console.log('❌ INVALID MCPs (Repository not found or inaccessible)');
-    console.log('─'.repeat(80));
+    printSectionHeader(
+      '❌ INVALID MCPs (Repository not found or inaccessible)'
+    );
     for (const mcp of invalid) {
       console.log(`  • ${mcp.id}`);
       console.log(`    Name:       ${mcp.name}`);
@@ -442,17 +337,13 @@ function printReport(results: ValidationResult[]): void {
   }
 
   // Stale repos (no updates in 1+ year)
-  const staleRepos = warnings.filter(w =>
-    w.error?.includes('not been updated in over 1 year')
-  );
-  if (staleRepos.length > 0) {
-    console.log('🗑️  STALE MCPs - CONSIDER REMOVING FROM REGISTRY');
-    console.log('─'.repeat(80));
+  if (staleWarnings.length > 0) {
+    printSectionHeader('🗑️  STALE MCPs - CONSIDER REMOVING FROM REGISTRY');
     console.log(
       '   The following MCPs have not been updated in over 1 year and may be abandoned.'
     );
     console.log('   Consider removing them from mcp-registry.ts:\n');
-    for (const mcp of staleRepos) {
+    for (const mcp of staleWarnings) {
       console.log(`  • ${mcp.id}`);
       console.log(`    Name:       ${mcp.name}`);
       console.log(`    Repository: ${mcp.repository}`);
@@ -470,12 +361,8 @@ function printReport(results: ValidationResult[]): void {
   }
 
   // Other warnings (package issues)
-  const otherWarnings = warnings.filter(
-    w => !w.error?.includes('not been updated in over 1 year')
-  );
   if (otherWarnings.length > 0) {
-    console.log('⚠️  WARNINGS (Package issues)');
-    console.log('─'.repeat(80));
+    printSectionHeader('⚠️  WARNINGS (Package issues)');
     for (const mcp of otherWarnings) {
       console.log(`  • ${mcp.id}`);
       console.log(`    Name:       ${mcp.name}`);
@@ -499,8 +386,7 @@ function printReport(results: ValidationResult[]): void {
 
   // Errors
   if (errors.length > 0) {
-    console.log('🔴 ERRORS (Could not validate)');
-    console.log('─'.repeat(80));
+    printSectionHeader('🔴 ERRORS (Could not validate)');
     for (const mcp of errors) {
       console.log(`  • ${mcp.id}`);
       console.log(`    Name:       ${mcp.name}`);
@@ -511,14 +397,10 @@ function printReport(results: ValidationResult[]): void {
   }
 
   // Top 10 by stars
-  const sortedByStars = [...results]
-    .filter(r => r.stars !== undefined)
-    .sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
-    .slice(0, 10);
+  const sortedByStars = topByStars(results, 10);
 
   if (sortedByStars.length > 0) {
-    console.log('⭐ TOP 10 BY STARS');
-    console.log('─'.repeat(40));
+    printSectionHeader('⭐ TOP 10 BY STARS', 40);
     for (const mcp of sortedByStars) {
       const stars = (mcp.stars ?? 0).toString().padStart(6);
       console.log(`  ${stars} ⭐  ${mcp.name}`);
@@ -538,22 +420,7 @@ function printReport(results: ValidationResult[]): void {
  * Output results as JSON
  */
 function outputJson(results: ValidationResult[]): void {
-  const invalid = results.filter(
-    r => r.status === 'invalid' || r.status === 'error'
-  );
-  const warnings = results.filter(r => r.status === 'warning');
-  console.log(
-    JSON.stringify(
-      {
-        invalid,
-        warnings,
-        total: results.length,
-        validCount: results.filter(r => r.status === 'valid').length,
-      },
-      null,
-      2
-    )
-  );
+  console.log(JSON.stringify(buildValidationJsonSummary(results), null, 2));
 }
 
 /**
@@ -568,23 +435,13 @@ async function main(): Promise<void> {
   );
 
   if (!jsonOutput) {
-    console.log(
-      '╔═══════════════════════════════════════════════════════════════════════════════╗'
-    );
-    console.log(
-      '║              MCP REGISTRY VALIDATOR - octocode-cli                            ║'
-    );
-    console.log(
-      '╚═══════════════════════════════════════════════════════════════════════════════╝'
-    );
+    printValidatorBanner('MCP REGISTRY VALIDATOR - octocode-cli');
 
     if (
       !process.env.GITHUB_TOKEN &&
       !process.env.GITHUB_PERSONAL_ACCESS_TOKEN
     ) {
-      console.log(
-        '\n⚠️  TIP: Set GITHUB_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN for higher rate limits\n'
-      );
+      printRateLimitTip();
     }
   }
 
@@ -597,10 +454,7 @@ async function main(): Promise<void> {
   }
 
   // Exit with error code if any invalid MCPs found (warnings don't cause failure)
-  const hasInvalid = results.some(
-    r => r.status === 'invalid' || r.status === 'error'
-  );
-  process.exit(hasInvalid ? 1 : 0);
+  process.exit(hasBlockingValidationFailures(results) ? 1 : 0);
 }
 
 main().catch(err => {

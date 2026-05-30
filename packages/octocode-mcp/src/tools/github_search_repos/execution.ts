@@ -1,20 +1,22 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type {
-  GitHubReposSearchQuery,
-  GitHubRepositoryOutput,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
+
+type GitHubReposSearchSingleQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
-const ULTRA_REPOS_LIMIT = 3;
+const CONCISE_REPOS_LIMIT = 3;
 
 /** Advisory hints githubSearchRepositories emits; stripped under compact.
  * Substring-OR, case-insensitive. */
@@ -30,13 +32,11 @@ import type {
   WithOptionalMeta,
 } from '../../types/execution.js';
 
-type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchQuery>;
-type ReposQueryWithVerbosity = PartialReposSearchQuery & {
-  verbosity?: Verbosity;
-};
+type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
+type ReposQueryWithVerbosity = WithVerbosity<PartialReposSearchQuery>;
 
 /**
- * Per-tool verbosity shaping for githubSearchRepositories. Under ultra,
+ * Per-tool verbosity shaping for githubSearchRepositories. Under concise,
  * projects each repo to {full_name, stars, language?} and caps to 3, and
  * emits a drill-back hint. Basic / compact pass through (compact-trim of
  * advisory hints is handled at the bulk-finalizer pass).
@@ -48,25 +48,25 @@ export function applyGithubSearchReposVerbosity(
   data: { repositories: unknown[]; pagination?: unknown };
   extraHints: string[];
 } {
-  if (isUltra(query.verbosity)) {
-    const projected = (data.repositories ?? [])
-      .slice(0, 3)
-      .map(r => ({
-        full_name: (r as { full_name?: string }).full_name,
+  if (isConcise(query.verbosity)) {
+    const projected = (data.repositories ?? []).slice(0, 3).map(r => {
+      const owner = (r as { owner?: string }).owner;
+      const repo = (r as { repo?: string }).repo;
+      const full_name =
+        (r as { full_name?: string }).full_name ??
+        (owner && repo ? `${owner}/${repo}` : undefined);
+      return {
+        full_name,
         stars: (r as { stars?: number }).stars,
         language: (r as { language?: string }).language,
-      }));
+      };
+    });
     const summary = `${data.repositories?.length ?? 0} repos${
       projected[0]?.full_name ? ` (top: ${projected[0].full_name})` : ''
     }`;
     return {
       data: { repositories: projected },
-      extraHints: [
-        summary,
-        ...ultraDrillBackHint(
-          're-call with verbosity:"basic" (default) or narrow keywordsToSearch'
-        ),
-      ],
+      extraHints: [summary],
     };
   }
   return { data, extraHints: [] };
@@ -184,6 +184,100 @@ function deduplicateRepositories(
   return [...uniqueRepositories.values()];
 }
 
+function rankRepositoriesByRelevance(
+  repositories: readonly GitHubRepositoryOutput[],
+  query: PartialReposSearchQuery
+): GitHubRepositoryOutput[] {
+  return [...repositories].sort((left, right) => {
+    const requestedSort = compareByRequestedSort(left, right, query.sort);
+    if (requestedSort !== 0) return requestedSort;
+
+    const relevanceDelta =
+      scoreRepositoryRelevance(right, query) -
+      scoreRepositoryRelevance(left, query);
+    if (relevanceDelta !== 0) return relevanceDelta;
+
+    const starsDelta = (right.stars ?? 0) - (left.stars ?? 0);
+    if (starsDelta !== 0) return starsDelta;
+
+    return repositoryFullName(left).localeCompare(repositoryFullName(right));
+  });
+}
+
+function compareByRequestedSort(
+  left: GitHubRepositoryOutput,
+  right: GitHubRepositoryOutput,
+  sort: PartialReposSearchQuery['sort']
+): number {
+  switch (sort) {
+    case 'stars':
+      return (right.stars ?? 0) - (left.stars ?? 0);
+    case 'forks':
+      return (right.forksCount ?? 0) - (left.forksCount ?? 0);
+    case 'updated':
+      return compareIsoDateDescending(left.updatedAt, right.updatedAt);
+    case 'created':
+      return compareIsoDateDescending(left.createdAt, right.createdAt);
+    case 'best-match':
+    case undefined:
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+function scoreRepositoryRelevance(
+  repo: GitHubRepositoryOutput,
+  query: PartialReposSearchQuery
+): number {
+  const terms = getRepositorySearchTerms(query);
+  const fullName = repositoryFullName(repo).toLowerCase();
+  const repoName = repo.repo.toLowerCase();
+  const description = (repo.description ?? '').toLowerCase();
+  const topics = (repo.topics ?? []).map(topic => topic.toLowerCase());
+  const language = repo.language?.toLowerCase();
+  const requestedLanguage = query.language?.toLowerCase();
+
+  const termScore = terms.reduce((score, term) => {
+    if (repoName === term || fullName === term) return score + 80;
+    if (repoName.includes(term) || fullName.includes(term)) return score + 40;
+    if (topics.includes(term)) return score + 35;
+    if (description.includes(term)) return score + 10;
+    return score;
+  }, 0);
+
+  return (
+    termScore + (requestedLanguage && language === requestedLanguage ? 20 : 0)
+  );
+}
+
+function getRepositorySearchTerms(
+  query: PartialReposSearchQuery
+): readonly string[] {
+  const keywords = query.keywordsToSearch ?? [];
+  const topics = query.topicsToSearch ?? [];
+  return [...keywords, ...topics]
+    .map(term => term.trim().toLowerCase())
+    .filter(term => term.length > 0);
+}
+
+function repositoryFullName(repo: GitHubRepositoryOutput): string {
+  return `${repo.owner}/${repo.repo}`;
+}
+
+function compareIsoDateDescending(left?: string, right?: string): number {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
+  if (Number.isNaN(leftTime)) return 1;
+  if (Number.isNaN(rightTime)) return -1;
+  return rightTime - leftTime;
+}
+
 function buildResultPagination(pagination: {
   currentPage: number;
   totalPages: number;
@@ -283,21 +377,17 @@ export async function searchMultipleGitHubRepos(
     async (query: PartialReposSearchQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
-        // Pre-flight: cap user-passed `limit` under ultra so the upstream
+        // Pre-flight: cap user-passed `limit` under concise so the upstream
         // fetch reflects the trimmed response. Emit verbosity-downgrade
         // warning when the cap actually fires.
         const userLimit = (query as { limit?: number }).limit;
-        const verbosityIsUltra = isUltra(
-          (query as { verbosity?: Verbosity }).verbosity
+        const verbosityIsConcise = isConcise(
+          (query as WithVerbosity<typeof query>).verbosity
         );
-        const capFired =
-          verbosityIsUltra &&
-          typeof userLimit === 'number' &&
-          userLimit > ULTRA_REPOS_LIMIT;
-        if (verbosityIsUltra) {
+        if (verbosityIsConcise) {
           (query as { limit?: number }).limit = Math.min(
-            userLimit ?? ULTRA_REPOS_LIMIT,
-            ULTRA_REPOS_LIMIT
+            userLimit ?? CONCISE_REPOS_LIMIT,
+            CONCISE_REPOS_LIMIT
           );
         }
         const variants = createSearchVariants(query);
@@ -337,12 +427,15 @@ export async function searchMultipleGitHubRepos(
           return handleProviderError(firstFailedVariant.response, query);
         }
 
-        const repositories = deduplicateRepositories(
-          successfulVariants.flatMap(variant =>
-            mapRepoSearchProviderRepositories(
-              variant.response.data.repositories
+        const repositories = rankRepositoriesByRelevance(
+          deduplicateRepositories(
+            successfulVariants.flatMap(variant =>
+              mapRepoSearchProviderRepositories(
+                variant.response.data.repositories
+              )
             )
-          )
+          ),
+          query
         );
 
         const searchHints = generateSearchSpecificHints(
@@ -383,16 +476,10 @@ export async function searchMultipleGitHubRepos(
           query as ReposQueryWithVerbosity
         );
 
-        const downgradeHint =
-          capFired && verbosityIsUltra
-            ? [
-                `verbosity-downgrade: limit capped to ${ULTRA_REPOS_LIMIT} (ultra); caller passed ${userLimit}`,
-              ]
-            : [];
-
+        // No verbosity-feature hint: concise's limit cap is its documented
+        // contract and pagination.totalMatches keeps the full count visible.
         const allExtraHints = [
           ...verbosityShape.extraHints,
-          ...downgradeHint,
           ...mergeHints,
           ...partialFailureHints,
           ...paginationHints,
@@ -401,7 +488,7 @@ export async function searchMultipleGitHubRepos(
         // Compact trim: drop advisory hints (recovery prose, synonym
         // suggestions) while keeping pagination + downgrade + drill-back.
         const compactMode = isCompact(
-          (query as { verbosity?: Verbosity }).verbosity
+          (query as WithVerbosity<typeof query>).verbosity
         );
         const finalExtraHints = compactMode
           ? (compactTrimHints(allExtraHints, isAdvisorySearchReposHint, 2) ??

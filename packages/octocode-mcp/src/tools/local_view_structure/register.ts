@@ -1,12 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { LOCAL_VIEW_STRUCTURE_DESCRIPTION } from '@octocodeai/octocode-core';
+import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 import { BulkViewStructureSchema } from '../../scheme/localSchemaOverlay.js';
 import { executeViewStructure } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
-import { LocalViewStructureOutputSchema } from '@octocodeai/octocode-core';
+import { LocalViewStructureOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 /**
  * Register the local view structure tool with the MCP server.
@@ -16,7 +15,7 @@ export function registerLocalViewStructureTool(server: McpServer) {
   return server.registerTool(
     TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     {
-      description: LOCAL_VIEW_STRUCTURE_DESCRIPTION,
+      description: DESCRIPTIONS[TOOL_NAMES.LOCAL_VIEW_STRUCTURE],
       inputSchema: toMCPSchema(BulkViewStructureSchema),
       outputSchema: toMCPSchema(
         withTsvEnvelope(LocalViewStructureOutputSchema)

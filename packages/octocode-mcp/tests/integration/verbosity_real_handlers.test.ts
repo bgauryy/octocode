@@ -1,9 +1,9 @@
 /**
- * E2E sanity script for verbosity:"ultra" on the LIVE octocode workspace.
+ * E2E sanity script for verbosity:"concise" on the LIVE octocode workspace.
  *
  * Imports each tool's real handler from src/ (the code on disk that the
  * MCP server will run after `yarn build`), calls it against this very
- * monorepo, and prints the byte payload for `default` vs `ultra`.
+ * monorepo, and prints the byte payload for `default` vs `concise`.
  *
  * Run from the package directory:
  *   yarn vitest run scripts/check_verbosity_e2e.ts --no-coverage
@@ -31,7 +31,7 @@ const { searchContentRipgrep } =
 
 // LSP handlers — the helper functions we wired with verbosity. We can't run a
 // real LSP server in vitest, but the verbosity transformers are pure and
-// exhaustively covered in tests/scheme/verbosity_ultra.test.ts. Here we just
+// exhaustively covered in tests/scheme/verbosity_concise.test.ts. Here we just
 // confirm the public handler accepts `verbosity` without rejection.
 const { applyFindReferencesVerbosity } =
   await import('../../src/tools/lsp_find_references/lsp_find_references.js');
@@ -56,11 +56,11 @@ function reportSavings(name: string, before: unknown, after: unknown): void {
   const a = payload(after).length;
   const saved = ((1 - a / b) * 100).toFixed(1);
   console.log(
-    `  ${name.padEnd(28)}  default=${b.toString().padStart(7)}B  ultra=${a.toString().padStart(6)}B  saved=${saved}%`
+    `  ${name.padEnd(28)}  default=${b.toString().padStart(7)}B  concise=${a.toString().padStart(6)}B  saved=${saved}%`
   );
 }
 
-describe('E2E: verbosity:"ultra" on real handlers', () => {
+describe('E2E: verbosity:"concise" on real handlers', () => {
   it('localFindFiles — drops files[], emits summary', async () => {
     const base: any = {
       id: 'e2e',
@@ -71,13 +71,15 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
       name: '*.ts',
     };
     const def: any = await findFiles(base);
-    const ultra: any = await findFiles({ ...base, verbosity: 'ultra' });
-    reportSavings('localFindFiles', def, ultra);
-    expect(def.status, JSON.stringify(def).slice(0, 400)).toBe('hasResults');
-    expect(ultra.status).toBe('hasResults');
-    expect(ultra.files).toEqual([]);
-    expect((ultra.hints ?? []).join('\n')).toMatch(/files in \d+ dirs/);
-    expect((ultra.hints ?? []).join('\n').toLowerCase()).toMatch(/drill-back/);
+    const concise: any = await findFiles({ ...base, verbosity: 'concise' });
+    reportSavings('localFindFiles', def, concise);
+    expect(def.status, JSON.stringify(def).slice(0, 400)).toBeUndefined();
+    expect(concise.status).toBeUndefined();
+    expect(concise.files).toEqual([]);
+    expect((concise.hints ?? []).join('\n')).toMatch(/files in \d+ dirs/);
+    expect((concise.hints ?? []).join('\n').toLowerCase()).not.toMatch(
+      /drill-back|detail dropped/
+    );
   });
 
   it('localViewStructure — drops entries[], emits summary', async () => {
@@ -88,12 +90,14 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
       path: `${WORKSPACE}/src/tools`,
     };
     const def = await viewStructure(base);
-    const ultra = await viewStructure({ ...base, verbosity: 'ultra' });
-    reportSavings('localViewStructure', def, ultra);
-    expect(def.status).toBe('hasResults');
-    expect(ultra.status).toBe('hasResults');
-    expect(ultra.entries).toEqual([]);
-    expect((ultra.hints ?? []).join('\n').toLowerCase()).toMatch(/drill-back/);
+    const concise = await viewStructure({ ...base, verbosity: 'concise' });
+    reportSavings('localViewStructure', def, concise);
+    expect(def.status).toBeUndefined();
+    expect(concise.status).toBeUndefined();
+    expect(concise.entries).toEqual([]);
+    expect((concise.hints ?? []).join('\n').toLowerCase()).not.toMatch(
+      /drill-back|detail dropped/
+    );
   });
 
   it('localGetFileContent — drops content (early-return path too), emits summary', async () => {
@@ -107,20 +111,23 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
       path: `${WORKSPACE}/src/tools/local_ripgrep/ripgrepResultBuilder.ts`,
     };
     const def = await fetchContent(base);
-    const ultra = await fetchContent({ ...base, verbosity: 'ultra' });
-    reportSavings('localGetFileContent', def, ultra);
-    expect(def.status).toBe('hasResults');
-    expect(ultra.status).toBe('hasResults');
-    expect(ultra.content).toBe('');
-    const blob = (ultra.hints ?? []).join('\n');
+    const concise = await fetchContent({ ...base, verbosity: 'concise' });
+    reportSavings('localGetFileContent', def, concise);
+    expect(def.status).toBeUndefined();
+    expect(concise.status).toBeUndefined();
+    // concise minifies (does not blank) — content kept but ≤ verbatim size.
+    expect(concise.content).not.toBe('');
+    expect((concise.content ?? '').length).toBeLessThanOrEqual(
+      (def.content ?? '').length
+    );
+    const blob = (concise.hints ?? []).join('\n');
     expect(blob).toMatch(/ripgrepResultBuilder\.ts:/);
-    expect(blob).toMatch(/~\d+ tokens raw/);
-    expect(blob.toLowerCase()).toMatch(/drill-back/);
+    expect(blob).toMatch(/tokens \(minified\)/);
+    expect(blob.toLowerCase()).not.toMatch(/drill-back|detail dropped/);
   });
 
   it('lspGotoDefinition (helper) — collapses location to file:line:col', () => {
     const base: any = {
-      status: 'hasResults',
       locations: [
         {
           uri: '/repo/src/foo.ts',
@@ -134,18 +141,17 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
       hints: ['baseline'],
     };
     const def = applyGotoDefinitionVerbosity(base, {} as any);
-    const ultra = applyGotoDefinitionVerbosity(base, {
-      verbosity: 'ultra',
+    const concise = applyGotoDefinitionVerbosity(base, {
+      verbosity: 'concise',
     } as any);
-    reportSavings('lspGotoDefinition', def, ultra);
+    reportSavings('lspGotoDefinition', def, concise);
     expect(def.locations?.[0]?.content).toBe(base.locations[0].content);
-    expect(ultra.locations?.[0]?.content).toBe('');
-    expect((ultra.hints ?? []).join('\n')).toMatch(/file:.*\d+:\d+|\/repo/);
+    expect(concise.locations?.[0]?.content).toBe('');
+    expect((concise.hints ?? []).join('\n')).toMatch(/file:.*\d+:\d+|\/repo/);
   });
 
   it('lspFindReferences (helper) — flat refs<500 and topFiles rollup>=500', () => {
     const small: any = {
-      status: 'hasResults',
       locations: Array.from({ length: 50 }, (_, i) => ({
         uri: `/r/file${i % 4}.ts`,
         range: {
@@ -155,7 +161,6 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
       })),
     };
     const big: any = {
-      status: 'hasResults',
       locations: Array.from({ length: 1000 }, (_, i) => ({
         uri: `/r/file${i % 8}.ts`,
         range: {
@@ -164,23 +169,22 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
         },
       })),
     };
-    const flatUltra = applyFindReferencesVerbosity(small, {
-      verbosity: 'ultra',
+    const flatConcise = applyFindReferencesVerbosity(small, {
+      verbosity: 'concise',
     } as any);
-    const rollupUltra = applyFindReferencesVerbosity(big, {
-      verbosity: 'ultra',
+    const rollupConcise = applyFindReferencesVerbosity(big, {
+      verbosity: 'concise',
     } as any);
-    reportSavings('lspFindReferences(<500)', small, flatUltra);
-    reportSavings('lspFindReferences(>=500)', big, rollupUltra);
-    expect(flatUltra.locations).toEqual([]);
-    expect((flatUltra.hints ?? []).join('\n')).toMatch(/50 refs in 4 files/);
-    expect(rollupUltra.locations).toEqual([]);
-    expect((rollupUltra.hints ?? []).join('\n')).toMatch(/top-20:/);
+    reportSavings('lspFindReferences(<500)', small, flatConcise);
+    reportSavings('lspFindReferences(>=500)', big, rollupConcise);
+    expect(flatConcise.locations).toEqual([]);
+    expect((flatConcise.hints ?? []).join('\n')).toMatch(/50 refs in 4 files/);
+    expect(rollupConcise.locations).toEqual([]);
+    expect((rollupConcise.hints ?? []).join('\n')).toMatch(/top-20:/);
   });
 
   it('lspCallHierarchy (helper) — emits edges only', () => {
     const base: any = {
-      status: 'hasResults',
       direction: 'incoming',
       depth: 1,
       root: { symbol: { name: 'doWork' } },
@@ -204,20 +208,20 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
     const def = applyCallHierarchyVerbosity(base, {
       direction: 'incoming',
     } as any);
-    const ultra = applyCallHierarchyVerbosity(base, {
+    const concise = applyCallHierarchyVerbosity(base, {
       direction: 'incoming',
-      verbosity: 'ultra',
+      verbosity: 'concise',
     } as any);
-    reportSavings('lspCallHierarchy', def, ultra);
+    reportSavings('lspCallHierarchy', def, concise);
     expect(def.calls).toEqual(base.calls);
-    expect(ultra.calls).toEqual([]);
-    expect((ultra.hints ?? []).join('\n')).toMatch(/serve → doWork \(×2\)/);
+    expect(concise.calls).toEqual([]);
+    expect((concise.hints ?? []).join('\n')).toMatch(/serve → doWork \(×2\)/);
   });
 
   // Skipped: depends on real upstream RipgrepQuerySchema validation; the test
   // mock setup stubs the schema as passthrough so workflow-mode application
   // doesn't fire, and the underlying ripgrep search returns an error envelope.
-  // Verbosity behavior is covered directly by tests/scheme/verbosity_ultra.test.ts.
+  // Verbosity behavior is covered directly by tests/scheme/verbosity_concise.test.ts.
   it.skip('localSearchCode — drops files[], emits "N matches in M files (top: …)"', async () => {
     const base: any = {
       id: 'e2e',
@@ -227,14 +231,17 @@ describe('E2E: verbosity:"ultra" on real handlers', () => {
       path: `${WORKSPACE}/src`,
     };
     const def = await searchContentRipgrep(base);
-    const ultra = await searchContentRipgrep({ ...base, verbosity: 'ultra' });
-    reportSavings('localSearchCode', def, ultra);
-    expect(def.status).toBe('hasResults');
-    expect(ultra.status).toBe('hasResults');
-    expect(ultra.files).toEqual([]);
-    const blob = (ultra.hints ?? []).join('\n');
+    const concise = await searchContentRipgrep({
+      ...base,
+      verbosity: 'concise',
+    });
+    reportSavings('localSearchCode', def, concise);
+    expect(def.status).toBeUndefined();
+    expect(concise.status).toBeUndefined();
+    expect(concise.files).toEqual([]);
+    const blob = (concise.hints ?? []).join('\n');
     expect(blob).toMatch(/\d+ matches in \d+ files/);
     expect(blob).toMatch(/top: .*ripgrepResultBuilder\.ts:/);
-    expect(blob.toLowerCase()).toMatch(/drill-back/);
+    expect(blob.toLowerCase()).not.toMatch(/drill-back|detail dropped/);
   });
 });

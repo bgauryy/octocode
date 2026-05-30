@@ -3,7 +3,7 @@
  */
 
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
-import type { ViewStructureQuery } from '@octocodeai/octocode-core';
+import type { ViewStructureQuery } from '../scheme/localSchemaOverlay.js';
 
 /**
  * Builder for ls commands

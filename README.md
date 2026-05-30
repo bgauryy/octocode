@@ -23,7 +23,7 @@
 npx octocode-cli install
 ```
 
-Interactive setup wizard with GitHub OAuth, MCP server installation, and skills marketplace. Pass `--ide <ide>` for non-interactive install (e.g. `npx octocode-cli install --ide cursor`).
+Interactive setup wizard with GitHub OAuth, MCP server installation, and skills marketplace. Pass `--ide <client>` for non-interactive install (for example, `npx octocode-cli install --ide cursor`), and `-m direct` only when you want to point a client at a locally installed MCP binary.
 
 ### Alternative Methods
 
@@ -137,7 +137,7 @@ Quality ↑
 | Local semantic flow | **Octocode MCP LSP** | **Octocode MCP LSP** | Definitions, references, call hierarchy |
 | GitHub writes | **raw `gh` / RTK** | **raw `gh` / RTK** | Octocode is read-only |
 
-Local note: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"ultra"` is available for lossy broad probes; use compact/default for evidence. Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/README.md).
+Local note: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"concise"` is available for lossy broad probes; use compact/default for evidence. Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/README.md).
 
 https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
 

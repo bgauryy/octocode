@@ -1,8 +1,8 @@
 import type { CLICommand, ParsedArgs } from '../types.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { Spinner } from '../../utils/spinner.js';
-import { quickSync } from '../../ui/sync/index.js';
 import {
+  quickSync,
   readAllClientConfigs,
   analyzeSyncState,
   getClientDisplayName,
@@ -12,7 +12,7 @@ export const syncCommand: CLICommand = {
   name: 'sync',
   aliases: ['sy'],
   description: 'Sync MCP configurations across all IDE clients',
-  usage: 'octocode sync [--force] [--dry-run] [--status]',
+  usage: 'octocode-cli sync [--force] [--dry-run] [--status]',
   options: [
     {
       name: 'force',
@@ -88,7 +88,7 @@ export const syncCommand: CLICommand = {
         analysis.summary.conflictCount > 0
       ) {
         console.log(
-          `  ${dim('Run')} ${c('cyan', 'octocode sync')} ${dim('to synchronize.')}`
+          `  ${dim('Run')} ${c('cyan', 'octocode-cli sync')} ${dim('to synchronize.')}`
         );
         if (analysis.summary.conflictCount > 0) {
           console.log(

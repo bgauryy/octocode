@@ -1,13 +1,21 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import type { FileContentQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialFileContentQuery = WithOptionalMeta<FileContentQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import { handleCatchError, createSuccessResult } from '../utils.js';
+import {
+  handleCatchError,
+  createSuccessResult,
+  createErrorResult,
+} from '../utils.js';
+import { FileContentQueryLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
 import { isCloneEnabled } from '../../serverConfig.js';
 import { fetchDirectoryContents } from '../../github/directoryFetch.js';
 import { resolveDefaultBranch } from '../../github/client.js';
@@ -38,6 +46,18 @@ export async function fetchMultipleGitHubFileContents(
     queries,
     async (query: PartialFileContentQuery, _index: number) => {
       try {
+        // Per-query extraction-mode mutex. The bulk envelope is relaxed (so one
+        // malformed query never rejects the whole batch at MCP validation);
+        // enforce the fullContent/matchString/lineRange mutex here instead so a
+        // bad query errors on its own while valid siblings still run.
+        const validated = FileContentQueryLocalSchema.safeParse(query);
+        if (!validated.success) {
+          const messages = validated.error.issues
+            .map(i => i.message)
+            .join('; ');
+          return createErrorResult(messages, query);
+        }
+
         const providerContext = getProviderContext();
 
         if (query.type === 'directory') {

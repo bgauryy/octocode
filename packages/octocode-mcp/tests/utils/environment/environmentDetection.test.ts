@@ -100,8 +100,6 @@ describe('Environment Detection', () => {
 
   describe('shouldUseMCPLsp - error handling', () => {
     it('should return false when getConfigSync throws', async () => {
-      const { getConfigSync } = await import('octocode-shared');
-      const originalFn = getConfigSync;
       const mod = await import('octocode-shared');
       const spy = vi.spyOn(mod, 'getConfigSync').mockImplementation(() => {
         throw new Error('Config file corrupted');

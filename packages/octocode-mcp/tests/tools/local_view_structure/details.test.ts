@@ -28,7 +28,7 @@ describe('localViewStructure details param', () => {
   describe('walkDirectory with showDetails=true', () => {
     it('should populate modified field when showDetails is true', async () => {
       const entries: DirectoryEntry[] = [];
-      const stats: WalkStats = { skipped: 0 };
+      const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
       await walkDirectory({
         basePath: tmpDir,
@@ -51,7 +51,7 @@ describe('localViewStructure details param', () => {
 
     it('should populate permissions field when showDetails is true', async () => {
       const entries: DirectoryEntry[] = [];
-      const stats: WalkStats = { skipped: 0 };
+      const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
       await walkDirectory({
         basePath: tmpDir,
@@ -76,7 +76,7 @@ describe('localViewStructure details param', () => {
 
     it('should populate both modified and permissions for directories', async () => {
       const entries: DirectoryEntry[] = [];
-      const stats: WalkStats = { skipped: 0 };
+      const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
       await walkDirectory({
         basePath: tmpDir,
@@ -100,7 +100,7 @@ describe('localViewStructure details param', () => {
 
     it('should NOT populate permissions when showDetails is false', async () => {
       const entries: DirectoryEntry[] = [];
-      const stats: WalkStats = { skipped: 0 };
+      const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
       await walkDirectory({
         basePath: tmpDir,

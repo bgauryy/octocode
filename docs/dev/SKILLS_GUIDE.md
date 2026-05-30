@@ -41,13 +41,13 @@ npx octocode-cli skills list                                         # check ins
 npx octocode-cli skills install --skill octocode-researcher          # install one
 npx octocode-cli skills install -k octocode-plan                     # short flag
 npx octocode-cli skills install --skill octocode-researcher --force  # update
-npx octocode-cli skills install                                      # install all to default target
+npx octocode-cli skills install                                      # prompt for targets/mode, then install all
 npx octocode-cli skills install --targets claude-code,cursor,codex   # multi-target install
 npx octocode-cli skills install --targets claude-code,cursor --mode symlink # symlink mode
 npx octocode-cli skills remove --skill octocode-researcher --targets claude-code,cursor # remove from targets
 ```
 
-`skills install` without `--targets`/`--mode` opens prompts to choose platforms and install strategy.
+`skills install` without `--targets`/`--mode` opens prompts to choose platforms and install strategy. Non-interactive runs default to `claude-code` with `copy` mode.
 
 ### Install destinations
 

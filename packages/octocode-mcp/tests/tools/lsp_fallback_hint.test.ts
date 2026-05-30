@@ -195,7 +195,6 @@ describe('LSP fallback hint — surfaced when isLanguageServerAvailable=false', 
     vi.mocked(
       callHierarchyPatterns.callHierarchyWithPatternMatching
     ).mockResolvedValueOnce({
-      status: 'hasResults',
       item: {
         name: 'testSymbol',
         kind: 'function',
@@ -232,7 +231,6 @@ describe('LSP fallback hint — surfaced when isLanguageServerAvailable=false', 
     vi.mocked(
       callHierarchyPatterns.callHierarchyWithPatternMatching
     ).mockResolvedValueOnce({
-      status: 'hasResults',
       item: {
         name: 'testSymbol',
         kind: 'function',
@@ -363,7 +361,6 @@ describe('LSP mode field — semantic when LSP returns results', () => {
     const lspCore =
       await import('../../src/tools/lsp_find_references/lspReferencesCore.js');
     vi.mocked(lspCore.findReferencesWithLSP).mockResolvedValueOnce({
-      status: 'hasResults',
       locations: [
         {
           uri: testPath,
@@ -388,8 +385,8 @@ describe('LSP mode field — semantic when LSP returns results', () => {
 
     expect(
       result.lspMode,
-      'LSP-only branch (pattern returned empty) must be tagged semantic'
-    ).toBe('semantic');
+      'semantic results omit lspMode entirely — absent ≡ semantic per the lean contract'
+    ).toBeUndefined();
     const hints = (result.hints ?? []).filter(Boolean) as string[];
     expect(
       hints.some(h => LSP_UNAVAILABLE_RE.test(h)),
@@ -401,7 +398,6 @@ describe('LSP mode field — semantic when LSP returns results', () => {
     const callLsp =
       await import('../../src/tools/lsp_call_hierarchy/callHierarchyLsp.js');
     vi.mocked(callLsp.callHierarchyWithLSP).mockResolvedValueOnce({
-      status: 'hasResults',
       item: {
         name: 'testSymbol',
         kind: 'function',
@@ -427,9 +423,10 @@ describe('LSP mode field — semantic when LSP returns results', () => {
       reasoning: 'r',
     } as unknown as Parameters<typeof processCallHierarchy>[0]);
 
-    expect(result.lspMode, 'LSP success path must be tagged semantic').toBe(
-      'semantic'
-    );
+    expect(
+      result.lspMode,
+      'LSP success path omits lspMode (absent ≡ semantic)'
+    ).toBeUndefined();
     const hints = (result.hints ?? []).filter(Boolean) as string[];
     expect(
       hints.some(h => LSP_UNAVAILABLE_RE.test(h)),

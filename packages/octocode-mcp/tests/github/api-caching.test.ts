@@ -488,6 +488,47 @@ describe('GitHub API Caching', () => {
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
+    it('returns the correct page per entryPageNumber from one cached tree (not a stale fixed page)', async () => {
+      const base = {
+        owner: 'facebook',
+        repo: 'react',
+        branch: 'main',
+        path: 'src',
+        depth: 1,
+        entriesPerPage: 2,
+        mainResearchGoal: 'View structure',
+        researchGoal: 'Get files',
+        reasoning: 'Testing',
+      };
+
+      const r1 = (await viewGitHubRepositoryStructureAPI({
+        ...base,
+        entryPageNumber: 1,
+      })) as {
+        pagination?: { currentPage?: number; totalEntries?: number };
+        structure?: unknown;
+      };
+      const r2 = (await viewGitHubRepositoryStructureAPI({
+        ...base,
+        entryPageNumber: 2,
+      })) as {
+        pagination?: { currentPage?: number; totalEntries?: number };
+        structure?: unknown;
+      };
+
+      // Cache is shared (one network fetch) ...
+      expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
+      // ... but each request must reflect ITS page, sliced post-cache.
+      expect(r1.pagination?.currentPage).toBe(1);
+      expect(r2.pagination?.currentPage).toBe(2);
+      expect(r1.pagination?.totalEntries).toBe(3);
+      expect(r2.pagination?.totalEntries).toBe(3);
+      // Page 1 and page 2 must not be the same slice.
+      expect(JSON.stringify(r1.structure)).not.toBe(
+        JSON.stringify(r2.structure)
+      );
+    });
+
     it('should miss cache when path differs', async () => {
       const params1 = {
         owner: 'facebook',

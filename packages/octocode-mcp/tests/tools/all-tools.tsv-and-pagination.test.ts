@@ -34,6 +34,7 @@ describe('TSV projection coverage', () => {
     STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
     STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
     STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+    STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
     // Local
     STATIC_TOOL_NAMES.LOCAL_RIPGREP,
@@ -74,7 +75,23 @@ function project(tool: string, data: unknown) {
   return { columns: p.columns, rows, text: tsvFormat(p.columns, rows) };
 }
 
-describe('local + LSP TSV projections — sample data', () => {
+describe('tool TSV projections — sample data', () => {
+  it('githubCloneRepo emits one row per local checkout', () => {
+    const { rows, columns } = project(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO, {
+      localPath: '/tmp/octocode/repo',
+      resolvedBranch: 'main',
+      cached: true,
+    });
+    expect(columns).toEqual(['localPath', 'resolvedBranch', 'cached']);
+    expect(rows).toEqual([
+      {
+        localPath: '/tmp/octocode/repo',
+        resolvedBranch: 'main',
+        cached: true,
+      },
+    ]);
+  });
+
   it('localSearchCode flattens files[].matches[] to one row per hit', () => {
     const { rows, columns } = project(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
       files: [
@@ -150,9 +167,13 @@ describe('local + LSP TSV projections — sample data', () => {
       }
     );
     expect(rows).toHaveLength(1);
-    expect(columns).toContain('content');
+    // Content lives in JSON `data.content` only — TSV columns are metadata
+    // (path/line range/totalLines/isPartial). Test name says it all.
+    expect(columns).not.toContain('content');
     expect(text.split('\n')).toHaveLength(2);
-    expect(text).toContain('line1\\nline2\\nline3');
+    expect(text).not.toContain('line1');
+    expect(text).not.toContain('line2');
+    expect(text).not.toContain('line3');
   });
 
   it('lspGotoDefinition flattens definitions to uri/line/column rows', () => {

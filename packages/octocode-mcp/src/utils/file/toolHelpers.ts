@@ -5,7 +5,7 @@
 import path from 'path';
 import { pathValidator } from 'octocode-security-utils/pathValidator';
 import { ToolErrors } from '../../errors/errorFactories.js';
-import type { BaseQueryLocal } from '@octocodeai/octocode-core';
+import type { BaseQueryLocal } from '@octocodeai/octocode-core/extra-types';
 type PartialBaseQueryLocal = Partial<BaseQueryLocal>;
 import {
   createErrorResult,

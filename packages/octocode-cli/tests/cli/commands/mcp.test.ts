@@ -84,6 +84,7 @@ vi.mock('../../../src/utils/mcp-paths.js', () => ({
     'claude-code': { name: 'Claude Code' },
     cursor: { name: 'Cursor' },
   },
+  DETECTABLE_MCP_CLIENTS: ['claude-code', 'cursor'],
   getMCPConfigPath: mcpPathsMocks.getMCPConfigPath,
 }));
 

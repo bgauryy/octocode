@@ -100,8 +100,10 @@ const cases: ExportCase[] = [
         },
       ],
     },
-    expectedColumns: ['id', 'owner', 'repo', 'path', 'content', 'totalLines'],
-    rowProbe: 'q1\to\tr\tREADME.md\thello\t1',
+    // `content` omitted by design — TSV is metadata, file body lives only
+    // in JSON `data.results[].files[].content`.
+    expectedColumns: ['id', 'owner', 'repo', 'path', 'totalLines'],
+    rowProbe: 'q1\to\tr\tREADME.md\t1',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
@@ -221,8 +223,10 @@ const cases: ExportCase[] = [
       endLine: 1,
       totalLines: 1,
     },
-    expectedColumns: ['path', 'content', 'startLine', 'endLine', 'totalLines'],
-    rowProbe: 'a.ts\tx\t1\t1\t1',
+    // `content` omitted by design — TSV is metadata, file body lives only
+    // in JSON `data.content`.
+    expectedColumns: ['path', 'startLine', 'endLine', 'totalLines'],
+    rowProbe: 'a.ts\t1\t1\t1',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,

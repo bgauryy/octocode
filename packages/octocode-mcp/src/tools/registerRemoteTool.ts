@@ -1,4 +1,7 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  McpServer,
+  RegisteredTool,
+} from '@modelcontextprotocol/sdk/server/mcp.js';
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toMCPSchema } from '../types/toolTypes.js';
 import { withSecurityValidation } from '../utils/securityBridge.js';
@@ -27,6 +30,13 @@ interface RemoteToolConfig<TQuery> {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
   };
+  /**
+   * Optional async pre-flight check. When provided and resolving to false,
+   * the tool is NOT registered and the registration function returns null.
+   * Used by package_search (npm availability + registry reachable) and any
+   * other tool that needs an environment probe before announcing itself.
+   */
+  registrationGuard?: () => Promise<boolean>;
 }
 
 /**
@@ -43,7 +53,7 @@ export function createRemoteToolRegistration<TQuery>(
 ): (
   server: McpServer,
   callback?: ToolInvocationCallback
-) => ReturnType<McpServer['registerTool']> {
+) => RegisteredTool | Promise<RegisteredTool | null> {
   const {
     name,
     title,
@@ -52,51 +62,61 @@ export function createRemoteToolRegistration<TQuery>(
     executionFn,
     describe,
     annotations,
+    registrationGuard,
   } = config;
 
   return (server: McpServer, callback?: ToolInvocationCallback) => {
-    const baseDescription = DESCRIPTIONS[name] ?? '';
-    const description = describe ? describe(baseDescription) : baseDescription;
-    return server.registerTool(
-      name,
-      {
-        description,
-        inputSchema: toMCPSchema(inputSchema),
-        outputSchema: toMCPSchema(outputSchema),
-        annotations: {
-          title,
-          readOnlyHint: annotations?.readOnlyHint ?? true,
-          destructiveHint: annotations?.destructiveHint ?? false,
-          idempotentHint: annotations?.idempotentHint ?? true,
-          openWorldHint: annotations?.openWorldHint ?? true,
-        },
-      },
-      withSecurityValidation(
+    const doRegister = (): RegisteredTool => {
+      const baseDescription = DESCRIPTIONS[name] ?? '';
+      const description = describe
+        ? describe(baseDescription)
+        : baseDescription;
+      return server.registerTool(
         name,
-        async (
-          args: {
-            queries: TQuery[];
-            responseCharOffset?: number;
-            responseCharLength?: number;
-            format?: 'tsv' | 'json';
+        {
+          description,
+          inputSchema: toMCPSchema(inputSchema),
+          outputSchema: toMCPSchema(outputSchema),
+          annotations: {
+            title,
+            readOnlyHint: annotations?.readOnlyHint ?? true,
+            destructiveHint: annotations?.destructiveHint ?? false,
+            idempotentHint: annotations?.idempotentHint ?? true,
+            openWorldHint: annotations?.openWorldHint ?? true,
           },
-          authInfo,
-          sessionId
-        ): Promise<CallToolResult> => {
-          const queries = args.queries || [];
-
-          await invokeCallbackSafely(callback, name, queries);
-
-          return executionFn({
-            queries,
-            responseCharOffset: args.responseCharOffset,
-            responseCharLength: args.responseCharLength,
-            format: args.format,
+        },
+        withSecurityValidation(
+          name,
+          async (
+            args: {
+              queries: TQuery[];
+              responseCharOffset?: number;
+              responseCharLength?: number;
+              format?: 'tsv' | 'json';
+            },
             authInfo,
-            sessionId,
-          });
-        }
-      )
-    );
+            sessionId
+          ): Promise<CallToolResult> => {
+            const queries = args.queries || [];
+
+            await invokeCallbackSafely(callback, name, queries);
+
+            return executionFn({
+              queries,
+              responseCharOffset: args.responseCharOffset,
+              responseCharLength: args.responseCharLength,
+              format: args.format,
+              authInfo,
+              sessionId,
+            });
+          }
+        )
+      );
+    };
+
+    if (registrationGuard) {
+      return registrationGuard().then(ok => (ok ? doRegister() : null));
+    }
+    return doRegister();
   };
 }

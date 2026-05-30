@@ -75,19 +75,26 @@ vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   BulkFindFilesSchema: {},
   BulkViewStructureSchema: {},
   BulkFetchContentQuerySchema: {},
-  VERBOSITY_VALUES: ['basic', 'compact', 'ultra'] as const,
+  VERBOSITY_VALUES: ['basic', 'compact', 'concise'] as const,
   verbosityField: {},
-  isUltra: (_v: unknown) => false,
-  ultraDrillBackHint: (_s: string) => [] as string[],
+  isConcise: (_v: unknown) => false,
+  conciseDrillBackHint: (_s: string) => [] as string[],
 }));
 
 // Verbosity helper module — stub helpers so handlers stay on the default
 // (basic) path when tests don't pass a verbosity value.
 vi.mock('../../src/scheme/verbosity.js', () => ({
-  isUltra: (v: unknown) => v === 'ultra',
+  isConcise: (v: unknown) => v === 'concise',
   isCompact: (v: unknown) => v === 'compact',
   isBasic: (v: unknown) => v === undefined || v === 'basic',
-  ultraDrillBackHint: (s: string) => [`Drill-back: ${s}`],
+  normalizeVerbosity: (v: unknown) => v ?? 'basic',
+  conciseDrillBackHint: (_s: string) => [] as string[],
+  compactTrimHints: (hints: string[]) => hints,
+  makeAdvisoryPredicate:
+    (_keywords: string[]) =>
+    (_hint: string): boolean =>
+      false,
+  assertConcisePayload: () => undefined,
 }));
 
 describe('Local Tools Execution', () => {
@@ -193,7 +200,6 @@ describe('Local Tools Execution', () => {
       const { fetchContent } =
         await import('../../src/tools/local_fetch_content/fetchContent.js');
       vi.mocked(fetchContent).mockResolvedValue({
-        status: 'hasResults',
         content: 'abc',
       } as any);
 

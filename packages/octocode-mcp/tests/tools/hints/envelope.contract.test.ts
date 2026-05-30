@@ -33,7 +33,7 @@ describe('createSuccessResult — hasResults path', () => {
       }
     );
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     // Registry hints would only fire on 'empty', so no hints field appears
     // unless extraHints were passed.
     expect((result as Record<string, unknown>).hints).toBeUndefined();

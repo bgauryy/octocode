@@ -110,7 +110,7 @@ describe('Integration sanity: all tools', () => {
       entriesPerPage: 2,
       entryPageNumber: 1,
     });
-    expect(vs.status).toBe('hasResults');
+    expect(vs.status).toBeUndefined();
     expect(vs.entries).toBeDefined();
     expect(vs.pagination?.currentPage).toBe(1);
     expect(vs.pagination?.entriesPerPage).toBe(2);
@@ -147,7 +147,7 @@ describe('Integration sanity: all tools', () => {
       filesPerPage: 2,
       filePageNumber: 1,
     });
-    expect(ff.status).toBe('hasResults');
+    expect(ff.status).toBeUndefined();
     expect(ff.files?.length).toBeLessThanOrEqual(2);
     expect(ff.pagination?.currentPage).toBe(1);
 
@@ -188,7 +188,7 @@ describe('Integration sanity: all tools', () => {
       showFileLastModified: true,
       matchesPerPage: 1,
     } as Parameters<typeof searchContentRipgrep>[0]);
-    expect(rg.status).toBe('hasResults');
+    expect(rg.status).toBeUndefined();
     expect(rg.files?.[0]?.matchCount).toBe(2);
     expect(rg.files?.[0]?.matches?.length).toBe(1); // paginated matches
     expect(rg.files?.[0]?.pagination?.totalPages).toBe(2);
@@ -204,7 +204,7 @@ describe('Integration sanity: all tools', () => {
       matchString: 'x',
       charLength: 5000,
     });
-    expect(fc.status).toBe('hasResults');
+    expect(fc.status).toBeUndefined();
     expect(fc.pagination?.hasMore).toBe(true);
 
     // 5) Negative path validation for a tool (error path)

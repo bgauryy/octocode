@@ -277,7 +277,9 @@ describe('Response Utilities', () => {
   describe('createResponseFormat', () => {
     it('should prioritize live bulk fields ahead of legacy status-hint fields by default', () => {
       const serialized = createResponseFormat({
-        status: 'hasResults',
+        // Success path is signaled by ABSENT status. Pass an explicit empty
+        // status so the YAML still emits the `status:` key for ordering.
+        status: 'empty',
         data: { value: 1 },
         hasResultsStatusHints: ['legacy'],
         emptyStatusHints: ['legacy-empty'],

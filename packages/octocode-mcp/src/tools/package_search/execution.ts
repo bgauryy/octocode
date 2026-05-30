@@ -1,5 +1,8 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { PackageSearchQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type NpmPackageQuery = z.infer<typeof NpmPackageQuerySchema>;
 import {
   searchPackage,
   checkNpmDeprecation,
@@ -12,15 +15,14 @@ import type {
 } from '../../utils/package/common.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
-const ULTRA_PACKAGE_SEARCH_LIMIT = 1;
+const CONCISE_PACKAGE_SEARCH_LIMIT = 1;
 
 /** Advisory hints packageSearch emits; stripped under compact. Substring-OR,
  * case-insensitive — tolerates wording shifts and surrounding wrappers. */
@@ -77,34 +79,33 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 // for search results with searchLimit > 1). Currently only exact-match lookups (searchLimit=1)
 // go through fetchPackageDetailsWithError which enriches lastPublished + weeklyDownloads.
 export async function searchPackages(
-  args: ToolExecutionArgs<PackageSearchQuery>
+  args: ToolExecutionArgs<NpmPackageQuery>
 ): Promise<CallToolResult> {
   const { queries, responseCharOffset, responseCharLength, format } = args;
 
   return executeBulkOperation(
     queries,
-    async (query: PackageSearchQuery, _index: number) => {
+    async (query: NpmPackageQuery, _index: number) => {
       try {
-        // Pre-flight verbosity caps under ultra: cap searchLimit to 1;
-        // force npmFetchMetadata=false. Record downgrades for warning.
-        const pkgVerbosityIsUltra = isUltra(
-          (query as { verbosity?: Verbosity }).verbosity
+        // Pre-flight verbosity caps under concise: cap searchLimit to 1 and
+        // force npmFetchMetadata=false (concise's documented lean contract).
+        const pkgVerbosityIsConcise = isConcise(
+          (query as WithVerbosity<typeof query>).verbosity
         );
-        const pkgDowngradeFields: string[] = [];
-        if (pkgVerbosityIsUltra) {
+        if (pkgVerbosityIsConcise) {
           const userSearchLimit = (query as { searchLimit?: number })
             .searchLimit;
           if (
             typeof userSearchLimit === 'number' &&
-            userSearchLimit > ULTRA_PACKAGE_SEARCH_LIMIT
+            userSearchLimit > CONCISE_PACKAGE_SEARCH_LIMIT
           ) {
             (query as { searchLimit?: number }).searchLimit =
-              ULTRA_PACKAGE_SEARCH_LIMIT;
-            pkgDowngradeFields.push(`searchLimit→${ULTRA_PACKAGE_SEARCH_LIMIT}`);
+              CONCISE_PACKAGE_SEARCH_LIMIT;
           }
-          if ((query as { npmFetchMetadata?: boolean }).npmFetchMetadata === true) {
+          if (
+            (query as { npmFetchMetadata?: boolean }).npmFetchMetadata === true
+          ) {
             (query as { npmFetchMetadata?: boolean }).npmFetchMetadata = false;
-            pkgDowngradeFields.push('npmFetchMetadata→false');
           }
         }
 
@@ -123,7 +124,7 @@ export async function searchPackages(
         const validatedQuery = {
           ...query,
           ecosystem: 'npm' as const,
-        } as PackageSearchQuery & {
+        } as NpmPackageQuery & {
           ecosystem: 'npm';
           name: string;
         };
@@ -161,7 +162,7 @@ export async function searchPackages(
           : generateEmptyHints(query);
 
         const shaped = applyPackageSearchVerbosity(
-          { data: result, extraHints, downgradeFields: pkgDowngradeFields },
+          { data: result, extraHints },
           query
         );
 
@@ -211,7 +212,7 @@ function generateSuccessHints(
   return hints;
 }
 
-function generateEmptyHints(query: PackageSearchQuery): string[] {
+function generateEmptyHints(query: NpmPackageQuery): string[] {
   const hints: string[] = [];
   const name = query.name;
 
@@ -226,7 +227,7 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
 }
 
 /**
- * Per-tool verbosity shaping for packageSearch. Under ultra, projects each
+ * Per-tool verbosity shaping for packageSearch. Under concise, projects each
  * package to {name, version, repository, deprecated} (cap 1) and emits a
  * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
  * Basic / omitted: passthrough.
@@ -235,20 +236,15 @@ export function applyPackageSearchVerbosity(
   input: {
     data: { packages: PackageResult[]; totalFound: number };
     extraHints: string[];
-    downgradeFields: string[];
   },
-  query: PackageSearchQuery
+  query: NpmPackageQuery
 ): {
   data: { packages: unknown[]; totalFound: number };
   extraHints: string[];
 } {
-  const verbosity = (query as { verbosity?: Verbosity }).verbosity;
-  const downgradeHint =
-    input.downgradeFields.length > 0
-      ? [`verbosity-downgrade: ${input.downgradeFields.join(', ')} (ultra)`]
-      : [];
+  const verbosity = (query as WithVerbosity<typeof query>).verbosity;
 
-  if (isUltra(verbosity)) {
+  if (isConcise(verbosity)) {
     const projected = (input.data.packages ?? []).slice(0, 1).map(p => ({
       name: (p as { name?: string }).name,
       version: (p as { version?: string }).version,
@@ -258,18 +254,11 @@ export function applyPackageSearchVerbosity(
     const summary = `${input.data.packages?.length ?? 0} packages found`;
     return {
       data: { packages: projected, totalFound: input.data.totalFound },
-      extraHints: [
-        summary,
-        ...ultraDrillBackHint(
-          're-call with verbosity:"basic" (default) or npmFetchMetadata:true for repo URL'
-        ),
-        ...downgradeHint,
-        ...input.extraHints,
-      ],
+      extraHints: [summary, ...input.extraHints],
     };
   }
 
-  const allHints = [...downgradeHint, ...input.extraHints];
+  const allHints = [...input.extraHints];
   if (isCompact(verbosity)) {
     return {
       data: input.data,

@@ -6,64 +6,29 @@
  * analyse the code offline. Clones are cached for 24 hours.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { toMCPSchema } from '../../types/toolTypes.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import type { ToolInvocationCallback } from '../../types/toolResults.js';
+import type { z } from 'zod/v4';
+import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 import {
-  GITHUB_CLONE_REPO_DESCRIPTION,
-  type CloneRepoQuery,
-} from '@octocodeai/octocode-core';
-import { BulkCloneRepoLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
+  BulkCloneRepoLocalSchema,
+  GitHubCloneRepoOutputLocalSchema,
+} from '../../scheme/remoteSchemaOverlay.js';
 import { executeCloneRepo } from './execution.js';
-import { withSecurityValidation } from '../../utils/securityBridge.js';
-import { GitHubCloneRepoOutputLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
-import { invokeCallbackSafely } from '../utils.js';
+import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
-export function registerGitHubCloneRepoTool(
-  server: McpServer,
-  callback?: ToolInvocationCallback
-) {
-  return server.registerTool(
-    TOOL_NAMES.GITHUB_CLONE_REPO,
-    {
-      description: GITHUB_CLONE_REPO_DESCRIPTION,
-      inputSchema: toMCPSchema(BulkCloneRepoLocalSchema),
-      outputSchema: toMCPSchema(GitHubCloneRepoOutputLocalSchema),
-      annotations: {
-        title: 'Clone / Fetch GitHub Repository Locally',
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
+export const registerGitHubCloneRepoTool =
+  createRemoteToolRegistration<CloneRepoQuery>({
+    name: TOOL_NAMES.GITHUB_CLONE_REPO,
+    title: 'Clone / Fetch GitHub Repository Locally',
+    inputSchema: BulkCloneRepoLocalSchema,
+    outputSchema: GitHubCloneRepoOutputLocalSchema,
+    executionFn: executeCloneRepo,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
     },
-    withSecurityValidation(
-      TOOL_NAMES.GITHUB_CLONE_REPO,
-      async (args, authInfo, sessionId) => {
-        const { queries, responseCharOffset, responseCharLength, format } =
-          args as {
-            queries: CloneRepoQuery[];
-            responseCharOffset?: number;
-            responseCharLength?: number;
-            format?: 'tsv' | 'json';
-          };
-
-        await invokeCallbackSafely(
-          callback,
-          TOOL_NAMES.GITHUB_CLONE_REPO,
-          queries
-        );
-
-        return executeCloneRepo({
-          queries,
-          responseCharOffset,
-          responseCharLength,
-          format,
-          authInfo,
-          sessionId,
-        });
-      }
-    )
-  );
-}
+  });

@@ -7,10 +7,14 @@
 
 import type { GitHubAPIError } from '../github/githubAPI.js';
 
-export type QueryStatus = 'hasResults' | 'empty' | 'error';
+// Lean status contract: success is signaled by ABSENT status. Only the
+// disambiguated non-success branches ('empty' / 'error') ever appear in
+// serialized output.
+export type QueryStatus = 'empty' | 'error';
 
 interface ToolResult {
-  status: QueryStatus;
+  // Omitted ≡ success; only 'empty' / 'error' are explicit.
+  status?: QueryStatus;
   hints?: string[];
   [key: string]: unknown;
 }
@@ -21,7 +25,8 @@ export interface ToolErrorResult extends ToolResult {
 }
 
 export interface ToolSuccessResult extends ToolResult {
-  status: 'hasResults' | 'empty';
+  // Omitted ≡ success; 'empty' set when the query ran but produced no data.
+  status?: 'empty';
 }
 
 /**
@@ -57,7 +62,8 @@ export type ToolInvocationCallback = (
 export interface ProcessedBulkResult {
   data?: Record<string, unknown>;
   error?: string | GitHubAPIError;
-  status: QueryStatus;
+  // Omitted ≡ success; only 'empty' / 'error' are explicit.
+  status?: QueryStatus;
   hints?: readonly string[] | string[];
   [key: string]: unknown;
 }
@@ -65,7 +71,8 @@ export interface ProcessedBulkResult {
 /** Flattened query result for bulk operations. */
 export interface FlatQueryResult {
   id: string;
-  status: QueryStatus;
+  // Omitted ≡ success. Emitted only for 'empty' / 'error'.
+  status?: QueryStatus;
   data: Record<string, unknown>;
 }
 
@@ -99,6 +106,7 @@ export interface EvidenceMetadata {
     | 'pr'
     | 'repo'
     | 'package'
+    | 'definition'
     | 'references'
     | 'calls';
   answerReady?: boolean;

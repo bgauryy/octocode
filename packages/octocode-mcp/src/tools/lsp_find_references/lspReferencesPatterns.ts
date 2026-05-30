@@ -14,9 +14,11 @@ import type {
   FindReferencesResult,
   ReferenceLocation,
   LSPRange,
-  LSPPaginationInfo,
 } from '../../lsp/types.js';
-import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { LSPFindReferencesQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type LSPFindReferencesQuery = z.infer<typeof LSPFindReferencesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 import { getHints } from '../../hints/index.js';
 import { RipgrepMatchOnlySchema } from '../../utils/parsers/schemas.js';
@@ -24,6 +26,10 @@ import { matchesFilePatterns } from './lspReferencesCore.js';
 import { spawnCollectOutput } from './lspReferencesProcess.js';
 import { resolveRipgrepBinary } from '../../utils/exec/ripgrepBinary.js';
 import { TOOL_NAME } from './constants.js';
+import {
+  buildFindReferencesPageOutOfRangeResult,
+  buildFindReferencesPageResult,
+} from './referenceResultHelpers.js';
 const DEFAULT_CODE_EXTENSIONS = [
   'ts',
   'tsx',
@@ -126,11 +132,13 @@ async function enhancePatternReference(
     }
   }
 
+  // Emit isDefinition only when true — non-definition is the common case
+  // and adds no signal.
   return {
     uri: raw.absolutePath,
     range: raw.range,
     content,
-    isDefinition: raw.isDefinition,
+    ...(raw.isDefinition ? { isDefinition: true as const } : {}),
   };
 }
 
@@ -159,8 +167,9 @@ export async function findReferencesWithPatternMatching(
     filteredReferences = allRawReferences.filter(ref => !ref.isDefinition);
   }
 
-  const hasFilters =
-    query.includePattern?.length || query.excludePattern?.length;
+  const hasFilters = Boolean(
+    query.includePattern?.length || query.excludePattern?.length
+  );
   if (hasFilters) {
     filteredReferences = filteredReferences.filter(ref =>
       matchesFilePatterns(ref.uri, query.includePattern, query.excludePattern)
@@ -173,23 +182,13 @@ export async function findReferencesWithPatternMatching(
   const totalPages = Math.ceil(totalReferences / referencesPerPage);
 
   if (totalReferences > 0 && page > totalPages) {
-    return {
-      status: 'empty',
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalResults: totalReferences,
-        hasMore: false,
-        resultsPerPage: referencesPerPage,
-      },
-      hasMultipleFiles:
-        new Set(filteredReferences.map(ref => ref.uri)).size > 1,
-      hints: [
-        ...getHints(TOOL_NAME, 'empty'),
-        `Requested page ${page} is outside available range (1-${totalPages}).`,
-        `Use page=${totalPages} for the last available page.`,
-      ],
-    };
+    return buildFindReferencesPageOutOfRangeResult(
+      filteredReferences,
+      page,
+      totalPages,
+      totalReferences,
+      referencesPerPage
+    );
   }
 
   const startIndex = (page - 1) * referencesPerPage;
@@ -219,36 +218,16 @@ export async function findReferencesWithPatternMatching(
     paginatedRaw.map(raw => enhancePatternReference(raw, contextLines))
   );
 
-  const uniqueFiles = new Set(filteredReferences.map(ref => ref.uri));
-  const hasMultipleFiles = uniqueFiles.size > 1;
-
-  const pagination: LSPPaginationInfo = {
-    currentPage: page,
-    totalPages,
-    totalResults: totalReferences,
-    hasMore: page < totalPages,
-    resultsPerPage: referencesPerPage,
-  };
-
-  const hints: string[] = [];
-  if (hasFilters && totalUnfiltered !== totalReferences) {
-    hints.push(
-      `Filtered: ${totalReferences} of ${totalUnfiltered} total references match patterns.`
-    );
-  }
-  if (pagination.hasMore) {
-    hints.push(
-      `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
-    );
-  }
-
-  return {
-    status: 'hasResults',
+  return buildFindReferencesPageResult({
     locations: paginatedReferences,
-    pagination,
-    hasMultipleFiles,
-    hints,
-  };
+    filteredReferences,
+    page,
+    totalPages,
+    totalReferences,
+    referencesPerPage,
+    hasFilters,
+    totalUnfiltered,
+  });
 }
 
 /**

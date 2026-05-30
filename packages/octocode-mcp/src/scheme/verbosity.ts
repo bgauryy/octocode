@@ -1,15 +1,21 @@
 /**
- * Verbosity Helpers
+ * Verbosity Helpers — canonical 3-tier contract.
  *
- * Mirrors the canonical contract defined in
- * octocode-core/src/resources/global.ts `baseSchema.verbosity`:
+ * Each tier moves THREE dimensions in lockstep, identically across every tool:
  *
- *   basic (default) — full content + full hints/metadata.
- *   compact         — full content, TRIMMED hints/metadata.
- *   ultra           — counts/top refs only, snippets dropped.
+ *                | fields per result        | page size (result count) | data truncation
+ *   -------------|--------------------------|--------------------------|----------------
+ *   basic (def.) | all schema fields        | full  (PAGE × 1)         | none
+ *   compact      | core fields only         | half  (PAGE ÷ 2)         | none
+ *   concise        | identity/count fields    | top   (small cap)        | yes (content/snippets dropped)
  *
- * Omitted ≡ `basic`. Use compact when the data is enough; ultra for broad
- * probes when counts/top locations suffice.
+ * Rules that hold for ALL tools:
+ *  - Omitted ≡ basic.
+ *  - Truncation happens ONLY in concise. basic and compact never truncate a
+ *    returned value — they differ only in which fields and how many rows.
+ *  - The verbosity feature itself emits NO hints. No "detail dropped",
+ *    no "drill-back", no tier commentary. Tiers shape data silently; only
+ *    genuinely data-bearing hints (pagination cursors, counts) remain.
  *
  * @see ../scheme/localSchemaOverlay.ts (`verbosityField`, `createVerbosityField`)
  */
@@ -17,11 +23,11 @@
 import type { Verbosity } from './localSchemaOverlay.js';
 
 /**
- * Returns true when the caller asked for ultra (lossy summary).
- * Only `"ultra"` triggers the trim-content path.
+ * Returns true when the caller asked for concise (lossy summary).
+ * Only `"concise"` triggers the trim-content path.
  */
-export function isUltra(verbosity: Verbosity | undefined): boolean {
-  return verbosity === 'ultra';
+export function isConcise(verbosity: Verbosity | undefined): boolean {
+  return verbosity === 'concise';
 }
 
 /**
@@ -47,7 +53,7 @@ export function isBasic(verbosity: Verbosity | undefined): boolean {
  * helpers above already handle `undefined` correctly so this is optional.
  */
 export function normalizeVerbosity(v: Verbosity | undefined): Verbosity {
-  return v ?? 'basic';
+  return v ?? ('basic' as Verbosity);
 }
 
 /**
@@ -104,32 +110,15 @@ export function makeAdvisoryPredicate(
 }
 
 /**
- * Standard drill-back hint pair appended to every ultra response.
- *
- * Every ultra payload MUST carry a re-fetch breadcrumb so the agent never
- * lands in a dead end.
- *
- * @param drillbackCall — the exact tool call shape the agent should make
- *   to recover the dropped detail (e.g. `verbosity:"basic"` or
- *   `groupByFile:true`).
- */
-export function ultraDrillBackHint(drillbackCall: string): string[] {
-  return [
-    `verbosity:"ultra" — detail dropped to save tokens.`,
-    `Drill-back: ${drillbackCall}`,
-  ];
-}
-
-/**
- * Test-only sanity guard. Throws when an ultra payload exceeds the budget;
+ * Test-only sanity guard. Throws when an concise payload exceeds the budget;
  * useful in snapshot tests to catch contract drift (e.g. a transformer that
  * accidentally keeps the data field around).
  */
-export function assertUltraPayload(result: unknown, maxBytes = 2048): void {
+export function assertConcisePayload(result: unknown, maxBytes = 2048): void {
   const size = JSON.stringify(result).length;
   if (size > maxBytes) {
     throw new Error(
-      `assertUltraPayload: result is ${size} bytes (budget ${maxBytes}). Likely contract violation — ultra responses must be tiny.`
+      `assertConcisePayload: result is ${size} bytes (budget ${maxBytes}). Likely contract violation — concise responses must be tiny.`
     );
   }
 }

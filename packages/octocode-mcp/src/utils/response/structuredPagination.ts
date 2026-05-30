@@ -975,9 +975,10 @@ function paginateFlatQueryResult(
     return null;
   }
 
-  // Same guard as applyQueryOutputPagination: outputPagination is only valid
-  // on the hasResults branch of each tool's discriminated output schema.
-  if (value.status !== 'hasResults') {
+  // outputPagination is only valid on the success branch. Success is
+  // signaled by ABSENT status — emitted explicitly only for 'empty' /
+  // 'error', where outputPagination is rejected by the strict schemas.
+  if (value.status !== undefined) {
     return null;
   }
 
@@ -1070,12 +1071,11 @@ export function applyQueryOutputPagination(
     return queryResult;
   }
 
-  // Output pagination metadata is only allowed inside the 'hasResults' branch
-  // of each tool's discriminated output schema. Both ErrorDataSchema and
-  // EmptyDataSchema are strict and do not declare outputPagination, so
-  // injecting it there would trigger MCP output validation failures
-  // (unrecognized_keys: ["outputPagination"]).
-  if (queryResult.status !== 'hasResults') {
+  // outputPagination is only valid on the success branch. Both
+  // ErrorDataSchema and EmptyDataSchema are strict and do not declare
+  // outputPagination, so injecting it there would trigger MCP output
+  // validation failures. Success is signaled by ABSENT status.
+  if (queryResult.status !== undefined) {
     return queryResult;
   }
 

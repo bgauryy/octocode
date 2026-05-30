@@ -36,11 +36,11 @@ If you set `OCTOCODE_HOME`, all of these paths move under that directory.
 
 ## Table of Contents
 
-- [1. npm Registry Issues](#1-npm-registry-issues)
-- [2. Node.js Version and Process Issues](#2-nodejs-version-and-process-issues)
-- [3. Authentication Issues](#3-authentication-issues)
-- [4. MCP Server Connection Issues](#4-mcp-server-connection-issues)
-- [5. Still Having Issues?](#5-still-having-issues)
+- [1. npm Registry Issues](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md#1-npm-registry-issues)
+- [2. Node.js Version and Process Issues](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md#2-nodejs-version-and-process-issues)
+- [3. Authentication Issues](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md#3-authentication-issues)
+- [4. MCP Server Connection Issues](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md#4-mcp-server-connection-issues)
+- [5. Still Having Issues?](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md#5-still-having-issues)
 
 ---
 

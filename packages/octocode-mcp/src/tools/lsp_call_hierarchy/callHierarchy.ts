@@ -16,15 +16,19 @@ import {
   LSP_UNAVAILABLE_HINT,
 } from '../../lsp/manager.js';
 import type { CallHierarchyResult } from '../../lsp/types.js';
-import type { LSPCallHierarchyQuery as UpstreamLSPCallHierarchyQuery } from '@octocodeai/octocode-core';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { z } from 'zod/v4';
+import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type UpstreamLSPCallHierarchyQuery = z.infer<
+  typeof LSPCallHierarchyQuerySchema
+>;
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
 
 /** Advisory hints lspCallHierarchy emits; stripped under compact.
@@ -36,8 +40,9 @@ const isAdvisoryCallHierarchyHint = makeAdvisoryPredicate([
   'fallback',
 ]);
 
-type LSPCallHierarchyQuery = WithOptionalMeta<UpstreamLSPCallHierarchyQuery> & {
-  verbosity?: Verbosity;
+type LSPCallHierarchyQuery = WithVerbosity<
+  WithOptionalMeta<UpstreamLSPCallHierarchyQuery>
+> & {
   orderHint?: number;
 };
 import { ToolErrors } from '../../errors/errorFactories.js';
@@ -59,7 +64,7 @@ import {
  * Process a single call hierarchy query.
  *
  * Wraps the internal core logic with the verbosity transformer so that
- * `verbosity:"ultra"` returns graph edges only (no per-node content).
+ * `verbosity:"concise"` returns graph edges only (no per-node content).
  */
 export async function processCallHierarchy(
   query: LSPCallHierarchyQuery
@@ -150,7 +155,9 @@ async function processCallHierarchyInternal(
           content
         );
         if (result) {
-          const semanticResult = { ...result, lspMode: 'semantic' } as const;
+          // Semantic path: omit lspMode (absent ≡ semantic). Fallback path
+          // below explicitly sets lspMode='fallback'.
+          const semanticResult = result;
           return attachRawResponseChars(
             applyCallHierarchyOutputLimit(semanticResult, query),
             content.length + countSerializedChars(semanticResult)
@@ -234,7 +241,7 @@ function applyCallHierarchyOutputLimit(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
-  if (result.status !== 'hasResults') return result;
+  if (result.status !== undefined) return result;
 
   const serialized = serializeForPagination(result, true);
   const sizeLimitResult = applyOutputSizeLimit(serialized, {
@@ -304,25 +311,41 @@ function applyCallHierarchyOutputLimit(
 }
 
 /**
- * When `verbosity:"ultra"` is requested, drop tree node content and emit
+ * When `verbosity:"concise"` is requested, drop tree node content and emit
  * graph edges only. Omitted / `"basic"` / `"compact"` behave identically
  * to today.
  *
- * Exported for direct unit testing in `tests/scheme/verbosity_ultra.test.ts`.
+ * Exported for direct unit testing in `tests/scheme/verbosity_concise.test.ts`.
  */
-export function applyCallHierarchyVerbosity(
+/** Call-hierarchy edge item shape used to render the concise edge list. */
+type ConciseEdgeItem = {
+  from?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
+  to?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
+  fromRanges?: Array<{ start?: { line?: number } }>;
+};
+
+/** Render `caller → root` / `root → callee` edge strings for concise output. */
+function buildConciseEdges(
+  items: ConciseEdgeItem[],
+  direction: 'incoming' | 'outgoing',
+  rootName: string
+): string[] {
+  return items.map(item => {
+    const peer = direction === 'incoming' ? item.from : item.to;
+    const peerName = peer?.name ?? '?';
+    const callSites = item.fromRanges?.length ?? 1;
+    const suffix = callSites > 1 ? ` (×${callSites})` : '';
+    return direction === 'incoming'
+      ? `${peerName} → ${rootName}${suffix}`
+      : `${rootName} → ${peerName}${suffix}`;
+  });
+}
+
+/** Collapse a call-hierarchy result to the tiny concise summary form. */
+function buildConciseCallHierarchy(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
-  if (isCompact(query.verbosity)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryCallHierarchyHint, 2),
-    };
-  }
-  if (!isUltra(query.verbosity)) return result;
-  if (result.status !== 'hasResults') return result;
-
   const direction = (result.direction ?? query.direction ?? 'incoming') as
     | 'incoming'
     | 'outgoing';
@@ -335,25 +358,9 @@ export function applyCallHierarchyVerbosity(
   const items = ((result as { calls?: unknown[] }).calls ??
     (result as { incomingCalls?: unknown[] }).incomingCalls ??
     (result as { outgoingCalls?: unknown[] }).outgoingCalls ??
-    []) as Array<{
-    from?: {
-      name?: string;
-      uri?: string;
-      range?: { start?: { line?: number } };
-    };
-    to?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
-    fromRanges?: Array<{ start?: { line?: number } }>;
-  }>;
+    []) as ConciseEdgeItem[];
 
-  const edges = items.map(item => {
-    const peer = direction === 'incoming' ? item.from : item.to;
-    const peerName = peer?.name ?? '?';
-    const callSites = item.fromRanges?.length ?? 1;
-    return direction === 'incoming'
-      ? `${peerName} → ${rootName}${callSites > 1 ? ` (×${callSites})` : ''}`
-      : `${rootName} → ${peerName}${callSites > 1 ? ` (×${callSites})` : ''}`;
-  });
-
+  const edges = buildConciseEdges(items, direction, rootName);
   const summary = `${edges.length} ${direction} edge(s) for ${rootName} at depth=${result.depth ?? query.depth ?? 1}`;
 
   // Preserve whichever edge-list field the upstream result used so the
@@ -372,14 +379,24 @@ export function applyCallHierarchyVerbosity(
     ...(hasCalls ? { calls: [] } : {}),
     ...(hasIncoming ? { incomingCalls: [] } : {}),
     ...(hasOutgoing ? { outgoingCalls: [] } : {}),
-    hints: [
-      summary,
-      `edges: ${edges.join('; ')}`,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"basic" (default) for full per-node context'
-      ),
-    ],
+    hints: [summary, `edges: ${edges.join('; ')}`],
   };
+}
+
+export function applyCallHierarchyVerbosity(
+  result: CallHierarchyResult,
+  query: LSPCallHierarchyQuery
+): CallHierarchyResult {
+  if (isCompact(query.verbosity)) {
+    return {
+      ...result,
+      hints: compactTrimHints(result.hints, isAdvisoryCallHierarchyHint, 2),
+    };
+  }
+  if (!isConcise(query.verbosity)) return result;
+  if (result.status !== undefined) return result;
+
+  return buildConciseCallHierarchy(result, query);
 }
 
 export {

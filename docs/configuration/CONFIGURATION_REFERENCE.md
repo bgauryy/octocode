@@ -8,9 +8,9 @@ Octocode reads configuration from **two sources**. You can use either or both:
 
 ### 1. Environment Variables (in your MCP client settings)
 
-Your MCP client (Cursor, VS Code, Claude Desktop, etc.) has a settings file where you declare MCP servers. Environment variables go in the `"env"` block of your server config.
+Your MCP client (Cursor, Codex, Claude Code, Claude Desktop, VS Code, etc.) has a settings file where you declare MCP servers. Environment variables go in the `"env"` block of your server config.
 
-The JSON structure is the same across all clients — only the file location differs:
+The JSON structure is the same across clients — only the file location differs. The table below shows common locations; `octocode-cli install --ide <client>` writes the right file for every supported client listed in the [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md#install).
 
 | Client | Config file |
 |--------|------------|
@@ -362,7 +362,7 @@ All values are strings in the `"env"` block:
 
 ### In `.octocoderc` Config File (`~/.octocode/.octocoderc`)
 
-Values use native JSON types (booleans, numbers, arrays — not strings). See the [complete schema above](#2-the-octocoderc-config-file-persistent-defaults) for all fields and defaults.
+Values use native JSON types (booleans, numbers, arrays — not strings). See the [complete schema above](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md#2-the-octocoderc-config-file-persistent-defaults) for all fields and defaults.
 
 ### Key Differences Between the Two Formats
 

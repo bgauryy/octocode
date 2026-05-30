@@ -8,17 +8,18 @@ import {
   checkCommandAvailability,
   getMissingCommandError,
 } from '../../utils/exec/commandAvailability.js';
-import {
-  applyWorkflowMode,
-  type RipgrepQuery as UpstreamRipgrepQuery,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import { applyWorkflowMode } from '@octocodeai/octocode-core/schemas/runtime';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type UpstreamRipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type RipgrepQuery = WithOptionalMeta<UpstreamRipgrepQuery>;
 import { createErrorResult } from '../../utils/file/toolHelpers.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core';
+import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 

@@ -20,34 +20,30 @@ import {
   SKILLS_MARKETPLACES,
   type MarketplaceSource,
 } from '../src/configs/skills-marketplace.js';
+import {
+  buildGitHubApiHeaders,
+  buildValidationJsonSummary,
+  checkGitHubRepository,
+  formatRelativeTime,
+  hasBlockingValidationFailures,
+  printRateLimitTip,
+  printReportHeader,
+  printSectionHeader,
+  printSummary,
+  printValidatorBanner,
+  splitValidationResults,
+  topByStars,
+  writeValidationProgress,
+  type BaseValidationResult,
+} from './validation-report-helpers.js';
 
-interface ValidationResult {
-  id: string;
-  name: string;
+interface ValidationResult extends BaseValidationResult {
   owner: string;
   repo: string;
   url: string;
-  status: 'valid' | 'invalid' | 'error' | 'warning';
-  error?: string;
-  statusCode?: number;
-  stars?: number;
-  lastPushed?: string;
   skillsPathValid?: boolean;
   skillsPathError?: string;
   skillsCount?: number;
-}
-
-interface GitHubRepoInfo {
-  id: number;
-  name: string;
-  full_name: string;
-  private: boolean;
-  html_url: string;
-  description: string | null;
-  archived: boolean;
-  disabled: boolean;
-  stargazers_count: number;
-  pushed_at: string;
 }
 
 interface GitHubContentItem {
@@ -57,84 +53,6 @@ interface GitHubContentItem {
 }
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
-
-/**
- * Get authorization headers for GitHub API
- */
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: 'application/vnd.github.v3+json',
-    'User-Agent': 'octocode-skills-validator',
-  };
-
-  if (process.env.GITHUB_TOKEN) {
-    headers.Authorization = `token ${process.env.GITHUB_TOKEN}`;
-  } else if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
-    headers.Authorization = `token ${process.env.GITHUB_PERSONAL_ACCESS_TOKEN}`;
-  }
-
-  return headers;
-}
-
-/**
- * Check if a GitHub repository exists
- */
-async function checkRepository(
-  owner: string,
-  repo: string
-): Promise<{
-  exists: boolean;
-  error?: string;
-  statusCode?: number;
-  data?: GitHubRepoInfo;
-}> {
-  const url = `https://api.github.com/repos/${owner}/${repo}`;
-
-  try {
-    const response = await fetch(url, { headers: getAuthHeaders() });
-
-    if (response.ok) {
-      const data = (await response.json()) as GitHubRepoInfo;
-      return { exists: true, statusCode: response.status, data };
-    }
-
-    if (response.status === 404) {
-      return {
-        exists: false,
-        error: 'Repository not found',
-        statusCode: response.status,
-      };
-    }
-
-    if (response.status === 403) {
-      const remaining = response.headers.get('x-ratelimit-remaining');
-      if (remaining === '0') {
-        return {
-          exists: false,
-          error:
-            'Rate limit exceeded. Set GITHUB_TOKEN env var for higher limits.',
-          statusCode: response.status,
-        };
-      }
-      return {
-        exists: false,
-        error: 'Access forbidden',
-        statusCode: response.status,
-      };
-    }
-
-    return {
-      exists: false,
-      error: `HTTP ${response.status}: ${response.statusText}`,
-      statusCode: response.status,
-    };
-  } catch (err) {
-    return {
-      exists: false,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    };
-  }
-}
 
 /**
  * Check if a path exists in a GitHub repository and count skills
@@ -155,7 +73,9 @@ async function checkSkillsPath(
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${apiPath}?ref=${branch}`;
 
   try {
-    const response = await fetch(url, { headers: getAuthHeaders() });
+    const response = await fetch(url, {
+      headers: buildGitHubApiHeaders('octocode-skills-validator'),
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -206,7 +126,11 @@ async function validateMarketplace(
   marketplace: MarketplaceSource,
   checkSkills: boolean
 ): Promise<ValidationResult> {
-  const result = await checkRepository(marketplace.owner, marketplace.repo);
+  const result = await checkGitHubRepository(
+    marketplace.owner,
+    marketplace.repo,
+    'octocode-skills-validator'
+  );
 
   if (!result.exists) {
     return {
@@ -330,14 +254,7 @@ async function validateAllMarketplaces(
     results.push(...batchResults);
 
     const progress = Math.min(i + concurrency, total);
-    const validCount = results.filter(r => r.status === 'valid').length;
-    const warningCount = results.filter(r => r.status === 'warning').length;
-    const invalidCount = results.filter(r => r.status === 'invalid').length;
-    const errorCount = results.filter(r => r.status === 'error').length;
-
-    process.stdout.write(
-      `\r  Progress: ${progress}/${total} | ✅ ${validCount} | ⚠️  ${warningCount} | ❌ ${invalidCount} | 🔴 ${errorCount}`
-    );
+    writeValidationProgress(results, progress, total);
 
     if (i + concurrency < total) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -349,61 +266,34 @@ async function validateAllMarketplaces(
 }
 
 /**
- * Format date as relative time
- */
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 30) return `${diffDays} days ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-  return `${(diffDays / 365).toFixed(1)} years ago`;
-}
-
-/**
  * Print validation report
  */
 function printReport(results: ValidationResult[]): void {
-  const valid = results.filter(r => r.status === 'valid');
-  const warnings = results.filter(r => r.status === 'warning');
-  const invalid = results.filter(r => r.status === 'invalid');
-  const errors = results.filter(r => r.status === 'error');
+  const { valid, warnings, invalid, errors, staleWarnings, otherWarnings } =
+    splitValidationResults(results);
 
-  console.log('═'.repeat(80));
-  console.log('                    SKILLS MARKETPLACE VALIDATION REPORT');
-  console.log('═'.repeat(80));
-  console.log();
-
-  // Count stale repos
-  const staleCount = warnings.filter(w =>
-    w.error?.includes('not been updated in over 1 year')
-  ).length;
-
-  // Summary
-  console.log('📊 SUMMARY');
-  console.log('─'.repeat(40));
-  console.log(`  Total Marketplaces: ${results.length}`);
-  console.log(`  ✅ Valid:           ${valid.length}`);
-  console.log(`  ⚠️  Warnings:        ${warnings.length}`);
-  console.log(`  🗑️  Stale:           ${staleCount}`);
-  console.log(`  ❌ Invalid:         ${invalid.length}`);
-  console.log(`  🔴 Errors:          ${errors.length}`);
-
-  // Skills count summary
   const totalSkills = results.reduce((sum, r) => sum + (r.skillsCount || 0), 0);
+  const summaryRows: Array<[string, string | number]> = [
+    ['Total Marketplaces:', results.length],
+    ['✅ Valid:', valid.length],
+    ['⚠️  Warnings:', warnings.length],
+    ['🗑️  Stale:', staleWarnings.length],
+    ['❌ Invalid:', invalid.length],
+    ['🔴 Errors:', errors.length],
+  ];
+
   if (totalSkills > 0) {
-    console.log(`  📚 Total Skills:    ${totalSkills}`);
+    summaryRows.push(['📚 Total Skills:', totalSkills]);
   }
-  console.log();
+
+  printReportHeader('SKILLS MARKETPLACE VALIDATION REPORT');
+  printSummary(summaryRows);
 
   // Invalid marketplaces
   if (invalid.length > 0) {
-    console.log(
+    printSectionHeader(
       '❌ INVALID MARKETPLACES (Repository not found or inaccessible)'
     );
-    console.log('─'.repeat(80));
     for (const m of invalid) {
       console.log(`  • ${m.id}`);
       console.log(`    Name:       ${m.name}`);
@@ -418,17 +308,15 @@ function printReport(results: ValidationResult[]): void {
   }
 
   // Stale repos (no updates in 1+ year)
-  const staleRepos = warnings.filter(w =>
-    w.error?.includes('not been updated in over 1 year')
-  );
-  if (staleRepos.length > 0) {
-    console.log('🗑️  STALE MARKETPLACES - CONSIDER REMOVING FROM REGISTRY');
-    console.log('─'.repeat(80));
+  if (staleWarnings.length > 0) {
+    printSectionHeader(
+      '🗑️  STALE MARKETPLACES - CONSIDER REMOVING FROM REGISTRY'
+    );
     console.log(
       '   The following marketplaces have not been updated in over 1 year and may be abandoned.'
     );
     console.log('   Consider removing them from skills-marketplace.ts:\n');
-    for (const m of staleRepos) {
+    for (const m of staleWarnings) {
       console.log(`  • ${m.id}`);
       console.log(`    Name:       ${m.name}`);
       console.log(`    Repository: ${m.owner}/${m.repo}`);
@@ -446,12 +334,8 @@ function printReport(results: ValidationResult[]): void {
   }
 
   // Other warnings (skills path issues)
-  const otherWarnings = warnings.filter(
-    w => !w.error?.includes('not been updated in over 1 year')
-  );
   if (otherWarnings.length > 0) {
-    console.log('⚠️  WARNINGS (Skills path issues)');
-    console.log('─'.repeat(80));
+    printSectionHeader('⚠️  WARNINGS (Skills path issues)');
     for (const m of otherWarnings) {
       console.log(`  • ${m.id}`);
       console.log(`    Name:       ${m.name}`);
@@ -472,8 +356,7 @@ function printReport(results: ValidationResult[]): void {
 
   // Errors
   if (errors.length > 0) {
-    console.log('🔴 ERRORS (Could not validate)');
-    console.log('─'.repeat(80));
+    printSectionHeader('🔴 ERRORS (Could not validate)');
     for (const m of errors) {
       console.log(`  • ${m.id}`);
       console.log(`    Name:       ${m.name}`);
@@ -484,13 +367,10 @@ function printReport(results: ValidationResult[]): void {
   }
 
   // Marketplaces by stars
-  const sortedByStars = [...results]
-    .filter(r => r.stars !== undefined)
-    .sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
+  const sortedByStars = topByStars(results);
 
   if (sortedByStars.length > 0) {
-    console.log('⭐ MARKETPLACES BY STARS');
-    console.log('─'.repeat(40));
+    printSectionHeader('⭐ MARKETPLACES BY STARS', 40);
     for (const m of sortedByStars) {
       const stars = (m.stars ?? 0).toString().padStart(6);
       const skills =
@@ -512,19 +392,11 @@ function printReport(results: ValidationResult[]): void {
  * Output results as JSON
  */
 function outputJson(results: ValidationResult[]): void {
-  const invalid = results.filter(
-    r => r.status === 'invalid' || r.status === 'error'
-  );
-  const warnings = results.filter(r => r.status === 'warning');
   console.log(
     JSON.stringify(
-      {
-        invalid,
-        warnings,
-        total: results.length,
-        validCount: results.filter(r => r.status === 'valid').length,
+      buildValidationJsonSummary(results, {
         totalSkills: results.reduce((sum, r) => sum + (r.skillsCount || 0), 0),
-      },
+      }),
       null,
       2
     )
@@ -543,23 +415,13 @@ async function main(): Promise<void> {
   );
 
   if (!jsonOutput) {
-    console.log(
-      '╔═══════════════════════════════════════════════════════════════════════════════╗'
-    );
-    console.log(
-      '║            SKILLS MARKETPLACE VALIDATOR - octocode-cli                        ║'
-    );
-    console.log(
-      '╚═══════════════════════════════════════════════════════════════════════════════╝'
-    );
+    printValidatorBanner('SKILLS MARKETPLACE VALIDATOR - octocode-cli');
 
     if (
       !process.env.GITHUB_TOKEN &&
       !process.env.GITHUB_PERSONAL_ACCESS_TOKEN
     ) {
-      console.log(
-        '\n⚠️  TIP: Set GITHUB_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN for higher rate limits\n'
-      );
+      printRateLimitTip();
     }
   }
 
@@ -572,10 +434,7 @@ async function main(): Promise<void> {
   }
 
   // Exit with error code if any invalid marketplaces found (warnings don't cause failure)
-  const hasInvalid = results.some(
-    r => r.status === 'invalid' || r.status === 'error'
-  );
-  process.exit(hasInvalid ? 1 : 0);
+  process.exit(hasBlockingValidationFailures(results) ? 1 : 0);
 }
 
 main().catch(err => {

@@ -14,12 +14,12 @@ Octocode is the leading AI-powered GitHub code intelligence platform. This exten
 
 ## Agenda
 
-- [Requirements](#requirements)
-- [Authentication & Installation](#-authentication--installation)
-- [Prompts Menu](#prompts-menu)
-- [Tools Available](#tools-available)
-- [Supported IDEs & AI Assistants](#supported-ides--ai-assistants)
-- [Troubleshooting & More Info](#troubleshooting--more-info)
+- [Requirements](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-vscode/README.md#requirements)
+- [Authentication & Installation](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-vscode/README.md#-authentication--installation)
+- [Prompts Menu](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-vscode/README.md#prompts-menu)
+- [Tools Available](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-vscode/README.md#tools-available)
+- [Supported IDEs & AI Assistants](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-vscode/README.md#supported-ides--ai-assistants)
+- [Troubleshooting & More Info](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-vscode/README.md#troubleshooting--more-info)
 
 ---
 

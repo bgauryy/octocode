@@ -2,19 +2,69 @@ import {
   McpServer,
   RegisteredTool,
 } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ToolNames } from '@octocodeai/octocode-core';
+import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { ToolNames } from '@octocodeai/octocode-core/types';
+import { type z } from 'zod/v4';
 import type { ToolInvocationCallback } from '../types/toolResults.js';
+import {
+  CloneRepoQueryLocalSchema,
+  BulkCloneRepoLocalSchema,
+  FileContentQueryLocalSchema,
+  FileContentBulkQueryLocalSchema,
+  GitHubCodeSearchQueryLocalSchema,
+  GitHubCodeSearchBulkQueryLocalSchema,
+  GitHubPullRequestSearchQueryLocalSchema,
+  GitHubPullRequestSearchBulkQueryLocalSchema,
+  GitHubReposSearchSingleQueryLocalSchema,
+  GitHubReposSearchBulkQueryLocalSchema,
+  GitHubViewRepoStructureQueryLocalSchema,
+  GitHubViewRepoStructureBulkQueryLocalSchema,
+  PackageSearchQueryLocalSchema,
+  PackageSearchBulkQueryLocalSchema,
+} from '../scheme/remoteSchemaOverlay.js';
+import {
+  FetchContentQuerySchema,
+  BulkFetchContentQuerySchema,
+  FindFilesQuerySchema,
+  BulkFindFilesSchema,
+  RipgrepQuerySchema,
+  BulkRipgrepQuerySchema,
+  ViewStructureQuerySchema,
+  BulkViewStructureSchema,
+} from '../scheme/localSchemaOverlay.js';
+import {
+  LSPCallHierarchyQuerySchema,
+  BulkLSPCallHierarchyQuerySchema,
+  LSPFindReferencesQuerySchema,
+  BulkLSPFindReferencesQuerySchema,
+  LSPGotoDefinitionQuerySchema,
+  BulkLSPGotoDefinitionQuerySchema,
+} from '../scheme/lspSchemaOverlay.js';
+import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { registerGitHubSearchCodeTool } from './github_search_code/github_search_code.js';
+import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
 import { registerFetchGitHubFileContentTool } from './github_fetch_content/github_fetch_content.js';
+import { searchMultipleGitHubCode } from './github_search_code/execution.js';
+import { searchMultipleGitHubPullRequests } from './github_search_pull_requests/execution.js';
 import { registerSearchGitHubReposTool } from './github_search_repos/github_search_repos.js';
 import { registerSearchGitHubPullRequestsTool } from './github_search_pull_requests/github_search_pull_requests.js';
+import { searchMultipleGitHubRepos } from './github_search_repos/execution.js';
+import { exploreMultipleRepositoryStructures } from './github_view_repo_structure/execution.js';
 import { registerViewGitHubRepoStructureTool } from './github_view_repo_structure/github_view_repo_structure.js';
+import { searchPackages } from './package_search/execution.js';
 import { registerPackageSearchTool } from './package_search/package_search.js';
 import { registerGitHubCloneRepoTool } from './github_clone_repo/register.js';
+import { executeFetchContent } from './local_fetch_content/execution.js';
+import { executeFindFiles } from './local_find_files/execution.js';
+import { executeRipgrepSearch } from './local_ripgrep/execution.js';
+import { executeViewStructure } from './local_view_structure/execution.js';
 import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
 import { registerLocalViewStructureTool } from './local_view_structure/register.js';
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
+import { executeCallHierarchy } from './lsp_call_hierarchy/execution.js';
+import { executeFindReferences } from './lsp_find_references/execution.js';
+import { executeGotoDefinition } from './lsp_goto_definition/execution.js';
 import { registerLSPGotoDefinitionTool } from './lsp_goto_definition/lsp_goto_definition.js';
 import { registerLSPFindReferencesTool } from './lsp_find_references/register.js';
 import { registerLSPCallHierarchyTool } from './lsp_call_hierarchy/register.js';
@@ -22,6 +72,19 @@ import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
 } from './toolMetadata/gateway.js';
+
+export type ToolDirectSecurity = 'basic' | 'remote';
+
+export interface ToolDirectExecutionConfig {
+  /** Per-query schema for help text and examples. */
+  schema: z.ZodType;
+  /** Canonical MCP bulk input schema used before direct execution. */
+  inputSchema: z.ZodType;
+  executionFn: (input: never) => Promise<CallToolResult>;
+  security: ToolDirectSecurity;
+  requiresServerRuntime?: boolean;
+  requiresProviders?: boolean;
+}
 
 export interface ToolConfig {
   name: string;
@@ -43,6 +106,7 @@ export interface ToolConfig {
     server: McpServer,
     callback?: ToolInvocationCallback
   ) => RegisteredTool | Promise<RegisteredTool | null>;
+  direct: ToolDirectExecutionConfig;
 }
 
 /** Exported for branch coverage testing: fallback when tool not in DESCRIPTIONS */
@@ -102,6 +166,14 @@ function createToolCatalog(
     isLocal: false,
     type: 'search',
     fn: registerGitHubSearchCodeTool,
+    direct: {
+      schema: GitHubCodeSearchQueryLocalSchema,
+      inputSchema: GitHubCodeSearchBulkQueryLocalSchema,
+      executionFn: searchMultipleGitHubCode,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
   });
 
   const GITHUB_FETCH_CONTENT = createTool(gateway, 'GITHUB_FETCH_CONTENT', {
@@ -109,6 +181,14 @@ function createToolCatalog(
     isLocal: false,
     type: 'content',
     fn: registerFetchGitHubFileContentTool,
+    direct: {
+      schema: FileContentQueryLocalSchema,
+      inputSchema: FileContentBulkQueryLocalSchema,
+      executionFn: fetchMultipleGitHubFileContents,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
   });
 
   const GITHUB_VIEW_REPO_STRUCTURE = createTool(
@@ -119,6 +199,14 @@ function createToolCatalog(
       isLocal: false,
       type: 'content',
       fn: registerViewGitHubRepoStructureTool,
+      direct: {
+        schema: GitHubViewRepoStructureQueryLocalSchema,
+        inputSchema: GitHubViewRepoStructureBulkQueryLocalSchema,
+        executionFn: exploreMultipleRepositoryStructures,
+        security: 'remote',
+        requiresServerRuntime: true,
+        requiresProviders: true,
+      },
     }
   );
 
@@ -130,6 +218,14 @@ function createToolCatalog(
       isLocal: false,
       type: 'search',
       fn: registerSearchGitHubReposTool,
+      direct: {
+        schema: GitHubReposSearchSingleQueryLocalSchema,
+        inputSchema: GitHubReposSearchBulkQueryLocalSchema,
+        executionFn: searchMultipleGitHubRepos,
+        security: 'remote',
+        requiresServerRuntime: true,
+        requiresProviders: true,
+      },
     }
   );
 
@@ -141,6 +237,14 @@ function createToolCatalog(
       isLocal: false,
       type: 'history',
       fn: registerSearchGitHubPullRequestsTool,
+      direct: {
+        schema: GitHubPullRequestSearchQueryLocalSchema,
+        inputSchema: GitHubPullRequestSearchBulkQueryLocalSchema,
+        executionFn: searchMultipleGitHubPullRequests,
+        security: 'remote',
+        requiresServerRuntime: true,
+        requiresProviders: true,
+      },
     }
   );
 
@@ -149,6 +253,13 @@ function createToolCatalog(
     isLocal: false,
     type: 'search',
     fn: registerPackageSearchTool,
+    direct: {
+      schema: PackageSearchQueryLocalSchema,
+      inputSchema: PackageSearchBulkQueryLocalSchema,
+      executionFn: searchPackages,
+      security: 'remote',
+      requiresServerRuntime: true,
+    },
   });
 
   const GITHUB_CLONE_REPO = createTool(gateway, 'GITHUB_CLONE_REPO', {
@@ -158,6 +269,14 @@ function createToolCatalog(
     type: 'content',
     skipMetadataCheck: true,
     fn: registerGitHubCloneRepoTool,
+    direct: {
+      schema: CloneRepoQueryLocalSchema,
+      inputSchema: BulkCloneRepoLocalSchema,
+      executionFn: executeCloneRepo,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
   });
 
   const LOCAL_RIPGREP = createTool(gateway, 'LOCAL_RIPGREP', {
@@ -165,6 +284,12 @@ function createToolCatalog(
     isLocal: true,
     type: 'search',
     fn: registerLocalRipgrepTool,
+    direct: {
+      schema: RipgrepQuerySchema,
+      inputSchema: BulkRipgrepQuerySchema,
+      executionFn: executeRipgrepSearch,
+      security: 'basic',
+    },
   });
 
   const LOCAL_VIEW_STRUCTURE = createTool(gateway, 'LOCAL_VIEW_STRUCTURE', {
@@ -172,6 +297,12 @@ function createToolCatalog(
     isLocal: true,
     type: 'content',
     fn: registerLocalViewStructureTool,
+    direct: {
+      schema: ViewStructureQuerySchema,
+      inputSchema: BulkViewStructureSchema,
+      executionFn: executeViewStructure,
+      security: 'basic',
+    },
   });
 
   const LOCAL_FIND_FILES = createTool(gateway, 'LOCAL_FIND_FILES', {
@@ -179,6 +310,12 @@ function createToolCatalog(
     isLocal: true,
     type: 'search',
     fn: registerLocalFindFilesTool,
+    direct: {
+      schema: FindFilesQuerySchema,
+      inputSchema: BulkFindFilesSchema,
+      executionFn: executeFindFiles,
+      security: 'basic',
+    },
   });
 
   const LOCAL_FETCH_CONTENT = createTool(gateway, 'LOCAL_FETCH_CONTENT', {
@@ -186,6 +323,12 @@ function createToolCatalog(
     isLocal: true,
     type: 'content',
     fn: registerLocalFetchContentTool,
+    direct: {
+      schema: FetchContentQuerySchema,
+      inputSchema: BulkFetchContentQuerySchema,
+      executionFn: executeFetchContent,
+      security: 'basic',
+    },
   });
 
   const LSP_GOTO_DEFINITION = createTool(gateway, 'LSP_GOTO_DEFINITION', {
@@ -193,6 +336,13 @@ function createToolCatalog(
     isLocal: true,
     type: 'content',
     fn: registerLSPGotoDefinitionTool,
+    direct: {
+      schema: LSPGotoDefinitionQuerySchema,
+      inputSchema: BulkLSPGotoDefinitionQuerySchema,
+      executionFn: executeGotoDefinition,
+      security: 'basic',
+      requiresServerRuntime: true,
+    },
   });
 
   const LSP_FIND_REFERENCES = createTool(gateway, 'LSP_FIND_REFERENCES', {
@@ -200,6 +350,13 @@ function createToolCatalog(
     isLocal: true,
     type: 'search',
     fn: registerLSPFindReferencesTool,
+    direct: {
+      schema: LSPFindReferencesQuerySchema,
+      inputSchema: BulkLSPFindReferencesQuerySchema,
+      executionFn: executeFindReferences,
+      security: 'basic',
+      requiresServerRuntime: true,
+    },
   });
 
   const LSP_CALL_HIERARCHY = createTool(gateway, 'LSP_CALL_HIERARCHY', {
@@ -207,6 +364,13 @@ function createToolCatalog(
     isLocal: true,
     type: 'content',
     fn: registerLSPCallHierarchyTool,
+    direct: {
+      schema: LSPCallHierarchyQuerySchema,
+      inputSchema: BulkLSPCallHierarchyQuerySchema,
+      executionFn: executeCallHierarchy,
+      security: 'basic',
+      requiresServerRuntime: true,
+    },
   });
 
   const ALL_TOOLS: ToolConfig[] = [

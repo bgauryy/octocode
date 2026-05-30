@@ -122,11 +122,12 @@ describe('Tool Execution Branch Coverage Tests', () => {
         query
       );
 
+      // lspMode='semantic' removed — absent ≡ semantic per the lean contract.
       expect(result).toMatchObject({
         status: 'error',
         errorCode: 'LSP_CAPABILITY_UNSUPPORTED',
-        lspMode: 'semantic',
       });
+      expect((result as Record<string, unknown>).lspMode).toBeUndefined();
       expect(mockClient.findReferences).not.toHaveBeenCalled();
     });
 
@@ -231,7 +232,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
       );
 
       expect(result).not.toBeNull();
-      expect(result?.status).toBe('hasResults');
+      expect(result?.status).toBeUndefined();
       expect(result?.locations).toHaveLength(1);
       expect(result?.hasMultipleFiles).toBe(true);
       expect(mockClient.stop).not.toHaveBeenCalled();
@@ -282,7 +283,7 @@ describe('Tool Execution Branch Coverage Tests', () => {
       );
 
       expect(result).not.toBeNull();
-      expect(result?.status).toBe('hasResults');
+      expect(result?.status).toBeUndefined();
       expect(result?.locations).toHaveLength(1);
       expect(result?.locations![0]!.uri).toContain('other.ts');
       expect(mockClient.findReferences).toHaveBeenCalledWith(

@@ -15,10 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
 import { validateCommand } from 'octocode-security-utils/commandValidator';
-import {
-  PathValidator,
-  reinitializePathValidator,
-} from 'octocode-security-utils/pathValidator';
+import { PathValidator } from 'octocode-security-utils/pathValidator';
 import { validateExecutionContext } from 'octocode-security-utils/executionContextValidator';
 import {
   shouldIgnore,
@@ -619,7 +616,6 @@ describe('ATTACK-07: Output Channel Bypass', () => {
     const result = await executeBulkOperation(
       [{ id: 'q1', query: 'test' }],
       async () => ({
-        status: 'hasResults' as const,
         content: `File contains ${SECRETS.AWS_KEY} and ${SECRETS.PRIVATE_KEY}`,
         matches: [SECRETS.GITHUB_TOKEN, SECRETS.STRIPE_KEY],
       }),
@@ -885,7 +881,9 @@ describe('ATTACK-12: Environment Variable Attacks', () => {
 
   it('should not allow ALLOWED_PATHS to grant access to /etc', () => {
     process.env.ALLOWED_PATHS = '/etc';
-    const validator = new PathValidator({
+    // Construct validator to exercise constructor path; assertions below
+    // hit the module-level shouldIgnoreFile/shouldIgnorePath helpers.
+    new PathValidator({
       workspaceRoot: '/workspace',
       includeHomeDir: false,
     });

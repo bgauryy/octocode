@@ -2,7 +2,7 @@
 
 20 GitHub research questions. Answer each one, in order, using only the tool you were assigned.
 
-Answer key (Expected Facts) is in [`EXPECTED_FACTS.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/EXPECTED_FACTS.md) — judge-only. Researcher agents must not read it.
+There is intentionally no answer key file. The judge independently validates each submitted answer against the live GitHub repositories and PRs.
 
 ---
 

@@ -56,7 +56,7 @@ Log row schema (jsonl):
 
 ## 7 · Scoring
 
-Primary scoring is done by the judge agent — paste `prompts/judge.md` with the two run paths. The agent reads both `q<n>.md` answer files and `EXPECTED_FACTS.md`, scores semantic quality, and picks the winner by **quality-adjusted token/character usage**.
+Primary scoring is done by the judge agent — paste `prompts/judge.md` with the two run paths. The agent reads both `q<n>.md` answer files, independently fact-checks the answers against GitHub source/PR facts, scores semantic quality, and picks the winner by **quality-adjusted token/character usage**.
 
 Winner axis:
 

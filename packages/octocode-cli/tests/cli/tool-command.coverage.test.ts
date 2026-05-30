@@ -6,13 +6,9 @@
  *
  *  - showAvailableTools (list by category)
  *  - printToolsContext / getToolsContextString
- *  - formatMetadataSchemaText fallback (metadata-only tool)
- *  - describeSchemaType: enum, array<items>, array<no-items>,
- *    multi-type Array, fallback 'value'
- *  - buildExampleValue: all named-field branches + type branches
- *  - normalizeKey: kebab and underscore keys in query input
- *  - buildToolPayload: array payload, responseCharOffset, >2 args error,
- *    non-string/non-object/empty-array payload errors
+ *  - MCP direct-tool metadata fallbacks and display-field delegation
+ *  - MCP direct-tool input preparation paths: array payloads,
+ *    responseCharOffset, validation errors, and key normalization
  *  - printToolResult: structuredContent fallback, bare-result fallback,
  *    JSON mode CallToolResult passthrough
  *  - executeToolCommand: no-name → list, 'list' keyword, --list flag,
@@ -80,129 +76,31 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('octocode-mcp/public', async () => {
-  const { z } = await import('zod/v4');
+vi.mock('octocode-mcp/public', async importOriginal => {
+  const actual = await importOriginal<typeof import('octocode-mcp/public')>();
+  const executeDirectTool = vi.fn(async (toolName: string, input: unknown) => {
+    if (toolName.startsWith('github')) {
+      await mocks.initialize();
+      await mocks.initializeProviders();
+    }
 
-  const localBase = z.object({
-    id: z.string(),
-    researchGoal: z.string(),
-    reasoning: z.string(),
-  });
-
-  const githubBase = z.object({
-    id: z.string(),
-    mainResearchGoal: z.string(),
-    researchGoal: z.string(),
-    reasoning: z.string(),
-  });
-
-  // Schema with various field types to exercise describeSchemaType
-  const richSchema = githubBase.extend({
-    keywordsToSearch: z.array(z.string()),
-    owner: z.string().optional(),
-    repo: z.string().optional(),
-    limit: z.number().optional(),
+    if (toolName === 'localSearchCode') {
+      return mocks.localSearchCode(input);
+    }
+    if (toolName === 'githubCloneRepo') {
+      return mocks.cloneRepo(input);
+    }
+    return mocks.noop(input);
   });
 
   return {
+    ...actual,
     initialize: mocks.initialize,
     initializeProviders: mocks.initializeProviders,
     loadToolContent: mocks.loadToolContent,
-    executeRipgrepSearch: mocks.localSearchCode,
-    executeFetchContent: mocks.noop,
-    executeFindFiles: mocks.noop,
-    executeViewStructure: mocks.noop,
-    executeGotoDefinition: mocks.noop,
-    executeFindReferences: mocks.noop,
-    executeCallHierarchy: mocks.noop,
-    fetchMultipleGitHubFileContents: mocks.noop,
-    searchMultipleGitHubCode: mocks.noop,
-    searchMultipleGitHubPullRequests: mocks.noop,
-    searchMultipleGitHubRepos: mocks.noop,
-    exploreMultipleRepositoryStructures: mocks.noop,
-    executeCloneRepo: mocks.cloneRepo,
-    searchPackages: mocks.noop,
-    DEFAULT_TOOL_RESPONSE_FORMAT: 'tsv',
-    formatCallToolResultForOutput: (
-      result: unknown,
-      outputMode: 'text' | 'json'
-    ) => {
-      if (outputMode === 'json') return JSON.stringify(result);
-      const typedResult = result as {
-        content?: Array<{ text?: string }>;
-        structuredContent?: unknown;
-      };
-      const textBlocks = Array.isArray(typedResult.content)
-        ? typedResult.content
-            .map(block => (typeof block.text === 'string' ? block.text : ''))
-            .filter(Boolean)
-        : [];
-      if (textBlocks.length > 0) return textBlocks.join('\n\n');
-      if (typedResult.structuredContent !== undefined) {
-        return JSON.stringify(typedResult.structuredContent, null, 2);
-      }
-      return JSON.stringify(result, null, 2);
-    },
-    RipgrepQuerySchema: localBase.extend({
-      path: z.string(),
-      pattern: z.string(),
-      fixedString: z.boolean().optional(),
-      include: z.array(z.string()).optional(),
-      limit: z.number().optional(),
-    }),
-    FetchContentQuerySchema: localBase.extend({ path: z.string() }),
-    FindFilesQuerySchema: localBase.extend({ path: z.string() }),
-    ViewStructureQuerySchema: localBase.extend({ path: z.string() }),
-    // LSP schemas with realistic required fields to exercise buildExampleValue branches
-    LSPGotoDefinitionQuerySchema: localBase.extend({
-      uri: z.string(),
-      symbolName: z.string(),
-      lineHint: z.number(),
-    }),
-    LSPFindReferencesQuerySchema: localBase.extend({
-      uri: z.string(),
-      symbolName: z.string(),
-      lineHint: z.number(),
-      includeDeclaration: z.boolean(),
-    }),
-    LSPCallHierarchyQuerySchema: localBase.extend({
-      uri: z.string(),
-      symbolName: z.string(),
-      lineHint: z.number(),
-      direction: z.enum(['incoming', 'outgoing']),
-    }),
-    FileContentQuerySchema: githubBase.extend({
-      owner: z.string(),
-      repo: z.string(),
-      path: z.string(),
-    }),
-    GitHubCodeSearchQuerySchema: richSchema,
-    GitHubPullRequestSearchQuerySchema: githubBase.extend({
-      owner: z.string(),
-      repo: z.string(),
-    }),
-    GitHubReposSearchSingleQuerySchema: githubBase.extend({
-      keywordsToSearch: z.array(z.string()),
-    }),
-    GitHubViewRepoStructureQuerySchema: githubBase.extend({
-      owner: z.string(),
-      repo: z.string(),
-    }),
-    PackageSearchQuerySchema: githubBase.extend({
-      ecosystem: z.enum(['npm', 'python']),
-      name: z.string(),
-    }),
-    CloneRepoQuerySchema: githubBase.extend({
-      owner: z.string().describe('Repository owner'),
-      repo: z.string().describe('Repository name'),
-      branch: z.string().optional(),
-      sparse_path: z.string().optional(),
-      forceRefresh: z.boolean().optional().default(false),
-    }),
+    executeDirectTool,
   };
 });
-
-// ─── suite ────────────────────────────────────────────────────────────────────
 
 describe('tool-command coverage', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -410,7 +308,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '[{"path":".","pattern":"foo"},{"path":"src","pattern":"bar"}]',
+        '[{"path":".","pattern":"foo","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1},{"path":"src","pattern":"bar","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}]',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -432,7 +330,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"queries":[{"path":".","pattern":"foo"}],"responseCharOffset":500}',
+        '{"queries":[{"path":".","pattern":"foo","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}],"responseCharOffset":500}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -450,7 +348,11 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}', 'extra'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        'extra',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -498,7 +400,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","fixed-string":true}',
+        '{"path":".","pattern":"x","fixed-string":true,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -522,7 +424,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -539,7 +444,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -558,7 +466,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode', json: true },
     });
 
@@ -587,7 +498,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode', json: true },
     });
 
@@ -612,7 +526,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode', o: 'json' },
     });
 
@@ -634,7 +551,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -650,7 +570,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -668,7 +591,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -678,69 +604,42 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ── getDisplayFields edge cases ───────────────────────────────────────────
+  // ── getDisplayFields delegates to MCP direct-tool metadata ────────────────
 
-  it('getDisplayFields: handles schema with enum, array, and multi-type fields', async () => {
-    const { z } = await import('zod/v4');
-    const { getDisplayFields } = await import('../../src/cli/tool-command.js');
+  it('getDisplayFields: returns MCP display fields for canonical tools', async () => {
+    const { getDisplayFields, TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command.js');
 
-    const tool = {
-      name: 'testTool',
-      schema: z.object({
-        id: z.string(),
-        researchGoal: z.string(),
-        reasoning: z.string(),
-        mode: z.enum(['fast', 'full', 'off']),
-        tags: z.array(z.string()),
-        count: z.number(),
-        verbose: z.boolean(),
-      }),
+    const githubTool = TOOL_DEFINITIONS.find(
+      tool => tool.name === 'githubSearchCode'
+    );
+    const packageTool = TOOL_DEFINITIONS.find(
+      tool => tool.name === 'packageSearch'
+    );
 
-      execute: async () => ({}) as any,
-    };
+    expect(githubTool).toBeDefined();
+    expect(packageTool).toBeDefined();
 
-    const fields = getDisplayFields(tool);
-    const byName = Object.fromEntries(fields.map(f => [f.name, f]));
+    const githubFields = getDisplayFields(githubTool!);
+    const packageFields = getDisplayFields(packageTool!);
+    const githubByName = Object.fromEntries(
+      githubFields.map(field => [field.name, field])
+    );
+    const packageByName = Object.fromEntries(
+      packageFields.map(field => [field.name, field])
+    );
 
-    // enum field
-    expect(byName['mode']?.type).toContain('enum(');
-    expect(byName['mode']?.type).toContain('fast');
-
-    // array field
-    expect(byName['tags']?.type).toBe('array<string>');
-
-    // auto-filled fields must be absent
-    expect(byName['id']).toBeUndefined();
-    expect(byName['researchGoal']).toBeUndefined();
-    expect(byName['reasoning']).toBeUndefined();
+    expect(githubByName['keywordsToSearch']?.type).toBe('array<string>');
+    expect(packageByName['name']?.type).toBe('string');
+    expect(packageByName['searchLimit']?.type).toBe('integer');
+    expect(githubByName['id']).toBeUndefined();
+    expect(githubByName['researchGoal']).toBeUndefined();
+    expect(githubByName['reasoning']).toBeUndefined();
   });
 
-  it('getDisplayFields: array field with no items schema falls back to array<value>', async () => {
-    const { z } = await import('zod/v4');
-    const { getDisplayFields } = await import('../../src/cli/tool-command.js');
+  // ── MCP-owned example query via showToolHelp output ──────────────────────
 
-    // z.array(z.unknown()) → JSON schema items will be empty/missing
-    const tool = {
-      name: 'unknownArrayTool',
-      schema: z.object({
-        id: z.string(),
-        researchGoal: z.string(),
-        reasoning: z.string(),
-        data: z.array(z.unknown()),
-      }),
-
-      execute: async () => ({}) as any,
-    };
-
-    const fields = getDisplayFields(tool);
-    const dataField = fields.find(f => f.name === 'data');
-    // Should gracefully degrade to array<value> or array<...>
-    expect(dataField?.type).toContain('array');
-  });
-
-  // ── buildExampleValue via showToolHelp example output ────────────────────
-
-  it('buildExampleValue: packageSearch example includes ecosystem=npm and name=react', async () => {
+  it('packageSearch example includes the MCP-owned required fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -750,13 +649,13 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('"ecosystem"');
-    expect(output).toContain('npm');
     expect(output).toContain('"name"');
     expect(output).toContain('react');
+    expect(output).toContain('"searchLimit"');
+    expect(output).toContain('"limit"');
   });
 
-  it('buildExampleValue: githubSearchRepositories example includes keywordsToSearch array', async () => {
+  it('githubSearchRepositories help includes MCP schema and required example fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -766,7 +665,9 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('"keywordsToSearch"');
+    expect(output).toContain('keywordsToSearch');
+    expect(output).toContain('"limit"');
+    expect(output).toContain('"page"');
   });
 
   it('buildExampleValue: githubCloneRepo example includes owner=bgauryy', async () => {
@@ -793,7 +694,7 @@ describe('tool-command coverage', () => {
       // second query has pattern as a number → validation failure
       args: [
         'localSearchCode',
-        '[{"path":".","pattern":"ok"},{"path":".","pattern":999}]',
+        '[{"path":".","pattern":"ok","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1},{"path":".","pattern":999,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}]',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -885,7 +786,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -906,7 +810,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode' },
     });
 
@@ -927,7 +834,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode', json: true },
     });
 
@@ -946,7 +856,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"x"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: { tool: 'localSearchCode', json: true },
     });
 
@@ -1001,7 +914,8 @@ describe('tool-command coverage', () => {
       args: [], // no positional arg
       options: {
         tool: 'localSearchCode',
-        queries: '{"path":".","pattern":"x"}',
+        queries:
+          '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
       },
     });
 

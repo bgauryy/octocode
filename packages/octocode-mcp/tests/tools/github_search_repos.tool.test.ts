@@ -121,7 +121,8 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const responseText = getTextContent(result.content);
 
       expect(result.isError).toBe(false);
-      expect(responseText).toContain('status: "hasResults"');
+      // hasResults is now signaled by ABSENT status — emitted only for empty/error.
+      expect(responseText).not.toContain('status: "hasResults"');
       expect(responseText).toContain('facebook/react');
       expect(responseText).toContain('vercel/next.js');
     });

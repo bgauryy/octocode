@@ -13,6 +13,7 @@ import {
   getClientDisplayName,
   getCanonicalConfig,
   executeSyncToClients,
+  quickSync,
   type SyncAnalysis,
   type MCPDiff,
   type ConflictResolution,
@@ -886,5 +887,115 @@ describe('executeSyncToClients', () => {
 
     expect(result.success).toBe(false);
     expect(result.errors[0]).toContain('Unknown write error');
+  });
+});
+
+describe('quickSync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getMCPConfigPath).mockImplementation(
+      client => `/path/${client}.json`
+    );
+    vi.mocked(configFileExists).mockReturnValue(true);
+    vi.mocked(writeMCPConfig).mockReturnValue({ success: true });
+  });
+
+  it('returns a no-sync failure when fewer than two clients have configs', async () => {
+    vi.mocked(detectAvailableClients).mockReturnValue(['cursor']);
+    vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
+
+    const result = await quickSync({});
+
+    expect(result.success).toBe(false);
+    expect(result.syncPerformed).toBe(false);
+    expect(result.message).toContain('Not enough clients');
+  });
+
+  it('does not write when clients are already synced', async () => {
+    vi.mocked(detectAvailableClients).mockReturnValue([
+      'cursor',
+      'claude-desktop',
+    ]);
+    vi.mocked(readMCPConfig).mockReturnValue({
+      mcpServers: {
+        octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+      },
+    });
+
+    const result = await quickSync({});
+
+    expect(result.success).toBe(true);
+    expect(result.syncPerformed).toBe(false);
+    expect(result.message).toContain('already in sync');
+    expect(writeMCPConfig).not.toHaveBeenCalled();
+  });
+
+  it('reports conflicts without writing unless force is enabled', async () => {
+    vi.mocked(detectAvailableClients).mockReturnValue([
+      'cursor',
+      'claude-desktop',
+    ]);
+    vi.mocked(readMCPConfig).mockImplementation(path => ({
+      mcpServers: {
+        octocode: {
+          command: 'npx',
+          args: [path.includes('cursor') ? 'new' : 'old'],
+        },
+      },
+    }));
+
+    const result = await quickSync({});
+
+    expect(result.success).toBe(false);
+    expect(result.syncPerformed).toBe(false);
+    expect(result.message).toContain('conflict');
+    expect(writeMCPConfig).not.toHaveBeenCalled();
+  });
+
+  it('force mode resolves conflicts and writes to existing clients', async () => {
+    vi.mocked(detectAvailableClients).mockReturnValue([
+      'cursor',
+      'claude-desktop',
+    ]);
+    vi.mocked(readMCPConfig).mockImplementation(path => ({
+      mcpServers: {
+        octocode: {
+          command: 'npx',
+          args: [path.includes('cursor') ? 'new' : 'old'],
+        },
+      },
+    }));
+
+    const result = await quickSync({ force: true });
+
+    expect(result.success).toBe(true);
+    expect(result.syncPerformed).toBe(true);
+    expect(result.message).toContain('Synced 1 MCP');
+    expect(writeMCPConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it('dry-run reports the payload without writing', async () => {
+    vi.mocked(detectAvailableClients).mockReturnValue([
+      'cursor',
+      'claude-desktop',
+    ]);
+    vi.mocked(readMCPConfig).mockImplementation((path): MCPConfig => {
+      if (path.includes('cursor')) {
+        return {
+          mcpServers: {
+            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+          },
+        };
+      }
+
+      return { mcpServers: {} };
+    });
+
+    const result = await quickSync({ dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.syncPerformed).toBe(false);
+    expect(result.message).toContain('Would sync 1 MCP');
+    expect(writeMCPConfig).not.toHaveBeenCalled();
   });
 });

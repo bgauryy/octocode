@@ -325,7 +325,6 @@ describe('LSP Goto Definition Handler Tests', () => {
   describe('Result structure', () => {
     it('should create valid result with locations', () => {
       const result = {
-        status: 'hasResults' as const,
         locations: [
           {
             uri: '/test/file.ts',
@@ -349,7 +348,7 @@ describe('LSP Goto Definition Handler Tests', () => {
         ],
       };
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.locations.length).toBe(1);
       expect(result.resolvedPosition).toBeDefined();
     });

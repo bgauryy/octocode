@@ -323,7 +323,7 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.status).toBe('hasResults');
+    expect(result!.status).toBeUndefined();
     expect(result!.locations).toHaveLength(1);
     expect(result!.locations![0]!.uri).toContain('helper.test.ts');
   });
@@ -361,7 +361,7 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.status).toBe('hasResults');
+    expect(result!.status).toBeUndefined();
     expect(result!.locations).toHaveLength(1);
     expect(result!.locations![0]!.uri).not.toContain('node_modules');
   });

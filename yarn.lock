@@ -1294,12 +1294,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^1.0.2":
-  version: 1.0.2
-  resolution: "@octocodeai/octocode-core@npm:1.0.2"
+"@octocodeai/octocode-core@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "@octocodeai/octocode-core@npm:2.0.0"
   peerDependencies:
     zod: ">=3.25.0"
-  checksum: 10c0/8a6ec9ce0cde85d46ffd8b61a4207ff370c8da8610c984d1d6e68943828d7eede62fa881831b7ac40498872dad4909cab6ecad25b40bc3b4b13c3c68e3c501f9
+  checksum: 10c0/454aa4675ed93cf4487ba8dd5cbb5fa1d96df766f0677ba327360a1091b039d181c3599ea98ab239052e29256d5d05619bee21bf7a88aab4e77650850750254c
   languageName: node
   linkType: hard
 
@@ -7020,7 +7020,7 @@ __metadata:
   dependencies:
     "@gitbeaker/rest": "npm:^43.8.0"
     "@modelcontextprotocol/sdk": "npm:^1.27.0"
-    "@octocodeai/octocode-core": "npm:^1.0.2"
+    "@octocodeai/octocode-core": "npm:^2.0.0"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/openapi-types": "npm:^27.0.0"
     "@octokit/plugin-rest-endpoint-methods": "npm:^17.0.0"

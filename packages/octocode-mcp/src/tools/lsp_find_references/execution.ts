@@ -1,5 +1,10 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { LSPFindReferencesQuery as UpstreamLSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { LSPFindReferencesQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type UpstreamLSPFindReferencesQuery = z.infer<
+  typeof LSPFindReferencesQuerySchema
+>;
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { findReferences } from './lsp_find_references.js';
 import type {

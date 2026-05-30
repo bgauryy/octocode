@@ -26,19 +26,17 @@ import {
 } from '../../utils/response/groupedFinalizer.js';
 import type {
   GitHubCodeSearchOutputLocal,
-  GitHubCodeSearchWarning,
   GroupedToolWarning,
 } from '../../scheme/remoteSchemaOverlay.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
-const ULTRA_SEARCH_CODE_LIMIT = 3;
+export const CONCISE_SEARCH_CODE_LIMIT = 3;
 
 /** Advisory hints githubSearchCode emits; stripped under compact.
  * Substring-OR, case-insensitive. */
@@ -68,7 +66,7 @@ type PerQueryGroups = {
 };
 
 type TruncationWarning = Extract<
-  GitHubCodeSearchWarning,
+  GroupedToolWarning,
   { kind: 'match-value-truncated' }
 >;
 
@@ -100,6 +98,16 @@ function mergeGroups(
     }
   }
   return Array.from(merged.values());
+}
+
+function rankGroupsByRelevance(
+  groups: readonly CodeSearchGroupedResult[]
+): CodeSearchGroupedResult[] {
+  return [...groups].sort((left, right) => {
+    const matchDelta = right.matches.length - left.matches.length;
+    if (matchDelta !== 0) return matchDelta;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function getMatches(
@@ -207,7 +215,7 @@ export function buildGithubSearchCodeFinalizer<
       }
     });
 
-    let groups = mergeGroups(perQueryGroups);
+    let groups = rankGroupsByRelevance(mergeGroups(perQueryGroups));
     const outputPagination = perQueryGroups
       .map(group => group.pagination)
       .filter((p): p is PerQueryPagination => p !== undefined);
@@ -269,12 +277,12 @@ export function buildGithubSearchCodeFinalizer<
     if (errors.length > 0) responseData.errors = errors;
 
     // ── Verbosity shaping ───────────────────────────────────────────────
-    const allUltra = applyGithubSearchCodeVerbosity(responseData, queries);
+    const allConcise = applyGithubSearchCodeVerbosity(responseData, queries);
 
     // TSV branch — render flattened rows from the merged groups and attach
     // the columns/rows pair next to `results`. Callers can read either.
-    // Skip under all-ultra: no rows worth emitting.
-    if (config.format === 'tsv' && !allUltra) {
+    // Skip under all-concise: no rows worth emitting.
+    if (config.format === 'tsv' && !allConcise) {
       const projection = getTsvProjection(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE);
       if (projection) {
         responseData.format = 'tsv';
@@ -311,12 +319,12 @@ export function buildGithubSearchCodeFinalizer<
 }
 
 /**
- * Per-tool verbosity shaping for githubSearchCode. Under ultra (when every
+ * Per-tool verbosity shaping for githubSearchCode. Under concise (when every
  * query in the bulk opts in), caps groups to 3, blanks `matches[].value`, and
  * emits a summary + drill-back hint. Under compact, advisory hints are trimmed
  * to 2. Basic / omitted / mixed bulks: passthrough.
  *
- * Mutates `responseData` in place; returns `true` when ultra applied so the
+ * Mutates `responseData` in place; returns `true` when concise applied so the
  * caller can skip TSV emission.
  */
 export function applyGithubSearchCodeVerbosity(
@@ -324,48 +332,35 @@ export function applyGithubSearchCodeVerbosity(
   queries: readonly QueryWithPagination[]
 ): boolean {
   const queriesWithVerbosity = queries as Array<
-    QueryWithPagination & { verbosity?: Verbosity }
+    WithVerbosity<QueryWithPagination>
   >;
-  const allUltra =
+  const allConcise =
     queriesWithVerbosity.length > 0 &&
-    queriesWithVerbosity.every(q => isUltra(q.verbosity));
+    queriesWithVerbosity.every(q => isConcise(q.verbosity));
   const anyCompact = queriesWithVerbosity.some(q => isCompact(q.verbosity));
   const groups = (responseData.results ?? []) as CodeSearchGroupedResult[];
 
-  if (allUltra) {
+  if (allConcise) {
     const totalMatches = groups.reduce((n, g) => n + g.matches.length, 0);
+    const distinctFiles = new Set(
+      groups.flatMap(g => g.matches.map(m => m.path))
+    ).size;
+    const repoCount = groups.length;
     const topGroup = groups[0];
     const topPath = topGroup?.matches?.[0]?.path;
-    const cappedGroups = groups.slice(0, ULTRA_SEARCH_CODE_LIMIT).map(g => ({
+    const cappedGroups = groups.slice(0, CONCISE_SEARCH_CODE_LIMIT).map(g => ({
       ...g,
       matches: g.matches.map(m => ({ ...m, value: '' })),
     }));
-    const userPassedHigherLimit = queriesWithVerbosity.some(
-      q =>
-        ((q as unknown as { limit?: number }).limit ?? 0) >
-        ULTRA_SEARCH_CODE_LIMIT
-    );
     responseData.results = cappedGroups as typeof responseData.results;
     const topLoc = topPath
       ? ` (top: ${topGroup?.owner}/${topGroup?.repo}:${topPath})`
       : '';
     responseData.hints = [
-      `${totalMatches} matches across ${groups.length} paths${topLoc}`,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"basic" (default) and scope owner/repo/path to the top match'
-      ),
+      `${totalMatches} matches in ${distinctFiles} file(s) across ${repoCount} repo(s)${topLoc}`,
     ];
-    if (userPassedHigherLimit) {
-      const downgrade: GroupedToolWarning = {
-        kind: 'verbosity-downgrade',
-        field: 'limit',
-        detail: `limit capped to ${ULTRA_SEARCH_CODE_LIMIT} (ultra)`,
-      };
-      responseData.warnings = [
-        ...(responseData.warnings ?? []),
-        downgrade as GitHubCodeSearchWarning,
-      ];
-    }
+    // No verbosity-feature hint: concise's limit cap is its documented contract
+    // and the match/file/repo totals above keep the full scope visible.
     return true;
   }
 

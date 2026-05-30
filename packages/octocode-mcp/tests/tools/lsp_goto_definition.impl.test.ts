@@ -155,7 +155,7 @@ export interface Config {
       const text = result.content?.[0]?.text ?? '';
       expect(text).toContain('status: "error"');
       expect(text).toContain('errorCode: "LSP_CAPABILITY_UNSUPPORTED"');
-      expect(text).toContain('lspMode: "semantic"');
+      expect(text).not.toContain('lspMode: "semantic"');
       expect(mockClient.gotoDefinition).not.toHaveBeenCalled();
     });
 
@@ -462,7 +462,7 @@ export interface Config {
 
       const text = result.content?.[0]?.text ?? '';
       // Note: YAML output uses quotes around string values
-      expect(text).toContain('status: "hasResults"');
+      expect(text).not.toContain('status: "hasResults"');
       expect(text).toContain('>   2| beta');
     });
 
@@ -767,7 +767,7 @@ export interface Config {
 
       const text = result.content?.[0]?.text ?? '';
       expect(text).toContain(modulePath);
-      expect(text).toContain('status: "hasResults"');
+      expect(text).not.toContain('status: "hasResults"');
     });
   });
 
@@ -1055,7 +1055,7 @@ export interface Config {
 
       const text = result.content?.[0]?.text ?? '';
       // Should still return original result (the import line)
-      expect(text).toContain('status: "hasResults"');
+      expect(text).not.toContain('status: "hasResults"');
       expect(text).not.toContain('Followed import chain');
       // Two calls made: original + chain attempt
       expect(mockGotoDefinition).toHaveBeenCalledTimes(2);
@@ -1309,7 +1309,7 @@ export interface Config {
 
       const text = result.content?.[0]?.text ?? '';
       // Falls back to original import-line result — module file not found
-      expect(text).toContain('status: "hasResults"');
+      expect(text).not.toContain('status: "hasResults"');
       expect(text).not.toContain('Followed import chain');
       // Two LSP calls made; both returned the same file; manual resolution also failed
       expect(mockGotoDefinition).toHaveBeenCalledTimes(2);

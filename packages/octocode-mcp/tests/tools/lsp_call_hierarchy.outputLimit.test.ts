@@ -192,7 +192,7 @@ describe('lspCallHierarchy output size limits', () => {
       const results = JSON.parse(result.content[0]!.text);
       const firstResult = results[0];
 
-      expect(firstResult.status).toBe('hasResults');
+      expect(firstResult.status).toBeUndefined();
       // Large output should trigger auto-pagination
       expect(firstResult.outputPagination).toBeDefined();
       expect(firstResult.outputPagination.charOffset).toBe(0);
@@ -246,7 +246,7 @@ describe('lspCallHierarchy output size limits', () => {
       const results = JSON.parse(result.content[0]!.text);
       const firstResult = results[0];
 
-      expect(firstResult.status).toBe('hasResults');
+      expect(firstResult.status).toBeUndefined();
       expect(firstResult.outputPagination).toBeUndefined();
     });
   });
@@ -276,7 +276,7 @@ describe('lspCallHierarchy output size limits', () => {
       const results = JSON.parse(result.content[0]!.text);
       const firstResult = results[0];
 
-      expect(firstResult.status).toBe('hasResults');
+      expect(firstResult.status).toBeUndefined();
       expect(firstResult.outputPagination).toBeDefined();
       expect(firstResult.outputPagination.charLength).toBeLessThanOrEqual(1000);
       expect(firstResult.outputPagination.charOffset).toBe(0);
@@ -308,7 +308,7 @@ describe('lspCallHierarchy output size limits', () => {
       const results = JSON.parse(result.content[0]!.text);
       const firstResult = results[0];
 
-      expect(firstResult.status).toBe('hasResults');
+      expect(firstResult.status).toBeUndefined();
       expect(firstResult.outputPagination).toBeDefined();
       expect(firstResult.outputPagination.charOffset).toBe(500);
       expect(firstResult.incomingCalls.length).toBeLessThan(50);
@@ -498,7 +498,7 @@ describe('lspCallHierarchy output size limits', () => {
       expect(firstResult.outputPagination).toBeUndefined();
     });
 
-    it('should strip item content for ultra empty fallback results', async () => {
+    it('should strip item content for concise empty fallback results', async () => {
       (managerModule.acquirePooledClient as Mock).mockResolvedValue(null);
       (checkCommandAvailability as Mock).mockResolvedValue({
         available: false,
@@ -519,7 +519,7 @@ describe('lspCallHierarchy output size limits', () => {
             direction: 'outgoing',
             depth: 1,
             contextLines: 0,
-            verbosity: 'ultra',
+            verbosity: 'concise',
             researchGoal: 'test',
             reasoning: 'test',
             mainResearchGoal: 'test',
@@ -608,7 +608,7 @@ describe('lspCallHierarchy output size limits', () => {
       const results = JSON.parse(result.content[0]!.text);
       const firstResult = results[0];
 
-      expect(firstResult.status).toBe('hasResults');
+      expect(firstResult.status).toBeUndefined();
       expect(firstResult.outputPagination).toBeDefined();
       expect(firstResult.outputPagination.totalChars).toBeGreaterThan(2000);
     });

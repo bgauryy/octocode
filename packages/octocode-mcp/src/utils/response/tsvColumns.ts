@@ -99,12 +99,14 @@ export function githubSearchCodeToTsv(data: unknown): TsvExport {
 // ---------------------------------------------------------------------------
 // githubGetFileContent — one row per file or downloaded directory entry
 // ---------------------------------------------------------------------------
+// `content` intentionally omitted — the full file body already lives in
+// JSON `data.results[].files[].content`. TSV is the lightweight metadata
+// view; duplicating multi-KB file payloads would just bloat the response.
 export const githubFetchContentColumns = [
   'id',
   'owner',
   'repo',
   'path',
-  'content',
   'totalLines',
   'resolvedBranch',
   'isPartial',
@@ -130,12 +132,13 @@ export const githubFetchContentProjection: TsvProjection = {
       const group = obj(g);
       for (const f of arr(group.files)) {
         const file = obj(f);
+        // `content` intentionally absent — the file body lives in JSON
+        // `data.results[].files[].content`. TSV is the metadata view.
         rows.push({
           id: scalar(group.id),
           owner: scalar(group.owner),
           repo: scalar(group.repo),
           path: scalar(file.path),
-          content: scalar(file.content),
           totalLines: scalar(file.totalLines),
           resolvedBranch: scalar(file.resolvedBranch),
           isPartial: scalar(file.isPartial),
@@ -161,7 +164,6 @@ export const githubFetchContentProjection: TsvProjection = {
             owner: scalar(group.owner),
             repo: scalar(group.repo),
             path: scalar(dir.path),
-            content: '',
             totalLines: '',
             resolvedBranch: scalar(dir.resolvedBranch),
             isPartial: '',
@@ -186,7 +188,6 @@ export const githubFetchContentProjection: TsvProjection = {
             owner: scalar(group.owner),
             repo: scalar(group.repo),
             path: scalar(file.path ?? dir.path),
-            content: '',
             totalLines: '',
             resolvedBranch: scalar(dir.resolvedBranch),
             isPartial: '',
@@ -349,9 +350,6 @@ export const githubViewRepoStructureColumns = [
   'name',
   'type',
   'path',
-  'size',
-  'sha',
-  'url',
 ] as const;
 
 export const githubViewRepoStructureProjection: TsvProjection = {
@@ -365,29 +363,17 @@ export const githubViewRepoStructureProjection: TsvProjection = {
         const file = obj(rawFile);
         const isObject = Object.keys(file).length > 0;
         const name = isObject ? file.name : rawFile;
-        rows.push({
-          parent,
-          name: scalar(name),
-          type: 'file',
-          path: scalar(file.path),
-          size: scalar(file.size),
-          sha: scalar(file.sha),
-          url: scalar(file.url),
-        });
+        const nameStr = String(name ?? '');
+        const path = parent === '.' ? nameStr : `${parent}/${nameStr}`;
+        rows.push({ parent, name: nameStr, type: 'file', path });
       }
       for (const rawFolder of arr(entry.folders)) {
         const folder = obj(rawFolder);
         const isObject = Object.keys(folder).length > 0;
         const name = isObject ? folder.name : rawFolder;
-        rows.push({
-          parent,
-          name: scalar(name),
-          type: 'dir',
-          path: scalar(folder.path),
-          size: scalar(folder.size),
-          sha: scalar(folder.sha),
-          url: scalar(folder.url),
-        });
+        const nameStr = String(name ?? '');
+        const path = parent === '.' ? nameStr : `${parent}/${nameStr}`;
+        rows.push({ parent, name: nameStr, type: 'dir', path });
       }
     }
     return rows;
@@ -457,7 +443,7 @@ export const packageSearchProjection: TsvProjection = {
         description: scalar(pkg.description),
         owner: scalar(pkg.owner),
         repo: scalar(pkg.repo),
-        repositoryUrl: scalar(pkg.repositoryUrl),
+        repositoryUrl: scalar(pkg.repoUrl),
         homepage: scalar(pkg.homepage),
         weeklyDownloads: scalar(pkg.weeklyDownloads),
         lastPublished: scalar(pkg.lastPublished),
@@ -595,9 +581,11 @@ export function localViewStructureToTsv(data: unknown): TsvExport {
 // ---------------------------------------------------------------------------
 // localGetFileContent — single row per file slice
 // ---------------------------------------------------------------------------
+// `content` intentionally omitted — the full file body already lives in
+// JSON `data.content`. TSV is the lightweight metadata view; duplicating
+// the entire payload would double response bytes for no agent benefit.
 export const localFetchContentColumns = [
   'path',
-  'content',
   'startLine',
   'endLine',
   'totalLines',
@@ -615,7 +603,6 @@ export const localFetchContentProjection: TsvProjection = {
     return [
       {
         path: scalar(d.path),
-        content: scalar(d.content),
         startLine: scalar(d.startLine),
         endLine: scalar(d.endLine),
         totalLines: scalar(d.totalLines),
@@ -722,13 +709,25 @@ export const lspCallHierarchyColumns = [
 export const lspCallHierarchyProjection: TsvProjection = {
   columns: lspCallHierarchyColumns,
   toRows: data => {
-    const calls = arr((data as { calls?: unknown }).calls);
-    return calls.map(c => {
+    // LSP semantic path emits `incomingCalls`/`outgoingCalls`; the pattern
+    // fallback emits `calls`. Read whichever is present and infer direction
+    // from the field name when the call entry itself doesn't carry it.
+    const d = data as {
+      calls?: unknown;
+      incomingCalls?: unknown;
+      outgoingCalls?: unknown;
+      direction?: unknown;
+    };
+    const incoming = arr(d.incomingCalls).map(c => ({ c, dir: 'incoming' }));
+    const outgoing = arr(d.outgoingCalls).map(c => ({ c, dir: 'outgoing' }));
+    const generic = arr(d.calls).map(c => ({ c, dir: scalar(d.direction) }));
+    const all = [...incoming, ...outgoing, ...generic];
+    return all.map(({ c, dir }) => {
       const call = obj(c);
       const node = obj(call.from ?? call.to ?? call.item);
       const pos = locationLineColumn(obj(node.range ? node : call));
       return {
-        direction: scalar(call.direction),
+        direction: scalar(call.direction ?? dir),
         name: scalar(node.name),
         kind: scalar(node.kind),
         uri: scalar(node.uri),

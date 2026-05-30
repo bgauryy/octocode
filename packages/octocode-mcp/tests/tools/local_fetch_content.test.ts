@@ -52,7 +52,7 @@ describe('localGetFileContent', () => {
         fullContent: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe(testContent);
       expect(result.isPartial).toBe(false);
       expect(result.totalLines).toBe(3);
@@ -67,7 +67,7 @@ describe('localGetFileContent', () => {
         fullContent: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Minification is always applied for token efficiency
     });
   });
@@ -83,7 +83,7 @@ describe('localGetFileContent', () => {
         matchStringContextLines: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toContain('line 2');
       expect(result.content).toContain('MATCH');
       expect(result.content).toContain('line 4');
@@ -101,6 +101,27 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBe('empty');
       expect(result.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.NO_MATCHES);
+    });
+
+    it('signals an inverted range (startLine > endLine) instead of silent empty (E1)', async () => {
+      const testContent = 'a\nb\nc\nd\ne\nf\ng\nh';
+      mockReadFile.mockResolvedValue(testContent);
+
+      const result = await fetchContent({
+        path: 'test.txt',
+        startLine: 6,
+        endLine: 2,
+      });
+
+      expect(result.status).toBe('empty');
+      expect(result.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.NO_MATCHES);
+      expect(
+        result.hints?.some(h =>
+          /startLine .*greater than endLine|startLine must be ≤ endLine/i.test(
+            h
+          )
+        )
+      ).toBe(true);
     });
 
     it('should show regex-specific hint when matchStringIsRegex and no matches', async () => {
@@ -145,7 +166,7 @@ describe('localGetFileContent', () => {
         matchStringIsRegex: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toContain('export function');
     });
 
@@ -161,7 +182,7 @@ describe('localGetFileContent', () => {
           matchStringIsRegex: true,
         });
 
-        expect(result.status).toBe('hasResults');
+        expect(result.status).toBeUndefined();
         expect(result.content).toContain('export const');
       });
 
@@ -208,7 +229,7 @@ describe('localGetFileContent', () => {
         });
 
         // "export" ... "const" on same line matches
-        expect(result.status).toBe('hasResults');
+        expect(result.status).toBeUndefined();
       });
     });
 
@@ -222,7 +243,7 @@ describe('localGetFileContent', () => {
         matchStringCaseSensitive: true,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toContain('MATCH');
     });
 
@@ -258,7 +279,7 @@ describe('localGetFileContent', () => {
         matchStringContextLines: 2,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Should contain omitted lines indicator
       expect(result.content).toContain('lines omitted');
     });
@@ -297,6 +318,32 @@ describe('localGetFileContent', () => {
       expect(result.status).toBe('error');
       expect(String(result.error)).toContain('fullContent');
       expect(String(result.error)).toContain('matchString');
+    });
+
+    it('should return error when fullContent and line range are both provided', async () => {
+      const result = await fetchContent({
+        path: 'test.txt',
+        fullContent: true,
+        startLine: 1,
+        endLine: 3,
+      });
+
+      expect(result.status).toBe('error');
+      expect(String(result.error)).toContain('fullContent');
+      expect(String(result.error)).toContain('startLine/endLine');
+    });
+
+    it('should return error when matchString and line range are both provided', async () => {
+      const result = await fetchContent({
+        path: 'test.txt',
+        matchString: 'MATCH',
+        startLine: 1,
+        endLine: 3,
+      });
+
+      expect(result.status).toBe('error');
+      expect(String(result.error)).toContain('matchString');
+      expect(String(result.error)).toContain('startLine/endLine');
     });
   });
 
@@ -457,7 +504,7 @@ describe('localGetFileContent', () => {
       });
 
       // Now auto-paginates instead of returning error
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
       expect(result.pagination?.hasMore).toBe(true);
       expect(result.warnings).toBeDefined();
@@ -477,7 +524,7 @@ describe('localGetFileContent', () => {
         charLength: 10000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should allow large file with matchString extraction', async () => {
@@ -491,7 +538,7 @@ describe('localGetFileContent', () => {
         matchString: 'MATCH',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should allow large file with fullContent flag and charLength', async () => {
@@ -506,7 +553,7 @@ describe('localGetFileContent', () => {
         charLength: 10000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should not warn for files under 100KB', async () => {
@@ -520,7 +567,7 @@ describe('localGetFileContent', () => {
         // No pagination options
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
   });
 
@@ -556,7 +603,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content?.length).toBeLessThanOrEqual(5000);
       expect(result.pagination?.hasMore).toBe(true);
       expect(result.isPartial).toBe(true);
@@ -572,7 +619,7 @@ describe('localGetFileContent', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('abcdefghij');
       expect(result.pagination?.charOffset).toBe(0);
     });
@@ -587,7 +634,7 @@ describe('localGetFileContent', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('klmnopqrst');
       expect(result.pagination?.charOffset).toBe(10);
     });
@@ -602,7 +649,7 @@ describe('localGetFileContent', () => {
         charLength: 200,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content?.length).toBe(100); // Only 100 chars left
       expect(result.pagination?.hasMore).toBe(false);
     });
@@ -617,7 +664,7 @@ describe('localGetFileContent', () => {
         charLength: 100,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.charOffset).toBe(0);
     });
 
@@ -632,7 +679,7 @@ describe('localGetFileContent', () => {
       });
 
       // When charOffset is at or beyond content, we still get hasResults with empty content
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should handle charOffset beyond file length', async () => {
@@ -646,7 +693,7 @@ describe('localGetFileContent', () => {
       });
 
       // When charOffset is beyond content, we still get hasResults with empty content
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should handle charLength = 1 (single char)', async () => {
@@ -658,7 +705,7 @@ describe('localGetFileContent', () => {
         charLength: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('a');
       expect(result.pagination?.hasMore).toBe(true);
     });
@@ -675,7 +722,7 @@ describe('localGetFileContent', () => {
         charLength: 10000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content?.length).toBe(10000);
       expect(result.pagination?.hasMore).toBe(true);
     });
@@ -689,7 +736,7 @@ describe('localGetFileContent', () => {
         charLength: 10000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('short text');
       expect(result.pagination?.hasMore).toBe(false);
     });
@@ -718,7 +765,7 @@ describe('localGetFileContent', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('Hello Worl');
     });
 
@@ -732,7 +779,7 @@ describe('localGetFileContent', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
       // Should not have replacement character
       expect(result.content).not.toMatch(/\uFFFD/);
@@ -748,7 +795,7 @@ describe('localGetFileContent', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
       // Should not split UTF-8 characters
       expect(result.content).not.toMatch(/\uFFFD/);
@@ -764,7 +811,7 @@ describe('localGetFileContent', () => {
         charLength: 10,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
       // Should not split emoji
       expect(result.content).not.toMatch(/\uFFFD/);
@@ -780,7 +827,7 @@ describe('localGetFileContent', () => {
         charLength: 15,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
       expect(result.content).not.toMatch(/\uFFFD/);
     });
@@ -796,7 +843,7 @@ describe('localGetFileContent', () => {
         charLength: 5,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
       // Should include the 'é' without splitting
       expect(result.content).not.toMatch(/\uFFFD/);
@@ -813,7 +860,7 @@ describe('localGetFileContent', () => {
         charLength: 98, // Might cut through the 'é'
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
       // Should not have replacement character indicating split
       expect(result.content).not.toMatch(/\uFFFD/);
@@ -830,7 +877,7 @@ describe('localGetFileContent', () => {
         charLength: 4,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('test');
     });
   });
@@ -847,7 +894,7 @@ describe('localGetFileContent', () => {
         charLength: 100,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toContain('MATCH');
     });
 
@@ -865,7 +912,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
 
     it('should return partial results with warning when matches are excessive without pagination', async () => {
@@ -881,7 +928,7 @@ describe('localGetFileContent', () => {
         // No charLength specified -> returns partial results with warning
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.isPartial).toBe(true);
       expect(result.warnings).toBeDefined();
       expect(result.warnings?.[0]).toContain('2000');
@@ -907,7 +954,7 @@ describe('localGetFileContent', () => {
         // No charLength - triggers auto-pagination when content > 8000
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.isPartial).toBe(true);
       expect(result.pagination).toBeDefined();
       expect(result.warnings).toBeDefined();
@@ -926,7 +973,7 @@ describe('localGetFileContent', () => {
         matchStringContextLines: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // MATCH is on line 3, with contextLines=1, should return lines 2-4
       expect(result.startLine).toBe(2);
       expect(result.endLine).toBe(4);
@@ -945,7 +992,7 @@ describe('localGetFileContent', () => {
         matchStringContextLines: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // First match at line 2 with context 1: range [1,3]
       // Second match at line 7 with context 1: range [6,8]
       expect(result.startLine).toBe(1); // First range start
@@ -970,7 +1017,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.hasMore).toBe(true);
       expect(result.hints).toBeDefined();
     });
@@ -988,7 +1035,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       if (result.pagination?.hasMore) {
         expect(result.hints).toBeDefined();
         const hasCharOffsetHint = result.hints?.some(
@@ -1010,7 +1057,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.totalChars).toBe(20000);
       expect(result.pagination?.hasMore).toBe(true);
       if (result.hints) {
@@ -1031,7 +1078,7 @@ describe('localGetFileContent', () => {
         charLength: 10000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.hasMore).toBe(false);
     });
 
@@ -1048,7 +1095,7 @@ describe('localGetFileContent', () => {
         charOffset: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       if (result.pagination?.hasMore) {
         expect(result.hints).toBeDefined();
         // Should mention how to get next page
@@ -1072,7 +1119,7 @@ describe('localGetFileContent', () => {
         endLine: 4,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('line 2\nline 3\nline 4');
       expect(result.isPartial).toBe(true);
       expect(result.totalLines).toBe(5);
@@ -1090,7 +1137,7 @@ describe('localGetFileContent', () => {
         endLine: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('first');
       expect(result.startLine).toBe(1);
       expect(result.endLine).toBe(1);
@@ -1106,7 +1153,7 @@ describe('localGetFileContent', () => {
         endLine: 100,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('line 2\nline 3');
       expect(result.endLine).toBe(3); // Adjusted to file end
       expect(result.warnings).toContain(
@@ -1143,7 +1190,7 @@ describe('localGetFileContent', () => {
         endLine: 4,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Minification is always applied for token efficiency
     });
 
@@ -1162,7 +1209,7 @@ describe('localGetFileContent', () => {
         charLength: 500,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.startLine).toBe(10);
       expect(result.endLine).toBe(50);
       expect(result.pagination).toBeDefined();
@@ -1179,7 +1226,7 @@ describe('localGetFileContent', () => {
         endLine: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe('single line content');
       expect(result.totalLines).toBe(1);
     });
@@ -1194,7 +1241,7 @@ describe('localGetFileContent', () => {
         endLine: 5,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.content).toBe(testContent);
       expect(result.totalLines).toBe(5);
     });
@@ -1211,7 +1258,7 @@ describe('localGetFileContent', () => {
         reasoning: 'Checking file header',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result).not.toHaveProperty('mainResearchGoal');
       expect(result).not.toHaveProperty('researchGoal');
       expect(result).not.toHaveProperty('reasoning');
@@ -1231,7 +1278,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
 
       // Should have char fields
@@ -1255,7 +1302,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
 
       expect(result.pagination?.totalChars).toBe(15000);
@@ -1276,7 +1323,7 @@ describe('localGetFileContent', () => {
         charLength: 5000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
 
       // Local tools should use charOffset in hints
@@ -1300,7 +1347,7 @@ describe('localGetFileContent', () => {
         charOffset: 0,
       });
 
-      expect(page1.status).toBe('hasResults');
+      expect(page1.status).toBeUndefined();
       expect(page1.pagination?.hasMore).toBe(true);
       expect(page1.pagination?.charOffset).toBe(0);
       expect(page1.pagination?.charLength).toBe(2000);
@@ -1313,7 +1360,7 @@ describe('localGetFileContent', () => {
         charOffset: 2000,
       });
 
-      expect(page2.status).toBe('hasResults');
+      expect(page2.status).toBeUndefined();
       expect(page2.pagination?.charOffset).toBe(2000);
     });
 
@@ -1330,7 +1377,7 @@ describe('localGetFileContent', () => {
         charLength: 1000,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination?.totalChars).toBe(4000);
       expect(result.pagination?.charLength).toBe(1000);
     });
@@ -1351,7 +1398,7 @@ describe('localGetFileContent', () => {
       });
 
       // Should NOT return error, should auto-paginate
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
       expect(result.pagination?.hasMore).toBe(true);
       expect(result.pagination?.totalPages).toBeGreaterThan(1);
@@ -1380,7 +1427,7 @@ describe('localGetFileContent', () => {
         // NO charLength - should auto-paginate extracted lines
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.startLine).toBe(1);
       expect(result.endLine).toBe(500);
       expect(result.pagination).toBeDefined();
@@ -1398,7 +1445,7 @@ describe('localGetFileContent', () => {
         path: 'large.txt',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
       // Should have navigation hints
       expect(
@@ -1414,7 +1461,7 @@ describe('localGetFileContent', () => {
         path: 'small.txt',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Should NOT have pagination when content is small
       expect(result.pagination).toBeUndefined();
       expect(result.warnings).toBeUndefined();
@@ -1443,7 +1490,7 @@ describe('localGetFileContent', () => {
         path: 'large.txt',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.totalLines).toBe(500);
       expect(result.pagination?.totalChars).toBeDefined();
     });

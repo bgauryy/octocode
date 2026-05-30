@@ -30,19 +30,18 @@ function payload(
 }
 
 function ok(
-  id: string,
+  _id: string,
   data: Record<string, unknown>,
   hints?: string[]
 ): ProcessedBulkResult {
   const success: ToolSuccessResult = {
-    status: 'hasResults',
     ...data,
     ...(hints?.length ? { hints } : {}),
   };
   return success as ProcessedBulkResult;
 }
 
-function empty(id: string, hints?: string[]): ProcessedBulkResult {
+function empty(_id: string, hints?: string[]): ProcessedBulkResult {
   return {
     status: 'empty',
     ...(hints?.length ? { hints } : {}),
@@ -117,7 +116,7 @@ describe('executeBulkOperation — hint envelope', () => {
       expect.arrayContaining(['ok-hint', 'empty-hint'])
     );
     const results = data.results as Array<{ id: string; status: string }>;
-    expect(results.find(r => r.id === 'has')?.status).toBe('hasResults');
+    expect(results.find(r => r.id === 'has')?.status).toBeUndefined();
     expect(results.find(r => r.id === 'none')?.status).toBe('empty');
   });
 
@@ -137,7 +136,7 @@ describe('executeBulkOperation — hint envelope', () => {
 
     const data = payload(result);
     const results = data.results as Array<{ id: string; status: string }>;
-    expect(results.find(r => r.id === 'good')?.status).toBe('hasResults');
+    expect(results.find(r => r.id === 'good')?.status).toBeUndefined();
     expect(results.find(r => r.id === 'bad')?.status).toBe('error');
   });
 

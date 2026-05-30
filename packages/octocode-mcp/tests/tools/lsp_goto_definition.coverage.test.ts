@@ -358,7 +358,6 @@ describe('LSP Goto Definition Coverage Tests', () => {
   describe('Fallback result creation', () => {
     it('should include all required fields', () => {
       const fallbackResult = {
-        status: 'hasResults' as const,
         locations: [
           {
             uri: '/test/file.ts',
@@ -379,7 +378,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
         ],
       };
 
-      expect(fallbackResult.status).toBe('hasResults');
+      expect(fallbackResult.status).toBeUndefined();
       expect(fallbackResult.locations.length).toBe(1);
       expect(fallbackResult.searchRadius).toBe(5);
     });
@@ -776,7 +775,10 @@ describe('LSP Goto Definition Coverage Tests', () => {
 
       // Should fallback to text-based resolution
       expect(result).toBeDefined();
-      expect(result.content?.[0]?.text).toContain('hasResults');
+      // hasResults is signaled by ABSENT status — only 'empty' / 'error'
+      // get emitted explicitly. Verify the happy path by NOT seeing them.
+      expect(result.content?.[0]?.text).not.toContain('status: "empty"');
+      expect(result.content?.[0]?.text).not.toContain('status: "error"');
     });
 
     it('should hit line 187: LSP returns null/empty locations', async () => {
@@ -874,7 +876,7 @@ describe('LSP Goto Definition Coverage Tests', () => {
 
       expect(result).toBeDefined();
       const text = result.content?.[0]?.text ?? '';
-      expect(text).toContain('hasResults');
+      expect(text).not.toContain('status: "hasResults"');
     });
   });
 });

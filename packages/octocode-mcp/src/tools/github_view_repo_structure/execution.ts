@@ -1,22 +1,26 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { z } from 'zod/v4';
+import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type {
-  GitHubViewRepoStructureQuery,
   GitHubViewRepoStructureToolResult,
   GitHubRepoStructureDirectoryEntry,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/extra-types';
+
+type GitHubViewRepoStructureQuery = z.infer<
+  typeof GitHubViewRepoStructureQuerySchema
+>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
 /** Advisory hints githubViewRepoStructure emits; stripped under compact.
  * Substring-OR, case-insensitive. */
@@ -38,6 +42,32 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
+
+/** How many entry names concise samples into the `top:` hint for drill-down. */
+const CONCISE_TOP_ENTRIES = 5;
+
+/**
+ * Sample top entry names from a structure map for the concise `top:` hint.
+ * Folders first (suffixed `/`), then files — folders are the more useful
+ * drill targets during recon.
+ */
+function collectTopStructureEntries(
+  structure: unknown,
+  limit: number
+): string[] {
+  if (!structure || typeof structure !== 'object') return [];
+  const folders: string[] = [];
+  const files: string[] = [];
+  for (const entry of Object.values(structure as Record<string, unknown>)) {
+    const e = entry as { files?: unknown; folders?: unknown };
+    if (Array.isArray(e.folders))
+      for (const f of e.folders)
+        if (typeof f === 'string') folders.push(`${f}/`);
+    if (Array.isArray(e.files))
+      for (const f of e.files) if (typeof f === 'string') files.push(f);
+  }
+  return [...folders, ...files].slice(0, limit);
+}
 
 function filterStructure(
   structure: Record<string, GitHubRepoStructureDirectoryEntry>
@@ -210,7 +240,7 @@ export async function exploreMultipleRepositoryStructures(
 }
 
 /**
- * Per-tool verbosity shaping for githubViewRepoStructure. Under ultra, replaces
+ * Per-tool verbosity shaping for githubViewRepoStructure. Under concise, replaces
  * the full `structure` payload with `{path, summary, entryCount}` + a
  * drill-back hint. Under compact, advisory hints are trimmed to 2. Basic /
  * omitted: passthrough.
@@ -224,8 +254,21 @@ export function applyGithubViewRepoStructureVerbosity(
   },
   query: PartialRepoStructureQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
-  const verbosity = (query as { verbosity?: Verbosity }).verbosity;
-  if (isUltra(verbosity)) {
+  const verbosity = (query as WithVerbosity<typeof query>).verbosity;
+  if (isConcise(verbosity)) {
+    // Keep concise research-grade: drop the full tree but surface a sample of
+    // top folder/file names so the agent has a concrete path to drill into.
+    // A bare entry count is a dead-end for repo recon; names give the next move.
+    const topEntries = collectTopStructureEntries(
+      (input.data as { structure?: unknown }).structure,
+      CONCISE_TOP_ENTRIES
+    );
+    const more =
+      input.entryCount > topEntries.length
+        ? ` (+${input.entryCount - topEntries.length} more)`
+        : '';
+    const topHint =
+      topEntries.length > 0 ? [`top: ${topEntries.join(', ')}${more}`] : [];
     return {
       data: {
         path: (input.data as { path?: string }).path,
@@ -234,9 +277,7 @@ export function applyGithubViewRepoStructureVerbosity(
       },
       extraHints: [
         `${input.entryCount} entries${input.summary ? ` (${JSON.stringify(input.summary)})` : ''}`,
-        ...ultraDrillBackHint(
-          're-call with verbosity:"basic" (default) and entryPageNumber + entriesPerPage'
-        ),
+        ...topHint,
         ...input.extraHints,
       ],
     };
@@ -245,8 +286,11 @@ export function applyGithubViewRepoStructureVerbosity(
     return {
       data: input.data,
       extraHints:
-        compactTrimHints(input.extraHints, isAdvisoryViewRepoStructureHint, 2) ??
-        [],
+        compactTrimHints(
+          input.extraHints,
+          isAdvisoryViewRepoStructureHint,
+          2
+        ) ?? [],
     };
   }
   return { data: input.data, extraHints: input.extraHints };

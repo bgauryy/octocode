@@ -17,7 +17,6 @@ describe('executeBulkOperation', () => {
     it('adds query-level outputPagination with structured subsets', async () => {
       const queries = [{ id: 'q1', charLength: 80 }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         repositories: [
           { name: 'alpha-repository-with-long-name' },
           { name: 'beta-repository-with-long-name' },
@@ -47,7 +46,6 @@ describe('executeBulkOperation', () => {
     it('should process single query with hasResults status', async () => {
       const queries = [{ id: 'q1', name: 'test1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         files: [{ path: 'test.ts', content: 'data' }],
         hints: ['Test hint for hasResults'],
       });
@@ -65,7 +63,9 @@ describe('executeBulkOperation', () => {
       expect(responseText).toContain('results:');
       expect(responseText).toContain('id: "q1"');
       expect(responseText).not.toContain('instructions:');
-      expect(responseText).toContain('status: "hasResults"');
+      // hasResults is now signaled by ABSENCE of `status` — only 'empty' and
+      // 'error' are emitted. The path field still appears on the happy path.
+      expect(responseText).not.toContain('status: "hasResults"');
       expect(responseText).toContain('path: "test.ts"');
       expect(responseText).toContain('Test hint for hasResults');
     });
@@ -109,6 +109,31 @@ describe('executeBulkOperation', () => {
       expect(responseText).toContain('Test hint for error');
     });
 
+    it('surfaces error messages in the TSV text payload when every query fails (regression)', async () => {
+      // TSV mode trims successful per-query structs from content[0].text since
+      // their data is in the rows. But error results carry their message in
+      // `data.error`, which never reaches the rows — so on an all-error bulk
+      // the text used to be a bare TSV header with the failures invisible.
+      const queries = [
+        { id: 'q1', pattern: 'x', path: '/tmp' },
+        { id: 'q2', pattern: 'y', path: '/tmp' },
+      ];
+      const processor = vi.fn().mockResolvedValue({
+        status: 'error' as const,
+        error: 'filesOnly and filesWithoutMatch are mutually exclusive',
+      });
+
+      const result = await executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.LOCAL_RIPGREP,
+        format: 'tsv',
+      });
+
+      expect(result.isError).toBe(true);
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain('status: "error"');
+      expect(responseText).toContain('mutually exclusive');
+    });
+
     it('should handle processor throwing error', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockRejectedValue(new Error('API error'));
@@ -134,7 +159,6 @@ describe('executeBulkOperation', () => {
         .mockImplementation(async (query: { id: string }) =>
           attachRawResponseChars(
             {
-              status: 'hasResults' as const,
               repositories: [
                 { name: `${query.id}-repository-with-a-very-long-name` },
               ],
@@ -169,7 +193,6 @@ describe('executeBulkOperation', () => {
       const processor = vi
         .fn()
         .mockImplementation(async (query: { id: string }) => ({
-          status: 'hasResults' as const,
           repositories: [{ name: `${query.id}-repository-with-long-name` }],
         }));
 
@@ -196,7 +219,6 @@ describe('executeBulkOperation', () => {
       const processor = vi
         .fn()
         .mockImplementation(async (query: { id: string; name: string }) => ({
-          status: 'hasResults' as const,
           repositories: [{ name: `${query.name}-repo` }],
         }));
 
@@ -302,7 +324,6 @@ describe('executeBulkOperation', () => {
 
             return attachRawResponseChars(
               {
-                status: 'hasResults' as const,
                 payload: `${query.id}:${largePayload}`,
               },
               5000
@@ -356,7 +377,6 @@ describe('executeBulkOperation', () => {
             }
 
             return {
-              status: 'hasResults' as const,
               payload: query.id,
             };
           }
@@ -445,7 +465,6 @@ describe('executeBulkOperation', () => {
             };
           }
           return {
-            status: 'hasResults' as const,
             data: { result: 'success' },
             hints: ['Test hint for success'],
           };
@@ -579,7 +598,6 @@ describe('executeBulkOperation', () => {
         },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         files: [{ path: 'test.py' }],
       });
 
@@ -596,7 +614,6 @@ describe('executeBulkOperation', () => {
     it('should not echo processor research metadata in success responses', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         mainResearchGoal: 'Result main goal',
         researchGoal: 'Result goal',
         reasoning: 'Result reasoning',
@@ -625,7 +642,6 @@ describe('executeBulkOperation', () => {
         },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         owner: 'facebook',
         repo: 'react',
         path: 'README.md',
@@ -718,7 +734,6 @@ describe('executeBulkOperation', () => {
     it('should include custom hints for hasResults status', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         hints: ['Custom hint 1', 'Custom hint 2'],
         data: { test: true },
       });
@@ -769,7 +784,6 @@ describe('executeBulkOperation', () => {
     it('should deduplicate hints across multiple queries with same hints', async () => {
       const queries = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         hints: ['Same hint for all'],
         data: { test: true },
       });
@@ -796,7 +810,6 @@ describe('executeBulkOperation', () => {
         .mockImplementation(async (query: { id: string; type: string }) => {
           if (query.type === 'hasResults') {
             return {
-              status: 'hasResults' as const,
               hints: ['Success hint'],
               data: { result: true },
             };
@@ -827,7 +840,6 @@ describe('executeBulkOperation', () => {
     it('should preserve all tool-specific fields in response', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         pull_requests: [{ number: 123, title: 'Test PR' }],
         total_count: 1,
         incomplete_results: false,
@@ -848,7 +860,6 @@ describe('executeBulkOperation', () => {
     it('should exclude metadata fields from data section', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         researchGoal: 'Test goal',
         reasoning: 'Test reasoning',
         researchSuggestions: ['Test'],
@@ -872,7 +883,6 @@ describe('executeBulkOperation', () => {
     it('should handle complex nested data structures', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         files: [
           {
             path: 'src/index.ts',
@@ -907,7 +917,6 @@ describe('executeBulkOperation', () => {
     it('should respect keysPriority for field ordering', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         owner: 'testowner',
         repo: 'testrepo',
         files: [{ path: 'src/index.ts' }],
@@ -937,7 +946,6 @@ describe('executeBulkOperation', () => {
       for (const toolName of toolNames) {
         const queries = [{ id: 'q1' }];
         const processor = vi.fn().mockResolvedValue({
-          status: 'hasResults' as const,
           data: { test: true },
         });
 
@@ -954,7 +962,6 @@ describe('executeBulkOperation', () => {
     it('should work without keysPriority', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         files: [{ path: 'test.ts' }],
       });
 
@@ -990,7 +997,6 @@ describe('executeBulkOperation', () => {
     it('should pass correct index to processor for each query', async () => {
       const queries = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
       });
 
@@ -1068,7 +1074,6 @@ describe('executeBulkOperation', () => {
         },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
       });
 
@@ -1079,7 +1084,7 @@ describe('executeBulkOperation', () => {
       // Invalid type should not cause error - processing continues
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: "hasResults"');
       // Non-string researchGoal should NOT appear in result (filtered out)
       expect(responseText).not.toContain('researchGoal: 123');
     });
@@ -1093,7 +1098,6 @@ describe('executeBulkOperation', () => {
         },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
       });
 
@@ -1104,7 +1108,7 @@ describe('executeBulkOperation', () => {
       // Invalid type should not cause error - processing continues
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: "hasResults"');
       // Non-string reasoning should NOT appear in result (filtered out)
       expect(responseText).not.toContain('reasoning:');
     });
@@ -1118,7 +1122,6 @@ describe('executeBulkOperation', () => {
         },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
       });
 
@@ -1129,7 +1132,7 @@ describe('executeBulkOperation', () => {
       // Invalid type should not cause error - processing continues
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: "hasResults"');
     });
   });
 
@@ -1141,8 +1144,10 @@ describe('executeBulkOperation', () => {
           mainResearchGoal: 'Understand authentication flow',
         },
       ];
+      // Use 'empty' so the status field is actually emitted — hasResults is
+      // now signaled by an ABSENT status, so ordering is unverifiable on it.
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
+        status: 'empty' as const,
         data: { test: true },
       });
 
@@ -1168,7 +1173,6 @@ describe('executeBulkOperation', () => {
         },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
       });
 
@@ -1186,7 +1190,6 @@ describe('executeBulkOperation', () => {
         { researchGoal: 'Find refs', reasoning: 'Second query' },
       ];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
       });
 
@@ -1206,8 +1209,10 @@ describe('executeBulkOperation', () => {
           researchGoal: 'Find implementations',
         },
       ];
+      // Use 'empty' to actually emit the status field (hasResults is now
+      // signaled by absence).
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
+        status: 'empty' as const,
         data: { test: true },
       });
 
@@ -1233,8 +1238,10 @@ describe('executeBulkOperation', () => {
           reasoning: 'The reasoning',
         },
       ];
+      // Use 'empty' so we can verify status field ordering — hasResults is
+      // now signaled by an ABSENT status field.
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
+        status: 'empty' as const,
         files: [{ path: 'test.ts' }],
       });
 
@@ -1325,7 +1332,6 @@ describe('executeBulkOperation', () => {
           processingOrder.push(index);
           await new Promise(resolve => setTimeout(resolve, 10));
           return {
-            status: 'hasResults' as const,
             data: { processed: true },
           };
         });
@@ -1426,7 +1432,6 @@ describe('executeBulkOperation', () => {
         .mockImplementation(async (query: { id: string; type: string }) => {
           if (query.type === 'hasResults') {
             return {
-              status: 'hasResults' as const,
               data: { result: true },
               hints: ['Success hint from processor'],
             };
@@ -1513,7 +1518,6 @@ describe('executeBulkOperation', () => {
       const queries = [{ id: 'q1' }];
       const largeContent = 'x'.repeat(500);
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         items: Array.from({ length: 50 }, (_, i) => ({
           id: i,
           name: `item-${i}`,
@@ -1543,7 +1547,6 @@ describe('executeBulkOperation', () => {
     it('should not paginate small responses', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         data: { test: true },
         hints: ['Test hint'],
       });
@@ -1562,7 +1565,6 @@ describe('executeBulkOperation', () => {
       const queries = [{ id: 'q1' }];
       const largeContent = 'x'.repeat(1000);
       const processor = vi.fn().mockResolvedValue({
-        status: 'hasResults' as const,
         items: Array.from({ length: 30 }, (_, i) => ({
           id: i,
           content: largeContent,
@@ -1592,7 +1594,6 @@ describe('executeBulkOperation', () => {
       const processor = vi
         .fn()
         .mockResolvedValueOnce({
-          status: 'hasResults' as const,
           data: { success: true },
           hints: ['Success hint'],
         })

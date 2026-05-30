@@ -38,6 +38,7 @@ vi.mock('node:crypto', () => ({
 
 vi.mock('../../../src/utils/colors.js', () => ({
   c: (_tag: string, text: string) => text,
+  bold: (text: string) => text,
   dim: (text: string) => text,
 }));
 
@@ -50,6 +51,19 @@ vi.mock('../../../src/ui/constants.js', () => ({
   },
 }));
 
+const authMocks = vi.hoisted(() => ({
+  getAuthStatus: vi.fn().mockReturnValue({
+    authenticated: false,
+    hostname: 'github.com',
+  }),
+  getStoragePath: vi.fn().mockReturnValue('/home/test/.octocode/credentials'),
+}));
+
+vi.mock('../../../src/features/github-oauth.js', () => ({
+  getAuthStatus: authMocks.getAuthStatus,
+  getStoragePath: authMocks.getStoragePath,
+}));
+
 describe('cli/commands/shared', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let originalExitCode: typeof process.exitCode;
@@ -58,6 +72,13 @@ describe('cli/commands/shared', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    authMocks.getAuthStatus.mockReturnValue({
+      authenticated: false,
+      hostname: 'github.com',
+    });
+    authMocks.getStoragePath.mockReturnValue(
+      '/home/test/.octocode/credentials'
+    );
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
@@ -113,6 +134,26 @@ describe('cli/commands/shared', () => {
     });
   });
 
+  describe('formatSupportedMCPClients', () => {
+    it('formats canonical clients from the MCP registry', async () => {
+      const { formatSupportedMCPClients } =
+        await import('../../../src/cli/commands/shared.js');
+
+      expect(formatSupportedMCPClients()).toContain('cursor');
+      expect(formatSupportedMCPClients()).toContain('claude-code');
+      expect(formatSupportedMCPClients()).not.toContain('custom');
+    });
+
+    it('can include install aliases', async () => {
+      const { formatSupportedMCPClients } =
+        await import('../../../src/cli/commands/shared.js');
+
+      expect(formatSupportedMCPClients({ includeInstallAlias: true })).toMatch(
+        /^claude,/
+      );
+    });
+  });
+
   describe('maskToken', () => {
     it('masks short tokens as asterisks only', async () => {
       const { maskToken } = await import('../../../src/cli/commands/shared.js');
@@ -162,11 +203,54 @@ describe('cli/commands/shared', () => {
         expect.stringContaining('To login')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode login')
+        expect.stringContaining('octocode-cli login')
       );
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('or'));
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('gh auth login')
+      );
+    });
+  });
+
+  describe('printAuthStatus', () => {
+    it('prints the shared authenticated status shape', async () => {
+      authMocks.getAuthStatus.mockReturnValue({
+        authenticated: true,
+        hostname: 'github.com',
+        username: 'octo',
+        tokenSource: 'octocode',
+      });
+      const { printAuthStatus } =
+        await import('../../../src/cli/commands/shared.js');
+
+      printAuthStatus();
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('GitHub Authentication')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Authenticated as')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Credentials stored in')
+      );
+    });
+
+    it('prints login hints for unauthenticated status', async () => {
+      authMocks.getAuthStatus.mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+      });
+      const { printAuthStatus } =
+        await import('../../../src/cli/commands/shared.js');
+
+      printAuthStatus();
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Not authenticated')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('octocode-cli login')
       );
     });
   });

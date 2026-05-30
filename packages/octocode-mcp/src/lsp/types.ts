@@ -120,6 +120,22 @@ export interface ReferenceLocation extends CodeSnippet {
 }
 
 /**
+ * Per-file reference rollup emitted by lspFindReferences when groupByFile=true.
+ */
+export interface ReferencesByFile {
+  /** File containing references */
+  uri: string;
+  /** Number of references in the file */
+  count: number;
+  /** First reference line in this file, 1-indexed for follow-up calls */
+  firstLine: number;
+  /** First reference character in this file, 0-indexed */
+  firstCharacter: number;
+  /** Whether this file includes the declaration/definition reference */
+  hasDefinition?: boolean;
+}
+
+/**
  * Call hierarchy item
  */
 export interface CallHierarchyItem {
@@ -204,8 +220,8 @@ type LspMode = 'semantic' | 'fallback';
  * Base LSP tool result
  */
 interface LSPToolResultBase {
-  /** Result status */
-  status: 'hasResults' | 'empty' | 'error';
+  // Omitted ≡ success ("hasResults"). Only 'empty' / 'error' are emitted.
+  status?: 'empty' | 'error';
   /** Error message if status is 'error' */
   error?: string;
   /** Error type for hint generation (lowercase, internal) */
@@ -254,6 +270,12 @@ export interface GotoDefinitionResult extends LSPToolResultBase {
 export interface FindReferencesResult extends LSPToolResultBase {
   /** Reference locations */
   locations?: ReferenceLocation[];
+  /** Ranked per-file reference counts when groupByFile=true */
+  byFile?: ReferencesByFile[];
+  /** Total reference count before groupByFile compaction */
+  totalReferences?: number;
+  /** Total file count before groupByFile compaction */
+  totalFiles?: number;
   /** Pagination info */
   pagination?: LSPPaginationInfo;
 

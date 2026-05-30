@@ -236,7 +236,7 @@ describe('Example: Using Unified Test Helpers', () => {
         researchGoal: 'Test directory listing',
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result).not.toHaveProperty('mainResearchGoal');
       expect(result).not.toHaveProperty('researchGoal');
       expect(result).not.toHaveProperty('reasoning');
@@ -284,7 +284,7 @@ describe('Example: Using Unified Test Helpers', () => {
         depth: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
     });
   });
 
@@ -325,7 +325,7 @@ describe('Example: Using Unified Test Helpers', () => {
         entryPageNumber: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
       expect(result.pagination?.currentPage).toBe(1);
       expect(result.pagination?.hasMore).toBe(true);
@@ -369,7 +369,7 @@ describe('Example: Direct Mock Access', () => {
     mocks.lstat.mockResolvedValue(createStats({ isFile: true, size: 500 }));
 
     const result = await viewStructure({ path: '/workspace' });
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
 
     // Verify mock was called
     expect(mocks.safeExec).toHaveBeenCalled();

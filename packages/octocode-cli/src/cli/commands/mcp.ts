@@ -4,13 +4,19 @@ import { c, bold, dim } from '../../utils/colors.js';
 import { MCP_REGISTRY } from '../../configs/mcp-registry.js';
 import { MCP_CLIENTS, getMCPConfigPath } from '../../utils/mcp-paths.js';
 import { readMCPConfig, writeMCPConfig } from '../../utils/mcp-io.js';
-import { normalizeMCPClient, parseMCPEnv } from './shared.js';
+import {
+  formatSupportedMCPClients,
+  normalizeMCPClient,
+  parseMCPEnv,
+} from './shared.js';
+
+const SUPPORTED_MCP_CLIENTS_TEXT = formatSupportedMCPClients();
 
 export const mcpCommand: CLICommand = {
   name: 'mcp',
   description: 'Non-interactive MCP marketplace management',
   usage:
-    'octocode mcp [list|install|remove|status] [--id <mcp-id>] [--client <client>|--config <path>] [--search <text>] [--category <name>] [--env KEY=VALUE[,KEY=VALUE]] [--force]',
+    'octocode-cli mcp [list|install|remove|status] [--id <mcp-id>] [--client <client>|--config <path>] [--search <text>] [--category <name>] [--env KEY=VALUE[,KEY=VALUE]] [--force]',
   options: [
     {
       name: 'id',
@@ -20,8 +26,7 @@ export const mcpCommand: CLICommand = {
     {
       name: 'client',
       short: 'c',
-      description:
-        'Target client: cursor, claude-desktop, claude-code, windsurf, trae, antigravity, zed, vscode-cline, vscode-roo, vscode-continue, opencode, codex, gemini-cli, goose, kiro',
+      description: `Target client: ${SUPPORTED_MCP_CLIENTS_TEXT}`,
       hasValue: true,
     },
     {
@@ -83,7 +88,7 @@ export const mcpCommand: CLICommand = {
           `  ${c('red', 'X')} Invalid --client value: ${c('yellow', rawClient)}`
         );
         console.log(
-          `  ${dim('Allowed values:')} cursor, claude-desktop, claude-code, windsurf, trae, antigravity, zed, vscode-cline, vscode-roo, vscode-continue, opencode, codex, gemini-cli, goose, kiro`
+          `  ${dim('Allowed values:')} ${SUPPORTED_MCP_CLIENTS_TEXT}`
         );
         console.log();
         process.exitCode = 1;
@@ -277,7 +282,9 @@ export const mcpCommand: CLICommand = {
 
     console.log();
     console.log(`  ${c('red', 'X')} Unknown mcp subcommand: ${subcommand}`);
-    console.log(`  ${dim('Usage:')} octocode mcp [list|install|remove|status]`);
+    console.log(
+      `  ${dim('Usage:')} octocode-cli mcp [list|install|remove|status]`
+    );
     console.log();
     process.exitCode = 1;
   },

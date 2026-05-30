@@ -1,6 +1,9 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
 import { RESOURCE_LIMITS } from '../utils/core/constants.js';
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import { resolveRipgrepBinary } from '../utils/exec/ripgrepBinary.js';
 
 export class RipgrepCommandBuilder extends BaseCommandBuilder {
@@ -106,7 +109,54 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     return this;
   }
 
+  /**
+   * Translate a validated query into the `rg` argument vector.
+   *
+   * The body is split into ordered helpers; the call order below IS the
+   * emitted-argument order, so helpers must not be reordered. See
+   * tests/commands/RipgrepCommandBuilder.test.ts for the pinned vectors.
+   */
   fromQuery(query: RipgrepQuery): this {
+    this._applyMatchFlags(query);
+    this._applyContextFlags(query);
+
+    this.addFlag('-n');
+    this.addFlag('--column');
+
+    this._applyOutputModeFlags(query);
+    this._applyFilterFlags(query);
+
+    // Only add --json when NOT in plain text output modes
+    // -l (filesOnly), --files-without-match, -c (count), and --count-matches
+    // all output plain text (one item per line) — incompatible with or unnecessary for --json
+    const isPlainTextOutput = this._isPlainTextOutput(query);
+    if (!isPlainTextOutput) {
+      this.addFlag('--json');
+    }
+
+    this._applyExecutionFlags(query, isPlainTextOutput);
+    this._applySortFlags(query);
+    this._applyDiagnosticFlags(query);
+
+    // End option parsing so user-provided pattern/path cannot be interpreted as flags.
+    this.addArg('--');
+    this.addArg(query.pattern);
+    this.addArg(query.path);
+
+    return this;
+  }
+
+  private _isPlainTextOutput(query: RipgrepQuery): boolean {
+    return !!(
+      query.filesOnly ||
+      query.filesWithoutMatch ||
+      query.count ||
+      query.countMatches
+    );
+  }
+
+  /** Pattern-type, case, encoding and per-match modifier flags. */
+  private _applyMatchFlags(query: RipgrepQuery): void {
     if (query.fixedString) {
       this.addFlag('-F');
     } else if (query.perlRegex) {
@@ -148,7 +198,10 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     if (query.followSymlinks) {
       this.addFlag('-L');
     }
+  }
 
+  /** Context window: -C takes precedence over -B/-A. */
+  private _applyContextFlags(query: RipgrepQuery): void {
     if (query.contextLines !== undefined && query.contextLines > 0) {
       this.addOption('-C', query.contextLines);
     } else {
@@ -159,10 +212,10 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
         this.addOption('-A', query.afterContext);
       }
     }
+  }
 
-    this.addFlag('-n');
-    this.addFlag('--column');
-
+  /** Output-mode selector flags plus the per-file match cap. */
+  private _applyOutputModeFlags(query: RipgrepQuery): void {
     if (query.filesOnly) {
       this.addFlag('-l');
     } else if (query.filesWithoutMatch) {
@@ -183,7 +236,10 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
       ) as number;
       this.addOption('-m', limit);
     }
+  }
 
+  /** File-type, glob include/exclude and traversal flags. */
+  private _applyFilterFlags(query: RipgrepQuery): void {
     if (query.type) {
       this.addOption('-t', query.type);
     }
@@ -223,19 +279,13 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
         this.addFlag('--multiline-dotall');
       }
     }
+  }
 
-    // Only add --json when NOT in plain text output modes
-    // -l (filesOnly), --files-without-match, -c (count), and --count-matches
-    // all output plain text (one item per line) — incompatible with or unnecessary for --json
-    const isPlainTextOutput =
-      query.filesOnly ||
-      query.filesWithoutMatch ||
-      query.count ||
-      query.countMatches;
-    if (!isPlainTextOutput) {
-      this.addFlag('--json');
-    }
-
+  /** Thread count, mmap toggle and stats (stats requires JSON output). */
+  private _applyExecutionFlags(
+    query: RipgrepQuery,
+    isPlainTextOutput: boolean
+  ): void {
     if (query.threads !== undefined) {
       this.addOption('-j', query.threads);
     }
@@ -247,7 +297,10 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     if (query.includeStats && !isPlainTextOutput) {
       this.addFlag('--stats');
     }
+  }
 
+  /** Sort order: --sortr when reversed, --sort otherwise. */
+  private _applySortFlags(query: RipgrepQuery): void {
     const sortOption = query.sort || 'path';
 
     if (query.sortReverse) {
@@ -257,7 +310,10 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
       this.clearSortrOption();
       this.addOption('--sort', sortOption);
     }
+  }
 
+  /** Color and diagnostic toggles. */
+  private _applyDiagnosticFlags(query: RipgrepQuery): void {
     this.addOption('--color', 'never');
 
     if (query.noMessages) {
@@ -275,13 +331,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     if (query.debug) {
       this.addFlag('--debug');
     }
-
-    // End option parsing so user-provided pattern/path cannot be interpreted as flags.
-    this.addArg('--');
-    this.addArg(query.pattern);
-    this.addArg(query.path);
-
-    return this;
   }
 
   private _consolidateGlobs(globs: string[]): string[] {

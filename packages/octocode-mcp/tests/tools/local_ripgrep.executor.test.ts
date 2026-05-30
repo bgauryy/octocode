@@ -46,10 +46,14 @@ vi.mock('../../src/hints/dynamic.js', () => ({
   getLargeFileWorkflowHints: vi.fn().mockReturnValue(['narrow your search']),
 }));
 
-// Mock validateRipgrepQuery so we can control its output
-vi.mock('@octocodeai/octocode-core', async importOriginal => {
+// Mock validateRipgrepQuery so we can control its output.
+// The executor imports it from the `/schemas/runtime` subpath, so the mock
+// MUST target that same specifier — mocking the package root has no effect.
+vi.mock('@octocodeai/octocode-core/schemas/runtime', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('@octocodeai/octocode-core')>();
+    await importOriginal<
+      typeof import('@octocodeai/octocode-core/schemas/runtime')
+    >();
   return {
     ...actual,
     validateRipgrepQuery: vi.fn().mockReturnValue({
@@ -61,7 +65,7 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
 });
 
 import { safeExec } from '../../src/utils/exec/safe.js';
-import { validateRipgrepQuery } from '@octocodeai/octocode-core';
+import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
 import { executeRipgrepSearchInternal } from '../../src/tools/local_ripgrep/ripgrepExecutor.js';
 import { RESOURCE_LIMITS } from '../../src/utils/core/constants.js';
 
@@ -186,7 +190,7 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
     } as any);
 
     // Result should succeed (or be empty), and large-result hints should be present
-    expect(['hasResults', 'empty', 'error']).toContain(result.status);
+    expect([undefined, 'empty', 'error']).toContain(result.status);
     // Verify warning was generated (either in hints or warnings)
     const allMessages = JSON.stringify(result);
     expect(allMessages).toMatch(/large|narrow|KB/i);

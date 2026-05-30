@@ -697,7 +697,7 @@ async function runLoginFlow(): Promise<boolean> {
     console.log(`     ${dim('•')} Make sure you copied the code correctly`);
     console.log(`     ${dim('•')} Check your browser didn't block the popup`);
     console.log(
-      `     ${dim('•')} Try running ${c('cyan', 'octocode login')} again`
+      `     ${dim('•')} Try running ${c('cyan', 'octocode-cli login')} again`
     );
   }
   console.log();

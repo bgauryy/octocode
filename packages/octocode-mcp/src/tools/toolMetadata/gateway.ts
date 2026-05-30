@@ -1,4 +1,4 @@
-import type { ToolNames } from '@octocodeai/octocode-core';
+import type { ToolNames } from '@octocodeai/octocode-core/types';
 import { DESCRIPTIONS, isToolInMetadata, TOOL_NAMES } from './proxies.js';
 
 export interface ToolMetadataGateway {
@@ -16,6 +16,6 @@ export const DEFAULT_TOOL_METADATA_GATEWAY: ToolMetadataGateway = {
   },
   getToolName<TKey extends keyof ToolNames>(key: TKey): ToolNames[TKey] {
     const value = TOOL_NAMES[key];
-    return value ?? String(key);
+    return (value ?? String(key)) as ToolNames[TKey];
   },
 };

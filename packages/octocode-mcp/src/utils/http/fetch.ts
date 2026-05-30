@@ -92,6 +92,84 @@ function recordFetchRateLimit(
 }
 
 /**
+ * Build the error thrown for a non-OK HTTP response.
+ *
+ * Releases the response socket, records rate-limit / registry stats, and
+ * tags the error with `status`/`headers`/`retryable` so the retry loop can
+ * decide whether to back off or propagate. Extracted from the main loop to
+ * keep `fetchWithRetries` flat.
+ */
+function buildHttpResponseError(
+  res: Response,
+  method: string,
+  finalUrl: string,
+  packageRegistry: string | undefined,
+  rateLimitProvider: string | undefined
+): ExtendedError {
+  // Release the underlying TCP socket immediately.
+  // An unconsumed body keeps the socket allocated until GC.
+  res.body
+    ?.cancel?.()
+    .catch(ignoreBestEffortFailure('response body cancellation'));
+
+  logSessionError('fetchWithRetries', FETCH_ERRORS.FETCH_HTTP_ERROR.code).catch(
+    ignoreBestEffortFailure('fetch retry session logging')
+  );
+  const error = new Error(
+    FETCH_ERRORS.FETCH_HTTP_ERROR.message(res.status, res.statusText)
+  ) as ExtendedError;
+
+  error.status = res.status;
+  error.headers = res.headers;
+
+  if (packageRegistry && res.status !== 404) {
+    logPackageRegistryFailure(packageRegistry);
+  }
+
+  if (res.status === 429) {
+    recordFetchRateLimit(rateLimitProvider, method, finalUrl, res.headers);
+  }
+
+  // Retry on rate limits (429), request timeouts (408), and server errors (5xx)
+  error.retryable =
+    res.status === 429 ||
+    res.status === 408 ||
+    (res.status >= 500 && res.status < 600);
+
+  return error;
+}
+
+/**
+ * Compute the backoff delay before the next attempt: exponential growth with
+ * jitter, capped at `maxDelayMs`, overridden by a `Retry-After` header when
+ * the failing response carried one.
+ */
+function computeBackoffDelayMs(
+  attempt: number,
+  initialDelayMs: number,
+  maxDelayMs: number,
+  extendedError: ExtendedError | undefined
+): number {
+  // Exponential backoff capped at maxDelayMs, plus jitter to avoid thundering herd.
+  let delayMs = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+  delayMs += Math.floor(Math.random() * initialDelayMs);
+
+  // Respect Retry-After header if present (but still cap at maxDelayMs)
+  if (
+    extendedError &&
+    extendedError.headers &&
+    typeof extendedError.headers.get === 'function'
+  ) {
+    const seconds = parseRetryAfterSeconds(extendedError.headers);
+    if (seconds !== undefined) {
+      delayMs = Math.min(seconds * 1000, maxDelayMs);
+    }
+  }
+
+  return delayMs;
+}
+
+/**
  * Fetches a URL with automatic retries and exponential backoff.
  *
  * Retry behavior:
@@ -165,44 +243,13 @@ export async function fetchWithRetries(
       });
 
       if (!res.ok) {
-        // Release the underlying TCP socket immediately.
-        // An unconsumed body keeps the socket allocated until GC.
-        res.body
-          ?.cancel?.()
-          .catch(ignoreBestEffortFailure('response body cancellation'));
-
-        logSessionError(
-          'fetchWithRetries',
-          FETCH_ERRORS.FETCH_HTTP_ERROR.code
-        ).catch(ignoreBestEffortFailure('fetch retry session logging'));
-        const error = new Error(
-          FETCH_ERRORS.FETCH_HTTP_ERROR.message(res.status, res.statusText)
-        ) as ExtendedError;
-
-        error.status = res.status;
-        error.headers = res.headers;
-
-        if (packageRegistry && res.status !== 404) {
-          logPackageRegistryFailure(packageRegistry);
-        }
-
-        if (res.status === 429) {
-          recordFetchRateLimit(
-            rateLimitProvider,
-            method,
-            finalUrl,
-            res.headers
-          );
-        }
-
-        // Retry on rate limits (429), request timeouts (408), and server errors (5xx)
-        const isRetryable =
-          res.status === 429 ||
-          res.status === 408 ||
-          (res.status >= 500 && res.status < 600);
-        error.retryable = isRetryable;
-
-        throw error;
+        throw buildHttpResponseError(
+          res,
+          method,
+          finalUrl,
+          packageRegistry,
+          rateLimitProvider
+        );
       }
 
       if (res.status === 204) {
@@ -231,29 +278,12 @@ export async function fetchWithRetries(
         break;
       }
 
-      // Calculate delay with exponential backoff, capped at maxDelayMs
-      let delayMs = Math.min(
-        initialDelayMs * Math.pow(2, attempt - 1),
-        maxDelayMs
+      const delayMs = computeBackoffDelayMs(
+        attempt,
+        initialDelayMs,
+        maxDelayMs,
+        extendedError
       );
-
-      // Add jitter to prevent thundering herd
-      delayMs += Math.floor(Math.random() * initialDelayMs);
-
-      // Respect Retry-After header if present (but still cap at maxDelayMs)
-      if (
-        extendedError &&
-        extendedError.headers &&
-        typeof extendedError.headers.get === 'function'
-      ) {
-        const retryAfter = extendedError.headers.get('Retry-After');
-        if (retryAfter) {
-          const seconds = parseInt(retryAfter, 10);
-          if (!isNaN(seconds)) {
-            delayMs = Math.min(seconds * 1000, maxDelayMs);
-          }
-        }
-      }
 
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }

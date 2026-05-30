@@ -1,5 +1,5 @@
 import { z } from 'zod/v4';
-import { ErrorDataSchema } from '@octocodeai/octocode-core';
+import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 const ResultIdentitySchema = z.object({
   id: z.string().min(1),
@@ -40,6 +40,27 @@ const LspPaginationSchema = z
   })
   .passthrough();
 
+const ReferenceLocationLocalSchema = z
+  .object({
+    uri: z.string(),
+    range: RangeSchema,
+    content: z.string().optional(),
+    isDefinition: z.boolean().optional(),
+    symbolKind: z.string().optional(),
+    displayRange: z.unknown().optional(),
+  })
+  .passthrough();
+
+const ReferencesByFileLocalSchema = z
+  .object({
+    uri: z.string(),
+    count: z.number(),
+    firstLine: z.number(),
+    firstCharacter: z.number(),
+    hasDefinition: z.boolean().optional(),
+  })
+  .passthrough();
+
 const CallHierarchyItemLocalSchema = z
   .object({
     name: z.string(),
@@ -66,6 +87,26 @@ const OutgoingCallLocalSchema = z
   })
   .passthrough();
 
+const LspFindReferencesDataLocalSchema = z
+  .object({
+    locations: z.array(ReferenceLocationLocalSchema).optional(),
+    references: z.array(ReferenceLocationLocalSchema).optional(),
+    byFile: z.array(ReferencesByFileLocalSchema).optional(),
+    totalReferences: z.number().optional(),
+    totalFiles: z.number().optional(),
+    pagination: LspPaginationSchema.optional(),
+    hasMultipleFiles: z.boolean().optional(),
+    lspMode: z.enum(['semantic', 'fallback']).optional(),
+    hints: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    errorType: z.string().optional(),
+    errorCode: z.string().optional(),
+    resolvedPath: z.string().optional(),
+    cwd: z.string().optional(),
+    searchRadius: z.number().optional(),
+  })
+  .passthrough();
+
 const LspCallHierarchyDataLocalSchema = z
   .object({
     item: CallHierarchyItemLocalSchema.optional(),
@@ -88,6 +129,38 @@ const LspCallHierarchyDataLocalSchema = z
   .passthrough();
 
 /**
+ * Local output schema for lspFindReferences.
+ *
+ * `groupByFile:true` intentionally compacts `locations[]` and exposes the
+ * ranked per-file rollup as structured `byFile[]` instead of burying it in
+ * hints. The upstream schema does not know about that local product mode.
+ */
+export const LspFindReferencesOutputLocalSchema = z
+  .object({
+    format: z.literal('tsv').optional(),
+    columns: z.array(z.string()).optional(),
+    rows: z.string().optional(),
+    hints: z.array(z.string()).optional(),
+    results: z.array(
+      z.union([
+        ResultIdentitySchema.extend({
+          status: z.literal('empty'),
+          data: LspFindReferencesDataLocalSchema,
+        }).strict(),
+        ResultIdentitySchema.extend({
+          status: z.literal('error'),
+          data: ErrorDataSchema,
+        }).strict(),
+        ResultIdentitySchema.extend({
+          data: LspFindReferencesDataLocalSchema,
+        }).strict(),
+      ])
+    ),
+    responsePagination: CharPaginationSchema.optional(),
+  })
+  .strict();
+
+/**
  * Local output schema for lspCallHierarchy.
  *
  * The runtime returns rich call-hierarchy context for both `hasResults` and
@@ -103,11 +176,11 @@ export const LspCallHierarchyOutputLocalSchema = z
     rows: z.string().optional(),
     hints: z.array(z.string()).optional(),
     results: z.array(
-      z.discriminatedUnion('status', [
-        ResultIdentitySchema.extend({
-          status: z.literal('hasResults'),
-          data: LspCallHierarchyDataLocalSchema,
-        }).strict(),
+      // Three variants: empty / error / hasResults. The hasResults variant
+      // is signaled by an ABSENT `status` field (see bulk runner), so the
+      // union order matters: the empty/error variants must come first so
+      // they match before the catch-all hasResults variant accepts.
+      z.union([
         ResultIdentitySchema.extend({
           status: z.literal('empty'),
           data: LspCallHierarchyDataLocalSchema,
@@ -115,6 +188,9 @@ export const LspCallHierarchyOutputLocalSchema = z
         ResultIdentitySchema.extend({
           status: z.literal('error'),
           data: ErrorDataSchema,
+        }).strict(),
+        ResultIdentitySchema.extend({
+          data: LspCallHierarchyDataLocalSchema,
         }).strict(),
       ])
     ),

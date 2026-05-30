@@ -1,9 +1,12 @@
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { RESOURCE_LIMITS } from '../core/constants.js';
 import type {
   LocalSearchCodeFile,
   LocalSearchCodeMatch,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/types';
+
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import type { SearchStats } from '../core/types.js';
 import { RipgrepJsonMessageSchema } from './schemas.js';
 

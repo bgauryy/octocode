@@ -29,7 +29,10 @@ import {
   spawnWithTimeout,
   TOOLING_ALLOWED_ENV_VARS,
 } from '../../utils/exec/spawn.js';
-import type { CloneRepoQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 import type { CloneRepoResult } from './types.js';
 import {

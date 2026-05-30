@@ -12,7 +12,9 @@ export function showCommandHelp(command: CLICommandSpec): void {
 
   if (command.usage) {
     lines.push(`  ${bold('USAGE')}`);
-    lines.push(`    ${command.usage.replace(/\boctocode\b/g, 'octocode-cli')}`);
+    lines.push(
+      `    ${command.usage.replace(/^octocode(\s|$)/, 'octocode-cli$1')}`
+    );
     lines.push('');
   }
 

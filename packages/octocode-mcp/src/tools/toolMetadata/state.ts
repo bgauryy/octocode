@@ -1,5 +1,5 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
-import type { CompleteMetadata } from '@octocodeai/octocode-core';
+import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
 
 let METADATA_JSON: CompleteMetadata | null = null;
 

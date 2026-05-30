@@ -5,15 +5,28 @@ import type {
   RepoSearchResult as ProviderRepoSearchResult,
   RepoStructureResult as ProviderRepoStructureResult,
 } from '../providers/types.js';
+import type { z } from 'zod/v4';
 import type {
-  FileContentQuery,
-  GitHubCodeSearchQuery,
-  GitHubPullRequestSearchQuery,
-  GitHubReposSearchQuery,
-  GitHubRepositoryOutput,
-  GitHubViewRepoStructureQuery,
-} from '@octocodeai/octocode-core';
+  FileContentQuerySchema,
+  GitHubCodeSearchQuerySchema,
+  GitHubPullRequestSearchQuerySchema,
+  GitHubReposSearchSingleQuerySchema,
+  GitHubViewRepoStructureQuerySchema,
+} from '@octocodeai/octocode-core/schemas';
+import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../types/execution.js';
+
+type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
+type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
+type GitHubPullRequestSearchQuery = z.infer<
+  typeof GitHubPullRequestSearchQuerySchema
+>;
+type GitHubReposSearchSingleQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
+type GitHubViewRepoStructureQuery = z.infer<
+  typeof GitHubViewRepoStructureQuerySchema
+>;
 
 type PRDefaultKeys =
   | 'order'
@@ -172,7 +185,7 @@ export function mapCodeSearchProviderResult(
 }
 
 export function mapRepoSearchToolQuery(
-  query: WithOptionalMeta<GitHubReposSearchQuery>
+  query: WithOptionalMeta<GitHubReposSearchSingleQuery>
 ) {
   return {
     keywords: query.keywordsToSearch,
@@ -295,9 +308,15 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
 const MAX_PR_BODY_LENGTH = 500;
 const MAX_FILE_CHANGES_DEFAULT = 20;
 
-function truncatePrBody(body: string | undefined | null): string | undefined {
+function truncatePrBody(
+  body: string | undefined | null,
+  fullBody = false
+): string | undefined {
   if (!body) return body ?? undefined;
-  if (body.length <= MAX_PR_BODY_LENGTH) return body;
+  // A prNumber lookup is a targeted single-PR fetch — return the whole body
+  // rather than the search preview. (This is also what the truncation hint
+  // below promises, so it must actually hold for prNumber lookups.)
+  if (fullBody || body.length <= MAX_PR_BODY_LENGTH) return body;
   return `${body.substring(0, MAX_PR_BODY_LENGTH)}... (${body.length} chars total, use prNumber for full body)`;
 }
 
@@ -318,15 +337,17 @@ function capFileChanges(
 }
 
 export function mapPullRequestProviderResultData(
-  data: ProviderPullRequestSearchResult
+  data: ProviderPullRequestSearchResult,
+  options: { fullBody?: boolean } = {}
 ) {
+  const { fullBody = false } = options;
   const pullRequests = data.items.map(pr => {
     const { capped: cappedFileChanges, totalCount: originalFileChangeCount } =
       capFileChanges(pr.fileChanges);
     return {
       number: pr.number,
       title: pr.title,
-      body: truncatePrBody(pr.body),
+      body: truncatePrBody(pr.body, fullBody),
       url: pr.url,
       state: pr.state,
       draft: pr.draft,

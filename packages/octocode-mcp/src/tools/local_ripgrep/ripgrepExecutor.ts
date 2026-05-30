@@ -3,17 +3,18 @@
  */
 import { RipgrepCommandBuilder } from '../../commands/RipgrepCommandBuilder.js';
 import { safeExec } from '../../utils/exec/safe.js';
-import {
-  validateRipgrepQuery,
-  type RipgrepQuery,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core';
+import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { getHints } from '../../hints/index.js';
 import { parseRipgrepOutput } from './ripgrepParser.js';

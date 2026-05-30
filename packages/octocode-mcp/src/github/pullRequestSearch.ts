@@ -18,7 +18,7 @@ import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { getOctokit, OctokitWithThrottling } from './client.js';
-import { handleGitHubAPIError } from './errors.js';
+import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import {
   buildPullRequestSearchQuery,
   shouldUseSearchForPRs,
@@ -51,6 +51,29 @@ function createPullRequestErrorResult(
     rateLimitRemaining: apiError.rateLimitRemaining,
     rateLimitReset: apiError.rateLimitReset,
     retryAfter: apiError.retryAfter,
+  };
+}
+
+/**
+ * Clean empty result (no `error` field) for searches whose filters reference a
+ * nonexistent entity — GitHub 422s these even though "no matches" is the
+ * truthful answer. Mirrors the zero-result success shape so the tool layer
+ * classifies it as `empty`, not `error`.
+ */
+function createPullRequestEmptyResult(
+  params: GitHubPullRequestsSearchParams
+): GitHubPullRequestSearchApiResult {
+  const perPage = Math.min(params.limit || 30, 100);
+  return {
+    pull_requests: [],
+    total_count: 0,
+    pagination: {
+      currentPage: params.page || 1,
+      totalPages: 0,
+      perPage,
+      totalMatches: 0,
+      hasMore: false,
+    },
   };
 }
 
@@ -222,6 +245,11 @@ async function searchGitHubPullRequestsAPIInternal(
         countSerializedChars(searchResult.data) + transformedRawResponseChars,
     };
   } catch (error: unknown) {
+    // A 422 that names a nonexistent searchable entity (e.g. author:ghost) is
+    // semantically "no matches", not a failure — degrade to a clean empty.
+    if (isNoResultsSearchError(error)) {
+      return createPullRequestEmptyResult(params);
+    }
     const apiError = handleGitHubAPIError(error);
     await logSessionError(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -286,6 +314,9 @@ async function searchPullRequestsWithREST(
         countSerializedChars(result.data) + transformedRawResponseChars,
     };
   } catch (error: unknown) {
+    if (isNoResultsSearchError(error)) {
+      return createPullRequestEmptyResult(params);
+    }
     const apiError = handleGitHubAPIError(error);
     await logSessionError(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,

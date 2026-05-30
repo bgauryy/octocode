@@ -27,7 +27,9 @@ octocode-cli --tools-context
 
 ## Tools
 
-Run any Octocode tool directly — for agents, scripts, and humans. `--queries` accepts a JSON object, array of objects, or `{ "queries": [...] }`. Fields `id`, `researchGoal`, `reasoning`, `mainResearchGoal` are auto-filled.
+Run any Octocode tool directly — for agents, scripts, and humans. The CLI does not maintain separate tool schemas or execution logic; it imports the canonical public catalog, schemas, and executors from `octocode-mcp/public`, then handles only CLI parsing, autofill, and terminal output.
+
+`--queries` accepts a JSON object, array of objects, or `{ "queries": [...] }`. Fields `id`, `researchGoal`, `reasoning`, `mainResearchGoal` are auto-filled.
 
 | Tool | Category | Description |
 |---|---|---|
@@ -83,17 +85,26 @@ Manage Octocode installation, authentication, skills, marketplace, sync, and cac
 
 ```bash
 octocode-cli install --ide <client> [--method <npx|direct>] [--force]
+octocode-cli install --ide <client> [-m <npx|direct>] [-f]
 ```
 
-Supported: `cursor`, `claude-desktop`, `claude-code`, `windsurf`, `zed`, `vscode-cline`, `vscode-roo`, `vscode-continue`, `opencode`, `trae`, `antigravity`, `codex`, `gemini-cli`, `goose`, `kiro`.
+Supported clients: `cursor`, `claude`/`claude-desktop`, `claude-code`, `windsurf`, `zed`, `vscode-cline`, `vscode-roo`, `vscode-continue`, `opencode`, `trae`, `antigravity`, `codex`, `gemini-cli`, `goose`, `kiro`.
+
+Use `npx` unless you intentionally want `direct` mode to write a local binary path.
 
 ### auth / login / logout / status / token
 
 ```bash
 octocode-cli auth [login|logout|status|token]
 octocode-cli login [--hostname <host>] [--git-protocol <ssh|https>]
-octocode-cli token [--type <auto|octocode-cli|gh>] [--hostname <host>] [--source] [--json]
+octocode-cli login [-H <host>] [-p <ssh|https>]
+octocode-cli logout [--hostname <host>]
+octocode-cli status [--hostname <host>]
+octocode-cli token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--json]
+octocode-cli token [-t <auto|octocode|gh>] [-H <host>] [-s] [-j]
 ```
+
+`token --type auto` matches Octocode MCP token priority: environment variables first (`OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`), then encrypted Octocode credentials, then `gh auth token`.
 
 ### sync
 
@@ -117,6 +128,8 @@ octocode-cli skills install [--skill <name>] [--targets <list>] [--mode <copy|sy
 octocode-cli skills remove --skill <name> [--targets <list>]
 ```
 
+Supported targets: `claude-code`, `claude-desktop`, `cursor`, `codex`, `opencode`. `--mode copy` is safest everywhere; `--mode symlink` is useful for local iteration.
+
 See [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md).
 
 ### cache
@@ -129,7 +142,7 @@ octocode-cli cache [status|clean] [--repos] [--skills] [--logs] [--all] [--tools
 
 | Variable | Meaning |
 |---|---|
-| `GITHUB_TOKEN` / `GH_TOKEN` | GitHub token |
+| `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | GitHub token, checked in this order |
 | `OCTOCODE_HOME` | Override data directory |
 
 ## Exit Codes

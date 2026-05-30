@@ -265,6 +265,90 @@ describe('GitHub Search Repositories Query Splitting', () => {
       expect(responseText).not.toContain('Page 1/');
       expect(responseText).not.toContain('pagination:');
     });
+
+    it('ranks merged split-query repositories by explicit relevance', async () => {
+      mockProvider.searchRepos
+        .mockResolvedValueOnce({
+          data: {
+            repositories: [
+              {
+                id: '1',
+                name: 'general',
+                fullPath: 'topic/general',
+                description: 'General utility',
+                url: 'https://github.com/topic/general',
+                stars: 500,
+                forks: 10,
+                language: 'TypeScript',
+                topics: ['topic'],
+                createdAt: '01/01/2020',
+                updatedAt: '01/01/2024',
+                pushedAt: '01/01/2024',
+                defaultBranch: 'main',
+                isPrivate: false,
+              },
+            ],
+            totalCount: 1,
+            pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+          },
+          status: 200,
+          provider: 'github',
+        })
+        .mockResolvedValueOnce({
+          data: {
+            repositories: [
+              {
+                id: '2',
+                name: 'keyword',
+                fullPath: 'keyword/keyword',
+                description: 'Keyword-focused result',
+                url: 'https://github.com/keyword/keyword-engine',
+                stars: 50,
+                forks: 5,
+                language: 'TypeScript',
+                topics: [],
+                createdAt: '01/01/2020',
+                updatedAt: '01/01/2024',
+                pushedAt: '01/01/2024',
+                defaultBranch: 'main',
+                isPrivate: false,
+              },
+            ],
+            totalCount: 1,
+            pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+          },
+          status: 200,
+          provider: 'github',
+        });
+
+      const mockServer = createMockMcpServer();
+      registerSearchGitHubReposTool(mockServer.server);
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+        {
+          queries: [
+            {
+              id: 'ranked_merge',
+              topicsToSearch: ['topic'],
+              keywordsToSearch: ['keyword'],
+            },
+          ],
+        }
+      );
+
+      const structured = result.structuredContent as {
+        results?: Array<{
+          data?: {
+            repositories?: Array<{ owner: string; repo: string }>;
+          };
+        }>;
+      };
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        owner: 'keyword',
+        repo: 'keyword',
+      });
+    });
   });
 
   describe('Error Handling', () => {

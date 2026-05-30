@@ -70,7 +70,7 @@ describe('githubSearchPullRequests Tool Handler - Pagination Fix', () => {
         { extraHints: paginationHints }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
       expect(result.pagination).toEqual(pagination);
       expect(result.hints).toBeDefined();

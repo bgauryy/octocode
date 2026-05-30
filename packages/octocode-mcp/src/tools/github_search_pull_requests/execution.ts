@@ -1,20 +1,22 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type {
-  GitHubPullRequestSearchQuery,
-  GitHubSearchPullRequestsToolResult,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubSearchPullRequestsToolResult } from '@octocodeai/octocode-core/extra-types';
+
+type GitHubPullRequestSearchQuery = z.infer<
+  typeof GitHubPullRequestSearchQuerySchema
+>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
-const ULTRA_PR_LIMIT = 3;
+const CONCISE_PR_LIMIT = 3;
 
 /** Advisory hints githubSearchPullRequests emits; stripped under compact.
  * Substring-OR, case-insensitive. */
@@ -74,19 +76,17 @@ export async function searchMultipleGitHubPullRequests(
       try {
         const currentProviderContext = getProviderContext();
 
-        // Pre-flight verbosity caps under ultra: cap limit to 3; coerce
+        // Pre-flight verbosity caps under concise: cap limit to 3; coerce
         // type→"metadata" unless caller passed prNumber + explicit type;
         // drop partialContentMetadata when type is coerced. Record what
         // fired so we can emit a verbosity-downgrade warning later.
-        const prVerbosityIsUltra = isUltra(
-          (query as { verbosity?: Verbosity }).verbosity
+        const prVerbosityIsConcise = isConcise(
+          (query as WithVerbosity<typeof query>).verbosity
         );
-        const prDowngradeFields: string[] = [];
-        if (prVerbosityIsUltra) {
+        if (prVerbosityIsConcise) {
           const userLimit = (query as { limit?: number }).limit;
-          if (typeof userLimit === 'number' && userLimit > ULTRA_PR_LIMIT) {
-            (query as { limit?: number }).limit = ULTRA_PR_LIMIT;
-            prDowngradeFields.push(`limit→${ULTRA_PR_LIMIT}`);
+          if (typeof userLimit === 'number' && userLimit > CONCISE_PR_LIMIT) {
+            (query as { limit?: number }).limit = CONCISE_PR_LIMIT;
           }
           const hasExplicitType =
             (query as { type?: string }).type !== undefined;
@@ -96,7 +96,6 @@ export async function searchMultipleGitHubPullRequests(
             const currentType = (query as { type?: string }).type;
             if (currentType && currentType !== 'metadata') {
               (query as { type?: string }).type = 'metadata';
-              prDowngradeFields.push('type→metadata');
             } else if (!currentType) {
               (query as { type?: string }).type = 'metadata';
             }
@@ -106,7 +105,6 @@ export async function searchMultipleGitHubPullRequests(
             ) {
               delete (query as { partialContentMetadata?: unknown })
                 .partialContentMetadata;
-              prDowngradeFields.push('partialContentMetadata dropped');
             }
           }
         }
@@ -143,8 +141,12 @@ export async function searchMultipleGitHubPullRequests(
           return providerResult.result;
         }
 
+        // A prNumber lookup targets one PR — return its full body, not the
+        // 500-char search preview (and make the truncation hint truthful).
         const { pullRequests, resultData, pagination } =
-          mapPullRequestProviderResultData(providerResult.response.data);
+          mapPullRequestProviderResultData(providerResult.response.data, {
+            fullBody: query.prNumber !== undefined,
+          });
 
         const hasContent = pullRequests.length > 0;
 
@@ -232,7 +234,6 @@ export async function searchMultipleGitHubPullRequests(
               ...outputLimitHints,
               ...fileChangeHints,
             ],
-            downgradeFields: prDowngradeFields,
           },
           query as PartialPRQuery
         );
@@ -294,7 +295,7 @@ export async function searchMultipleGitHubPullRequests(
 }
 
 /**
- * Per-tool verbosity shaping for githubSearchPullRequests. Under ultra,
+ * Per-tool verbosity shaping for githubSearchPullRequests. Under concise,
  * projects each PR to {number, title, state, merged} (cap 3) and emits a
  * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
  * Basic / omitted: passthrough.
@@ -304,18 +305,13 @@ export function applyGithubSearchPullRequestsVerbosity(
     data: Record<string, unknown>;
     pullRequests: Array<Record<string, unknown>>;
     extraHints: string[];
-    downgradeFields: string[];
   },
   query: PartialPRQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
-  const verbosity = (query as { verbosity?: Verbosity }).verbosity;
-  const downgradeHint =
-    input.downgradeFields.length > 0
-      ? [`verbosity-downgrade: ${input.downgradeFields.join(', ')} (ultra)`]
-      : [];
+  const verbosity = (query as WithVerbosity<typeof query>).verbosity;
 
-  if (isUltra(verbosity)) {
-    const ultraData = {
+  if (isConcise(verbosity)) {
+    const conciseData = {
       ...input.data,
       pull_requests: input.pullRequests.slice(0, 3).map(pr => ({
         number: (pr as { number?: number }).number,
@@ -328,19 +324,12 @@ export function applyGithubSearchPullRequestsVerbosity(
       (input.pullRequests[0] as { number?: number })?.number ?? '?'
     })`;
     return {
-      data: ultraData,
-      extraHints: [
-        summary,
-        ...ultraDrillBackHint(
-          're-call with verbosity:"basic" (default) and prNumber=<top> for diff/comments'
-        ),
-        ...downgradeHint,
-        ...input.extraHints,
-      ],
+      data: conciseData,
+      extraHints: [summary, ...input.extraHints],
     };
   }
 
-  const allHints = [...downgradeHint, ...input.extraHints];
+  const allHints = [...input.extraHints];
   if (isCompact(verbosity)) {
     return {
       data: input.data,

@@ -1,4 +1,4 @@
-import type { GitHubRepoStructureDirectoryEntry } from '@octocodeai/octocode-core';
+import type { GitHubRepoStructureDirectoryEntry } from '@octocodeai/octocode-core/extra-types';
 import type { ContentDirectoryEntry } from '../../github/githubAPI.js';
 import type { PaginationInfo } from '../../types/toolResults.js';
 

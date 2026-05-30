@@ -408,6 +408,46 @@ describe('GitHub Fetch Content Tool', () => {
       expect(responseText).toContain('function test');
     });
 
+    it('signals matchString-not-found instead of silent empty content (F2)', async () => {
+      // The provider's content layer collapses a matchString miss to
+      // content:'' and surfaces a `noMatches` warning (see
+      // transformFileContentResult). The finalizer must render that warning,
+      // not present a silent empty read.
+      mockProvider.getFileContent.mockResolvedValue({
+        data: {
+          path: 'file.js',
+          content: '',
+          branch: 'main',
+          totalLines: 3,
+          warnings: [
+            'No matches for "NO_SUCH_ANCHOR_ZZ_98765" in file (3 lines scanned). Try matchStringIsRegex=true, a different anchor, or fullContent=true.',
+          ],
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              path: 'file.js',
+              branch: 'main',
+              matchString: 'NO_SUCH_ANCHOR_ZZ_98765',
+            },
+          ],
+        }
+      );
+
+      expect(result.isError).toBe(false);
+      const responseText = getTextContent(result.content);
+      // Must NOT silently present an empty successful read — surface the miss.
+      expect(responseText).toMatch(/no matches|not found/i);
+    });
+
     it('should use default matchStringContextLines when not specified', async () => {
       mockProvider.getFileContent.mockResolvedValue({
         data: {

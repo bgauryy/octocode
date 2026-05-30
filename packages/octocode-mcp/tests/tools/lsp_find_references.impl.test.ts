@@ -498,7 +498,7 @@ export function anotherFunction() {
 
       const text = result.content?.[0]?.text ?? '';
       // Note: YAML output uses quotes around string values
-      expect(text).toContain('status: "hasResults"');
+      expect(text).not.toContain('status: "hasResults"');
       expect(text).toContain('totalPages: 2');
     });
   });

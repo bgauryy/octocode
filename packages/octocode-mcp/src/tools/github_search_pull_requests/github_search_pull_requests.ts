@@ -1,4 +1,9 @@
-import type { GitHubPullRequestSearchQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type GitHubPullRequestSearchQuery = z.infer<
+  typeof GitHubPullRequestSearchQuerySchema
+>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   GitHubPullRequestSearchBulkQueryLocalSchema,

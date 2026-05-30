@@ -65,10 +65,105 @@ vi.mock('../../../src/utils/fs.js', () => ({
     fsUtilsMocks.removeDirectory(...args),
 }));
 
-vi.mock('../../../src/utils/skills.js', () => ({
-  getSkillsSourceDir: vi.fn().mockReturnValue('/fake/skills/src'),
-  getSkillsDestDir: vi.fn().mockReturnValue('/fake/skills/dest'),
-}));
+const skillsUtilsMocks = vi.hoisted(() => {
+  const isSafeSkillName = (skillName: string) => {
+    const trimmed = skillName.trim();
+    return (
+      trimmed.length > 0 &&
+      trimmed === skillName &&
+      trimmed !== '.' &&
+      trimmed !== '..' &&
+      !trimmed.includes('\0') &&
+      !trimmed.includes('/') &&
+      !trimmed.includes('\\')
+    );
+  };
+
+  return {
+    SKILL_INSTALL_TARGETS: [
+      'claude-code',
+      'claude-desktop',
+      'cursor',
+      'codex',
+      'opencode',
+    ],
+    DEFAULT_SKILL_INSTALL_TARGETS: ['claude-code'],
+    CLAUDE_SKILL_INSTALL_TARGETS: ['claude-code', 'claude-desktop'],
+    formatSkillInstallTargets: vi
+      .fn()
+      .mockReturnValue('claude-code, claude-desktop, cursor, codex, opencode'),
+    getSkillsSourceDir: vi.fn().mockReturnValue('/fake/skills/src'),
+    getSkillsDestDir: vi.fn().mockReturnValue('/fake/skills/dest'),
+    normalizeSkillTarget: vi.fn((target: string) => {
+      const aliases: Record<string, string> = {
+        claude: 'claude-code',
+        'claude-code': 'claude-code',
+        claudecode: 'claude-code',
+        'claude-desktop': 'claude-desktop',
+        claudedesktop: 'claude-desktop',
+        cursor: 'cursor',
+        codex: 'codex',
+        opencode: 'opencode',
+      };
+      return aliases[target.trim().toLowerCase()] ?? null;
+    }),
+    getSkillsDirForTarget: vi.fn((target: string, defaultDestDir: string) => {
+      if (target === 'claude-code') return defaultDestDir;
+      if (target === 'claude-desktop') {
+        return '/fake/appdata/Claude Desktop/skills';
+      }
+      return `/home/test/.${target}/skills`;
+    }),
+    isSafeSkillName: vi.fn(isSafeSkillName),
+    resolveSkillDestination: vi.fn((destDir: string, skillName: string) =>
+      isSafeSkillName(skillName) ? `${destDir}/${skillName}` : null
+    ),
+    resolveModeForTarget: vi.fn((strategy: string, target: string) => {
+      if (strategy !== 'hybrid') return strategy;
+      return target === 'claude-code' || target === 'claude-desktop'
+        ? 'copy'
+        : 'symlink';
+    }),
+    installSkillToDestination: vi.fn(
+      ({
+        sourcePath,
+        destinationPath,
+        mode,
+        force,
+      }: {
+        sourcePath: string;
+        destinationPath: string;
+        mode: 'copy' | 'symlink';
+        force?: boolean;
+      }) => {
+        try {
+          if (fsMocks.existsSync(destinationPath)) {
+            if (!force) return 'skipped';
+            fsMocks.rmSync(destinationPath, { recursive: true, force: true });
+          }
+
+          const parentDir = destinationPath.replace(/\/[^/]+$/, '');
+          if (!fsUtilsMocks.dirExists(parentDir)) {
+            fsMocks.mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+          }
+
+          if (mode === 'symlink') {
+            fsMocks.symlinkSync(sourcePath, destinationPath, 'dir');
+            return 'installed';
+          }
+
+          return fsUtilsMocks.copyDirectory(sourcePath, destinationPath)
+            ? 'installed'
+            : 'failed';
+        } catch {
+          return 'failed';
+        }
+      }
+    ),
+  };
+});
+
+vi.mock('../../../src/utils/skills.js', () => skillsUtilsMocks);
 
 const promptsMocks = vi.hoisted(() => ({
   loadInquirer: vi.fn().mockResolvedValue(undefined),
@@ -553,6 +648,32 @@ describe('skillsCommand', () => {
       options: { skill: 'octocode-research' },
     });
     expect(fsUtilsMocks.removeDirectory).toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('remove: honors --targets option', async () => {
+    fsUtilsMocks.dirExists.mockImplementation((path: string) => {
+      if (path === '/fake/skills/src') return true;
+      return path.endsWith('octocode-research');
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['remove'],
+      options: {
+        skill: 'octocode-research',
+        targets: 'cursor,codex',
+      },
+    });
+
+    expect(fsUtilsMocks.removeDirectory).toHaveBeenCalledTimes(2);
+    expect(fsUtilsMocks.removeDirectory).toHaveBeenCalledWith(
+      '/home/test/.cursor/skills/octocode-research'
+    );
+    expect(fsUtilsMocks.removeDirectory).toHaveBeenCalledWith(
+      '/home/test/.codex/skills/octocode-research'
+    );
     expect(process.exitCode).toBeUndefined();
   });
 

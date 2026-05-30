@@ -183,7 +183,9 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     // big error/empty response triggers the pagination wrapper. The error
     // and empty branches use strict schemas without `outputPagination`.
     //
-    // Contract: both pagination entrypoints MUST guard on status==='hasResults'.
+    // Under the lean contract, success is signaled by ABSENT status — so
+    // both pagination entrypoints MUST guard via `status !== undefined`
+    // (i.e. skip empty/error branches).
     const { readFile } = await import('fs/promises');
     const source = await readFile(
       `${ROOT}/src/utils/response/structuredPagination.ts`,
@@ -196,8 +198,8 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     expect(applyMatch, 'applyQueryOutputPagination not found').toBeTruthy();
     expect(
       applyMatch![0],
-      'applyQueryOutputPagination must guard on status === "hasResults"'
-    ).toMatch(/status\s*!==\s*['"]hasResults['"]/);
+      'applyQueryOutputPagination must guard on success (status === undefined)'
+    ).toMatch(/status\s*!==\s*undefined/);
 
     const flatMatch = source.match(
       /function\s+paginateFlatQueryResult\b[\s\S]*?\n\}/
@@ -205,8 +207,8 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     expect(flatMatch, 'paginateFlatQueryResult not found').toBeTruthy();
     expect(
       flatMatch![0],
-      'paginateFlatQueryResult must guard on status === "hasResults"'
-    ).toMatch(/status\s*!==\s*['"]hasResults['"]/);
+      'paginateFlatQueryResult must guard on success (status === undefined)'
+    ).toMatch(/status\s*!==\s*undefined/);
   });
 
   it('security validator accepts the bundled rg absolute path', async () => {

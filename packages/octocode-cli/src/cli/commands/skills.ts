@@ -1,100 +1,30 @@
 import type { CLICommand, ParsedArgs } from '../types.js';
 import { c, bold, dim } from '../../utils/colors.js';
+import { dirExists } from '../../utils/fs.js';
 import {
-  copyDirectory,
-  dirExists,
-  listSubdirectories,
-} from '../../utils/fs.js';
-import { getSkillsSourceDir, getSkillsDestDir } from '../../utils/skills.js';
+  CLAUDE_SKILL_INSTALL_TARGETS,
+  DEFAULT_SKILL_INSTALL_TARGETS,
+  SKILL_INSTALL_TARGETS,
+  formatSkillInstallTargets,
+  getSkillsSourceDir,
+  getSkillsDestDir,
+} from '../../utils/skills.js';
+import {
+  getAvailableSkillNames,
+  getSkillTargetDestinations,
+  installAllSkillsForTargets,
+  installSkillForTargets,
+  parseSkillTargetList,
+  removeSkillFromTargets,
+} from '../../features/skills.js';
 import { loadInquirer, select, checkbox } from '../../utils/prompts.js';
 import { Spinner } from '../../utils/spinner.js';
-import { existsSync, rmSync, mkdirSync, symlinkSync } from 'node:fs';
-import { HOME, isWindows, getAppDataPath } from '../../utils/platform.js';
-import { removeDirectory } from '../../utils/fs.js';
 import path from 'node:path';
 import {
   type SkillInstallMode,
   type SkillInstallStrategy,
   type SkillInstallTarget,
-  normalizeSkillTarget,
 } from './shared.js';
-
-function getSkillsDirForTarget(
-  target: SkillInstallTarget,
-  defaultDestDir: string
-): string {
-  if (target === 'claude-code') {
-    return defaultDestDir;
-  }
-  if (isWindows) {
-    const appData = getAppDataPath();
-    switch (target) {
-      case 'claude-desktop':
-        return path.join(appData, 'Claude Desktop', 'skills');
-      case 'cursor':
-        return path.join(HOME, '.cursor', 'skills');
-      case 'codex':
-        return path.join(HOME, '.codex', 'skills');
-      case 'opencode':
-        return path.join(HOME, '.opencode', 'skills');
-      default:
-        return defaultDestDir;
-    }
-  }
-  switch (target) {
-    case 'claude-desktop':
-      return path.join(HOME, '.claude-desktop', 'skills');
-    case 'cursor':
-      return path.join(HOME, '.cursor', 'skills');
-    case 'codex':
-      return path.join(HOME, '.codex', 'skills');
-    case 'opencode':
-      return path.join(HOME, '.opencode', 'skills');
-    default:
-      return defaultDestDir;
-  }
-}
-
-function installSkillToDestination(
-  sourcePath: string,
-  destinationPath: string,
-  mode: SkillInstallMode,
-  force: boolean
-): 'installed' | 'skipped' | 'failed' {
-  try {
-    if (existsSync(destinationPath)) {
-      if (!force) {
-        return 'skipped';
-      }
-      rmSync(destinationPath, { recursive: true, force: true });
-    }
-    if (mode === 'symlink') {
-      const symlinkType: 'dir' | 'junction' = isWindows ? 'junction' : 'dir';
-      symlinkSync(sourcePath, destinationPath, symlinkType);
-      return 'installed';
-    }
-    if (copyDirectory(sourcePath, destinationPath)) {
-      return 'installed';
-    }
-    return 'failed';
-  } catch {
-    return 'failed';
-  }
-}
-
-function isClaudeTarget(target: SkillInstallTarget): boolean {
-  return target === 'claude-code' || target === 'claude-desktop';
-}
-
-function resolveModeForTarget(
-  strategy: SkillInstallStrategy,
-  target: SkillInstallTarget
-): SkillInstallMode {
-  if (strategy === 'hybrid') {
-    return isClaudeTarget(target) ? 'copy' : 'symlink';
-  }
-  return strategy;
-}
 
 async function promptInstallTargets(): Promise<SkillInstallTarget[]> {
   await loadInquirer();
@@ -114,18 +44,17 @@ async function promptInstallTargets(): Promise<SkillInstallTarget[]> {
     loop: false,
   });
   if (targetPreset === 'cancel') return [];
-  if (targetPreset === 'claude-only') return ['claude-code', 'claude-desktop'];
-  if (targetPreset === 'all')
-    return ['claude-code', 'claude-desktop', 'cursor', 'codex', 'opencode'];
+  if (targetPreset === 'claude-only') {
+    return [...CLAUDE_SKILL_INSTALL_TARGETS];
+  }
+  if (targetPreset === 'all') return [...SKILL_INSTALL_TARGETS];
   return await checkbox<SkillInstallTarget>({
     message: 'Select target platforms',
-    choices: [
-      { name: '- claude-code', value: 'claude-code', checked: true },
-      { name: '- claude-desktop', value: 'claude-desktop', checked: true },
-      { name: '- cursor', value: 'cursor' },
-      { name: '- codex', value: 'codex' },
-      { name: '- opencode', value: 'opencode' },
-    ],
+    choices: SKILL_INSTALL_TARGETS.map(target => ({
+      name: `- ${target}`,
+      value: target,
+      checked: CLAUDE_SKILL_INSTALL_TARGETS.includes(target),
+    })),
     required: true,
     loop: false,
   });
@@ -154,7 +83,7 @@ export const skillsCommand: CLICommand = {
   aliases: ['sk'],
   description: 'Install Octocode skills across AI clients',
   usage:
-    'octocode skills [install|remove|list] [--skill <name>] [--targets <list>] [--mode <copy|symlink>]',
+    'octocode-cli skills [install|remove|list] [--skill <name>] [--targets <list>] [--mode <copy|symlink>]',
   options: [
     { name: 'force', short: 'f', description: 'Overwrite existing skills' },
     {
@@ -166,8 +95,7 @@ export const skillsCommand: CLICommand = {
     {
       name: 'targets',
       short: 't',
-      description:
-        'Comma-separated targets: claude-code, claude-desktop, cursor, codex, opencode',
+      description: `Comma-separated targets: ${formatSkillInstallTargets()}`,
       hasValue: true,
     },
     {
@@ -186,10 +114,7 @@ export const skillsCommand: CLICommand = {
       typeof rawSkill === 'string' && rawSkill.length > 0
         ? rawSkill
         : undefined;
-    const rawTargets =
-      subcommand === 'remove'
-        ? undefined
-        : (args.options['targets'] ?? args.options['t']);
+    const rawTargets = args.options['targets'] ?? args.options['t'];
     const rawMode =
       subcommand === 'remove'
         ? undefined
@@ -205,7 +130,7 @@ export const skillsCommand: CLICommand = {
         );
         console.log(`  ${dim('Allowed values:')} copy, symlink`);
         console.log(
-          `  ${dim('Example:')} octocode skills install --mode symlink`
+          `  ${dim('Example:')} octocode-cli skills install --mode symlink`
         );
         console.log();
         process.exitCode = 1;
@@ -220,18 +145,17 @@ export const skillsCommand: CLICommand = {
     const srcDir = getSkillsSourceDir();
     const destDir = getSkillsDestDir();
 
-    let selectedTargets: SkillInstallTarget[] = ['claude-code'];
+    let selectedTargets: SkillInstallTarget[] = [
+      ...DEFAULT_SKILL_INSTALL_TARGETS,
+    ];
     if (typeof rawTargets === 'string' && rawTargets.trim().length > 0) {
-      const parsed = rawTargets
-        .split(',')
-        .map(s => normalizeSkillTarget(s))
-        .filter((s): s is SkillInstallTarget => s !== null);
-      selectedTargets = [...new Set(parsed)];
-      if (selectedTargets.length === 0) {
+      const parsed = parseSkillTargetList(rawTargets);
+      selectedTargets = parsed.targets;
+      if (parsed.error) {
         console.log();
-        console.log(`  ${c('red', 'X')} No valid targets provided`);
+        console.log(`  ${c('red', 'X')} ${parsed.error}`);
         console.log(
-          `  ${dim('Valid targets:')} claude-code, claude-desktop, cursor, codex, opencode`
+          `  ${dim('Valid targets:')} ${formatSkillInstallTargets()}`
         );
         console.log();
         process.exitCode = 1;
@@ -263,10 +187,10 @@ export const skillsCommand: CLICommand = {
       installStrategy = promptedStrategy;
     }
 
-    const targetDestinations = selectedTargets.map(target => ({
-      target,
-      destDir: getSkillsDirForTarget(target, destDir),
-    }));
+    const targetDestinations = getSkillTargetDestinations(
+      selectedTargets,
+      destDir
+    );
 
     if (!dirExists(srcDir)) {
       console.log();
@@ -277,9 +201,7 @@ export const skillsCommand: CLICommand = {
       return;
     }
 
-    const availableSkills = listSubdirectories(srcDir).filter(
-      name => !name.startsWith('.')
-    );
+    const availableSkills = getAvailableSkillNames(srcDir);
 
     if (subcommand === 'list') {
       console.log();
@@ -306,12 +228,12 @@ export const skillsCommand: CLICommand = {
         }
       }
       console.log();
-      console.log(`  ${dim('To install all:')} octocode skills install`);
+      console.log(`  ${dim('To install all:')} octocode-cli skills install`);
       console.log(
-        `  ${dim('To install one:')} octocode skills install --skill <name> ${dim('(or -k <name>)')}`
+        `  ${dim('To install one:')} octocode-cli skills install --skill <name> ${dim('(or -k <name>)')}`
       );
       console.log(
-        `  ${dim('Multi-install:')} octocode skills install --targets claude-code,cursor,codex --mode symlink`
+        `  ${dim('Multi-install:')} octocode-cli skills install --targets claude-code,cursor,codex --mode symlink`
       );
       console.log();
       return;
@@ -334,38 +256,27 @@ export const skillsCommand: CLICommand = {
           return;
         }
         const spinner = new Spinner(`Installing ${specificSkill}...`).start();
-        const sourcePath = path.join(srcDir, specificSkill);
-        let installed = 0;
-        let skipped = 0;
-        let failed = 0;
-        for (const destination of targetDestinations) {
-          if (!dirExists(destination.destDir)) {
-            mkdirSync(destination.destDir, { recursive: true, mode: 0o700 });
-          }
-          const result = installSkillToDestination(
-            sourcePath,
-            path.join(destination.destDir, specificSkill),
-            resolveModeForTarget(installStrategy, destination.target),
-            force
-          );
-          if (result === 'installed') installed++;
-          else if (result === 'skipped') skipped++;
-          else failed++;
-        }
-        if (failed === 0) {
+        const summary = installSkillForTargets({
+          skillName: specificSkill,
+          sourceDir: srcDir,
+          destinations: targetDestinations,
+          strategy: installStrategy,
+          force,
+        });
+        if (summary.failed === 0) {
           spinner.succeed(`Installed ${specificSkill}!`);
           console.log();
           console.log(
-            `  ${c('green', '✅')} Installed to ${installed}/${targetDestinations.length} targets`
+            `  ${c('green', '✅')} Installed to ${summary.installed}/${summary.targetCount} targets`
           );
           for (const destination of targetDestinations) {
             console.log(
               `    ${c('cyan', '•')} ${destination.target}: ${path.join(destination.destDir, specificSkill)}`
             );
           }
-          if (skipped > 0) {
+          if (summary.skipped > 0) {
             console.log(
-              `  ${c('yellow', 'WARN')} Skipped ${skipped} existing target(s) ${dim('(use --force to overwrite)')}`
+              `  ${c('yellow', 'WARN')} Skipped ${summary.skipped} existing target(s) ${dim('(use --force to overwrite)')}`
             );
           }
         } else {
@@ -385,47 +296,36 @@ export const skillsCommand: CLICommand = {
         return;
       }
       const spinner = new Spinner('Installing skills...').start();
-      let installed = 0;
-      let skipped = 0;
-      let failed = 0;
-      for (const skill of availableSkills) {
-        const skillSrc = path.join(srcDir, skill);
-        for (const destination of targetDestinations) {
-          if (!dirExists(destination.destDir)) {
-            mkdirSync(destination.destDir, { recursive: true, mode: 0o700 });
-          }
-          const result = installSkillToDestination(
-            skillSrc,
-            path.join(destination.destDir, skill),
-            resolveModeForTarget(installStrategy, destination.target),
-            force
-          );
-          if (result === 'installed') installed++;
-          else if (result === 'skipped') skipped++;
-          else failed++;
-        }
-      }
-      if (failed === 0) {
+      const summary = installAllSkillsForTargets({
+        skillNames: availableSkills,
+        sourceDir: srcDir,
+        destinations: targetDestinations,
+        strategy: installStrategy,
+        force,
+      });
+      if (summary.failed === 0) {
         spinner.succeed('Skills installation complete!');
       } else {
         spinner.fail('Skills installation completed with errors');
       }
       console.log();
-      if (installed > 0) {
+      if (summary.installed > 0) {
         console.log(
-          `  ${c('green', '✅')} Installed ${installed} skill target(s)`
+          `  ${c('green', '✅')} Installed ${summary.installed} skill target(s)`
         );
       }
-      if (skipped > 0) {
+      if (summary.skipped > 0) {
         console.log(
-          `  ${c('yellow', 'WARN')} Skipped ${skipped} existing skill target(s)`
+          `  ${c('yellow', 'WARN')} Skipped ${summary.skipped} existing skill target(s)`
         );
         console.log(
           `  ${dim('Use')} ${c('cyan', '--force')} ${dim('to overwrite.')}`
         );
       }
-      if (failed > 0) {
-        console.log(`  ${c('red', 'X')} Failed ${failed} skill target(s)`);
+      if (summary.failed > 0) {
+        console.log(
+          `  ${c('red', 'X')} Failed ${summary.failed} skill target(s)`
+        );
         process.exitCode = 1;
       }
       console.log();
@@ -448,7 +348,9 @@ export const skillsCommand: CLICommand = {
           `  ${c('red', 'X')} Missing required option: ${c('cyan', '--skill <name>')}`
         );
         console.log();
-        console.log(`  ${dim('Usage:')} octocode skills remove --skill <name>`);
+        console.log(
+          `  ${dim('Usage:')} octocode-cli skills remove --skill <name>`
+        );
         console.log();
         process.exitCode = 1;
         return;
@@ -456,32 +358,39 @@ export const skillsCommand: CLICommand = {
       console.log();
       console.log(`  ${bold(`Removing skill: ${specificSkill}`)}`);
       console.log();
-      let removed = 0;
-      let missing = 0;
-      for (const destination of targetDestinations) {
-        const skillPath = path.join(destination.destDir, specificSkill);
-        if (!dirExists(skillPath)) {
-          missing++;
-          continue;
-        }
-        if (removeDirectory(skillPath)) {
-          removed++;
-        } else {
+      const summary = removeSkillFromTargets({
+        skillName: specificSkill,
+        destinations: targetDestinations,
+      });
+
+      const invalidSkillName = summary.failures.some(
+        failure => failure.reason === 'invalid-skill-name'
+      );
+      if (invalidSkillName) {
+        console.log(`  ${c('red', 'X')} Invalid skill name: ${specificSkill}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      for (const failure of summary.failures) {
+        if (failure.reason === 'remove-failed') {
           console.log(
-            `  ${c('red', 'X')} Failed to remove from ${destination.target}: ${skillPath}`
+            `  ${c('red', 'X')} Failed to remove from ${failure.target}: ${failure.path}`
           );
-          process.exitCode = 1;
         }
       }
-      if (removed > 0) {
+      if (summary.removed > 0) {
         console.log(
-          `  ${c('green', '✅')} Removed from ${removed}/${targetDestinations.length} targets`
+          `  ${c('green', '✅')} Removed from ${summary.removed}/${summary.targetCount} targets`
         );
       }
-      if (missing > 0) {
+      if (summary.missing > 0) {
         console.log(
-          `  ${c('yellow', 'WARN')} Not found in ${missing} target(s) ${dim('(already absent)')}`
+          `  ${c('yellow', 'WARN')} Not found in ${summary.missing} target(s) ${dim('(already absent)')}`
         );
+      }
+      if (summary.failed > 0) {
+        process.exitCode = 1;
       }
       console.log();
       return;
@@ -490,7 +399,7 @@ export const skillsCommand: CLICommand = {
     console.log();
     console.log(`  ${c('red', '✗')} Unknown subcommand: ${subcommand}`);
     console.log(
-      `  ${dim('Usage:')} octocode skills [install|remove|list] [--skill <name>]`
+      `  ${dim('Usage:')} octocode-cli skills [install|remove|list] [--skill <name>]`
     );
     console.log();
     process.exitCode = 1;

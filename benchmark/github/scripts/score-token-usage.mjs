@@ -50,6 +50,11 @@ const comparableQs = octo.per_q
 const amortizedInit = comparableQs.length > 0 ? initChars(octo) / comparableQs.length : 0;
 const fmt = n => Number(n).toLocaleString('en', { maximumFractionDigits: 3 });
 const score = (q, chars) => q <= 0 ? 0 : q / (chars / 1000);
+const winnerByScore = (octocodeScore, ghScore) => {
+  const max = Math.max(octocodeScore, ghScore);
+  if (max === 0 || Math.abs(octocodeScore - ghScore) / max <= 0.05) return 'tie';
+  return octocodeScore > ghScore ? 'octocode' : 'gh';
+};
 const qScore = (agent, q) => {
   const v = quality[agent]?.[String(q)] ?? quality[agent]?.[q];
   if (!Number.isFinite(v) || v < 0 || v > 3) {
@@ -61,8 +66,8 @@ const qScore = (agent, q) => {
 
 const ghByQ = new Map(gh.per_q.filter(q => !q.missing).map(q => [q.q, q]));
 const rows = [];
-let wins = { octocode: 0, gh: 0, tie: 0 };
-let sums = { octocodeQuality: 0, ghQuality: 0, octocodeChars: 0, ghChars: 0 };
+const wins = { octocode: 0, gh: 0, tie: 0 };
+const sums = { octocodeQuality: 0, ghQuality: 0, octocodeChars: 0, ghChars: 0 };
 
 for (const oq of octo.per_q.filter(q => !q.missing)) {
   const q = oq.q;
@@ -78,8 +83,7 @@ for (const oq of octo.per_q.filter(q => !q.missing)) {
   const isExcluded = exclude.has(q);
   let winner = '—';
   if (!isDrift && !isExcluded) {
-    const max = Math.max(os, gs);
-    winner = max > 0 && Math.abs(os - gs) / max <= 0.05 ? 'tie' : (os > gs ? 'octocode' : 'gh');
+    winner = winnerByScore(os, gs);
     wins[winner]++;
     sums.octocodeQuality += oqv;
     sums.ghQuality += gqv;
@@ -91,6 +95,7 @@ for (const oq of octo.per_q.filter(q => !q.missing)) {
 
 const totalScoreOcto = score(sums.octocodeQuality, sums.octocodeChars);
 const totalScoreGh = score(sums.ghQuality, sums.ghChars);
+const totalWinner = winnerByScore(totalScoreOcto, totalScoreGh);
 
 console.log(JSON.stringify({
   runs: { octocode: basename(octoRun), gh: basename(ghRun) },
@@ -105,10 +110,10 @@ console.log(JSON.stringify({
     gh_approx_tokens: sums.ghChars / 4,
     octocode_quality_per_1k_chars: totalScoreOcto,
     gh_quality_per_1k_chars: totalScoreGh,
-    winner: Math.abs(totalScoreOcto - totalScoreGh) / Math.max(totalScoreOcto, totalScoreGh, 1) <= 0.05 ? 'tie' : (totalScoreOcto > totalScoreGh ? 'octocode' : 'gh'),
+    winner: totalWinner,
     wins,
     chars_ratio_octo_over_gh: sums.ghChars ? sums.octocodeChars / sums.ghChars : null,
   },
 }, null, 2));
 
-console.error(`winner=${totalScoreOcto > totalScoreGh ? 'octocode' : totalScoreGh > totalScoreOcto ? 'gh' : 'tie'} octocode_q_per_1k=${fmt(totalScoreOcto)} gh_q_per_1k=${fmt(totalScoreGh)} chars_ratio=${fmt(sums.octocodeChars / sums.ghChars)}`);
+console.error(`winner=${totalWinner} octocode_q_per_1k=${fmt(totalScoreOcto)} gh_q_per_1k=${fmt(totalScoreGh)} chars_ratio=${fmt(sums.octocodeChars / sums.ghChars)}`);

@@ -15,11 +15,19 @@ import type {
 
 import { viewGitHubRepositoryStructureAPI } from '../../github/repoStructure.js';
 
-import type { GitHubViewRepoStructureQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type GitHubViewRepoStructureQuery = z.infer<
+  typeof GitHubViewRepoStructureQuerySchema
+>;
 import type { GitHubRepositoryStructureResult } from '../../tools/github_view_repo_structure/types.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 
-import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
+import {
+  createGitHubProviderErrorFromResult,
+  parseGitHubProjectId,
+} from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
 /**
@@ -83,25 +91,13 @@ export async function getRepoStructure(
   const result = await viewGitHubRepositoryStructureAPI(githubQuery, authInfo);
 
   if ('error' in result) {
-    const errorResult = result as {
-      error: string | { toString(): string };
-      status?: number;
-      hints?: string[];
-      rateLimitRemaining?: number;
-      rateLimitReset?: number;
-      retryAfter?: number;
-    };
-    return createGitHubProviderError({
-      error:
-        typeof errorResult.error === 'string'
-          ? errorResult.error
-          : String(errorResult.error),
-      status: errorResult.status || 500,
-      hints: errorResult.hints,
-      rateLimitRemaining: errorResult.rateLimitRemaining,
-      rateLimitReset: errorResult.rateLimitReset,
-      retryAfter: errorResult.retryAfter,
-    });
+    return (
+      createGitHubProviderErrorFromResult(result) ?? {
+        error: 'Unknown GitHub API error',
+        status: 500,
+        provider: 'github',
+      }
+    );
   }
 
   return {

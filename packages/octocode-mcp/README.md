@@ -93,7 +93,7 @@ Quality ↑
 | Local semantic flow | **Octocode MCP LSP** | **Octocode MCP LSP** | Definitions, references, call hierarchy |
 | GitHub writes | **raw `gh` / RTK** | **raw `gh` / RTK** | Octocode is read-only |
 
-Local verdict: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"ultra"` is available for lossy broad probes; use compact/default for evidence.
+Local verdict: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"concise"` is available for lossy broad probes; use compact/default for evidence.
 
 Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/README.md)
 
@@ -101,15 +101,15 @@ Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/ben
 
 ## Table of Contents
 
-- [Benchmark Performance](#benchmark-performance)
-- [See It In Action](#see-it-in-action)
-- [Installation](#installation)
-- [More Examples](#more-examples)
-- [Overview](#overview)
-- [Tools](#tools)
-- [Documentation](#documentation)
-- [Community](#community)
-- [License](#license)
+- [Benchmark Performance](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#benchmark-performance)
+- [See It In Action](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#see-it-in-action)
+- [Installation](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#installation)
+- [More Examples](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#more-examples)
+- [Overview](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#overview)
+- [Tools](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#tools)
+- [Documentation](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#documentation)
+- [Community](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#community)
+- [License](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#license)
 
 ---
 
@@ -256,7 +256,7 @@ First, install the Octocode MCP server with your client.
 }
 ```
 
-> **Note**: This configuration uses GitHub CLI authentication. For Personal Access Token, see the [Authentication Guide](#authentication-methods) below.
+> **Note**: This configuration uses GitHub CLI authentication. For Personal Access Token, see the [Authentication Guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/README.md#authentication-methods) below.
 
 [<img src="https://img.shields.io/badge/VS_Code-VS_Code?style=flat-square&label=Install%20Server&color=0098FF" alt="Install in VS Code">](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522octocode%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522octocode-mcp%2540latest%255D%257D) [<img alt="Install in VS Code Insiders" src="https://img.shields.io/badge/VS_Code_Insiders-VS_Code_Insiders?style=flat-square&label=Install%20Server&color=24bfa5">](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522octocode%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522octocode-mcp%2540latest%255D%257D)
 

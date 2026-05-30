@@ -24,7 +24,7 @@ import { join, dirname, resolve, sep } from 'node:path';
 import { getOctocodeDir } from 'octocode-shared';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getOctokit } from './client.js';
-import type { GitHubDirectoryFileEntry } from '@octocodeai/octocode-core';
+import type { GitHubDirectoryFileEntry } from '@octocodeai/octocode-core/extra-types';
 import type { DirectoryFetchResult } from '../tools/github_fetch_content/types.js';
 import {
   getCloneDir,
@@ -200,7 +200,7 @@ export async function fetchDirectoryContents(
     );
   }
 
-  const fileEntries: DirectoryEntry[] = data
+  const fileEntries = (data as DirectoryEntry[])
     .filter((item): item is DirectoryEntry & { download_url: string } => {
       if (item.type !== 'file') return false;
       if (!item.download_url) return false;

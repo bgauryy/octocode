@@ -1,4 +1,5 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
+import type { ToolMetadata } from '@octocodeai/octocode-core/types';
 import { getMetadataOrNull } from './state.js';
 import { isLocalTool } from '../toolNames.js';
 
@@ -14,7 +15,9 @@ export const TOOL_HINTS = new Proxy({} as ToolHintsType, {
   get(_target, prop: string) {
     const metadata = getMetadataOrNull() ?? completeMetadata;
     if (prop === 'base') return metadata.baseHints;
-    return metadata.tools[prop]?.hints ?? EMPTY_HINTS;
+    return (
+      (metadata.tools[prop] as ToolMetadata | undefined)?.hints ?? EMPTY_HINTS
+    );
   },
   ownKeys() {
     const metadata = getMetadataOrNull() ?? completeMetadata;
@@ -33,7 +36,9 @@ export const TOOL_HINTS = new Proxy({} as ToolHintsType, {
       return {
         enumerable: true,
         configurable: true,
-        value: metadata.tools[prop as string]?.hints ?? EMPTY_HINTS,
+        value:
+          (metadata.tools[prop as string] as ToolMetadata | undefined)?.hints ??
+          EMPTY_HINTS,
       };
     }
     return undefined;
@@ -50,7 +55,9 @@ export function getToolHintsSync(
   const baseHints = isLocalTool(toolName)
     ? rawBaseHints.filter(isLocalRelevantBaseHint)
     : rawBaseHints;
-  const toolHints = metadata.tools[toolName]?.hints[resultType] ?? [];
+  const toolHints =
+    (metadata.tools[toolName] as ToolMetadata | undefined)?.hints[resultType] ??
+    [];
   return [...baseHints, ...toolHints];
 }
 

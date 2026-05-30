@@ -1,6 +1,21 @@
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import {
   copyDirectory,
   dirExists,
@@ -25,6 +40,36 @@ const OctocodeConfigSchema = z
   .passthrough();
 
 type OctocodeConfig = z.infer<typeof OctocodeConfigSchema>;
+
+export type SkillInstallMode = 'copy' | 'symlink';
+export type SkillInstallStrategy = SkillInstallMode | 'hybrid';
+export const SKILL_INSTALL_TARGETS = [
+  'claude-code',
+  'claude-desktop',
+  'cursor',
+  'codex',
+  'opencode',
+] as const;
+export type SkillInstallTarget = (typeof SKILL_INSTALL_TARGETS)[number];
+export const DEFAULT_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
+  'claude-code',
+];
+export const CLAUDE_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
+  'claude-code',
+  'claude-desktop',
+];
+export type SkillInstallResult = 'installed' | 'skipped' | 'failed';
+
+const SKILL_TARGET_ALIASES: Record<string, SkillInstallTarget> = {
+  claude: 'claude-code',
+  'claude-code': 'claude-code',
+  claudecode: 'claude-code',
+  'claude-desktop': 'claude-desktop',
+  claudedesktop: 'claude-desktop',
+  cursor: 'cursor',
+  codex: 'codex',
+  opencode: 'opencode',
+};
 
 function loadConfig(): OctocodeConfig {
   return trySafe(() => {
@@ -73,21 +118,119 @@ export function getDefaultSkillsDestDir(): string {
   return join(HOME, '.claude', 'skills');
 }
 
+export function normalizeSkillTarget(
+  target: string
+): SkillInstallTarget | null {
+  return SKILL_TARGET_ALIASES[target.trim().toLowerCase()] ?? null;
+}
+
+export function formatSkillInstallTargets(): string {
+  return SKILL_INSTALL_TARGETS.join(', ');
+}
+
+export function getSkillsDirForTarget(
+  target: SkillInstallTarget,
+  defaultDestDir: string = getSkillsDestDir()
+): string {
+  if (target === 'claude-code') {
+    return defaultDestDir;
+  }
+
+  if (isWindows) {
+    const appData = getAppDataPath();
+    switch (target) {
+      case 'claude-desktop':
+        return join(appData, 'Claude Desktop', 'skills');
+      case 'cursor':
+        return join(HOME, '.cursor', 'skills');
+      case 'codex':
+        return join(HOME, '.codex', 'skills');
+      case 'opencode':
+        return join(HOME, '.opencode', 'skills');
+    }
+  }
+
+  switch (target) {
+    case 'claude-desktop':
+      return join(HOME, '.claude-desktop', 'skills');
+    case 'cursor':
+      return join(HOME, '.cursor', 'skills');
+    case 'codex':
+      return join(HOME, '.codex', 'skills');
+    case 'opencode':
+      return join(HOME, '.opencode', 'skills');
+  }
+}
+
+export function resolveModeForTarget(
+  strategy: SkillInstallStrategy,
+  target: SkillInstallTarget
+): SkillInstallMode {
+  if (strategy === 'hybrid') {
+    return target === 'claude-code' || target === 'claude-desktop'
+      ? 'copy'
+      : 'symlink';
+  }
+
+  return strategy;
+}
+
+export function isPathInside(baseDir: string, targetPath: string): boolean {
+  const normalizedBase = resolve(baseDir);
+  const normalizedTarget = resolve(targetPath);
+  const relativePath = relative(normalizedBase, normalizedTarget);
+
+  return (
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  );
+}
+
+export function isSafeSkillName(skillName: string): boolean {
+  const trimmed = skillName.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed === skillName &&
+    trimmed !== '.' &&
+    trimmed !== '..' &&
+    !trimmed.includes('\0') &&
+    !trimmed.includes('/') &&
+    !trimmed.includes('\\')
+  );
+}
+
+export function resolveSkillDestination(
+  destDir: string,
+  skillName: string
+): string | null {
+  if (!isSafeSkillName(skillName)) {
+    return null;
+  }
+
+  const destinationPath = resolve(destDir, skillName);
+  return isPathInside(destDir, destinationPath) ? destinationPath : null;
+}
+
 interface SkillMetadata {
   name: string;
   description: string;
   folder: string;
 }
 
-export function getSkillsSourcePath(): string {
+function getSkillsSourceCandidates(): string[] {
   const currentFile = fileURLToPath(import.meta.url);
   const currentDir = dirname(currentFile);
 
-  const candidates = [
-    join(currentDir, '..', 'skills'),
-    join(currentDir, '..', '..', '..', '..', 'skills'),
-    join(currentDir, '..', '..', '..', 'skills'),
+  return [
+    resolve(currentDir, '..', 'skills'),
+    resolve(currentDir, '..', '..', '..', '..', 'skills'),
+    resolve(currentDir, '..', '..', '..', 'skills'),
   ];
+}
+
+function findSkillsSourcePath(options: { fallback: boolean }): string {
+  const candidates = getSkillsSourceCandidates();
 
   for (const candidate of candidates) {
     if (dirExists(candidate)) {
@@ -95,7 +238,15 @@ export function getSkillsSourcePath(): string {
     }
   }
 
+  if (options.fallback) {
+    return candidates[0];
+  }
+
   throw new Error('Skills directory not found');
+}
+
+export function getSkillsSourcePath(): string {
+  return findSkillsSourcePath({ fallback: false });
 }
 
 export function copySkills(destDir: string): boolean {
@@ -105,40 +256,32 @@ export function copySkills(destDir: string): boolean {
 
 export function copySkill(skillName: string, destDir: string): boolean {
   const skillsSource = getSkillsSourcePath();
-  const skillPath = join(skillsSource, skillName);
+  const skillPath = resolveSkillDestination(skillsSource, skillName);
+  const destPath = resolveSkillDestination(destDir, skillName);
 
-  if (!dirExists(skillPath)) {
+  if (!skillPath || !destPath) {
     return false;
   }
 
-  const destPath = join(destDir, skillName);
-  return copyDirectory(skillPath, destPath);
+  return (
+    installSkillToDestination({
+      sourcePath: skillPath,
+      destinationPath: destPath,
+      mode: 'copy',
+      force: true,
+    }) === 'installed'
+  );
 }
 
 export function getAvailableSkills(): string[] {
   const skillsSource = getSkillsSourcePath();
-  return listSubdirectories(skillsSource).filter(name =>
-    name.startsWith('octocode-')
+  return listSubdirectories(skillsSource).filter(
+    name => name.startsWith('octocode-') && isSafeSkillName(name)
   );
 }
 
 export function getSkillsSourceDir(): string {
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = dirname(currentFile);
-
-  const candidates = [
-    resolve(currentDir, '..', 'skills'),
-    resolve(currentDir, '..', '..', '..', '..', 'skills'),
-    resolve(currentDir, '..', '..', '..', 'skills'),
-  ];
-
-  for (const candidate of candidates) {
-    if (dirExists(candidate)) {
-      return candidate;
-    }
-  }
-
-  return resolve(currentDir, '..', 'skills');
+  return findSkillsSourcePath({ fallback: true });
 }
 
 export function getSkillsDestDir(): string {
@@ -169,14 +312,14 @@ export function getSkillMetadata(skillPath: string): SkillMetadata | null {
   return {
     name: parsed.name,
     description: parsed.description,
-    folder: skillPath.split('/').pop() || '',
+    folder: basename(skillPath),
   };
 }
 
 export function getAllSkillsMetadata(): SkillMetadata[] {
   const skillsSource = getSkillsSourcePath();
-  const skillDirs = listSubdirectories(skillsSource).filter(name =>
-    name.startsWith('octocode-')
+  const skillDirs = listSubdirectories(skillsSource).filter(
+    name => name.startsWith('octocode-') && isSafeSkillName(name)
   );
 
   const skills: SkillMetadata[] = [];
@@ -190,4 +333,44 @@ export function getAllSkillsMetadata(): SkillMetadata[] {
   }
 
   return skills;
+}
+
+export function installSkillToDestination({
+  sourcePath,
+  destinationPath,
+  mode,
+  force,
+}: {
+  sourcePath: string;
+  destinationPath: string;
+  mode: SkillInstallMode;
+  force: boolean;
+}): SkillInstallResult {
+  try {
+    if (!dirExists(sourcePath)) {
+      return 'failed';
+    }
+
+    if (existsSync(destinationPath)) {
+      if (!force) {
+        return 'skipped';
+      }
+      rmSync(destinationPath, { recursive: true, force: true });
+    }
+
+    const parentDir = dirname(destinationPath);
+    if (!dirExists(parentDir)) {
+      mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+    }
+
+    if (mode === 'symlink') {
+      const symlinkType: 'dir' | 'junction' = isWindows ? 'junction' : 'dir';
+      symlinkSync(sourcePath, destinationPath, symlinkType);
+      return 'installed';
+    }
+
+    return copyDirectory(sourcePath, destinationPath) ? 'installed' : 'failed';
+  } catch {
+    return 'failed';
+  }
 }

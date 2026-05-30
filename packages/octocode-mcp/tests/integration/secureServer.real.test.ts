@@ -70,7 +70,7 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
     const result = await client.callTool({ name: 'explode', arguments: {} });
 
     expect(result.isError).toBe(true);
-    const text = (result.content as Array<{ type: string; text: string }>)[0]
+    const text = (result.content as Array<{ type: string; text: string }>)[0]!
       .text;
     expect(text).toContain('explode');
     expect(text).not.toContain('ghp_abc123xyz456789012345678901234567890');
@@ -79,7 +79,7 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
     const okResult = await client.callTool({ name: 'ping', arguments: {} });
     expect(okResult.isError).toBeFalsy();
     expect(
-      (okResult.content as Array<{ type: string; text: string }>)[0].text
+      (okResult.content as Array<{ type: string; text: string }>)[0]!.text
     ).toBe('pong');
 
     await client.close();

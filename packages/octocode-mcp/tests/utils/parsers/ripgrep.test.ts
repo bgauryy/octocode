@@ -219,7 +219,7 @@ describe('parseRipgrepJson', () => {
       matchContentLength: 100,
     });
 
-    expect(files[0]!.matches[0]!.value.length).toBeLessThanOrEqual(100);
+    expect(files[0]!.matches[0]!.value!.length).toBeLessThanOrEqual(100);
     expect(files[0]!.matches[0]!.value).toMatch(/\.\.\.$/);
   });
 

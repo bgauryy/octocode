@@ -171,12 +171,13 @@ describe('TSV projection: githubGetFileContent', () => {
         ],
       }
     );
+    // `content` intentionally omitted from TSV columns — file body lives in
+    // JSON `data.results[].files[].content` only. TSV is the metadata view.
     expect(columns).toEqual([
       'id',
       'owner',
       'repo',
       'path',
-      'content',
       'totalLines',
       'resolvedBranch',
       'isPartial',
@@ -192,11 +193,11 @@ describe('TSV projection: githubGetFileContent', () => {
       'type',
       'cached',
     ]);
+    expect(columns).not.toContain('content');
     expect(rows[0]).toMatchObject({
       owner: 'a',
       repo: 'b',
       path: 'README.md',
-      content: '# hi',
       startLine: 1,
       endLine: 40,
       totalLines: 200,
@@ -217,8 +218,12 @@ describe('TSV projection: githubGetFileContent', () => {
         ],
       }
     );
-    expect(columns).toContain('content');
-    expect(text).toContain('line1\\nline2\\nline3');
+    // File content lives in JSON `data.results[].files[].content`; TSV is
+    // a metadata view, so neither the column nor any row carries the body.
+    expect(columns).not.toContain('content');
+    expect(text).not.toContain('line1');
+    expect(text).not.toContain('line2');
+    expect(text).not.toContain('line3');
   });
 });
 
@@ -305,41 +310,27 @@ describe('TSV projection: githubViewRepoStructure', () => {
         },
       }
     );
-    expect(columns).toEqual([
-      'parent',
-      'name',
-      'type',
-      'path',
-      'size',
-      'sha',
-      'url',
-    ]);
+    // Lean projection: 4 useful columns. `size`/`sha`/`url` were dropped —
+    // the structure payload carries no data for them, so they were always
+    // empty placeholders. `path` is the full path, not an empty stub.
+    expect(columns).toEqual(['parent', 'name', 'type', 'path']);
     expect(rows).toContainEqual({
       parent: '.',
       name: 'README.md',
       type: 'file',
-      path: '',
-      size: '',
-      sha: '',
-      url: '',
+      path: 'README.md',
     });
     expect(rows).toContainEqual({
       parent: '.',
       name: 'src',
       type: 'dir',
-      path: '',
-      size: '',
-      sha: '',
-      url: '',
+      path: 'src',
     });
     expect(rows).toContainEqual({
       parent: 'src',
       name: 'index.ts',
       type: 'file',
-      path: '',
-      size: '',
-      sha: '',
-      url: '',
+      path: 'src/index.ts',
     });
   });
 
@@ -349,7 +340,7 @@ describe('TSV projection: githubViewRepoStructure', () => {
       { structure: {} }
     );
     expect(rows).toHaveLength(0);
-    expect(text).toBe('parent\tname\ttype\tpath\tsize\tsha\turl');
+    expect(text).toBe('parent\tname\ttype\tpath');
   });
 });
 
@@ -410,7 +401,7 @@ describe('hints contract — static guidance never reaches responses', () => {
   ];
 
   for (const tool of remoteTools) {
-    for (const status of ['hasResults', 'empty', 'error'] as const) {
+    for (const status of [undefined, 'empty', 'error'] as const) {
       it(`${tool} (${status}) — no static guidance phrases`, () => {
         const hints = getHints(tool, status, { hasOwnerRepo: false });
         for (const phrase of FORBIDDEN_STATIC_PHRASES) {

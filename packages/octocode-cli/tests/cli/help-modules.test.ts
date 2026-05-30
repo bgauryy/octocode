@@ -101,6 +101,27 @@ describe('command-help-specs', () => {
 
     stdoutSpy.mockRestore();
   });
+
+  it('does not rewrite token source names inside usage', async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+
+    const { findStaticCommandHelp } =
+      await import('../../src/cli/command-help-specs.js');
+    const { showCommandHelp } = await import('../../src/cli/help.js');
+    const cmd = findStaticCommandHelp('token')!;
+    showCommandHelp(cmd);
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('');
+    expect(output).toContain('--type <auto|octocode|gh>');
+    expect(output).toContain('env→octocode→gh');
+    expect(output).not.toContain('auto|octocode-cli|gh');
+
+    stdoutSpy.mockRestore();
+  });
 });
 
 describe('help (dynamic fallback)', () => {

@@ -32,7 +32,7 @@ describe('walkDirectory - WalkStats error tracking', () => {
     );
 
     const entries: DirectoryEntry[] = [];
-    const stats: WalkStats = { skipped: 0 };
+    const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
     await walkDirectory({
       basePath: tmpDir,
@@ -96,7 +96,7 @@ describe('walkDirectory - WalkStats error tracking', () => {
 
     const readdirSpy = vi.spyOn(fs.promises, 'readdir');
     const entries: DirectoryEntry[] = [];
-    const stats: WalkStats = { skipped: 0 };
+    const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
     // Call with depth=1, maxDepth=1 - should return immediately without reading subdir
     await walkDirectory({
@@ -120,7 +120,7 @@ describe('walkDirectory - WalkStats error tracking', () => {
     await fs.promises.writeFile(path.join(tmpDir, 'file.txt'), 'content');
 
     const entries: DirectoryEntry[] = [];
-    const stats: WalkStats = { skipped: 0 };
+    const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
     await walkDirectory({
       basePath: tmpDir,
@@ -154,7 +154,7 @@ describe('walkDirectory - WalkStats error tracking', () => {
     );
 
     const entries: DirectoryEntry[] = [];
-    const stats: WalkStats = { skipped: 0 };
+    const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
     await walkDirectory({
       basePath: tmpDir,

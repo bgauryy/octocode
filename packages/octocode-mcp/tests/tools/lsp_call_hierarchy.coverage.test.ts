@@ -133,7 +133,13 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
 
       const result = await toolHandler({ queries: [baseQuery] });
       const results = JSON.parse(result.content[0].text);
-      expect(results[0]).toEqual({ isError: true, message: 'Invalid path' });
+      // The bulk runner flattens `data` into the row entry in JSON output.
+      // Status field is omitted on success — so the error fields surface
+      // at the same level.
+      expect(results[0]).toMatchObject({
+        isError: true,
+        message: 'Invalid path',
+      });
     });
 
     it('should handle file read error', async () => {
@@ -151,7 +157,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       const result = await toolHandler({ queries: [baseQuery] });
       const results = JSON.parse(result.content[0].text);
       expect(toolHelpers.createErrorResult).toHaveBeenCalled();
-      expect(results[0]).toEqual({ error: 'Access denied' });
+      expect(results[0]).toMatchObject({ error: 'Access denied' });
     });
 
     it('should handle symbol resolution error', async () => {
@@ -233,7 +239,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         const result = await toolHandler({ queries: [baseQuery] });
         const results = JSON.parse(result.content[0].text);
 
-        expect(results[0].status).toBe('hasResults');
+        expect(results[0].status).toBeUndefined();
         expect(results[0].incomingCalls).toHaveLength(1);
         expect(results[0].incomingCalls[0].from.name).toBe('caller');
       });
@@ -300,7 +306,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         const result = await toolHandler({ queries: [outgoingQuery] });
         const results = JSON.parse(result.content[0].text);
 
-        expect(results[0].status).toBe('hasResults');
+        expect(results[0].status).toBeUndefined();
         expect(results[0].outgoingCalls).toHaveLength(1);
         expect(results[0].outgoingCalls[0].to.name).toBe('callee');
       });
@@ -405,7 +411,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
           expect.any(Array),
           expect.any(Object)
         );
-        expect(results[0].status).toBe('hasResults');
+        expect(results[0].status).toBeUndefined();
         expect(results[0].incomingCalls).toHaveLength(1);
       });
 
@@ -439,7 +445,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         const result = await toolHandler({ queries: [outgoingQuery] });
         const results = JSON.parse(result.content[0].text);
 
-        expect(results[0].status).toBe('hasResults');
+        expect(results[0].status).toBeUndefined();
         expect(results[0].outgoingCalls[0].to.name).toBe('otherFunc');
       });
 
@@ -828,7 +834,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       const result = await toolHandler({ queries: [query] });
       const results = JSON.parse(result.content[0].text);
 
-      expect(results[0].status).toBe('hasResults');
+      expect(results[0].status).toBeUndefined();
     });
 
     it('should detect async method pattern', async () => {
@@ -880,7 +886,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       const result = await toolHandler({ queries: [query] });
       const results = JSON.parse(result.content[0].text);
 
-      expect(results[0].status).toBe('hasResults');
+      expect(results[0].status).toBeUndefined();
     });
 
     it('should handle file read error gracefully in createCallHierarchyItemFromSite', async () => {
@@ -929,7 +935,7 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       const results = JSON.parse(result.content[0].text);
 
       // Should still have results, but with default 'unknown' enclosing function
-      expect(results[0].status).toBe('hasResults');
+      expect(results[0].status).toBeUndefined();
     });
   });
 });

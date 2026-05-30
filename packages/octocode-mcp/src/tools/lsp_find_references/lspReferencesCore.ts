@@ -15,16 +15,22 @@ import type {
   FindReferencesResult,
   ReferenceLocation,
   LSPRange,
-  LSPPaginationInfo,
   ExactPosition,
 } from '../../lsp/types.js';
-import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { LSPFindReferencesQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type LSPFindReferencesQuery = z.infer<typeof LSPFindReferencesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 import type { SymbolKind } from '../../lsp/types.js';
 import { acquirePooledClient } from '../../lsp/manager.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAME } from './constants.js';
 import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
+import {
+  buildFindReferencesPageOutOfRangeResult,
+  buildFindReferencesPageResult,
+} from './referenceResultHelpers.js';
 
 /**
  * Infer symbol kind from the definition line content.
@@ -79,6 +85,42 @@ export function matchesFilePatterns(
  * Use LSP client to find references.
  * Applies file pattern filtering and lazy enhancement (paginate-then-enhance).
  */
+/** Error result when the server lacks referencesProvider. */
+function buildReferencesCapabilityError(): FindReferencesResult {
+  return {
+    status: 'error',
+    error: 'Language server does not support find references',
+    errorType: 'unknown',
+    errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
+    hints: [
+      ...getHints(TOOL_NAME, 'error'),
+      'The active language server does not advertise referencesProvider.',
+      'Try localSearchCode for text-based usage search.',
+    ],
+  };
+}
+
+/** Empty result when references exist but none matched include/exclude globs. */
+function buildNoPatternMatchResult(
+  query: WithOptionalMeta<LSPFindReferencesQuery>,
+  totalUnfiltered: number
+): FindReferencesResult {
+  return {
+    status: 'empty',
+    hints: [
+      ...getHints(TOOL_NAME, 'empty'),
+      `Found ${totalUnfiltered} reference(s) but none matched the file patterns`,
+      query.includePattern?.length
+        ? `Include patterns: ${query.includePattern.join(', ')}`
+        : '',
+      query.excludePattern?.length
+        ? `Exclude patterns: ${query.excludePattern.join(', ')}`
+        : '',
+      'Try broader patterns or remove filtering to see all results',
+    ].filter(Boolean),
+  };
+}
+
 export async function findReferencesWithLSP(
   filePath: string,
   workspaceRoot: string,
@@ -91,18 +133,7 @@ export async function findReferencesWithLSP(
   if (!client) return null;
 
   if (client.hasCapability && !client.hasCapability('referencesProvider')) {
-    return {
-      status: 'error',
-      error: 'Language server does not support find references',
-      errorType: 'unknown',
-      errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
-      lspMode: 'semantic',
-      hints: [
-        ...getHints(TOOL_NAME, 'error'),
-        'The active language server does not advertise referencesProvider.',
-        'Try localSearchCode for text-based usage search.',
-      ],
-    };
+    return buildReferencesCapabilityError();
   }
 
   // Warm-up: prepareCallHierarchy forces tsserver to load the project graph.
@@ -159,8 +190,9 @@ export async function findReferencesWithLSP(
 
   const totalUnfiltered = rawLocations.length;
 
-  const hasFilters =
-    query.includePattern?.length || query.excludePattern?.length;
+  const hasFilters = Boolean(
+    query.includePattern?.length || query.excludePattern?.length
+  );
   const filteredLocations = hasFilters
     ? rawLocations.filter(loc =>
         matchesFilePatterns(loc.uri, query.includePattern, query.excludePattern)
@@ -168,20 +200,7 @@ export async function findReferencesWithLSP(
     : rawLocations;
 
   if (filteredLocations.length === 0) {
-    return {
-      status: 'empty',
-      hints: [
-        ...getHints(TOOL_NAME, 'empty'),
-        `Found ${totalUnfiltered} reference(s) but none matched the file patterns`,
-        query.includePattern?.length
-          ? `Include patterns: ${query.includePattern.join(', ')}`
-          : '',
-        query.excludePattern?.length
-          ? `Exclude patterns: ${query.excludePattern.join(', ')}`
-          : '',
-        'Try broader patterns or remove filtering to see all results',
-      ].filter(Boolean),
-    };
+    return buildNoPatternMatchResult(query, totalUnfiltered);
   }
 
   const referencesPerPage = query.referencesPerPage ?? 20;
@@ -190,22 +209,13 @@ export async function findReferencesWithLSP(
   const totalPages = Math.ceil(totalReferences / referencesPerPage);
 
   if (totalReferences > 0 && page > totalPages) {
-    return {
-      status: 'empty',
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalResults: totalReferences,
-        hasMore: false,
-        resultsPerPage: referencesPerPage,
-      },
-      hasMultipleFiles: new Set(filteredLocations.map(ref => ref.uri)).size > 1,
-      hints: [
-        ...getHints(TOOL_NAME, 'empty'),
-        `Requested page ${page} is outside available range (1-${totalPages}).`,
-        `Use page=${totalPages} for the last available page.`,
-      ],
-    };
+    return buildFindReferencesPageOutOfRangeResult(
+      filteredLocations,
+      page,
+      totalPages,
+      totalReferences,
+      referencesPerPage
+    );
   }
 
   const startIndex = (page - 1) * referencesPerPage;
@@ -217,36 +227,16 @@ export async function findReferencesWithLSP(
     paginatedRaw.map(raw => enhanceReferenceLocation(raw, contextLines))
   );
 
-  const uniqueFiles = new Set(filteredLocations.map(ref => ref.uri));
-  const hasMultipleFiles = uniqueFiles.size > 1;
-
-  const pagination: LSPPaginationInfo = {
-    currentPage: page,
-    totalPages,
-    totalResults: totalReferences,
-    hasMore: page < totalPages,
-    resultsPerPage: referencesPerPage,
-  };
-
-  const hints: string[] = [];
-  if (hasFilters && totalUnfiltered !== totalReferences) {
-    hints.push(
-      `Filtered: ${totalReferences} of ${totalUnfiltered} total references match patterns.`
-    );
-  }
-  if (pagination.hasMore) {
-    hints.push(
-      `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
-    );
-  }
-
-  return {
-    status: 'hasResults',
+  return buildFindReferencesPageResult({
     locations: paginatedReferences,
-    pagination,
-    hasMultipleFiles,
-    hints,
-  };
+    filteredReferences: filteredLocations,
+    page,
+    totalPages,
+    totalReferences,
+    referencesPerPage,
+    hasFilters,
+    totalUnfiltered,
+  });
 }
 
 /**
@@ -299,13 +289,18 @@ async function enhanceReferenceLocation(
     }
   }
 
+  // Emit isDefinition only when true — the common case (regular reference)
+  // adds no information. Same for symbolKind: only the definition row needs
+  // to carry it; non-definition rows would just repeat the value.
   return {
     uri: raw.absoluteUri,
     range: raw.range,
     content,
-    isDefinition: raw.isDefinition,
-    symbolKind: raw.isDefinition
-      ? inferSymbolKindFromContent(content)
-      : undefined,
+    ...(raw.isDefinition
+      ? {
+          isDefinition: true as const,
+          symbolKind: inferSymbolKindFromContent(content),
+        }
+      : {}),
   };
 }

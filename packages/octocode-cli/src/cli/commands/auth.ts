@@ -5,55 +5,18 @@ import {
   logout as oauthLogout,
   getAuthStatus,
   getStoragePath,
-  getOctocodeToken,
-  getGhCliToken,
   type VerificationInfo,
 } from '../../features/github-oauth.js';
-import { GH_CLI_URL } from '../../features/gh-auth.js';
 import { loadInquirer, select } from '../../utils/prompts.js';
 import { Spinner } from '../../utils/spinner.js';
-import {
-  safeTokenOutput,
-  formatTokenSource,
-  printLoginHint,
-} from './shared.js';
-
-async function showAuthStatus(hostname: string = 'github.com'): Promise<void> {
-  console.log();
-  console.log(`  ${bold('🔐 GitHub Authentication')}`);
-  console.log();
-
-  const status = getAuthStatus(hostname);
-
-  if (status.authenticated) {
-    console.log(
-      `  ${c('green', '✓')} Authenticated as ${c('cyan', status.username || 'unknown')}`
-    );
-    if (status.tokenExpired) {
-      console.log(
-        `  ${c('yellow', '⚠')} Token has expired - please login again`
-      );
-    }
-    console.log(`  ${dim('Host:')} ${status.hostname}`);
-    console.log(
-      `  ${dim('Source:')} ${formatTokenSource(status.tokenSource || 'none', status.envTokenSource)}`
-    );
-  } else {
-    console.log(`  ${c('yellow', '⚠')} ${c('yellow', 'Not authenticated')}`);
-    console.log();
-    console.log(`  ${bold('To authenticate:')}`);
-    printLoginHint();
-  }
-  console.log();
-  console.log(`  ${dim('Credentials stored in:')} ${getStoragePath()}`);
-  console.log();
-}
+import { printAuthStatus, printLoginHint } from './shared.js';
+import { tokenCommand } from './token.js';
 
 export const loginCommand: CLICommand = {
   name: 'login',
   aliases: ['l'],
   description: 'Authenticate with GitHub',
-  usage: 'octocode login [--hostname <host>] [--git-protocol <ssh|https>]',
+  usage: 'octocode-cli login [--hostname <host>] [--git-protocol <ssh|https>]',
   options: [
     {
       name: 'hostname',
@@ -82,7 +45,9 @@ export const loginCommand: CLICommand = {
       );
       console.log();
       console.log(`  ${dim('To switch accounts, logout first:')}`);
-      console.log(`    ${c('cyan', '→')} ${c('yellow', 'octocode logout')}`);
+      console.log(
+        `    ${c('cyan', '→')} ${c('yellow', 'octocode-cli logout')}`
+      );
       console.log();
       return;
     }
@@ -91,10 +56,18 @@ export const loginCommand: CLICommand = {
     console.log(`  ${bold('🔐 GitHub Authentication')}`);
     console.log();
 
-    const gitProtocolOpt = args.options['git-protocol'];
-    const gitProtocol = (
-      typeof gitProtocolOpt === 'string' ? gitProtocolOpt : 'https'
-    ) as 'ssh' | 'https';
+    const gitProtocolOpt = args.options['git-protocol'] ?? args.options['p'];
+    const gitProtocol =
+      typeof gitProtocolOpt === 'string' ? gitProtocolOpt : 'https';
+
+    if (gitProtocol !== 'ssh' && gitProtocol !== 'https') {
+      console.log();
+      console.log(`  ${c('red', '✗')} Invalid git protocol: ${gitProtocol}`);
+      console.log(`  ${dim('Supported:')} ssh, https`);
+      console.log();
+      process.exitCode = 1;
+      return;
+    }
 
     let verificationShown = false;
 
@@ -144,7 +117,7 @@ export const loginCommand: CLICommand = {
 export const logoutCommand: CLICommand = {
   name: 'logout',
   description: 'Sign out from GitHub',
-  usage: 'octocode logout [--hostname <host>]',
+  usage: 'octocode-cli logout [--hostname <host>]',
   options: [
     {
       name: 'hostname',
@@ -198,11 +171,13 @@ export const authCommand: CLICommand = {
   name: 'auth',
   aliases: ['a', 'gh'],
   description: 'Manage GitHub authentication',
-  usage: 'octocode auth [login|logout|status|token]',
+  usage: 'octocode-cli auth [login|logout|status|token]',
   handler: async (args: ParsedArgs) => {
     const subcommand = args.args[0];
+    const hostnameOpt = args.options['hostname'] ?? args.options['H'];
     const hostname =
-      (args.options['hostname'] as string | undefined) || 'github.com';
+      (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
+      'github.com';
 
     if (subcommand === 'login') {
       return loginCommand.handler(args);
@@ -211,46 +186,16 @@ export const authCommand: CLICommand = {
       return logoutCommand.handler(args);
     }
     if (subcommand === 'status') {
-      return showAuthStatus();
+      printAuthStatus(hostname);
+      return;
     }
     if (subcommand === 'token') {
-      const octocodeResult = await getOctocodeToken(hostname);
-      if (octocodeResult.token) {
-        console.log(safeTokenOutput(octocodeResult.token));
-        return;
-      }
-
-      const ghResult = getGhCliToken(hostname);
-      if (ghResult.token) {
-        console.log(safeTokenOutput(ghResult.token));
-        return;
-      }
-
-      console.log();
-      console.log(`  ${c('yellow', '⚠')} No GitHub token found.`);
-      console.log();
-      console.log(
-        `  ${dim('GitHub authentication is required to access private repositories.')}`
-      );
-      console.log();
-      console.log(`  ${bold('To authenticate, choose one of:')}`);
-      console.log();
-      console.log(
-        `    ${c('cyan', 'octocode auth login')}    ${dim('Recommended - stores token securely')}`
-      );
-      console.log(
-        `    ${c('cyan', 'gh auth login')}              ${dim('Use existing GitHub CLI')}`
-      );
-      console.log();
-      console.log(`  ${dim('Learn more:')} ${c('blue', GH_CLI_URL)}`);
-      console.log();
-      process.exitCode = 1;
-      return;
+      return tokenCommand.handler(args);
     }
 
     const status = getAuthStatus(hostname);
 
-    await showAuthStatus(hostname);
+    printAuthStatus(hostname);
 
     await loadInquirer();
 
@@ -271,7 +216,11 @@ export const authCommand: CLICommand = {
     });
 
     if (action === 'login') {
-      await loginCommand.handler({ command: 'login', args: [], options: {} });
+      await loginCommand.handler({
+        command: 'login',
+        args: [],
+        options: { hostname },
+      });
     } else if (action === 'logout') {
       await oauthLogout(hostname);
       console.log();
@@ -280,12 +229,16 @@ export const authCommand: CLICommand = {
     } else if (action === 'switch') {
       console.log();
       console.log(`  ${dim('Logging out...')}`);
-      await oauthLogout();
+      await oauthLogout(hostname);
       console.log(`  ${c('green', '✓')} Logged out`);
       console.log();
       console.log(`  ${dim('Starting new login...')}`);
 
-      await loginCommand.handler({ command: 'login', args: [], options: {} });
+      await loginCommand.handler({
+        command: 'login',
+        args: [],
+        options: { hostname },
+      });
     }
   },
 };

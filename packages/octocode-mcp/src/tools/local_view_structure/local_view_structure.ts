@@ -1,27 +1,27 @@
-import { LsCommandBuilder } from '../../commands/LsCommandBuilder.js';
 import { parseFileSize } from '../../utils/file/size.js';
-import { safeExec } from '../../utils/exec/safe.js';
+import { getHints } from '../../hints/index.js';
+import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { LsCommandBuilder } from '../../commands/LsCommandBuilder.js';
 import {
   checkCommandAvailability,
   getMissingCommandError,
 } from '../../utils/exec/commandAvailability.js';
-import { getHints } from '../../hints/index.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { safeExec } from '../../utils/exec/safe.js';
 import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import type {
-  LocalViewStructureToolResult,
-  ViewStructureQuery as UpstreamViewStructureQuery,
-} from '@octocodeai/octocode-core';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { z } from 'zod/v4';
+import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
+
+type UpstreamViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
@@ -31,9 +31,9 @@ import type { WithOptionalMeta } from '../../types/execution.js';
  * preserves the existing input-shape contract — callers that pass partial
  * queries continue to type-check while the handler still sees `verbosity`.
  */
-type ViewStructureQuery = WithOptionalMeta<UpstreamViewStructureQuery> & {
-  verbosity?: Verbosity;
-};
+type ViewStructureQuery = WithVerbosity<
+  WithOptionalMeta<UpstreamViewStructureQuery>
+>;
 import { ToolErrors } from '../../errors/errorFactories.js';
 import {
   applyEntryFilters,
@@ -133,9 +133,13 @@ export async function viewStructure(
       filteredEntries,
       query
     );
-    const outputEntries = paginatedEntries.map(entry => toEntryObject(entry));
+    const sanitizedBasePath = pathValidation.sanitizedPath!;
+    const outputEntries = paginatedEntries.map(entry => ({
+      ...toEntryObject(entry),
+      path: `${sanitizedBasePath}/${entry.name}`,
+    }));
     const warnings: string[] = [];
-    const status = totalEntries > 0 ? 'hasResults' : 'empty';
+    const isEmpty = totalEntries === 0;
     const entryPaginationHints = buildEntryPaginationHints(
       filteredEntries,
       paginatedEntries.length,
@@ -147,14 +151,14 @@ export async function viewStructure(
     return attachRawResponseChars(
       applyViewStructureVerbosity(
         {
-          status,
+          ...(isEmpty ? { status: 'empty' as const } : {}),
           entries: outputEntries,
           summary,
           pagination,
           ...(warnings.length > 0 && { warnings }),
           hints: [
             ...entryPaginationHints,
-            ...(status === 'empty'
+            ...(isEmpty
               ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
                   entryCount: totalEntries,
                   path: query.path,
@@ -274,13 +278,15 @@ async function viewStructureRecursive(
     filteredEntries,
     query
   );
-  const outputEntries = paginatedEntries.map(entry => toEntryObject(entry));
+  const outputEntries = paginatedEntries.map(entry => ({
+    ...toEntryObject(entry),
+    path: `${basePath}/${entry.name}`,
+  }));
   const warnings = buildWalkWarnings(walkStats);
-  const status = totalEntries > 0 ? 'hasResults' : 'empty';
-  const baseHints =
-    status === 'empty'
-      ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
-      : [];
+  const isEmpty = totalEntries === 0;
+  const baseHints = isEmpty
+    ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
+    : [];
   const entryPaginationHints = buildEntryPaginationHints(
     filteredEntries,
     paginatedEntries.length,
@@ -292,7 +298,9 @@ async function viewStructureRecursive(
   return attachRawResponseChars(
     applyViewStructureVerbosity(
       {
-        status,
+        // status omitted on success (absent ≡ "hasResults"); 'empty' set
+        // explicitly when totalEntries === 0.
+        ...(isEmpty ? { status: 'empty' as const } : {}),
         entries: outputEntries,
         summary,
         pagination,
@@ -304,6 +312,9 @@ async function viewStructureRecursive(
     countSerializedChars(entries)
   );
 }
+
+/** How many entry names concise samples into the `top:` hint for drill-down. */
+const CONCISE_TOP_ENTRIES = 5;
 
 /**
  * Predicate identifying advisory hints this tool emits — recovery prose,
@@ -322,9 +333,8 @@ const isAdvisoryViewStructureHint = makeAdvisoryPredicate([
 /**
  * Shape the result for the requested verbosity.
  *
- * - ultra: drop `entries[]`, emit summary + drill-back hint via
- *   `ultraDrillBackHint()`. `pagination` is kept so the agent still sees
- *   `totalEntries` and can decide whether to drill in.
+ * - concise: drop `entries[]`; keep `summary` + `pagination` so the agent still
+ *   sees `totalEntries`. No verbosity-feature hints are emitted.
  * - compact: trim advisory hints via `compactTrimHints()`; `entries[]`
  *   unchanged.
  * - omitted / basic: passthrough.
@@ -333,18 +343,23 @@ export function applyViewStructureVerbosity(
   result: LocalViewStructureToolResult,
   query: ViewStructureQuery
 ): LocalViewStructureToolResult {
-  if (isUltra(query.verbosity)) {
-    if (result.status !== 'hasResults') return result;
-    return {
-      ...result,
-      entries: [],
-      hints: [
-        `entries[] dropped. summary: ${result.summary ?? ''}`,
-        ...ultraDrillBackHint(
-          're-call with verbosity:"basic" to see entries; use entryPageNumber + entriesPerPage if many.'
-        ),
-      ],
-    };
+  if (isConcise(query.verbosity)) {
+    // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
+    if (result.status !== undefined) return result;
+    // Drop entries[] but keep concise research-grade: emit the count summary
+    // PLUS a sample of top entry names so the agent has a concrete path to
+    // drill into. A bare count is a dead-end; names give the next move.
+    const names = (result.entries ?? [])
+      .slice(0, CONCISE_TOP_ENTRIES)
+      .map(e => e.name)
+      .filter(Boolean);
+    const total =
+      result.pagination?.totalEntries ?? result.entries?.length ?? 0;
+    const more = total > names.length ? ` (+${total - names.length} more)` : '';
+    const hints: string[] = [];
+    if (result.summary) hints.push(`summary: ${result.summary}`);
+    if (names.length > 0) hints.push(`top: ${names.join(', ')}${more}`);
+    return { ...result, entries: [], hints };
   }
   if (isCompact(query.verbosity)) {
     return {

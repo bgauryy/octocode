@@ -19,16 +19,17 @@ import {
   githubStructureSchema,
   githubPRsSchema,
 } from '../validation/index.js';
-import { ResearchResponse, QuickResult, detectLanguageFromPath } from '../utils/responseBuilder.js';
+import { ResearchResponse, QuickResult } from '../utils/responseBuilder.js';
 import { withGitHubResilience } from '../utils/resilience.js';
 import { createRouteHandler } from '../utils/routeFactory.js';
+import { transformFileContentResponse } from '../utils/fileContentTransform.js';
 import {
   safeString,
   safeNumber,
   safeArray,
   transformPagination,
 } from '../utils/responseFactory.js';
-import { isObject, hasProperty, hasNumberProperty, hasBooleanProperty } from '../types/guards.js';
+import { isObject, hasProperty, hasNumberProperty } from '../types/guards.js';
 
 export const githubRoutes = Router();
 
@@ -75,25 +76,7 @@ githubRoutes.get(
     toolFn: githubGetFileContent,
     toolName: 'githubGetFileContent',
     resilience: withGitHubResilience,
-    transform: (parsed, queries) => {
-      const { data, hints, research } = parsed;
-
-      return ResearchResponse.fileContent({
-        path: safeString(data, 'path', queries[0]?.path || 'unknown'),
-        content: safeString(data, 'content'),
-        lines: hasNumberProperty(data, 'startLine')
-          ? {
-              start: data.startLine,
-              end: hasNumberProperty(data, 'endLine') ? data.endLine : data.startLine,
-            }
-          : undefined,
-        language: detectLanguageFromPath(queries[0]?.path || ''),
-        totalLines: hasNumberProperty(data, 'totalLines') ? data.totalLines : undefined,
-        isPartial: hasBooleanProperty(data, 'isPartial') ? data.isPartial : undefined,
-        mcpHints: hints,
-        research,
-      });
-    },
+    transform: transformFileContentResponse,
   })
 );
 

@@ -4,7 +4,7 @@
  * Mirrors the pattern in `localSchemaOverlay.ts` for LSP tools. The Zod
  * schemas for the LSP tools ship in `@octocodeai/octocode-core`; this overlay
  * re-publishes them with the cross-cutting `verbosity` field (basic | compact
- * | ultra, default "basic") so the agent sees the cost lever in the tool's
+ * | concise, default "basic") so the agent sees the cost lever in the tool's
  * input schema.
  *
  * Behaviour is wired per-tool in each handler. Omitted ≡ `"basic"` (full
@@ -17,37 +17,20 @@ import {
   LSPGotoDefinitionQuerySchema as UpstreamGotoDefinitionQuerySchema,
   LSPFindReferencesQuerySchema as UpstreamFindReferencesQuerySchema,
   LSPCallHierarchyQuerySchema as UpstreamCallHierarchyQuerySchema,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/schemas';
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
   createVerbosityField,
   contextLinesField,
+  optionalMetaFields,
   relaxedPaginationLimitField,
   relaxedPageNumberField,
+  depthField,
 } from './localSchemaOverlay.js';
-
-const lspOptionalMetaFields = {
-  id: z.string().optional().describe('Stable query identifier.'),
-  mainResearchGoal: z
-    .string()
-    .optional()
-    .describe('Overall research objective shared by related queries.'),
-  researchGoal: z
-    .string()
-    .optional()
-    .describe('Specific goal this query is trying to answer.'),
-  reasoning: z
-    .string()
-    .optional()
-    .describe('Why this query helps achieve the research goal.'),
-} as const;
 
 // Description text lives upstream in octocode-core baseSchema.verbosity;
 // LSP-specific guidance belongs in each tool's <gotchas>.
-const gotoDefinitionVerbosityField = createVerbosityField();
-const findReferencesVerbosityField = createVerbosityField();
-const callHierarchyVerbosityField = createVerbosityField();
 
 // ---------------------------------------------------------------------------
 // lspGotoDefinition
@@ -57,8 +40,8 @@ const callHierarchyVerbosityField = createVerbosityField();
 // only the verbosity field and context-lines range.
 export const LSPGotoDefinitionQuerySchema =
   UpstreamGotoDefinitionQuerySchema.extend({
-    ...lspOptionalMetaFields,
-    verbosity: gotoDefinitionVerbosityField,
+    ...optionalMetaFields,
+    verbosity: createVerbosityField(),
     contextLines: contextLinesField,
   }).strip();
 
@@ -77,8 +60,8 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
 // `groupByFile` boolean (which has no upstream description today).
 export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.extend({
-    ...lspOptionalMetaFields,
-    verbosity: findReferencesVerbosityField,
+    ...optionalMetaFields,
+    verbosity: createVerbosityField(),
     contextLines: contextLinesField,
     referencesPerPage: relaxedPaginationLimitField.default(10),
     page: relaxedPageNumberField.default(1),
@@ -99,11 +82,12 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
 // only the verbosity field and context/pagination ranges.
 export const LSPCallHierarchyQuerySchema =
   UpstreamCallHierarchyQuerySchema.extend({
-    ...lspOptionalMetaFields,
-    verbosity: callHierarchyVerbosityField,
+    ...optionalMetaFields,
+    verbosity: createVerbosityField(),
     contextLines: contextLinesField,
     callsPerPage: relaxedPaginationLimitField.default(10),
     page: relaxedPageNumberField.default(1),
+    depth: depthField,
   }).strip();
 
 export const BulkLSPCallHierarchyQuerySchema = createRelaxedBulkQuerySchema(

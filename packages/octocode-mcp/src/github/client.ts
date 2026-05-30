@@ -133,7 +133,7 @@ const createThrottleOptions = () => ({
   onRateLimit: (
     retryAfter: number,
     options: { method: string; url: string },
-    _octokit: Octokit,
+    _octokit: unknown,
     retryCount: number
   ) => {
     recordThrottleRateLimit('primary', retryAfter, options);
@@ -147,7 +147,7 @@ const createThrottleOptions = () => ({
   onSecondaryRateLimit: (
     retryAfter: number,
     options: { method: string; url: string },
-    _octokit: Octokit,
+    _octokit: unknown,
     retryCount: number
   ) => {
     recordThrottleRateLimit('secondary', retryAfter, options);

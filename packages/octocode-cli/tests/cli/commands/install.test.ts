@@ -37,8 +37,8 @@ vi.mock('node:crypto', () => ({
 }));
 
 vi.mock('../../../src/features/install.js', () => ({
-  installOctocode: vi.fn(),
-  getInstallPreview: vi.fn(),
+  installOctocodeForClient: vi.fn(),
+  getInstallPreviewForClient: vi.fn(),
 }));
 
 vi.mock('../../../src/features/node-check.js', () => ({
@@ -63,7 +63,10 @@ vi.mock('../../../src/utils/spinner.js', () => ({
 
 vi.mock('../../../src/ui/constants.js', () => ({
   IDE_INFO: { cursor: { name: 'Cursor' } },
-  CLIENT_INFO: { cursor: { name: 'Cursor' } },
+  CLIENT_INFO: {
+    cursor: { name: 'Cursor' },
+    codex: { name: 'Codex' },
+  },
   INSTALL_METHOD_INFO: {
     npx: { name: 'npx' },
     direct: { name: 'Direct' },
@@ -88,7 +91,7 @@ describe('cli/commands/install', () => {
   });
 
   async function loadDeps() {
-    const { installOctocode, getInstallPreview } =
+    const { installOctocodeForClient, getInstallPreviewForClient } =
       await import('../../../src/features/install.js');
     const { runInteractiveMode } = await import('../../../src/interactive.js');
     const { checkNodeInPath, checkNpmInPath } =
@@ -97,18 +100,18 @@ describe('cli/commands/install', () => {
     const { installCommand } =
       await import('../../../src/cli/commands/install.js');
     return {
-      installOctocode,
-      getInstallPreview,
       runInteractiveMode,
       checkNodeInPath,
       checkNpmInPath,
       Spinner,
       installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
     };
   }
 
   const basePreview = {
-    ide: 'cursor' as const,
+    client: 'cursor' as const,
     method: 'npx' as const,
     configPath: '/mock/mcp.json',
     serverConfig: {},
@@ -193,8 +196,8 @@ describe('cli/commands/install', () => {
   });
 
   it('errors when already configured without --force', async () => {
-    const { installCommand, getInstallPreview } = await loadDeps();
-    vi.mocked(getInstallPreview).mockReturnValue({
+    const { installCommand, getInstallPreviewForClient } = await loadDeps();
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       action: 'override',
     });
@@ -212,14 +215,18 @@ describe('cli/commands/install', () => {
   });
 
   it('runs successful install with spinner success path', async () => {
-    const { installCommand, installOctocode, getInstallPreview, Spinner } =
-      await loadDeps();
+    const {
+      installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
+      Spinner,
+    } = await loadDeps();
 
-    vi.mocked(getInstallPreview).mockReturnValue({
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       action: 'create',
     });
-    vi.mocked(installOctocode).mockReturnValue({
+    vi.mocked(installOctocodeForClient).mockReturnValue({
       success: true,
       configPath: '/mock/mcp.json',
     });
@@ -237,18 +244,27 @@ describe('cli/commands/install', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Config saved')
     );
+    expect(installOctocodeForClient).toHaveBeenCalledWith({
+      client: 'cursor',
+      method: 'npx',
+      force: false,
+    });
     expect(process.exitCode).toBeUndefined();
   });
 
   it('handles install failure', async () => {
-    const { installCommand, installOctocode, getInstallPreview, Spinner } =
-      await loadDeps();
+    const {
+      installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
+      Spinner,
+    } = await loadDeps();
 
-    vi.mocked(getInstallPreview).mockReturnValue({
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       action: 'create',
     });
-    vi.mocked(installOctocode).mockReturnValue({
+    vi.mocked(installOctocodeForClient).mockReturnValue({
       success: false,
       configPath: '/mock/mcp.json',
       error: 'disk full',
@@ -271,14 +287,18 @@ describe('cli/commands/install', () => {
   });
 
   it('handles install failure without an error message', async () => {
-    const { installCommand, installOctocode, getInstallPreview, Spinner } =
-      await loadDeps();
+    const {
+      installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
+      Spinner,
+    } = await loadDeps();
 
-    vi.mocked(getInstallPreview).mockReturnValue({
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       action: 'create',
     });
-    vi.mocked(installOctocode).mockReturnValue({
+    vi.mocked(installOctocodeForClient).mockReturnValue({
       success: false,
       configPath: '/mock/mcp.json',
     });
@@ -297,14 +317,17 @@ describe('cli/commands/install', () => {
   });
 
   it('prints backup path when install succeeds with backup', async () => {
-    const { installCommand, installOctocode, getInstallPreview } =
-      await loadDeps();
+    const {
+      installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
+    } = await loadDeps();
 
-    vi.mocked(getInstallPreview).mockReturnValue({
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       action: 'override',
     });
-    vi.mocked(installOctocode).mockReturnValue({
+    vi.mocked(installOctocodeForClient).mockReturnValue({
       success: true,
       configPath: '/mock/mcp.json',
       backupPath: '/mock/mcp.json.bak',
@@ -331,8 +354,8 @@ describe('cli/commands/install', () => {
       installCommand,
       checkNodeInPath,
       checkNpmInPath,
-      installOctocode,
-      getInstallPreview,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
     } = await loadDeps();
 
     vi.mocked(checkNodeInPath).mockReturnValue({
@@ -343,12 +366,12 @@ describe('cli/commands/install', () => {
       installed: false,
       version: null,
     });
-    vi.mocked(getInstallPreview).mockReturnValue({
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       method: 'direct',
       action: 'create',
     });
-    vi.mocked(installOctocode).mockReturnValue({
+    vi.mocked(installOctocodeForClient).mockReturnValue({
       success: true,
       configPath: '/path',
     });
@@ -360,6 +383,78 @@ describe('cli/commands/install', () => {
     });
 
     expect(process.exitCode).toBeUndefined();
-    expect(installOctocode).toHaveBeenCalled();
+    expect(installOctocodeForClient).toHaveBeenCalled();
+  });
+
+  it('uses short -m method alias', async () => {
+    const {
+      installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
+    } = await loadDeps();
+
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
+      ...basePreview,
+      method: 'direct',
+      action: 'create',
+    });
+    vi.mocked(installOctocodeForClient).mockReturnValue({
+      success: true,
+      configPath: '/path',
+    });
+
+    await installCommand.handler!({
+      command: 'install',
+      args: [],
+      options: { ide: 'cursor', m: 'direct' },
+    });
+
+    expect(getInstallPreviewForClient).toHaveBeenCalledWith('cursor', 'direct');
+    expect(installOctocodeForClient).toHaveBeenCalledWith({
+      client: 'cursor',
+      method: 'direct',
+      force: false,
+    });
+  });
+
+  it('installs advertised non-legacy clients through client install API', async () => {
+    const {
+      installCommand,
+      installOctocodeForClient,
+      getInstallPreviewForClient,
+      checkNodeInPath,
+      checkNpmInPath,
+    } = await loadDeps();
+
+    vi.mocked(checkNodeInPath).mockReturnValue({
+      installed: true,
+      version: 'v22.0.0',
+    });
+    vi.mocked(checkNpmInPath).mockReturnValue({
+      installed: true,
+      version: '10.0.0',
+    });
+    vi.mocked(getInstallPreviewForClient).mockReturnValue({
+      ...basePreview,
+      client: 'codex',
+      action: 'create',
+    });
+    vi.mocked(installOctocodeForClient).mockReturnValue({
+      success: true,
+      configPath: '/path',
+    });
+
+    await installCommand.handler!({
+      command: 'install',
+      args: [],
+      options: { ide: 'codex', method: 'npx' },
+    });
+
+    expect(getInstallPreviewForClient).toHaveBeenCalledWith('codex', 'npx');
+    expect(installOctocodeForClient).toHaveBeenCalledWith({
+      client: 'codex',
+      method: 'npx',
+      force: false,
+    });
   });
 });

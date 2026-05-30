@@ -1,17 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { LOCAL_FIND_FILES_DESCRIPTION } from '@octocodeai/octocode-core';
+import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 import { BulkFindFilesSchema } from '../../scheme/localSchemaOverlay.js';
 import { executeFindFiles } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
-import { LocalFindFilesOutputSchema } from '@octocodeai/octocode-core';
+import { LocalFindFilesOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 // One-line schema disambiguation appended once at registration. The
 // upstream description leaves the four name variants ambiguous; this note
 // is read once when the tool list is fetched, never per-call.
-const DESCRIPTION = `${LOCAL_FIND_FILES_DESCRIPTION}
+const DESCRIPTION = `${DESCRIPTIONS[TOOL_NAMES.LOCAL_FIND_FILES]}
 <nameVariants>
 - name: case-sensitive glob ("*.ts")
 - iname: case-insensitive glob ("README")

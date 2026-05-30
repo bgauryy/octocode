@@ -1,5 +1,8 @@
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
-import type { LocalSearchCodeFile } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
+
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import type { SearchStats } from '../../utils/core/types.js';
 import { parseRipgrepJson } from '../../utils/parsers/ripgrep.js';
 

@@ -37,6 +37,7 @@ Two top-level sections — pick by what you're doing:
 
 | Need | Doc |
 |------|-----|
+| Verify all MCP tool contracts before a release | [Advanced MCP Tool Verification](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/ADVANCED_MCP_TOOL_VERIFICATION.md) |
 | Clone a repo → run local + LSP tools on it | [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) |
 | Compare CLI vs MCP throughput | [CLI vs MCP Benchmark](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/BENCHMARK.md) |
 

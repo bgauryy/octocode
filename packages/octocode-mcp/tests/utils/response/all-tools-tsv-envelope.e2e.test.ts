@@ -11,7 +11,7 @@
  * MUST carry `format / columns / rows` at the top level.
  *
  * The matrix:
- *   - 11 tools use the generic `executeBulkOperation` path.
+ *   - 12 tools use the generic `executeBulkOperation` path.
  *   - 2 tools (githubSearchCode, githubGetFileContent) use custom
  *     finalizers — we exercise the finalizer directly with a fixture.
  */
@@ -24,7 +24,7 @@ import { buildGithubFetchContentFinalizer } from '../../../src/tools/github_fetc
 import type { BulkFinalizerInput } from '../../../src/types/bulk.js';
 
 // ---------------------------------------------------------------------------
-// 1. Generic bulk-path tools — 11 of 13
+// 1. Generic bulk-path tools — 12 of 14
 // ---------------------------------------------------------------------------
 
 type GenericCase = {
@@ -95,6 +95,15 @@ const genericCases: GenericCase[] = [
       },
     },
     rowProbe: '.\tREADME.md\tfile',
+  },
+  {
+    toolName: STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
+    dataFixture: {
+      localPath: '/tmp/octocode/repo',
+      resolvedBranch: 'main',
+      cached: true,
+    },
+    rowProbe: '/tmp/octocode/repo\tmain\ttrue',
   },
   {
     toolName: STATIC_TOOL_NAMES.PACKAGE_SEARCH,
@@ -214,7 +223,6 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
       const result = await executeBulkOperation(
         [{ id: 'q1' }],
         vi.fn().mockResolvedValue({
-          status: 'hasResults' as const,
           ...dataFixture,
         }),
         {
@@ -272,7 +280,7 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Custom-finalizer tools — 2 of 13
+// 2. Custom-finalizer tools — 2 of 14
 // ---------------------------------------------------------------------------
 
 describe('custom finalizers emit the TSV envelope when format=tsv', () => {
@@ -286,7 +294,6 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults',
           data: {
             results: [
               {
@@ -338,7 +345,6 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults',
           data: {
             content: 'hello',
             totalLines: 1,
@@ -380,6 +386,7 @@ describe('every tool name registered for TSV has a coverage row', () => {
       STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+      STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
       STATIC_TOOL_NAMES.PACKAGE_SEARCH,
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
       STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
@@ -392,6 +399,6 @@ describe('every tool name registered for TSV has a coverage row', () => {
     for (const t of expected) {
       expect(covered.has(t), `missing TSV envelope test for ${t}`).toBe(true);
     }
-    expect(covered.size).toBeGreaterThanOrEqual(13);
+    expect(covered.size).toBeGreaterThanOrEqual(14);
   });
 });

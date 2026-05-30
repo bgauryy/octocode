@@ -28,6 +28,7 @@ export const EvidenceSchema = z
         'pr',
         'repo',
         'package',
+        'definition',
         'references',
         'calls',
       ])

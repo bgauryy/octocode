@@ -5,12 +5,15 @@ import type {
   GitHubAPIResponse,
   OptimizedCodeSearchResult,
 } from './githubAPI.js';
-import type { GitHubCodeSearchQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { minifyContent } from '../utils/minifier/minifier.js';
 import { getOctokit } from './client.js';
-import { handleGitHubAPIError } from './errors.js';
+import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildCodeSearchQuery } from './queryBuilders.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
@@ -141,10 +144,33 @@ async function searchGitHubCodeAPIInternal(
         },
       },
       status: 200,
-      headers: result.headers,
+      headers: result.headers as unknown as Record<string, string>,
       rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
+    // A 422 referencing a nonexistent entity (e.g. user:/org:/repo: that does
+    // not exist) is "no matches", not a failure — return a clean empty result.
+    if (isNoResultsSearchError(error)) {
+      const perPage = Math.min(
+        typeof params.limit === 'number' ? params.limit : 30,
+        100
+      );
+      return {
+        data: {
+          total_count: 0,
+          items: [],
+          pagination: {
+            currentPage: params.page || 1,
+            totalPages: 0,
+            perPage,
+            totalMatches: 0,
+            hasMore: false,
+          },
+        },
+        status: 200,
+        rawResponseChars: 0,
+      } as GitHubAPIResponse<OptimizedCodeSearchResult>;
+    }
     const apiError = handleGitHubAPIError(error);
     return apiError;
   }

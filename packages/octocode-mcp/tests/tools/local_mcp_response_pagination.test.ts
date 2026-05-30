@@ -68,7 +68,6 @@ describe('local tool MCP pagination responses', () => {
     registerLocalRipgrepTool(mockServer.server);
 
     mockSearchContentRipgrep.mockResolvedValue({
-      status: 'hasResults',
       files: [
         {
           path: '/workspace/src/search.ts',
@@ -142,7 +141,6 @@ describe('local tool MCP pagination responses', () => {
     registerLocalViewStructureTool(mockServer.server);
 
     mockViewStructure.mockResolvedValue({
-      status: 'hasResults',
       entries: Array.from({ length: 30 }, (_, index) => ({
         name: `entry-${index}`,
         type: 'file',
@@ -180,7 +178,6 @@ describe('local tool MCP pagination responses', () => {
     registerLocalFindFilesTool(mockServer.server);
 
     mockFindFiles.mockResolvedValue({
-      status: 'hasResults',
       files: [
         {
           path: '/workspace/src/a.ts',
@@ -232,7 +229,6 @@ describe('local tool MCP pagination responses', () => {
     registerLocalFetchContentTool(mockServer.server);
 
     mockFetchContent.mockResolvedValue({
-      status: 'hasResults',
       content: 'export const value = 1;',
       isPartial: true,
       totalLines: 20,
@@ -275,7 +271,6 @@ describe('local tool MCP pagination responses', () => {
     registerLocalViewStructureTool(mockServer.server);
 
     mockViewStructure.mockImplementation(async (query: { id: string }) => ({
-      status: 'hasResults',
       entries: Array.from({ length: 18 }, (_, index) => ({
         name: `${query.id}-entry-${index}`,
         type: 'file',

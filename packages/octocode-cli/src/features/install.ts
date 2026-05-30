@@ -16,6 +16,7 @@ import {
   getOctocodeServerConfigWindows,
   getConfiguredMethod,
 } from '../utils/mcp-config.js';
+import { DETECTABLE_MCP_CLIENTS } from '../utils/mcp-paths.js';
 import { fileExists } from '../utils/fs.js';
 import { isWindows } from '../utils/platform.js';
 
@@ -287,25 +288,7 @@ export function getInstallPreviewForClient(
 export function detectAvailableClients(): MCPClient[] {
   const available: MCPClient[] = [];
 
-  const clients: MCPClient[] = [
-    'cursor',
-    'claude-desktop',
-    'claude-code',
-    'opencode',
-    'codex',
-    'gemini-cli',
-    'vscode-cline',
-    'vscode-roo',
-    'vscode-continue',
-    'windsurf',
-    'trae',
-    'antigravity',
-    'goose',
-    'kiro',
-    'zed',
-  ];
-
-  for (const client of clients) {
+  for (const client of DETECTABLE_MCP_CLIENTS) {
     if (clientConfigExists(client)) {
       available.push(client);
     }

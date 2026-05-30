@@ -38,16 +38,17 @@ import {
   GitHubViewRepoStructureQuerySchema as UpstreamGitHubViewRepoStructureQuerySchema,
   GitHubReposSearchSingleQuerySchema as UpstreamGitHubReposSearchSingleQuerySchema,
   BulkCloneRepoSchema as UpstreamBulkCloneRepoSchema,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/schemas';
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
   createVerbosityField,
   localCharLengthField,
-  matchStringContextLinesField,
+  contextLinesField,
   relaxedPaginationLimitField,
   relaxedPageNumberField,
 } from './localSchemaOverlay.js';
+import { validateFileContentExtractionMode } from './fileContentModeValidation.js';
 
 // ---------------------------------------------------------------------------
 // githubCloneRepo
@@ -63,7 +64,7 @@ const CloneRepoElementSchema = (
 ).element as unknown as z.ZodObject<z.ZodRawShape>;
 
 // Clone is a one-shot side-effecting action — no verbosity field.
-const CloneRepoQueryLocalSchema = CloneRepoElementSchema;
+export const CloneRepoQueryLocalSchema = CloneRepoElementSchema;
 
 export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
@@ -77,15 +78,32 @@ export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
 // Description text for every field lives upstream in
 // octocode-core/src/resources/tools/githubGetFileContent.ts — no overlay
 // redescribes here. Only pagination defaults / numeric ranges remain.
-const FileContentQueryLocalSchema = UpstreamFileContentQuerySchema.extend({
-  charLength: localCharLengthField,
-  matchStringContextLines: matchStringContextLinesField,
-  verbosity: createVerbosityField(),
-});
+// The superRefine enforces the three-mode mutual exclusion at the schema
+// layer (fullContent / matchString / startLine+endLine). Mirrors the local
+// sibling at localSchemaOverlay.ts and replaces the silent coercion that
+// used to live in providerMappers.ts (where conflicting inputs were
+// dropped without warning).
+// Base (relaxed) per-query shape — NO extraction-mode mutex. The bulk envelope
+// wraps THIS so a malformed query doesn't reject the whole batch at MCP
+// input-validation time; the executor validates each query against the strict
+// schema below and emits a per-query error (bulk contract: siblings still run).
+export const FileContentQueryBaseLocalSchema =
+  UpstreamFileContentQuerySchema.extend({
+    charLength: localCharLengthField,
+    matchStringContextLines: contextLinesField,
+    verbosity: createVerbosityField(),
+  });
+
+// Strict per-query schema (base + mutex). The executor `safeParse`s each query
+// against this to flag a mutex violation per-query.
+export const FileContentQueryLocalSchema =
+  FileContentQueryBaseLocalSchema.superRefine(
+    validateFileContentExtractionMode
+  );
 
 export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-  FileContentQueryLocalSchema
+  FileContentQueryBaseLocalSchema
 );
 
 /**
@@ -146,7 +164,7 @@ const PerQueryPaginationSchema = CharPaginationSchema.extend({
  *    content for the same reason. The file is still listed, but its `content`
  *    no longer includes everything past `truncatedAt`.
  *  - `verbosity-downgrade` — an explicit caller option was capped or coerced
- *    because the caller requested `verbosity:"ultra"` (e.g. `limit > 3`,
+ *    because the caller requested `verbosity:"concise"` (e.g. `limit > 3`,
  *    `fullContent=true`, `npmFetchMetadata=true`). The response still
  *    succeeded; the warning names which field was overridden so the agent
  *    can re-call with `basic` if it needs the full payload.
@@ -254,7 +272,7 @@ export type GitHubFetchContentOutputLocal = z.infer<
 
 // Field descriptions are upstream (githubSearchCode.ts). Overlay supplies
 // only pagination defaults and the local char-budget field.
-const GitHubCodeSearchQueryLocalSchema =
+export const GitHubCodeSearchQueryLocalSchema =
   UpstreamGitHubCodeSearchQuerySchema.extend({
     charLength: localCharLengthField,
     page: relaxedPageNumberField.default(1),
@@ -360,7 +378,7 @@ export type GitHubCodeSearchWarning = GroupedToolWarning;
 
 // Field descriptions are upstream (githubViewRepoStructure.ts). Overlay
 // supplies only pagination defaults.
-const GitHubViewRepoStructureQueryLocalSchema =
+export const GitHubViewRepoStructureQueryLocalSchema =
   UpstreamGitHubViewRepoStructureQuerySchema.extend({
     entriesPerPage: relaxedPaginationLimitField.default(20),
     entryPageNumber: relaxedPageNumberField.default(1),
@@ -380,7 +398,7 @@ export const GitHubViewRepoStructureBulkQueryLocalSchema =
 // Field descriptions are upstream (githubSearchRepositories.ts). Overlay
 // supplies pagination defaults only; `language` is kept relaxed as an
 // optional string so the bulk relaxer accepts it.
-const GitHubReposSearchSingleQueryLocalSchema =
+export const GitHubReposSearchSingleQueryLocalSchema =
   UpstreamGitHubReposSearchSingleQuerySchema.extend({
     language: z.string().optional(),
     page: relaxedPageNumberField.default(1),
@@ -404,7 +422,7 @@ export const GitHubReposSearchBulkQueryLocalSchema =
 //  - the `matchScope` array enum (upstream rename from `match`)
 //  - the `sort` enum tightening
 //  - pagination defaults
-const GitHubPullRequestSearchQueryLocalSchema =
+export const GitHubPullRequestSearchQueryLocalSchema =
   GitHubPullRequestSearchQuerySchema.extend({
     state: z.enum(['open', 'closed', 'merged']).optional(),
     matchScope: z.array(z.enum(['title', 'body', 'comments'])).optional(),
@@ -430,10 +448,28 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
 const packageLimitField = relaxedPaginationLimitField.default(5);
 
 const npmPackageQueryWithLimit = NpmPackageQuerySchema.extend({
+  // `limit` is the alias that carries the default (5). `searchLimit` is the
+  // canonical cap and must stay default-less so the transform below can tell
+  // an explicit caller value apart from "unset" and honor it over `limit`.
   limit: packageLimitField,
-  searchLimit: packageLimitField,
+  searchLimit: relaxedPaginationLimitField.optional(),
   verbosity: createVerbosityField(),
+}).superRefine((data, ctx) => {
+  // Reject non-npm ecosystems at schema layer (was a runtime check in
+  // execution.ts). The discriminated upstream `NpmPackageQuerySchema` does
+  // not enforce the literal 'npm' since callers can omit ecosystem entirely
+  // (the preprocess fills it in below) — so the explicit guard lives here.
+  const ecosystem = (data as { ecosystem?: string }).ecosystem;
+  if (ecosystem !== undefined && ecosystem !== 'npm') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Unsupported ecosystem '${ecosystem}'. Only 'npm' is supported.`,
+      path: ['ecosystem'],
+    });
+  }
 });
+
+export const PackageSearchQueryLocalSchema = npmPackageQueryWithLimit;
 
 const packageQueryWithEcosystemDefault = z.preprocess(
   val => {
@@ -446,10 +482,18 @@ const packageQueryWithEcosystemDefault = z.preprocess(
     }
     return val;
   },
-  npmPackageQueryWithLimit.transform(val => {
-    // Map 'limit' to 'searchLimit' which is what the execution layer/upstream might expect
-    const { limit, ...rest } = val as { limit: number; [key: string]: unknown };
-    return { ...rest, searchLimit: limit };
+  PackageSearchQueryLocalSchema.transform(val => {
+    // `searchLimit` is the canonical cap the execution layer/upstream reads;
+    // `limit` is an alias. Honor an explicit `searchLimit` and fall back to
+    // `limit` (which carries the default) only when the caller omitted
+    // `searchLimit` — otherwise `limit`'s default would silently clobber a
+    // user-supplied `searchLimit`.
+    const { limit, searchLimit, ...rest } = val as {
+      limit?: number;
+      searchLimit?: number;
+      [key: string]: unknown;
+    };
+    return { ...rest, searchLimit: searchLimit ?? limit };
   })
 );
 
@@ -470,10 +514,10 @@ import {
   GitHubSearchPullRequestsOutputSchema as UpstreamPRsOutput,
   GitHubViewRepoStructureOutputSchema as UpstreamStructureOutput,
   PackageSearchOutputSchema as UpstreamPackageOutput,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/schemas/outputs';
 
 import { EvidenceSchema, tsvEnvelopeFields } from './tsvEnvelope.js';
-import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core';
+import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core/schemas/outputs';
 
 const peerEnvelopeFields = {
   hints: z.array(z.string()).optional(),

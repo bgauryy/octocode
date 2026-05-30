@@ -1,6 +1,33 @@
 import { describe, it, expect } from 'vitest';
 import { RequestError } from 'octokit';
-import { handleGitHubAPIError } from '../../src/github/errors.js';
+import {
+  handleGitHubAPIError,
+  isNoResultsSearchError,
+} from '../../src/github/errors.js';
+
+/**
+ * Builds a RequestError mirroring GitHub's 422 "Validation Failed" search
+ * responses. `errorEntries` is the `response.data.errors[]` payload.
+ */
+function makeSearch422(
+  errorEntries: Array<Record<string, unknown>>,
+  message = 'Validation Failed'
+): RequestError {
+  return new RequestError(message, 422, {
+    response: {
+      status: 422,
+      headers: {},
+      data: { message, errors: errorEntries },
+      url: 'https://api.github.com/search/issues',
+      retryCount: 0,
+    },
+    request: {
+      method: 'GET',
+      url: 'https://api.github.com/search/issues',
+      headers: {},
+    },
+  });
+}
 
 describe('GitHub Error Handling', () => {
   describe('handleGitHubAPIError', () => {
@@ -437,4 +464,76 @@ describe('GitHub Error Handling', () => {
   });
 
   // generateFileAccessHints tests removed: function no longer part of API
+});
+
+describe('isNoResultsSearchError', () => {
+  it('treats a 422 "users cannot be searched" validation error as no-results', () => {
+    const error = makeSearch422([
+      {
+        message:
+          'The listed users cannot be searched either because the users do not exist or you do not have permission to view the users.',
+        resource: 'Search',
+        field: 'q',
+      },
+    ]);
+    expect(isNoResultsSearchError(error)).toBe(true);
+  });
+
+  it('treats a 422 "does not exist" validation error as no-results', () => {
+    const error = makeSearch422([
+      { message: 'The organization does not exist.', field: 'q' },
+    ]);
+    expect(isNoResultsSearchError(error)).toBe(true);
+  });
+
+  it('does NOT treat a generic/malformed-query 422 as no-results', () => {
+    const error = makeSearch422([
+      {
+        message:
+          'The search contains only logical operators (AND, OR, NOT) without any search terms.',
+        resource: 'Search',
+        field: 'q',
+        code: 'invalid',
+      },
+    ]);
+    expect(isNoResultsSearchError(error)).toBe(false);
+  });
+
+  it('does NOT treat a 422 with no errors[] payload as no-results', () => {
+    const error = makeSearch422([]);
+    expect(isNoResultsSearchError(error)).toBe(false);
+  });
+
+  it('does NOT treat non-422 statuses as no-results', () => {
+    const error = new RequestError('Not Found', 404, {
+      response: {
+        status: 404,
+        headers: {},
+        data: {
+          errors: [{ message: 'users do not exist' }],
+        },
+        url: 'https://api.github.com',
+        retryCount: 0,
+      },
+      request: { method: 'GET', url: 'https://api.github.com', headers: {} },
+    });
+    expect(isNoResultsSearchError(error)).toBe(false);
+  });
+
+  it('does NOT treat non-RequestError values as no-results', () => {
+    expect(isNoResultsSearchError(new Error('boom'))).toBe(false);
+    expect(isNoResultsSearchError('boom')).toBe(false);
+    expect(isNoResultsSearchError(undefined)).toBe(false);
+  });
+
+  it('still classifies the nonexistent-entity 422 as a normal error via handleGitHubAPIError (propagation intact)', () => {
+    // The classifier is additive — it does NOT change how handleGitHubAPIError
+    // maps the status. Callers opt in to the empty path explicitly.
+    const error = makeSearch422([
+      { message: 'The listed users cannot be searched...', field: 'q' },
+    ]);
+    const apiError = handleGitHubAPIError(error);
+    expect(apiError.status).toBe(422);
+    expect(apiError.type).toBe('http');
+  });
 });

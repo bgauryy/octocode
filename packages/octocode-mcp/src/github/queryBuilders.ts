@@ -1,7 +1,13 @@
+import type { z } from 'zod/v4';
 import type {
-  GitHubCodeSearchQuery,
-  GitHubReposSearchQuery,
-} from '@octocodeai/octocode-core';
+  GitHubCodeSearchQuerySchema,
+  GitHubReposSearchSingleQuerySchema,
+} from '@octocodeai/octocode-core/schemas';
+
+type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
+type GitHubReposSearchSingleQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { GitHubPullRequestsSearchParams } from './githubAPI.js';
 
@@ -171,7 +177,7 @@ class CodeSearchQueryBuilder extends BaseQueryBuilder {
 }
 
 class RepoSearchQueryBuilder extends BaseQueryBuilder {
-  addQueryTerms(params: WithOptionalMeta<GitHubReposSearchQuery>): this {
+  addQueryTerms(params: WithOptionalMeta<GitHubReposSearchSingleQuery>): this {
     if (
       Array.isArray(params.keywordsToSearch) &&
       params.keywordsToSearch.length > 0
@@ -183,7 +189,7 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     return this;
   }
 
-  addRepoFilters(params: WithOptionalMeta<GitHubReposSearchQuery>): this {
+  addRepoFilters(params: WithOptionalMeta<GitHubReposSearchSingleQuery>): this {
     this.addArrayFilter(params.topicsToSearch, 'topic');
     this.addSimpleFilter(params.stars, 'stars');
     this.addSimpleFilter(params.size, 'size');
@@ -202,7 +208,9 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     return this;
   }
 
-  addMatchFilters(params: WithOptionalMeta<GitHubReposSearchQuery>): this {
+  addMatchFilters(
+    params: WithOptionalMeta<GitHubReposSearchSingleQuery>
+  ): this {
     if (params.match) {
       const matches = Array.isArray(params.match)
         ? params.match
@@ -302,7 +310,7 @@ export function buildCodeSearchQuery(
 }
 
 export function buildRepoSearchQuery(
-  params: WithOptionalMeta<GitHubReposSearchQuery>
+  params: WithOptionalMeta<GitHubReposSearchSingleQuery>
 ): string {
   return new RepoSearchQueryBuilder()
     .addQueryTerms(params)

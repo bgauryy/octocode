@@ -43,6 +43,7 @@ import {
 } from '../../src/utils/skills-fetch.js';
 import {
   dirExists,
+  copyDirectory,
   writeFileContent,
   fileExists,
   readFileContent,
@@ -262,6 +263,13 @@ describe('Skills Fetch Utilities', () => {
       vi.doMock('../../src/utils/skills.js', () => ({
         getSkillsSourcePath: vi.fn(() => '/bundled/skills'),
         getAvailableSkills: vi.fn(() => ['octocode-one']),
+        resolveSkillDestination: vi.fn((destDir: string, skillName: string) =>
+          skillName.includes('..') || skillName.includes('/')
+            ? null
+            : join(destDir, skillName)
+        ),
+        isPathInside: vi.fn(() => true),
+        installSkillToDestination: vi.fn(() => 'installed'),
       }));
 
       const fsUtils = await import('../../src/utils/fs.js');
@@ -794,17 +802,12 @@ category: LocalCat
       };
 
       vi.resetModules();
-      vi.doMock('node:path', async importOriginal => {
-        const actual = await importOriginal<typeof import('node:path')>();
+      vi.doMock('../../src/utils/skills.js', async importOriginal => {
+        const actual =
+          await importOriginal<typeof import('../../src/utils/skills.js')>();
         return {
           ...actual,
-          join: (...segments: Parameters<typeof actual.join>) => {
-            const s = segments as string[];
-            if (s.length === 2 && s[1] === 'SKILL.md') {
-              return '/evil-outside/SKILL.md';
-            }
-            return actual.join(...s);
-          },
+          isPathInside: vi.fn(() => false),
         };
       });
 
@@ -1286,6 +1289,29 @@ category: utilities
       vi.doMock('../../src/utils/skills.js', () => ({
         getSkillsSourcePath: vi.fn(() => '/bundled/skills'),
         getAvailableSkills: vi.fn(() => []),
+        resolveSkillDestination: vi.fn((destDir: string, skillName: string) =>
+          skillName.includes('..') || skillName.includes('/')
+            ? null
+            : join(destDir, skillName)
+        ),
+        isPathInside: vi.fn(() => true),
+        installSkillToDestination: vi.fn(
+          ({
+            sourcePath,
+            destinationPath,
+          }: {
+            sourcePath: string;
+            destinationPath: string;
+          }) => {
+            try {
+              return vi.mocked(copyDirectory)(sourcePath, destinationPath)
+                ? 'installed'
+                : 'failed';
+            } catch {
+              return 'failed';
+            }
+          }
+        ),
       }));
 
       const fsUtils = await import('../../src/utils/fs.js');
@@ -1321,6 +1347,13 @@ category: utilities
       vi.doMock('../../src/utils/skills.js', () => ({
         getSkillsSourcePath: vi.fn(() => '/bundled/skills'),
         getAvailableSkills: vi.fn(() => []),
+        resolveSkillDestination: vi.fn((destDir: string, skillName: string) =>
+          skillName.includes('..') || skillName.includes('/')
+            ? null
+            : join(destDir, skillName)
+        ),
+        isPathInside: vi.fn(() => true),
+        installSkillToDestination: vi.fn(() => 'installed'),
       }));
 
       const fsUtils = await import('../../src/utils/fs.js');
@@ -1346,11 +1379,34 @@ category: utilities
       expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('should return caught error message when copyDirectory throws', async () => {
+    it('should return shared installer error when bundled copy fails', async () => {
       vi.resetModules();
       vi.doMock('../../src/utils/skills.js', () => ({
         getSkillsSourcePath: vi.fn(() => '/bundled/skills'),
         getAvailableSkills: vi.fn(() => []),
+        resolveSkillDestination: vi.fn((destDir: string, skillName: string) =>
+          skillName.includes('..') || skillName.includes('/')
+            ? null
+            : join(destDir, skillName)
+        ),
+        isPathInside: vi.fn(() => true),
+        installSkillToDestination: vi.fn(
+          ({
+            sourcePath,
+            destinationPath,
+          }: {
+            sourcePath: string;
+            destinationPath: string;
+          }) => {
+            try {
+              return vi.mocked(copyDirectory)(sourcePath, destinationPath)
+                ? 'installed'
+                : 'failed';
+            } catch {
+              return 'failed';
+            }
+          }
+        ),
       }));
 
       const fsUtils = await import('../../src/utils/fs.js');
@@ -1374,7 +1430,7 @@ category: utilities
       const result = await installMarketplaceSkill(localSkill, '/dest/skills');
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('copy failed');
+      expect(result.error).toBe('Failed to copy bundled skill');
     });
   });
 });

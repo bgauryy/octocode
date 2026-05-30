@@ -24,6 +24,8 @@ vi.mock('../../src/github/client.js', () => ({
 
 vi.mock('../../src/github/errors.js', () => ({
   handleGitHubAPIError: mockHandleGitHubAPIError,
+  // Default: not a no-results error, so existing error-path assertions hold.
+  isNoResultsSearchError: vi.fn(() => false),
 }));
 
 vi.mock('../../src/github/queryBuilders.js', () => ({

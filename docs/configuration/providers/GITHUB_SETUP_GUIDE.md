@@ -11,7 +11,10 @@
 npx octocode-cli install
 # -> Choose "Manage Auth", then "Login to GitHub"
 
-# Option B: Set a token manually
+# Option B: Direct CLI login
+npx octocode-cli login
+
+# Option C: Set a token manually
 export GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
 
 # Start Octocode MCP — GitHub is the default provider
@@ -35,7 +38,7 @@ npx octocode-cli install
 # -> Choose "Manage Auth", then "Login to GitHub"
 ```
 
-This opens a browser window to authorize Octocode safely. The token is stored in Octocode's encrypted credential store (`~/.octocode/credentials.json`, encrypted with `~/.octocode/.key`).
+You can also run `npx octocode-cli login` directly. Both paths open a browser window to authorize Octocode safely. The token is stored in Octocode's encrypted credential store (`~/.octocode/credentials.json`, encrypted with `~/.octocode/.key`).
 
 ### Option 2: GitHub CLI (`gh`)
 
@@ -127,7 +130,7 @@ For available tools and detailed usage, see the [GitHub Tools Reference](https:/
 
 ### "No GitHub token found"
 
-- Run `npx octocode-cli install` and choose **Manage Auth** to check status, or run `npx octocode-cli status`.
+- Run `npx octocode-cli status` to check status, or `npx octocode-cli login` to authenticate directly.
 - Ensure you have run `gh auth login` if using the GitHub CLI.
 - Check if your environment variable is set: `echo $GITHUB_TOKEN`.
 
@@ -139,12 +142,12 @@ For available tools and detailed usage, see the [GitHub Tools Reference](https:/
 
 ### Token Expired
 
-- Run `npx octocode-cli install`, choose **Manage Auth**, then choose **Login to GitHub** again to refresh it.
+- Run `npx octocode-cli login` again to refresh it.
 - Or run `gh auth refresh` if using the GitHub CLI.
 
 ### Switching Accounts
 
-- Run `npx octocode-cli install`, choose **Manage Auth**, then switch accounts. Octocode picks up the change immediately (no restart needed).
+- Run `npx octocode-cli auth`, choose **Switch account**, then log in again. Octocode picks up the change immediately (no restart needed).
 
 ### Clone/Directory Tools Disabled
 

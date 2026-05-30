@@ -46,7 +46,6 @@ vi.mock('../../src/lsp/manager.js', () => ({
 // Mock pattern matching module
 vi.mock('../../src/tools/lsp_find_references/lspReferencesPatterns.js', () => ({
   findReferencesWithPatternMatching: vi.fn().mockResolvedValue({
-    status: 'hasResults',
     locations: [],
     totalReferences: 0,
   }),
@@ -93,7 +92,11 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../src/utils/file/toolHelpers.js';
-import { findReferences } from '../../src/tools/lsp_find_references/lsp_find_references.js';
+import type { FindReferencesResult } from '../../src/lsp/types.js';
+import {
+  applyFindReferencesVerbosity,
+  findReferences,
+} from '../../src/tools/lsp_find_references/lsp_find_references.js';
 
 describe('LSP Find References - Branch Coverage Tests', () => {
   const baseQuery: LSPFindReferencesQuery = {
@@ -147,7 +150,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
     vi.mocked(
       patternModule.findReferencesWithPatternMatching
     ).mockResolvedValue({
-      status: 'hasResults',
       locations: [],
       totalReferences: 0,
       researchGoal: 'test',
@@ -161,6 +163,113 @@ describe('LSP Find References - Branch Coverage Tests', () => {
   afterEach(() => {
     delete process.env.WORKSPACE_ROOT;
     vi.resetAllMocks();
+  });
+
+  describe('groupByFile structured output', () => {
+    it('returns a ranked byFile rollup instead of burying the map in hints', () => {
+      const result: FindReferencesResult = {
+        locations: [
+          {
+            uri: '/workspace/src/b.ts',
+            range: {
+              start: { line: 4, character: 2 },
+              end: { line: 4, character: 14 },
+            },
+            content: 'use testFunction',
+          },
+          {
+            uri: '/workspace/src/a.ts',
+            range: {
+              start: { line: 1, character: 0 },
+              end: { line: 1, character: 12 },
+            },
+            content: 'testFunction();',
+            isDefinition: true,
+          },
+          {
+            uri: '/workspace/src/b.ts',
+            range: {
+              start: { line: 8, character: 4 },
+              end: { line: 8, character: 16 },
+            },
+            content: 'testFunction();',
+          },
+        ],
+      };
+
+      const grouped = applyFindReferencesVerbosity(result, {
+        ...baseQuery,
+        groupByFile: true,
+      });
+
+      expect(grouped.locations).toEqual([]);
+      expect(grouped.totalReferences).toBe(3);
+      expect(grouped.totalFiles).toBe(2);
+      expect(grouped.byFile).toEqual([
+        {
+          uri: '/workspace/src/b.ts',
+          count: 2,
+          firstLine: 5,
+          firstCharacter: 2,
+        },
+        {
+          uri: '/workspace/src/a.ts',
+          count: 1,
+          firstLine: 2,
+          firstCharacter: 0,
+          hasDefinition: true,
+        },
+      ]);
+      expect(grouped.hints?.some(hint => hint.startsWith('byFile:'))).toBe(
+        false
+      );
+    });
+
+    it('rolls up ALL references in groupByFile, not just the current page', async () => {
+      // Blast-radius regression (F1): groupByFile must aggregate the full
+      // reference set, never the paginated page slice. 25 refs across 3 files
+      // with referencesPerPage=10 → page 1 holds only 10, but the rollup must
+      // still report 25 across 3 files.
+      const make = (uri: string, line: number) => ({
+        uri,
+        range: {
+          start: { line, character: 2 },
+          end: { line, character: 14 },
+        },
+        content: 'testFunction();',
+      });
+      const allLocations = [
+        ...Array.from({ length: 12 }, (_, i) => make('/workspace/src/a.ts', i)),
+        ...Array.from({ length: 8 }, (_, i) => make('/workspace/src/b.ts', i)),
+        ...Array.from({ length: 5 }, (_, i) => make('/workspace/src/c.ts', i)),
+      ];
+
+      vi.mocked(
+        patternModule.findReferencesWithPatternMatching
+      ).mockResolvedValue({
+        locations: allLocations,
+        totalReferences: allLocations.length,
+        researchGoal: 'test',
+        reasoning: 'test',
+      } as any);
+
+      const grouped = await findReferences({
+        ...baseQuery,
+        groupByFile: true,
+        page: 1,
+        referencesPerPage: 10,
+      });
+
+      expect(grouped.totalReferences).toBe(25);
+      expect(grouped.totalFiles).toBe(3);
+      const sum = (grouped.byFile ?? []).reduce((acc, f) => acc + f.count, 0);
+      expect(sum).toBe(25);
+      expect(grouped.byFile?.map(f => [f.uri, f.count])).toEqual([
+        ['/workspace/src/a.ts', 12],
+        ['/workspace/src/b.ts', 8],
+        ['/workspace/src/c.ts', 5],
+      ]);
+    });
   });
 
   describe('lsp_find_references.ts - Error Paths', () => {
@@ -229,7 +338,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       vi.mocked(
         patternModule.findReferencesWithPatternMatching
       ).mockResolvedValue({
-        status: 'hasResults',
         locations: [{ uri: '/workspace/src/file.ts', range: {} }],
         totalReferences: 1,
         researchGoal: 'test',
@@ -238,7 +346,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
 
       const result = await findReferences(baseQuery);
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(
         patternModule.findReferencesWithPatternMatching
       ).toHaveBeenCalled();
@@ -254,7 +362,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
 
       const result = await findReferences(baseQuery);
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(
         patternModule.findReferencesWithPatternMatching
       ).toHaveBeenCalled();
@@ -265,7 +373,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         true
       );
       const lspResult = {
-        status: 'hasResults' as const,
         locations: [{ uri: '/test.ts', range: { start: { line: 0 } } }],
         totalReferences: 1,
         researchGoal: 'test',
@@ -278,7 +385,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
 
       const result = await findReferences(baseQuery);
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       // Pattern matching is always called for hybrid merge
       expect(
         patternModule.findReferencesWithPatternMatching
@@ -322,7 +429,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
             typeof query.referencesPerPage === 'number' &&
             query.referencesPerPage > 1000;
           return {
-            status: 'hasResults',
             locations: isGlobalRequest
               ? [makeLocation('src/lspA.ts', 1), makeLocation('src/lspB.ts', 2)]
               : [makeLocation('src/lspA.ts', 1)],
@@ -340,7 +446,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
           typeof query.referencesPerPage === 'number' &&
           query.referencesPerPage > 1000;
         return {
-          status: 'hasResults',
           locations: isGlobalRequest
             ? [
                 makeLocation('src/patternA.ts', 3),
@@ -357,7 +462,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         referencesPerPage: 1,
       });
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.pagination).toEqual(
         expect.objectContaining({
           currentPage: 2,

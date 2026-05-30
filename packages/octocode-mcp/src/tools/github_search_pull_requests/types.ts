@@ -1,4 +1,4 @@
-import type { GitHubSearchPullRequestsPagination } from '@octocodeai/octocode-core';
+import type { PaginationInfo } from '@octocodeai/octocode-core/types';
 
 export interface GitHubPullRequestApiItem {
   number: number;
@@ -66,7 +66,7 @@ export interface GitHubPullRequestSearchApiData {
   pull_requests?: GitHubPullRequestApiItem[];
   total_count?: number;
   incomplete_results?: boolean;
-  pagination?: GitHubSearchPullRequestsPagination;
+  pagination?: PaginationInfo;
   outputPagination?: {
     charOffset: number;
     charLength: number;

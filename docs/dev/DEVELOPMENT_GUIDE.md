@@ -110,6 +110,7 @@ For detailed research workflows including LSP navigation, local discovery, and e
 
 - [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local discovery, LSP navigation, and flow tracing
 - [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — External research and package discovery
+- [Advanced MCP Tool Verification](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/ADVANCED_MCP_TOOL_VERIFICATION.md) — Release-grade tool contract, pagination, hints, empty-state, and research-quality checks
 - [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) — Bridging GitHub repos with local + LSP tools
 
 ## Skills System

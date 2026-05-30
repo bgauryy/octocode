@@ -1,4 +1,7 @@
-import type { FileContentQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { BulkFinalizer } from '../../types/bulk.js';
 import type {
   FlatQueryResult,
@@ -17,13 +20,13 @@ import type {
   GroupedToolWarning,
 } from '../../scheme/remoteSchemaOverlay.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import { applyMinification } from '../local_fetch_content/contentMinifier.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 /** Advisory hints githubGetFileContent emits; stripped under compact.
@@ -400,9 +403,9 @@ export function buildGithubFetchContentFinalizer<
     if (errors && errors.length > 0) responseData.errors = errors;
 
     // ── Verbosity shaping ───────────────────────────────────────────────
-    const allUltra = applyGithubFetchContentVerbosity(responseData, queries);
+    const allConcise = applyGithubFetchContentVerbosity(responseData, queries);
 
-    if (config.format === 'tsv' && !allUltra) {
+    if (config.format === 'tsv' && !allConcise) {
       const projection = getTsvProjection(
         STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT
       );
@@ -446,12 +449,12 @@ export function buildGithubFetchContentFinalizer<
 }
 
 /**
- * Per-tool verbosity shaping for githubGetFileContent. Under ultra (when every
+ * Per-tool verbosity shaping for githubGetFileContent. Under concise (when every
  * query asks for it), strips `content` from every file and emits a token
  * estimate + drill-back hint. Under compact (any query opts in), trims
  * advisory hints. Basic / omitted: passthrough.
  *
- * Mutates `responseData` in place; returns `true` when ultra was applied so
+ * Mutates `responseData` in place; returns `true` when concise was applied so
  * the caller can skip downstream formats (TSV) that no longer make sense.
  */
 export function applyGithubFetchContentVerbosity(
@@ -459,38 +462,44 @@ export function applyGithubFetchContentVerbosity(
   queries: readonly PartialFileContentQuery[]
 ): boolean {
   const queriesWithVerbosity = queries as Array<
-    PartialFileContentQuery & { verbosity?: Verbosity; fullContent?: boolean }
+    WithVerbosity<PartialFileContentQuery> & { fullContent?: boolean }
   >;
-  const allUltra =
+  const allConcise =
     queriesWithVerbosity.length > 0 &&
-    queriesWithVerbosity.every(q => isUltra(q.verbosity));
+    queriesWithVerbosity.every(q => isConcise(q.verbosity));
   const anyCompact = queriesWithVerbosity.some(q => isCompact(q.verbosity));
 
-  if (allUltra) {
+  if (allConcise) {
     let totalLines = 0;
-    let totalContentLen = 0;
-    const strippedGroups = (responseData.results ?? []).map(g => ({
+    let rawLen = 0;
+    let minLen = 0;
+    // Concise MINIFIES each file body (strip comments/whitespace per file type)
+    // rather than blanking it — a minified body is a cheap, still-useful read,
+    // not a dead-end. Heavy metadata is dropped; a raw→minified token summary
+    // is emitted. Never larger than verbatim (applyMinification guards that).
+    const shapedGroups = (responseData.results ?? []).map(g => ({
       ...g,
       files: (g.files ?? []).map(f => {
         totalLines += f.totalLines ?? 0;
-        totalContentLen += f.content?.length ?? 0;
-        const stripped: FileEntry = { ...f, content: '' };
-        delete (stripped as { lastModified?: string }).lastModified;
-        delete (stripped as { lastModifiedBy?: string }).lastModifiedBy;
-        return stripped;
+        const raw = f.content ?? '';
+        const min = f.path ? applyMinification(raw, f.path) : raw;
+        rawLen += raw.length;
+        minLen += min.length;
+        const shaped: FileEntry = { ...f, content: min };
+        delete (shaped as { lastModified?: string }).lastModified;
+        delete (shaped as { lastModifiedBy?: string }).lastModifiedBy;
+        return shaped;
       }),
     }));
-    const approxTokens = Math.ceil(totalContentLen / 4);
-    const fileCount = strippedGroups.reduce(
+    const rawTokens = Math.ceil(rawLen / 4);
+    const minTokens = Math.ceil(minLen / 4);
+    const fileCount = shapedGroups.reduce(
       (n, g) => n + (g.files?.length ?? 0),
       0
     );
-    responseData.results = strippedGroups as typeof responseData.results;
+    responseData.results = shapedGroups as typeof responseData.results;
     responseData.hints = [
-      `${fileCount} files, ${totalLines} lines, ~${approxTokens} tokens raw`,
-      ...ultraDrillBackHint(
-        're-call with verbosity:"basic" (default), matchString, or startLine/endLine'
-      ),
+      `${fileCount} files, ${totalLines} lines, ~${rawTokens}→${minTokens} tokens (minified)`,
     ];
     const userPassedFullContent = queriesWithVerbosity.some(
       q => q.fullContent === true
@@ -499,7 +508,7 @@ export function applyGithubFetchContentVerbosity(
       const downgrade: GroupedToolWarning = {
         kind: 'verbosity-downgrade',
         field: 'fullContent',
-        detail: 'fullContent=true ignored under ultra; content was stripped',
+        detail: 'fullContent=true minified under concise',
       };
       responseData.warnings = [...(responseData.warnings ?? []), downgrade];
     }

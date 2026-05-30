@@ -1,4 +1,7 @@
-import type { FileContentQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { PaginationInfo } from '../../utils/core/types.js';
 
 /**

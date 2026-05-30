@@ -33,59 +33,88 @@ export type { TokenSourceType } from './types/server.js';
 // Tool execution functions and security
 export { DEFAULT_TOOL_RESPONSE_FORMAT } from './types/execution.js';
 
+import type { z } from 'zod/v4';
+import type {
+  FileContentQuerySchema,
+  FetchContentQuerySchema,
+  FindFilesQuerySchema,
+  GitHubCodeSearchQuerySchema,
+  GitHubPullRequestSearchQuerySchema,
+  GitHubReposSearchSingleQuerySchema,
+  GitHubViewRepoStructureQuerySchema,
+  RipgrepQuerySchema,
+  ViewStructureQuerySchema,
+  LSPCallHierarchyQuerySchema,
+  LSPFindReferencesQuerySchema,
+  LSPGotoDefinitionQuerySchema,
+  NpmPackageQuerySchema,
+} from '@octocodeai/octocode-core/schemas';
+
+export type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
+export type FetchContentQuery = z.infer<typeof FetchContentQuerySchema>;
+export type FindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
+export type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
+export type GitHubPullRequestSearchQuery = z.infer<
+  typeof GitHubPullRequestSearchQuerySchema
+>;
+export type GitHubReposSearchQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
+export type GitHubViewRepoStructureQuery = z.infer<
+  typeof GitHubViewRepoStructureQuerySchema
+>;
+export type RipgrepSearchQuery = z.infer<typeof RipgrepQuerySchema>;
+export type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
+export type LSPCallHierarchyQuery = z.infer<typeof LSPCallHierarchyQuerySchema>;
+export type LSPFindReferencesQuery = z.infer<
+  typeof LSPFindReferencesQuerySchema
+>;
+export type LSPGotoDefinitionQuery = z.infer<
+  typeof LSPGotoDefinitionQuerySchema
+>;
+export type PackageSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
+
 export type {
-  FileContentQuery,
-  FetchContentQuery,
-  FindFilesQuery,
-  GitHubCodeSearchQuery,
-  GitHubFetchContentData as ContentResultData,
-  GitHubFetchContentToolResult as ContentResult,
-  GitHubPullRequestSearchQuery,
-  GitHubPullRequestOutput as PullRequestInfo,
-  GitHubReposSearchQuery,
+  GitHubFileContentData as ContentResultData,
+  GitHubPullRequestItem as PullRequestInfo,
   GitHubSearchCodeData as SearchResult,
   GitHubSearchPullRequestsData as PullRequestSearchResultData,
-  GitHubSearchPullRequestsPagination as PRSearchPagination,
-  GitHubSearchPullRequestsToolResult as PullRequestSearchResult,
-  GitHubRepositoryOutput as SimplifiedRepository,
-  GitHubSearchRepositoriesData as RepoSearchResult,
-  GitHubViewRepoStructureQuery,
-  GitHubRepoStructureDirectoryEntry as DirectoryEntry,
+  PaginationInfo as PRSearchPagination,
   GitHubViewRepoStructureData as RepoStructureResultData,
-  GitHubViewRepoStructureToolResult as RepoStructureResult,
-  LocalGetFileContentPagination as FetchContentPagination,
-  LocalGetFileContentToolResult as FetchContentResult,
+  CharPagination as FetchContentPagination,
   LocalFindFilesEntry as FoundFile,
-  LocalFindFilesPagination as FindFilesPagination,
-  LocalFindFilesToolResult as FindFilesResult,
-  RipgrepQuery as RipgrepSearchQuery,
+  PaginationInfo as FindFilesPagination,
   LocalSearchCodeMatch as RipgrepMatch,
   LocalSearchCodeMatchPagination as RipgrepMatchPagination,
   LocalSearchCodeFile as RipgrepFileMatches,
-  LocalSearchCodePagination as SearchContentPagination,
+  PaginationInfo as SearchContentPagination,
+  PaginationInfo as ViewStructurePagination,
+  LspLocation as ReferenceLocation,
+  PaginationInfo as LSPPaginationInfo,
+  LspRange as LSPRange,
+  PackageItem as PackageResultWithRepo,
+  PackageSearchData as PackageSearchResult,
+} from '@octocodeai/octocode-core/types';
+
+export type {
+  GitHubFetchContentToolResult as ContentResult,
+  GitHubSearchPullRequestsToolResult as PullRequestSearchResult,
+  GitHubRepositoryOutput as SimplifiedRepository,
+  GitHubSearchRepositoriesData as RepoSearchResult,
+  GitHubRepoStructureDirectoryEntry as DirectoryEntry,
+  GitHubViewRepoStructureToolResult as RepoStructureResult,
+  LocalGetFileContentToolResult as FetchContentResult,
+  LocalFindFilesToolResult as FindFilesResult,
   LocalSearchCodeToolResult as SearchContentResult,
-  ViewStructureQuery,
-  LocalViewStructurePagination as ViewStructurePagination,
   LocalViewStructureToolResult as ViewStructureResult,
-  LSPCallHierarchyQuery,
   LspCallHierarchyItem as CallHierarchyItem,
   LspIncomingCall as IncomingCall,
   LspOutgoingCall as OutgoingCall,
   LspCallHierarchyToolResult as CallHierarchyResult,
-  LSPFindReferencesQuery,
-  LspReferenceLocation as ReferenceLocation,
   LspFindReferencesToolResult as FindReferencesResult,
-  LspFindReferencesPagination as LSPPaginationInfo,
-  LSPGotoDefinitionQuery,
   LspGotoDefinitionToolResult as GotoDefinitionResult,
   LspExactPosition as ExactPosition,
-  LspRange as LSPRange,
-  LspSymbolKind as SymbolKind,
-  LspCodeSnippet as CodeSnippet,
-  PackageSearchQuery,
-  PackageSearchPackage as PackageResultWithRepo,
-  PackageSearchData as PackageSearchResult,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/extra-types';
 
 // Tool execution — canonical bulk entry points
 export { fetchMultipleGitHubFileContents } from './tools/github_fetch_content/execution.js';
@@ -102,6 +131,31 @@ export { executeFindReferences } from './tools/lsp_find_references/execution.js'
 export { executeGotoDefinition } from './tools/lsp_goto_definition/execution.js';
 export { searchPackages } from './tools/package_search/execution.js';
 export { executeCloneRepo } from './tools/github_clone_repo/execution.js';
+export {
+  buildDirectToolExampleQuery,
+  DIRECT_TOOL_CATEGORIES,
+  DIRECT_TOOL_DEFINITIONS,
+  DirectToolInputError,
+  executeDirectTool,
+  findDirectToolDefinition,
+  formatDirectToolOutputSchemaText,
+  formatDirectToolMetadataSchemaText,
+  formatDirectToolSchemaText,
+  getDirectToolAutoFilledFields,
+  getDirectToolCategory,
+  getDirectToolDescription,
+  getDirectToolDisplayFields,
+  getDirectToolOutputFields,
+  prepareDirectToolInputFromJsonText,
+  sortDirectToolNames,
+  type DirectToolCategory,
+  type DirectToolDefinition,
+  type DirectToolDisplayField,
+  type DirectToolInput,
+  type DirectToolMetadata,
+  type DirectToolOutputField,
+  type PrepareDirectToolInputOptions,
+} from './tools/directToolCatalog.js';
 
 export { withBasicSecurityValidation } from './utils/securityBridge.js';
 
@@ -119,9 +173,9 @@ export {
   LSPGotoDefinitionQuerySchema,
   LSPFindReferencesQuerySchema,
   LSPCallHierarchyQuerySchema,
-  PackageSearchQuerySchema,
+  NpmPackageQuerySchema as PackageSearchQuerySchema,
   CloneRepoQuerySchema,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/schemas';
 
 // Tool metadata
 export { loadToolContent } from './tools/toolMetadata/state.js';

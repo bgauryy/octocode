@@ -1,23 +1,36 @@
 import type { CLICommand, ParsedArgs } from '../types.js';
-import type { IDE, InstallMethod } from '../../types/index.js';
+import type { InstallMethod, MCPClient } from '../../types/index.js';
 import { c, bold, dim } from '../../utils/colors.js';
-import { installOctocode, getInstallPreview } from '../../features/install.js';
+import {
+  installOctocodeForClient,
+  getInstallPreviewForClient,
+} from '../../features/install.js';
 import { checkNodeInPath, checkNpmInPath } from '../../features/node-check.js';
 import { INSTALL_METHOD_INFO } from '../../ui/constants.js';
 import { Spinner } from '../../utils/spinner.js';
 import { runInteractiveMode } from '../../interactive.js';
-import { getIDEDisplayName, printNodeDoctorHintCLI } from './shared.js';
+import {
+  formatSupportedMCPClients,
+  getIDEDisplayName,
+  normalizeMCPClient,
+  printNodeDoctorHintCLI,
+} from './shared.js';
+import { DETECTABLE_MCP_CLIENTS } from '../../utils/mcp-paths.js';
+
+const SUPPORTED_INSTALL_CLIENTS = DETECTABLE_MCP_CLIENTS;
+const SUPPORTED_INSTALL_CLIENTS_TEXT = formatSupportedMCPClients({
+  includeInstallAlias: true,
+});
 
 export const installCommand: CLICommand = {
   name: 'install',
   aliases: ['i', 'setup'],
   description: 'Install octocode-mcp for an IDE',
-  usage: 'octocode install --ide <ide> [--method <npx|direct>] [--force]',
+  usage: 'octocode-cli install --ide <ide> [--method <npx|direct>] [--force]',
   options: [
     {
       name: 'ide',
-      description:
-        'IDE to configure: cursor, claude-desktop, claude-code, windsurf, zed, vscode-cline, vscode-roo, vscode-continue, opencode, trae, antigravity, codex, gemini-cli, goose, kiro',
+      description: `IDE to configure: ${SUPPORTED_INSTALL_CLIENTS_TEXT}`,
       hasValue: true,
     },
     {
@@ -34,14 +47,19 @@ export const installCommand: CLICommand = {
     },
   ],
   handler: async (args: ParsedArgs) => {
-    const ide = args.options['ide'] as IDE | undefined;
-    const method = (args.options['method'] || 'npx') as InstallMethod;
+    const rawIde = args.options['ide'];
+    const methodOpt = args.options['method'] ?? args.options['m'];
+    const method = (typeof methodOpt === 'string' ? methodOpt : 'npx') as
+      | InstallMethod
+      | string;
     const force = Boolean(args.options['force'] || args.options['f']);
 
-    if (!ide) {
+    if (typeof rawIde !== 'string' || rawIde.trim().length === 0) {
       await runInteractiveMode();
       return;
     }
+
+    const client = normalizeMCPClient(rawIde);
 
     if (method === 'npx') {
       const nodeCheck = checkNodeInPath();
@@ -74,28 +92,14 @@ export const installCommand: CLICommand = {
       }
     }
 
-    const supportedIDEs = [
-      'cursor',
-      'claude',
-      'claude-desktop',
-      'claude-code',
-      'windsurf',
-      'zed',
-      'vscode-cline',
-      'vscode-roo',
-      'vscode-continue',
-      'opencode',
-      'trae',
-      'antigravity',
-      'codex',
-      'gemini-cli',
-      'goose',
-      'kiro',
-    ];
-    if (!supportedIDEs.includes(ide)) {
+    if (
+      !client ||
+      client === 'custom' ||
+      !SUPPORTED_INSTALL_CLIENTS.includes(client)
+    ) {
       console.log();
-      console.log(`  ${c('red', '✗')} Invalid IDE: ${ide}`);
-      console.log(`  ${dim('Supported:')} ${supportedIDEs.join(', ')}`);
+      console.log(`  ${c('red', '✗')} Invalid IDE: ${rawIde}`);
+      console.log(`  ${dim('Supported:')} ${SUPPORTED_INSTALL_CLIENTS_TEXT}`);
       console.log();
       process.exitCode = 1;
       return;
@@ -110,7 +114,9 @@ export const installCommand: CLICommand = {
       return;
     }
 
-    const preview = getInstallPreview(ide, method);
+    const installMethod = method as InstallMethod;
+    const installClient = client as MCPClient;
+    const preview = getInstallPreviewForClient(installClient, installMethod);
 
     if (preview.action === 'override' && !force) {
       console.log();
@@ -125,14 +131,20 @@ export const installCommand: CLICommand = {
 
     console.log();
     console.log(`  ${bold('Installing octocode-mcp')}`);
-    console.log(`    ${dim('IDE:')}    ${getIDEDisplayName(ide)}`);
-    console.log(`    ${dim('Method:')} ${INSTALL_METHOD_INFO[method].name}`);
+    console.log(`    ${dim('IDE:')}    ${getIDEDisplayName(installClient)}`);
+    console.log(
+      `    ${dim('Method:')} ${INSTALL_METHOD_INFO[installMethod].name}`
+    );
     console.log(`    ${dim('Action:')} ${preview.action.toUpperCase()}`);
     console.log();
 
     const spinner = new Spinner('Writing configuration...').start();
 
-    const result = installOctocode({ ide, method, force });
+    const result = installOctocodeForClient({
+      client: installClient,
+      method: installMethod,
+      force,
+    });
 
     if (result.success) {
       spinner.succeed('Installation complete!');
@@ -145,7 +157,7 @@ export const installCommand: CLICommand = {
       }
       console.log();
       console.log(
-        `  ${bold('Next:')} Restart ${getIDEDisplayName(ide)} to activate.`
+        `  ${bold('Next:')} Restart ${getIDEDisplayName(installClient)} to activate.`
       );
       console.log();
     } else {

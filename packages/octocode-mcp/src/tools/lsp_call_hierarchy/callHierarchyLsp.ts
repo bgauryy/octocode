@@ -15,7 +15,10 @@ import type {
   ExactPosition,
   CodeSnippet,
 } from '../../lsp/types.js';
-import type { LSPCallHierarchyQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type LSPCallHierarchyQuery = z.infer<typeof LSPCallHierarchyQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 import {
   createCallItemKey,
@@ -25,6 +28,219 @@ import {
   paginateResults,
 } from './callHierarchyHelpers.js';
 import { TOOL_NAME } from './constants.js';
+
+/** Error result when the server lacks callHierarchyProvider. */
+function buildCapabilityErrorResult(
+  query: WithOptionalMeta<LSPCallHierarchyQuery>
+): CallHierarchyResult {
+  return {
+    status: 'error',
+    error: 'Language server does not support call hierarchy',
+    errorType: 'not_a_function',
+    errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
+    direction: query.direction,
+    depth: query.depth ?? 1,
+    hints: [
+      ...getHints(TOOL_NAME, 'error'),
+      'The active language server does not advertise callHierarchyProvider.',
+      'Try lspFindReferences for broader usage analysis.',
+    ],
+  };
+}
+
+/** Empty result when no callable symbol sits at the resolved position. */
+function buildNoSymbolResult(
+  query: WithOptionalMeta<LSPCallHierarchyQuery>
+): CallHierarchyResult {
+  return {
+    status: 'empty',
+    error: 'No callable symbol found at position',
+    errorType: 'symbol_not_found',
+    errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
+    direction: query.direction,
+    depth: query.depth ?? 1,
+    hints: [
+      ...getHints(TOOL_NAME, 'empty'),
+      'Language server could not identify a callable symbol',
+      'Ensure the position is on a function/method name',
+      'Try adjusting lineHint to the exact function declaration line',
+      'If pointing at an import, run lspGotoDefinition first and use the definition lineHint',
+    ],
+  };
+}
+
+/** Gather + paginate + enhance incoming callers for the target item. */
+async function resolveIncomingCalls(
+  client: LSPClient,
+  targetItem: CallHierarchyItem,
+  enhancedTargetItem: CallHierarchyItem,
+  query: WithOptionalMeta<LSPCallHierarchyQuery>,
+  depth: number,
+  visited: Set<string>
+): Promise<CallHierarchyResult> {
+  const contextLines = query.contextLines ?? 2;
+  const callsPerPage = query.callsPerPage ?? 15;
+  const page = query.page ?? 1;
+
+  const allIncomingCalls = await gatherIncomingCallsRecursive(
+    client,
+    targetItem,
+    depth,
+    visited,
+    0 // Gather without content enhancement
+  );
+
+  if (allIncomingCalls.length === 0) {
+    return stripCallHierarchyInternalFields({
+      status: 'empty',
+      item: enhancedTargetItem,
+      direction: 'incoming',
+      depth,
+      incomingCalls: [],
+      hints: [
+        ...getHints(TOOL_NAME, 'empty', { direction: 'incoming' }),
+        `No callers found for '${query.symbolName}' via Language Server`,
+        'The function may not be called directly in the workspace',
+        'Check if it is called via alias or dynamic invocation',
+        'Try lspFindReferences for broader usage search',
+      ],
+    });
+  }
+
+  const totalPages = Math.ceil(allIncomingCalls.length / callsPerPage);
+  if (page > totalPages) {
+    return stripCallHierarchyInternalFields({
+      status: 'empty',
+      item: enhancedTargetItem,
+      direction: 'incoming',
+      depth,
+      incomingCalls: [],
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalResults: allIncomingCalls.length,
+        hasMore: false,
+        resultsPerPage: callsPerPage,
+      },
+      hints: [
+        ...getHints(TOOL_NAME, 'empty', { direction: 'incoming' }),
+        `Requested page ${page} is outside available range (1-${totalPages}).`,
+        `Use page=${totalPages} for the last available page.`,
+      ],
+    });
+  }
+
+  const { paginatedItems, pagination } = paginateResults(
+    allIncomingCalls,
+    callsPerPage,
+    page
+  );
+
+  const enhancedItems =
+    contextLines > 0
+      ? await enhanceIncomingCalls(paginatedItems, contextLines)
+      : paginatedItems;
+
+  return stripCallHierarchyInternalFields({
+    item: enhancedTargetItem,
+    direction: 'incoming',
+    depth,
+    incomingCalls: enhancedItems,
+    pagination,
+    hints:
+      pagination && pagination.totalPages > 1
+        ? [
+            `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
+          ]
+        : [],
+  });
+}
+
+/** Gather + paginate + enhance outgoing callees for the target item. */
+async function resolveOutgoingCalls(
+  client: LSPClient,
+  targetItem: CallHierarchyItem,
+  enhancedTargetItem: CallHierarchyItem,
+  query: WithOptionalMeta<LSPCallHierarchyQuery>,
+  depth: number,
+  visited: Set<string>
+): Promise<CallHierarchyResult> {
+  const contextLines = query.contextLines ?? 2;
+  const callsPerPage = query.callsPerPage ?? 15;
+  const page = query.page ?? 1;
+
+  const allOutgoingCalls = await gatherOutgoingCallsRecursive(
+    client,
+    targetItem,
+    depth,
+    visited,
+    0 // Gather without content enhancement
+  );
+
+  if (allOutgoingCalls.length === 0) {
+    return stripCallHierarchyInternalFields({
+      status: 'empty',
+      item: enhancedTargetItem,
+      direction: 'outgoing',
+      depth,
+      outgoingCalls: [],
+      hints: [
+        ...getHints(TOOL_NAME, 'empty', { direction: 'outgoing' }),
+        `No callees found in '${query.symbolName}' via Language Server`,
+        'The function may only contain primitive operations',
+        'Check if calls use dynamic invocation patterns',
+      ],
+    });
+  }
+
+  const totalPages = Math.ceil(allOutgoingCalls.length / callsPerPage);
+  if (page > totalPages) {
+    return stripCallHierarchyInternalFields({
+      status: 'empty',
+      item: enhancedTargetItem,
+      direction: 'outgoing',
+      depth,
+      outgoingCalls: [],
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalResults: allOutgoingCalls.length,
+        hasMore: false,
+        resultsPerPage: callsPerPage,
+      },
+      hints: [
+        ...getHints(TOOL_NAME, 'empty', { direction: 'outgoing' }),
+        `Requested page ${page} is outside available range (1-${totalPages}).`,
+        `Use page=${totalPages} for the last available page.`,
+      ],
+    });
+  }
+
+  const { paginatedItems, pagination } = paginateResults(
+    allOutgoingCalls,
+    callsPerPage,
+    page
+  );
+
+  const enhancedItems =
+    contextLines > 0
+      ? await enhanceOutgoingCalls(paginatedItems, contextLines)
+      : paginatedItems;
+
+  return stripCallHierarchyInternalFields({
+    item: enhancedTargetItem,
+    direction: 'outgoing',
+    depth,
+    outgoingCalls: enhancedItems,
+    pagination,
+    hints:
+      pagination && pagination.totalPages > 1
+        ? [
+            `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
+          ]
+        : [],
+  });
+}
 
 /**
  * Use LSP client for semantic call hierarchy
@@ -42,20 +258,7 @@ export async function callHierarchyWithLSP(
   if (!client) return null;
 
   if (client.hasCapability && !client.hasCapability('callHierarchyProvider')) {
-    return {
-      status: 'error',
-      error: 'Language server does not support call hierarchy',
-      errorType: 'not_a_function',
-      errorCode: LSP_ERROR_CODES.LSP_CAPABILITY_UNSUPPORTED,
-      direction: query.direction,
-      depth: query.depth ?? 1,
-      lspMode: 'semantic',
-      hints: [
-        ...getHints(TOOL_NAME, 'error'),
-        'The active language server does not advertise callHierarchyProvider.',
-        'Try lspFindReferences for broader usage analysis.',
-      ],
-    };
+    return buildCapabilityErrorResult(query);
   }
 
   try {
@@ -73,21 +276,7 @@ export async function callHierarchyWithLSP(
     }
 
     if (!items || items.length === 0) {
-      return {
-        status: 'empty',
-        error: 'No callable symbol found at position',
-        errorType: 'symbol_not_found',
-        errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
-        direction: query.direction,
-        depth: query.depth ?? 1,
-        hints: [
-          ...getHints(TOOL_NAME, 'empty'),
-          'Language server could not identify a callable symbol',
-          'Ensure the position is on a function/method name',
-          'Try adjusting lineHint to the exact function declaration line',
-          'If pointing at an import, run lspGotoDefinition first and use the definition lineHint',
-        ],
-      };
+      return buildNoSymbolResult(query);
     }
 
     const targetItem = items[0]!;
@@ -102,166 +291,23 @@ export async function callHierarchyWithLSP(
     const visited = new Set<string>();
     visited.add(createCallItemKey(targetItem));
 
-    if (query.direction === 'incoming') {
-      const contextLines = query.contextLines ?? 2;
-      const callsPerPage = query.callsPerPage ?? 15;
-      const page = query.page ?? 1;
-
-      const allIncomingCalls = await gatherIncomingCallsRecursive(
-        client,
-        targetItem,
-        depth,
-        visited,
-        0 // Gather without content enhancement
-      );
-
-      if (allIncomingCalls.length === 0) {
-        return stripCallHierarchyInternalFields({
-          status: 'empty',
-          item: enhancedTargetItem,
-          direction: 'incoming',
+    return query.direction === 'incoming'
+      ? await resolveIncomingCalls(
+          client,
+          targetItem,
+          enhancedTargetItem,
+          query,
           depth,
-          incomingCalls: [],
-          hints: [
-            ...getHints(TOOL_NAME, 'empty', { direction: 'incoming' }),
-            `No callers found for '${query.symbolName}' via Language Server`,
-            'The function may not be called directly in the workspace',
-            'Check if it is called via alias or dynamic invocation',
-            'Try lspFindReferences for broader usage search',
-          ],
-        });
-      }
-
-      const totalPages = Math.ceil(allIncomingCalls.length / callsPerPage);
-      if (page > totalPages) {
-        return stripCallHierarchyInternalFields({
-          status: 'empty',
-          item: enhancedTargetItem,
-          direction: 'incoming',
+          visited
+        )
+      : await resolveOutgoingCalls(
+          client,
+          targetItem,
+          enhancedTargetItem,
+          query,
           depth,
-          incomingCalls: [],
-          pagination: {
-            currentPage: page,
-            totalPages,
-            totalResults: allIncomingCalls.length,
-            hasMore: false,
-            resultsPerPage: callsPerPage,
-          },
-          hints: [
-            ...getHints(TOOL_NAME, 'empty', {
-              direction: 'incoming',
-            }),
-            `Requested page ${page} is outside available range (1-${totalPages}).`,
-            `Use page=${totalPages} for the last available page.`,
-          ],
-        });
-      }
-
-      const { paginatedItems, pagination } = paginateResults(
-        allIncomingCalls,
-        callsPerPage,
-        page
-      );
-
-      const enhancedItems =
-        contextLines > 0
-          ? await enhanceIncomingCalls(paginatedItems, contextLines)
-          : paginatedItems;
-
-      return stripCallHierarchyInternalFields({
-        status: 'hasResults',
-        item: enhancedTargetItem,
-        direction: 'incoming',
-        depth,
-        incomingCalls: enhancedItems,
-        pagination,
-        hints:
-          pagination && pagination.totalPages > 1
-            ? [
-                `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
-              ]
-            : [],
-      });
-    } else {
-      const contextLines = query.contextLines ?? 2;
-      const callsPerPage = query.callsPerPage ?? 15;
-      const page = query.page ?? 1;
-
-      const allOutgoingCalls = await gatherOutgoingCallsRecursive(
-        client,
-        targetItem,
-        depth,
-        visited,
-        0 // Gather without content enhancement
-      );
-
-      if (allOutgoingCalls.length === 0) {
-        return stripCallHierarchyInternalFields({
-          status: 'empty',
-          item: enhancedTargetItem,
-          direction: 'outgoing',
-          depth,
-          outgoingCalls: [],
-          hints: [
-            ...getHints(TOOL_NAME, 'empty', { direction: 'outgoing' }),
-            `No callees found in '${query.symbolName}' via Language Server`,
-            'The function may only contain primitive operations',
-            'Check if calls use dynamic invocation patterns',
-          ],
-        });
-      }
-
-      const totalPages = Math.ceil(allOutgoingCalls.length / callsPerPage);
-      if (page > totalPages) {
-        return stripCallHierarchyInternalFields({
-          status: 'empty',
-          item: enhancedTargetItem,
-          direction: 'outgoing',
-          depth,
-          outgoingCalls: [],
-          pagination: {
-            currentPage: page,
-            totalPages,
-            totalResults: allOutgoingCalls.length,
-            hasMore: false,
-            resultsPerPage: callsPerPage,
-          },
-          hints: [
-            ...getHints(TOOL_NAME, 'empty', {
-              direction: 'outgoing',
-            }),
-            `Requested page ${page} is outside available range (1-${totalPages}).`,
-            `Use page=${totalPages} for the last available page.`,
-          ],
-        });
-      }
-
-      const { paginatedItems, pagination } = paginateResults(
-        allOutgoingCalls,
-        callsPerPage,
-        page
-      );
-
-      const enhancedItems =
-        contextLines > 0
-          ? await enhanceOutgoingCalls(paginatedItems, contextLines)
-          : paginatedItems;
-
-      return stripCallHierarchyInternalFields({
-        status: 'hasResults',
-        item: enhancedTargetItem,
-        direction: 'outgoing',
-        depth,
-        outgoingCalls: enhancedItems,
-        pagination,
-        hints:
-          pagination && pagination.totalPages > 1
-            ? [
-                `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
-              ]
-            : [],
-      });
-    }
+          visited
+        );
   } catch {
     // Preserve existing fallback contract: caller falls back to pattern matching
     // when LSP path fails for any reason. The pool owns lifecycle, so no

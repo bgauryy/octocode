@@ -2,7 +2,12 @@
  * Repository structure pagination — applies pagination to cached structure results.
  * Extracted from repoStructure.ts.
  */
-import type { GitHubViewRepoStructureQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type GitHubViewRepoStructureQuery = z.infer<
+  typeof GitHubViewRepoStructureQuerySchema
+>;
 import type { GitHubRepositoryStructureResult } from '../tools/github_view_repo_structure/types.js';
 import { GITHUB_STRUCTURE_DEFAULTS as STRUCTURE_DEFAULTS } from '../tools/github_view_repo_structure/constants.js';
 import { generateStructurePaginationHints } from '../utils/pagination/hints.js';

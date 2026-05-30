@@ -56,6 +56,12 @@ export interface SyncResult {
   errors: string[];
 }
 
+export interface QuickSyncResult {
+  success: boolean;
+  message: string;
+  syncPerformed: boolean;
+}
+
 export function readAllClientConfigs(): ClientConfigSnapshot[] {
   const availableClients = detectAvailableClients();
   const snapshots: ClientConfigSnapshot[] = [];
@@ -305,4 +311,82 @@ export function isSyncNeeded(analysis: SyncAnalysis): boolean {
 
 export function getClientDisplayName(client: MCPClient): string {
   return MCP_CLIENTS[client]?.name || client;
+}
+
+export async function quickSync(options: {
+  force?: boolean;
+  dryRun?: boolean;
+}): Promise<QuickSyncResult> {
+  const snapshots = readAllClientConfigs();
+  const analysis = analyzeSyncState(snapshots);
+
+  if (analysis.summary.clientsWithConfig < 2) {
+    return {
+      success: false,
+      message: `Not enough clients to sync (found ${analysis.summary.clientsWithConfig})`,
+      syncPerformed: false,
+    };
+  }
+
+  if (!isSyncNeeded(analysis)) {
+    return {
+      success: true,
+      message: 'All MCPs are already in sync',
+      syncPerformed: false,
+    };
+  }
+
+  if (analysis.conflicts.length > 0 && !options.force) {
+    return {
+      success: false,
+      message: `${analysis.conflicts.length} conflict(s) found. Use --force to auto-resolve or run interactive mode.`,
+      syncPerformed: false,
+    };
+  }
+
+  const resolutions: ConflictResolution[] = [];
+  if (options.force) {
+    // Non-interactive force mode resolves by using the first discovered variant.
+    for (const diff of analysis.conflicts) {
+      const firstVariant = Array.from(diff.variants.entries())[0];
+      if (firstVariant) {
+        resolutions.push({
+          mcpId: diff.mcpId,
+          chosenConfig: firstVariant[1],
+          sourceClient: firstVariant[0],
+        });
+      }
+    }
+  }
+
+  const payload = prepareSyncPayload(analysis, resolutions);
+
+  if (options.dryRun) {
+    return {
+      success: true,
+      message: `Would sync ${payload.length} MCP(s) to ${analysis.summary.clientsWithConfig} client(s)`,
+      syncPerformed: false,
+    };
+  }
+
+  const targetClients = analysis.clients.filter(s => s.exists);
+  const result = executeSyncToClients(
+    analysis.clients,
+    payload,
+    targetClients.map(c => c.client)
+  );
+
+  if (result.success) {
+    return {
+      success: true,
+      message: `Synced ${result.mcpsSynced.length} MCP(s) to ${targetClients.length} client(s)`,
+      syncPerformed: true,
+    };
+  }
+
+  return {
+    success: false,
+    message: `Sync failed: ${result.errors.join(', ')}`,
+    syncPerformed: true,
+  };
 }

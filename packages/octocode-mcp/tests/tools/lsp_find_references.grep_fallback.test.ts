@@ -115,7 +115,7 @@ describe('lspReferencesPatterns — grep fallback (searchReferencesWithGrep)', (
       BASE_QUERY
     );
 
-    expect(result.status).toBe('hasResults');
+    expect(result.status).toBeUndefined();
     expect(result.locations!.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -163,7 +163,7 @@ describe('lspReferencesPatterns — grep fallback (searchReferencesWithGrep)', (
     );
 
     // Should parse the valid line and skip the invalid ones
-    expect(['hasResults', 'empty']).toContain(result.status);
+    expect([undefined, 'empty']).toContain(result.status);
   });
 
   it('grep fallback: definition first sort (grep sort comparisons covered)', async () => {
@@ -190,7 +190,7 @@ describe('lspReferencesPatterns — grep fallback (searchReferencesWithGrep)', (
     );
 
     // Definition should appear first
-    expect(['hasResults', 'empty']).toContain(result.status);
+    expect([undefined, 'empty']).toContain(result.status);
     if (result.status === 'hasResults' && result.locations!.length > 0) {
       expect(result.locations![0]!.isDefinition).toBe(true);
     }
@@ -247,7 +247,7 @@ describe('lspReferencesPatterns — grep fallback (searchReferencesWithGrep)', (
       }
     );
 
-    expect(['hasResults', 'empty']).toContain(result.status);
+    expect([undefined, 'empty']).toContain(result.status);
   });
 
   it('handles grep fallback error gracefully (grep also fails)', async () => {

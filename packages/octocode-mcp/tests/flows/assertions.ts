@@ -37,7 +37,9 @@ export function expectHasResults<TSchema extends BulkOutputSchema>(
 ): Extract<z.infer<TSchema>['results'][number], { status: 'hasResults' }> {
   const parsed = getSingleResult(schema, result);
 
-  if (parsed.status !== 'hasResults') {
+  // hasResults is now signaled by ABSENT status — emitted only for 'empty'
+  // and 'error'. Treat undefined and 'hasResults' as the happy path.
+  if (parsed.status !== undefined && parsed.status !== 'hasResults') {
     throw new Error(
       `Expected hasResults but received:\n${JSON.stringify(parsed, null, 2)}`
     );
@@ -73,7 +75,12 @@ export function expectHasResultsData<TSchema extends z.ZodType<object>>(
   const [singleResult] = envelope.results!;
   expect(singleResult).toBeDefined();
 
-  if (singleResult!.status !== 'hasResults') {
+  // hasResults is now signaled by ABSENT status — only 'empty' and 'error'
+  // are emitted explicitly. Treat undefined as the happy path.
+  if (
+    singleResult!.status !== undefined &&
+    singleResult!.status !== 'hasResults'
+  ) {
     throw new Error(
       `Expected hasResults but received:\n${JSON.stringify(singleResult, null, 2)}`
     );

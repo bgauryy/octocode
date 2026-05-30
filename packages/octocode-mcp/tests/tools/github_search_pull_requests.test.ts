@@ -509,7 +509,6 @@ describe('GitHub Search Pull Requests Tool', () => {
             researchGoal: 'test',
             reasoning: 'test',
             state: 'open',
-            merged: false,
             draft: false,
           },
         ],

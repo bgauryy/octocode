@@ -1,8 +1,10 @@
 # Octocode Agent CLI Architecture
 
 Date: 2026-04-16 (revised 2026-04-17)
-Repo: `vltansky/octocode-mcp`
+Repo: `bgauryy/octocode-mcp`
 Scope: Ship an agent-facing surface on the existing `octocode-cli` binary so coding agents get non-interactive parity with Octocode MCP for remote/provider-backed tools. Excludes local filesystem and LSP tools in v1.
+
+> **Status (2026-05-30): superseded implementation note.** The current CLI does not ship per-tool subcommands and does not deprecate `--tool`. It runs all 14 Octocode tools through `octocode-cli --tool <name>` and imports the canonical public catalog, schemas, and executors from `octocode-mcp/public`, so CLI code owns only command-line parsing, autofill, and terminal output. Current user-facing behavior is documented in the [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md).
 
 ## Decision Summary
 

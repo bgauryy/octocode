@@ -75,7 +75,6 @@ describe('GAP-01: structuredContent sanitization in bulk responses', () => {
     const queries = [{ id: 'q1', path: '/test' }];
 
     const processor = async (): Promise<ProcessedBulkResult> => ({
-      status: 'hasResults',
       content: `Config: ${SECRETS.AWS_KEY} and ${SECRETS.STRIPE_KEY}`,
       data: {
         file: 'config.ts',
@@ -112,7 +111,6 @@ describe('GAP-01: structuredContent sanitization in bulk responses', () => {
       _query: { id: string; path: string },
       index: number
     ): Promise<ProcessedBulkResult> => ({
-      status: 'hasResults',
       content:
         index === 0
           ? `AWS: ${SECRETS.AWS_KEY}`
@@ -132,7 +130,6 @@ describe('GAP-01: structuredContent sanitization in bulk responses', () => {
     const queries = [{ id: 'q1' }];
 
     const processor = async (): Promise<ProcessedBulkResult> => ({
-      status: 'hasResults',
       content: SECRETS.PRIVATE_KEY,
     });
 
@@ -205,7 +202,6 @@ describe('GAP-02: Local file content sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             content: fileContent,
             path: '/workspace/config.ts',
@@ -226,7 +222,6 @@ describe('GAP-02: Local file content sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             content: `const secret = "${SECRETS.OPENAI_KEY}";`,
             path: '/workspace/src/api.ts',
@@ -252,7 +247,6 @@ describe('GAP-03: Ripgrep output sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             matches: [
               {
@@ -288,7 +282,6 @@ describe('GAP-03: Ripgrep output sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             matches: [
               {
@@ -322,7 +315,6 @@ describe('GAP-04: LSP tool output sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             locations: [
               {
@@ -353,7 +345,6 @@ describe('GAP-04: LSP tool output sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             references: [
               {
@@ -377,7 +368,6 @@ describe('GAP-04: LSP tool output sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             target: {
               name: 'getSecret',
@@ -410,7 +400,6 @@ describe('GAP-05: PR patch content sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             number: 42,
             title: 'Update config',
@@ -451,7 +440,6 @@ describe('GAP-05: PR patch content sanitization', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             number: 99,
             title: 'Fix auth',
@@ -525,7 +513,6 @@ describe('CROSS: Every secret type through bulk pipeline', () => {
       const queries = [{ id: 'q1' }];
 
       const processor = async (): Promise<ProcessedBulkResult> => ({
-        status: 'hasResults',
         content: `secret: ${secretValue}`,
         nested: { deep: { value: secretValue } },
       });
@@ -564,7 +551,6 @@ describe('SAFE: Clean content preserved through all paths', () => {
       'function calculateTotal(items) { return items.reduce((sum, i) => sum + i.price, 0); }';
 
     const processor = async (): Promise<ProcessedBulkResult> => ({
-      status: 'hasResults',
       content: cleanCode,
     });
 
@@ -584,7 +570,6 @@ describe('SAFE: Clean content preserved through all paths', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             content: 'const greeting = "Hello, World!";',
             path: '/workspace/src/hello.ts',
@@ -604,7 +589,6 @@ describe('SAFE: Clean content preserved through all paths', () => {
       results: [
         {
           id: 'q1',
-          status: 'hasResults' as const,
           data: {
             locations: [
               {

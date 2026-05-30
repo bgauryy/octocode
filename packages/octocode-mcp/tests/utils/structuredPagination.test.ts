@@ -18,7 +18,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q1',
-        status: 'hasResults',
         data: {
           files: [
             {
@@ -61,7 +60,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'clone_repo',
-        status: 'hasResults',
         data: {
           localPath: '/tmp/octocode/repo',
           hints,
@@ -94,7 +92,6 @@ describe('tool-owned structured pagination', () => {
     const firstPage = applyQueryOutputPagination(
       {
         id: 'pkg_search',
-        status: 'hasResults',
         data: {
           packages,
           totalFound: packages.length,
@@ -121,7 +118,6 @@ describe('tool-owned structured pagination', () => {
     const secondPage = applyQueryOutputPagination(
       {
         id: 'pkg_search',
-        status: 'hasResults',
         data: {
           packages,
           totalFound: packages.length,
@@ -146,7 +142,6 @@ describe('tool-owned structured pagination', () => {
   it('uses the tool paginator before bulk response pagination leaves a single huge result oversized', async () => {
     const largeMatch = 'y'.repeat(5000);
     const processor = vi.fn().mockResolvedValue({
-      status: 'hasResults' as const,
       files: [
         {
           path: 'src/large.ts',
@@ -189,7 +184,6 @@ describe('tool-owned structured pagination', () => {
         results: [
           {
             id: 'repo_q1',
-            status: 'hasResults',
             data: {
               repositories: [
                 {
@@ -223,7 +217,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'repo_search',
-        status: 'hasResults',
         data: {
           repositories: [
             {
@@ -264,7 +257,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'view_repo',
-        status: 'hasResults',
         data: {
           structure: {
             src: {
@@ -293,7 +285,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'local_search',
-        status: 'hasResults',
         data: {
           files: [
             {
@@ -333,7 +324,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'view_local',
-        status: 'hasResults',
         data: {
           entries,
         },
@@ -355,7 +345,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'find_files',
-        status: 'hasResults',
         data: {
           files: ['src/a.ts', 'src/b.ts'],
           charPagination: {
@@ -386,7 +375,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'fetch_remote',
-        status: 'hasResults',
         data: {
           path: 'src/file.ts',
           content: 'const x = 1;',
@@ -419,7 +407,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'fetch_local',
-        status: 'hasResults',
         data: {
           filePath: '/workspace/file.ts',
           content: 'export const x = 1;',
@@ -454,7 +441,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'goto_def',
-        status: 'hasResults',
         data: {
           locations: [
             {
@@ -486,7 +472,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'find_refs',
-        status: 'hasResults',
         data: {
           locations: [
             {
@@ -518,7 +503,6 @@ describe('tool-owned structured pagination', () => {
         results: [
           {
             id: 'find_refs',
-            status: 'hasResults',
             data: {
               locations: [
                 {
@@ -561,7 +545,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'call_hierarchy',
-        status: 'hasResults',
         data: {
           incomingCalls,
           outgoingCalls: [],
@@ -591,7 +574,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'search_prs',
-        status: 'hasResults',
         data: {
           pull_requests: pullRequests,
         },
@@ -666,7 +648,6 @@ describe('tool-owned structured pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-ok',
-        status: 'hasResults',
         data: {
           item: {
             name: 'target',

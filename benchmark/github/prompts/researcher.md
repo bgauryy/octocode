@@ -24,9 +24,9 @@ INPUT FILES
 - benchmark/github/scripts/       → the metering scripts (see below)
 
 DO NOT READ
-- benchmark/github/EXPECTED_FACTS.md   → judge's answer key.
-  Reading it invalidates the run.
-- benchmark/github/README.md            → operator/reviewer view only.
+- benchmark/github/README.md           → operator/reviewer view only.
+- benchmark/github/output/summary.md   → final judge output, if it exists.
+- the other researcher run directory   → keeps the two research runs blind.
 
 ═══════════════════════════════════════════════════════════════════
 ALLOWED TOOLS — branches on TOOLSET
@@ -173,7 +173,8 @@ HARD RULES
 • If a question cannot be answered (tool error, rate limit, genuinely
   unavailable data), write `UNKNOWN — <one-line reason>`. Never hallucinate.
 
-• Never read EXPECTED_FACTS.md. The run is invalidated if you do.
+• Never read the other agent's output or benchmark/github/output/summary.md
+  before your run is finalized. The run is invalidated if you do.
 
 • Do not narrate or explain your process between questions.
   Only the recorded output matters.

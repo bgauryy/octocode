@@ -1,4 +1,7 @@
-import type { ViewStructureQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 import { checkRegexSafety } from '../../utils/core/safeRegex.js';
 
 /**

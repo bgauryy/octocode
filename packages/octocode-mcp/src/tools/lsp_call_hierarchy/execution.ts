@@ -1,5 +1,10 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { LSPCallHierarchyQuery as UpstreamLSPCallHierarchyQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type UpstreamLSPCallHierarchyQuery = z.infer<
+  typeof LSPCallHierarchyQuerySchema
+>;
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { processCallHierarchy } from './callHierarchy.js';
 import type { CallHierarchyResult } from '../../lsp/types.js';

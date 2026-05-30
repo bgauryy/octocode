@@ -35,7 +35,6 @@ describe('githubGetFileContent finalizer — optimization fixes', () => {
     const results: FlatQueryResult[] = [
       {
         id: 'q1',
-        status: 'hasResults',
         data: {
           path: 'README.md',
           content: '# React',
@@ -123,7 +122,6 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
     const results: FlatQueryResult[] = [
       {
         id: 'has_hits',
-        status: 'hasResults',
         data: {
           results: [
             {
@@ -160,7 +158,6 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
     const results: FlatQueryResult[] = [
       {
         id: 'q1',
-        status: 'hasResults',
         data: {
           results: [
             {
@@ -181,6 +178,43 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
     });
 
     expect(out.structuredContent.emptyQueries).toBeUndefined();
+  });
+
+  it('ranks merged owner/repo groups by match count before pagination', () => {
+    const finalizer = buildGithubSearchCodeFinalizer();
+    const queries = [{ id: 'q1', keywordsToSearch: ['handler'] }];
+    const results: FlatQueryResult[] = [
+      {
+        id: 'q1',
+        data: {
+          results: [
+            {
+              id: 'org/small',
+              owner: 'org',
+              repo: 'small',
+              matches: [{ path: 'a.ts' }],
+            },
+            {
+              id: 'org/large',
+              owner: 'org',
+              repo: 'large',
+              matches: [{ path: 'b.ts' }, { path: 'c.ts' }, { path: 'd.ts' }],
+            },
+          ],
+        },
+      },
+    ];
+
+    const out = finalizer({
+      queries,
+      results,
+      config: { toolName: 'githubSearchCode' },
+    });
+
+    expect(out.structuredContent.results?.map(group => group.id)).toEqual([
+      'org/large',
+      'org/small',
+    ]);
   });
 });
 

@@ -38,7 +38,7 @@ type ToolResult =
 function verifySmartData<T extends ToolResult>(result: T, toolName: string): T {
   expect(result, `${toolName} should return a result object`).toBeDefined();
   expect(result.status, `${toolName} should have status field`).toBeDefined();
-  expect(['hasResults', 'empty', 'error']).toContain(result.status);
+  expect([undefined, 'empty', 'error']).toContain(result.status);
 
   if (result.status === 'hasResults') {
     const hasFiles =
@@ -257,7 +257,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
       }
 
       expect(findResult).toHaveProperty('status');
-      expect(['hasResults', 'empty', 'error']).toContain(findResult.status);
+      expect([undefined, 'empty', 'error']).toContain(findResult.status);
     });
 
     it('should read full file content', async () => {

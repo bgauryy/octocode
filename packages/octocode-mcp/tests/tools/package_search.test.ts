@@ -1463,7 +1463,7 @@ describe('registerPackageSearchTool', () => {
       expect(text).not.toContain('githubViewRepoStructure');
 
       // Verify result status (YAML format uses quoted strings)
-      expect(text).toContain('status: "hasResults"');
+      expect(text).not.toContain('status: "hasResults"');
     });
     it('should return emptyStatusHints with browse link when no npm packages found', async () => {
       // Use keyword search (with space) to test npm search flow empty results

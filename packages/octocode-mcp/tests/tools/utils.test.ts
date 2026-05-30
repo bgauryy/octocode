@@ -42,7 +42,7 @@ describe('Tools Utils', () => {
         'GITHUB_SEARCH_CODE'
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expectNoResearchContext(result);
       expect(result.files).toEqual(['test1.ts', 'test2.ts']);
     });
@@ -85,7 +85,7 @@ describe('Tools Utils', () => {
         { extraHints }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
       expect(result.hints).toContain('Try narrowing your search with topics');
       expect(result.hints).toContain('Consider using stars filter');
@@ -122,7 +122,7 @@ describe('Tools Utils', () => {
         { extraHints: [] }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeUndefined();
     });
 
@@ -140,7 +140,7 @@ describe('Tools Utils', () => {
         'GITHUB_SEARCH_CODE'
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeUndefined();
     });
 
@@ -184,7 +184,7 @@ describe('Tools Utils', () => {
         { extraHints: ['File found successfully'] }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
       expect(result.hints).toContain('File found successfully');
     });
@@ -210,7 +210,7 @@ describe('Tools Utils', () => {
         { extraHints }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
       extraHints.forEach(hint => {
         expect(result.hints).toContain(hint);
@@ -236,7 +236,7 @@ describe('Tools Utils', () => {
         { extraHints: ['Custom hint'] }
       );
 
-      expect(result.status).toBe('hasResults');
+      expect(result.status).toBeUndefined();
       expectNoResearchContext(result);
       expect(result.repositories).toEqual(['repo1']);
       expect(result.total).toBe(1);
@@ -723,7 +723,7 @@ describe('Tools Utils', () => {
           extraHints,
         });
 
-        expect(result.status).toBe('hasResults');
+        expect(result.status).toBeUndefined();
         expect(result.hints).toBeDefined();
         expect(result.hints).toContain(`Hint for ${toolName}`);
       });

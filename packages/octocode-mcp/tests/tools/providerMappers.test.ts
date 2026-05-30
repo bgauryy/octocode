@@ -237,7 +237,7 @@ describe('providerMappers', () => {
 
     const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
 
-    expect(Object.keys(pr).sort()).toEqual(
+    expect(Object.keys(pr!).sort()).toEqual(
       [
         'additions',
         'assignees',
@@ -264,8 +264,8 @@ describe('providerMappers', () => {
         'url',
       ].sort()
     );
-    expect(pr.sourceSha).toBe('abc123');
-    expect(pr.targetSha).toBe('def456');
+    expect(pr!.sourceSha).toBe('abc123');
+    expect(pr!.targetSha).toBe('def456');
   });
 
   it('emits a single combined cursor line when hasMore', () => {

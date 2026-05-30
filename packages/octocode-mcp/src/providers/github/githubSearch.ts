@@ -20,17 +20,29 @@ import type {
 import { searchGitHubCodeAPI } from '../../github/codeSearch.js';
 import { searchGitHubReposAPI } from '../../github/repoSearch.js';
 
+import type { z } from 'zod/v4';
 import type {
-  GitHubCodeSearchQuery,
-  GitHubReposSearchQuery,
+  GitHubCodeSearchQuerySchema,
+  GitHubReposSearchSingleQuerySchema,
+} from '@octocodeai/octocode-core/schemas';
+import type {
   GitHubRepositoryOutput,
   GitHubSearchRepositoriesData,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/extra-types';
+
+type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
+type GitHubReposSearchSingleQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
 import type { OptimizedCodeSearchResult } from '../../github/githubAPI.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 
-import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
+import {
+  createGitHubProviderError,
+  createGitHubProviderErrorFromResult,
+  parseGitHubProjectId,
+} from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
 /**
@@ -185,30 +197,18 @@ export async function searchRepos(
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
-  } as unknown as GitHubReposSearchQuery;
+  } as unknown as GitHubReposSearchSingleQuery;
 
   const result = await searchGitHubReposAPI(githubQuery, authInfo);
 
   if ('error' in result) {
-    const errorResult = result as {
-      error: string | { toString(): string };
-      status?: number;
-      hints?: string[];
-      rateLimitRemaining?: number;
-      rateLimitReset?: number;
-      retryAfter?: number;
-    };
-    return createGitHubProviderError({
-      error:
-        typeof errorResult.error === 'string'
-          ? errorResult.error
-          : String(errorResult.error),
-      status: errorResult.status || 500,
-      hints: errorResult.hints,
-      rateLimitRemaining: errorResult.rateLimitRemaining,
-      rateLimitReset: errorResult.rateLimitReset,
-      retryAfter: errorResult.retryAfter,
-    });
+    return (
+      createGitHubProviderErrorFromResult(result) ?? {
+        error: 'Unknown GitHub API error',
+        status: 500,
+        provider: 'github',
+      }
+    );
   }
 
   if (!('data' in result) || !result.data) {

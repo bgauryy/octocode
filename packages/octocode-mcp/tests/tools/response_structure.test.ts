@@ -265,7 +265,11 @@ describe('Response Structure Tests - All Tools', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('hasResults');
+      // hasResults is now signaled by ABSENT status — emitted only for empty/error.
+      // Verify the happy path by ABSENCE of an explicit status.
+      expect(responseText).not.toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: "empty"');
+      expect(responseText).not.toContain('status: "error"');
     });
 
     it('should return empty for no matching repos', async () => {

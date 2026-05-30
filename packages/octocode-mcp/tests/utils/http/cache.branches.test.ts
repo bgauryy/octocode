@@ -69,8 +69,7 @@ describe('cache - branch coverage', () => {
         shouldCache: val => val !== null,
       });
 
-      const stats = getCacheStats();
-      const setsAfterFirst = stats.sets;
+      getCacheStats();
 
       const operation2 = vi.fn().mockResolvedValue('second');
       await withDataCache(key, operation2);

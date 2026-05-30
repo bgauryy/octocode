@@ -22,6 +22,6 @@ How to install, authenticate, and configure Octocode.
 |-----|--------------|
 | [Pi Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/clients/PI_SETUP_GUIDE.md) | Use Octocode inside earendil-works/pi via `pi-mcp-adapter` |
 
-> For Cursor / Claude Code / Claude Desktop / Windsurf / VS Code, use `npx octocode-cli install` — see the [root README](https://github.com/bgauryy/octocode-mcp/blob/main/README.md#installation).
+> For supported MCP clients, use `npx octocode-cli install --ide <client>` — see the [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md#install) for the full client list.
 
 [← back to docs index](https://github.com/bgauryy/octocode-mcp/blob/main/docs/README.md)

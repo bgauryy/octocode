@@ -1,3 +1,13 @@
+export interface PackageSearchInput {
+  ecosystem: 'npm';
+  name: string;
+  searchLimit?: number;
+  npmFetchMetadata?: boolean;
+  mainResearchGoal?: string;
+  researchGoal?: string;
+  reasoning?: string;
+}
+
 export interface MinimalPackageResult {
   name: string;
   repository: string | null;
@@ -25,7 +35,7 @@ export interface NpmPackageResult {
   peerDependencies?: Record<string, string>;
 }
 
-type PackageResult = MinimalPackageResult | NpmPackageResult;
+export type PackageResult = MinimalPackageResult | NpmPackageResult;
 
 export interface PackageSearchAPIResult {
   packages: PackageResult[];

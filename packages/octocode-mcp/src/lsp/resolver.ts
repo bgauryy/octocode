@@ -59,6 +59,75 @@ interface ResolvedSymbol {
  * Symbol resolver class
  * Finds exact character position from fuzzy position (symbolName + lineHint)
  */
+/** Mutable quote/comment scan state for {@link stepStringScan}. */
+interface QuoteScanState {
+  inSingle: boolean;
+  inDouble: boolean;
+  inTemplate: boolean;
+  /** Nested `${...}` depth — code inside is NOT string text. */
+  templateExprDepth: number;
+  escaped: boolean;
+}
+
+/**
+ * Advance the string/comment scanner one character. Mutates `state` and
+ * returns whether a line comment started here plus the next index to scan
+ * (usually `i + 1`, but `i + 2` when skipping past a `${`).
+ */
+function stepStringScan(
+  line: string,
+  i: number,
+  state: QuoteScanState
+): { commentFound: boolean; nextIndex: number } {
+  if (state.escaped) {
+    state.escaped = false;
+    return { commentFound: false, nextIndex: i + 1 };
+  }
+
+  const ch = line[i]!;
+
+  if (ch === '\\') {
+    state.escaped = true;
+    return { commentFound: false, nextIndex: i + 1 };
+  }
+
+  // Line comment — everything after `//` (outside strings) is a comment
+  if (
+    ch === '/' &&
+    line[i + 1] === '/' &&
+    !state.inSingle &&
+    !state.inDouble &&
+    !state.inTemplate
+  ) {
+    return { commentFound: true, nextIndex: i + 1 };
+  }
+
+  // Template expression tracking: `${...}` contains code, not string text
+  if (
+    state.inTemplate &&
+    state.templateExprDepth === 0 &&
+    ch === '$' &&
+    line[i + 1] === '{'
+  ) {
+    state.templateExprDepth = 1;
+    return { commentFound: false, nextIndex: i + 2 }; // skip the '{'
+  }
+  if (state.templateExprDepth > 0) {
+    if (ch === '{') state.templateExprDepth++;
+    else if (ch === '}') state.templateExprDepth--;
+    return { commentFound: false, nextIndex: i + 1 }; // inside ${...}: code
+  }
+
+  if (ch === "'" && !state.inDouble && !state.inTemplate)
+    state.inSingle = !state.inSingle;
+  else if (ch === '"' && !state.inSingle && !state.inTemplate)
+    state.inDouble = !state.inDouble;
+  else if (ch === '`' && !state.inSingle && !state.inDouble)
+    state.inTemplate = !state.inTemplate;
+
+  return { commentFound: false, nextIndex: i + 1 };
+}
+
 export class SymbolResolver {
   private readonly lineSearchRadius: number;
 
@@ -223,65 +292,24 @@ export class SymbolResolver {
    * @internal Exported via class for testing
    */
   private isInsideStringOrComment(line: string, position: number): boolean {
-    let inSingle = false;
-    let inDouble = false;
-    let inTemplate = false;
-    let templateExprDepth = 0; // tracks nested `${...}` — code inside is NOT a string
-    let escaped = false;
+    const state: QuoteScanState = {
+      inSingle: false,
+      inDouble: false,
+      inTemplate: false,
+      templateExprDepth: 0,
+      escaped: false,
+    };
 
-    for (let i = 0; i < position; i++) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-
-      const ch = line[i]!;
-
-      if (ch === '\\') {
-        escaped = true;
-        continue;
-      }
-
-      // Line comment — everything after `//` (outside strings) is a comment
-      if (
-        ch === '/' &&
-        line[i + 1] === '/' &&
-        !inSingle &&
-        !inDouble &&
-        !inTemplate
-      ) {
-        return true;
-      }
-
-      // Template expression tracking: `${...}` contains code, not string text
-      if (
-        inTemplate &&
-        templateExprDepth === 0 &&
-        ch === '$' &&
-        line[i + 1] === '{'
-      ) {
-        templateExprDepth = 1;
-        i++; // skip the '{'
-        continue;
-      }
-      if (templateExprDepth > 0) {
-        if (ch === '{') templateExprDepth++;
-        else if (ch === '}') {
-          templateExprDepth--;
-          // When depth returns to 0, we're back inside the template string
-        }
-        continue; // inside ${...} — skip quote tracking, this is code
-      }
-
-      if (ch === "'" && !inDouble && !inTemplate) inSingle = !inSingle;
-      else if (ch === '"' && !inSingle && !inTemplate) inDouble = !inDouble;
-      else if (ch === '`' && !inSingle && !inDouble) inTemplate = !inTemplate;
+    for (let i = 0; i < position; ) {
+      const step = stepStringScan(line, i, state);
+      if (step.commentFound) return true;
+      i = step.nextIndex;
     }
 
     // Inside a template but within a ${...} expression → code context, not string
-    if (inTemplate && templateExprDepth > 0) return false;
+    if (state.inTemplate && state.templateExprDepth > 0) return false;
 
-    return inSingle || inDouble || inTemplate;
+    return state.inSingle || state.inDouble || state.inTemplate;
   }
 
   /**

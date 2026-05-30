@@ -20,6 +20,76 @@ const MAX_PATTERN_LENGTH = 1000;
  *
  * @returns `{ safe: true }` or `{ safe: false, reason: string }`
  */
+/**
+ * Result of advancing the ReDoS scanner past one construct: either an
+ * unsafe verdict, or the next index to resume scanning from. Handlers mutate
+ * the shared `groupHasQuantifier` stack in place.
+ */
+type ScanStep = { unsafe: boolean; next: number };
+
+/** Skip a character class `[...]`; quantifiers inside `[]` are literals. */
+function skipCharClass(pattern: string, pos: number): number {
+  let i = pos + 1;
+  while (i < pattern.length && pattern[i] !== ']') {
+    if (pattern[i] === '\\') i++;
+    i++;
+  }
+  return i + 1; // skip closing ]
+}
+
+/** True when the construct at `pos` is a quantifier (`+ * ?` or `{n,m}`). */
+function isQuantifierAt(pattern: string, pos: number): boolean {
+  const ch = pattern[pos];
+  if (ch === undefined) return false;
+  return (
+    QUANTIFIER_CHARS.has(ch) ||
+    (ch === '{' && isRepetitionQuantifier(pattern, pos))
+  );
+}
+
+/** Handle a closing `)`: detect star height > 1 and propagate to parent. */
+function handleCloseGroup(
+  pattern: string,
+  i: number,
+  stack: boolean[]
+): ScanStep {
+  const innerHasQuantifier = stack.pop() ?? false;
+  const isQuantified = isQuantifierAt(pattern, i + 1);
+
+  // Star height > 1: a quantified group that itself contains a quantifier.
+  if (isQuantified && innerHasQuantifier) {
+    return { unsafe: true, next: i + 1 };
+  }
+
+  // Propagate: parent group now contains a quantified sub-expression.
+  if ((isQuantified || innerHasQuantifier) && stack.length > 0) {
+    stack[stack.length - 1] = true;
+  }
+
+  // Skip the quantifier and any lazy/possessive modifier.
+  return {
+    unsafe: false,
+    next: isQuantified ? skipQuantifier(pattern, i + 1) : i + 1,
+  };
+}
+
+/** Handle a quantifier after a non-group atom (e.g. `a+`, `\d*`, `.+`). */
+function handleQuantifierAtom(
+  pattern: string,
+  i: number,
+  stack: boolean[]
+): ScanStep {
+  // Inside a group that already holds a quantifier → nested quantifiers.
+  if (stack.some(g => g)) {
+    return { unsafe: true, next: i + 1 };
+  }
+  // Mark the innermost enclosing group as containing a quantifier.
+  if (stack.length > 0) {
+    stack[stack.length - 1] = true;
+  }
+  return { unsafe: false, next: skipQuantifier(pattern, i) };
+}
+
 export function checkRegexSafety(pattern: string): {
   safe: boolean;
   reason?: string;
@@ -39,20 +109,13 @@ export function checkRegexSafety(pattern: string): {
   while (i < pattern.length) {
     const ch = pattern[i];
 
-    // Skip escaped characters
     if (ch === '\\') {
-      i += 2;
+      i += 2; // skip escaped character
       continue;
     }
 
-    // Skip character classes entirely — quantifiers inside [] are literals
     if (ch === '[') {
-      i++;
-      while (i < pattern.length && pattern[i] !== ']') {
-        if (pattern[i] === '\\') i++;
-        i++;
-      }
-      i++; // skip closing ]
+      i = skipCharClass(pattern, i);
       continue;
     }
 
@@ -63,49 +126,16 @@ export function checkRegexSafety(pattern: string): {
     }
 
     if (ch === ')') {
-      const innerHasQuantifier = groupHasQuantifier.pop() ?? false;
-
-      // Check if this closing group is followed by a quantifier
-      const next = pattern[i + 1];
-      const isQuantified =
-        (next !== undefined && QUANTIFIER_CHARS.has(next)) ||
-        (next === '{' && isRepetitionQuantifier(pattern, i + 1));
-
-      if (isQuantified && innerHasQuantifier) {
-        // Star height > 1: a quantified group containing a quantifier
-        return { safe: false, reason: REDOS_MSG };
-      }
-
-      // Propagate: parent group now contains a quantified sub-expression
-      if (isQuantified || innerHasQuantifier) {
-        if (groupHasQuantifier.length > 0) {
-          groupHasQuantifier[groupHasQuantifier.length - 1] = true;
-        }
-      }
-
-      // Skip the quantifier and any lazy/possessive modifier
-      if (isQuantified) {
-        i = skipQuantifier(pattern, i + 1);
-      } else {
-        i++;
-      }
+      const step = handleCloseGroup(pattern, i, groupHasQuantifier);
+      if (step.unsafe) return { safe: false, reason: REDOS_MSG };
+      i = step.next;
       continue;
     }
 
-    // Quantifier after a non-group atom (e.g. a+, \d*, .+)
-    if (
-      QUANTIFIER_CHARS.has(ch!) ||
-      (ch === '{' && isRepetitionQuantifier(pattern, i))
-    ) {
-      // If we're inside a group that already has a quantifier, it's nested
-      if (groupHasQuantifier.some(g => g)) {
-        return { safe: false, reason: REDOS_MSG };
-      }
-      // Mark the innermost enclosing group as containing a quantifier
-      if (groupHasQuantifier.length > 0) {
-        groupHasQuantifier[groupHasQuantifier.length - 1] = true;
-      }
-      i = skipQuantifier(pattern, i);
+    if (isQuantifierAt(pattern, i)) {
+      const step = handleQuantifierAtom(pattern, i, groupHasQuantifier);
+      if (step.unsafe) return { safe: false, reason: REDOS_MSG };
+      i = step.next;
       continue;
     }
 

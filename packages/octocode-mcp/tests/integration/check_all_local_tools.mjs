@@ -7,7 +7,7 @@
  * Coverage per tool:
  *   • compact (default)           — full payload, sanity-check shape
  *   • verbose                     — default-equivalent for now (byte-identical)
- *   • ultra                       — lossy summary + drill-back breadcrumb
+ *   • ultra                       — lossy summary, no verbosity-feature hints
  *   • scale                       — large repo-wide query, payload bounded
  *   • pagination                  — `pageNumber` traversal returns disjoint pages
  *   • edge: empty / no-match      — graceful empty result
@@ -244,7 +244,7 @@ async function suiteSearchCode() {
   assert('rg verbose == compact (default-invariant)', bytes(verbose) === bytes(compact));
   assert('rg ultra drops files', ultra?.files?.length === 0);
   assert('rg ultra summary', /\d+ matches in \d+ files/.test(joinHints(ultra)));
-  assert('rg ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('rg ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',
@@ -314,7 +314,7 @@ async function suiteFindFiles() {
   assert('find verbose == compact', bytes(verbose) === bytes(compact));
   assert('find ultra drops files', !ultra?.files || ultra.files.length === 0);
   assert('find ultra summary', /files in \d+ dirs/.test(joinHints(ultra)));
-  assert('find ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('find ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',
@@ -374,7 +374,7 @@ async function suiteViewStructure() {
   assert('view verbose == compact', bytes(verbose) === bytes(compact));
   assert('view ultra drops entries', !ultra?.entries || ultra.entries.length === 0);
   assert('view ultra summary', /\d+ entries/.test(ultra?.summary ?? joinHints(ultra)));
-  assert('view ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('view ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',
@@ -436,9 +436,13 @@ async function suiteFetchContent() {
   const { compact, verbose, ultra } = await probe3(TOOL.FETCH, base);
   assert('fetch compact has content', (compact?.content ?? '').length > 100);
   assert('fetch verbose == compact', bytes(verbose) === bytes(compact));
-  assert('fetch ultra empties content', ultra?.content === '');
+  assert(
+    'fetch ultra minifies content (kept, <= verbose)',
+    (ultra?.content ?? '').length > 0 &&
+      (ultra?.content ?? '').length <= (verbose?.content ?? '').length
+  );
   assert('fetch ultra summary', /\d+ lines/.test(joinHints(ultra)));
-  assert('fetch ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('fetch ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',
@@ -528,7 +532,7 @@ async function suiteGoto() {
   assert('goto compact has snippet', (compact?.locations?.[0]?.content ?? '').length > 5);
   assert('goto verbose == compact', bytes(verbose) === bytes(compact));
   assert('goto ultra drops snippet', ultra?.locations?.[0]?.content === '');
-  assert('goto ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('goto ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',
@@ -570,11 +574,11 @@ async function suiteRefs() {
   );
   assert('refs ultra drops locations', !ultra?.locations || ultra.locations.length === 0);
   assert(
-    'refs ultra emits absolute drill-back paths',
+    'refs ultra emits absolute ref paths in summary',
     joinHints(ultra).includes('refs: /Users/')
   );
   assert('refs ultra summary', /\d+ refs in \d+ files/.test(joinHints(ultra)));
-  assert('refs ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('refs ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',
@@ -643,7 +647,7 @@ async function suiteCallHier() {
   assert('hier verbose == compact', bytes(verbose) === bytes(compact));
   assert('hier ultra drops calls', ultCalls === 0);
   assert('hier ultra drops root snippet', (ultra?.item?.content ?? '') === '');
-  assert('hier ultra drill-back', /drill-back/i.test(joinHints(ultra)));
+  assert('hier ultra no verbosity hints', !/drill-back|detail dropped/i.test(joinHints(ultra)));
   row('  compact / verbose / ultra', [
     bytes(compact) + 'B',
     bytes(verbose) + 'B',

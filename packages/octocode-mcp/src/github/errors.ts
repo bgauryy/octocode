@@ -11,6 +11,51 @@ import {
 } from './errorConstants.js';
 import { logRateLimit } from '../session.js';
 
+/**
+ * Phrases GitHub uses in a 422 "Validation Failed" search response when the
+ * query is syntactically valid but references an entity that does not exist
+ * (e.g. `author:`/`user:`/`org:` pointing at a missing account). The canonical
+ * one is: "The listed users cannot be searched either because the users do not
+ * exist or you do not have permission to view the users."
+ *
+ * These are semantically *zero results*, not malformed queries — a search for
+ * a nonexistent author legitimately matches nothing. Kept narrow so genuine
+ * malformed-query 422s (bad syntax, out-of-range params) still surface as
+ * errors.
+ */
+const NO_RESULTS_SEARCH_PHRASES = [
+  'cannot be searched',
+  'do not exist',
+  'does not exist',
+  'could not be found',
+  'cannot be found',
+];
+
+/**
+ * True when `error` is a GitHub search 422 caused by referencing a nonexistent
+ * searchable entity (user/org). Callers use this to degrade to a clean EMPTY
+ * result instead of a hard error — a search for something that does not exist
+ * matches nothing. All other 422s (and non-422 errors) return false so they
+ * keep propagating as real errors.
+ */
+export function isNoResultsSearchError(error: unknown): boolean {
+  if (!(error instanceof RequestError)) return false;
+  if (error.status !== 422) return false;
+
+  const errors = (
+    error.response?.data as
+      | { errors?: Array<{ message?: unknown }> }
+      | undefined
+  )?.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+
+  return errors.some(entry => {
+    const message =
+      typeof entry?.message === 'string' ? entry.message.toLowerCase() : '';
+    return NO_RESULTS_SEARCH_PHRASES.some(phrase => message.includes(phrase));
+  });
+}
+
 export function handleGitHubAPIError(error: unknown): GitHubAPIError {
   if (error instanceof RequestError) {
     return handleRequestError(error);

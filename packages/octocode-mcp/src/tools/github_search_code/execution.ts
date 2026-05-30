@@ -1,8 +1,9 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type {
-  GitHubCodeSearchQuery,
-  GitHubSearchCodeData,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubSearchCodeData } from '@octocodeai/octocode-core/types';
+
+type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type {
@@ -18,7 +19,12 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
-import { buildGithubSearchCodeFinalizer } from './finalizer.js';
+import {
+  buildGithubSearchCodeFinalizer,
+  CONCISE_SEARCH_CODE_LIMIT,
+} from './finalizer.js';
+import { isConcise } from '../../scheme/verbosity.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
 // Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyGithubSearchCodeVerbosity } from './finalizer.js';
@@ -35,6 +41,22 @@ export async function searchMultipleGitHubCode(
     queries,
     async (query: PartialCodeSearchQuery, _index: number) => {
       try {
+        // Pre-flight: cap user-passed `limit` under concise so the upstream
+        // fetch reflects concise's documented "limit capped at 3" probe
+        // contract. Capping here (not just in the finalizer) ensures the
+        // provider returns at most 3 files instead of trimming after fetch —
+        // matching the githubSearchRepositories pattern. The finalizer's
+        // group/value shaping still applies under the all-concise gate.
+        const verbosityIsConcise = isConcise(
+          (query as WithVerbosity<typeof query>).verbosity
+        );
+        if (verbosityIsConcise) {
+          const userLimit = (query as { limit?: number }).limit;
+          (query as { limit?: number }).limit = Math.min(
+            userLimit ?? CONCISE_SEARCH_CODE_LIMIT,
+            CONCISE_SEARCH_CODE_LIMIT
+          );
+        }
         const ctx = getProviderContext();
         const providerResult = await executeProviderOperation(query, () =>
           ctx.provider.searchCode(mapCodeSearchToolQuery(query))

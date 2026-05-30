@@ -1,11 +1,14 @@
 import { c, bold, dim } from '../utils/colors.js';
-import { TOOL_DEFINITIONS, getToolCategory } from './tool-command.js';
+import {
+  TOOL_CATEGORIES,
+  TOOL_DEFINITIONS,
+  getToolCategory,
+} from './tool-command.js';
 
 function buildToolLines(): string[] {
-  const categories = ['GitHub', 'Local', 'LSP', 'Package'] as const;
   const lines: string[] = [];
 
-  for (const category of categories) {
+  for (const category of TOOL_CATEGORIES) {
     const tools = TOOL_DEFINITIONS.filter(
       t => getToolCategory(t.name) === category
     );

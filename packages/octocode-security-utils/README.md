@@ -29,20 +29,20 @@ This creates attack surface that traditional web security doesn't cover:
 
 | Module | What it does | Import |
 |--------|-------------|--------|
-| [PathValidator](#pathvalidator) | Confine file access to allowed directories. Resolves symlinks. | `octocode-security-utils/pathValidator` |
-| [ContentSanitizer](#contentsanitizer) | Find and replace secrets in strings and objects (200+ patterns) | `octocode-security-utils/contentSanitizer` |
-| [maskSensitiveData](#masksensitivedata) | Partially mask secrets for logs (keeps partial visibility) | `octocode-security-utils/mask` |
-| [validateCommand](#validatecommand) | Whitelist-based command validation with per-command arg rules | `octocode-security-utils/commandValidator` |
-| [validateExecutionContext](#validateexecutioncontext) | Validate working directory before spawning processes | `octocode-security-utils/executionContextValidator` |
-| [withSecurityValidation](#withsecurityvalidation) | Wrap any tool handler with input sanitization + timeout + telemetry | `octocode-security-utils/withSecurityValidation` |
-| [SecurityRegistry](#securityregistry) | Extend all security rules at runtime (patterns, commands, paths) | `octocode-security-utils/registry` |
-| [Ignored Path Filters](#ignored-path-filters) | Filter out `.env`, `.git`, `.ssh`, `.aws`, and similar paths | `octocode-security-utils/ignoredPathFilter` |
-| [Regex Patterns](#regex-patterns) | 200+ secret detection patterns across 13 categories | `octocode-security-utils/regexes` |
-| [Path Utilities](#path-utilities) | Redact absolute paths in error messages | `octocode-security-utils/pathUtils` |
-| [resolveWorkspaceRoot](#resolveworkspaceroot) | Determine workspace root from env/args/cwd | `octocode-security-utils/workspaceRoot` |
-| [Security Constants](#security-constants) | Allowed commands, dangerous shell patterns | (via main export) |
-| [Param Extractors](#param-extractors) | Pull research metadata and repo identifiers from tool params | `octocode-security-utils/paramExtractors` |
-| [Types](#types) | All TypeScript interfaces | `octocode-security-utils/types` |
+| [PathValidator](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#pathvalidator) | Confine file access to allowed directories. Resolves symlinks. | `octocode-security-utils/pathValidator` |
+| [ContentSanitizer](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#contentsanitizer) | Find and replace secrets in strings and objects (200+ patterns) | `octocode-security-utils/contentSanitizer` |
+| [maskSensitiveData](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#masksensitivedata) | Partially mask secrets for logs (keeps partial visibility) | `octocode-security-utils/mask` |
+| [validateCommand](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#validatecommand) | Whitelist-based command validation with per-command arg rules | `octocode-security-utils/commandValidator` |
+| [validateExecutionContext](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#validateexecutioncontext) | Validate working directory before spawning processes | `octocode-security-utils/executionContextValidator` |
+| [withSecurityValidation](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#withsecurityvalidation) | Wrap any tool handler with input sanitization + timeout + telemetry | `octocode-security-utils/withSecurityValidation` |
+| [SecurityRegistry](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#securityregistry) | Extend all security rules at runtime (patterns, commands, paths) | `octocode-security-utils/registry` |
+| [Ignored Path Filters](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#ignored-path-filters) | Filter out `.env`, `.git`, `.ssh`, `.aws`, and similar paths | `octocode-security-utils/ignoredPathFilter` |
+| [Regex Patterns](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#regex-patterns) | 200+ secret detection patterns across 13 categories | `octocode-security-utils/regexes` |
+| [Path Utilities](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#path-utilities) | Redact absolute paths in error messages | `octocode-security-utils/pathUtils` |
+| [resolveWorkspaceRoot](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#resolveworkspaceroot) | Determine workspace root from env/args/cwd | `octocode-security-utils/workspaceRoot` |
+| [Security Constants](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#security-constants) | Allowed commands, dangerous shell patterns | (via main export) |
+| [Param Extractors](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#param-extractors) | Pull research metadata and repo identifiers from tool params | `octocode-security-utils/paramExtractors` |
+| [Types](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#types) | All TypeScript interfaces | `octocode-security-utils/types` |
 
 Everything is also available from the main `octocode-security-utils` entry point.
 
@@ -432,7 +432,7 @@ Per-command rules:
 - **git** — only `clone` (with safe flags) and `sparse-checkout`
 - **All commands** — blocks shell metacharacters (`;`, `|`, `` ` ``, `$()`, `${}`) in non-pattern arguments
 
-Extend the allowed command list via the [SecurityRegistry](#securityregistry).
+Extend the allowed command list via the [SecurityRegistry](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#securityregistry).
 
 ---
 
@@ -442,7 +442,7 @@ Extend the allowed command list via the [SecurityRegistry](#securityregistry).
 
 **Solution:** Higher-order functions that wrap any async handler. Two variants: one for remote/authenticated tools, one for local tools.
 
-> **Note:** These wrappers handle **input** sanitization and timeouts. **Output** sanitization (stripping secrets from handler return values) should be applied separately at the transport layer — for example, via a proxy around the tool registration API. See the [Defense-in-Depth](#defense-in-depth-layers) section for the full picture.
+> **Note:** These wrappers handle **input** sanitization and timeouts. **Output** sanitization (stripping secrets from handler return values) should be applied separately at the transport layer — for example, via a proxy around the tool registration API. See the [Defense-in-Depth](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#defense-in-depth-layers) section for the full picture.
 
 ### For remote/authenticated tools
 
@@ -715,7 +715,7 @@ import { IGNORED_PATH_PATTERNS } from 'octocode-security-utils';  // RegExp[]
 import { IGNORED_FILE_PATTERNS } from 'octocode-security-utils';  // RegExp[]
 ```
 
-Extend with the [SecurityRegistry](#securityregistry):
+Extend with the [SecurityRegistry](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#securityregistry):
 
 ```typescript
 securityRegistry.addIgnoredPathPatterns([/^\.internal$/]);
@@ -750,7 +750,7 @@ interface SensitiveDataPattern {
 }
 ```
 
-Add custom patterns via the [SecurityRegistry](#securityregistry).
+Add custom patterns via the [SecurityRegistry](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#securityregistry).
 
 ---
 

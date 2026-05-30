@@ -107,7 +107,8 @@ describe('GitHub Search Repositories Response Structure Test', () => {
     expect(result.isError).toBe(false);
     expect(responseText).toContain('results:');
     expect(responseText).toContain('id: "repos_response_structure"');
-    expect(responseText).toContain('status: "hasResults"');
+    // hasResults is now signaled by ABSENT status — emitted only for empty/error.
+    expect(responseText).not.toContain('status: "hasResults"');
     expect(responseText).toContain('repositories:');
     expect(responseText).toContain('facebook/react');
     expect(responseText).toContain('vercel/next.js');

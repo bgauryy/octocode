@@ -1,18 +1,18 @@
-import type { RipgrepQuery as UpstreamRipgrepQuery } from '@octocodeai/octocode-core';
-import type {
-  LocalSearchCodeFile,
-  LocalSearchCodeToolResult,
-} from '@octocodeai/octocode-core';
+import type { z } from 'zod/v4';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
+import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
+
+type UpstreamRipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import type { SearchStats } from '../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { promises as fs } from 'fs';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
+import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import {
-  isUltra,
+  isConcise,
   isCompact,
   compactTrimHints,
   makeAdvisoryPredicate,
-  ultraDrillBackHint,
 } from '../../scheme/verbosity.js';
 
 /** Advisory hints localSearchCode emits; stripped under compact.
@@ -24,7 +24,7 @@ const isAdvisoryRipgrepHint = makeAdvisoryPredicate([
   'timed out',
 ]);
 
-type RipgrepQuery = UpstreamRipgrepQuery & { verbosity?: Verbosity };
+type RipgrepQuery = WithVerbosity<UpstreamRipgrepQuery>;
 
 /**
  * Build the final search result with pagination and metadata
@@ -48,16 +48,8 @@ export async function buildSearchResult(
     })
   );
 
-  filesWithMetadata.sort(
-    (
-      a: LocalSearchCodeFile & { modified?: string },
-      b: LocalSearchCodeFile & { modified?: string }
-    ) => {
-      if (configuredQuery.showFileLastModified && a.modified && b.modified) {
-        return new Date(b.modified).getTime() - new Date(a.modified).getTime();
-      }
-      return a.path.localeCompare(b.path);
-    }
+  filesWithMetadata.sort((a, b) =>
+    compareRipgrepFilesByRelevance(a, b, configuredQuery)
   );
 
   let limitedFiles = filesWithMetadata;
@@ -133,7 +125,13 @@ export async function buildSearchResult(
       ? [
           `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: filePageNumber=${filePageNumber + 1}`,
         ]
-      : [];
+      : // Overshoot: requested a page past the last one. Say so explicitly
+        // instead of returning an empty page with no explanation.
+        totalFilePages > 0 && filePageNumber > totalFilePages
+        ? [
+            `Requested filePageNumber ${filePageNumber} is outside available range (1-${totalFilePages}). Use filePageNumber=${totalFilePages} for the last page.`,
+          ]
+        : [];
 
   if (wasLimited) {
     paginationHints.push(
@@ -155,9 +153,10 @@ export async function buildSearchResult(
   );
 
   const fullResult: LocalSearchCodeToolResult = {
-    status: 'hasResults',
+    // status omitted on success (absent ≡ "hasResults"); empty/error
+    // branches set it explicitly. searchEngine also omitted — only one
+    // engine, marker carries no information.
     files: finalFiles,
-    searchEngine: _searchEngine,
     pagination: {
       currentPage: filePageNumber,
       totalPages: totalFilePages,
@@ -165,7 +164,7 @@ export async function buildSearchResult(
       totalFiles,
       hasMore: filePageNumber < totalFilePages,
     },
-    warnings,
+    ...(warnings.length > 0 ? { warnings } : {}),
     hints: [...paginationHints, ...refinementHints],
   };
 
@@ -176,7 +175,7 @@ export async function buildSearchResult(
 }
 
 /**
- * When `verbosity:"ultra"` is requested, drop `files[]` and emit a one-line
+ * When `verbosity:"concise"` is requested, drop `files[]` and emit a one-line
  * summary plus a path:line drill-back hint pointing at the first matching
  * file. Omitted / `"basic"` preserves `files[]`; compact trims advisory hints.
  */
@@ -185,8 +184,9 @@ export function applyRipgrepVerbosity(
   query: RipgrepQuery,
   totals: { totalMatches: number; totalFiles: number }
 ): LocalSearchCodeToolResult {
-  if (isUltra(query.verbosity)) {
-    if (result.status !== 'hasResults') return result;
+  if (isConcise(query.verbosity)) {
+    // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
+    if (result.status !== undefined) return result;
     const topFile = result.files?.[0];
     const topMatch = topFile?.matches?.[0];
     const topHint =
@@ -199,12 +199,7 @@ export function applyRipgrepVerbosity(
     return {
       ...result,
       files: [],
-      hints: [
-        summary,
-        ...ultraDrillBackHint(
-          're-call with verbosity:"basic" (default) or scope the pattern to the top path'
-        ),
-      ],
+      hints: [summary],
     };
   }
   if (isCompact(query.verbosity)) {
@@ -249,4 +244,33 @@ async function getFileModifiedTime(
   } catch {
     return undefined;
   }
+}
+
+function compareRipgrepFilesByRelevance(
+  a: LocalSearchCodeFile & { modified?: string },
+  b: LocalSearchCodeFile & { modified?: string },
+  query: RipgrepQuery
+): number {
+  const matchDelta = b.matchCount - a.matchCount;
+  if (matchDelta !== 0) return matchDelta;
+
+  if (query.showFileLastModified) {
+    const modifiedDelta = compareModifiedDescending(a.modified, b.modified);
+    if (modifiedDelta !== 0) return modifiedDelta;
+  }
+
+  return a.path.localeCompare(b.path);
+}
+
+function compareModifiedDescending(left?: string, right?: string): number {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
+  if (Number.isNaN(leftTime)) return 1;
+  if (Number.isNaN(rightTime)) return -1;
+  return rightTime - leftTime;
 }

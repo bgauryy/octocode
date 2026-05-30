@@ -68,6 +68,21 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(hintsStr).toContain('lengthen pattern');
   });
 
+  it('emits an out-of-range hint when filePageNumber exceeds total pages (E2)', async () => {
+    const files = makeFiles(3, 2); // 3 files → 1 page at filesPerPage=10
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      filePageNumber: 999,
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+    const hintsStr = (result.hints ?? []).join('\n');
+    expect(hintsStr).toMatch(/outside available range|page 999 is/i);
+  });
+
   it('suggests type/include when neither is set', async () => {
     const files = makeFiles(25, 5);
     const query = {
@@ -156,5 +171,27 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const result = await buildSearchResult(files, query, 'rg', []);
 
     expect(result.hints?.some(h => h.includes('lengthen pattern'))).toBe(false);
+  });
+
+  it('orders files by match count before path for relevance-first search results', async () => {
+    const files = [
+      ...makeFiles(1, 1).map(file => ({ ...file, path: '/test/a.ts' })),
+      ...makeFiles(1, 3).map(file => ({ ...file, path: '/test/b.ts' })),
+      ...makeFiles(1, 2).map(file => ({ ...file, path: '/test/c.ts' })),
+    ];
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+
+    expect(result.files?.map(file => file.path)).toEqual([
+      '/test/b.ts',
+      '/test/c.ts',
+      '/test/a.ts',
+    ]);
   });
 });

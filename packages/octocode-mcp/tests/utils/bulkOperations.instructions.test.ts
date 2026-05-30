@@ -14,7 +14,6 @@ describe('Bulk Response Envelope', () => {
   it('should return only results without a bulk instructions field', async () => {
     const queries = [{ id: 'q1' }];
     const processor = vi.fn().mockResolvedValue({
-      status: 'hasResults' as const,
       data: { test: true },
     });
 
@@ -58,7 +57,6 @@ describe('Bulk Response Envelope', () => {
     // Case 1: Only hasResults with custom hints - hints in result data
     const q1 = [{ id: '1' }];
     const p1 = vi.fn().mockResolvedValue({
-      status: 'hasResults',
       data: {},
       hints: ['Custom success hint'],
     });

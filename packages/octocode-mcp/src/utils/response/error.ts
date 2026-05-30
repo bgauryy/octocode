@@ -13,7 +13,7 @@ import {
   type ToolError,
 } from '../../errors/ToolError.js';
 import { getHints } from '../../hints/index.js';
-import type { BaseQueryLocal } from '@octocodeai/octocode-core';
+import type { BaseQueryLocal } from '@octocodeai/octocode-core/extra-types';
 import { attachRawResponseChars } from './charSavings.js';
 
 type PartialBaseQuery = Partial<BaseQueryLocal>;

@@ -56,119 +56,29 @@ const publicMocks = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('octocode-mcp/public', async () => {
-  const { z } = await import('zod/v4');
+vi.mock('octocode-mcp/public', async importOriginal => {
+  const actual = await importOriginal<typeof import('octocode-mcp/public')>();
+  const executeDirectTool = vi.fn(async (toolName: string, input: unknown) => {
+    if (toolName.startsWith('github')) {
+      await publicMocks.initialize();
+      await publicMocks.initializeProviders();
+    }
 
-  const localBase = z.object({
-    id: z.string(),
-    researchGoal: z.string(),
-    reasoning: z.string(),
-  });
-
-  const githubBase = z.object({
-    id: z.string(),
-    mainResearchGoal: z.string(),
-    researchGoal: z.string(),
-    reasoning: z.string(),
+    if (toolName === 'localSearchCode') {
+      return publicMocks.localSearchCode(input);
+    }
+    if (toolName === 'githubSearchCode') {
+      return publicMocks.githubSearchCode(input);
+    }
+    return publicMocks.noop(input);
   });
 
   return {
+    ...actual,
     initialize: publicMocks.initialize,
     initializeProviders: publicMocks.initializeProviders,
     loadToolContent: publicMocks.loadToolContent,
-    executeRipgrepSearch: publicMocks.localSearchCode,
-    executeFetchContent: publicMocks.noop,
-    executeFindFiles: publicMocks.noop,
-    executeViewStructure: publicMocks.noop,
-    executeGotoDefinition: publicMocks.noop,
-    executeFindReferences: publicMocks.noop,
-    executeCallHierarchy: publicMocks.noop,
-    fetchMultipleGitHubFileContents: publicMocks.noop,
-    searchMultipleGitHubCode: publicMocks.githubSearchCode,
-    searchMultipleGitHubPullRequests: publicMocks.noop,
-    searchMultipleGitHubRepos: publicMocks.noop,
-    exploreMultipleRepositoryStructures: publicMocks.noop,
-    executeCloneRepo: publicMocks.noop,
-    searchPackages: publicMocks.noop,
-    DEFAULT_TOOL_RESPONSE_FORMAT: 'tsv',
-    formatCallToolResultForOutput: (
-      result: unknown,
-      outputMode: 'text' | 'json'
-    ) => {
-      if (outputMode === 'json') return JSON.stringify(result);
-      const typedResult = result as {
-        content?: Array<{ text?: string }>;
-        structuredContent?: unknown;
-      };
-      const textBlocks = Array.isArray(typedResult.content)
-        ? typedResult.content
-            .map(block => (typeof block.text === 'string' ? block.text : ''))
-            .filter(Boolean)
-        : [];
-      if (textBlocks.length > 0) return textBlocks.join('\n\n');
-      if (typedResult.structuredContent !== undefined) {
-        return JSON.stringify(typedResult.structuredContent, null, 2);
-      }
-      return JSON.stringify(result, null, 2);
-    },
-    RipgrepQuerySchema: localBase.extend({
-      path: z.string(),
-      pattern: z.string(),
-      fixedString: z.boolean().optional(),
-      include: z.array(z.string()).optional(),
-      limit: z.number().optional(),
-    }),
-    FetchContentQuerySchema: localBase.extend({
-      path: z.string(),
-    }),
-    FindFilesQuerySchema: localBase.extend({
-      path: z.string(),
-    }),
-    ViewStructureQuerySchema: localBase.extend({
-      path: z.string(),
-    }),
-    LSPGotoDefinitionQuerySchema: localBase.extend({
-      path: z.string(),
-    }),
-    LSPFindReferencesQuerySchema: localBase.extend({
-      path: z.string(),
-    }),
-    LSPCallHierarchyQuerySchema: localBase.extend({
-      path: z.string(),
-    }),
-    FileContentQuerySchema: githubBase.extend({
-      owner: z.string(),
-      repo: z.string(),
-      path: z.string(),
-    }),
-    GitHubCodeSearchQuerySchema: githubBase.extend({
-      keywordsToSearch: z.array(z.string()),
-      owner: z.string().optional(),
-      repo: z.string().optional(),
-      limit: z.number().optional(),
-    }),
-    GitHubPullRequestSearchQuerySchema: githubBase.extend({
-      owner: z.string(),
-      repo: z.string(),
-    }),
-    GitHubReposSearchSingleQuerySchema: githubBase.extend({
-      keywordsToSearch: z.array(z.string()),
-    }),
-    GitHubViewRepoStructureQuerySchema: githubBase.extend({
-      owner: z.string(),
-      repo: z.string(),
-    }),
-    PackageSearchQuerySchema: githubBase.extend({
-      ecosystem: z.enum(['npm', 'python']),
-      name: z.string(),
-    }),
-    CloneRepoQuerySchema: githubBase.extend({
-      owner: z.string().describe('Repository owner'),
-      repo: z.string().describe('Repository name'),
-      branch: z.string().optional(),
-      sparse_path: z.string().optional(),
-      forceRefresh: z.boolean().optional().default(false),
-    }),
+    executeDirectTool,
   };
 });
 
@@ -196,7 +106,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","fixedString":true,"include":["ts","tsx"],"limit":5}',
+        '{"path":".","pattern":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -213,7 +123,7 @@ describe('toolCommand', () => {
             pattern: 'runCLI',
             fixedString: true,
             include: ['ts', 'tsx'],
-            limit: 5,
+            maxFiles: 5,
             researchGoal: 'Execute localSearchCode via octocode-cli',
             reasoning: 'Executed via octocode-cli tool command',
           }),
@@ -263,7 +173,10 @@ describe('toolCommand', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"runCLI"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: {
         tool: 'localSearchCode',
         output: 'json',
@@ -315,7 +228,8 @@ describe('toolCommand', () => {
       args: ['localSearchCode'],
       options: {
         tool: 'localSearchCode',
-        input: '{"path":".","pattern":"runCLI"}',
+        input:
+          '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
       },
     });
 
@@ -369,7 +283,10 @@ describe('toolCommand', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":999}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":999,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: {
         tool: 'localSearchCode',
       },
@@ -394,7 +311,10 @@ describe('toolCommand', () => {
 
     const ok = await executeToolCommand({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"runCLI"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: {
         tool: 'localSearchCode',
       },
@@ -412,7 +332,10 @@ describe('toolCommand', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"runCLI"}'],
+      args: [
+        'localSearchCode',
+        '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+      ],
       options: {
         tool: 'localSearchCode',
       },
@@ -445,6 +368,7 @@ describe('toolCommand', () => {
     expect(context).toContain('3. localSearchCode');
     expect(context).toContain('Input schema:');
     expect(context).toContain('"keywordsToSearch"');
-    expect(context).toContain('"description": "Repository owner"');
+    expect(context).toContain('"owner"');
+    expect(context).toContain('"repo"');
   });
 });
