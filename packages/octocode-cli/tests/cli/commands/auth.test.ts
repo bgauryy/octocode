@@ -285,7 +285,7 @@ describe('cli/commands/auth', () => {
       await logoutCommand.handler!({
         command: 'logout',
         args: [],
-        options: {},
+        options: { yes: true }, // skip TTY confirm in tests
       });
 
       expect(logout).toHaveBeenCalledWith('github.com');
@@ -309,7 +309,7 @@ describe('cli/commands/auth', () => {
       await logoutCommand.handler!({
         command: 'logout',
         args: [],
-        options: {},
+        options: { yes: true }, // skip TTY confirm in tests
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
@@ -352,7 +352,7 @@ describe('cli/commands/auth', () => {
       await authCommand.handler!({
         command: 'auth',
         args: ['logout'],
-        options: {},
+        options: { yes: true }, // skip TTY confirm in tests
       });
 
       expect(logout).toHaveBeenCalledWith('github.com');
@@ -380,6 +380,77 @@ describe('cli/commands/auth', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('statususer')
       );
+    });
+
+    it('auth status --json outputs structured JSON', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: true,
+        username: 'jsonuser',
+        hostname: 'github.com',
+        tokenSource: 'octocode',
+        tokenExpired: false,
+      });
+
+      await authCommand.handler!({
+        command: 'auth',
+        args: ['status'],
+        options: { json: true },
+      });
+
+      const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+        if (typeof line !== 'string') return false;
+        try {
+          JSON.parse(line);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      expect(jsonLine).toBeDefined();
+      const parsed = JSON.parse(jsonLine as string);
+      expect(parsed.authenticated).toBe(true);
+      expect(parsed.username).toBe('jsonuser');
+    });
+
+    it('auth without subcommand in non-TTY with --json outputs JSON', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        username: undefined,
+        hostname: 'github.com',
+        tokenSource: undefined,
+      });
+
+      // Simulate non-TTY
+      const originalIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
+
+      await authCommand.handler!({
+        command: 'auth',
+        args: [],
+        options: { json: true },
+      });
+
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalIsTTY,
+        configurable: true,
+      });
+
+      const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+        if (typeof line !== 'string') return false;
+        try {
+          JSON.parse(line);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      expect(jsonLine).toBeDefined();
+      expect(process.exitCode).toBe(1);
     });
 
     it('passes hostname alias through auth status', async () => {

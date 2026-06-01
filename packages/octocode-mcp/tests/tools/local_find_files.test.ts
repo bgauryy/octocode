@@ -94,7 +94,7 @@ describe('localFindFiles', () => {
       const result = await findFiles({
         path: '/test/path',
         name: '*.ts',
-        filePageNumber: 999,
+        page: 999,
       });
 
       const hints = (result.hints ?? []).join('\n');
@@ -174,7 +174,7 @@ describe('localFindFiles', () => {
 
     it('does NOT implicitly cap at 1000 — all discovered files stay paginable', async () => {
       // 1002 files, no explicit limit: every file must be reachable via
-      // filePageNumber (the old silent 1000 cap dropped 2 files unrecoverably).
+      // page (the old silent 1000 cap dropped 2 files unrecoverably).
       const paths = Array.from(
         { length: 1002 },
         (_, index) => `/test/path/file-${index}.ts`
@@ -943,7 +943,7 @@ describe('localFindFiles', () => {
       const result = await findFiles({
         path: '/test/path',
         details: true,
-        filesPerPage: 10,
+        itemsPerPage: 10,
       });
 
       // Should paginate large result sets
@@ -1072,7 +1072,7 @@ describe('localFindFiles', () => {
       const result = await findFiles({
         path: '/test/path',
         name: '*.txt',
-        filePageNumber: 2,
+        page: 2,
       });
 
       expect(result.status).toBeUndefined();
@@ -1095,7 +1095,7 @@ describe('localFindFiles', () => {
       const result = await findFiles({
         path: '/test/path',
         name: '*.txt',
-        filesPerPage: 10,
+        itemsPerPage: 10,
       });
 
       expect(result.status).toBeUndefined();
@@ -1119,8 +1119,8 @@ describe('localFindFiles', () => {
       const result = await findFiles({
         path: '/test/path',
         name: '*.txt',
-        filesPerPage: 20,
-        filePageNumber: 2,
+        itemsPerPage: 20,
+        page: 2,
       });
 
       expect(result.status).toBeUndefined();
@@ -1163,7 +1163,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 10,
+        itemsPerPage: 10,
       });
 
       expect(result.status).toBeUndefined();
@@ -1201,7 +1201,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1587,7 +1587,7 @@ describe('localFindFiles', () => {
   });
 
   describe('File pagination - Edge cases', () => {
-    it('should handle filePageNumber = 0 or negative (defaults to 1)', async () => {
+    it('should handle page = 0 or negative (defaults to 1)', async () => {
       const files = Array.from(
         { length: 50 },
         (_, i) => `/test/file${i}.txt`
@@ -1602,15 +1602,15 @@ describe('localFindFiles', () => {
       // Schema should validate, but test with valid value
       const result = await findFiles({
         path: '/test/path',
-        filePageNumber: 1,
-        filesPerPage: 20,
+        page: 1,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.currentPage).toBe(1);
     });
 
-    it('should handle filePageNumber > total pages', async () => {
+    it('should handle page > total pages', async () => {
       const files = Array.from(
         { length: 25 },
         (_, i) => `/test/file${i}.txt`
@@ -1624,8 +1624,8 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filePageNumber: 10,
-        filesPerPage: 20,
+        page: 10,
+        itemsPerPage: 20,
       });
 
       expect([undefined, 'empty']).toContain(result.status);
@@ -1648,7 +1648,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 1,
+        itemsPerPage: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -1671,7 +1671,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1690,7 +1690,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1714,7 +1714,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1738,7 +1738,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1758,8 +1758,8 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        filesPerPage: 20,
-        filePageNumber: 1,
+        itemsPerPage: 20,
+        page: 1,
       });
 
       expect(result.status).toBe('empty');

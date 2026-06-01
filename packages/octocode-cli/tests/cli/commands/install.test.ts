@@ -114,7 +114,32 @@ describe('cli/commands/install', () => {
     action: 'create' as const,
   };
 
-  it('calls runInteractiveMode when no IDE is provided', async () => {
+  it('errors when no IDE is provided in non-TTY environment', async () => {
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+    const { installCommand } = await loadDeps();
+    await installCommand.handler!({
+      command: 'install',
+      args: [],
+      options: {},
+    });
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Missing required option')
+    );
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it('calls runInteractiveMode when no IDE is provided in TTY environment', async () => {
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: true,
+    });
     const { installCommand, runInteractiveMode } = await loadDeps();
     await installCommand.handler!({
       command: 'install',
@@ -123,6 +148,10 @@ describe('cli/commands/install', () => {
     });
     expect(runInteractiveMode).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBeUndefined();
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   it('errors when Node is not in PATH for npx method', async () => {

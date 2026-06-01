@@ -1105,7 +1105,7 @@ describe('localViewStructure', () => {
 
       const result1 = await viewStructure({
         path: '/test/path',
-        entryPageNumber: 1,
+        page: 1,
       });
 
       expect(result1.status).toBeUndefined();
@@ -1113,7 +1113,7 @@ describe('localViewStructure', () => {
 
       const result2 = await viewStructure({
         path: '/test/path',
-        entryPageNumber: 2,
+        page: 2,
       });
 
       expect(result2.status).toBeUndefined();
@@ -1496,7 +1496,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         limit: 5,
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1523,7 +1523,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         limit: 5,
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1579,7 +1579,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
 
-        entryPageNumber: 2,
+        page: 2,
       });
 
       expect([undefined, 'empty']).toContain(result.status);
@@ -1608,7 +1608,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
 
-        entriesPerPage: 10,
+        itemsPerPage: 10,
       });
 
       expect(result.status).toBeUndefined();
@@ -1636,8 +1636,8 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
 
-        entriesPerPage: 20,
-        entryPageNumber: 2,
+        itemsPerPage: 20,
+        page: 2,
       });
 
       expect(result.status).toBeUndefined();
@@ -1647,7 +1647,7 @@ describe('localViewStructure', () => {
   });
 
   describe('Entry pagination - Bounds', () => {
-    it('should coerce entryPageNumber=0 to 1 via defaulting', async () => {
+    it('should coerce page=0 to 1 via defaulting', async () => {
       const fileList = Array.from(
         { length: 25 },
         (_, i) => `file${i}.txt`
@@ -1665,15 +1665,15 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 10,
-        entryPageNumber: 0,
+        itemsPerPage: 10,
+        page: 0,
       });
 
       expect([undefined, 'empty']).toContain(result.status);
       expect(result.pagination?.currentPage).toBe(1);
     });
 
-    it('should reflect negative entryPageNumber as provided (no clamping)', async () => {
+    it('should reflect negative page as provided (no clamping)', async () => {
       const fileList = Array.from(
         { length: 25 },
         (_, i) => `file${i}.txt`
@@ -1691,15 +1691,15 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 10,
-        entryPageNumber: -3,
+        itemsPerPage: 10,
+        page: -3,
       });
 
       expect([undefined, 'empty']).toContain(result.status);
       expect(result.pagination?.currentPage).toBe(-3);
     });
 
-    it('should clamp overflow entryPageNumber to totalPages (BUG-01 fix)', async () => {
+    it('should clamp overflow page to totalPages (BUG-01 fix)', async () => {
       // 25 entries, 10 per page → totalPages = 3
       // Requesting page 9999 must clamp to 3 (not return "Page 9999/3 showing 0")
       const fileList = Array.from(
@@ -1719,8 +1719,8 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 10,
-        entryPageNumber: 9999,
+        itemsPerPage: 10,
+        page: 9999,
       });
 
       expect(result.status).toBeUndefined();
@@ -1791,7 +1791,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
 
-        entriesPerPage: 10,
+        itemsPerPage: 10,
       });
 
       expect(result.status).toBeUndefined();
@@ -1819,7 +1819,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
 
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -1846,8 +1846,8 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
 
-        entriesPerPage: 20,
-        entryPageNumber: 2,
+        itemsPerPage: 20,
+        page: 2,
       });
 
       expect(result.status).toBeUndefined();
@@ -2322,15 +2322,13 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.hasMore).toBe(true);
-      const hasEntryPageHint = result.hints?.some(h =>
-        h.includes('entryPageNumber=2')
-      );
+      const hasEntryPageHint = result.hints?.some(h => h.includes('page=2'));
       expect(hasEntryPageHint).toBe(true);
     });
   });
 
   describe('Entry pagination - Edge cases', () => {
-    it('should handle entryPageNumber = 0 (defaults to 1)', async () => {
+    it('should handle page = 0 (defaults to 1)', async () => {
       const fileList = Array.from(
         { length: 50 },
         (_, i) => `file${i}.txt`
@@ -2350,15 +2348,15 @@ describe('localViewStructure', () => {
       // Schema validation should prevent 0, but if it gets through, should default to 1
       const result = await viewStructure({
         path: '/test/path',
-        entryPageNumber: 1, // Test with valid value since schema validates
-        entriesPerPage: 20,
+        page: 1, // Test with valid value since schema validates
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.currentPage).toBe(1);
     });
 
-    it('should clamp entryPageNumber > total pages to the last page', async () => {
+    it('should clamp page > total pages to the last page', async () => {
       // 25 entries, 20 per page → totalPages = 2; requesting page 10 must clamp to 2
       const fileList = Array.from(
         { length: 25 },
@@ -2378,8 +2376,8 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entryPageNumber: 10, // Way beyond last page
-        entriesPerPage: 20,
+        page: 10, // Way beyond last page
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -2407,7 +2405,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 1,
+        itemsPerPage: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -2434,7 +2432,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -2461,7 +2459,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -2488,7 +2486,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -2511,7 +2509,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
@@ -2603,7 +2601,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        entriesPerPage: 20,
+        itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();

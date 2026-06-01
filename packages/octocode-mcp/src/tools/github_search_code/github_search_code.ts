@@ -20,6 +20,6 @@ export const registerGitHubSearchCodeTool = createRemoteToolRegistration({
   describe: base => `${base}
 <gotchas>
 - keywordsToSearch is a narrowing set of terms, not a broad synonym list. For OR-style exploration, run separate queries.
-- Under verbosity="concise", limit is capped to 3 before the GitHub request.
+- itemsPerPage (default 20) sets how many whole matches a page returns and drives GitHub per_page (fetched == shown); githubAPILimit overrides the raw per_page. Under verbosity="concise" the page is capped to 3.
 </gotchas>`,
 });

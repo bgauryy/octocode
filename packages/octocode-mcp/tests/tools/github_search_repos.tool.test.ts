@@ -497,46 +497,40 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       expect(result.isError).toBe(false);
     });
 
-    it('should add outputPagination for oversized topics and continue deterministically', async () => {
-      const topics = Array.from({ length: 20 }, (_, index) => `topic-${index}`);
-
+    it('paginates repositories at the WHOLE-ITEM level — never truncates a repo topics[] — and advances deterministically', async () => {
+      // A repository is the atomic pagination unit: char windowing slices
+      // BETWEEN repos, never inside one, so a repo's topics[] always comes
+      // through complete regardless of where the page boundary falls.
+      const topics = Array.from({ length: 5 }, (_, index) => `topic-${index}`);
       mockProvider.searchRepos.mockResolvedValue({
         data: {
-          repositories: [
-            {
-              id: '1',
-              name: 'repo',
-              fullPath: 'test/repo',
-              description: 'Test repository',
-              url: 'https://github.com/test/repo',
-              stars: 100,
-              forks: 10,
-              language: 'TypeScript',
-              topics,
-              createdAt: '2024-01-15',
-              updatedAt: '2024-01-15',
-              pushedAt: '2024-01-15',
-              defaultBranch: 'main',
-              isPrivate: false,
-            },
-          ],
-          totalCount: 1,
+          repositories: Array.from({ length: 6 }, (_, i) => ({
+            id: `${i}`,
+            name: `repo-${i}`,
+            fullPath: `test/repo-${i}`,
+            description: 'Test repository',
+            url: `https://github.com/test/repo-${i}`,
+            stars: 100,
+            forks: 10,
+            language: 'TypeScript',
+            topics,
+            createdAt: '2024-01-15',
+            updatedAt: '2024-01-15',
+            pushedAt: '2024-01-15',
+            defaultBranch: 'main',
+            isPrivate: false,
+          })),
+          totalCount: 6,
           pagination: { currentPage: 1, totalPages: 1, hasMore: false },
         },
         status: 200,
         provider: 'github',
       });
 
+      // charLength small enough that not all 6 repos fit → must paginate.
       const firstResult = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        {
-          queries: [
-            {
-              keywordsToSearch: ['repo'],
-              charLength: 320,
-            },
-          ],
-        }
+        { queries: [{ keywordsToSearch: ['repo'], charLength: 320 }] }
       );
 
       const firstStructured = firstResult.structuredContent as {
@@ -556,10 +550,12 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         (firstData.outputPagination?.charOffset ?? 0) +
         (firstData.outputPagination?.charLength ?? 0);
 
-      expect(firstData.repositories?.[0]?.repo).toBe('repo');
-      expect(firstData.repositories?.[0]?.topics?.length).toBeLessThan(
-        topics.length
-      );
+      // Item-atomic: every repo on the page carries its FULL topics[] (never a
+      // truncated fragment like the old `["dx","f"]`).
+      expect(firstData.repositories?.length ?? 0).toBeGreaterThan(0);
+      for (const r of firstData.repositories ?? []) {
+        expect(r.topics).toEqual(topics);
+      }
       expect(firstData.outputPagination?.hasMore).toBe(true);
 
       const secondResult = await mockServer.callTool(
@@ -577,15 +573,13 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       const secondStructured = secondResult.structuredContent as {
         results: Array<{
-          data: {
-            repositories?: Array<{ topics?: string[] }>;
-          };
+          data: { repositories?: Array<{ repo: string; topics?: string[] }> };
         }>;
       };
-
-      expect(
-        secondStructured.results[0]!.data.repositories?.[0]?.topics
-      ).not.toEqual(firstData.repositories?.[0]?.topics);
+      const secondRepos = secondStructured.results[0]!.data.repositories ?? [];
+      // Cursor advanced to different repos, each still with full topics intact.
+      expect(secondRepos[0]?.repo).not.toBe(firstData.repositories?.[0]?.repo);
+      for (const r of secondRepos) expect(r.topics).toEqual(topics);
     });
   });
 

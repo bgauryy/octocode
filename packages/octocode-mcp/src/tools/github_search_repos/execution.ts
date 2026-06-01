@@ -405,19 +405,25 @@ export async function searchMultipleGitHubRepos(
     async (query: PartialReposSearchQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
-        // Pre-flight: cap user-passed `limit` under concise so the upstream
+        // Pre-flight: cap the effective per_page under concise so the upstream
         // fetch reflects the trimmed response. No downgrade hint is emitted —
         // concise's cap is its documented contract and pagination.totalMatches
-        // keeps the true count visible.
-        const userLimit = (query as { limit?: number }).limit;
+        // keeps the true count visible. Cap BOTH per_page knobs.
         const verbosityIsConcise = isConcise(
           (query as WithVerbosity<typeof query>).verbosity
         );
         if (verbosityIsConcise) {
-          (query as { limit?: number }).limit = Math.min(
-            userLimit ?? CONCISE_REPOS_LIMIT,
+          const q = query as {
+            itemsPerPage?: number;
+            githubAPILimit?: number;
+          };
+          q.itemsPerPage = Math.min(
+            q.itemsPerPage ?? CONCISE_REPOS_LIMIT,
             CONCISE_REPOS_LIMIT
           );
+          if (typeof q.githubAPILimit === 'number') {
+            q.githubAPILimit = Math.min(q.githubAPILimit, CONCISE_REPOS_LIMIT);
+          }
         }
         const variants = createSearchVariants(query);
         const { successes, failures } = await executeProviderOperations(

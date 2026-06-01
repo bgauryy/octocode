@@ -37,7 +37,13 @@ const featureSyncMocks = vi.hoisted(() => ({
   readAllClientConfigs: vi.fn().mockReturnValue([]),
   analyzeSyncState: vi.fn().mockReturnValue({
     clients: [],
+    allMCPs: new Set(),
+    diffs: [],
+    fullyConsistent: [],
+    needsSync: [],
+    conflicts: [],
     summary: {
+      totalClients: 0,
       clientsWithConfig: 0,
       totalUniqueMCPs: 0,
       consistentMCPs: 0,
@@ -83,7 +89,13 @@ describe('syncCommand', () => {
     vi.mocked(features.readAllClientConfigs).mockReturnValue([]);
     vi.mocked(features.analyzeSyncState).mockReturnValue({
       clients: [],
+      allMCPs: new Set(),
+      diffs: [],
+      fullyConsistent: [],
+      needsSync: [],
+      conflicts: [],
       summary: {
+        totalClients: 0,
         clientsWithConfig: 0,
         totalUniqueMCPs: 0,
         consistentMCPs: 0,
@@ -266,13 +278,7 @@ describe('syncCommand', () => {
     ).toBe(false);
   });
 
-  it('status: uses short option alias -n is not status (default sync path)', async () => {
-    featureSyncMocks.quickSync.mockResolvedValue({
-      success: true,
-      message: 'ok',
-      syncPerformed: false,
-    });
-
+  it('short alias -n triggers dry-run plan (uses analyzeSyncState, not quickSync)', async () => {
     const syncCommand = await loadCommand();
     await syncCommand.handler({
       command: 'sync',
@@ -280,9 +286,8 @@ describe('syncCommand', () => {
       options: { n: true },
     });
 
-    expect(featureSyncMocks.quickSync).toHaveBeenCalledWith(
-      expect.objectContaining({ dryRun: true })
-    );
+    expect(featureSyncMocks.analyzeSyncState).toHaveBeenCalled();
+    expect(featureSyncMocks.quickSync).not.toHaveBeenCalled();
   });
 
   it('sync (default): successful sync performed', async () => {
@@ -407,13 +412,7 @@ describe('syncCommand', () => {
     );
   });
 
-  it('sync with --dry-run forwards to quickSync', async () => {
-    featureSyncMocks.quickSync.mockResolvedValue({
-      success: true,
-      message: 'Would sync',
-      syncPerformed: false,
-    });
-
+  it('sync with --dry-run uses analyzeSyncState (not quickSync)', async () => {
     const syncCommand = await loadCommand();
     await syncCommand.handler({
       command: 'sync',
@@ -421,8 +420,7 @@ describe('syncCommand', () => {
       options: { 'dry-run': true },
     });
 
-    expect(featureSyncMocks.quickSync).toHaveBeenCalledWith(
-      expect.objectContaining({ dryRun: true })
-    );
+    expect(featureSyncMocks.analyzeSyncState).toHaveBeenCalled();
+    expect(featureSyncMocks.quickSync).not.toHaveBeenCalled();
   });
 });

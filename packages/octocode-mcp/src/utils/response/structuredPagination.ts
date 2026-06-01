@@ -1,5 +1,8 @@
 import { TOOL_NAMES } from '../../tools/toolMetadata/proxies.js';
-import { getOutputCharLimit } from '../pagination/charLimit.js';
+import {
+  getOutputCharLimit,
+  getBulkDefaultCharLength,
+} from '../pagination/charLimit.js';
 import type { BulkToolResponse } from '../../types/bulk.js';
 import type {
   FlatQueryResult,
@@ -68,10 +71,15 @@ function getDefaultCharLength(): number {
   );
 }
 
-function resolveRequest(request: PaginationRequest): ResolvedPaginationRequest {
+function resolveRequest(
+  request: PaginationRequest,
+  defaultLength: number = getDefaultCharLength()
+): ResolvedPaginationRequest {
   return {
     offset: request.offset ?? 0,
-    length: Math.max(request.length ?? getDefaultCharLength(), 1),
+    length: Math.max(request.length ?? defaultLength, 1),
+    // `explicit` reflects ONLY whether the caller drove pagination — a
+    // count-scaled default does not make the request explicit.
     explicit: request.offset !== undefined || request.length !== undefined,
   };
 }
@@ -757,86 +765,6 @@ function paginatePullRequest(
   ]);
 }
 
-function paginateGitHubRepository(
-  value: unknown,
-  request: ResolvedPaginationRequest
-): ValuePageResult<unknown> | null {
-  if (!isPlainObject(value)) {
-    return null;
-  }
-
-  return paginateConfiguredObjectValue(value, request, [
-    {
-      field: 'topics',
-      kind: 'array',
-      itemPaginator: (item, nestedRequest) =>
-        typeof item === 'string'
-          ? paginateStringValue(item, nestedRequest)
-          : null,
-    },
-  ]);
-}
-
-function paginatePackageEntry(
-  value: unknown,
-  request: ResolvedPaginationRequest
-): ValuePageResult<unknown> | null {
-  if (!isPlainObject(value)) {
-    return null;
-  }
-
-  return paginateConfiguredObjectValue(value, request, [
-    {
-      field: 'keywords',
-      kind: 'array',
-      itemPaginator: (item, nestedRequest) =>
-        typeof item === 'string'
-          ? paginateStringValue(item, nestedRequest)
-          : null,
-    },
-    {
-      field: 'engines',
-      kind: 'record',
-    },
-    {
-      field: 'dependencies',
-      kind: 'record',
-    },
-    {
-      field: 'peerDependencies',
-      kind: 'record',
-    },
-  ]);
-}
-
-function paginateStructureEntry(
-  value: unknown,
-  request: ResolvedPaginationRequest
-): ValuePageResult<unknown> | null {
-  if (!isPlainObject(value)) {
-    return null;
-  }
-
-  return paginateConfiguredObjectValue(value, request, [
-    {
-      field: 'files',
-      kind: 'array',
-      itemPaginator: (item, nestedRequest) =>
-        typeof item === 'string'
-          ? paginateStringValue(item, nestedRequest)
-          : null,
-    },
-    {
-      field: 'folders',
-      kind: 'array',
-      itemPaginator: (item, nestedRequest) =>
-        typeof item === 'string'
-          ? paginateStringValue(item, nestedRequest)
-          : null,
-    },
-  ]);
-}
-
 function paginateLocalSearchMatch(
   value: unknown,
   request: ResolvedPaginationRequest
@@ -935,30 +863,34 @@ function pageToolDataValue(
       ]);
       break;
     case TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES:
+      // A repository is the ATOMIC pagination unit — NO itemPaginator, so the
+      // segment engine includes or defers each repo WHOLE and never slices a
+      // repo's internal arrays. (The old paginateGitHubRepository sub-sliced
+      // `topics`, truncating it mid-element — e.g. `["dx","f"]` — so the same
+      // repo rendered different topics depending on where the char window
+      // landed. Items are bounded; a lone oversized repo is emitted whole for
+      // forward progress, matching the "char-window only an oversized single
+      // item" model that PR fileChanges still uses via paginatePullRequest.)
       page = paginateConfiguredObjectValue(data, request, [
-        {
-          field: 'repositories',
-          kind: 'array',
-          itemPaginator: paginateGitHubRepository,
-        },
+        { field: 'repositories', kind: 'array' },
       ]);
       break;
     case TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE:
+      // A directory node is the ATOMIC unit — NO itemPaginator, so the char
+      // backstop emits or defers a whole node and never slices its files[] /
+      // folders[] mid-list. The entry cursor (entriesPerPage→itemsPerPage)
+      // already bounds page size, so nodes stay small; this matches the
+      // item-atomic model used by repositories / packages / local structure.
       page = paginateConfiguredObjectValue(data, request, [
-        {
-          field: 'structure',
-          kind: 'record',
-          itemPaginator: paginateStructureEntry,
-        },
+        { field: 'structure', kind: 'record' },
       ]);
       break;
     case TOOL_NAMES.PACKAGE_SEARCH:
+      // A package is the ATOMIC unit — see the repositories case. No
+      // itemPaginator, so keywords/engines/dependencies are never sliced
+      // mid-collection; a package is included or deferred whole.
       page = paginateConfiguredObjectValue(data, request, [
-        {
-          field: 'packages',
-          kind: 'array',
-          itemPaginator: paginatePackageEntry,
-        },
+        { field: 'packages', kind: 'array' },
       ]);
       break;
     case TOOL_NAMES.GITHUB_CLONE_REPO:
@@ -1265,7 +1197,13 @@ export function applyBulkResponsePagination(
   request: PaginationRequest,
   toolName: string
 ): BulkToolResponse {
-  const resolvedRequest = resolveRequest(request);
+  // Reserve one base window per query so a large first query doesn't starve its
+  // siblings off page 1 (#3). Only affects the auto-pagination default — an
+  // explicit responseCharOffset/Length still wins via resolveRequest.
+  const resolvedRequest = resolveRequest(
+    request,
+    getBulkDefaultCharLength(response.results.length)
+  );
 
   // Single coherent cursor: when the caller drove PER-QUERY pagination (every
   // result already carries an outputPagination cursor from an explicit

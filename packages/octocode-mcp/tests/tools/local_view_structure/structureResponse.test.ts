@@ -62,7 +62,7 @@ describe('structureResponse.paginateEntries', () => {
 
   it('returns a single page when total fits in entriesPerPage', () => {
     const result = paginateEntries(entries.slice(0, 5), {
-      entriesPerPage: 10,
+      itemsPerPage: 10,
     });
     expect(result.pagination.currentPage).toBe(1);
     expect(result.pagination.totalPages).toBe(1);
@@ -72,8 +72,8 @@ describe('structureResponse.paginateEntries', () => {
 
   it('paginates and reports hasMore=true on the first page of many', () => {
     const result = paginateEntries(entries, {
-      entriesPerPage: 10,
-      entryPageNumber: 1,
+      itemsPerPage: 10,
+      page: 1,
     });
     expect(result.pagination.totalPages).toBe(3);
     expect(result.pagination.hasMore).toBe(true);
@@ -82,23 +82,23 @@ describe('structureResponse.paginateEntries', () => {
 
   it('returns the partial last page with hasMore=false', () => {
     const result = paginateEntries(entries, {
-      entriesPerPage: 10,
-      entryPageNumber: 3,
+      itemsPerPage: 10,
+      page: 3,
     });
     expect(result.pagination.hasMore).toBe(false);
     expect(result.paginatedEntries).toHaveLength(5);
   });
 
-  it('clamps entryPageNumber beyond totalPages to the last page', () => {
+  it('clamps page beyond totalPages to the last page', () => {
     const result = paginateEntries(entries, {
-      entriesPerPage: 10,
-      entryPageNumber: 99,
+      itemsPerPage: 10,
+      page: 99,
     });
     expect(result.pagination.currentPage).toBe(3);
     expect(result.paginatedEntries).toHaveLength(5);
   });
 
-  it('uses sensible defaults when entryPageNumber/entriesPerPage are absent', () => {
+  it('uses sensible defaults when page/itemsPerPage are absent', () => {
     const result = paginateEntries(entries, {});
     expect(result.pagination.currentPage).toBe(1);
     expect(result.pagination.entriesPerPage).toBeGreaterThan(0);
@@ -124,7 +124,7 @@ describe('structureResponse.buildEntryPaginationHints', () => {
     );
     expect(hints).toHaveLength(1);
     expect(hints[0]).toContain('Page 1/2');
-    expect(hints[0]).toContain('entryPageNumber=2');
+    expect(hints[0]).toContain('page=2');
     expect(hints[0]).toContain('starts with: f5');
   });
 
@@ -141,7 +141,7 @@ describe('structureResponse.buildEntryPaginationHints', () => {
       allEntries.length
     );
     expect(hints).toHaveLength(1);
-    expect(hints[0]).toContain('entryPageNumber=2');
+    expect(hints[0]).toContain('page=2');
     expect(hints[0]).not.toContain('starts with:');
   });
 

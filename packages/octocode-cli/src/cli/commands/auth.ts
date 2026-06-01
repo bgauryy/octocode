@@ -5,18 +5,24 @@ import {
   logout as oauthLogout,
   getAuthStatus,
   getStoragePath,
+  refreshAuthToken,
   type VerificationInfo,
 } from '../../features/github-oauth.js';
 import { loadInquirer, select } from '../../utils/prompts.js';
 import { Spinner } from '../../utils/spinner.js';
-import { printAuthStatus, printLoginHint } from './shared.js';
+import {
+  formatAuthStatusAsJson,
+  printAuthStatus,
+  printLoginHint,
+} from './shared.js';
 import { tokenCommand } from './token.js';
 
 export const loginCommand: CLICommand = {
   name: 'login',
   aliases: ['l'],
   description: 'Authenticate with GitHub',
-  usage: 'octocode-cli login [--hostname <host>] [--git-protocol <ssh|https>]',
+  usage:
+    'octocode-cli login [--hostname <host>] [--git-protocol <ssh|https>] [--force] [--json]',
   options: [
     {
       name: 'hostname',
@@ -30,37 +36,102 @@ export const loginCommand: CLICommand = {
       description: 'Git protocol to use (ssh or https)',
       hasValue: true,
     },
+    {
+      name: 'force',
+      short: 'f',
+      description:
+        'Re-authenticate even if already logged in (logout then login)',
+    },
+    {
+      name: 'json',
+      short: 'j',
+      description: 'Output result as JSON: { success, username, error }',
+    },
   ],
   handler: async (args: ParsedArgs) => {
     const hostnameOpt = args.options['hostname'] ?? args.options['H'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
+    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
+    const forceLogin = Boolean(args.options['force'] || args.options['f']);
     const status = getAuthStatus(hostname);
 
-    if (status.authenticated) {
+    if (status.authenticated && !forceLogin) {
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: true,
+            username: status.username || null,
+            error: null,
+            alreadyAuthenticated: true,
+          })
+        );
+        return;
+      }
       console.log();
       console.log(
         `  ${c('green', '✓')} Already authenticated as ${c('cyan', status.username || 'unknown')}`
       );
       console.log();
-      console.log(`  ${dim('To switch accounts, logout first:')}`);
+      console.log(`  ${dim('To switch accounts, use --force:')}`);
       console.log(
-        `    ${c('cyan', '→')} ${c('yellow', 'octocode-cli logout')}`
+        `    ${c('cyan', '→')} ${c('yellow', 'octocode-cli login --force')}`
       );
       console.log();
       return;
     }
 
-    console.log();
-    console.log(`  ${bold('🔐 GitHub Authentication')}`);
-    console.log();
+    // --force: logout first, then re-login
+    if (forceLogin && status.authenticated) {
+      if (!jsonOutput) {
+        console.log();
+        console.log(
+          `  ${dim('Logging out')} ${c('cyan', status.username || hostname)} ${dim('before re-authenticating...')}`
+        );
+      }
+      await oauthLogout(hostname);
+    }
+
+    // Login requires a human to open a browser — block non-TTY environments
+    if (!process.stdout.isTTY) {
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: false,
+            error:
+              'Login requires browser interaction. Run "octocode-cli login" in an interactive terminal.',
+            requiresInteraction: true,
+          })
+        );
+      } else {
+        console.log();
+        console.log(`  ${c('red', '✗')} Login requires browser interaction.`);
+        console.log(
+          `  ${dim('Run')} ${c('yellow', 'octocode-cli login')} ${dim('in an interactive terminal.')}`
+        );
+        console.log();
+      }
+      process.exitCode = 1;
+      return;
+    }
 
     const gitProtocolOpt = args.options['git-protocol'] ?? args.options['p'];
     const gitProtocol =
       typeof gitProtocolOpt === 'string' ? gitProtocolOpt : 'https';
 
     if (gitProtocol !== 'ssh' && gitProtocol !== 'https') {
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: false,
+            username: null,
+            error: `Invalid git protocol: ${gitProtocol}. Supported: ssh, https`,
+          })
+        );
+        process.exitCode = 1;
+        return;
+      }
       console.log();
       console.log(`  ${c('red', '✗')} Invalid git protocol: ${gitProtocol}`);
       console.log(`  ${dim('Supported:')} ssh, https`);
@@ -69,31 +140,62 @@ export const loginCommand: CLICommand = {
       return;
     }
 
-    let verificationShown = false;
+    if (!jsonOutput) {
+      console.log();
+      console.log(`  ${bold('🔐 GitHub Authentication')}`);
+      console.log();
+    }
 
-    const spinner = new Spinner('Waiting for GitHub authentication...').start();
+    let verificationShown = false;
+    const spinner = jsonOutput
+      ? null
+      : new Spinner('Waiting for GitHub authentication...').start();
 
     const result = await oauthLogin({
       hostname,
       gitProtocol,
       onVerification: (verification: VerificationInfo) => {
-        spinner.stop();
+        spinner?.stop();
         verificationShown = true;
-
-        console.log(
-          `  ${c('yellow', '!')} First copy your one-time code: ${bold(verification.user_code)}`
-        );
-        console.log();
-        console.log(
-          `  ${bold('Press Enter')} to open ${c('cyan', verification.verification_uri)} in your browser...`
-        );
-        console.log();
-        console.log(`  ${dim('Waiting for authentication...')}`);
+        if (jsonOutput) {
+          // In JSON mode output verification info as JSON so the caller can relay it
+          console.log(
+            JSON.stringify({
+              step: 'verification',
+              userCode: verification.user_code,
+              verificationUri: verification.verification_uri,
+              expiresIn: verification.expires_in,
+            })
+          );
+        } else {
+          console.log(
+            `  ${c('yellow', '!')} First copy your one-time code: ${bold(verification.user_code)}`
+          );
+          console.log();
+          console.log(
+            `  ${bold('Opening')} ${c('cyan', verification.verification_uri)} ${bold('in your browser...')}`
+          );
+          console.log();
+          console.log(`  ${dim('Waiting for authentication...')}`);
+        }
       },
     });
 
     if (!verificationShown) {
-      spinner.stop();
+      spinner?.stop();
+    }
+
+    if (jsonOutput) {
+      console.log(
+        JSON.stringify({
+          step: 'result',
+          success: result.success,
+          username: result.username || null,
+          error: result.error || null,
+        })
+      );
+      if (!result.success) process.exitCode = 1;
+      return;
     }
 
     console.log();
@@ -117,7 +219,7 @@ export const loginCommand: CLICommand = {
 export const logoutCommand: CLICommand = {
   name: 'logout',
   description: 'Sign out from GitHub',
-  usage: 'octocode-cli logout [--hostname <host>]',
+  usage: 'octocode-cli logout [--hostname <host>] [--yes] [--json]',
   options: [
     {
       name: 'hostname',
@@ -125,15 +227,38 @@ export const logoutCommand: CLICommand = {
       description: 'GitHub Enterprise hostname',
       hasValue: true,
     },
+    {
+      name: 'yes',
+      short: 'y',
+      description: 'Skip confirmation prompt',
+    },
+    {
+      name: 'json',
+      short: 'j',
+      description: 'Output result as JSON: { success, hostname, error }',
+    },
   ],
   handler: async (args: ParsedArgs) => {
     const hostnameOpt = args.options['hostname'] ?? args.options['H'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
+    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
+    const skipConfirm = Boolean(args.options['yes'] || args.options['y']);
     const status = getAuthStatus(hostname);
 
     if (!status.authenticated) {
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: true,
+            hostname,
+            error: null,
+            alreadyLoggedOut: true,
+          })
+        );
+        return;
+      }
       console.log();
       console.log(
         `  ${c('yellow', '⚠')} Not currently authenticated to ${hostname}`
@@ -144,15 +269,41 @@ export const logoutCommand: CLICommand = {
       return;
     }
 
+    // Confirm in TTY unless --yes / --json / non-TTY
+    if (!skipConfirm && !jsonOutput && process.stdout.isTTY) {
+      const { confirm } = await import('../../utils/prompts.js');
+      const confirmed = await confirm({
+        message: `Log out from ${c('cyan', status.username || hostname)}?`,
+        default: false,
+      });
+      if (!confirmed) {
+        console.log();
+        console.log(`  ${dim('Logout cancelled.')}`);
+        console.log();
+        return;
+      }
+    }
+
+    const result = await oauthLogout(hostname);
+
+    if (jsonOutput) {
+      console.log(
+        JSON.stringify({
+          success: result.success,
+          hostname,
+          error: result.error || null,
+        })
+      );
+      if (!result.success) process.exitCode = 1;
+      return;
+    }
+
     console.log();
     console.log(`  ${bold('🔐 GitHub Logout')}`);
     console.log(
       `  ${dim('Currently authenticated as:')} ${c('cyan', status.username || 'unknown')}`
     );
     console.log();
-
-    const result = await oauthLogout(hostname);
-
     if (result.success) {
       console.log(
         `  ${c('green', '✓')} Successfully logged out from ${hostname}`
@@ -171,13 +322,27 @@ export const authCommand: CLICommand = {
   name: 'auth',
   aliases: ['a', 'gh'],
   description: 'Manage GitHub authentication',
-  usage: 'octocode-cli auth [login|logout|status|token]',
+  usage: 'octocode-cli auth [login|logout|status|token|refresh] [--json]',
+  options: [
+    {
+      name: 'hostname',
+      short: 'H',
+      description: 'GitHub Enterprise hostname (default: github.com)',
+      hasValue: true,
+    },
+    {
+      name: 'json',
+      short: 'j',
+      description: 'Output as JSON (supported by all subcommands)',
+    },
+  ],
   handler: async (args: ParsedArgs) => {
     const subcommand = args.args[0];
     const hostnameOpt = args.options['hostname'] ?? args.options['H'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
+    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
 
     if (subcommand === 'login') {
       return loginCommand.handler(args);
@@ -186,15 +351,142 @@ export const authCommand: CLICommand = {
       return logoutCommand.handler(args);
     }
     if (subcommand === 'status') {
+      if (jsonOutput) {
+        const data = formatAuthStatusAsJson(hostname);
+        console.log(JSON.stringify(data));
+        if (!data['authenticated']) process.exitCode = 1;
+        return;
+      }
       printAuthStatus(hostname);
       return;
     }
     if (subcommand === 'token') {
       return tokenCommand.handler(args);
     }
+    if (subcommand === 'refresh') {
+      const currentStatus = getAuthStatus(hostname);
+      const tokenSource = currentStatus.tokenSource;
+
+      if (tokenSource === 'env') {
+        const envVar = (currentStatus as { envTokenSource?: string })
+          .envTokenSource;
+        const msg = `Token is from environment variable${envVar ? ` (${envVar})` : ''} — update it directly to refresh.`;
+        if (jsonOutput) {
+          console.log(
+            JSON.stringify({
+              success: false,
+              hostname,
+              tokenSource,
+              refreshable: false,
+              error: msg,
+            })
+          );
+        } else {
+          console.log();
+          console.log(`  ${c('yellow', '⚠')} ${msg}`);
+          console.log();
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (tokenSource === 'gh-cli') {
+        const msg =
+          'Token is managed by the gh CLI — run `gh auth refresh` instead.';
+        if (jsonOutput) {
+          console.log(
+            JSON.stringify({
+              success: false,
+              hostname,
+              tokenSource,
+              refreshable: false,
+              error: msg,
+              hint: 'gh auth refresh',
+            })
+          );
+        } else {
+          console.log();
+          console.log(`  ${c('yellow', '⚠')} ${msg}`);
+          console.log(
+            `  ${dim('Run:')} ${c('cyan', 'gh auth refresh')}${hostname !== 'github.com' ? ` ${dim(`--hostname ${hostname}`)}` : ''}`
+          );
+          console.log();
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (tokenSource === 'none' || !currentStatus.authenticated) {
+        const msg = 'Not authenticated. Run `octocode-cli login` first.';
+        if (jsonOutput) {
+          console.log(
+            JSON.stringify({
+              success: false,
+              hostname,
+              tokenSource,
+              refreshable: false,
+              error: msg,
+            })
+          );
+        } else {
+          console.log();
+          console.log(`  ${c('red', '✗')} ${msg}`);
+          console.log();
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const spinner = jsonOutput
+        ? null
+        : new Spinner('Refreshing Octocode token...').start();
+      const result = await refreshAuthToken(hostname);
+      spinner?.stop();
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: result.success,
+            hostname,
+            tokenSource,
+            refreshable: true,
+            username: result.username ?? null,
+            error: result.error ?? null,
+          })
+        );
+        if (!result.success) process.exitCode = 1;
+        return;
+      }
+      console.log();
+      if (result.success) {
+        console.log(
+          `  ${c('green', '✓')} Token refreshed for ${c('cyan', result.username ?? hostname)}`
+        );
+      } else {
+        console.log(
+          `  ${c('red', '✗')} Token refresh failed: ${result.error ?? 'unknown error'}`
+        );
+        console.log(
+          `  ${dim('Tip:')} run ${c('yellow', 'octocode-cli login')} to re-authenticate`
+        );
+        process.exitCode = 1;
+      }
+      console.log();
+      return;
+    }
+
+    // No subcommand: non-TTY → print status and exit; TTY → interactive
+    if (!process.stdout.isTTY) {
+      if (jsonOutput) {
+        const data = formatAuthStatusAsJson(hostname);
+        console.log(JSON.stringify(data));
+        if (!data['authenticated']) process.exitCode = 1;
+      } else {
+        printAuthStatus(hostname);
+      }
+      return;
+    }
 
     const status = getAuthStatus(hostname);
-
     printAuthStatus(hostname);
 
     await loadInquirer();
@@ -233,7 +525,6 @@ export const authCommand: CLICommand = {
       console.log(`  ${c('green', '✓')} Logged out`);
       console.log();
       console.log(`  ${dim('Starting new login...')}`);
-
       await loginCommand.handler({
         command: 'login',
         args: [],

@@ -25,7 +25,7 @@ import {
   compactTrimHints,
   makeAdvisoryPredicate,
 } from '../../scheme/verbosity.js';
-import { applyMinification } from '../local_fetch_content/contentMinifier.js';
+import { applyMinification } from '../../utils/minifier/applyMinification.js';
 import { buildEvidenceMetadata } from '../evidence.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
@@ -424,7 +424,7 @@ function collectFileErrors(
       repo: query?.repo,
       path: query?.path ? String(query.path) : undefined,
       error: error.error,
-      hints: errorHints(error.error, error.status),
+      hints: errorHints(error.error),
     };
   });
 }

@@ -16,8 +16,7 @@ function buildToolLines(): string[] {
 
     lines.push(`    ${dim(category)}`);
     for (const tool of tools) {
-      const padded = tool.name.padEnd(28);
-      lines.push(`    ${c('cyan', padded)} ${dim('--tool')} ${tool.name}`);
+      lines.push(`    ${c('cyan', tool.name)}`);
     }
   }
 
@@ -26,18 +25,19 @@ function buildToolLines(): string[] {
 
 export function showHelp(): void {
   const toolLines = buildToolLines();
+  const toolCount = TOOL_DEFINITIONS.length;
 
   const lines = [
     '',
     `  ${c('magenta', bold('🔍🐙 Octocode CLI'))}`,
     '',
-    `  ${bold('Two things in one binary:')}`,
-    `    ${c('magenta', '1.')} ${bold('Manage')} — install, auth, skills, MCP marketplace, sync, cache`,
-    `    ${c('magenta', '2.')} ${bold('Run tools')} — call any Octocode tool directly from terminal`,
-    '',
     `  ${bold('USAGE')}`,
-    `    ${c('magenta', 'octocode-cli')} <command> [options]              ${dim('manage Octocode')}`,
-    `    ${c('magenta', 'octocode-cli')} --tool <name> --queries '<json>'  ${dim('run a tool')}`,
+    `    ${c('magenta', 'octocode-cli')} <command> [options]                    ${dim('manage Octocode')}`,
+    `    ${c('magenta', 'octocode-cli')} tools                                  ${dim('list all tools')}`,
+    `    ${c('magenta', 'octocode-cli')} tools <name>                           ${dim('show input schema')}`,
+    `    ${c('magenta', 'octocode-cli')} tools <n1> <n2> ...                    ${dim('batch input schemas')}`,
+    `    ${c('magenta', 'octocode-cli')} tools <name> --queries '<json>'        ${dim('run a tool')}`,
+    `    ${c('magenta', 'octocode-cli')} instructions                           ${dim('MCP instructions + all schemas')}`,
     '',
     `  ${bold('COMMANDS')}  ${dim('(manage Octocode configuration)')}`,
     `    ${c('magenta', 'install')}          Configure octocode-mcp for an IDE`,
@@ -49,27 +49,21 @@ export function showHelp(): void {
     `    ${c('magenta', 'sync')}             Sync MCP configs across IDEs`,
     `    ${c('magenta', 'cache')}            Inspect and clean Octocode cache`,
     '',
-    `  ${bold('TOOLS')}  ${dim('(run Octocode tools directly — for agents and humans)')}`,
+    `  ${bold('TOOLS')}  ${dim(`(${toolCount} tools — run directly from terminal)`)}`,
     ...toolLines,
     '',
     `  ${bold('OPTIONS')}`,
-    `    ${c('cyan', "--tool <name> --queries '<json>'")}  Run a tool`,
-    `    ${c('cyan', '--tool <name> --help')}              Show tool input/output schema`,
-    `    ${c('cyan', '--tools-context')}                   Full MCP instructions + all schemas`,
-    `    ${c('cyan', '--json')}                            Raw JSON output`,
-    `    ${c('cyan', '-h, --help')}                        Show this help`,
-    `    ${c('cyan', '-v, --version')}                     Show version`,
+    `    ${c('cyan', '--json')}            Raw JSON output`,
+    `    ${c('cyan', '-h, --help')}        Show this help`,
+    `    ${c('cyan', '-v, --version')}     Show version`,
     '',
     `  ${bold('EXAMPLES')}`,
-    `    ${dim('# Run a tool')}`,
-    `    ${c('yellow', `octocode-cli --tool localSearchCode --queries '{"path":".","pattern":"runCLI"}'`)}`,
-    `    ${c('yellow', `octocode-cli --tool githubSearchCode --queries '{"keywordsToSearch":["hook"],"owner":"facebook","repo":"react"}'`)}`,
+    `    ${c('yellow', 'octocode-cli tools')}                                                          ${dim('# list')}`,
+    `    ${c('yellow', 'octocode-cli tools localSearchCode')}                                          ${dim('# schema')}`,
+    `    ${c('yellow', 'octocode-cli tools localSearchCode githubSearchCode')}                         ${dim('# batch schemas')}`,
+    `    ${c('yellow', `octocode-cli tools localSearchCode --queries '{"path":".","pattern":"fn"}'`)}  ${dim('# run')}`,
+    `    ${c('yellow', 'octocode-cli instructions')}                                                   ${dim('# full context')}`,
     '',
-    `    ${dim('# Discover tools')}`,
-    `    ${c('yellow', 'octocode-cli --tool githubSearchCode --help')}`,
-    `    ${c('yellow', 'octocode-cli --tools-context')}`,
-    '',
-    `    ${dim('# Manage Octocode')}`,
     `    ${c('yellow', 'octocode-cli install --ide cursor')}`,
     `    ${c('yellow', 'octocode-cli skills install --targets claude-code,cursor')}`,
     '',

@@ -352,3 +352,64 @@ describe('cli/commands/shared', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// statusCommand
+// ---------------------------------------------------------------------------
+
+describe('statusCommand', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    process.exitCode = undefined;
+  });
+
+  it('outputs JSON when --json is provided', async () => {
+    const { statusCommand } =
+      await import('../../../src/cli/commands/status.js');
+
+    await statusCommand.handler({
+      command: 'status',
+      args: [],
+      options: { json: true },
+    });
+
+    const allOutput = consoleSpy.mock.calls.flat().join('\n');
+    const jsonLine = allOutput.split('\n').find((line: string) => {
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine!);
+    // status --json now wraps auth under parsed.auth
+    const auth = parsed.auth ?? parsed;
+    expect(typeof auth.authenticated).toBe('boolean');
+    expect(typeof auth.hostname).toBe('string');
+  });
+
+  it('sets exitCode=1 when not authenticated in --json mode', async () => {
+    // With no credentials mocked, authenticated should be false
+    const { statusCommand } =
+      await import('../../../src/cli/commands/status.js');
+
+    await statusCommand.handler({
+      command: 'status',
+      args: [],
+      options: { json: true },
+    });
+
+    // authenticated is false → exitCode = 1
+    expect(process.exitCode).toBe(1);
+  });
+});

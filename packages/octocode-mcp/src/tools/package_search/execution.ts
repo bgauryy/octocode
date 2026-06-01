@@ -78,12 +78,12 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 // Pagination note: the returned `packages` array is NOT a data-loss surface —
 // it is char-paginated losslessly by the bulk engine (PACKAGE_SEARCH case in
 // structuredPagination.ts → paginatePackageEntry), so every returned package is
-// reachable by advancing the charOffset / responseCharOffset cursor. `searchLimit`
-// is the explicit fetch cap (how many the registry query returns), analogous to
-// `limit` on other tools.
-// TODO (feature, not data loss): fetching results BEYOND searchLimit needs a
+// reachable by advancing the charOffset / responseCharOffset cursor. `itemsPerPage`
+// is the explicit fetch cap (how many the registry query returns), the cross-tool
+// page-size knob that replaced the old upstream `searchLimit`.
+// TODO (feature, not data loss): fetching results BEYOND itemsPerPage needs a
 // registry result-page cursor, and per-result lastPublished/weeklyDownloads
-// enrichment is currently only applied to exact-match lookups (searchLimit=1)
+// enrichment is currently only applied to exact-match lookups (itemsPerPage=1)
 // via fetchPackageDetailsWithError.
 export async function searchPackages(
   args: ToolExecutionArgs<NpmPackageQuery>
@@ -100,13 +100,13 @@ export async function searchPackages(
           (query as WithVerbosity<typeof query>).verbosity
         );
         if (pkgVerbosityIsConcise) {
-          const userSearchLimit = (query as { searchLimit?: number })
-            .searchLimit;
+          const userItemsPerPage = (query as { itemsPerPage?: number })
+            .itemsPerPage;
           if (
-            typeof userSearchLimit === 'number' &&
-            userSearchLimit > CONCISE_PACKAGE_SEARCH_LIMIT
+            typeof userItemsPerPage === 'number' &&
+            userItemsPerPage > CONCISE_PACKAGE_SEARCH_LIMIT
           ) {
-            (query as { searchLimit?: number }).searchLimit =
+            (query as { itemsPerPage?: number }).itemsPerPage =
               CONCISE_PACKAGE_SEARCH_LIMIT;
           }
           if (

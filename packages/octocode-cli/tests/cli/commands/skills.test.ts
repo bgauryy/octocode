@@ -52,6 +52,11 @@ const fsUtilsMocks = vi.hoisted(() => ({
   removeDirectory: vi.fn().mockReturnValue(true),
 }));
 
+const fsReadMocks = vi.hoisted(() => ({
+  fileExists: vi.fn().mockReturnValue(false),
+  readFileContent: vi.fn().mockReturnValue(null),
+}));
+
 vi.mock('../../../src/utils/fs.js', () => ({
   copyDirectory: (...args: unknown[]) => fsUtilsMocks.copyDirectory(...args),
   dirExists: (...args: unknown[]) => fsUtilsMocks.dirExists(...args),
@@ -59,6 +64,12 @@ vi.mock('../../../src/utils/fs.js', () => ({
     fsUtilsMocks.listSubdirectories(...args),
   removeDirectory: (...args: unknown[]) =>
     fsUtilsMocks.removeDirectory(...args),
+  fileExists: (...args: unknown[]) => fsReadMocks.fileExists(...args),
+  readFileContent: (...args: unknown[]) => fsReadMocks.readFileContent(...args),
+}));
+
+vi.mock('../../../src/utils/parsers/frontmatter.js', () => ({
+  parseSkillFrontmatter: vi.fn().mockReturnValue(null),
 }));
 
 const skillsUtilsMocks = vi.hoisted(() => {
@@ -103,8 +114,9 @@ const skillsUtilsMocks = vi.hoisted(() => {
       };
       return aliases[target.trim().toLowerCase()] ?? null;
     }),
-    getSkillsDirForTarget: vi.fn((target: string, defaultDestDir: string) => {
-      if (target === 'claude-code') return defaultDestDir;
+    getSkillsDirForTarget: vi.fn((target: string, defaultDestDir?: string) => {
+      const base = defaultDestDir ?? '/fake/skills/dest';
+      if (target === 'claude-code') return base;
       if (target === 'claude-desktop') {
         return '/fake/appdata/Claude Desktop/skills';
       }
@@ -120,6 +132,7 @@ const skillsUtilsMocks = vi.hoisted(() => {
         ? 'copy'
         : 'symlink';
     }),
+    getSkillMetadata: vi.fn().mockReturnValue(null),
     installSkillToDestination: vi.fn(
       ({
         sourcePath,
@@ -186,6 +199,75 @@ vi.mock('../../../src/utils/spinner.js', () => ({
   }),
 }));
 
+const skillsFetchMocks = vi.hoisted(() => ({
+  fetchSkillsShSearch: vi.fn(),
+  readSkillFromGitHub: vi.fn(),
+}));
+
+vi.mock('../../../src/utils/skills-fetch.js', () => ({
+  fetchSkillsShSearch: skillsFetchMocks.fetchSkillsShSearch,
+  readSkillFromGitHub: skillsFetchMocks.readSkillFromGitHub,
+  fetchMarketplaceSkills: vi.fn().mockResolvedValue([]),
+  searchSkills: vi.fn().mockReturnValue([]),
+  installMarketplaceSkill: vi.fn(),
+  clearSkillsCache: vi.fn(),
+  clearSourceCache: vi.fn(),
+  getCacheInfo: vi.fn(),
+  getSkillsCacheDir: vi.fn().mockReturnValue('/fake/cache'),
+}));
+
+const octocodePublicMocks = vi.hoisted(() => ({
+  executeDirectTool: vi.fn(),
+  prepareDirectToolInputFromJsonText: vi.fn(),
+}));
+
+vi.mock('octocode-mcp/public', async importOriginal => {
+  const original = await importOriginal<typeof import('octocode-mcp/public')>();
+  return {
+    ...original,
+    executeDirectTool: octocodePublicMocks.executeDirectTool,
+    prepareDirectToolInputFromJsonText:
+      octocodePublicMocks.prepareDirectToolInputFromJsonText,
+  };
+});
+
+vi.mock('../../../src/configs/skills-marketplace.js', () => ({
+  SKILLS_MARKETPLACES: [
+    {
+      id: 'octocode-skills',
+      name: 'Octocode',
+      type: 'github',
+      owner: 'bgauryy',
+      repo: 'octocode-mcp',
+      branch: 'main',
+      skillsPath: 'skills',
+      skillPattern: 'skill-folders',
+      description: 'Research, planning, code review & documentation',
+      url: 'https://github.com/bgauryy/octocode-mcp/tree/main/skills',
+    },
+    {
+      id: 'anthropic-skills',
+      name: 'Anthropic Official',
+      type: 'github',
+      owner: 'anthropics',
+      repo: 'skills',
+      branch: 'main',
+      skillsPath: 'skills',
+      skillPattern: 'skill-folders',
+      description: 'Official Anthropic skills — artifacts, design & docs',
+      url: 'https://github.com/anthropics/skills/tree/main/skills',
+    },
+  ],
+  getMarketplaceById: vi.fn(),
+  getMarketplaceCount: vi.fn().mockReturnValue(2),
+  isLocalSource: vi.fn().mockReturnValue(false),
+  getLocalMarketplaces: vi.fn().mockReturnValue([]),
+  getGitHubMarketplaces: vi.fn().mockReturnValue([]),
+  fetchMarketplaceStars: vi.fn().mockResolvedValue(null),
+  fetchAllMarketplaceStars: vi.fn().mockResolvedValue(new Map()),
+  clearStarsCache: vi.fn(),
+}));
+
 const platformFlags = vi.hoisted(() => ({
   isWindows: false,
 }));
@@ -233,6 +315,19 @@ describe('skillsCommand', () => {
     promptsMocks.select.mockReset();
     promptsMocks.checkbox.mockReset();
     platformFlags.isWindows = false;
+
+    // Default: GitHub tool search returns empty (no auth / not needed for most tests)
+    octocodePublicMocks.prepareDirectToolInputFromJsonText.mockReturnValue({});
+    octocodePublicMocks.executeDirectTool.mockResolvedValue({
+      isError: false,
+      content: [],
+      structuredContent: { results: [] },
+    });
+
+    // Default: file reads return nothing
+    fsReadMocks.fileExists.mockReturnValue(false);
+    fsReadMocks.readFileContent.mockReturnValue(null);
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValue('');
   });
 
   afterEach(() => {
@@ -250,7 +345,35 @@ describe('skillsCommand', () => {
     return mod.skillsCommand;
   }
 
-  it('list: shows available skills and destinations', async () => {
+  it('list: --json outputs structured targets array', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue([
+      'my-skill',
+      'other-skill',
+    ]);
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['list'],
+      options: { json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(Array.isArray(parsed.targets)).toBe(true);
+  });
+
+  it('list: shows skills on OS grouped by target', async () => {
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
       command: 'skills',
@@ -258,8 +381,9 @@ describe('skillsCommand', () => {
       options: {},
     });
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Available Octocode Skills')
+      expect.stringContaining('Skills on OS')
     );
+    // listSubdirectories returns ['octocode-research', 'octocode-plan'] for any dir
     expect(
       consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('octocode-research')
@@ -267,24 +391,7 @@ describe('skillsCommand', () => {
     ).toBe(true);
   });
 
-  it('list: shows installed when every destination has the skill folder', async () => {
-    fsUtilsMocks.dirExists.mockImplementation((p: string) => {
-      if (p === '/fake/skills/src') return true;
-      return p.includes('octocode-research');
-    });
-
-    const skillsCommand = await loadCommand();
-    await skillsCommand.handler({
-      command: 'skills',
-      args: ['list'],
-      options: {},
-    });
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('installed')
-    );
-  });
-
-  it('list: empty skills directory message', async () => {
+  it('list: shows (no skills installed) when target dir is empty', async () => {
     fsUtilsMocks.listSubdirectories.mockReturnValue([]);
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
@@ -293,7 +400,22 @@ describe('skillsCommand', () => {
       options: {},
     });
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No skills available.')
+      expect.stringContaining('no skills installed')
+    );
+  });
+
+  it('list: shows (directory not found) when target dir does not exist', async () => {
+    fsUtilsMocks.dirExists.mockImplementation((p: string) =>
+      p === '/fake/skills/src' ? true : false
+    );
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['list'],
+      options: {},
+    });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('directory not found')
     );
   });
 
@@ -442,16 +564,17 @@ describe('skillsCommand', () => {
     );
   });
 
-  it('list: Windows paths for claude-desktop target', async () => {
+  it('list: Windows paths shown for claude-desktop target', async () => {
     platformFlags.isWindows = true;
 
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
       command: 'skills',
       args: ['list'],
-      options: { targets: 'claude-desktop' },
+      options: {},
     });
 
+    // claude-desktop on Windows returns /fake/appdata/Claude Desktop/skills
     expect(
       consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('appdata')
@@ -791,7 +914,673 @@ describe('skillsCommand', () => {
       options: {},
     });
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Available Octocode Skills')
+      expect.stringContaining('Skills on OS')
     );
+  });
+
+  // --- search subcommand ---
+
+  it('search: errors when no query provided', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search'],
+      options: {},
+    });
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Missing search query')
+    );
+  });
+
+  it('search: outputs protocol URL and query in human mode', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'code review'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('code review');
+    expect(output).toContain('bgauryy/octocode');
+    expect(output).toContain('SKILL.md');
+    expect(output).toContain('references');
+  });
+
+  it('search: --json returns protocol instruction with query and URLs', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'security audit'],
+      options: { json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.query).toBe('security audit');
+    expect(parsed.instruction).toContain('Read the skill protocol');
+    expect(parsed.skillProtocol.url).toContain('SKILL.md');
+    expect(parsed.skillProtocol.raw).toContain('raw.githubusercontent.com');
+    expect(parsed.skillProtocol.references).toContain('references');
+  });
+
+  it('search: errors when no query provided', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Missing search query');
+  });
+
+  it('search --direct: shows grouped results from skills.sh', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce({
+      results: [
+        {
+          id: 'a/b/skill-one',
+          skillId: 'skill-one',
+          name: 'skill-one',
+          installs: 500,
+          source: 'owner-a/repo-a',
+        },
+        {
+          id: 'a/b/skill-two',
+          skillId: 'skill-two',
+          name: 'skill-two',
+          installs: 300,
+          source: 'owner-a/repo-a',
+        },
+        {
+          id: 'c/d/skill-x',
+          skillId: 'skill-x',
+          name: 'skill-x',
+          installs: 800,
+          source: 'owner-b/repo-b',
+        },
+      ],
+      count: 3,
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'testing'],
+      options: { direct: true },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    // owner-b/repo-b has more total installs → listed first
+    expect(output).toContain('owner-b/repo-b');
+    expect(output).toContain('owner-a/repo-a');
+    expect(output).toContain('skill-one');
+    expect(output).toContain('octocode-cli skills read');
+  });
+
+  it('search --direct --json: returns structured results array', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce({
+      results: [
+        {
+          id: 'a/b/my-skill',
+          skillId: 'my-skill',
+          name: 'my-skill',
+          installs: 42,
+          source: 'owner/repo',
+        },
+      ],
+      count: 1,
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'auth'],
+      options: { direct: true, json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((l: unknown) => {
+      if (typeof l !== 'string') return false;
+      try {
+        JSON.parse(l);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.query).toBe('auth');
+    expect(parsed.source).toBe('skills.sh');
+    expect(parsed.results[0].name).toBe('my-skill');
+    expect(parsed.results[0].readCmd).toContain('skills read');
+  });
+
+  it('search --direct: shows warning when skills.sh fails', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockRejectedValueOnce(
+      new Error('Timeout')
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'deploy'],
+      options: { direct: true },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('unavailable');
+  });
+
+  it('search --direct: shows no-results message when empty', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce({
+      results: [],
+      count: 0,
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'xyznothing'],
+      options: { direct: true },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('No results');
+  });
+
+  // --- read subcommand ---
+
+  it('read: errors when no path provided', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read'],
+      options: {},
+    });
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Missing path')
+    );
+  });
+
+  it('read: reads local SKILL.md', async () => {
+    const content = `---
+name: my-skill
+description: A test skill
+---
+# My Skill
+This is the skill content.`;
+
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsReadMocks.readFileContent.mockReturnValue(content);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', '/fake/skills/my-skill/SKILL.md'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('My Skill');
+    expect(output).toContain('This is the skill content.');
+  });
+
+  it('read: truncates long content and shows "use --full" hint in non-json mode', async () => {
+    const longContent = '# Skill\n' + 'x'.repeat(4000); // > 3000 chars
+
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsReadMocks.readFileContent.mockReturnValue(longContent);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', '/fake/skills/my-skill'],
+      options: {},
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('--full');
+  });
+
+  it('read: local --json output', async () => {
+    const content = `---
+name: my-skill
+description: A test skill
+---
+# My Skill`;
+
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsReadMocks.readFileContent.mockReturnValue(content);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', '/fake/skills/my-skill'],
+      options: { json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.success).toBe(true);
+    expect(parsed.content).toContain('# My Skill');
+  });
+
+  it('read: errors when local SKILL.md not found', async () => {
+    fsReadMocks.fileExists.mockReturnValue(false);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', '/fake/skills/missing-skill'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('read: reads GitHub path (owner/repo/path)', async () => {
+    const content = `---
+name: langchain-rag
+description: RAG pipelines with LangChain
+---
+# LangChain RAG`;
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce(content);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'langchain-ai/langchain-skills/skills/langchain-rag'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(skillsFetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
+      'langchain-ai',
+      'langchain-skills',
+      'skills/langchain-rag',
+      'main'
+    );
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('langchain-rag');
+  });
+
+  it('read: GitHub --json output', async () => {
+    const content = `---
+name: langchain-rag
+description: RAG pipelines
+---
+# LangChain RAG\nContent here.`;
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce(content);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'langchain-ai/langchain-skills/skills/langchain-rag'],
+      options: { json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.success).toBe(true);
+    expect(parsed.source).toContain('langchain-ai/langchain-skills');
+  });
+
+  it('read: handles GitHub fetch error', async () => {
+    skillsFetchMocks.readSkillFromGitHub.mockRejectedValueOnce(
+      new Error('SKILL.md not found')
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'owner/repo/skills/missing'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('read: --json outputs error when fetch fails', async () => {
+    skillsFetchMocks.readSkillFromGitHub.mockRejectedValueOnce(
+      new Error('SKILL.md not found')
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'owner/repo/skills/missing'],
+      options: { json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.success).toBe(false);
+  });
+
+  it('read: shows description line when frontmatter has description', async () => {
+    const { parseSkillFrontmatter } =
+      await import('../../../src/utils/parsers/frontmatter.js');
+    vi.mocked(parseSkillFrontmatter).mockReturnValueOnce({
+      name: 'my-skill',
+      description: 'A useful skill',
+    });
+
+    const content = '# My Skill\nContent here.';
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsReadMocks.readFileContent.mockReturnValue(content);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', '/fake/skills/my-skill'],
+      options: {},
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('A useful skill');
+  });
+
+  // --- --local flag for install/remove ---
+
+  it('install --local: installs from a local path', async () => {
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsUtilsMocks.copyDirectory.mockReturnValue(true);
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        local: '/fake/custom-skills/my-skill',
+        targets: 'claude-code',
+        json: true,
+      },
+    });
+
+    expect(fsUtilsMocks.copyDirectory).toHaveBeenCalled();
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.skill).toBe('my-skill');
+  });
+
+  it('install --local: non-json failure path sets exitCode', async () => {
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    // copyDirectory returns false → install fails
+    fsUtilsMocks.copyDirectory.mockReturnValue(false);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        local: '/fake/custom-skills/my-skill',
+        targets: 'claude-code',
+      },
+    });
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('install --local: non-json success shows installed message', async () => {
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsUtilsMocks.copyDirectory.mockReturnValue(true);
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        local: '/fake/custom-skills/my-skill',
+        targets: 'claude-code',
+        // no json flag
+      },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Installed to');
+  });
+
+  it('install --local: non-json SKILL.md not found shows error message', async () => {
+    fsReadMocks.fileExists.mockReturnValue(false);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        local: '/fake/missing-skill',
+        targets: 'claude-code',
+        // no json flag
+      },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('SKILL.md not found');
+  });
+
+  it('install --local: errors when SKILL.md not found', async () => {
+    fsReadMocks.fileExists.mockReturnValue(false);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        local: '/fake/missing-skill',
+        targets: 'claude-code',
+        json: true,
+      },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.success).toBe(false);
+  });
+
+  it('install --skill: --json outputs structured result for named skill', async () => {
+    fsUtilsMocks.copyDirectory.mockReturnValue(true);
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue([
+      'octocode-engineer',
+      'octocode-roast',
+    ]);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        skill: 'octocode-engineer',
+        targets: 'claude-code',
+        json: true,
+      },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.skill).toBe('octocode-engineer');
+    expect(typeof parsed.installed).toBe('number');
+  });
+
+  it('install: --json outputs structured result for all-skills install', async () => {
+    fsUtilsMocks.copyDirectory.mockReturnValue(true);
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: { targets: 'claude-code', json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(typeof parsed.installed).toBe('number');
+    expect(Array.isArray(parsed.targets)).toBe(true);
+  });
+
+  it('remove: invalid skill name --json outputs error', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['remove'],
+      options: { skill: '../evil', targets: 'claude-code', json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(parsed.failed).toBe(1);
+  });
+
+  it('remove: invalid skill name without --json shows error message', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['remove'],
+      options: { skill: '../evil', targets: 'claude-code' },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Invalid skill name');
+  });
+
+  it('remove: --json outputs structured result', async () => {
+    // removeSkillFromTargets uses removeDirectory under the hood
+    fsUtilsMocks.removeDirectory.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['remove'],
+      options: { skill: 'octocode-engineer', targets: 'cursor', json: true },
+    });
+
+    const jsonLine = consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine as string);
+    expect(typeof parsed.removed).toBe('number');
+    expect(parsed.skill).toBe('octocode-engineer');
+  });
+
+  it('remove --local: derives skill name from path', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['remove'],
+      options: {
+        local: '/fake/skills/octocode-engineer',
+        targets: 'claude-code',
+      },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('octocode-engineer');
   });
 });

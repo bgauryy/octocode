@@ -111,23 +111,28 @@ export const MINIFY_CONFIG: MinifyConfig = {
     // Data formats
     json: { strategy: 'json' },
 
-    // C-style comment languages
-    go: { strategy: 'aggressive', comments: 'c-style' },
-    java: { strategy: 'aggressive', comments: 'c-style' },
-    c: { strategy: 'aggressive', comments: 'c-style' },
-    cpp: { strategy: 'aggressive', comments: 'c-style' },
-    cs: { strategy: 'aggressive', comments: 'c-style' },
-    rust: { strategy: 'aggressive', comments: 'c-style' },
-    rs: { strategy: 'aggressive', comments: 'c-style' },
-    swift: { strategy: 'aggressive', comments: 'c-style' },
-    kotlin: { strategy: 'aggressive', comments: 'c-style' },
-    scala: { strategy: 'aggressive', comments: 'c-style' },
-    dart: { strategy: 'aggressive', comments: 'c-style' },
+    // C-style comment languages — CONSERVATIVE, not aggressive: these are real
+    // source languages where newlines carry meaning (Go's ASI) and readability.
+    // Aggressive collapsed newlines and glued tokens, garbling code-search
+    // fragments (e.g. Go `return nil}func (m *Ma`). Conservative strips comments
+    // + trailing whitespace but keeps line structure. `aggressive` stays
+    // reserved for whitespace-insignificant markup/styles (css/html/xml/svg).
+    go: { strategy: 'conservative', comments: 'c-style' },
+    java: { strategy: 'conservative', comments: 'c-style' },
+    c: { strategy: 'conservative', comments: 'c-style' },
+    cpp: { strategy: 'conservative', comments: 'c-style' },
+    cs: { strategy: 'conservative', comments: 'c-style' },
+    rust: { strategy: 'conservative', comments: 'c-style' },
+    rs: { strategy: 'conservative', comments: 'c-style' },
+    swift: { strategy: 'conservative', comments: 'c-style' },
+    kotlin: { strategy: 'conservative', comments: 'c-style' },
+    scala: { strategy: 'conservative', comments: 'c-style' },
+    dart: { strategy: 'conservative', comments: 'c-style' },
 
-    // Scripting languages
-    php: { strategy: 'aggressive', comments: ['c-style', 'hash'] },
-    rb: { strategy: 'aggressive', comments: 'hash' },
-    perl: { strategy: 'aggressive', comments: 'hash' },
+    // Scripting languages — same rationale (newline-significant source).
+    php: { strategy: 'conservative', comments: ['c-style', 'hash'] },
+    rb: { strategy: 'conservative', comments: 'hash' },
+    perl: { strategy: 'conservative', comments: 'hash' },
     sh: { strategy: 'conservative', comments: 'hash' },
     bash: { strategy: 'conservative', comments: 'hash' },
 

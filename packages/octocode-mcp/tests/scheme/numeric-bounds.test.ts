@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   FileContentQueryBaseLocalSchema,
   GitHubCodeSearchQueryLocalSchema,
+  GitHubReposSearchSingleQueryLocalSchema,
+  GitHubPullRequestSearchQueryLocalSchema,
+  GitHubViewRepoStructureQueryLocalSchema,
+  PackageSearchQueryLocalSchema,
 } from '../../src/scheme/remoteSchemaOverlay.js';
 import {
   FetchContentQuerySchema,
@@ -25,6 +29,10 @@ const SENTINEL = 9007199254740991;
 const schemas: Record<string, z.ZodTypeAny> = {
   'fileContent(remote)': FileContentQueryBaseLocalSchema,
   'code(remote)': GitHubCodeSearchQueryLocalSchema,
+  'repos(remote)': GitHubReposSearchSingleQueryLocalSchema,
+  'pullRequests(remote)': GitHubPullRequestSearchQueryLocalSchema,
+  'viewRepoStructure(remote)': GitHubViewRepoStructureQueryLocalSchema,
+  'packageSearch(remote)': PackageSearchQueryLocalSchema,
   'fetchContent(local)': FetchContentQuerySchema,
   findFiles: FindFilesQuerySchema,
   ripgrep: RipgrepQuerySchema,
@@ -82,6 +90,33 @@ describe('numeric schema fields are bounded (#C1)', () => {
     } else {
       const paths = r.error.issues.map(i => i.path.join('.'));
       expect(paths).not.toContain('lineHint');
+    }
+  });
+
+  // The top-level sweep above only inspects `js.properties[*]`; nested array
+  // item types slip through. PR `partialContentMetadata[].additions/deletions`
+  // are bare upstream ints — assert the overlay re-bounds them.
+  it('pullRequests: nested partialContentMetadata line arrays are bounded (no sentinel)', () => {
+    const js = z.toJSONSchema(GitHubPullRequestSearchQueryLocalSchema) as {
+      properties?: Record<
+        string,
+        {
+          items?: {
+            properties?: Record<
+              string,
+              { items?: { minimum?: number; maximum?: number } }
+            >;
+          };
+        }
+      >;
+    };
+    const pcm = js.properties?.partialContentMetadata?.items?.properties ?? {};
+    for (const key of ['additions', 'deletions']) {
+      const itemBounds = pcm[key]?.items;
+      expect(itemBounds, `${key} should be present`).toBeDefined();
+      expect(Math.abs(itemBounds?.minimum ?? 0)).not.toBe(SENTINEL);
+      expect(Math.abs(itemBounds?.maximum ?? 0)).not.toBe(SENTINEL);
+      expect(itemBounds?.maximum).toBe(1_000_000_000);
     }
   });
 });

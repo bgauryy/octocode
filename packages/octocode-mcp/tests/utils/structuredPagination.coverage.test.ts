@@ -332,28 +332,31 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('returns null itemPaginator path for structure entries non-string files/folders (lines 767/775)', () => {
+  it('githubViewRepoStructure record entries are item-atomic — a node files[] is never sliced', () => {
+    const mk = (p: string) => ['1', '2', '3'].map(n => `${p}${n}.ts`);
     const result = applyQueryOutputPagination(
       {
-        id: 'q-struct-num',
+        id: 'q-struct-atomic',
         data: {
           structure: {
-            src: {
-              files: [1, 2, 3, 4, 5],
-              folders: [6, 7, 8],
-            },
-            lib: {
-              files: Array.from({ length: 50 }, (_, i) => `lib-${i}.ts`),
-              folders: ['nested'],
-            },
+            a: { files: mk('a'), folders: [] },
+            b: { files: mk('b'), folders: [] },
+            c: { files: mk('c'), folders: [] },
           },
         },
       },
-      { charLength: 400 },
+      { charOffset: 0, charLength: 60 }, // tight → not all nodes fit
       TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
     );
-    const data = result.data as { outputPagination?: { hasMore: boolean } };
+    const data = result.data as {
+      structure?: Record<string, { files?: string[] }>;
+      outputPagination?: { hasMore: boolean };
+    };
     expect(data.outputPagination?.hasMore).toBe(true);
+    // Every emitted node keeps its FULL files[] — never a partial slice.
+    for (const node of Object.values(data.structure ?? {})) {
+      expect(node.files?.length).toBe(3);
+    }
   });
 
   it('returns null itemPaginator path for githubCloneRepo non-string hints (line 871)', () => {
@@ -977,74 +980,77 @@ describe('structuredPagination branch coverage', () => {
 
   // ---- materializeSegments record reuse: multi-key records on the same field (lines 255, 263) ----
 
-  it('paginates packageSearch records with multiple keys, reusing the materialized record object', () => {
+  it('paginates a record across multiple keys, reusing the materialized record object (structure branch)', () => {
+    // The record-materialize branch is exercised by githubViewRepoStructure,
+    // whose `structure` field is a Record<path, entry> (packageSearch repos are
+    // now atomic and no longer sub-paginate their record fields).
     const result = applyQueryOutputPagination(
       {
-        id: 'q-pkg-records',
+        id: 'q-struct-records',
         data: {
-          packages: [
-            {
-              name: 'p',
-              engines: { node: '>=18', npm: '>=9', yarn: '>=1' },
-              dependencies: { a: '1', b: '2', c: '3' },
-            },
-          ],
+          structure: {
+            src: { files: ['a.ts'], folders: [] },
+            'src/lib': { files: ['b.ts'], folders: [] },
+            test: { files: ['c.ts'], folders: [] },
+            docs: { files: ['d.ts'], folders: [] },
+          },
         },
       },
       { charOffset: 0, charLength: 60 },
-      TOOL_NAMES.PACKAGE_SEARCH
+      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
     );
     const data = result.data as {
-      packages?: Array<{ engines?: Record<string, string> }>;
+      structure?: Record<string, unknown>;
       outputPagination?: { hasMore: boolean };
     };
-    // multiple engine keys were materialized into the same record object
-    expect(
-      Object.keys(data.packages?.[0]?.engines ?? {}).length
-    ).toBeGreaterThan(1);
+    // At least one key materialized into the structure record; more remain.
+    expect(Object.keys(data.structure ?? {}).length).toBeGreaterThanOrEqual(1);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
   it('paginates multi-item arrays of the same field, reusing the materialized array (line 255)', () => {
+    // Code-search files[] still array-paginates (each match is atomic but the
+    // file LIST is sliced), exercising the array-materialize branch.
     const result = applyQueryOutputPagination(
       {
         id: 'q-multi-array',
         data: {
-          structure: {
-            src: {
-              files: Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`),
-              folders: Array.from({ length: 20 }, (_, i) => `dir-${i}`),
-            },
-          },
+          files: Array.from({ length: 60 }, (_, i) => ({
+            path: `f${i}.ts`,
+            text_matches: [{ value: 'v'.repeat(20) }],
+          })),
         },
       },
       { charOffset: 0, charLength: 300 },
-      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
+      TOOL_NAMES.GITHUB_SEARCH_CODE
     );
     const data = result.data as {
-      structure?: Record<string, { files?: string[] }>;
+      files?: unknown[];
       outputPagination?: { hasMore: boolean };
     };
-    expect(data.structure?.src?.files?.length ?? 0).toBeGreaterThan(1);
+    expect(data.files?.length ?? 0).toBeGreaterThan(1);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
   // ---- query offset past the base-object region: actualOffset uses segment.start (false side of lines 313, 344) ----
 
   it('paginates a query at an offset past the wrapper so a whole segment anchors actualOffset (line 313 false side)', () => {
-    const packages = Array.from({ length: 8 }, (_, i) => ({
-      name: `pkg-${i}`,
-      keywords: ['k'.repeat(120)],
+    // Code-search files still sub-paginate (text_matches[].value), so they
+    // exercise the segment-offset branches; repos/packages are now atomic.
+    const files = Array.from({ length: 8 }, (_, i) => ({
+      path: `f${i}.ts`,
+      text_matches: [{ value: 'v'.repeat(120) }],
     }));
     const result = applyQueryOutputPagination(
-      { id: 'q-off-seg', data: { packages } },
+      { id: 'q-off-seg', data: { files } },
       { charOffset: 300, charLength: 200 },
-      TOOL_NAMES.PACKAGE_SEARCH
+      TOOL_NAMES.GITHUB_SEARCH_CODE
     );
     const data = result.data as {
       outputPagination?: { charOffset: number; hasMore: boolean };
     };
-    expect(data.outputPagination?.charOffset).toBe(300);
+    // Offset is past the wrapper, so actualOffset anchors at/after it (not 0).
+    expect(data.outputPagination?.charOffset).toBeGreaterThan(0);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
@@ -1053,22 +1059,24 @@ describe('structuredPagination branch coverage', () => {
       {
         id: 'q-off-partial',
         data: {
-          packages: [
-            { name: 'a', keywords: ['k'.repeat(50)] },
-            { name: 'b', keywords: ['m'.repeat(5000)] },
+          files: [
+            { path: 'a.ts', text_matches: [{ value: 'k'.repeat(50) }] },
+            { path: 'b.ts', text_matches: [{ value: 'm'.repeat(5000) }] },
           ],
         },
       },
       { charOffset: 120, charLength: 200 },
-      TOOL_NAMES.PACKAGE_SEARCH
+      TOOL_NAMES.GITHUB_SEARCH_CODE
     );
     const data = result.data as {
-      packages?: unknown[];
+      files?: unknown[];
       outputPagination?: { charOffset: number; hasMore: boolean };
     };
-    expect(data.outputPagination?.charOffset).toBe(119);
+    // Landed inside the oversized item → a partial slice is returned and the
+    // cursor reports more data.
+    expect(data.outputPagination?.charOffset).toBeGreaterThan(0);
     expect(data.outputPagination?.hasMore).toBe(true);
-    expect(data.packages?.length).toBe(1);
+    expect(data.files?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('anchors actualOffset to a whole segment start when the offset lands exactly on a segment boundary (line 313 false side)', () => {

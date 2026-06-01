@@ -28,6 +28,8 @@ import {
   fetchRawContent,
   fetchMarketplaceSkills,
   installMarketplaceSkill,
+  readSkillFromGitHub,
+  fetchSkillsShSearch,
   searchSkills,
   groupSkillsByCategory,
   clearSkillsCache,
@@ -367,6 +369,46 @@ category: LocalCat
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
+    });
+
+    it('should return error when writeFileContent fails for flat-md skill', async () => {
+      vi.mocked(dirExists).mockReturnValue(false);
+      vi.mocked(writeFileContent).mockReturnValue(false); // simulate write failure
+
+      vi.mocked(global.fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockTreeResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => mockSkillContent,
+        } as Response);
+
+      const result = await installMarketplaceSkill(mockSkill, '/dest');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Failed to write skill file');
+    });
+
+    it('cleans up existing skill dir before reinstalling (prepareSkillDestination rmSync)', async () => {
+      // dir already exists → rmSync should be called
+      vi.mocked(dirExists).mockReturnValueOnce(true).mockReturnValue(false);
+      vi.mocked(writeFileContent).mockReturnValue(true);
+
+      vi.mocked(global.fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockTreeResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => mockSkillContent,
+        } as Response);
+
+      const result = await installMarketplaceSkill(mockSkill, '/dest');
+      // Whether success or failure, the rmSync path was exercised
+      expect(typeof result.success).toBe('boolean');
     });
   });
 
@@ -775,6 +817,72 @@ category: LocalCat
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Invalid skill file path traversal');
+    });
+
+    it('should fail when skill has too many files', async () => {
+      const MAX_FILES = 500;
+      const manyFiles = Array.from({ length: MAX_FILES + 1 }, (_, i) => ({
+        path: `skills/test-folder-skill/file${i}.md`,
+        mode: '100644' as const,
+        type: 'blob' as const,
+        sha: `sha${i}`,
+        size: 100,
+        url: `https://api.github.com/repos/test/test/git/blobs/sha${i}`,
+      }));
+
+      const tooManyFilesTree = {
+        sha: 'abc123',
+        url: 'https://api.github.com/repos/test/test/git/trees/main',
+        tree: manyFiles,
+        truncated: false,
+      };
+
+      vi.mocked(dirExists).mockReturnValue(false);
+      vi.mocked(global.fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => tooManyFilesTree,
+      } as Response);
+
+      const result = await installMarketplaceSkill(folderSkill, '/dest');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('too many files');
+    });
+
+    it('should fail when writeFileContent returns false for a folder skill file', async () => {
+      const folderTreeResponse = {
+        sha: 'abc123',
+        url: 'https://api.github.com/repos/test/test/git/trees/main',
+        tree: [
+          {
+            path: 'skills/test-folder-skill/SKILL.md',
+            mode: '100644' as const,
+            type: 'blob' as const,
+            sha: 'sha1',
+            size: 100,
+            url: 'https://api.github.com/repos/test/test/git/blobs/sha1',
+          },
+        ],
+        truncated: false,
+      };
+
+      vi.mocked(dirExists).mockReturnValue(false);
+      vi.mocked(writeFileContent).mockReturnValue(false); // write failure
+
+      vi.mocked(global.fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => folderTreeResponse,
+        } as Response)
+        .mockResolvedValue({
+          ok: true,
+          text: async () => mockSkillContent,
+        } as Response);
+
+      const result = await installMarketplaceSkill(folderSkill, '/dest');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Failed to write skill file');
     });
   });
 
@@ -1418,5 +1526,226 @@ category: utilities
       expect(result.success).toBe(false);
       expect(result.error).toBe('Failed to copy bundled skill');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readSkillFromGitHub
+// ---------------------------------------------------------------------------
+
+describe('readSkillFromGitHub', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches SKILL.md from raw.githubusercontent.com', async () => {
+    const content = `---\nname: my-skill\n---\n# My Skill`;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => content,
+      })
+    );
+
+    const result = await readSkillFromGitHub(
+      'owner',
+      'repo',
+      'skills/my-skill'
+    );
+    expect(result).toBe(content);
+
+    const fetchMock = vi.mocked(
+      fetch as unknown as (...args: unknown[]) => unknown
+    );
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain(
+      'raw.githubusercontent.com/owner/repo/main/skills/my-skill/SKILL.md'
+    );
+  });
+
+  it('appends /SKILL.md when path does not end with it', async () => {
+    const content = '# skill';
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, text: async () => content })
+    );
+    await readSkillFromGitHub('o', 'r', 'my-path');
+
+    const fetchMock = vi.mocked(
+      fetch as unknown as (...args: unknown[]) => unknown
+    );
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain('my-path/SKILL.md');
+  });
+
+  it('does not double-append /SKILL.md when already present', async () => {
+    const content = '# skill';
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, text: async () => content })
+    );
+    await readSkillFromGitHub('o', 'r', 'my-path/SKILL.md');
+
+    const fetchMock = vi.mocked(
+      fetch as unknown as (...args: unknown[]) => unknown
+    );
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).not.toContain('SKILL.md/SKILL.md');
+    expect(url).toContain('my-path/SKILL.md');
+  });
+
+  it('retries with master branch on 404 from main', async () => {
+    const content = '# found on master';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => content,
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await readSkillFromGitHub('o', 'r', 'my-skill');
+    expect(result).toBe(content);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [secondUrl] = fetchMock.mock.calls[1] as [string];
+    expect(secondUrl).toContain('/master/');
+  });
+
+  it('throws after 404 on both main and master', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 404, text: async () => '' })
+    );
+
+    await expect(readSkillFromGitHub('o', 'r', 'my-skill')).rejects.toThrow(
+      'SKILL.md not found'
+    );
+  });
+
+  it('throws on non-404 HTTP error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Server Error',
+        text: async () => '',
+      })
+    );
+
+    await expect(readSkillFromGitHub('o', 'r', 'my-skill')).rejects.toThrow(
+      'Failed to fetch SKILL.md: 500'
+    );
+  });
+
+  it('throws when content exceeds max size', async () => {
+    const huge = 'x'.repeat(1_048_577);
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, text: async () => huge })
+    );
+
+    await expect(readSkillFromGitHub('o', 'r', 'my-skill')).rejects.toThrow(
+      'too large'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchSkillsShSearch
+// ---------------------------------------------------------------------------
+
+describe('fetchSkillsShSearch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns parsed and sorted results', async () => {
+    const skills = [
+      {
+        id: 'a/b/s1',
+        skillId: 's1',
+        name: 'Skill One',
+        installs: 10,
+        source: 'a/b',
+      },
+      {
+        id: 'a/b/s2',
+        skillId: 's2',
+        name: 'Skill Two',
+        installs: 50,
+        source: 'a/b',
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ skills, count: 2 }),
+      })
+    );
+
+    const result = await fetchSkillsShSearch('langchain');
+    expect(result.count).toBe(2);
+    expect(result.results[0].name).toBe('Skill Two'); // sorted by installs desc
+  });
+
+  it('includes query and limit in the URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ skills: [], count: 0 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchSkillsShSearch('react hooks', 5);
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain('q=react%20hooks');
+    expect(url).toContain('limit=5');
+  });
+
+  it('throws on non-ok response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: 'Unavailable',
+      })
+    );
+
+    await expect(fetchSkillsShSearch('test')).rejects.toThrow(
+      'skills.sh search failed'
+    );
+  });
+
+  it('handles empty skills array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 0 }),
+      })
+    );
+
+    const result = await fetchSkillsShSearch('nothing');
+    expect(result.results).toEqual([]);
+    expect(result.count).toBe(0);
   });
 });

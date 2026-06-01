@@ -236,8 +236,8 @@ describe('GitHub View Repository Structure Tool', () => {
     expect(result.isError).toBe(false);
   });
 
-  it('should add outputPagination for oversized structure payloads and continue with charOffset', async () => {
-    const files = Array.from({ length: 40 }, (_, index) => `file-${index}.ts`);
+  it('paginates structure at the directory-NODE level — a node files[] is never sliced — and continues', async () => {
+    const mkFiles = (p: string) => [`${p}-1.ts`, `${p}-2.ts`, `${p}-3.ts`];
 
     mockProvider.getRepoStructure.mockResolvedValue({
       data: {
@@ -245,14 +245,14 @@ describe('GitHub View Repository Structure Tool', () => {
         branch: 'main',
         path: '',
         structure: {
-          src: {
-            files,
-            folders: ['nested'],
-          },
+          alpha: { files: mkFiles('a'), folders: [] },
+          bravo: { files: mkFiles('b'), folders: [] },
+          charlie: { files: mkFiles('c'), folders: [] },
+          delta: { files: mkFiles('d'), folders: [] },
         },
         summary: {
-          totalFiles: files.length,
-          totalFolders: 1,
+          totalFiles: 12,
+          totalFolders: 0,
           truncated: false,
         },
       },
@@ -268,7 +268,7 @@ describe('GitHub View Repository Structure Tool', () => {
             owner: 'test',
             repo: 'repo',
             branch: 'main',
-            charLength: 320,
+            charLength: 120,
           },
         ],
       }
@@ -291,7 +291,14 @@ describe('GitHub View Repository Structure Tool', () => {
       (firstData.outputPagination?.charOffset ?? 0) +
       (firstData.outputPagination?.charLength ?? 0);
 
-    expect(firstData.structure?.src?.files?.length).toBeLessThan(files.length);
+    // Node-atomic: every directory node on the page carries its FULL files[]
+    // (never a truncated slice); pagination happens between whole nodes.
+    const firstNodes = Object.keys(firstData.structure ?? {});
+    expect(firstNodes.length).toBeGreaterThan(0);
+    expect(firstNodes.length).toBeLessThan(4); // not all 4 fit → paginated
+    for (const node of Object.values(firstData.structure ?? {})) {
+      expect(node.files?.length).toBe(3);
+    }
     expect(firstData.outputPagination?.hasMore).toBe(true);
 
     const secondResult = await mockServer.callTool(
@@ -303,7 +310,7 @@ describe('GitHub View Repository Structure Tool', () => {
             repo: 'repo',
             branch: 'main',
             charOffset: nextOffset,
-            charLength: 320,
+            charLength: 120,
           },
         ],
       }
@@ -316,10 +323,12 @@ describe('GitHub View Repository Structure Tool', () => {
         };
       }>;
     };
-
-    expect(secondStructured.results[0]!.data.structure?.src?.files).not.toEqual(
-      firstData.structure?.src?.files
-    );
+    const secondData = secondStructured.results[0]!.data;
+    // Cursor advanced to different nodes, each still whole.
+    expect(Object.keys(secondData.structure ?? {})).not.toEqual(firstNodes);
+    for (const node of Object.values(secondData.structure ?? {})) {
+      expect(node.files?.length).toBe(3);
+    }
   });
 
   it('should handle not found error', async () => {

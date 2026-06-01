@@ -131,7 +131,7 @@ export async function viewStructure(
     const totalEntries = filteredEntries.length;
     const { paginatedEntries, endIdx, pagination } = paginateEntries(
       filteredEntries,
-      query
+      query as { itemsPerPage?: number; page?: number }
     );
     const sanitizedBasePath = pathValidation.sanitizedPath!;
     const outputEntries = paginatedEntries.map(entry => ({
@@ -276,7 +276,7 @@ async function viewStructureRecursive(
   const totalEntries = filteredEntries.length;
   const { paginatedEntries, endIdx, pagination } = paginateEntries(
     filteredEntries,
-    query
+    query as { itemsPerPage?: number; page?: number }
   );
   const outputEntries = paginatedEntries.map(entry => ({
     ...toEntryObject(entry),

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,
@@ -477,5 +477,82 @@ describe('MCP Paths Utilities', () => {
         expect(p).toContain('globalStorage');
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectCurrentClient — env-based detection paths
+// ---------------------------------------------------------------------------
+
+describe('detectCurrentClient — env paths', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    vi.resetModules();
+    originalEnv = { ...process.env };
+    // Clear all detection env vars
+    for (const key of [
+      'CURSOR_AGENT',
+      'CURSOR_TRACE_ID',
+      'CURSOR_SESSION_ID',
+      'CURSOR',
+      'WINDSURF_SESSION',
+      'CLAUDE_CODE',
+      'ZED_TERM',
+      'ZED',
+      'OPENCODE',
+      'CODEX_HOME',
+      'CODEX_SANDBOX_TYPE',
+      'GEMINI_API_KEY',
+      'GOOSE_MODE',
+      'VSCODE_PID',
+      'TERM_PROGRAM',
+      'ROO_CLINE',
+      'ROO',
+      'CONTINUE_GLOBAL_DIR',
+    ]) {
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns gemini-cli when GEMINI_API_KEY is set', async () => {
+    process.env.GEMINI_API_KEY = '1';
+    const { detectCurrentClient } =
+      await import('../../src/utils/mcp-paths.js');
+    expect(detectCurrentClient()).toBe('gemini-cli');
+  });
+
+  it('returns goose when GOOSE_MODE is set', async () => {
+    process.env.GOOSE_MODE = '1';
+    const { detectCurrentClient } =
+      await import('../../src/utils/mcp-paths.js');
+    expect(detectCurrentClient()).toBe('goose');
+  });
+
+  it('returns vscode-roo when VSCODE_PID + ROO_CLINE are set', async () => {
+    process.env.VSCODE_PID = '123';
+    process.env.ROO_CLINE = '1';
+    const { detectCurrentClient } =
+      await import('../../src/utils/mcp-paths.js');
+    expect(detectCurrentClient()).toBe('vscode-roo');
+  });
+
+  it('returns vscode-continue when VSCODE_PID + CONTINUE_GLOBAL_DIR are set', async () => {
+    process.env.VSCODE_PID = '123';
+    process.env.CONTINUE_GLOBAL_DIR = '/some/path';
+    const { detectCurrentClient } =
+      await import('../../src/utils/mcp-paths.js');
+    expect(detectCurrentClient()).toBe('vscode-continue');
+  });
+
+  it('returns codex when CODEX_HOME is set', async () => {
+    process.env.CODEX_HOME = '/codex/home';
+    const { detectCurrentClient } =
+      await import('../../src/utils/mcp-paths.js');
+    expect(detectCurrentClient()).toBe('codex');
   });
 });

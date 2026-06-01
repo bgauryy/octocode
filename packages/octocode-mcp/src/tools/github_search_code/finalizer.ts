@@ -102,6 +102,83 @@ function rankGroupsByRelevance(
   });
 }
 
+/** Escape a string for safe embedding in a RegExp. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Exactness tier for a match against the search keywords (higher = stronger):
+ *   2 — the keyword names the file (basename, with or without extension)
+ *   1 — the keyword appears as a whole token in the snippet (`createStore(`
+ *       matches `createStore`, but `createStoreImpl` / `xCreateStore` do not);
+ *       phrase/punctuation keywords fall back to a literal substring
+ *   0 — no exact signal (GitHub's fuzzy hit stands)
+ * A filename hit is a stronger signal than a body hit, so it outranks it.
+ */
+function matchExactnessScore(
+  match: CodeSearchGroupedMatch,
+  keywords: readonly string[]
+): number {
+  const base = (match.path.split('/').pop() ?? '').toLowerCase();
+  const baseNoExt = base.replace(/\.[^.]+$/, '');
+  const value = match.value ?? '';
+  let score = 0;
+  for (const raw of keywords) {
+    const kw = raw.trim();
+    if (!kw) continue;
+    const lower = kw.toLowerCase();
+    if (base === lower || baseNoExt === lower) return 2; // filename — strongest
+    const bodyHit = /^[A-Za-z0-9_]+$/.test(kw)
+      ? new RegExp(`\\b${escapeRegExp(kw)}\\b`, 'i').test(value)
+      : value.toLowerCase().includes(lower);
+    if (bodyHit) score = Math.max(score, 1);
+  }
+  return score;
+}
+
+/**
+ * Exact-match re-ranking layered on top of GitHub's ordering. Within each group
+ * exact hits float to the top (stable otherwise); groups are then ordered by
+ * (has-exact-hit, match-count, id). Pure tiebreaker — when no keyword matches
+ * anything it degrades to {@link rankGroupsByRelevance}. Exported for tests.
+ */
+export function applyExactMatchRanking(
+  groups: readonly CodeSearchGroupedResult[],
+  keywords: readonly string[]
+): CodeSearchGroupedResult[] {
+  const terms = keywords.filter(k => typeof k === 'string' && k.trim());
+  if (terms.length === 0) return rankGroupsByRelevance(groups);
+
+  const withExactFirst = groups.map(group => {
+    const scored = group.matches.map((match, index) => ({
+      match,
+      index,
+      score: matchExactnessScore(match, terms),
+    }));
+    scored.sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score; // higher tier first
+      return a.index - b.index; // otherwise stable
+    });
+    return {
+      group: setMatches(
+        group,
+        scored.map(s => s.match)
+      ),
+      hasExact: scored.some(s => s.score > 0),
+    };
+  });
+
+  return withExactFirst
+    .sort((left, right) => {
+      if (left.hasExact !== right.hasExact) return left.hasExact ? -1 : 1;
+      const matchDelta = right.group.matches.length - left.group.matches.length;
+      if (matchDelta !== 0) return matchDelta;
+      return left.group.id.localeCompare(right.group.id);
+    })
+    .map(entry => entry.group);
+}
+
 function getMatches(
   group: CodeSearchGroupedResult
 ): readonly CodeSearchGroupedMatch[] {
@@ -262,7 +339,22 @@ export function buildGithubSearchCodeFinalizer<
       }
     });
 
-    let groups = rankGroupsByRelevance(mergeGroups(perQueryGroups));
+    // Exact-match re-ranking: boost whole-word / exact-filename hits over
+    // GitHub's fuzzy ordering, using the keywords from every query in the bulk.
+    const allKeywords = Array.from(
+      new Set(
+        queries.flatMap(q => {
+          const kws = (q as { keywordsToSearch?: unknown }).keywordsToSearch;
+          return Array.isArray(kws)
+            ? kws.filter((k): k is string => typeof k === 'string')
+            : [];
+        })
+      )
+    );
+    let groups = applyExactMatchRanking(
+      mergeGroups(perQueryGroups),
+      allKeywords
+    );
     const outputPagination = perQueryGroups
       .map(group => group.pagination)
       .filter((p): p is PerQueryPagination => p !== undefined);

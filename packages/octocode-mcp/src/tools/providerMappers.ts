@@ -15,6 +15,7 @@ import type {
 } from '@octocodeai/octocode-core/schemas';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../types/execution.js';
+import { resolveGithubPerPage } from '../scheme/localSchemaOverlay.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
@@ -92,7 +93,9 @@ export function mapCodeSearchToolQuery(
     filename: query.filename,
     extension: query.extension,
     match: query.match,
-    limit: query.limit,
+    limit: resolveGithubPerPage(
+      query as { githubAPILimit?: number; itemsPerPage?: number }
+    ),
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -210,7 +213,9 @@ export function mapRepoSearchToolQuery(
       | 'created'
       | 'best-match'
       | undefined,
-    limit: query.limit,
+    limit: resolveGithubPerPage(
+      query as { githubAPILimit?: number; itemsPerPage?: number }
+    ),
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -306,7 +311,9 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     partialContentMetadata: query.partialContentMetadata,
     sort: query.sort as 'created' | 'updated' | 'best-match' | undefined,
     order: query.order as 'asc' | 'desc' | undefined,
-    limit: query.limit,
+    limit: resolveGithubPerPage(
+      query as { githubAPILimit?: number; itemsPerPage?: number }
+    ),
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -537,14 +544,17 @@ export function mapRepoStructureToolQuery(
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
     depth: typeof query.depth === 'number' ? query.depth : undefined,
-    entriesPerPage:
-      typeof query.entriesPerPage === 'number'
-        ? query.entriesPerPage
-        : undefined,
-    entryPageNumber:
-      typeof query.entryPageNumber === 'number'
-        ? query.entryPageNumber
-        : undefined,
+    // Tool surface uses the cross-tool `itemsPerPage` (page size) + `page`
+    // (page number); the provider/structure layer still calls its params
+    // `entriesPerPage` / `entryPageNumber` internally.
+    entriesPerPage: (() => {
+      const ipp = (query as { itemsPerPage?: number }).itemsPerPage;
+      return typeof ipp === 'number' ? ipp : undefined;
+    })(),
+    entryPageNumber: (() => {
+      const p = (query as { page?: number }).page;
+      return typeof p === 'number' ? p : undefined;
+    })(),
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,

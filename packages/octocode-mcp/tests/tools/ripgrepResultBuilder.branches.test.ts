@@ -68,12 +68,39 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(hintsStr).toContain('lengthen pattern');
   });
 
-  it('emits an out-of-range hint when filePageNumber exceeds total pages (E2)', async () => {
+  it('A1: itemsPerPage pages FILES (top-level), matchesPerFile caps matches/file', async () => {
+    // 5 files, 4 matches each. itemsPerPage=2 → 2 files on page 1 (NOT 2 matches).
+    // matchesPerFile=1 → each shown file carries at most 1 match.
+    const files = makeFiles(5, 4);
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      itemsPerPage: 2,
+      matchesPerFile: 1,
+      page: 1,
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+
+    // itemsPerPage governs the FILE page size now (the cross-tool top-level axis).
+    expect(result.files).toHaveLength(2);
+    expect(result.pagination?.filesPerPage).toBe(2);
+    expect(result.pagination?.totalFiles).toBe(5);
+    expect(result.pagination?.hasMore).toBe(true);
+    // matchesPerFile caps the inner axis.
+    expect(result.files[0]!.matches).toHaveLength(1);
+    // Cursor hint uses the unified `page`.
+    expect((result.hints ?? []).join('\n')).toContain('Next: page=2');
+  });
+
+  it('emits an out-of-range hint when page exceeds total pages (E2)', async () => {
     const files = makeFiles(3, 2); // 3 files → 1 page at filesPerPage=10
     const query = {
       path: '/test',
       pattern: 'match',
-      filePageNumber: 999,
+      page: 999,
       researchGoal: 'test',
       reasoning: 'test',
     } as any;

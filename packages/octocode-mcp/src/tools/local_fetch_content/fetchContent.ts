@@ -1,6 +1,6 @@
 import { open, readFile, stat } from 'fs/promises';
 import { getHints } from '../../hints/index.js';
-import { applyMinification } from './contentMinifier.js';
+import { applyMinification } from '../../utils/minifier/applyMinification.js';
 import { extractMatchingLines } from './contentExtractor.js';
 import {
   applyPagination,
@@ -319,7 +319,10 @@ function buildMatchExtractionState(
     };
   }
 
-  const resultContent = applyMinification(result.lines.join('\n'), query.path!);
+  // Verbatim slice. Minification is owned by the concise verbosity finalizer
+  // (applyFetchContentVerbosity) — basic/omitted reads return content as-is,
+  // per src/scheme/verbosity.ts ("content reduced ONLY in concise").
+  const resultContent = result.lines.join('\n');
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
   let matchRanges: Array<{ start: number; end: number }> | undefined;

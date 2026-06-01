@@ -224,10 +224,8 @@ const cases: ExportCase[] = [
       endLine: 1,
       totalLines: 1,
     },
-    // `content` omitted by design — TSV is metadata, file body lives only
-    // in JSON `data.content`.
-    expectedColumns: ['path', 'startLine', 'endLine', 'totalLines'],
-    rowProbe: 'a.ts\t1\t1\t1',
+    expectedColumns: ['path', 'totalLines', 'content'],
+    rowProbe: 'a.ts\t1\t\t1\t1\t\tx',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,

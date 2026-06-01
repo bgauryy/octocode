@@ -152,19 +152,19 @@ function buildFindFilesHints(ctx: {
   return [
     ...(filePageNumber < totalPages
       ? [
-          `Page ${filePageNumber}/${totalPages} (showing ${shownCount} of ${totalFiles}). Next: filePageNumber=${filePageNumber + 1}`,
+          `Page ${filePageNumber}/${totalPages} (showing ${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
         ]
       : []),
     // Overshoot: a page past the last one returns empty — signal it explicitly
     // rather than letting an empty result look like "no matches".
     ...(totalPages > 0 && filePageNumber > totalPages
       ? [
-          `Requested filePageNumber ${filePageNumber} is outside available range (1-${totalPages}). Use filePageNumber=${totalPages} for the last page.`,
+          `Requested page ${filePageNumber} is outside available range (1-${totalPages}). Use page=${totalPages} for the last page.`,
         ]
       : []),
     ...(wasFileCapped
       ? [
-          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via filePageNumber; to see the rest, narrow with name/type/time filters.`,
+          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with name/type/time filters.`,
         ]
       : []),
     ...(totalFiles === 0
@@ -251,7 +251,7 @@ export async function findFiles(
 
     // `limit` is an EXPLICIT user cap. When omitted, the discovery cap matches
     // the documented `limit` maximum (10000, the schema bound) so EVERY
-    // discovered file is reachable by paging (filePageNumber/filesPerPage) —
+    // discovered file is reachable by paging (page/itemsPerPage) —
     // not silently truncated at an implicit 1000 that pagination can't escape.
     // The cap remains a perf guard (it bounds the stat fan-out); when it bites,
     // the hint below tells the agent to narrow filters. Defaulting to the
@@ -276,8 +276,9 @@ export async function findFiles(
     const filesForOutput = formatForOutput(files, details, showLastModified);
     const totalFiles = filesForOutput.length;
 
-    const filesPerPage = query.filesPerPage || 20;
-    const filePageNumber = query.filePageNumber || 1;
+    const filesPerPage =
+      (query as { itemsPerPage?: number }).itemsPerPage || 20;
+    const filePageNumber = (query as { page?: number }).page || 1;
     const totalPages = Math.ceil(totalFiles / filesPerPage);
     const startIdx = (filePageNumber - 1) * filesPerPage;
     const endIdx = Math.min(startIdx + filesPerPage, totalFiles);

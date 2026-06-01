@@ -24,7 +24,7 @@ import {
   createVerbosityField,
   contextLinesField,
   optionalMetaFields,
-  relaxedPaginationLimitField,
+  itemsPerPageField,
   relaxedPageNumberField,
   depthField,
   describeField,
@@ -78,38 +78,45 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
 // only the verbosity field, context-lines/pagination ranges, and the
 // `groupByFile` boolean (which has no upstream description today).
 export const LSPFindReferencesQuerySchema =
-  UpstreamFindReferencesQuerySchema.extend({
-    ...optionalMetaFields,
-    uri: describeField(
-      UpstreamFindReferencesQuerySchema.shape.uri,
-      'File URI or path containing the symbol definition or usage to resolve.'
-    ),
-    lineHint: describeField(
-      requiredLineHintField,
-      '1-based line number near the symbol. Get it from localSearchCode before calling LSP tools.'
-    ),
-    orderHint: orderHintField,
-    charOffset: charOffsetField,
-    charLength: localCharLengthField,
-    includePattern: describeField(
-      UpstreamFindReferencesQuerySchema.shape.includePattern,
-      'Optional glob(s) limiting reference results to matching file paths, useful in monorepos.'
-    ),
-    excludePattern: describeField(
-      UpstreamFindReferencesQuerySchema.shape.excludePattern,
-      'Optional glob(s) excluding noisy generated, fixture, or vendor paths from reference results.'
-    ),
-    verbosity: createVerbosityField(),
-    contextLines: contextLinesField,
-    referencesPerPage: relaxedPaginationLimitField.default(10),
-    page: relaxedPageNumberField.default(1),
-    groupByFile: z
-      .boolean()
-      .optional()
-      .describe(
-        'Return a per-file reference count rollup instead of individual snippets. Best for blast-radius probes.'
+  UpstreamFindReferencesQuerySchema.omit({
+    // Renamed to the cross-tool `itemsPerPage` (references are the atomic item).
+    referencesPerPage: true,
+  })
+    .extend({
+      ...optionalMetaFields,
+      uri: describeField(
+        UpstreamFindReferencesQuerySchema.shape.uri,
+        'File URI or path containing the symbol definition or usage to resolve.'
       ),
-  }).strip();
+      lineHint: describeField(
+        requiredLineHintField,
+        '1-based line number near the symbol. Get it from localSearchCode before calling LSP tools.'
+      ),
+      orderHint: orderHintField,
+      charOffset: charOffsetField,
+      charLength: localCharLengthField,
+      includePattern: describeField(
+        UpstreamFindReferencesQuerySchema.shape.includePattern,
+        'Optional glob(s) limiting reference results to matching file paths, useful in monorepos.'
+      ),
+      excludePattern: describeField(
+        UpstreamFindReferencesQuerySchema.shape.excludePattern,
+        'Optional glob(s) excluding noisy generated, fixture, or vendor paths from reference results.'
+      ),
+      verbosity: createVerbosityField(),
+      contextLines: contextLinesField,
+      // References are the atomic item → the cross-tool `itemsPerPage` (default
+      // 20). Page through them with the unified `page`.
+      itemsPerPage: itemsPerPageField,
+      page: relaxedPageNumberField.default(1),
+      groupByFile: z
+        .boolean()
+        .optional()
+        .describe(
+          'Return a per-file reference count rollup instead of individual snippets. Best for blast-radius probes.'
+        ),
+    })
+    .strip();
 
 export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
@@ -124,29 +131,36 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
 // Field descriptions are upstream (lspCallHierarchy.ts). Overlay supplies
 // only the verbosity field and context/pagination ranges.
 export const LSPCallHierarchyQuerySchema =
-  UpstreamCallHierarchyQuerySchema.extend({
-    ...optionalMetaFields,
-    uri: describeField(
-      UpstreamCallHierarchyQuerySchema.shape.uri,
-      'File URI or path containing the function or method whose call graph should be traced.'
-    ),
-    lineHint: describeField(
-      requiredLineHintField,
-      '1-based line number near the callable symbol. Get it from localSearchCode before calling LSP tools.'
-    ),
-    orderHint: orderHintField,
-    direction: describeField(
-      UpstreamCallHierarchyQuerySchema.shape.direction,
-      'Call graph direction: incoming shows callers; outgoing shows callees.'
-    ),
-    verbosity: createVerbosityField(),
-    contextLines: contextLinesField,
-    charOffset: charOffsetField,
-    charLength: localCharLengthField,
-    callsPerPage: relaxedPaginationLimitField.default(10),
-    page: relaxedPageNumberField.default(1),
-    depth: depthField,
-  }).strip();
+  UpstreamCallHierarchyQuerySchema.omit({
+    // Renamed to the cross-tool `itemsPerPage` (calls are the atomic item).
+    callsPerPage: true,
+  })
+    .extend({
+      ...optionalMetaFields,
+      uri: describeField(
+        UpstreamCallHierarchyQuerySchema.shape.uri,
+        'File URI or path containing the function or method whose call graph should be traced.'
+      ),
+      lineHint: describeField(
+        requiredLineHintField,
+        '1-based line number near the callable symbol. Get it from localSearchCode before calling LSP tools.'
+      ),
+      orderHint: orderHintField,
+      direction: describeField(
+        UpstreamCallHierarchyQuerySchema.shape.direction,
+        'Call graph direction: incoming shows callers; outgoing shows callees.'
+      ),
+      verbosity: createVerbosityField(),
+      contextLines: contextLinesField,
+      charOffset: charOffsetField,
+      charLength: localCharLengthField,
+      // Calls are the atomic item → the cross-tool `itemsPerPage` (default 20).
+      // Page through them with the unified `page`.
+      itemsPerPage: itemsPerPageField,
+      page: relaxedPageNumberField.default(1),
+      depth: depthField,
+    })
+    .strip();
 
 export const BulkLSPCallHierarchyQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,

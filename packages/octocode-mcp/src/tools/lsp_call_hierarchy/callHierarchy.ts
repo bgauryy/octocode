@@ -66,6 +66,16 @@ import {
 export async function processCallHierarchy(
   query: LSPCallHierarchyQuery
 ): Promise<CallHierarchyResult> {
+  // Surface page-size knob is the cross-tool `itemsPerPage`; the internal
+  // pipeline threads `callsPerPage`. Bridge once here so downstream logic is
+  // unchanged.
+  const bridge = query as { itemsPerPage?: number; callsPerPage?: number };
+  if (
+    bridge.callsPerPage === undefined &&
+    typeof bridge.itemsPerPage === 'number'
+  ) {
+    bridge.callsPerPage = bridge.itemsPerPage;
+  }
   const result = await processCallHierarchyInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
   return attachRawResponseChars(

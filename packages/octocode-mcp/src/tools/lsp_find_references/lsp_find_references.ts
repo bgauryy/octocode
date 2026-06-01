@@ -78,6 +78,19 @@ import { attachLspEvidence } from '../../lsp/evidence.js';
 export async function findReferences(
   query: LSPFindReferencesQuery
 ): Promise<FindReferencesResult> {
+  // Surface page-size knob is the cross-tool `itemsPerPage`; the internal
+  // pipeline threads `referencesPerPage`. Bridge once here so all downstream
+  // logic (resolveReferencePagination, core/patterns builders) is unchanged.
+  const bridge = query as {
+    itemsPerPage?: number;
+    referencesPerPage?: number;
+  };
+  if (
+    bridge.referencesPerPage === undefined &&
+    typeof bridge.itemsPerPage === 'number'
+  ) {
+    bridge.referencesPerPage = bridge.itemsPerPage;
+  }
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
   // Output bounding is owned by the bulk char-paginator: executeBulkOperation

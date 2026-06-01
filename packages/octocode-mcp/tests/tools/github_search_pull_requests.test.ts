@@ -407,7 +407,7 @@ describe('GitHub Search Pull Requests Tool', () => {
             {
               owner: 'test',
               repo: 'repo',
-              limit: 10,
+              itemsPerPage: 10,
               page: 1,
             },
           ],
@@ -430,7 +430,7 @@ describe('GitHub Search Pull Requests Tool', () => {
             owner: 'test',
             repo: 'repo',
             state: 'open',
-            limit: 5,
+            itemsPerPage: 5,
             page: 3,
           },
         ],

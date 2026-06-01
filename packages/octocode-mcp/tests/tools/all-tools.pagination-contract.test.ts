@@ -29,18 +29,18 @@ const LOSS_LANGUAGE: RegExp[] = [
 const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   githubSearchCode: ['charLength', 'page'],
   githubGetFileContent: ['charOffset', 'charLength'],
-  githubViewRepoStructure: ['entryPageNumber', 'entriesPerPage'],
+  githubViewRepoStructure: ['page', 'itemsPerPage'],
   githubSearchRepositories: ['page'],
   githubSearchPullRequests: ['charOffset', 'charLength', 'page'],
-  packageSearch: ['searchLimit'],
+  packageSearch: ['itemsPerPage'],
   githubCloneRepo: ['charOffset', 'charLength'],
-  localSearchCode: ['filePageNumber', 'matchesPerPage'],
-  localViewStructure: ['entryPageNumber', 'entriesPerPage'],
-  localFindFiles: ['filePageNumber', 'filesPerPage'],
+  localSearchCode: ['page', 'itemsPerPage', 'matchesPerFile'],
+  localViewStructure: ['page', 'itemsPerPage'],
+  localFindFiles: ['page', 'itemsPerPage'],
   localGetFileContent: ['charOffset', 'charLength'],
   lspGotoDefinition: ['charOffset', 'charLength'],
-  lspFindReferences: ['referencesPerPage', 'page'],
-  lspCallHierarchy: ['callsPerPage', 'page'],
+  lspFindReferences: ['itemsPerPage', 'page'],
+  lspCallHierarchy: ['itemsPerPage', 'page'],
 };
 
 describe('all-tools pagination contract', () => {

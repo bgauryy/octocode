@@ -74,7 +74,7 @@ export async function searchMultipleGitHubPullRequests(
       try {
         const currentProviderContext = getProviderContext();
 
-        // Pre-flight verbosity caps under concise: cap limit to 3; coerce
+        // Pre-flight verbosity caps under concise: cap page size to 3; coerce
         // type→"metadata" unless caller passed prNumber + explicit type;
         // drop partialContentMetadata when type is coerced. Record what
         // fired so we can emit a verbosity-downgrade warning later.
@@ -82,9 +82,20 @@ export async function searchMultipleGitHubPullRequests(
           (query as WithVerbosity<typeof query>).verbosity
         );
         if (prVerbosityIsConcise) {
-          const userLimit = (query as { limit?: number }).limit;
-          if (typeof userLimit === 'number' && userLimit > CONCISE_PR_LIMIT) {
-            (query as { limit?: number }).limit = CONCISE_PR_LIMIT;
+          // Cap the effective per_page to the concise probe size via both knobs
+          // the resolver reads (itemsPerPage drives per_page; githubAPILimit
+          // overrides it when present).
+          const q = query as {
+            itemsPerPage?: number;
+            githubAPILimit?: number;
+          };
+          if (typeof q.itemsPerPage === 'number') {
+            q.itemsPerPage = Math.min(q.itemsPerPage, CONCISE_PR_LIMIT);
+          } else {
+            q.itemsPerPage = CONCISE_PR_LIMIT;
+          }
+          if (typeof q.githubAPILimit === 'number') {
+            q.githubAPILimit = Math.min(q.githubAPILimit, CONCISE_PR_LIMIT);
           }
           const hasExplicitType =
             (query as { type?: string }).type !== undefined;

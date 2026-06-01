@@ -154,7 +154,7 @@ describe('tool TSV projections — sample data', () => {
     expect(rows.map(r => r.name)).toEqual(['src', 'README.md']);
   });
 
-  it('localGetFileContent emits metadata without file content', () => {
+  it('localGetFileContent emits file content in TSV', () => {
     const { rows, text, columns } = project(
       STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
       {
@@ -167,13 +167,8 @@ describe('tool TSV projections — sample data', () => {
       }
     );
     expect(rows).toHaveLength(1);
-    // Content lives in JSON `data.content` only — TSV columns are metadata
-    // (path/line range/totalLines/isPartial). Test name says it all.
-    expect(columns).not.toContain('content');
-    expect(text.split('\n')).toHaveLength(2);
-    expect(text).not.toContain('line1');
-    expect(text).not.toContain('line2');
-    expect(text).not.toContain('line3');
+    expect(columns).toContain('content');
+    expect(text).toContain('line1');
   });
 
   it('lspGotoDefinition flattens definitions to uri/line/column rows', () => {

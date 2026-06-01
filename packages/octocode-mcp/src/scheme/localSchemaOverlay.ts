@@ -96,8 +96,13 @@ export const orderHintField = clampedInt(
 /** Filesystem walk depth bound for localFindFiles min/maxDepth (optional). */
 const fsDepthField = clampedInt(0, LOCAL_OVERLAY_MAX_FS_DEPTH).optional();
 
-/** Ripgrep pre-pagination cap (maxFiles / maxMatchesPerFile), optional. */
-const ripgrepCapField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
+/**
+ * Ripgrep pre-pagination cap (maxFiles / maxMatchesPerFile), optional. Capped
+ * at 100000 — a realistic discovery ceiling aligned with the find/view `limit`
+ * philosophy. The old 1e9 bound was a *soft* sentinel (no real ceiling, defeats
+ * the "prevent unbounded walk" intent).
+ */
+const ripgrepCapField = clampedInt(1, 100_000).optional();
 
 const matchContentLengthField = clampedInt(
   1,
@@ -109,7 +114,7 @@ const matchContentLengthField = clampedInt(
     'Maximum characters per individual match snippet. Default 200, max 100000. ' +
       'Raise this when matches sit on very long lines (minified code, JSON blobs, generated SQL). ' +
       'Total output size is still bounded by charLength / responseCharLength budgets — ' +
-      'prefer paginating via filePageNumber/matchesPerPage over truncating a single match.'
+      'prefer paginating via page / matchesPerFile over truncating a single match.'
   );
 
 export const localCharLengthField = clampedInt(1, LOCAL_OVERLAY_MAX_CHAR_LENGTH)
@@ -123,26 +128,96 @@ export const contextLinesField = clampedInt(0, LOCAL_OVERLAY_MAX_CONTEXT_LINES)
   .optional()
   .describe('Number of lines of context to show around each match. Max 100.');
 
-export const relaxedPaginationLimitField = clampedInt(
-  1,
-  LOCAL_OVERLAY_MAX_PAGINATION_LIMIT
-).optional();
-
 export const relaxedPageNumberField = clampedInt(
   1,
   LOCAL_OVERLAY_MAX_PAGINATION_LIMIT
 ).optional();
 
+/** Default whole-items-per-response page size shared across bulk tools. */
+export const DEFAULT_ITEMS_PER_PAGE = 20;
+
+/**
+ * Display page size: how many WHOLE top-level result items (repos, PRs, code
+ * matches, packages, dir entries, files, refs, calls) a response returns before
+ * paginating. The item is the atomic unit — never sliced mid-item. Bounded to
+ * 100; default 20. This base field is TOOL-AGNOSTIC — the GitHub-specific
+ * "drives per_page" nuance is added per-tool via `githubItemsPerPageField`, so
+ * non-GitHub tools (npm / filesystem / LSP) don't publish a false GitHub claim.
+ */
+export const itemsPerPageField = clampedInt(1, 100)
+  .default(DEFAULT_ITEMS_PER_PAGE)
+  .describe(
+    'Whole result items returned per response page (the atomic unit — never ' +
+      'sliced mid-item). Default 20.'
+  );
+
+/**
+ * GitHub-flavored `itemsPerPage` for the search tools (code/repos/PRs) whose
+ * page size drives the GitHub API `per_page`. Same bound/default as the base
+ * field; only the description carries the per_page coupling note.
+ */
+export const githubItemsPerPageField = itemsPerPageField.describe(
+  'Whole result items returned per response page (the atomic unit — never ' +
+    'sliced mid-item). Drives GitHub per_page so fetched == shown unless ' +
+    'githubAPILimit overrides it. Default 20.'
+);
+
+/**
+ * Inner page size for localSearchCode: how many matches are shown PER FILE
+ * (ripgrep's secondary axis; files are the top-level `itemsPerPage`). Bounded
+ * to 100; default 20.
+ */
+export const matchesPerFileField = clampedInt(1, 100)
+  .default(DEFAULT_ITEMS_PER_PAGE)
+  .describe(
+    'Matches shown per file (the inner axis; files are the top-level ' +
+      'itemsPerPage). Default 20.'
+  );
+
+/**
+ * Raw GitHub API page size (`per_page`) — the COST/coverage knob, distinct from
+ * the display `itemsPerPage`. Renamed from the old `limit` for clear
+ * separation: this is the GitHub-API dial. Optional; when omitted, `per_page`
+ * falls back to `itemsPerPage`. Bounded to GitHub's 100 per_page ceiling.
+ */
+export const githubApiLimitField = clampedInt(1, 100)
+  .optional()
+  .describe(
+    'GitHub API page size (per_page) — the raw fetch/cost knob, separate from ' +
+      'the display itemsPerPage. Omit to track itemsPerPage. Max 100; walk ' +
+      'further pages with `page` up to GitHub’s 1000-result ceiling.'
+  );
+
+/**
+ * Effective GitHub `per_page`: the explicit API knob (`githubAPILimit`) wins;
+ * otherwise the display page size (`itemsPerPage`) drives the fetch so
+ * fetched == shown; otherwise the tool fallback.
+ */
+export function resolveGithubPerPage(
+  query: {
+    githubAPILimit?: number | null;
+    itemsPerPage?: number | null;
+  },
+  fallback: number = DEFAULT_ITEMS_PER_PAGE
+): number {
+  if (typeof query.githubAPILimit === 'number') return query.githubAPILimit;
+  if (typeof query.itemsPerPage === 'number') return query.itemsPerPage;
+  return fallback;
+}
+
 const limitField = clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
   .optional()
   .describe(
-    `Maximum entries returned before pagination. Max ${LOCAL_OVERLAY_MAX_LIMIT}.`
+    `Hard PRE-pagination cap: the maximum entries discovered before paging — ` +
+      `distinct from itemsPerPage (the per-page window, which is ≤ limit). ` +
+      `Use limit to bound a large fs walk; use itemsPerPage to size each page. ` +
+      `Max ${LOCAL_OVERLAY_MAX_LIMIT}.`
   );
 
 export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
   .optional()
   .describe(
-    `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. Paginate via pageNumber for deeper scans.`
+    `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. For large trees, page the entries (page=N) or narrow the path rather than over-deepening.`
   );
 
 // All field-description text lives upstream in
@@ -210,21 +285,16 @@ export function createRelaxedBulkQuerySchema(
             'Multiple queries run in parallel. Large results are paginated — page ' +
             'through them with responseCharOffset/responseCharLength to fetch more.'
         ),
-      responseCharOffset: z
-        .number()
-        .int()
-        .min(0)
-        .max(LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET)
+      // clampedInt (not bare .min().max()) so an out-of-range value CLAMPS
+      // rather than hard-rejecting the whole batch — consistent with the
+      // per-query charOffset/charLength fields (C1: same knob, same behavior).
+      responseCharOffset: clampedInt(0, LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET)
         .optional()
         .describe(
           'Optional character offset for the aggregated response. Use for paginating very large bulk results. ' +
             `Max ${LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET} — paginate via individual queries for deeper scans.`
         ),
-      responseCharLength: z
-        .number()
-        .int()
-        .min(1)
-        .max(LOCAL_OVERLAY_MAX_CHAR_LENGTH)
+      responseCharLength: clampedInt(1, LOCAL_OVERLAY_MAX_CHAR_LENGTH)
         .optional()
         .describe(
           `Optional character limit for the aggregated response. Use to control token usage. Max ${LOCAL_OVERLAY_MAX_CHAR_LENGTH}.`
@@ -301,6 +371,13 @@ export const optionalMetaFields = {
 // output modes (filesOnly/filesWithoutMatch/count/countMatches), symmetric
 // contextLines, and the caps/pagination knobs.
 const RIPGREP_HIDDEN_FIELDS = {
+  // Page knobs are re-declared under the cross-tool names: files are the
+  // top-level `itemsPerPage`, matches/file is `matchesPerFile`, and the file
+  // page number is the unified `page`. Omit all three upstream names so only
+  // the aligned surface is exposed.
+  matchesPerPage: true,
+  filesPerPage: true,
+  filePageNumber: true,
   smartCase: true, // default behavior — no need to expose; caseSensitive overrides
   caseInsensitive: true, // smartCase covers it; rare to force on an uppercase pattern
   invertMatch: true, // niche ("lines NOT matching")
@@ -343,14 +420,17 @@ const RipgrepQueryBaseSchema = UpstreamRipgrepQuerySchema.omit(
   ),
   mode: describeField(
     UpstreamRipgrepQuerySchema.shape.mode,
-    'Result shape: paginated/default for normal reading, discovery for cheap presence checks, detailed for expanded snippets.'
+    'Result shape (orthogonal to verbosity): "paginated"/default for normal reading, "discovery" for cheap presence checks (pairs with verbosity="concise" for the leanest probe), "detailed" for expanded snippets.'
   ),
   matchContentLength: matchContentLengthField,
   verbosity: createVerbosityField(),
   charLength: localCharLengthField,
-  filesPerPage: relaxedPaginationLimitField.default(10),
-  matchesPerPage: relaxedPaginationLimitField.default(10),
-  filePageNumber: relaxedPageNumberField.default(1),
+  // Files are the top-level atomic item → the cross-tool `itemsPerPage`
+  // (aligned with findFiles/viewStructure). The secondary axis — matches shown
+  // per file — is `matchesPerFile`. Page through files with the unified `page`.
+  itemsPerPage: itemsPerPageField,
+  matchesPerFile: matchesPerFileField,
+  page: relaxedPageNumberField.default(1),
   // Symmetric context window, clamped so one query can't request an absurd
   // span. Asymmetric before/after is hidden — contextLines covers the need.
   contextLines: contextLinesField,
@@ -408,7 +488,12 @@ export const BulkRipgrepQuerySchema = createRelaxedBulkQuerySchema(
 
 // Field descriptions are upstream (localFindFiles.ts). Overlay supplies only
 // the verbosity field, the relaxed numeric ranges, and pagination defaults.
-export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.extend({
+export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.omit({
+  // Files are the atomic item → exposed as the cross-tool `itemsPerPage`; the
+  // page number is the unified `page`. Omit both upstream names.
+  filesPerPage: true,
+  filePageNumber: true,
+}).extend({
   ...optionalMetaFields,
   path: describeField(
     UpstreamFindFilesQuerySchema.shape.path,
@@ -435,8 +520,12 @@ export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.extend({
   minDepth: fsDepthField,
   maxDepth: fsDepthField,
   verbosity: createVerbosityField(),
-  filesPerPage: relaxedPaginationLimitField.default(10),
-  filePageNumber: relaxedPageNumberField.default(1),
+  // Files are find-files' atomic item → the canonical page-size knob.
+  itemsPerPage: describeField(
+    itemsPerPageField,
+    'Files returned per response page — the page window over discovered files (≤ limit). Default 20.'
+  ),
+  page: relaxedPageNumberField.default(1),
   limit: limitField,
 });
 
@@ -515,6 +604,10 @@ export const BulkFetchContentQuerySchema = createRelaxedBulkQuerySchema(
 const VIEW_STRUCTURE_HIDDEN_FIELDS = {
   extension: true,
   recursive: true,
+  // Entries are the atomic item → exposed as the cross-tool `itemsPerPage`; the
+  // page number is the unified `page`. Omit both upstream names.
+  entriesPerPage: true,
+  entryPageNumber: true,
 } as const;
 
 export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.omit(
@@ -528,10 +621,12 @@ export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.omit(
   charLength: localCharLengthField,
   charOffset: charOffsetField,
   verbosity: createVerbosityField(),
-  entriesPerPage: relaxedPaginationLimitField
-    .describe('Number of directory entries per page before char pagination.')
-    .default(20),
-  entryPageNumber: relaxedPageNumberField.default(1),
+  // Entries are view-structure's atomic item → the canonical page-size knob.
+  itemsPerPage: describeField(
+    itemsPerPageField,
+    'Directory entries returned per response page — the page window over discovered entries (≤ limit). Default 20.'
+  ),
+  page: relaxedPageNumberField.default(1),
   limit: limitField,
   depth: depthField,
 });

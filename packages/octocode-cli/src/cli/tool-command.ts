@@ -45,8 +45,14 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'tools-context',
 ]);
 
-const CANONICAL_TOOL_USAGE =
-  "octocode-cli --tool <toolName> --queries '<json-stringified-input>'";
+const CANONICAL_TOOL_USAGE = [
+  'octocode-cli tools                                   # list all tools',
+  'octocode-cli tools <name>                            # show input schema',
+  'octocode-cli tools <n1> <n2> ...                     # batch input schemas',
+  "octocode-cli tools <name> --queries '<json>'         # run a tool",
+  "octocode-cli tools <name> --queries '<json>' --json  # run, raw JSON output",
+  'octocode-cli instructions                            # MCP instructions + all schemas',
+].join('\n');
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
 let toolMetadataPromise: Promise<
@@ -91,7 +97,7 @@ async function getOptionalToolMetadata(): Promise<Awaited<
 
 function formatToolExampleCommand(toolName: string): string {
   const exampleInput = JSON.stringify(buildDirectToolExampleQuery(toolName));
-  return `octocode-cli --tool ${toolName} --queries '${exampleInput}'`;
+  return `octocode-cli tools ${toolName} --queries '${exampleInput}'`;
 }
 
 function getUnexpectedToolOptionKeys(args: ParsedArgs): string[] {
@@ -129,11 +135,21 @@ function getInputText(toolName: string, args: ParsedArgs): string | undefined {
     : args.args[1];
 }
 
+function extractShortDescription(fullDescription: string): string {
+  return fullDescription
+    .split('\n')[0]
+    .trim()
+    .replace(/^##\s*/, '');
+}
+
 export async function showAvailableTools(): Promise<void> {
   const metadata = await getOptionalToolMetadata();
 
   console.log();
   console.log(`  ${c('magenta', bold('Octocode Tools'))}`);
+  console.log(
+    `  ${dim('tools <name>')} ${dim('→ schema')}   ${dim("tools <name> --queries '<json>'")} ${dim('→ run')}`
+  );
 
   const toolNames = sortDirectToolNames(
     TOOL_DEFINITIONS.map(tool => tool.name)
@@ -150,16 +166,14 @@ export async function showAvailableTools(): Promise<void> {
     console.log();
     console.log(`  ${bold(category)}`);
     for (const toolName of toolsInCategory) {
-      console.log(
-        `    ${c('cyan', toolName)} ${dim('-')} ${getDirectToolDescription(toolName, metadata)}`
+      const shortDesc = extractShortDescription(
+        getDirectToolDescription(toolName, metadata)
       );
+      const padded = toolName.padEnd(32);
+      console.log(`    ${c('cyan', padded)} ${dim(shortDesc)}`);
     }
   }
 
-  console.log();
-  const tipCommand =
-    'octocode-cli --tool localSearchCode --queries \'{"path":".","pattern":"runCLI"}\'';
-  console.log(`  ${dim('Tip:')} ${c('yellow', tipCommand)}`);
   console.log();
 }
 
@@ -172,10 +186,12 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   const metadata = await getOptionalToolMetadata();
   const fields = getDirectToolDisplayFields(tool.name);
   const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
+  const shortDesc = extractShortDescription(
+    getDirectToolDescription(tool.name, metadata)
+  );
 
   console.log();
-  console.log(`  ${c('magenta', bold(tool.name))}`);
-  console.log(`  ${getDirectToolDescription(tool.name, metadata)}`);
+  console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
   console.log();
 
   console.log(`  ${bold('Input Schema')}`);
@@ -197,11 +213,57 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   }
   console.log();
 
+  console.log(`  ${bold('Flags')}`);
+  console.log(
+    `    ${c('cyan', '--json')}   ${dim('Output raw JSON (structuredContent + content + isError)')}`
+  );
+  console.log();
+
   console.log(`  ${bold('Example')}`);
   console.log(`    ${c('yellow', formatToolExampleCommand(tool.name))}`);
+  console.log(
+    `    ${c('yellow', formatToolExampleCommand(tool.name) + ' --json')}`
+  );
   console.log();
 
   return true;
+}
+
+export async function showMultipleToolSchemas(
+  toolNames: string[]
+): Promise<void> {
+  const metadata = await getOptionalToolMetadata();
+
+  for (const toolName of toolNames) {
+    const tool = findToolDefinition(toolName);
+    if (!tool) {
+      console.log();
+      console.log(`  ${c('red', 'x')} Unknown tool: ${toolName}`);
+      continue;
+    }
+
+    const shortDesc = extractShortDescription(
+      getDirectToolDescription(tool.name, metadata)
+    );
+    const fields = getDirectToolDisplayFields(tool.name);
+    const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
+
+    console.log();
+    console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
+    console.log(`  ${bold('Input Schema')}`);
+    for (const field of fields) {
+      const reqTag = field.required ? c('red', ' [required]') : '';
+      console.log(
+        `    ${c('cyan', field.name)} (${field.type})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
+      );
+    }
+    console.log(`  ${dim('Auto-filled')}: ${autoFilledFields.join(', ')}`);
+    console.log(
+      `  ${bold('Example')}  ${c('yellow', formatToolExampleCommand(tool.name))}`
+    );
+  }
+
+  console.log();
 }
 
 export async function getToolsContextString(): Promise<string> {
@@ -209,9 +271,8 @@ export async function getToolsContextString(): Promise<string> {
   const toolNames = sortDirectToolNames(Object.keys(metadata.tools));
 
   const sections: string[] = [
-    'CLI Contract:',
-    `- ${CANONICAL_TOOL_USAGE}`,
-    '- octocode-cli --tools-context',
+    'CLI Usage:',
+    CANONICAL_TOOL_USAGE,
     '',
     'Octocode MCP Instructions:',
     metadata.instructions.trim(),
@@ -227,10 +288,12 @@ export async function getToolsContextString(): Promise<string> {
       ? formatDirectToolSchemaText(toolName)
       : formatDirectToolMetadataSchemaText(metadata.tools[toolName]?.schema);
 
-    sections.push(`${index + 1}. ${toolName}`);
-    sections.push(
-      `Description: ${getDirectToolDescription(toolName, metadata)}`
+    const shortDesc = extractShortDescription(
+      getDirectToolDescription(toolName, metadata)
     );
+
+    sections.push(`${index + 1}. ${toolName}`);
+    sections.push(`Description: ${shortDesc}`);
     sections.push('Input schema:');
     sections.push(schemaText);
     sections.push('');
@@ -287,6 +350,16 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
   if (!toolName || toolName === 'list' || args.options.list === true) {
     await showAvailableTools();
+    return true;
+  }
+
+  // Batch schema mode: multiple positional args, no --queries
+  if (
+    args.args.length > 1 &&
+    typeof args.options.queries !== 'string' &&
+    args.args.every(n => findToolDefinition(n) !== undefined)
+  ) {
+    await showMultipleToolSchemas(args.args);
     return true;
   }
 

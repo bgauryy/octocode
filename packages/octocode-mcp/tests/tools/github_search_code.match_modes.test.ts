@@ -425,7 +425,7 @@ describe('GitHub Search Code - match Parameter Modes', () => {
             owner: 'test',
             repo: 'repo',
             match: 'file',
-            limit: 10,
+            itemsPerPage: 10,
             verbosity: 'concise',
           },
         ],
@@ -453,7 +453,7 @@ describe('GitHub Search Code - match Parameter Modes', () => {
             owner: 'test',
             repo: 'repo',
             match: 'file',
-            limit: 10,
+            itemsPerPage: 10,
           },
         ],
       });

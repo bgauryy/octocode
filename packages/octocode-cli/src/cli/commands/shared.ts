@@ -80,6 +80,19 @@ export function printLoginHint(): void {
   console.log(`    ${c('cyan', '→')} ${c('yellow', 'gh auth login')}`);
 }
 
+export function formatAuthStatusAsJson(
+  hostname: string
+): Record<string, unknown> {
+  const status = getAuthStatus(hostname);
+  return {
+    authenticated: status.authenticated,
+    username: status.username || null,
+    hostname: status.hostname,
+    tokenSource: status.tokenSource || null,
+    tokenExpired: Boolean(status.tokenExpired),
+  };
+}
+
 export function printAuthStatus(hostname: string = 'github.com'): void {
   console.log();
   console.log(`  ${bold('🔐 GitHub Authentication')}`);

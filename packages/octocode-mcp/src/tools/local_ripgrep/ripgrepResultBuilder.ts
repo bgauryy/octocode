@@ -80,16 +80,24 @@ export async function buildSearchResult(
     ? (stats?.matchCount ?? summedMatches)
     : summedMatches;
 
+  // Cross-tool aligned knobs: `itemsPerPage` = files (top-level page size),
+  // `matchesPerFile` = matches shown per file (inner axis), `page` = file page
+  // number. Internal var names keep the file/match wording for clarity.
+  const aligned = configuredQuery as {
+    itemsPerPage?: number;
+    matchesPerFile?: number;
+    page?: number;
+  };
   const filesPerPage =
-    configuredQuery.filesPerPage || RESOURCE_LIMITS.DEFAULT_FILES_PER_PAGE;
-  const filePageNumber = configuredQuery.filePageNumber || 1;
+    aligned.itemsPerPage || RESOURCE_LIMITS.DEFAULT_FILES_PER_PAGE;
+  const filePageNumber = aligned.page || 1;
   const totalFilePages = Math.ceil(totalFiles / filesPerPage);
   const startIdx = (filePageNumber - 1) * filesPerPage;
   const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
   const paginatedFiles = limitedFiles.slice(startIdx, endIdx);
 
   const matchesPerPage =
-    configuredQuery.matchesPerPage || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
+    aligned.matchesPerFile || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
 
   const finalFiles: LocalSearchCodeFile[] = paginatedFiles.map(
     (file: LocalSearchCodeFile & { modified?: string }) => {
@@ -124,13 +132,13 @@ export async function buildSearchResult(
   const paginationHints: string[] =
     filePageNumber < totalFilePages
       ? [
-          `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: filePageNumber=${filePageNumber + 1}`,
+          `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: page=${filePageNumber + 1}`,
         ]
       : // Overshoot: requested a page past the last one. Say so explicitly
         // instead of returning an empty page with no explanation.
         totalFilePages > 0 && filePageNumber > totalFilePages
         ? [
-            `Requested filePageNumber ${filePageNumber} is outside available range (1-${totalFilePages}). Use filePageNumber=${totalFilePages} for the last page.`,
+            `Requested page ${filePageNumber} is outside available range (1-${totalFilePages}). Use page=${totalFilePages} for the last page.`,
           ]
         : [];
 
@@ -143,7 +151,7 @@ export async function buildSearchResult(
   const filesWithMoreMatches = finalFiles.filter(f => f.pagination?.hasMore);
   if (filesWithMoreMatches.length > 0) {
     paginationHints.push(
-      `Note: ${filesWithMoreMatches.length} file(s) have more matches - use matchesPerPage to see more`
+      `Note: ${filesWithMoreMatches.length} file(s) have more matches - use matchesPerFile to see more`
     );
   }
 

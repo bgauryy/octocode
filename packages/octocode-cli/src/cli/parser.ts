@@ -14,6 +14,9 @@ const OPTIONS_WITH_VALUES = new Set([
   't',
   'skill',
   'k',
+  'local',
+  'limit',
+  'l',
   'targets',
   'mode',
   'model',
@@ -31,6 +34,8 @@ const OPTIONS_WITH_VALUES = new Set([
   'input',
   'responseCharLength',
   'responseCharOffset',
+  'target',
+  'backup-path',
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
@@ -49,12 +54,20 @@ const BOOLEAN_OPTIONS = new Set([
   'logs',
   'all',
   'tools',
-  'local',
+  'full',
+  'direct',
   'lsp',
   'api',
   'list',
   'schema',
   'tools-context',
+  'check',
+  'rollback',
+  'install',
+  'yes',
+  'y',
+  'validate',
+  'sync',
 ]);
 
 const SINGLE_DASH_LONG_OPTIONS = new Set([

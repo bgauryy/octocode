@@ -90,6 +90,44 @@ describe('localGetFileContent', () => {
       expect(result.isPartial).toBe(true);
     });
 
+    // Contract (src/scheme/verbosity.ts): basic/omitted = verbatim. The
+    // matchString slice path must NOT minify before the verbosity finalizer;
+    // minification is concise-only (applyFetchContentVerbosity).
+    it('does NOT minify the matchString slice in basic verbosity', async () => {
+      const testContent =
+        'before\nconst x = 1; // keep this comment\nTARGET\nafter';
+      mockReadFile.mockResolvedValue(testContent);
+
+      const result = await fetchContent({
+        path: 'test.js',
+        matchString: 'TARGET',
+        matchStringContextLines: 1,
+      });
+
+      expect(result.status).toBeUndefined();
+      // Verbatim slice — the line comment survives (would be stripped if minified).
+      expect(result.content).toBe(
+        'const x = 1; // keep this comment\nTARGET\nafter'
+      );
+    });
+
+    it('DOES minify the matchString slice under concise (finalizer owns it)', async () => {
+      const testContent =
+        'before\nconst x = 1; // keep this comment\nTARGET\nafter';
+      mockReadFile.mockResolvedValue(testContent);
+
+      const result = await fetchContent({
+        path: 'test.js',
+        matchString: 'TARGET',
+        matchStringContextLines: 1,
+        verbosity: 'concise',
+      });
+
+      expect(result.status).toBeUndefined();
+      // Concise minifies — the line comment is stripped.
+      expect(result.content).not.toContain('// keep this comment');
+    });
+
     it('should return empty when pattern not found', async () => {
       const testContent = 'line 1\nline 2\nline 3';
       mockReadFile.mockResolvedValue(testContent);

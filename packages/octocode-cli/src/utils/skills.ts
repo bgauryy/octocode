@@ -49,6 +49,7 @@ export const SKILL_INSTALL_TARGETS = [
   'cursor',
   'codex',
   'opencode',
+  'agents',
 ] as const;
 export type SkillInstallTarget = (typeof SKILL_INSTALL_TARGETS)[number];
 export const DEFAULT_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
@@ -69,6 +70,7 @@ const SKILL_TARGET_ALIASES: Record<string, SkillInstallTarget> = {
   cursor: 'cursor',
   codex: 'codex',
   opencode: 'opencode',
+  agents: 'agents',
 };
 
 function loadConfig(): OctocodeConfig {
@@ -147,6 +149,8 @@ export function getSkillsDirForTarget(
         return join(HOME, '.codex', 'skills');
       case 'opencode':
         return join(HOME, '.opencode', 'skills');
+      case 'agents':
+        return join(HOME, '.agents', 'skills');
     }
   }
 
@@ -159,6 +163,8 @@ export function getSkillsDirForTarget(
       return join(HOME, '.codex', 'skills');
     case 'opencode':
       return join(HOME, '.opencode', 'skills');
+    case 'agents':
+      return join(HOME, '.agents', 'skills');
   }
 }
 

@@ -112,7 +112,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('LSP');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('githubSearchCode');
-    expect(output).toContain('Tip:');
+    expect(output).toContain('tools <name>');
     expect(process.exitCode).toBeUndefined();
   });
 
@@ -149,7 +149,7 @@ describe('tool-command coverage', () => {
     await printToolsContext();
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('CLI Contract:');
+    expect(output).toContain('CLI Usage:');
     expect(output).toContain('Server instructions.');
   });
 
@@ -583,7 +583,7 @@ describe('tool-command coverage', () => {
 
     expect(githubByName['keywordsToSearch']?.type).toBe('array<string>');
     expect(packageByName['name']?.type).toBe('string');
-    expect(packageByName['searchLimit']?.type).toBe('integer');
+    expect(packageByName['itemsPerPage']?.type).toBe('integer');
     expect(githubByName['id']).toBeUndefined();
     expect(githubByName['researchGoal']).toBeUndefined();
     expect(githubByName['reasoning']).toBeUndefined();
@@ -601,10 +601,10 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"name"');
     expect(output).toContain('react');
-    // `searchLimit` is the single canonical result-count knob. The legacy
+    // `itemsPerPage` is the single canonical result-count knob. The legacy
     // `limit` alias is no longer advertised (it was a duplicate field), though
     // it is still tolerated at runtime via the schema preprocess.
-    expect(output).toContain('searchLimit');
+    expect(output).toContain('itemsPerPage');
     expect(output).not.toContain('"limit"');
   });
 
@@ -619,8 +619,8 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('keywordsToSearch');
-    expect(output).toContain('"limit"');
     expect(output).toContain('"page"');
+    expect(output).toContain('itemsPerPage');
   });
 
   it('buildExampleValue: githubCloneRepo example includes owner=bgauryy', async () => {

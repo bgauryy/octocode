@@ -29,8 +29,8 @@ describe('main-help', () => {
     expect(output).toContain('TOOLS');
     expect(output).toContain('OPTIONS');
     expect(output).toContain('EXAMPLES');
-    expect(output).toContain('--tools-context');
-    expect(output).toContain('--tool');
+    expect(output).toContain('instructions');
+    expect(output).toContain('tools');
     expect(output).toContain('--queries');
   });
 });

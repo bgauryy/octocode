@@ -17,7 +17,7 @@ describe('applyMinification', () => {
     }));
 
     const { applyMinification } =
-      await import('../../src/tools/local_fetch_content/contentMinifier.js');
+      await import('../../src/utils/minifier/applyMinification.js');
 
     const content = 'const x = 1;\nconst y = 2;\n';
     const result = applyMinification(content, 'test.ts');
@@ -33,7 +33,7 @@ describe('applyMinification', () => {
     }));
 
     const { applyMinification } =
-      await import('../../src/tools/local_fetch_content/contentMinifier.js');
+      await import('../../src/utils/minifier/applyMinification.js');
 
     const content = 'short';
     const result = applyMinification(content, 'test.ts');
@@ -50,7 +50,7 @@ describe('applyMinification', () => {
     }));
 
     const { applyMinification } =
-      await import('../../src/tools/local_fetch_content/contentMinifier.js');
+      await import('../../src/utils/minifier/applyMinification.js');
 
     const content = 'const x = 1;\nconst y = 2;\n';
     const result = applyMinification(content, 'test.ts');
@@ -61,7 +61,7 @@ describe('applyMinification', () => {
   it('should return original when content has no comments/whitespace to strip (same length)', async () => {
     // Content that minifier returns unchanged - exercises branch where minified.length >= content.length
     const { applyMinification } =
-      await import('../../src/tools/local_fetch_content/contentMinifier.js');
+      await import('../../src/utils/minifier/applyMinification.js');
 
     const content = 'x';
     const result = applyMinification(content, 'test.txt');

@@ -789,6 +789,60 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
     });
   });
 
+  describe('fetchGitHubFileContentAPI - basic verbosity is verbatim (no pre-finalizer minify)', () => {
+    // Contract (src/scheme/verbosity.ts): "Content is reduced ONLY in concise.
+    // basic and compact never drop a returned value." Minification is owned by
+    // the concise finalizer (applyGithubFetchContentVerbosity), NOT the base
+    // content processor. The base processor must return content verbatim so a
+    // basic/default fullContent read matches the bytes on disk.
+    it('does NOT minify fullContent in the base processor', async () => {
+      const fileContent = '{\n  "name": "demo",\n  "version": "1.0.0"\n}';
+
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi.fn().mockResolvedValue({
+              data: {
+                type: 'file',
+                content: Buffer.from(fileContent).toString('base64'),
+                size: fileContent.length,
+                sha: 'abc123',
+                name: 'package.json',
+                path: 'package.json',
+              },
+            }),
+          },
+        },
+      };
+
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+      // Sentinel: if the base processor minifies, this marker leaks into output.
+      const minifySpy = vi
+        .mocked(minifierModule.minifyContent)
+        .mockResolvedValue({
+          content: 'SHOULD_NOT_APPEAR',
+          failed: false,
+          type: 'json',
+        });
+
+      const result = await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'package.json',
+        fullContent: true,
+      });
+
+      expect('data' in result).toBe(true);
+      if ('data' in result && result.data) {
+        // Verbatim — original whitespace/newlines preserved, sentinel absent.
+        expect(result.data.content).toBe(fileContent);
+      }
+      expect(minifySpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('viewGitHubRepositoryStructureAPI - Branch Fallback', () => {
     it('should try default branch when requested branch fails', async () => {
       const mockOctokit = {

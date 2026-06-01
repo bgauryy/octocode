@@ -16,7 +16,7 @@ export function summarizeEntries(entries: DirectoryEntry[]): string {
 
 export function paginateEntries(
   entries: DirectoryEntry[],
-  query: { entriesPerPage?: number; entryPageNumber?: number }
+  query: { itemsPerPage?: number; page?: number }
 ): {
   paginatedEntries: DirectoryEntry[];
   endIdx: number;
@@ -30,9 +30,9 @@ export function paginateEntries(
 } {
   const totalEntries = entries.length;
   const entriesPerPage =
-    query.entriesPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
+    query.itemsPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
   const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-  const entryPageNumber = Math.min(query.entryPageNumber || 1, totalPages);
+  const entryPageNumber = Math.min(query.page || 1, totalPages);
   const startIdx = (entryPageNumber - 1) * entriesPerPage;
   const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
   return {
@@ -67,7 +67,7 @@ export function buildEntryPaginationHints(
     .map(e => e.name)
     .join(', ');
   return [
-    `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${paginatedCount} of ${pagination.totalEntries}). Next: entryPageNumber=${pagination.currentPage + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`,
+    `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${paginatedCount} of ${pagination.totalEntries}). Next: page=${pagination.currentPage + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`,
   ];
 }
 

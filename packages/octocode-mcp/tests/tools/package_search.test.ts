@@ -342,17 +342,17 @@ describe.skip('PackageSearchQuerySchema', () => {
       }
     });
 
-    it('should validate NPM query with searchLimit', () => {
+    it('should validate NPM query with itemsPerPage', () => {
       const query = withResearchFields({
         ecosystem: 'npm',
         name: 'lodash',
-        searchLimit: 5,
+        itemsPerPage: 5,
       });
 
       const result = PackageSearchQuerySchema.safeParse(query);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.searchLimit).toBe(5);
+        expect(result.data.itemsPerPage).toBe(5);
       }
     });
 
@@ -380,11 +380,11 @@ describe.skip('PackageSearchQuerySchema', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should reject searchLimit > 10', () => {
+    it('should reject itemsPerPage > 10', () => {
       const query = withResearchFields({
         ecosystem: 'npm',
         name: 'axios',
-        searchLimit: 15,
+        itemsPerPage: 15,
       });
 
       const result = PackageSearchQuerySchema.safeParse(query);
@@ -562,7 +562,7 @@ describe('searchPackage - NPM (CLI)', () => {
     const query: PackageSearchInput = {
       ecosystem: 'npm',
       name: 'lodash utilities',
-      searchLimit: 5,
+      itemsPerPage: 5,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -594,7 +594,7 @@ describe('searchPackage - NPM (CLI)', () => {
     const query: PackageSearchInput = {
       ecosystem: 'npm',
       name: 'lodash utilities', // multi-word → keyword search (not exact lookup)
-      searchLimit: 5,
+      itemsPerPage: 5,
       page: 2,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
@@ -603,7 +603,7 @@ describe('searchPackage - NPM (CLI)', () => {
 
     await searchPackage(query);
 
-    // page 2 with searchLimit 5 → registry `from=5`, reachable beyond page 1.
+    // page 2 with itemsPerPage 5 → registry `from=5`, reachable beyond page 1.
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringMatching(/\/-\/v1\/search.*[?&]from=5\b/),
       expect.any(Object)
@@ -721,8 +721,8 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should succeed with exact package name + searchLimit=3 (BUG-02 exact repro)', async () => {
-    // Exact repro: name='typescript', searchLimit=3.
+  it('should succeed with exact package name + itemsPerPage=3 (BUG-02 exact repro)', async () => {
+    // Exact repro: name='typescript', itemsPerPage=3.
     // With limit > 1, even an exact name routes to searchNpmPackageViaSearch (not npm view).
     // Before fix: Zod schema rejected extra score/searchScore fields → "Invalid npm registry search response format".
     // After fix: schema uses .passthrough() and version is optional → returns packages.
@@ -780,7 +780,7 @@ describe('searchPackage - NPM (CLI)', () => {
     const query: PackageSearchInput = {
       ecosystem: 'npm',
       name: 'typescript',
-      searchLimit: 3,
+      itemsPerPage: 3,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -851,7 +851,7 @@ describe('searchPackage - NPM (CLI)', () => {
     const query: PackageSearchInput = {
       ecosystem: 'npm',
       name: 'typescript',
-      searchLimit: 3,
+      itemsPerPage: 3,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -875,8 +875,8 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should succeed with searchLimit > 1 when registry items have extra fields (BUG-02 fix)', async () => {
-    // Regression: searchLimit > 1 used to fail with "Invalid npm registry search response format"
+  it('should succeed with itemsPerPage > 1 when registry items have extra fields (BUG-02 fix)', async () => {
+    // Regression: itemsPerPage > 1 used to fail with "Invalid npm registry search response format"
     // because NpmRegistrySearchItemSchema rejected the extra score/searchScore fields
     // from the real npm registry search API response.
     mockFetch.mockResolvedValueOnce({
@@ -921,7 +921,7 @@ describe('searchPackage - NPM (CLI)', () => {
     const query: PackageSearchInput = {
       ecosystem: 'npm',
       name: 'typescript types',
-      searchLimit: 3,
+      itemsPerPage: 3,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -962,7 +962,7 @@ describe('searchPackage - NPM (CLI)', () => {
     const query: PackageSearchInput = {
       ecosystem: 'npm',
       name: 'lodash utility helpers',
-      searchLimit: 2,
+      itemsPerPage: 2,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -1643,7 +1643,7 @@ describe('Task 2: Name Variation Suggestions', () => {
         {
           ecosystem: 'npm',
           name: 'pkg',
-          searchLimit: 4,
+          itemsPerPage: 4,
           npmFetchMetadata: true,
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
@@ -1678,7 +1678,7 @@ describe('Task 2: Name Variation Suggestions', () => {
         {
           ecosystem: 'npm',
           name: 'pkg',
-          searchLimit: 4,
+          itemsPerPage: 4,
           npmFetchMetadata: true,
           mainResearchGoal: 'Test',
           researchGoal: 'Test',

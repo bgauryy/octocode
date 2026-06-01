@@ -8,13 +8,82 @@ import {
   formatTokenSource,
   printLoginHint,
 } from './shared.js';
+import https from 'node:https';
+
+function pingGitHubApi(
+  token: string,
+  hostname: string
+): Promise<{
+  valid: boolean;
+  login?: string;
+  rateLimit?: { remaining: number; limit: number; reset: number };
+  error?: string;
+}> {
+  return new Promise(resolve => {
+    const apiHost =
+      hostname === 'github.com' ? 'api.github.com' : `${hostname}/api/v3`;
+    const req = https.request(
+      {
+        method: 'GET',
+        hostname: apiHost.replace(/\/.*/, ''),
+        path: apiHost.includes('/')
+          ? `/${apiHost.split('/').slice(1).join('/')}/user`
+          : '/user',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'octocode-cli/1.0',
+          Accept: 'application/vnd.github+json',
+        },
+        timeout: 8000,
+      },
+      res => {
+        let body = '';
+        res.on('data', (chunk: Buffer) => (body += chunk.toString()));
+        res.on('end', () => {
+          if (res.statusCode === 401 || res.statusCode === 403) {
+            resolve({ valid: false, error: `HTTP ${res.statusCode}` });
+            return;
+          }
+          try {
+            const json = JSON.parse(body) as {
+              login?: string;
+              message?: string;
+            };
+            const rateRemaining = Number(
+              res.headers['x-ratelimit-remaining'] ?? 0
+            );
+            const rateLimit = Number(res.headers['x-ratelimit-limit'] ?? 0);
+            const rateReset = Number(res.headers['x-ratelimit-reset'] ?? 0);
+            resolve({
+              valid: Boolean(json.login),
+              login: json.login,
+              rateLimit: {
+                remaining: rateRemaining,
+                limit: rateLimit,
+                reset: rateReset,
+              },
+            });
+          } catch {
+            resolve({ valid: false, error: 'Invalid API response' });
+          }
+        });
+      }
+    );
+    req.on('error', err => resolve({ valid: false, error: err.message }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ valid: false, error: 'Request timed out' });
+    });
+    req.end();
+  });
+}
 
 export const tokenCommand: CLICommand = {
   name: 'token',
   aliases: ['t'],
   description: 'Print the GitHub token (matches octocode-mcp priority)',
   usage:
-    'octocode-cli token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--json]',
+    'octocode-cli token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--validate] [--json]',
   options: [
     {
       name: 'type',
@@ -36,9 +105,15 @@ export const tokenCommand: CLICommand = {
       description: 'Show token source and user info',
     },
     {
+      name: 'validate',
+      description:
+        'Ping the GitHub API to verify the token is valid and show rate-limit info',
+    },
+    {
       name: 'json',
       short: 'j',
-      description: 'Output as JSON: {"token": "...", "type": "..."}',
+      description:
+        'Output as JSON: { token, type, valid?, login?, rateLimit? }',
     },
   ],
   handler: async (args: ParsedArgs) => {
@@ -47,6 +122,7 @@ export const tokenCommand: CLICommand = {
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
     const showSource = Boolean(args.options['source'] || args.options['s']);
+    const validateToken = Boolean(args.options['validate']);
     const jsonOutput = Boolean(args.options['json'] || args.options['j']);
     const typeOpt = args.options['type'] ?? args.options['t'];
     const typeArg =
@@ -85,14 +161,34 @@ export const tokenCommand: CLICommand = {
     const result = await getToken(hostname, tokenSource);
 
     if (jsonOutput) {
-      const output = {
-        token: result.token,
-        type: getTokenType(result.source, result.envSource),
-      };
-      console.log(JSON.stringify(output));
       if (!result.token) {
+        console.log(
+          JSON.stringify({ token: null, type: 'none', valid: false })
+        );
         process.exitCode = 1;
+        return;
       }
+      if (validateToken) {
+        const ping = await pingGitHubApi(result.token, hostname);
+        console.log(
+          JSON.stringify({
+            token: result.token,
+            type: getTokenType(result.source, result.envSource),
+            valid: ping.valid,
+            login: ping.login ?? null,
+            rateLimit: ping.rateLimit ?? null,
+            error: ping.error ?? null,
+          })
+        );
+        if (!ping.valid) process.exitCode = 1;
+        return;
+      }
+      console.log(
+        JSON.stringify({
+          token: result.token,
+          type: getTokenType(result.source, result.envSource),
+        })
+      );
       return;
     }
 
@@ -134,6 +230,36 @@ export const tokenCommand: CLICommand = {
       return;
     }
 
+    if (validateToken) {
+      const { Spinner } = await import('../../utils/spinner.js');
+      const spinner = new Spinner(
+        'Validating token against GitHub API...'
+      ).start();
+      const ping = await pingGitHubApi(result.token!, hostname);
+      spinner.stop();
+      console.log();
+      if (ping.valid) {
+        console.log(
+          `  ${c('green', '✓')} Token is valid — authenticated as ${c('cyan', '@' + (ping.login ?? 'unknown'))}`
+        );
+        if (ping.rateLimit) {
+          const resetDate = new Date(
+            ping.rateLimit.reset * 1000
+          ).toLocaleTimeString();
+          console.log(
+            `  ${dim('Rate limit:')} ${ping.rateLimit.remaining}/${ping.rateLimit.limit} remaining, resets at ${resetDate}`
+          );
+        }
+      } else {
+        console.log(
+          `  ${c('red', '✗')} Token validation failed: ${ping.error ?? 'unknown error'}`
+        );
+        process.exitCode = 1;
+      }
+      console.log();
+      return;
+    }
+
     if (showSource) {
       console.log();
       console.log(`  ${c('green', '✓')} Token found`);
@@ -144,10 +270,10 @@ export const tokenCommand: CLICommand = {
         console.log(`  ${dim('User:')} ${c('cyan', '@' + result.username)}`);
       }
       console.log();
-      console.log(`  ${dim('Token:')} ${maskToken(result.token)}`);
+      console.log(`  ${dim('Token:')} ${maskToken(result.token!)}`);
       console.log();
     } else {
-      console.log(safeTokenOutput(result.token));
+      console.log(safeTokenOutput(result.token!));
     }
   },
 };

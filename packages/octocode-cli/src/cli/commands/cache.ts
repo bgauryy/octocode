@@ -7,6 +7,7 @@ import {
 import path from 'node:path';
 import { paths, getDirectorySizeBytes, formatBytes } from 'octocode-shared';
 import { existsSync, rmSync } from 'node:fs';
+import { confirm } from '../../utils/prompts.js';
 
 export const cacheCommand: CLICommand = {
   name: 'cache',
@@ -14,6 +15,23 @@ export const cacheCommand: CLICommand = {
   usage:
     'octocode-cli cache [status|clean] [--repos] [--skills] [--logs] [--tools|--local|--lsp|--api] [--all]',
   options: [
+    {
+      name: 'json',
+      short: 'j',
+      description:
+        'Output result as JSON: { repos, skills, logs, totalBytes, totalFormatted }',
+    },
+    {
+      name: 'dry-run',
+      short: 'n',
+      description:
+        'Show what would be deleted and bytes freed without deleting (clean only)',
+    },
+    {
+      name: 'yes',
+      short: 'y',
+      description: 'Skip confirmation prompt when using --all (clean only)',
+    },
     { name: 'repos', description: 'Target cloned repositories cache' },
     { name: 'skills', description: 'Target marketplace skills cache' },
     { name: 'logs', description: 'Target Octocode logs directory' },
@@ -45,6 +63,9 @@ export const cacheCommand: CLICommand = {
   ],
   handler: async (args: ParsedArgs) => {
     const subcommand = (args.args[0] || 'status').toLowerCase();
+    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
+    const dryRun = Boolean(args.options['dry-run'] || args.options['n']);
+    const skipConfirm = Boolean(args.options['yes'] || args.options['y']);
     const octocodeHome =
       paths.home ||
       process.env.OCTOCODE_HOME ||
@@ -74,6 +95,32 @@ export const cacheCommand: CLICommand = {
       const logsBytes = getDirectorySizeBytes(logsDir);
       const total = reposBytes + skillsBytes + logsBytes;
 
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            home: octocodeHome,
+            repos: {
+              path: reposDir,
+              sizeBytes: reposBytes,
+              sizeFormatted: formatBytes(reposBytes),
+            },
+            skills: {
+              path: skillsDir,
+              sizeBytes: skillsBytes,
+              sizeFormatted: formatBytes(skillsBytes),
+            },
+            logs: {
+              path: logsDir,
+              sizeBytes: logsBytes,
+              sizeFormatted: formatBytes(logsBytes),
+            },
+            totalBytes: total,
+            totalFormatted: formatBytes(total),
+          })
+        );
+        return;
+      }
+
       console.log();
       console.log(`  ${bold('🧹 Octocode Cache Status')}`);
       console.log();
@@ -101,14 +148,101 @@ export const cacheCommand: CLICommand = {
 
     if (subcommand === 'clean') {
       if (!targetRepos && !targetSkills && !targetLogs && !targetTools) {
-        console.log();
-        console.log(
-          `  ${c('red', 'X')} Missing clean target. Use --repos, --skills, --logs, --tools, or --all`
-        );
-        console.log(`  ${dim('Example:')} octocode-cli cache clean --all`);
-        console.log();
+        const err =
+          'Missing clean target. Use --repos, --skills, --logs, --tools, or --all';
+        if (jsonOutput) {
+          console.log(JSON.stringify({ success: false, error: err }));
+        } else {
+          console.log();
+          console.log(`  ${c('red', 'X')} ${err}`);
+          console.log(`  ${dim('Example:')} octocode-cli cache clean --all`);
+          console.log();
+        }
         process.exitCode = 1;
         return;
+      }
+
+      // Compute what would be freed
+      const plan: Array<{ target: string; path: string; sizeBytes: number }> =
+        [];
+      if (targetRepos && existsSync(reposDir)) {
+        plan.push({
+          target: 'repos',
+          path: reposDir,
+          sizeBytes: getDirectorySizeBytes(reposDir),
+        });
+      }
+      if (targetSkills) {
+        plan.push({
+          target: 'skills',
+          path: skillsDir,
+          sizeBytes: getDirectorySizeBytes(skillsDir),
+        });
+      }
+      if (targetLogs && existsSync(logsDir)) {
+        plan.push({
+          target: 'logs',
+          path: logsDir,
+          sizeBytes: getDirectorySizeBytes(logsDir),
+        });
+      }
+      const totalWouldFree = plan.reduce((s, p) => s + p.sizeBytes, 0);
+
+      // --dry-run: show plan without deleting
+      if (dryRun) {
+        if (jsonOutput) {
+          console.log(
+            JSON.stringify({
+              dryRun: true,
+              plan: plan.map(p => ({
+                ...p,
+                sizeFormatted: formatBytes(p.sizeBytes),
+              })),
+              totalBytes: totalWouldFree,
+              totalFormatted: formatBytes(totalWouldFree),
+            })
+          );
+          return;
+        }
+        console.log();
+        console.log(
+          `  ${c('yellow', 'DRY RUN')} — would free ${bold(formatBytes(totalWouldFree))}`
+        );
+        console.log();
+        for (const p of plan) {
+          console.log(
+            `  ${c('cyan', '•')} ${p.target}: ${formatBytes(p.sizeBytes)}  ${dim(p.path)}`
+          );
+        }
+        if (targetTools) {
+          console.log(
+            `  ${c('dim', '○')} tools: in-memory only (no disk bytes to free)`
+          );
+        }
+        console.log();
+        console.log(`  ${dim('Remove --dry-run to apply.')}`);
+        console.log();
+        return;
+      }
+
+      // TTY --all confirm (skip with --yes or --json or non-TTY)
+      if (
+        hasAllFlag &&
+        !skipConfirm &&
+        !jsonOutput &&
+        process.stdout.isTTY &&
+        totalWouldFree > 0
+      ) {
+        const ok = await confirm({
+          message: `Delete ${formatBytes(totalWouldFree)} of cache? (repos + skills + logs)`,
+          default: false,
+        });
+        if (!ok) {
+          console.log();
+          console.log(`  ${dim('Cancelled.')}`);
+          console.log();
+          return;
+        }
       }
 
       let cleanedAnything = false;
@@ -145,9 +279,24 @@ export const cacheCommand: CLICommand = {
         ]
           .filter(Boolean)
           .join(', ');
+        if (!jsonOutput) {
+          console.log(
+            `  ${c('yellow', 'ℹ')} ${toolFlags}: No disk caches to clean. Tool caches are in-memory and clear on MCP server restart.`
+          );
+        }
+      }
+
+      if (jsonOutput) {
         console.log(
-          `  ${c('yellow', 'ℹ')} ${toolFlags}: No disk caches to clean. Tool caches are in-memory and clear on MCP server restart.`
+          JSON.stringify({
+            success: true,
+            cleaned: cleanedAnything,
+            freedBytes,
+            freedFormatted: formatBytes(freedBytes),
+            targets: plan.map(p => p.target),
+          })
         );
+        return;
       }
 
       console.log();

@@ -441,7 +441,7 @@ async function searchNpmPackageViaSearch(
         rawResponseChars: searchRawResponseChars,
         hints: [
           'Try a different search term',
-          'Try searchLimit=1 for an exact package lookup',
+          'Try itemsPerPage=1 for an exact package lookup',
         ],
       };
     }

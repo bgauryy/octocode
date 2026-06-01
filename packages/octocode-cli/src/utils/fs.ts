@@ -92,7 +92,17 @@ export function listSubdirectories(dirPath: string): string[] {
     }
     return fs
       .readdirSync(dirPath, { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
+      .filter(entry => {
+        if (entry.isDirectory()) return true;
+        if (entry.isSymbolicLink()) {
+          try {
+            return fs.statSync(path.join(dirPath, entry.name)).isDirectory();
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      })
       .map(entry => entry.name);
   }, []);
 }

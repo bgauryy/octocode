@@ -73,15 +73,22 @@ export const tsvEnvelopeFields = {
 /**
  * Extend any object output schema with the TSV envelope fields above.
  *
- * The return type is `S` (the input schema), not the precise extended
- * shape. This is deliberate: callers don't access the envelope fields by
- * type — those are consumed by the bulk runner, not the agent — but they
- * DO access the data shape (`results`, `repositories`, `pull_requests`,
- * ...). Returning `S` lets test parses keep accessing the original
- * fields without `as` casts.
+ * Return type is pinned to the INPUT schema `S`, not the precise extended
+ * shape. This is a deliberate, load-bearing compile-time bridge — NOT a
+ * cosmetic gap:
  *
- * At runtime the schema still validates the new fields as `.optional()`
- * additions, so MCP validation accepts the envelope and rejects garbage.
+ *  - The envelope fields (`format`/`columns`/`rows`/`base`/`shared`/`hints`/
+ *    `evidence`) are attached and validated at RUNTIME, consumed by the bulk
+ *    runner — never read off the type by callers.
+ *  - Pinning to `S` keeps `withTsvEnvelope(X)` assignable EVERYWHERE `X` is —
+ *    most importantly the `BulkOutputSchema`-typed parameters that consumers
+ *    (registration `outputSchema`, test harnesses like `expectHasResultsData`)
+ *    require. Returning the precise `schema.extend(...)` type instead breaks
+ *    that assignability (the extended ZodObject is a different, wider generic),
+ *    which a type-check confirms surfaces at those call sites.
+ *
+ * `as unknown as S` (double cast) is the minimal way to express this: a single
+ * `as S` is rejected because the extended type doesn't sufficiently overlap `S`.
  */
 export function withTsvEnvelope<S extends z.ZodObject>(schema: S): S {
   return schema.extend(tsvEnvelopeFields) as unknown as S;

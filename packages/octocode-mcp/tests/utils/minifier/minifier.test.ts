@@ -350,7 +350,7 @@ services:
       );
     });
 
-    it('should handle Go code aggressively', async () => {
+    it('should handle Go code conservatively (readable, newline-preserving)', async () => {
       const goCode = `package main
 
 import "fmt"
@@ -368,16 +368,20 @@ func main() {
 
       const result = await minifyContent(goCode, 'main.go');
 
-      expect(result.type).toBe('aggressive');
+      // C-family code is conservative now (was aggressive) — newlines carry
+      // meaning/readability; aggressive garbled code-search fragments.
+      expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove both types of comments
+      // Comments still removed
       expect(result.content).not.toContain('// Main function');
-      expect(result.content).not.toContain('/* * Print hello world */');
+      expect(result.content).not.toContain('Print hello world');
       expect(result.content).not.toContain('// Another comment');
 
-      // Should compress whitespace
-      expect(result.content).toContain('package main import "fmt" func main()');
+      // Line structure preserved (NOT flattened onto one line)
+      expect(result.content).toContain('\n');
+      expect(result.content).toContain('func main() {');
+      expect(result.content).not.toMatch(/import "fmt" func main/);
     });
   });
 
@@ -459,7 +463,8 @@ function test() {
 
       const result = await minifyContent(phpCode, 'test.php');
 
-      expect(result.type).toBe('aggressive');
+      // PHP is conservative now (newline-preserving); comments still stripped.
+      expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
       // Should remove all comment types
@@ -833,7 +838,7 @@ echo "test";
 
       const result = await minifyContent(phpCode, 'test.php');
 
-      expect(result.type).toBe('aggressive');
+      expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
       expect(result.content).not.toContain('// comment');
     });

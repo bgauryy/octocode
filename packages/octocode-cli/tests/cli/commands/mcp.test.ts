@@ -69,6 +69,7 @@ const mcpIoMocks = vi.hoisted(() => ({
 
 const mcpPathsMocks = vi.hoisted(() => ({
   getMCPConfigPath: vi.fn().mockReturnValue('/fake/config.json'),
+  configFileExists: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../../src/configs/mcp-registry.js', () => ({
@@ -82,6 +83,7 @@ vi.mock('../../../src/utils/mcp-paths.js', () => ({
   },
   DETECTABLE_MCP_CLIENTS: ['claude-code', 'cursor'],
   getMCPConfigPath: mcpPathsMocks.getMCPConfigPath,
+  configFileExists: mcpPathsMocks.configFileExists,
 }));
 
 vi.mock('../../../src/utils/mcp-io.js', () => ({
@@ -106,6 +108,7 @@ describe('mcpCommand', () => {
 
     const paths = await import('../../../src/utils/mcp-paths.js');
     vi.mocked(paths.getMCPConfigPath).mockReturnValue('/fake/config.json');
+    vi.mocked(paths.configFileExists).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -118,12 +121,51 @@ describe('mcpCommand', () => {
     return mod.mcpCommand;
   }
 
-  it('list: prints all registry entries', async () => {
+  it('list: scans OS config files by default', async () => {
+    const paths = await import('../../../src/utils/mcp-paths.js');
+    vi.mocked(paths.configFileExists).mockImplementation(
+      (client: string) => client === 'cursor'
+    );
+    const io = await import('../../../src/utils/mcp-io.js');
+    vi.mocked(io.readMCPConfig).mockReturnValue({
+      mcpServers: { 'test-mcp': { command: 'npx', args: [] } },
+    });
+
     const mcpCommand = await loadCommand();
     await mcpCommand.handler({
       command: 'mcp',
       args: ['list'],
       options: {},
+    });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('MCP Configs on OS')
+    );
+    expect(
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('test-mcp')
+      )
+    ).toBe(true);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('list: shows no-configs message when none found', async () => {
+    const mcpCommand = await loadCommand();
+    await mcpCommand.handler({
+      command: 'mcp',
+      args: ['list'],
+      options: {},
+    });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('No MCP config files found')
+    );
+  });
+
+  it('list: prints registry entries when --client is provided', async () => {
+    const mcpCommand = await loadCommand();
+    await mcpCommand.handler({
+      command: 'mcp',
+      args: ['list'],
+      options: { client: 'cursor' },
     });
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Results:')
@@ -333,7 +375,7 @@ describe('mcpCommand', () => {
     );
     expect(process.exitCode).toBeUndefined();
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Installed MCP:')
+      expect.stringContaining('Installed:')
     );
   });
 
@@ -367,9 +409,6 @@ describe('mcpCommand', () => {
       options: { id: 'test-mcp', force: true },
     });
     expect(process.exitCode).toBe(1);
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to write MCP config')
-    );
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('disk full')
     );
@@ -492,7 +531,7 @@ describe('mcpCommand', () => {
     );
   });
 
-  it('defaults to list subcommand', async () => {
+  it('defaults to list subcommand (OS scan)', async () => {
     const mcpCommand = await loadCommand();
     await mcpCommand.handler({
       command: 'mcp',
@@ -500,7 +539,7 @@ describe('mcpCommand', () => {
       options: {},
     });
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('MCP Marketplace')
+      expect.stringContaining('MCP Configs on OS')
     );
   });
 

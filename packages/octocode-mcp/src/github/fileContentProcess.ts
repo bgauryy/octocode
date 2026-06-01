@@ -5,7 +5,6 @@
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
-import { minifyContent } from '../utils/minifier/minifier.js';
 import {
   applyPagination,
   createPaginationInfo,
@@ -241,9 +240,12 @@ export async function processFileContentAPI(
     );
   }
 
-  const minifyResult = await minifyContent(finalContent, filePath);
-  finalContent = minifyResult.content;
-
+  // NOTE: Minification is intentionally NOT applied here. It is owned by the
+  // concise verbosity finalizer (applyGithubFetchContentVerbosity), which is a
+  // bulk-level decision (concise activates only when EVERY query asks for it).
+  // The base processor must return content verbatim so a basic/default read
+  // matches the bytes on disk — see src/scheme/verbosity.ts ("content reduced
+  // ONLY in concise; basic and compact never drop a returned value").
   const matchLocations = Array.from(matchLocationsSet);
 
   return {

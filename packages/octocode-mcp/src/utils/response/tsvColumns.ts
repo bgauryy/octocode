@@ -582,16 +582,14 @@ export function localViewStructureToTsv(data: unknown): TsvExport {
 // ---------------------------------------------------------------------------
 // localGetFileContent — single row per file slice
 // ---------------------------------------------------------------------------
-// `content` intentionally omitted — the full file body already lives in
-// JSON `data.content`. TSV is the lightweight metadata view; duplicating
-// the entire payload would double response bytes for no agent benefit.
 export const localFetchContentColumns = [
   'path',
-  'startLine',
-  'endLine',
   'totalLines',
   'isPartial',
+  'startLine',
+  'endLine',
   'matchRanges',
+  'content',
 ] as const;
 
 export const localFetchContentProjection: TsvProjection = {
@@ -604,11 +602,12 @@ export const localFetchContentProjection: TsvProjection = {
     return [
       {
         path: scalar(d.path),
-        startLine: scalar(d.startLine),
-        endLine: scalar(d.endLine),
         totalLines: scalar(d.totalLines),
         isPartial: scalar(d.isPartial),
+        startLine: scalar(d.startLine),
+        endLine: scalar(d.endLine),
         matchRanges: scalar(d.matchRanges),
+        content: scalar(d.content),
       },
     ];
   },

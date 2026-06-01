@@ -24,8 +24,9 @@ import {
 
 /**
  * Every bulk-envelope schema produced by `createRelaxedBulkQuerySchema`
- * must reject unbounded numeric inputs. Catches the unbounded
- * `responseCharOffset` / `responseCharLength` gap.
+ * must BOUND its numeric inputs. Post-C1 the bound is enforced by CLAMPING
+ * (clampedInt), consistent with the per-query charOffset/charLength fields —
+ * an out-of-range value is coerced into range, never the validation offender.
  */
 const ALL_BULK_SCHEMAS = [
   ['BulkRipgrepQuerySchema', BulkRipgrepQuerySchema],
@@ -60,29 +61,45 @@ describe('bulk envelope numeric bounds', () => {
   describe.each(ALL_BULK_SCHEMAS)('%s', (_name, schema) => {
     const baseQueries = [{ id: 'q1' }];
 
-    it('rejects responseCharLength above LOCAL_OVERLAY_MAX_CHAR_LENGTH', () => {
+    it('clamps responseCharLength above LOCAL_OVERLAY_MAX_CHAR_LENGTH (never the offender)', () => {
       const result = schema.safeParse({
         queries: baseQueries,
         responseCharLength: LOCAL_OVERLAY_MAX_CHAR_LENGTH + 1,
       });
-      expect(result.success).toBe(false);
+      if (result.success) {
+        expect(
+          (result.data as { responseCharLength?: number }).responseCharLength
+        ).toBe(LOCAL_OVERLAY_MAX_CHAR_LENGTH);
+      } else {
+        const paths = result.error.issues.map(i => i.path.join('.'));
+        expect(paths).not.toContain('responseCharLength');
+      }
     });
 
-    it('rejects negative responseCharOffset', () => {
+    it('clamps negative responseCharOffset to 0 (never the offender)', () => {
       const result = schema.safeParse({
         queries: baseQueries,
         responseCharOffset: -1,
       });
-      expect(result.success).toBe(false);
+      if (result.success) {
+        expect(
+          (result.data as { responseCharOffset?: number }).responseCharOffset
+        ).toBe(0);
+      } else {
+        const paths = result.error.issues.map(i => i.path.join('.'));
+        expect(paths).not.toContain('responseCharOffset');
+      }
     });
 
-    it('rejects responseCharOffset above the bound', () => {
-      // Pick a value far above any reasonable cap.
+    it('clamps responseCharOffset above the bound (never the offender)', () => {
       const result = schema.safeParse({
         queries: baseQueries,
         responseCharOffset: Number.MAX_SAFE_INTEGER,
       });
-      expect(result.success).toBe(false);
+      if (!result.success) {
+        const paths = result.error.issues.map(i => i.path.join('.'));
+        expect(paths).not.toContain('responseCharOffset');
+      }
     });
 
     it('rejects more than five queries', () => {

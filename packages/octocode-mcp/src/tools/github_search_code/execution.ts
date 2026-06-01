@@ -41,21 +41,33 @@ export async function searchMultipleGitHubCode(
     queries,
     async (query: PartialCodeSearchQuery, _index: number) => {
       try {
-        // Pre-flight: cap user-passed `limit` under concise so the upstream
-        // fetch reflects concise's documented "limit capped at 3" probe
-        // contract. Capping here (not just in the finalizer) ensures the
-        // provider returns at most 3 files instead of trimming after fetch —
-        // matching the githubSearchRepositories pattern. The finalizer's
-        // group/value shaping still applies under the all-concise gate.
+        // Pre-flight: cap the effective page size under concise so the upstream
+        // fetch reflects concise's documented "capped at 3" probe contract.
+        // Capping here (not just in the finalizer) ensures the provider returns
+        // at most 3 files instead of trimming after fetch — matching the
+        // githubSearchRepositories pattern. The finalizer's group/value shaping
+        // still applies under the all-concise gate.
         const verbosityIsConcise = isConcise(
           (query as WithVerbosity<typeof query>).verbosity
         );
         if (verbosityIsConcise) {
-          const userLimit = (query as { limit?: number }).limit;
-          (query as { limit?: number }).limit = Math.min(
-            userLimit ?? CONCISE_SEARCH_CODE_LIMIT,
+          // Cap the effective per_page to the concise probe size by capping
+          // BOTH knobs the per_page resolver reads (itemsPerPage drives
+          // per_page; githubAPILimit overrides it when present).
+          const q = query as {
+            itemsPerPage?: number;
+            githubAPILimit?: number;
+          };
+          q.itemsPerPage = Math.min(
+            q.itemsPerPage ?? CONCISE_SEARCH_CODE_LIMIT,
             CONCISE_SEARCH_CODE_LIMIT
           );
+          if (typeof q.githubAPILimit === 'number') {
+            q.githubAPILimit = Math.min(
+              q.githubAPILimit,
+              CONCISE_SEARCH_CODE_LIMIT
+            );
+          }
         }
         const ctx = getProviderContext();
         const providerResult = await executeProviderOperation(query, () =>

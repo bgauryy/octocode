@@ -235,7 +235,7 @@ describe('toolCommand', () => {
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Use octocode-cli --tool')
+      expect.stringContaining('Use octocode-cli tools')
     );
     expect(process.exitCode).toBe(1);
   });
@@ -351,6 +351,37 @@ describe('toolCommand', () => {
     });
   });
 
+  it('shows multiple tool schemas when given multiple tool-name args', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tool',
+      args: ['localSearchCode', 'localFindFiles'],
+      options: {},
+    });
+
+    // Output should contain both tool names
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('localSearchCode');
+    expect(output).toContain('localFindFiles');
+  });
+
+  it('shows error and tool help when --queries input cannot be parsed into a valid tool input', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    // Pass something that's valid JSON but doesn't map to a valid tool input
+    // (null is valid JSON but prepareDirectToolInputFromJsonText returns null for it)
+    await toolCommand.handler!({
+      command: 'tool',
+      args: ['localSearchCode'],
+      options: { queries: 'null' },
+    });
+
+    // The function prints an error message and then shows tool help
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Tool input must be a JSON object');
+  });
+
   it('builds tools context from MCP instructions and tool schemas', async () => {
     const { getToolsContextString } =
       await import('../../src/cli/tool-command.js');
@@ -358,10 +389,8 @@ describe('toolCommand', () => {
     const context = await getToolsContextString();
 
     expect(publicMocks.loadToolContent).toHaveBeenCalledTimes(1);
-    expect(context).toContain('CLI Contract:');
-    expect(context).toContain(
-      "octocode-cli --tool <toolName> --queries '<json-stringified-input>'"
-    );
+    expect(context).toContain('CLI Usage:');
+    expect(context).toContain('octocode-cli tools');
     expect(context).toContain('Use Octocode tools carefully.');
     expect(context).toContain('1. githubSearchCode');
     expect(context).toContain('2. githubCloneRepo');

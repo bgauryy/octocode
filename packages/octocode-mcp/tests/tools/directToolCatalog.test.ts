@@ -166,9 +166,9 @@ describe('directToolCatalog', () => {
         pattern: 'pattern',
         path: '.',
         matchContentLength: 1,
-        filesPerPage: 1,
-        filePageNumber: 1,
-        matchesPerPage: 1,
+        itemsPerPage: 1,
+        matchesPerFile: 1,
+        page: 1,
       })
     );
     expect(

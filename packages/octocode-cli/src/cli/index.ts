@@ -19,6 +19,8 @@ async function loadToolCommandModule(): Promise<{
   executeToolCommand(args: ParsedArgs): Promise<boolean>;
   printToolsContext(): Promise<void>;
   showToolHelp(toolName: string): Promise<boolean>;
+  showAvailableTools(): Promise<void>;
+  showMultipleToolSchemas(toolNames: string[]): Promise<void>;
 }> {
   return import('./tool-command.js');
 }
@@ -79,6 +81,18 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
 
+    if (args.command === 'tools') {
+      if (typeof args.args[0] === 'string') {
+        const { showToolHelp } = await loadToolCommandModule();
+        if (await showToolHelp(args.args[0])) {
+          return true;
+        }
+      }
+      const { showAvailableTools } = await loadToolCommandModule();
+      await showAvailableTools();
+      return true;
+    }
+
     if (args.command) {
       const [{ findStaticCommandHelp }, { showCommandHelp }] =
         await Promise.all([loadStaticCommandHelpModule(), loadHelpModule()]);
@@ -129,6 +143,21 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     if (!success) {
       process.exitCode = 1;
     }
+    return true;
+  }
+
+  if (args.command === 'tools') {
+    const { executeToolCommand } = await loadToolCommandModule();
+    const success = await executeToolCommand(args);
+    if (!success) {
+      process.exitCode = 1;
+    }
+    return true;
+  }
+
+  if (args.command === 'instructions') {
+    const { printToolsContext } = await loadToolCommandModule();
+    await printToolsContext();
     return true;
   }
 

@@ -74,6 +74,11 @@ export function transformCodeSearchResult(
       totalPages: data.pagination?.totalPages || 1,
       hasMore: data.pagination?.hasMore || false,
       totalMatches: data.pagination?.totalMatches,
+      // Carry the real page size so downstream pagination + "showing X-Y"
+      // hints reflect the caller's itemsPerPage/limit instead of defaulting
+      // to 10 in buildPaginationHints (same fix as transformRepoSearchResult).
+      entriesPerPage: (data.pagination as { perPage?: number } | undefined)
+        ?.perPage,
     },
     repositoryContext: data._researchContext?.repositoryContext,
     nonExistentScope: data.nonExistentScope,

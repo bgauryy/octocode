@@ -267,15 +267,14 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       });
     });
 
-    it('should always apply minification', async () => {
+    it('returns content verbatim — base processor never minifies (minify is concise-only)', async () => {
       const params = createTestParams();
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      expect(mockminifyContent).toHaveBeenCalledWith(
-        'line 1\nline 2\nline 3\nline 4\nline 5',
-        'test.txt'
-      );
+      // Contract (src/scheme/verbosity.ts): basic/default = verbatim. The base
+      // processor must not minify; that is the concise finalizer's job.
+      expect(mockminifyContent).not.toHaveBeenCalled();
       expect(result).toEqual({
         status: 200,
         rawResponseChars: expect.any(Number),
@@ -668,7 +667,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       }
     });
 
-    it('should apply minification to line-selected content', async () => {
+    it('returns line-selected content verbatim (no base minify)', async () => {
       const params = createTestParams({
         startLine: 5,
         endLine: 8,
@@ -676,10 +675,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      expect(mockminifyContent).toHaveBeenCalledWith(
-        'line 5\nline 6\nline 7\nline 8',
-        'test.txt'
-      );
+      expect(mockminifyContent).not.toHaveBeenCalled();
       expect(result.status).toBe(200);
       if ('data' in result) {
         expect(result.data.content).toBe('line 5\nline 6\nline 7\nline 8');
@@ -687,7 +683,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       }
     });
 
-    it('should apply minification to match-selected content', async () => {
+    it('returns match-selected content verbatim (no base minify)', async () => {
       const params = createTestParams({
         matchString: 'line 15',
         matchStringContextLines: 1,
@@ -695,10 +691,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      expect(mockminifyContent).toHaveBeenCalledWith(
-        'line 14\nline 15\nline 16',
-        'test.txt'
-      );
+      expect(mockminifyContent).not.toHaveBeenCalled();
       expect(result.status).toBe(200);
       if ('data' in result) {
         expect(result.data.content).toBe('line 14\nline 15\nline 16');
