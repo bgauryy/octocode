@@ -1,4 +1,3 @@
-
 const DEBUG = process.env.OCTOCODE_DEBUG === '1';
 
 export function trySafe<T>(fn: () => T, fallback: T): T {

@@ -75,9 +75,16 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
   return {};
 }
 
-// TODO: packageSearch does not yet support result-level pagination (e.g. lastPublished enrichment
-// for search results with searchLimit > 1). Currently only exact-match lookups (searchLimit=1)
-// go through fetchPackageDetailsWithError which enriches lastPublished + weeklyDownloads.
+// Pagination note: the returned `packages` array is NOT a data-loss surface —
+// it is char-paginated losslessly by the bulk engine (PACKAGE_SEARCH case in
+// structuredPagination.ts → paginatePackageEntry), so every returned package is
+// reachable by advancing the charOffset / responseCharOffset cursor. `searchLimit`
+// is the explicit fetch cap (how many the registry query returns), analogous to
+// `limit` on other tools.
+// TODO (feature, not data loss): fetching results BEYOND searchLimit needs a
+// registry result-page cursor, and per-result lastPublished/weeklyDownloads
+// enrichment is currently only applied to exact-match lookups (searchLimit=1)
+// via fetchPackageDetailsWithError.
 export async function searchPackages(
   args: ToolExecutionArgs<NpmPackageQuery>
 ): Promise<CallToolResult> {
@@ -165,6 +172,11 @@ export async function searchPackages(
           { data: result, extraHints },
           query
         );
+        const totalFound =
+          typeof result.totalFound === 'number'
+            ? result.totalFound
+            : result.packages.length;
+        const isPartial = totalFound > result.packages.length;
 
         return createSuccessResult(
           query,
@@ -173,6 +185,22 @@ export async function searchPackages(
           TOOL_NAMES.PACKAGE_SEARCH,
           {
             extraHints: shaped.extraHints,
+            evidence: {
+              kind: 'package',
+              answerReady: hasContent,
+              complete: !isPartial,
+              ...(isPartial
+                ? {
+                    confidence: 'medium' as const,
+                    reason: `${result.packages.length} of ${totalFound} package result(s) returned.`,
+                  }
+                : hasContent
+                  ? {}
+                  : {
+                      reason:
+                        'No package registry results matched the supplied query.',
+                    }),
+            },
             rawResponse: apiResult.rawResponseChars ?? apiResult,
           }
         );
@@ -188,6 +216,7 @@ export async function searchPackages(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

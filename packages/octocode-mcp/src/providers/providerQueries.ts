@@ -32,8 +32,6 @@ export interface CodeSearchQuery extends BaseProviderQuery {
   filename?: string;
   /** Filter by file extension (without dot) */
   extension?: string;
-  /** Branch, tag, or commit reference */
-  ref?: string;
   /** Search scope: 'file' for content, 'path' for filename/directory */
   match?: 'file' | 'path';
   /** Maximum results per page (max 100) */
@@ -92,8 +90,8 @@ export interface RepoSearchQuery extends BaseProviderQuery {
   language?: string;
   /** Match scope: name, description, readme */
   match?: Array<'name' | 'description' | 'readme'>;
-  /** Visibility filter */
-  visibility?: 'public' | 'private' | 'internal';
+  /** Include archived repositories. Default false excludes them. */
+  archived?: boolean;
   /** Sort by field */
   sort?: 'stars' | 'forks' | 'updated' | 'created' | 'best-match';
   /** Sort order */
@@ -166,6 +164,8 @@ export interface PullRequestQuery extends BaseProviderQuery {
   draft?: boolean;
   /** Match scope: title, body, comments */
   matchScope?: Array<'title' | 'body' | 'comments'>;
+  /** Include PRs from archived repositories. Default false excludes them. */
+  archived?: boolean;
   /** Include PR comments */
   withComments?: boolean;
   /** Include commit details */

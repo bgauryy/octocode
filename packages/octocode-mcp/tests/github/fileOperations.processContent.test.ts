@@ -412,6 +412,52 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       }
     });
 
+    it('should resolve a whitespace-stripped (minified) anchor against the raw line (FC-1)', async () => {
+      // Raw file has spaces; the anchor was copied from a minified search
+      // snippet with whitespace removed. Exact includes() would miss it.
+      const fileContent =
+        'Line 1\nattachPingListener(root, wakeable, rootRenderLanes)\nLine 3';
+
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi.fn().mockResolvedValue({
+              data: {
+                type: 'file',
+                content: Buffer.from(fileContent).toString('base64'),
+                size: fileContent.length,
+                sha: 'abc123',
+                name: 'test.txt',
+                path: 'test.txt',
+              },
+            }),
+          },
+        },
+      };
+
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+      vi.mocked(minifierModule.minifyContent).mockImplementation(
+        async content => ({ content, failed: false, type: 'general' })
+      );
+
+      const result = await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'test.txt',
+        matchString: 'attachPingListener(root,wakeable,rootRenderLanes)',
+        matchStringContextLines: 0,
+      });
+
+      expect(result.status).toBe(200);
+      expect('data' in result).toBe(true);
+      if ('data' in result) {
+        expect(result.data.matchNotFound).toBeUndefined();
+        expect(result.data.content).toContain('attachPingListener');
+      }
+    });
+
     it('should find matchString and include it in response', async () => {
       const fileContent = 'Line 1\nTarget Line\nLine 3\nLine 4\nLine 5';
 

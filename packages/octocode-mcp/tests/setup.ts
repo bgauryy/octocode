@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { initializeToolMetadata } from '../src/tools/toolMetadata/state.js';
+import { resetCircuitBreaker } from '../src/utils/http/circuitBreaker.js';
 import {
   consumeExpectedStderrWarning,
   resetExpectedStderrWarnings,
@@ -53,7 +54,6 @@ const mockDefaultConfig = {
     enabled: true,
     enableClone: false,
     allowedPaths: [],
-    workspaceRoot: undefined,
   },
   tools: {
     enabled: null,
@@ -146,9 +146,6 @@ const buildMockConfig = () => {
       ...mockDefaultConfig.local,
       enabled: envEnableLocal ?? mockDefaultConfig.local.enabled,
       enableClone: envEnableClone ?? mockDefaultConfig.local.enableClone,
-      workspaceRoot:
-        process.env.WORKSPACE_ROOT?.trim() ||
-        mockDefaultConfig.local.workspaceRoot,
       allowedPaths:
         mockParseStringArrayEnv(process.env.ALLOWED_PATHS) ??
         mockDefaultConfig.local.allowedPaths,
@@ -716,6 +713,9 @@ beforeEach(() => {
   sessionMockState.deleted = false;
   capturedWarnings = [];
   resetExpectedStderrWarnings();
+  // #T13: clear circuit-breaker state so a host that tripped in one test
+  // doesn't fail-fast unrelated tests sharing the same host.
+  resetCircuitBreaker();
 
   if (enforceWarningFreeTests) {
     vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {

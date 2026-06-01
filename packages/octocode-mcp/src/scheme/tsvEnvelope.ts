@@ -53,6 +53,17 @@ export const tsvEnvelopeFields = {
   columns: z.array(z.string()).optional(),
   /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
   rows: z.string().optional(),
+  /**
+   * Common directory the `path` cells are relative to (lean-output hoisting).
+   * Absolute path = `${base}/${row.path}`. structuredContent keeps absolute
+   * paths, so this only affects the compact TSV the agent reads.
+   */
+  base: z.string().optional(),
+  /**
+   * Columns lifted out of every row because they shared one identical value
+   * (e.g. owner/repo of a single-repo search). Emitted once instead of per row.
+   */
+  shared: z.record(z.string(), z.string()).optional(),
   /** Top-level hints (response-state pagination / recovery / failure). */
   hints: z.array(z.string()).optional(),
   /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
@@ -74,4 +85,37 @@ export const tsvEnvelopeFields = {
  */
 export function withTsvEnvelope<S extends z.ZodObject>(schema: S): S {
   return schema.extend(tsvEnvelopeFields) as unknown as S;
+}
+
+/**
+ * Presentation-only TSV envelope keys. These hold a flattened, stringified copy
+ * of data that already lives in the structured records (`results` /
+ * `repositories` / `pull_requests` / ...). They are a token optimization for the
+ * model-facing `content[0].text` only — keeping them in `structuredContent`
+ * too would serialize the same rows twice. `hints` / `evidence` are NOT copies
+ * of the data and intentionally stay in both. (#A1)
+ */
+// Pure-presentation keys stripped from structuredContent (they only shape the
+// content[0].text TSV). `base` is intentionally NOT here: once paths in the
+// canonical records are relativized, `base` is data-bearing — the model needs
+// it to reconstruct `abs = ${base}/${path}` — so it must survive into
+// structuredContent alongside the relativized paths.
+const TSV_PRESENTATION_KEYS = ['format', 'columns', 'rows', 'shared'] as const;
+
+/**
+ * Return a shallow copy of a bulk response with the presentation-only TSV
+ * envelope removed, for use as `structuredContent`. Returns the input unchanged
+ * (no copy) when none of the keys are present (e.g. JSON mode), so it is cheap
+ * on the common path.
+ */
+export function stripTsvEnvelope<T extends object>(data: T): T {
+  const record = data as Record<string, unknown>;
+  let copy: Record<string, unknown> | undefined;
+  for (const key of TSV_PRESENTATION_KEYS) {
+    if (key in record) {
+      copy ??= { ...record };
+      delete copy[key];
+    }
+  }
+  return (copy ?? data) as T;
 }

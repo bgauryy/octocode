@@ -9,6 +9,7 @@ import type { ToolInvocationCallback } from '../types/toolResults.js';
 import { DESCRIPTIONS } from './toolMetadata/proxies.js';
 import { invokeCallbackSafely } from './utils.js';
 import type { ToolExecutionArgs } from '../types/execution.js';
+import { logSessionError } from '../session.js';
 
 interface RemoteToolConfig<TQuery> {
   /** Tool name (must be a key in TOOL_NAMES) */
@@ -115,7 +116,18 @@ export function createRemoteToolRegistration<TQuery>(
     };
 
     if (registrationGuard) {
-      return registrationGuard().then(ok => (ok ? doRegister() : null));
+      return registrationGuard().then(ok => {
+        if (ok) return doRegister();
+        // Surface the skip. A guard returning false (e.g. npm or the npm
+        // registry being unreachable for packageSearch) otherwise drops the
+        // tool from the server silently, making "why is this tool missing?"
+        // undiagnosable. (#T4)
+        void logSessionError(
+          name,
+          'registration-skipped: registrationGuard returned false (precondition unmet)'
+        );
+        return null;
+      });
     }
     return doRegister();
   };

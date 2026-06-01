@@ -1,4 +1,3 @@
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -540,7 +539,6 @@ describe('tool-command coverage', () => {
   });
 
   it('handles non-Error thrown by the execution function', async () => {
-
     mocks.localSearchCode.mockRejectedValueOnce(42);
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
@@ -603,8 +601,11 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"name"');
     expect(output).toContain('react');
+    // `searchLimit` is the single canonical result-count knob. The legacy
+    // `limit` alias is no longer advertised (it was a duplicate field), though
+    // it is still tolerated at runtime via the schema preprocess.
     expect(output).toContain('searchLimit');
-    expect(output).toContain('"limit"');
+    expect(output).not.toContain('"limit"');
   });
 
   it('githubSearchRepositories help includes MCP schema and required example fields', async () => {
@@ -717,7 +718,6 @@ describe('tool-command coverage', () => {
 
   it('printToolResult: uses structuredContent when result.content is undefined', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
-
       structuredContent: { found: true },
     } as unknown as { content: []; structuredContent: { found: boolean } });
 

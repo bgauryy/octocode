@@ -200,6 +200,134 @@ describe('Query Builders', () => {
       const query = buildCodeSearchQuery(params);
       expect(query).toBe('express "@types/node" middleware');
     });
+
+    it('should quote multi-word keywords as a phrase (SC-1)', () => {
+      const params = toCodeSearchQuery({
+        keywordsToSearch: ['export function parse'],
+      });
+
+      const query = buildCodeSearchQuery(params);
+      expect(query).toBe('"export function parse"');
+    });
+
+    it('should quote a phrase and split a file path into filename: + dir (SC-1/SC-2)', () => {
+      const params = toCodeSearchQuery({
+        keywordsToSearch: ['const patch'],
+        owner: 'vuejs',
+        repo: 'core',
+        path: 'packages/runtime-core/src/renderer.ts',
+      });
+
+      const query = buildCodeSearchQuery(params);
+      // Phrase is still quoted...
+      expect(query).toContain('"const patch"');
+      // ...and the file path is rewritten to the qualifiers GitHub honors.
+      // GitHub `path:` matches a file's DIRECTORY only; a full `dir/file.ext`
+      // returns zero (proven at the API, quoted or not). filename: + dir works.
+      expect(query).toContain('filename:renderer.ts');
+      expect(query).toContain('path:"packages/runtime-core/src"');
+      expect(query).not.toContain('renderer.ts"');
+    });
+
+    describe('file-path rewrite (SC-2): path: matches directories, not files', () => {
+      it('splits a path pointing at a file into filename: + directory path:', () => {
+        const query = buildCodeSearchQuery(
+          toCodeSearchQuery({
+            keywordsToSearch: ['createRenderer'],
+            path: 'packages/runtime-core/src/renderer.ts',
+          })
+        );
+        expect(query).toContain('filename:renderer.ts');
+        expect(query).toContain('path:"packages/runtime-core/src"');
+        // never the broken full-file path: qualifier
+        expect(query).not.toMatch(/path:"?[^"\s]*\/renderer\.ts/);
+      });
+
+      it('drops path: entirely when the file path has no directory part', () => {
+        const query = buildCodeSearchQuery(
+          toCodeSearchQuery({ keywordsToSearch: ['x'], path: 'renderer.ts' })
+        );
+        expect(query).toBe('x filename:renderer.ts');
+      });
+
+      it('handles compound extensions (foo.test.ts)', () => {
+        const query = buildCodeSearchQuery(
+          toCodeSearchQuery({
+            keywordsToSearch: ['x'],
+            path: 'src/foo.test.ts',
+          })
+        );
+        expect(query).toContain('filename:foo.test.ts');
+        expect(query).toContain('path:src');
+      });
+
+      it('does NOT split a plain directory path', () => {
+        const query = buildCodeSearchQuery(
+          toCodeSearchQuery({
+            keywordsToSearch: ['x'],
+            path: 'packages/runtime-core/src',
+          })
+        );
+        expect(query).toContain('path:"packages/runtime-core/src"');
+        expect(query).not.toContain('filename:');
+      });
+
+      it('does NOT split a directory whose name looks like a version (src/v1.2)', () => {
+        const query = buildCodeSearchQuery(
+          toCodeSearchQuery({ keywordsToSearch: ['x'], path: 'src/v1.2' })
+        );
+        expect(query).toContain('path:"src/v1.2"');
+        expect(query).not.toContain('filename:');
+      });
+
+      it('does NOT clobber an explicitly provided filename', () => {
+        const query = buildCodeSearchQuery(
+          toCodeSearchQuery({
+            keywordsToSearch: ['x'],
+            filename: 'index.ts',
+            path: 'src/renderer.ts',
+          })
+        );
+        expect(query).toContain('filename:index.ts');
+        expect(query).not.toContain('filename:renderer.ts');
+      });
+    });
+
+    it('should quote punctuation-heavy keywords so they match literally (SC-3)', () => {
+      expect(
+        buildCodeSearchQuery(
+          toCodeSearchQuery({ keywordsToSearch: ['$state'] })
+        )
+      ).toBe('"$state"');
+      expect(
+        buildCodeSearchQuery(
+          toCodeSearchQuery({ keywordsToSearch: ['React.useState'] })
+        )
+      ).toBe('"React.useState"');
+      expect(
+        buildCodeSearchQuery(
+          toCodeSearchQuery({ keywordsToSearch: ['$ZodAsyncError'] })
+        )
+      ).toBe('"$ZodAsyncError"');
+    });
+
+    it('should still leave bare identifiers (alnum/_/-) unquoted', () => {
+      const params = toCodeSearchQuery({
+        keywordsToSearch: ['baseCreateRenderer', 'attach_ping-listener'],
+      });
+
+      const query = buildCodeSearchQuery(params);
+      expect(query).toBe('baseCreateRenderer attach_ping-listener');
+    });
+
+    it('should escape embedded double quotes when wrapping a keyword', () => {
+      const params = toCodeSearchQuery({
+        keywordsToSearch: ['say "hi"'],
+      });
+
+      const query = buildCodeSearchQuery(params);
+      expect(query).toBe('"say \\"hi\\""');
+    });
   });
 
   describe('buildRepoSearchQuery', () => {
@@ -384,6 +512,37 @@ describe('Query Builders', () => {
       const query = buildRepoSearchQuery(params);
       expect(query).not.toContain('language:');
     });
+
+    it('should exclude archived repos by default (archived omitted)', () => {
+      const params = {
+        keywordsToSearch: ['recoil'],
+      };
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toContain('is:not-archived');
+      expect(query).not.toContain('archived:true');
+    });
+
+    it('should exclude archived repos when archived:false', () => {
+      const params = {
+        keywordsToSearch: ['recoil'],
+        archived: false,
+      } as Parameters<typeof buildRepoSearchQuery>[0];
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toBe('recoil is:not-archived');
+    });
+
+    it('should opt into archived repos when archived:true', () => {
+      const params = {
+        keywordsToSearch: ['recoil'],
+        archived: true,
+      } as Parameters<typeof buildRepoSearchQuery>[0];
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toBe('recoil archived:true');
+      expect(query).not.toContain('is:not-archived');
+    });
   });
 
   describe('buildPullRequestSearchQuery', () => {
@@ -405,6 +564,26 @@ describe('Query Builders', () => {
 
       const query = buildPullRequestSearchQuery(params);
       expect(query).toBe('is:pr is:open is:draft is:unmerged archived:false');
+    });
+
+    it('should opt into PRs from archived repos when archived:true', () => {
+      const params = {
+        query: 'bug fix',
+        archived: true,
+      };
+
+      const query = buildPullRequestSearchQuery(params);
+      expect(query).toBe('bug fix is:pr archived:true');
+    });
+
+    it('should exclude PRs from archived repos by default', () => {
+      const params = {
+        query: 'bug fix',
+        archived: false,
+      };
+
+      const query = buildPullRequestSearchQuery(params);
+      expect(query).toBe('bug fix is:pr archived:false');
     });
 
     it('should build query with user filters', () => {

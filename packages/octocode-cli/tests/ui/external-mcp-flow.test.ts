@@ -50,7 +50,6 @@ describe('External MCP Flow - Argument Validation', () => {
 
   describe('Safe CLI Flags', () => {
     it('should accept single-letter flags like -y', () => {
-
       const mcp = createMockMCP({
         installConfig: {
           command: 'npx',
@@ -59,7 +58,6 @@ describe('External MCP Flow - Argument Validation', () => {
       });
 
       expect(() => {
-
         const args = mcp.installConfig.args;
 
         expect(args).toContain('-y');
@@ -84,7 +82,6 @@ describe('External MCP Flow - Argument Validation', () => {
       const args = ['--yes', '--no-cache', '--port=8080', '--host=localhost'];
 
       args.forEach(arg => {
-
         const safeFlagPattern = /^--?[a-zA-Z][a-zA-Z0-9-]*(=\S+)?$/;
         expect(safeFlagPattern.test(arg)).toBe(true);
       });

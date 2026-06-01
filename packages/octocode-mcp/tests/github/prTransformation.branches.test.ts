@@ -1,82 +1,15 @@
 /**
  * Branch coverage tests for prTransformation.ts
- * Targets uncovered branches: getBodyLimitForBatchSize, truncatePRBody, applyPartialContentFilter
+ * Targets uncovered branches: applyPartialContentFilter
+ *
+ * NOTE: getBodyLimitForBatchSize / truncatePRBody were removed — PR bodies are
+ * no longer truncated; full bodies are returned and bounded losslessly by the
+ * char-paginator.
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  getBodyLimitForBatchSize,
-  truncatePRBody,
-  applyPartialContentFilter,
-} from '../../src/github/prTransformation.js';
+import { applyPartialContentFilter } from '../../src/github/prTransformation.js';
 import type { GitHubPullRequestsSearchParams } from '../../src/github/githubAPI.js';
-
-describe('getBodyLimitForBatchSize', () => {
-  it('should return undefined (no truncation) when limit is 1', () => {
-    expect(getBodyLimitForBatchSize(1)).toBeUndefined();
-  });
-
-  it('should return undefined (no truncation) when limit is 0', () => {
-    expect(getBodyLimitForBatchSize(0)).toBeUndefined();
-  });
-
-  it('should return 2000 when limit is 2', () => {
-    expect(getBodyLimitForBatchSize(2)).toBe(2000);
-  });
-
-  it('should return 2000 when limit is 3', () => {
-    expect(getBodyLimitForBatchSize(3)).toBe(2000);
-  });
-
-  it('should return 800 when limit is 4', () => {
-    expect(getBodyLimitForBatchSize(4)).toBe(800);
-  });
-
-  it('should return 800 when limit is 10', () => {
-    expect(getBodyLimitForBatchSize(10)).toBe(800);
-  });
-
-  it('should default to limit=5 (returns 800) when undefined', () => {
-    expect(getBodyLimitForBatchSize(undefined)).toBe(800);
-  });
-});
-
-describe('truncatePRBody', () => {
-  it('should return body unchanged when under limit', () => {
-    expect(truncatePRBody('short body', 1, 100)).toBe('short body');
-  });
-
-  it('should return body unchanged when bodyLimit is undefined', () => {
-    expect(truncatePRBody('any body', 1, undefined)).toBe('any body');
-  });
-
-  it('should return null when body is null', () => {
-    expect(truncatePRBody(null, 1, 100)).toBeNull();
-  });
-
-  it('should return undefined when body is undefined', () => {
-    expect(truncatePRBody(undefined, 1, 100)).toBeUndefined();
-  });
-
-  it('should return empty string unchanged', () => {
-    expect(truncatePRBody('', 1, 100)).toBe('');
-  });
-
-  it('should truncate long body and include hint', () => {
-    const longBody = 'x'.repeat(1000);
-    const result = truncatePRBody(longBody, 42, 100);
-
-    expect(result).toContain('x'.repeat(100));
-    expect(result).toContain('[truncated 900 chars');
-    expect(result).toContain('prNumber=42');
-    expect(result).toContain("type='fullContent'");
-  });
-
-  it('should not truncate when body length equals limit', () => {
-    const body = 'x'.repeat(100);
-    expect(truncatePRBody(body, 1, 100)).toBe(body);
-  });
-});
 
 describe('applyPartialContentFilter', () => {
   const createFile = (filename: string, patch?: string) => ({

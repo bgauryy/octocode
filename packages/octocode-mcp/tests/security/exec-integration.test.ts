@@ -47,31 +47,21 @@ describe('safeExec execution context security', () => {
     expect(result.success).toBe(true);
   });
 
-  it('should prevent execution in parent directory', async () => {
-    // This should FAIL - attempting to execute outside workspace
-    await expect(async () => {
-      await safeExec('ls', ['-la'], {
-        cwd: parentDir,
-      });
-    }).rejects.toThrow('Execution context validation failed');
+  // The WORKSPACE_ROOT command-cwd sandbox was removed: command execution is
+  // no longer confined to the workspace. Only command + argument validation
+  // remain as guards. These cases used to be blocked and now run normally.
+  it('allows execution in parent directory (cwd sandbox removed)', async () => {
+    const result = await safeExec('ls', ['-la'], {
+      cwd: parentDir,
+    });
+    expect(result.success).toBe(true);
   });
 
-  it('should prevent execution with path traversal', async () => {
-    // This should FAIL - attempting to traverse outside workspace
-    await expect(async () => {
-      await safeExec('ls', ['-la'], {
-        cwd: '../../../../',
-      });
-    }).rejects.toThrow('configured workspace directory');
-  });
-
-  it('should prevent execution in system directories', async () => {
-    // This should FAIL - attempting to execute in /etc
-    await expect(async () => {
-      await safeExec('ls', ['-la'], {
-        cwd: '/etc',
-      });
-    }).rejects.toThrow('configured workspace directory');
+  it('allows execution in a system directory (cwd sandbox removed)', async () => {
+    const result = await safeExec('ls', ['-la'], {
+      cwd: '/etc',
+    });
+    expect(result.success).toBe(true);
   });
 
   it('should allow execution with undefined cwd (defaults to safe)', async () => {

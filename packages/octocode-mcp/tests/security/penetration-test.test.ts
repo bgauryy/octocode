@@ -16,7 +16,6 @@ import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
 import { validateCommand } from 'octocode-security-utils/commandValidator';
 import { PathValidator } from 'octocode-security-utils/pathValidator';
-import { validateExecutionContext } from 'octocode-security-utils/executionContextValidator';
 import {
   shouldIgnore,
   shouldIgnorePath,
@@ -35,7 +34,13 @@ import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { sanitizeCallToolResult } from '../../src/utils/secureServer.js';
 
 vi.mock('octocode-shared', () => ({
-  getConfigSync: () => ({ output: { format: 'yaml' } }),
+  getConfigSync: () => ({
+    output: { format: 'yaml', pagination: { defaultCharLength: 2000 } },
+  }),
+  DEFAULT_OUTPUT_CONFIG: {
+    format: 'yaml',
+    pagination: { defaultCharLength: 2000 },
+  },
   resolveTokenFull: vi.fn(async () => null),
   getTokenFromEnv: vi.fn(() => null),
   getEnvTokenSource: vi.fn(() => null),
@@ -482,29 +487,6 @@ describe('ATTACK-03: Path Traversal', () => {
   });
 });
 
-describe('ATTACK-04: Execution Context Escape', () => {
-  it('should block execution in /tmp', () => {
-    expect(validateExecutionContext('/tmp').isValid).toBe(false);
-  });
-
-  it('should block execution in /etc', () => {
-    expect(validateExecutionContext('/etc').isValid).toBe(false);
-  });
-
-  it('should block execution in root', () => {
-    expect(validateExecutionContext('/').isValid).toBe(false);
-  });
-
-  it('should block empty cwd', () => {
-    expect(validateExecutionContext('').isValid).toBe(false);
-  });
-
-  it('should block traversal in cwd', () => {
-    const ws = process.cwd();
-    expect(validateExecutionContext(`${ws}/../../etc`).isValid).toBe(false);
-  });
-});
-
 describe('ATTACK-05: Prototype Pollution', () => {
   it('should block __proto__ key from JSON-parsed input', () => {
     // Real attack vector: JSON.parse creates __proto__ as own property
@@ -891,19 +873,6 @@ describe('ATTACK-12: Environment Variable Attacks', () => {
     // But shouldIgnore should still block sensitive files
     expect(shouldIgnoreFile('.env')).toBe(true);
     expect(shouldIgnorePath('.ssh')).toBe(true);
-  });
-
-  it('should handle empty WORKSPACE_ROOT gracefully', () => {
-    process.env.WORKSPACE_ROOT = '';
-    const result = validateExecutionContext(process.cwd());
-    expect(result.isValid).toBe(true);
-  });
-
-  it('should handle WORKSPACE_ROOT with traversal', () => {
-    process.env.WORKSPACE_ROOT = '/workspace/project/../../';
-    // The path.resolve will normalize this
-    const result = validateExecutionContext('/tmp/evil');
-    expect(result.isValid).toBe(false);
   });
 });
 

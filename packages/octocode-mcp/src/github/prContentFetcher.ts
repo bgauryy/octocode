@@ -30,31 +30,101 @@ import {
   getRawResponseChars,
 } from '../utils/response/charSavings.js';
 
+// PR threads on popular repos are dominated by automation: deploy-preview
+// tables, install-this-PR blocks, and reviewer-bot status. None of it is
+// load-bearing for "what does this PR do / why the disagreement", yet it can
+// be the single largest cost in a metered run. Default to dropping it.
+const KNOWN_BOT_LOGINS = new Set([
+  'vercel',
+  'pkg-pr-new',
+  'coderabbitai',
+  'github-actions',
+  'codecov',
+  'changeset-bot',
+  'netlify',
+  'sonarcloud',
+  'socket-security',
+]);
+
+function isBotAuthor(login: string): boolean {
+  const l = login.toLowerCase();
+  return l.endsWith('[bot]') || KNOWN_BOT_LOGINS.has(l.replace(/\[bot\]$/, ''));
+}
+
+/**
+ * Strip machine-generated blobs that bloat comment bodies without adding
+ * review signal: HTML comment blocks (CodeRabbit `<!-- internal state … -->`),
+ * Vercel `[vc]: #…` base64 markers, and other base64-only lines.
+ */
+function stripMachineBlobs(body: string): string {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^\[vc\]:\s*#.*$/gm, '')
+    .replace(/^[A-Za-z0-9+/]{120,}={0,2}$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function fetchPRComments(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
   repo: string,
-  prNumber: number
-): Promise<PRCommentItem[]> {
+  prNumber: number,
+  includeBots: boolean = false
+): Promise<{ comments: PRCommentItem[]; note?: string }> {
   try {
-    const commentsResult = await octokit.rest.issues.listComments({
-      owner,
-      repo,
-      issue_number: prNumber,
-    });
+    // Page through ALL comments (GitHub caps per_page at 100). Same loop the
+    // file fetch uses below — never stop at page 1, so comments 101+ are not
+    // silently dropped. Total size is then bounded losslessly by the response
+    // char-paginator.
+    const raw: IssueComment[] = [];
+    let rawResponseChars = 0;
+    let page = 1;
+    let keepFetching = true;
+    do {
+      const commentsResult = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: prNumber,
+        per_page: 100,
+        page,
+      });
+      rawResponseChars += countSerializedChars(commentsResult.data);
+      raw.push(...commentsResult.data);
+      keepFetching = commentsResult.data.length === 100;
+      page++;
+    } while (keepFetching);
 
-    const comments = commentsResult.data.map(
-      (comment: IssueComment): PRCommentItem => ({
+    const kept = includeBots
+      ? raw
+      : raw.filter((c: IssueComment) => !isBotAuthor(c.user?.login ?? ''));
+    const botsDropped = raw.length - kept.length;
+
+    // No count cap: keep EVERY non-bot comment. Oversized threads are bounded
+    // losslessly by the response char-paginator (agents page for more via
+    // responseCharOffset), never by silently dropping the tail.
+    const comments = kept.map((comment: IssueComment): PRCommentItem => {
+      const stripped = stripMachineBlobs(comment.body ?? '');
+      return {
         id: String(comment.id),
         user: comment.user?.login ?? 'unknown',
-        body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+        body: ContentSanitizer.sanitizeContent(stripped).content,
         created_at: comment.created_at ?? '',
         updated_at: comment.updated_at ?? '',
-      })
-    );
-    return attachRawResponseChars(comments, commentsResult.data);
+      };
+    });
+
+    const notes: string[] = [];
+    if (botsDropped > 0) {
+      notes.push(`${botsDropped} bot comment(s) hidden (set includeBots:true)`);
+    }
+
+    return {
+      comments: attachRawResponseChars(comments, rawResponseChars),
+      note: notes.length > 0 ? notes.join('; ') : undefined,
+    };
   } catch {
-    return attachRawResponseChars([], 0);
+    return { comments: attachRawResponseChars([], 0) };
   }
 }
 
@@ -131,13 +201,21 @@ export async function transformPullRequestItemFromSearch(
   if (params.withComments) {
     const { owner, repo } = normalizeOwnerRepo(params);
     if (owner && repo) {
-      result.comments = await fetchPRComments(
+      const { comments, note } = await fetchPRComments(
         octokit,
         owner,
         repo,
-        item.number
+        item.number,
+        params.includeBots
       );
-      rawResponseChars += getRawResponseChars(result.comments) ?? 0;
+      result.comments = comments;
+      rawResponseChars += getRawResponseChars(comments) ?? 0;
+      if (note) {
+        result._sanitization_warnings = [
+          ...(result._sanitization_warnings || []),
+          note,
+        ];
+      }
     }
   }
 
@@ -355,8 +433,21 @@ export async function transformPullRequestItemFromREST(
   }
 
   if (params.withComments) {
-    result.comments = await fetchPRComments(octokit, owner, repo, item.number);
-    rawResponseChars += getRawResponseChars(result.comments) ?? 0;
+    const { comments, note } = await fetchPRComments(
+      octokit,
+      owner,
+      repo,
+      item.number,
+      params.includeBots
+    );
+    result.comments = comments;
+    rawResponseChars += getRawResponseChars(comments) ?? 0;
+    if (note) {
+      result._sanitization_warnings = [
+        ...(result._sanitization_warnings || []),
+        note,
+      ];
+    }
   }
 
   if (params.withCommits) {

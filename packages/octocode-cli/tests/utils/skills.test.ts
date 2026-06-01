@@ -1,5 +1,3 @@
-
-
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -48,7 +46,6 @@ describe('Skills Utilities', () => {
   describe('getSkillsSourcePath', () => {
     it('should return fromOut path when it exists', () => {
       vi.mocked(dirExists).mockImplementation((p: string) => {
-
         return p.includes('skills') && !p.includes('../..');
       });
 
@@ -162,7 +159,6 @@ describe('Skills Utilities', () => {
     });
 
     it('should return false when skill directory does not exist', () => {
-
       let callCount = 0;
       vi.mocked(dirExists).mockImplementation(() => {
         callCount++;

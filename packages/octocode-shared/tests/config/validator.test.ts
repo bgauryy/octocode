@@ -303,23 +303,6 @@ describe('config/validator', () => {
     });
 
     describe('local validation (extended)', () => {
-      it('rejects non-string workspaceRoot', () => {
-        const result = validateConfig({
-          local: { workspaceRoot: 123 },
-        });
-        expect(result.valid).toBe(false);
-        expect(result.errors.some(e => e.includes('local.workspaceRoot'))).toBe(
-          true
-        );
-      });
-
-      it('accepts valid workspaceRoot string', () => {
-        const result = validateConfig({
-          local: { workspaceRoot: '/home/user/project' },
-        });
-        expect(result.valid).toBe(true);
-      });
-
       it('rejects non-string items in allowedPaths', () => {
         const result = validateConfig({
           local: { allowedPaths: [123, '/valid/path'] },

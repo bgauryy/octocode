@@ -267,6 +267,9 @@ function createToolCatalog(
     isLocal: true,
     isClone: true,
     type: 'content',
+    // Clone is gated by ENABLE_CLONE and may be absent from list_tools.
+    // Keep the metadata policy explicit until the upstream octocode-core
+    // catalog publishes clone metadata for gated action tools.
     skipMetadataCheck: true,
     fn: registerGitHubCloneRepoTool,
     direct: {

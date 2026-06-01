@@ -2,12 +2,17 @@
  * Per-tool TSV column projections.
  *
  * Each tool exports:
- *   1. a `<tool>Columns` constant — the full TSV field contract,
+ *   1. a `<tool>Columns` constant — the full pre-finalization TSV field
+ *      contract, in stable order,
  *   2. a `<tool>Projection` — row extraction logic,
  *   3. a `<tool>ToTsv(data)` helper — direct TSV rendering for tests/CLI use.
  *
  * The generic bulk runner and custom finalizers use `getTsvProjection()` /
  * `exportToolDataToTsv()` so every tool shares one TSV implementation.
+ * Response envelopes then pass projected rows through `finalizeTsv()`, which
+ * can drop all-empty columns, hoist all-shared columns to `shared`, and
+ * relativize absolute paths to `base`. Column order among the remaining TSV
+ * fields still follows the constants below.
  */
 
 import { STATIC_TOOL_NAMES } from '../../tools/toolNames.js';
@@ -62,8 +67,9 @@ function locationLineColumn(loc: Record<string, unknown>): {
 // ---------------------------------------------------------------------------
 // githubSearchCode — flatten owner/repo groups into one row per match
 // ---------------------------------------------------------------------------
+// `id` omitted — it is `owner/repo`, already carried by owner+repo (and hoisted
+// to `shared` for single-repo searches); path/value are the per-match payload.
 export const githubSearchCodeColumns = [
-  'id',
   'owner',
   'repo',
   'path',
@@ -80,7 +86,6 @@ export const githubSearchCodeProjection: TsvProjection = {
       for (const m of arr(group.matches)) {
         const match = obj(m);
         rows.push({
-          id: scalar(group.id),
           owner: scalar(group.owner),
           repo: scalar(group.repo),
           path: scalar(match.path),
@@ -102,8 +107,9 @@ export function githubSearchCodeToTsv(data: unknown): TsvExport {
 // `content` intentionally omitted — the full file body already lives in
 // JSON `data.results[].files[].content`. TSV is the lightweight metadata
 // view; duplicating multi-KB file payloads would just bloat the response.
+// `id` omitted — it is just `owner/repo`, which the owner+repo columns already
+// carry (and the bulk finalizer hoists them to `shared` for single-repo calls).
 export const githubFetchContentColumns = [
-  'id',
   'owner',
   'repo',
   'path',
@@ -135,7 +141,6 @@ export const githubFetchContentProjection: TsvProjection = {
         // `content` intentionally absent — the file body lives in JSON
         // `data.results[].files[].content`. TSV is the metadata view.
         rows.push({
-          id: scalar(group.id),
           owner: scalar(group.owner),
           repo: scalar(group.repo),
           path: scalar(file.path),
@@ -160,7 +165,6 @@ export const githubFetchContentProjection: TsvProjection = {
         const files = arr(dir.files);
         if (files.length === 0) {
           rows.push({
-            id: scalar(group.id),
             owner: scalar(group.owner),
             repo: scalar(group.repo),
             path: scalar(dir.path),
@@ -184,7 +188,6 @@ export const githubFetchContentProjection: TsvProjection = {
         for (const nested of files) {
           const file = obj(nested);
           rows.push({
-            id: scalar(group.id),
             owner: scalar(group.owner),
             repo: scalar(group.repo),
             path: scalar(file.path ?? dir.path),
@@ -225,7 +228,6 @@ export const githubSearchRepositoriesColumns = [
   'description',
   'url',
   'stars',
-  'forks',
   'forksCount',
   'openIssuesCount',
   'language',
@@ -253,8 +255,7 @@ export const githubSearchRepositoriesProjection: TsvProjection = {
         description: scalar(row.description),
         url: scalar(row.url ?? row.htmlUrl),
         stars: scalar(row.stars ?? row.stargazersCount),
-        forks: scalar(row.forks),
-        forksCount: scalar(row.forksCount),
+        forksCount: scalar(row.forksCount ?? row.forks),
         openIssuesCount: scalar(row.openIssuesCount),
         language: scalar(row.language),
         topics: scalar(row.topics),
@@ -345,36 +346,35 @@ export function githubSearchPullRequestsToTsv(data: unknown): TsvExport {
 // ---------------------------------------------------------------------------
 // githubViewRepoStructure — flatten { path -> { files, folders } } map
 // ---------------------------------------------------------------------------
-export const githubViewRepoStructureColumns = [
-  'parent',
-  'name',
-  'type',
-  'path',
-] as const;
+// `parent` and `name` are intentionally omitted: `path` (= `parent`/`name`) is
+// the full repo-relative path — the chainable field — and name=basename /
+// parent=dirname are derivable from it. Emitting all three duplicated every row.
+export const githubViewRepoStructureColumns = ['path', 'type'] as const;
 
 export const githubViewRepoStructureProjection: TsvProjection = {
   columns: githubViewRepoStructureColumns,
   toRows: data => {
     const tree = obj((data as { structure?: unknown }).structure);
     const rows: Array<Record<string, unknown>> = [];
+    // Files and folders share identical row-building — only the row `type`
+    // differs — so emit both through one helper instead of two copies.
+    const pushEntries = (
+      parent: string,
+      rawEntries: unknown[],
+      type: 'file' | 'dir'
+    ) => {
+      for (const rawEntry of rawEntries) {
+        const e = obj(rawEntry);
+        const name = Object.keys(e).length > 0 ? e.name : rawEntry;
+        const nameStr = String(name ?? '');
+        const path = parent === '.' ? nameStr : `${parent}/${nameStr}`;
+        rows.push({ type, path });
+      }
+    };
     for (const [parent, node] of Object.entries(tree)) {
       const entry = obj(node);
-      for (const rawFile of arr(entry.files)) {
-        const file = obj(rawFile);
-        const isObject = Object.keys(file).length > 0;
-        const name = isObject ? file.name : rawFile;
-        const nameStr = String(name ?? '');
-        const path = parent === '.' ? nameStr : `${parent}/${nameStr}`;
-        rows.push({ parent, name: nameStr, type: 'file', path });
-      }
-      for (const rawFolder of arr(entry.folders)) {
-        const folder = obj(rawFolder);
-        const isObject = Object.keys(folder).length > 0;
-        const name = isObject ? folder.name : rawFolder;
-        const nameStr = String(name ?? '');
-        const path = parent === '.' ? nameStr : `${parent}/${nameStr}`;
-        rows.push({ parent, name: nameStr, type: 'dir', path });
-      }
+      pushEntries(parent, arr(entry.files), 'file');
+      pushEntries(parent, arr(entry.folders), 'dir');
     }
     return rows;
   },
@@ -547,9 +547,11 @@ export function localFindFilesToTsv(data: unknown): TsvExport {
 // ---------------------------------------------------------------------------
 // localViewStructure — one row per entry
 // ---------------------------------------------------------------------------
+// `path` is intentionally omitted: after base-relativization it equals `name`
+// (directories differ only by a trailing slash), so emitting both duplicates
+// every row. `name` is the relative path; `base` + `name` rebuilds the absolute.
 export const localViewStructureColumns = [
   'name',
-  'path',
   'type',
   'size',
   'modified',
@@ -564,7 +566,6 @@ export const localViewStructureProjection: TsvProjection = {
       const entry = obj(e);
       return {
         name: scalar(entry.name),
-        path: scalar(entry.path),
         type: scalar(entry.type),
         size: scalar(entry.size),
         modified: scalar(entry.modified),
@@ -663,6 +664,7 @@ export const lspFindReferencesColumns = [
   'kind',
   'line',
   'column',
+  'count',
   'content',
   'snippet',
   'isDeclaration',
@@ -675,6 +677,23 @@ export const lspFindReferencesProjection: TsvProjection = {
       (data as { references?: unknown; locations?: unknown }).references ??
         (data as { locations?: unknown }).locations
     );
+    if (refs.length === 0) {
+      const byFile = arr((data as { byFile?: unknown }).byFile);
+      return byFile.map(file => {
+        const item = obj(file);
+        return {
+          uri: scalar(item.uri),
+          name: scalar(item.name),
+          kind: scalar(item.kind),
+          line: scalar(item.firstLine),
+          column: scalar(item.firstCharacter),
+          count: scalar(item.count),
+          content: scalar(item.content),
+          snippet: scalar(item.snippet),
+          isDeclaration: scalar(item.hasDefinition ?? item.isDeclaration),
+        };
+      });
+    }
     return refs.map(r => {
       const loc = obj(r);
       const pos = locationLineColumn(loc);
@@ -684,6 +703,7 @@ export const lspFindReferencesProjection: TsvProjection = {
         kind: scalar(loc.kind),
         line: pos.line,
         column: pos.column,
+        count: scalar(loc.count),
         content: scalar(loc.content),
         snippet: scalar(loc.snippet),
         isDeclaration: scalar(loc.isDeclaration),

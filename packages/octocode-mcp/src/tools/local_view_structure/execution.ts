@@ -9,9 +9,52 @@ import { viewStructure } from './local_view_structure.js';
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  EvidenceMetadata,
+  ProcessedBulkResult,
+} from '../../types/toolResults.js';
+import {
+  attachEvidence,
+  buildEvidenceMetadata,
+  hasMorePagination,
+  incompleteHintReasons,
+  isRecord,
+  paginationTotal,
+  records,
+} from '../evidence.js';
+import { isConcise } from '../../scheme/verbosity.js';
 
 // Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyViewStructureVerbosity } from './local_view_structure.js';
+
+/**
+ * @param concise when true the `entries` array was dropped by concise verbosity.
+ *   `answerReady` is then derived from the entry count (so a non-empty tree is
+ *   not mislabelled "No directory entries matched"), and display-pagination
+ *   "has more" reasons are suppressed.
+ */
+export function buildViewStructureEvidence(
+  result: unknown,
+  concise: boolean
+): EvidenceMetadata {
+  const data = isRecord(result) ? result : {};
+  const entries = records(data.entries);
+  const hasResults =
+    entries.length > 0 || paginationTotal(data.pagination, 'totalEntries') > 0;
+  const reasons: string[] = [];
+
+  if (!concise && hasMorePagination(data.pagination)) {
+    reasons.push('Entry pagination has more results.');
+  }
+  reasons.push(...incompleteHintReasons(data));
+
+  return buildEvidenceMetadata({
+    kind: 'structure',
+    answerReady: hasResults,
+    incompleteReasons: reasons,
+    emptyReason: 'No directory entries matched the supplied view.',
+  });
+}
 
 /**
  * Execute bulk view structure operation.
@@ -38,7 +81,14 @@ export async function executeViewStructure(
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          return viewStructure(validation.data);
+          const result = await viewStructure(validation.data);
+          return attachEvidence(
+            result as ProcessedBulkResult,
+            buildViewStructureEvidence(
+              result,
+              isConcise(validation.data.verbosity)
+            )
+          );
         },
       }),
     {
@@ -48,6 +98,7 @@ export async function executeViewStructure(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

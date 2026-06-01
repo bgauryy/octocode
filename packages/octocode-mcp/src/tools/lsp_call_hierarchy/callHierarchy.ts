@@ -48,11 +48,8 @@ type LSPCallHierarchyQuery = WithVerbosity<
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { callHierarchyWithLSP } from './callHierarchyLsp.js';
 import { callHierarchyWithPatternMatching } from './callHierarchyPatterns.js';
-import { applyOutputSizeLimit } from '../../utils/pagination/outputSizeLimit.js';
-import { serializeForPagination } from '../../utils/pagination/core.js';
 import { TOOL_NAME } from './constants.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
-import { applyQueryOutputPagination } from '../../utils/response/structuredPagination.js';
 import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
 import {
   attachRawResponseChars,
@@ -159,7 +156,10 @@ async function processCallHierarchyInternal(
           // below explicitly sets lspMode='fallback'.
           const semanticResult = result;
           return attachRawResponseChars(
-            applyCallHierarchyOutputLimit(semanticResult, query),
+            // Output bounding is owned entirely by the bulk char-paginator,
+            // which sub-slices an oversized node's nested `content` — so no
+            // per-tool pre-clip is needed (lossless: the cursor reaches the rest).
+            semanticResult,
             content.length + countSerializedChars(semanticResult)
           );
         }
@@ -198,8 +198,17 @@ async function processCallHierarchyInternal(
             ),
             lspMode: 'fallback',
           };
+    // Char-pagination is owned by the unified bulk engine:
+    // applyQueryOutputPagination (explicit charOffset/charLength) and
+    // applyBulkResponsePagination (auto-cap) handle it via the same single
+    // getOutputCharLimit() flow as every other tool. The old per-tool
+    // applyCallHierarchyOutputLimit pre-paginated against JSON length and
+    // emitted its own outputPagination + "Auto-paginated" breadcrumbs
+    // ALONGSIDE the bulk layer — producing contradictory totals (three
+    // different char counts for the same query). Removing it here means the
+    // bulk engine is the one and only pagination authority.
     return attachRawResponseChars(
-      applyCallHierarchyOutputLimit(withMode, query),
+      withMode,
       content.length + countSerializedChars(withMode)
     );
   } catch (error) {
@@ -229,84 +238,6 @@ function withLspUnavailableHint(
   return {
     ...result,
     hints: [LSP_UNAVAILABLE_HINT, ...(result.hints || [])],
-  };
-}
-
-/**
- * Apply output size limits to a call hierarchy result.
- * Serializes the result, checks against MAX_OUTPUT_CHARS, and auto-paginates
- * or applies explicit charOffset/charLength if provided.
- */
-function applyCallHierarchyOutputLimit(
-  result: CallHierarchyResult,
-  query: LSPCallHierarchyQuery
-): CallHierarchyResult {
-  if (result.status !== undefined) return result;
-
-  const serialized = serializeForPagination(result, true);
-  const sizeLimitResult = applyOutputSizeLimit(serialized, {
-    charOffset: query.charOffset,
-    charLength: query.charLength,
-  });
-
-  if (!sizeLimitResult.wasLimited || !sizeLimitResult.pagination) return result;
-
-  // CallHierarchyResult satisfies Record<string, unknown> via its [key: string]:
-  // unknown index signature inherited from LSPToolResultBase, so no cast needed.
-  const pagedQueryResult = applyQueryOutputPagination(
-    {
-      id: query.id ?? 'q1',
-      status: result.status,
-      data: result,
-    },
-    {
-      charOffset: sizeLimitResult.pagination.charOffset,
-      charLength: sizeLimitResult.pagination.charLength,
-    },
-    TOOL_NAME
-  );
-
-  // pagedQueryResult.data is Record<string, unknown> — narrow what we read
-  // back into typed values rather than asserting a Partial<CallHierarchyResult>.
-  const pagedData = pagedQueryResult.data;
-  const pagedHints = Array.isArray(pagedData.hints)
-    ? pagedData.hints.filter((h): h is string => typeof h === 'string')
-    : [];
-
-  // Re-spread the original result.hints to make hint-preservation an explicit
-  // invariant. applyQueryOutputPagination today excludes 'hints' from
-  // structured pagination, so result.hints survives in pagedData.hints — but
-  // re-spreading guards against future paginator changes that might paginate
-  // hints, and aligns with applyGotoDefinitionOutputLimit's pattern. Set
-  // dedupes the outer hints with whatever pagedData.hints carries through.
-  const combinedHints = [
-    ...(result.hints ?? []),
-    ...pagedHints,
-    ...sizeLimitResult.warnings,
-    ...sizeLimitResult.paginationHints,
-  ];
-
-  const pagedLspMode: CallHierarchyResult['lspMode'] =
-    pagedData.lspMode === 'semantic' || pagedData.lspMode === 'fallback'
-      ? pagedData.lspMode
-      : undefined;
-
-  return {
-    ...result,
-    ...pagedData,
-    // Pin lspMode from the pre-pagination result. pagedData may omit it
-    // if the JSON slice lands past the field, and a slice that explicitly
-    // serialised `lspMode` to undefined would otherwise erase the marker.
-    lspMode: result.lspMode ?? pagedLspMode,
-    outputPagination: {
-      charOffset: sizeLimitResult.pagination.charOffset!,
-      charLength: sizeLimitResult.pagination.charLength!,
-      totalChars: sizeLimitResult.pagination.totalChars!,
-      hasMore: sizeLimitResult.pagination.hasMore,
-      currentPage: sizeLimitResult.pagination.currentPage,
-      totalPages: sizeLimitResult.pagination.totalPages,
-    },
-    hints: Array.from(new Set(combinedHints)),
   };
 }
 
@@ -373,8 +304,15 @@ function buildConciseCallHierarchy(
     result.item && typeof result.item === 'object'
       ? { ...result.item, content: '' }
       : result.item;
+  // Concise is a complete, tiny probe answer (the edge list lives in `hints`).
+  // Drop pagination / outputPagination: they were computed from the full
+  // payload before calls[] was emptied, so they're stale and would both bloat
+  // the response and falsely mark it incomplete. (#T3 / #5b)
+  const rest = { ...result } as Record<string, unknown>;
+  delete rest.pagination;
+  delete rest.outputPagination;
   return {
-    ...result,
+    ...(rest as CallHierarchyResult),
     ...(item ? { item } : {}),
     ...(hasCalls ? { calls: [] } : {}),
     ...(hasIncoming ? { incomingCalls: [] } : {}),

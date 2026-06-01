@@ -159,8 +159,6 @@ Default strategy: probe with `concise`; if the signal matters, re-call with `com
 { "queries": [{ "pattern": "parseHints", "path": "src/hints/parseHints.ts", "verbosity": "compact" }] }
 ```
 
-For the longer design rationale, see [RFC §3.1](https://github.com/bgauryy/octocode-mcp/blob/main/.octocode/rfc/rtk-token-techniques/RFC.md#31-what-this-rfc-costs--friction-lossy-modes-and-the-agent-decides-design).
-
 ## Tools at a Glance
 
 ### Local Tools

@@ -254,6 +254,7 @@ describe('providerMappers', () => {
         'labels',
         'mergedAt',
         'number',
+        'reviewSummary',
         'sourceBranch',
         'sourceSha',
         'state',
@@ -266,6 +267,112 @@ describe('providerMappers', () => {
     );
     expect(pr!.sourceSha).toBe('abc123');
     expect(pr!.targetSha).toBe('def456');
+    expect(pr!.reviewSummary).toMatchObject({
+      totalComments: 1,
+      commenters: ['bob'],
+      themes: ['approval'],
+    });
+  });
+
+  it('keeps a lightweight fileChanges list (paths+counts, no patch) when includeFileChanges is false', () => {
+    const { resultData } = mapPullRequestProviderResultData(
+      {
+        items: [
+          {
+            number: 410,
+            title: 'update docs',
+            body: 'docs body',
+            url: 'https://github.com/owner/repo/pull/410',
+            state: 'merged',
+            draft: false,
+            author: 'alice',
+            assignees: [],
+            labels: [],
+            sourceBranch: 'docs',
+            targetBranch: 'main',
+            sourceSha: 'aaa',
+            targetSha: 'bbb',
+            createdAt: '2026-05-24T00:00:00Z',
+            updatedAt: '2026-05-25T00:00:00Z',
+            additions: 90,
+            deletions: 70,
+            // changedFilesCount intentionally omitted — must be derived from
+            // the fetched file list before it is dropped.
+            fileChanges: [
+              {
+                path: 'a.md',
+                status: 'modified',
+                additions: 50,
+                deletions: 40,
+                patch: '@@ -1 +1 @@\n-old\n+new',
+              },
+              {
+                path: 'b.md',
+                status: 'modified',
+                additions: 40,
+                deletions: 30,
+              },
+            ],
+          },
+        ],
+        totalCount: 1,
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          hasMore: false,
+          totalMatches: 1,
+        },
+      },
+      { includeFileChanges: false }
+    );
+
+    const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
+    // Metadata mode keeps the file list so "which files changed?" needs no
+    // second call — but strips patches to stay lean.
+    const fileChanges = pr!.fileChanges as Array<Record<string, unknown>>;
+    expect(fileChanges).toHaveLength(2);
+    expect(fileChanges.map(f => f.path)).toEqual(['a.md', 'b.md']);
+    expect(fileChanges[0]!.additions).toBe(50);
+    expect(fileChanges.every(f => f.patch === undefined)).toBe(true);
+    expect(pr!.changedFilesCount).toBe(2);
+    expect(pr!.additions).toBe(90);
+    expect(pr!.deletions).toBe(70);
+  });
+
+  it('keeps the fileChanges array when includeFileChanges is true (default)', () => {
+    const { resultData } = mapPullRequestProviderResultData({
+      items: [
+        {
+          number: 411,
+          title: 'feature',
+          body: 'feat body',
+          url: 'https://github.com/owner/repo/pull/411',
+          state: 'open',
+          draft: false,
+          author: 'alice',
+          assignees: [],
+          labels: [],
+          sourceBranch: 'feat',
+          targetBranch: 'main',
+          createdAt: '2026-05-24T00:00:00Z',
+          updatedAt: '2026-05-25T00:00:00Z',
+          fileChanges: [
+            { path: 'a.ts', status: 'modified', additions: 1, deletions: 0 },
+          ],
+        },
+      ],
+      totalCount: 1,
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+        totalMatches: 1,
+      },
+    });
+
+    const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
+    expect(Array.isArray(pr!.fileChanges)).toBe(true);
+    expect((pr!.fileChanges as unknown[]).length).toBe(1);
   });
 
   it('emits a single combined cursor line when hasMore', () => {

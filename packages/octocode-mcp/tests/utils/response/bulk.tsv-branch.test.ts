@@ -36,13 +36,22 @@ describe('bulk.ts — TSV branch in the generic path', () => {
         peerHints: true,
       }
     );
+    // #A1: the presentation-only TSV envelope lives in content[0].text; the
+    // structuredContent carries the canonical structured records only.
+    // (text is YAML/JSON, so the row tabs are escaped as literal "\t".)
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toMatch(/format.*tsv/);
+    expect(text).toContain('o\\tr\\t');
+    expect(text).toContain('TypeScript');
+    expect(text).toContain('2026-05-24');
+
     const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc.format).toBe('tsv');
-    expect(Array.isArray(sc.columns)).toBe(true);
-    expect(typeof sc.rows).toBe('string');
-    expect(String(sc.rows)).toContain('o\tr\t');
-    expect(String(sc.rows)).toContain('\tTypeScript\t["x"]\t');
-    expect(String(sc.rows)).toContain('\t2026-05-24\t');
+    expect(sc.format).toBeUndefined();
+    expect(sc.columns).toBeUndefined();
+    expect(sc.rows).toBeUndefined();
+    expect(sc.base).toBeUndefined();
+    expect(sc.shared).toBeUndefined();
+    expect(Array.isArray(sc.results)).toBe(true);
   });
 
   it('does NOT emit TSV envelope when config.format=json (default branch silent)', async () => {

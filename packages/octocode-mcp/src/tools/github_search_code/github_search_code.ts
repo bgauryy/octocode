@@ -17,4 +17,9 @@ export const registerGitHubSearchCodeTool = createRemoteToolRegistration({
   inputSchema: GitHubCodeSearchBulkQueryLocalSchema,
   outputSchema: GitHubCodeSearchOutputLocalSchema,
   executionFn: searchMultipleGitHubCode,
+  describe: base => `${base}
+<gotchas>
+- keywordsToSearch is a narrowing set of terms, not a broad synonym list. For OR-style exploration, run separate queries.
+- Under verbosity="concise", limit is capped to 3 before the GitHub request.
+</gotchas>`,
 });

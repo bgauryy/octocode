@@ -75,8 +75,8 @@ const cases: ExportCase[] = [
         },
       ],
     },
-    expectedColumns: ['id', 'owner', 'repo', 'path', 'value'],
-    rowProbe: 'o/r\to\tr\tsrc/a.ts\texport const a = 1',
+    expectedColumns: ['owner', 'repo', 'path', 'value'],
+    rowProbe: 'o\tr\tsrc/a.ts\texport const a = 1',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
@@ -102,8 +102,8 @@ const cases: ExportCase[] = [
     },
     // `content` omitted by design — TSV is metadata, file body lives only
     // in JSON `data.results[].files[].content`.
-    expectedColumns: ['id', 'owner', 'repo', 'path', 'totalLines'],
-    rowProbe: 'q1\to\tr\tREADME.md\t1',
+    expectedColumns: ['owner', 'repo', 'path', 'totalLines'],
+    rowProbe: 'o\tr\tREADME.md\t1',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
@@ -151,8 +151,8 @@ const cases: ExportCase[] = [
     projection: githubViewRepoStructureProjection,
     toTsv: githubViewRepoStructureToTsv,
     fixture: { structure: { '.': { files: ['README.md'], folders: ['src'] } } },
-    expectedColumns: ['parent', 'name', 'type', 'path'],
-    rowProbe: '.\tREADME.md\tfile',
+    expectedColumns: ['path', 'type'],
+    rowProbe: 'README.md\tfile',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
@@ -208,8 +208,9 @@ const cases: ExportCase[] = [
     fixture: {
       entries: [{ name: 'src', path: '/tmp/src', type: 'd', size: '4K' }],
     },
-    expectedColumns: ['name', 'path', 'type', 'size', 'depth'],
-    rowProbe: 'src\t/tmp/src\td\t4K',
+    // `path` omitted by design — after base-relativization it equals `name`.
+    expectedColumns: ['name', 'type', 'size', 'depth'],
+    rowProbe: 'src\td\t4K',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,

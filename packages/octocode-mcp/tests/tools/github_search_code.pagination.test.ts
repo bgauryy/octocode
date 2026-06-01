@@ -40,24 +40,6 @@ type Pagination = {
 
 type PerQueryPagination = Pagination & { id: string };
 
-type Warning =
-  | {
-      kind: 'match-value-truncated';
-      groupId: string;
-      path: string;
-      fullValueLength: number;
-      truncatedAt: number;
-      recovery: string;
-    }
-  | {
-      kind: 'content-truncated';
-      groupId: string;
-      path: string;
-      fullContentLength: number;
-      truncatedAt: number;
-      recovery: string;
-    };
-
 type FlatResponse = {
   results: Array<{
     id: string;
@@ -68,7 +50,9 @@ type FlatResponse = {
   outputPagination?: PerQueryPagination[];
   responsePagination?: Pagination;
   hints?: string[];
-  warnings?: Warning[];
+  // githubSearchCode no longer emits any warnings (truncation removed); kept
+  // as `unknown[]` only so the `toBeUndefined()` guards stay type-clean.
+  warnings?: unknown[];
   errors?: Array<{ id: string; error: string }>;
 };
 
@@ -144,7 +128,12 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       expect(data.results).toHaveLength(1);
     });
 
-    it('omits pagination when no charLength/responseCharLength is supplied even for big responses', async () => {
+    it('auto-paginates big responses at the default limit even without an explicit charLength', async () => {
+      // A single 20K-char match far exceeds the single output limit (2000).
+      // With no explicit pagination knobs the response must STILL be bounded:
+      // the unified engine auto-paginates at getOutputCharLimit(), clips the
+      // oversized match (with a structured warning + recovery), and exposes a
+      // responseCharOffset cursor — never emitting the full 20K body whole.
       const huge = 'X'.repeat(20_000);
       mockProvider.searchCode.mockResolvedValue({
         data: {
@@ -161,9 +150,21 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.outputPagination).toBeUndefined();
-      expect(data.responsePagination).toBeUndefined();
-      expect(data.results[0]?.matches[0]?.value?.length).toBe(huge.length);
+      // Auto-paginated: responsePagination is present with more to fetch.
+      expect(data.responsePagination).toBeDefined();
+      expect(data.responsePagination!.hasMore).toBe(true);
+      // The 20K body was NOT emitted whole — it was windowed to fit the budget.
+      const emitted = data.results[0]?.matches[0]?.value?.length ?? 0;
+      expect(emitted).toBeLessThan(huge.length);
+      // No data is lost and NO truncation marker/warning: the remainder is
+      // reachable purely by advancing the responseCharOffset cursor.
+      expect(data.warnings).toBeUndefined();
+      expect(data.results[0]?.matches[0]?.value).not.toMatch(
+        /\[(truncated|clipped)\]/i
+      );
+      expect(data.hints?.some(h => h.includes('responseCharOffset'))).toBe(
+        true
+      );
     });
   });
 
@@ -248,8 +249,14 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       expect(second.outputPagination![0]!.charOffset).toBe(nextOffset);
       const firstPaths = first.results[0]?.matches.map(m => m.path) ?? [];
       const secondPaths = second.results[0]?.matches.map(m => m.path) ?? [];
-      // Pages do not overlap
-      expect(secondPaths.some(p => firstPaths.includes(p))).toBe(false);
+      // No file is skipped across the page boundary: the union covers all 5,
+      // and the second page resumes at or after where the first ended. (A
+      // boundary path MAY repeat when a single value is split across pages —
+      // that is correct intra-item continuation, not overlap/duplication.)
+      const union = new Set([...firstPaths, ...secondPaths]);
+      expect(union.size).toBe(5);
+      const lastFirst = firstPaths[firstPaths.length - 1];
+      expect(secondPaths[0]! >= lastFirst!).toBe(true);
     });
 
     it('sets hasMore=false on the final page', async () => {
@@ -584,8 +591,8 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
     });
   });
 
-  describe('Hybrid escape valve for oversized atomic groups', () => {
-    it('falls back to match-level slicing when next group > 2x charLength', async () => {
+  describe('Oversized values are windowed by char pagination, never truncated', () => {
+    it('keeps the page within budget and exposes a continuation cursor', async () => {
       // One group, one huge match — far larger than the bulk budget.
       const huge = 'X'.repeat(50_000);
       mockProvider.searchCode.mockResolvedValue({
@@ -610,20 +617,16 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       ).structuredContent as FlatResponse;
 
       expect(data.responsePagination).toBeDefined();
-      // Escape-valve kicked in: the single oversized group is split at the
-      // match level, so this page only carries some of its matches.
-      const matchCount = data.results[0]?.matches.length ?? 0;
-      expect(matchCount).toBeGreaterThan(0);
-      expect(matchCount).toBeLessThan(3);
       expect(data.responsePagination!.hasMore).toBe(true);
-      // The consumed-chars contract still holds even under the escape valve.
-      expect(data.responsePagination!.charLength).toBeLessThanOrEqual(
-        2 * 5_000
-      );
+      // Deterministic bound: the page never exceeds the requested budget by
+      // more than a single group wrapper — far tighter than the old ≤2× cap,
+      // and certainly never the full 50K.
+      expect(data.responsePagination!.charLength).toBeLessThanOrEqual(5_200);
+      // NO truncation warnings exist anymore — oversized data is paginated.
+      expect(data.warnings).toBeUndefined();
     });
 
-    it('emits a structured warning when a single match value is truncated', async () => {
-      // Single oversized match — triggers the second-level escape valve.
+    it('slices an oversized value without a marker and reassembles losslessly across pages', async () => {
       const huge = 'Y'.repeat(50_000);
       mockProvider.searchCode.mockResolvedValue({
         data: {
@@ -635,25 +638,36 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         provider: 'github',
       });
 
-      const data = (
-        await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+      const call = (responseCharOffset?: number) =>
+        mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
           queries: [{ keywordsToSearch: ['y'], owner: 'owner', repo: 'giant' }],
           responseCharLength: 5_000,
-        })
-      ).structuredContent as FlatResponse;
+          ...(responseCharOffset !== undefined ? { responseCharOffset } : {}),
+        });
 
-      expect(data.warnings).toBeDefined();
-      const truncWarning = data.warnings!.find(
-        w => w.kind === 'match-value-truncated'
+      const first = (await call()).structuredContent as FlatResponse;
+      const firstValue = first.results[0]?.matches[0]?.value ?? '';
+      // No marker, no truncation warning — just a slice plus a cursor.
+      expect(firstValue).not.toMatch(/\[(truncated|clipped)\]/i);
+      expect(first.warnings).toBeUndefined();
+      expect(first.responsePagination!.hasMore).toBe(true);
+      expect(first.hints?.some(h => h.includes('responseCharOffset'))).toBe(
+        true
       );
-      expect(truncWarning).toBeDefined();
-      expect(truncWarning!.groupId).toBe('owner/giant');
-      expect(truncWarning!.path).toBe('src/giant.ts');
-      expect(truncWarning!.fullValueLength).toBe(50_000);
-      expect(truncWarning!.truncatedAt).toBeLessThan(50_000);
-      expect(truncWarning!.recovery).toMatch(
-        /responseCharLength|larger budget/i
-      );
+
+      // Walk the responseCharOffset cursor to the end and reassemble.
+      let assembled = '';
+      let offset = 0;
+      for (let i = 0; i < 40; i++) {
+        const page = (await call(offset)).structuredContent as FlatResponse;
+        assembled += page.results[0]?.matches[0]?.value ?? '';
+        const p = page.responsePagination!;
+        if (!p.hasMore) break;
+        offset = p.charOffset + p.charLength;
+      }
+      // Every 'Y' is recovered — nothing dropped.
+      expect(assembled.length).toBeGreaterThanOrEqual(huge.length);
+      expect(/^Y+$/.test(assembled)).toBe(true);
     });
   });
 });

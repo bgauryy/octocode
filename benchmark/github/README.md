@@ -9,15 +9,31 @@ The benchmark has two phases:
    - `octocode` researcher: uses only Octocode MCP tools, routed through `scripts/mcp-meas.mjs`.
    - `gh` researcher: uses only GitHub CLI, routed through `scripts/gh-meas.sh`.
 
-2. **Judge:** a separate judge reads the completed `octocode` and `gh` outputs, independently fact-checks each answer against the live GitHub repositories/PRs, assigns semantic quality scores, combines those scores with measured character usage, and writes `benchmark/github/output/summary.md`.
+2. **Judge:** a separate judge reads the completed `octocode` and `gh` outputs, independently fact-checks each answer against GitHub repositories/PRs, assigns semantic quality scores, combines those scores with measured character usage, and writes `benchmark/github/output/summary.md`.
 
-There is intentionally no `EXPECTED_FACTS.md` answer key. Quality is judged by an independent validation pass, not by a static checklist.
+Blind runs use judge evidence notes instead of a static answer-key file. Publication-quality runs should include those evidence notes, fixed repository refs for non-drift questions where possible, and the raw run artifacts so another reviewer can reproduce the score.
 
 ---
 
-## If you are an agent: choose your role first
+## Question Categories And Capability Dimensions
 
-You must know which role you were assigned before acting.
+The 17 questions are grouped by the capability dimension each one probes. The goal is to compare how each toolset handles the same research task, then report any tradeoffs plainly.
+
+| Category | Tag | Octocode tool | gh comparison surface | Questions |
+|---|---|---|---|---|
+| Code search completeness | `SEARCH` | `githubSearchCode` | Result limits and multi-query workflows | Q1–Q4 |
+| File content completeness | `CONTENT` | `githubGetFileContent` | Large-file retrieval and targeted reads | Q5–Q8 |
+| Repo tree navigation | `STRUCTURE` | `githubViewRepoStructure` | Tree shape, filtering, and metadata extraction | Q9–Q11 |
+| PR intelligence | `PR` | `githubSearchPullRequests` | PR comments, reviews, commits, and changed files | Q12–Q15 |
+| Repository search | `REPOS` | `githubSearchRepositories` | Search filters, counts, and pagination metadata | Q16–Q17 |
+
+Questions tagged `[drift]` are time-sensitive. The judge scores them loosely and reports them in the **Drift verdict** section, separate from the main quality tally.
+
+---
+
+## If You Are An Agent: Choose Your Role First
+
+Start by confirming which role you were assigned.
 
 | Assigned role | What you do | Fact-checking mode | Output directory/file |
 |---|---|---|---|
@@ -25,13 +41,26 @@ You must know which role you were assigned before acting.
 | `researcher: gh` | Answer all questions using only metered `gh` CLI calls | Blind research only | `benchmark/github/output/gh/` |
 | `judge` | Compare completed `octocode` and `gh` runs semantically and by efficiency | Independent verification | `benchmark/github/output/summary.md` |
 
-If your assigned role is unclear, stop and ask whether you are `researcher: octocode`, `researcher: gh`, or `judge`.
+If your assigned role is unclear, ask whether you are `researcher: octocode`, `researcher: gh`, or `judge`.
 
 ---
 
 ## Dependencies
 
-Metering is **character-only** and dependency-free. The scripts count Unicode codepoints directly; do not install or use tokenizer libraries for this benchmark.
+Metering is **character-only** and dependency-free. The scripts count Unicode codepoints directly; tokenizer libraries are outside this benchmark's ruler.
+
+---
+
+## Publication-Quality Run Standard
+
+A run is considered publication-ready when it includes:
+
+- Raw `octocode` and `gh` run directories with `log.jsonl`, every `q<n>.md`, every `q<n>.json`, `output.md`, and `summary.json`.
+- A judge summary with evidence notes for every score below 3, plus clear treatment of drift questions.
+- A completed `RUN_MANIFEST.template.md` copy with model IDs, tool versions, refs, and retrieval dates.
+- Repository refs or retrieval dates for facts that can drift over time.
+- At least three same-agent runs when stochastic agent behavior is being compared, with variance reported through `scripts/report-variance.mjs`.
+- The exact model IDs, tool versions, authentication source, and benchmark commit SHA used for the run.
 
 ---
 
@@ -85,7 +114,7 @@ JSON-RPC envelopes and the literal `gh` command word are excluded so both agents
 
 For Octocode MCP init/context rows, `mcp-meas.mjs` counts the full JSON-RPC `result` for `initialize` and `tools/list`, because those server instructions and tool schemas are loaded into the agent context.
 
-### MCP init/context cost — do not forget this
+### MCP init/context cost
 
 The Octocode MCP client receives server instructions and tool schemas during MCP startup:
 
@@ -119,7 +148,7 @@ These rows represent the one-time context cost of loading the MCP system instruc
 | `scripts/cross-run.mjs <run...>` | optional analysis | Reports medians across saved repeated runs | Summarizes repeated same-agent runs without pretending one stochastic run is definitive. |
 | `scripts/report-variance.mjs [--csv] <run...>` | optional analysis | Reports variance/CV across saved repeated runs of the same agent | Quantifies run-to-run spread so benchmark claims can disclose instability instead of hiding it. |
 | `scripts/validate-pipeline.mjs [--strict-cmds] <run...>` | optional analysis | Checks deterministic metering fields across same-agent runs | Regression-tests the metering pipeline itself, separate from normal agent stochasticity. |
-| `scripts/score-token-usage.mjs <octocode-run> <gh-run> <quality.json>` | optional judge aid | Combines judge-supplied quality scores with measured chars; it does not score quality itself | Makes the arithmetic reproducible while keeping semantic quality judgment human/agent-reviewed and non-rigid. |
+| `scripts/score-token-usage.mjs <octocode-run> <gh-run> <quality.json>` | optional judge aid | Combines judge-supplied quality scores with measured chars; it does not score quality itself | Makes the arithmetic reproducible while keeping semantic quality judgment evidence-based and reviewable. |
 
 ---
 
@@ -127,14 +156,14 @@ These rows represent the one-time context cost of loading the MCP system instruc
 
 Use this section only if your assigned role is `researcher: octocode`.
 
-## Hard rules
+## Validity Requirements
 
 - Read `benchmark/github/QUESTIONS.md`.
-- Do **not** read the other agent's output or `benchmark/github/output/summary.md` during the run.
-- You may use **any Octocode MCP tool** needed to answer the questions, as long as every call is routed through `scripts/mcp-meas.mjs`.
-- Do not use direct/unmetered Octocode tools, `gh`, web search, `curl`, `wget`, `git clone`, or local repository files.
+- Keep the run blind: leave the other agent's output and `benchmark/github/output/summary.md` unread during the run.
+- You may use **any Octocode MCP tool** needed to answer the questions when every call is routed through `scripts/mcp-meas.mjs`.
+- Keep research inside the metered Octocode path; direct/unmetered Octocode tools, `gh`, web search, `curl`, `wget`, `git clone`, and local repository files are outside this run.
 - Run questions sequentially: finish and record Q`n` before starting Q`n+1`.
-- Never use `record.sh --allow-zero`.
+- Leave `record.sh --allow-zero` unused for benchmark runs.
 
 ## Setup
 
@@ -168,7 +197,7 @@ grep '"cmd":"_initialize"' "$RUN/log.jsonl"
 grep '"cmd":"_tools/list"' "$RUN/log.jsonl"
 ```
 
-If either row is missing, stop. The MCP context/tool-schema cost was not captured, so the run is invalid.
+If either row is missing, pause the run and fix the MCP configuration before answering Q1. The MCP context/tool-schema cost was not captured.
 
 ## Per-question loop
 
@@ -186,16 +215,16 @@ After your first Octocode tool call for that question, verify the call was attri
 grep '"q":<n>' "$RUN/log.jsonl"
 ```
 
-If no row exists for that Q after a tool call, stop; your MCP calls are not being metered correctly.
+If no row exists for that Q after a tool call, pause and fix the metered path before recording an answer.
 
 Write the answer to `/tmp/answer.md`:
 
 - Start directly with bullets; no `## Answer` header.
-- Use concise facts, but do not omit required sub-answers.
+- Use concise facts while preserving required sub-answers.
 - Use one bullet per fact/sub-question/repository when helpful.
 - Put file paths, repo slugs, function names, PR numbers, version strings, APIs, and important identifiers in backticks when practical.
-- If you cannot answer after appropriate metered research, write exactly `UNKNOWN — <one-line reason>`.
-- Do not narrate your process or include tool transcripts.
+- If you cannot answer after appropriate metered research, write `UNKNOWN — <one-line reason>`.
+- Keep process notes and tool transcripts out of the recorded answer.
 
 Record the answer:
 
@@ -203,7 +232,7 @@ Record the answer:
 bash benchmark/github/scripts/record.sh <n> "<model-id>" /tmp/answer.md
 ```
 
-If `record.sh` reports zero rows, stop. The metered path was bypassed.
+If `record.sh` reports zero rows, redo the question through the metered path before moving on.
 
 ## Finalize octocode run
 
@@ -224,14 +253,14 @@ This writes:
 
 Use this section only if your assigned role is `researcher: gh`.
 
-## Hard rules
+## Validity Requirements
 
 - Read `benchmark/github/QUESTIONS.md`.
-- Do **not** read the other agent's output or `benchmark/github/output/summary.md` during the run.
-- You may use **any `gh` CLI command** needed to answer the questions, as long as every call is routed through `scripts/gh-meas.sh`.
-- Do not use bare `gh`, Octocode tools, web search, `curl`, `wget`, `git clone`, or local repository files.
+- Keep the run blind: leave the other agent's output and `benchmark/github/output/summary.md` unread during the run.
+- You may use **any `gh` CLI command** needed to answer the questions when every call is routed through `scripts/gh-meas.sh`.
+- Keep research inside the metered `gh` wrapper; bare `gh`, Octocode tools, web search, `curl`, `wget`, `git clone`, and local repository files are outside this run.
 - Run questions sequentially: finish and record Q`n` before starting Q`n+1`.
-- Never use `record.sh --allow-zero`.
+- Leave `record.sh --allow-zero` unused for benchmark runs.
 
 ## Setup
 
@@ -265,7 +294,7 @@ The wrapper logs:
 - elapsed time
 - current question number from `$RUN/.current-q`
 
-Bare `gh ...` is unmetered and invalidates the run.
+Bare `gh ...` is unmetered, so redo that question through the wrapper before recording it.
 
 ## Per-question loop
 
@@ -280,11 +309,11 @@ Read exactly that question from `QUESTIONS.md`. Research using any `gh` CLI comm
 Write the answer to `/tmp/answer.md`:
 
 - Start directly with bullets; no `## Answer` header.
-- Use concise facts, but do not omit required sub-answers.
+- Use concise facts while preserving required sub-answers.
 - Use one bullet per fact/sub-question/repository when helpful.
 - Put file paths, repo slugs, function names, PR numbers, version strings, APIs, and important identifiers in backticks when practical.
-- If you cannot answer after appropriate metered research, write exactly `UNKNOWN — <one-line reason>`.
-- Do not narrate your process or include command transcripts.
+- If you cannot answer after appropriate metered research, write `UNKNOWN — <one-line reason>`.
+- Keep process notes and command transcripts out of the recorded answer.
 
 Record the answer:
 
@@ -292,7 +321,7 @@ Record the answer:
 bash benchmark/github/scripts/record.sh <n> "<model-id>" /tmp/answer.md
 ```
 
-If `record.sh` reports zero rows, stop. You used an unmetered path or no tool calls were logged.
+If `record.sh` reports zero rows, redo the question through the metered path before moving on.
 
 ## Finalize gh run
 
@@ -324,7 +353,7 @@ Read:
 5. `benchmark/github/output/gh/summary.json`
 6. Every `q<n>.md` and `q<n>.json` in both run directories.
 
-There is intentionally no expected-facts file. The judge must independently verify the relevant facts for each question before assigning scores. Judge research/tool calls are outside the measured researcher runs and do not affect token-usage totals.
+Blind runs use independent judge verification instead of an expected-facts file. The judge verifies the relevant facts for each question before assigning scores. Judge research/tool calls are outside the measured researcher runs and are excluded from token-usage totals.
 
 ## Quality scoring
 
@@ -333,18 +362,18 @@ Score each answer semantically from 0 to 3:
 | Score | Meaning |
 |---:|---|
 | 3 | All load-bearing facts present, no false claims, all requested repos/trace steps/PR sub-questions answered |
-| 2 | Mostly correct, but one load-bearing sub-fact missing or wrong |
-| 1 | Partially correct, or a hallucinated claim is present |
+| 2 | Mostly correct, but one load-bearing sub-fact is missing or inaccurate |
+| 1 | Partially correct, or an unsupported claim is present |
 | 0 | Wrong, empty, or `UNKNOWN` |
 
 Rules:
 
-- Do not use a rigid keyword checklist.
+- Avoid checklist-only scoring.
 - Score against the exact question wording and facts you independently verify from GitHub repositories, files, PRs, comments, reviews, and release/source history as needed.
 - Accept equivalent identifiers, moved/renamed files, paraphrases, and extra correct context.
 - Penalize missing required facts, unsupported claims, or contradictions.
 - For multi-part questions, score parts separately and average.
-- For every non-3 score, cite a specific missing/wrong file path, identifier, PR discussion point, or agent claim.
+- For every score below 3, cite a specific missing or inaccurate file path, identifier, PR discussion point, or agent claim.
 
 ## Token-usage scoring
 
@@ -361,7 +390,7 @@ For Octocode:
 amortized_mcp_init_chars = (mcp_init.in_chars + mcp_init.out_chars) / N
 ```
 
-`N` is the number of comparable, non-drift, non-excluded questions scored for both agents. Do not amortize MCP init over questions that are excluded from the token-usage verdict.
+`N` is the number of comparable, non-drift, non-excluded questions scored for both agents. Amortize MCP init only over questions included in the token-usage verdict.
 
 For `gh`:
 
@@ -373,7 +402,7 @@ A zero-quality answer has zero token score even if it is character-cheap. If the
 
 ## Required judge output
 
-Write exactly one file:
+Write one judge summary file:
 
 ```text
 benchmark/github/output/summary.md
@@ -386,57 +415,76 @@ Use these sections:
 
 ## Per-question table
 
-| Q | Drift | Octo qual | gh qual | Octo chars | gh chars | Octo token score | gh token score | Winner | Notes |
+| Q | Category | Drift | Octo qual | gh qual | Octo calls | gh calls | Octo chars | gh chars | Octo token score | gh token score | Winner | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Quality verdict (non-drift Qs only)
 
 | Agent | Σ quality | Token-score wins | Token-score ties | Avg quality per Q |
+|---|---|---|---|---|
 
 ## Drift verdict (reported separately)
+
+| Q | Category | Octo qual | gh qual | Notes |
+|---|---|---|---|---|
 
 ## Quality-adjusted token-usage verdict
 
 | Axis | octocode | gh | ratio (octo/gh) |
+|---|---|---|---|
 | Σ quality (non-drift) | | | |
 | Σ calls | | | |
 | Σ in_chars (per-Q) | | | |
 | Σ out_chars (per-Q) | | | |
 | MCP init chars | | 0 | |
 | TOTAL chars (per-Q + init) | | | |
-| Approx tokens (`TOTAL chars / 4`) | | | |
+| Approx tokens (TOTAL chars / 4) | | | |
 | Quality per 1k chars = Σ quality / (TOTAL chars/1000) | | | |
 | Σ tool_elapsed_ms (context only) | | | |
 | Σ q_elapsed_ms (context only) | | | |
 | Σ reasoning_ms (context only) | | | |
 
-## Failure-mode review
+## Capability Review
+
+For each question where `gh` scored lower than Octocode, cite the specific capability difference:
+- **SEARCH result limit** — code search result ceilings affected completeness
+- **SEARCH bulk workflow** — `gh` needed separate calls where Octocode used bulk queries
+- **CONTENT large file path** — large files required extra retrieval steps
+- **CONTENT pagination** — one tool returned a broad blob while the other used a targeted window
+- **CONTENT directory** — directory metadata shape affected filtering/grouping work
+- **STRUCTURE tree shape** — tree output shape affected parsing and counts
+- **PR inline comments** — inline review threads required additional retrieval
+- **PR diff completeness** — changed-file or diff details required additional retrieval
+- **REPOS pagination** — repository enumeration depended on result limits and pagination
 
 ## Verdict
 ```
 
-Do not write additional files.
+Write the judge summary only.
 
 ---
 
 ## Scoring model summary
 
-Evaluation is semantic and intentionally not rigid. The judge independently fact-checks the answers instead of reading a static answer key. The benchmark winner is based on quality-adjusted token/character usage: answer quality per measured character, with MCP init/context chars charged to Octocode. Elapsed time is reported as context only.
+Evaluation is semantic and evidence-based. The judge independently fact-checks the answers instead of relying on keyword matching. The benchmark winner is based on quality-adjusted token/character usage: answer quality per measured character, with MCP init/context chars charged to Octocode. Elapsed time is reported as context only.
 
-Drift questions (heading suffix `[drift]` in `QUESTIONS.md`, if present, or questions the judge flags as date-sensitive) are scored loosely and reported separately.
+The 17 questions are grouped into five categories (`SEARCH`, `CONTENT`, `STRUCTURE`, `PR`, `REPOS`), each probing a distinct research capability. The category tag appears in the judge's per-question table so capability patterns are visible across the full run.
+
+Drift questions (heading suffix `[drift]` in `QUESTIONS.md`, or questions the judge flags as date-sensitive) are scored loosely and reported in the **Drift verdict** section, separate from the main quality tally.
 
 ---
 
-## Common failure modes
+## Common Run-Quality Issues
 
-| Mistake | Why it invalidates or weakens the run | Fix |
+| Issue | Impact | Fix |
 |---|---|---|
-| Researcher reads the other agent's output or final judge summary before finishing | Not blind anymore | Discard and rerun |
+| Researcher reads the other agent's output or final judge summary before finishing | The run is no longer blind | Discard and rerun |
 | Octocode MCP not routed through `mcp-meas.mjs` | Tool calls and MCP context are unmetered | Reconfigure MCP client and rerun |
 | Missing `_initialize` / `_tools/list` rows | MCP system prompt/tool schema context was not counted | Reconfigure MCP client and rerun |
 | Bare `gh` instead of `gh-meas.sh` | CLI call is unmetered | Redo the question through wrapper |
-| Forgot `set-q.sh` | Tool calls attributed to wrong Q or Q0 | Redo the question correctly |
-| `record.sh --allow-zero` | Hides broken metering | Never use it for benchmark runs |
-| Parallel questions | Cross-question metric leakage | Strictly sequential only |
+| Skipped `set-q.sh` | Tool calls are attributed to a different Q or Q0 | Redo the question correctly |
+| `record.sh --allow-zero` | Broken metering is hidden | Keep it disabled for benchmark runs |
+| Parallel questions | Metrics can leak across questions | Run sequentially |
 
 ---
 

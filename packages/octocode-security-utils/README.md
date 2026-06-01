@@ -33,13 +33,11 @@ This creates attack surface that traditional web security doesn't cover:
 | [ContentSanitizer](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#contentsanitizer) | Find and replace secrets in strings and objects (200+ patterns) | `octocode-security-utils/contentSanitizer` |
 | [maskSensitiveData](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#masksensitivedata) | Partially mask secrets for logs (keeps partial visibility) | `octocode-security-utils/mask` |
 | [validateCommand](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#validatecommand) | Whitelist-based command validation with per-command arg rules | `octocode-security-utils/commandValidator` |
-| [validateExecutionContext](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#validateexecutioncontext) | Validate working directory before spawning processes | `octocode-security-utils/executionContextValidator` |
 | [withSecurityValidation](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#withsecurityvalidation) | Wrap any tool handler with input sanitization + timeout + telemetry | `octocode-security-utils/withSecurityValidation` |
 | [SecurityRegistry](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#securityregistry) | Extend all security rules at runtime (patterns, commands, paths) | `octocode-security-utils/registry` |
 | [Ignored Path Filters](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#ignored-path-filters) | Filter out `.env`, `.git`, `.ssh`, `.aws`, and similar paths | `octocode-security-utils/ignoredPathFilter` |
 | [Regex Patterns](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#regex-patterns) | 200+ secret detection patterns across 13 categories | `octocode-security-utils/regexes` |
 | [Path Utilities](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#path-utilities) | Redact absolute paths in error messages | `octocode-security-utils/pathUtils` |
-| [resolveWorkspaceRoot](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#resolveworkspaceroot) | Determine workspace root from env/args/cwd | `octocode-security-utils/workspaceRoot` |
 | [Security Constants](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#security-constants) | Allowed commands, dangerous shell patterns | (via main export) |
 | [Param Extractors](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#param-extractors) | Pull research metadata and repo identifiers from tool params | `octocode-security-utils/paramExtractors` |
 | [Types](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-security-utils/README.md#types) | All TypeScript interfaces | `octocode-security-utils/types` |
@@ -123,16 +121,6 @@ securityRegistry.addAllowedCommands(['jq']);
 securityRegistry.freeze();  // lock after configuration
 ```
 
-### Check working directory — `validateExecutionContext`
-
-**Why:** Subprocesses should only run inside the workspace, not in `/etc` or arbitrary paths.
-**When:** Before `spawn`/`exec` with a custom `cwd`.
-
-```typescript
-validateExecutionContext('/app/packages/core');  // → { isValid: true }
-validateExecutionContext('/etc');                 // → { isValid: false }
-```
-
 ### Filter sensitive paths — `shouldIgnore`
 
 **Why:** Even inside the workspace, `.env`, `.git/config`, `.ssh/id_rsa` should never be served.
@@ -151,16 +139,6 @@ shouldIgnore('/app/src/index.ts');  // → false
 ```typescript
 redactPath('/home/alice/project/src/index.ts', '/home/alice/project');
 // → 'src/index.ts'
-```
-
-### Resolve workspace — `resolveWorkspaceRoot`
-
-**Why:** Multiple sources can define the workspace root (explicit param, env var, `cwd`). You need one answer.
-**When:** At initialization, before constructing `PathValidator` or `validateExecutionContext`.
-
-```typescript
-resolveWorkspaceRoot();              // → WORKSPACE_ROOT env var or cwd
-resolveWorkspaceRoot('/explicit');   // → '/explicit'
 ```
 
 ### Extract metadata — `extractResearchFields` / `extractRepoOwnerFromParams`
@@ -194,7 +172,6 @@ import {
   ContentSanitizer,
   maskSensitiveData,
   validateCommand,
-  validateExecutionContext,
 } from 'octocode-security-utils';
 
 // Block path traversal
@@ -213,10 +190,6 @@ maskSensitiveData('token: sk-proj-abc123');
 // Validate commands before exec
 validateCommand('rg', ['pattern', './src']);
 // → { isValid: true }
-
-// Validate working directory
-validateExecutionContext('/app/packages/core');
-// → { isValid: true, sanitizedPath: '/app/packages/core' }
 ```
 
 ---
@@ -630,58 +603,6 @@ Exports: `SecurityRegistry` (class), `securityRegistry` (singleton), `ISecurityR
 
 ---
 
-## validateExecutionContext
-
-**Problem:** Before spawning a subprocess, you need to confirm its working directory is inside the workspace — not `/etc` or someone's home directory.
-
-**Solution:** Validates the `cwd` against workspace root + `OCTOCODE_HOME`, with symlink resolution.
-
-```typescript
-import { validateExecutionContext } from 'octocode-security-utils';
-
-validateExecutionContext('/app/packages/core');
-// → { isValid: true, sanitizedPath: '/app/packages/core' }
-
-validateExecutionContext('/etc');
-// → { isValid: false, error: 'Can only execute commands within the configured workspace directory' }
-
-validateExecutionContext(undefined);
-// → { isValid: true } (no cwd = no restriction)
-
-validateExecutionContext('');
-// → { isValid: false, error: 'Execution context (cwd) cannot be empty' }
-```
-
-```typescript
-function validateExecutionContext(
-  cwd: string | undefined,
-  workspaceRoot?: string
-): PathValidationResult
-```
-
----
-
-## resolveWorkspaceRoot
-
-Determines the workspace root with a clear priority chain:
-
-1. Explicit parameter (highest)
-2. `WORKSPACE_ROOT` env var
-3. `process.cwd()` (fallback)
-
-```typescript
-import { resolveWorkspaceRoot } from 'octocode-security-utils';
-
-resolveWorkspaceRoot('/explicit/path');  // → '/explicit/path'
-resolveWorkspaceRoot();                  // → WORKSPACE_ROOT env var, or process.cwd()
-```
-
-```typescript
-function resolveWorkspaceRoot(explicit?: string): string
-```
-
----
-
 ## Ignored Path Filters
 
 **Problem:** Tool servers shouldn't expose `.env`, `.git/config`, `.ssh/id_rsa`, or `.aws/credentials` — even if they're inside the workspace root.
@@ -845,7 +766,6 @@ import type {
   ToolResult,
   SensitiveDataPattern,
   ISanitizer,
-  IWorkspaceRootResolver,
 } from 'octocode-security-utils';
 
 import type { SecurityDepsConfig } from 'octocode-security-utils/withSecurityValidation';
@@ -884,10 +804,6 @@ interface ISanitizer {
   validateInputParameters(params: Record<string, unknown>): ValidationResult;
 }
 
-interface IWorkspaceRootResolver {
-  (explicit?: string): string;
-}
-
 interface SecurityDepsConfig {
   sanitizer?: ISanitizer;
   logToolCall?: (toolName: string, repos: string[], goal?: string, rGoal?: string, reasoning?: string) => Promise<void>;
@@ -921,7 +837,6 @@ interface ISecurityRegistry {
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OCTOCODE_HOME` | `~/.octocode` | Additional allowed root for data files and cloned repos |
-| `WORKSPACE_ROOT` | `process.cwd()` | Workspace root when not passed explicitly |
 | `ALLOWED_PATHS` | — | Comma-separated extra allowed paths for PathValidator |
 
 ---
@@ -981,8 +896,6 @@ import { ContentSanitizer }           from 'octocode-security-utils/contentSanit
 import { withSecurityValidation }     from 'octocode-security-utils/withSecurityValidation';
 import { maskSensitiveData }          from 'octocode-security-utils/mask';
 import { validateCommand }            from 'octocode-security-utils/commandValidator';
-import { validateExecutionContext }    from 'octocode-security-utils/executionContextValidator';
-import { resolveWorkspaceRoot }       from 'octocode-security-utils/workspaceRoot';
 import { shouldIgnore }               from 'octocode-security-utils/ignoredPathFilter';
 import { redactPath }                 from 'octocode-security-utils/pathUtils';
 import { allRegexPatterns }           from 'octocode-security-utils/regexes';
@@ -1058,8 +971,7 @@ Input → validateInputParameters → sanitizeContent → [handler] → Output S
   │    size limits                                             ContentSanitizer +
   │                                                            maskSensitiveData +
   ├── validateCommand (if shell)                               sanitizeStructuredContent
-  ├── PathValidator.validate (if filesystem)
-  └── validateExecutionContext (if cwd)
+  └── PathValidator.validate (if filesystem)
 ```
 
 Input security (`withSecurityValidation` / `withBasicSecurityValidation`) runs inside each handler wrapper. Output security runs once at the transport layer — e.g., a proxy around `registerTool` — so every tool's response is sanitized uniformly without per-tool boilerplate.

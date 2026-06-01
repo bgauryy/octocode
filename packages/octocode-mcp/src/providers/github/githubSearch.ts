@@ -76,6 +76,7 @@ export function transformCodeSearchResult(
       totalMatches: data.pagination?.totalMatches,
     },
     repositoryContext: data._researchContext?.repositoryContext,
+    nonExistentScope: data.nonExistentScope,
   };
 }
 
@@ -115,7 +116,13 @@ export function transformRepoSearchResult(
       totalPages: data.pagination?.totalPages || 1,
       hasMore: data.pagination?.hasMore || false,
       totalMatches: data.pagination?.totalMatches,
+      // Carry the real page size so downstream pagination + item-range hints
+      // reflect the caller's `limit` instead of defaulting to 10. PaginationInfo
+      // exposes `entriesPerPage`; the API layer reports it as `perPage`.
+      entriesPerPage: (data.pagination as { perPage?: number } | undefined)
+        ?.perPage,
     },
+    nonExistentScope: (data as { nonExistentScope?: boolean }).nonExistentScope,
   };
 }
 
@@ -188,6 +195,9 @@ export async function searchRepos(
     updated: query.updated,
     language: query.language,
     match: query.match,
+    // `archived` is not part of the upstream schema; it is carried through as
+    // an extra runtime property and read by the repo query builder.
+    archived: query.archived,
     sort:
       query.sort === 'best-match'
         ? undefined
@@ -197,7 +207,7 @@ export async function searchRepos(
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
-  } as unknown as GitHubReposSearchSingleQuery;
+  } as GitHubReposSearchSingleQuery & { archived?: boolean };
 
   const result = await searchGitHubReposAPI(githubQuery, authInfo);
 

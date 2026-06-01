@@ -15,6 +15,33 @@ import { validateFileContentExtractionMode } from './fileContentModeValidation.j
 export { VERBOSITY_VALUES };
 export type { Verbosity };
 
+export function describeField<T extends z.ZodTypeAny>(
+  field: T,
+  description: string
+): T {
+  return field.describe(description) as T;
+}
+
+/**
+ * Integer field that CLAMPS an out-of-range value into [min, max] instead of
+ * rejecting it. A hard validation reject (MCP -32602 `too_big`/`too_small`)
+ * wastes a metered tool call over a trivially-correctable magnitude — e.g.
+ * `matchStringContextLines: 120` should just become 100 and proceed. Clamping
+ * via `preprocess` keeps the inner `.min()/.max()`, so the published JSON
+ * schema still advertises the bounds (no ±9e15 bloat). Non-integers and
+ * non-numbers still reject downstream — those are genuine type errors, not
+ * magnitudes.
+ */
+export function clampedInt(min: number, max: number) {
+  return z.preprocess(
+    v =>
+      typeof v === 'number' && Number.isFinite(v)
+        ? Math.min(Math.max(v, min), max)
+        : v,
+    z.number().int().min(min).max(max)
+  );
+}
+
 export const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 100_000;
 
 export const LOCAL_OVERLAY_MAX_CHAR_LENGTH = 100_000;
@@ -22,10 +49,6 @@ export const LOCAL_OVERLAY_MAX_CHAR_LENGTH = 100_000;
 const LOCAL_OVERLAY_MAX_CONTEXT_LINES = 100;
 
 const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = 1_000;
-
-// Caps ripgrep's -j thread count. A single code search saturates well below
-// this; allowing an unbounded value only lets one call exhaust host CPU.
-const LOCAL_OVERLAY_MAX_THREADS = 32;
 
 // Caps the aggregated response char offset. Agents that want to scan deeper
 // must paginate via individual queries — there is no legitimate use case for
@@ -42,11 +65,44 @@ export const LOCAL_OVERLAY_MAX_LIMIT = 10_000;
 // should paginate via pageNumber instead.
 export const LOCAL_OVERLAY_MAX_DEPTH = 20;
 
-const matchContentLengthField = z
-  .number()
-  .int()
-  .min(1)
-  .max(LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH)
+// Caps for line numbers, occurrence indices, filesystem walk depth, and the
+// ripgrep pre-pagination caps. These exist mainly to give the upstream
+// `z.number().int()` fields real bounds: without an explicit `.min()/.max()`,
+// zod serializes them as ±9007199254740991 (the JS safe-integer range) into
+// every published inputSchema — token bloat plus a validation gap (negatives
+// and absurd values pass). Generous but finite.
+export const LOCAL_OVERLAY_MAX_LINE = 1_000_000_000;
+export const LOCAL_OVERLAY_MAX_ORDER_HINT = 100_000;
+export const LOCAL_OVERLAY_MAX_FS_DEPTH = 100;
+
+/** 1-based line number / line hint (optional). */
+export const lineNumberField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
+
+/** 1-based line hint that the LSP tools require (non-optional). */
+export const requiredLineHintField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE);
+
+/** Non-negative character offset for output pagination (optional). */
+export const charOffsetField = clampedInt(
+  0,
+  LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET
+).optional();
+
+/** 0-based occurrence index on the hinted line (optional). */
+export const orderHintField = clampedInt(
+  0,
+  LOCAL_OVERLAY_MAX_ORDER_HINT
+).optional();
+
+/** Filesystem walk depth bound for localFindFiles min/maxDepth (optional). */
+const fsDepthField = clampedInt(0, LOCAL_OVERLAY_MAX_FS_DEPTH).optional();
+
+/** Ripgrep pre-pagination cap (maxFiles / maxMatchesPerFile), optional. */
+const ripgrepCapField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
+
+const matchContentLengthField = clampedInt(
+  1,
+  LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH
+)
   .optional()
   .default(200)
   .describe(
@@ -56,82 +112,34 @@ const matchContentLengthField = z
       'prefer paginating via filePageNumber/matchesPerPage over truncating a single match.'
   );
 
-export const localCharLengthField = z
-  .number()
-  .int()
-  .min(1)
-  .max(LOCAL_OVERLAY_MAX_CHAR_LENGTH)
+export const localCharLengthField = clampedInt(1, LOCAL_OVERLAY_MAX_CHAR_LENGTH)
   .optional()
   .describe(
     'Character budget for output pagination of this query. Unified at 100000 across local tools. ' +
       'Pair with charOffset for explicit pagination instead of truncating responses.'
   );
 
-export const contextLinesField = z
-  .number()
-  .int()
-  .min(0)
-  .max(LOCAL_OVERLAY_MAX_CONTEXT_LINES)
+export const contextLinesField = clampedInt(0, LOCAL_OVERLAY_MAX_CONTEXT_LINES)
   .optional()
   .describe('Number of lines of context to show around each match. Max 100.');
 
-export const beforeContextField = z
-  .number()
-  .int()
-  .min(0)
-  .max(LOCAL_OVERLAY_MAX_CONTEXT_LINES)
-  .optional()
-  .describe('Number of lines of context to show before each match. Max 100.');
+export const relaxedPaginationLimitField = clampedInt(
+  1,
+  LOCAL_OVERLAY_MAX_PAGINATION_LIMIT
+).optional();
 
-export const afterContextField = z
-  .number()
-  .int()
-  .min(0)
-  .max(LOCAL_OVERLAY_MAX_CONTEXT_LINES)
-  .optional()
-  .describe('Number of lines of context to show after each match. Max 100.');
+export const relaxedPageNumberField = clampedInt(
+  1,
+  LOCAL_OVERLAY_MAX_PAGINATION_LIMIT
+).optional();
 
-// Ripgrep -j thread count. Bounded so a single query can't request an
-// unbounded thread pool; values above the cap are rejected at validation.
-export const threadsField = z
-  .number()
-  .int()
-  .min(1)
-  .max(LOCAL_OVERLAY_MAX_THREADS)
-  .optional()
-  .describe(
-    `Number of threads ripgrep may use. Max ${LOCAL_OVERLAY_MAX_THREADS}.`
-  );
-
-export const relaxedPaginationLimitField = z
-  .number()
-  .int()
-  .min(1)
-  .max(LOCAL_OVERLAY_MAX_PAGINATION_LIMIT)
-  .optional();
-
-export const relaxedPageNumberField = z
-  .number()
-  .int()
-  .min(1)
-  .max(LOCAL_OVERLAY_MAX_PAGINATION_LIMIT)
-  .optional();
-
-export const limitField = z
-  .number()
-  .int()
-  .min(1)
-  .max(LOCAL_OVERLAY_MAX_LIMIT)
+const limitField = clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
   .optional()
   .describe(
     `Maximum entries returned before pagination. Max ${LOCAL_OVERLAY_MAX_LIMIT}.`
   );
 
-export const depthField = z
-  .number()
-  .int()
-  .min(0)
-  .max(LOCAL_OVERLAY_MAX_DEPTH)
+export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
   .optional()
   .describe(
     `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. Paginate via pageNumber for deeper scans.`
@@ -199,7 +207,8 @@ export function createRelaxedBulkQuerySchema(
         .max(maxQueries)
         .describe(
           `Array of queries for ${toolName}. Maximum is ${maxQueries} queries per call. ` +
-            'Multiple queries run in parallel. If many are provided, results may be truncated to fit token limits.'
+            'Multiple queries run in parallel. Large results are paginated — page ' +
+            'through them with responseCharOffset/responseCharLength to fetch more.'
         ),
       responseCharOffset: z
         .number()
@@ -324,6 +333,18 @@ const RipgrepQueryBaseSchema = UpstreamRipgrepQuerySchema.omit(
   RIPGREP_HIDDEN_FIELDS
 ).extend({
   ...optionalMetaFields,
+  pattern: describeField(
+    UpstreamRipgrepQuerySchema.shape.pattern,
+    'Text or regex pattern to search for. Use fixedString=true for literal text and perlRegex=true only when regex features are required.'
+  ),
+  path: describeField(
+    UpstreamRipgrepQuerySchema.shape.path,
+    "File or directory to search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+  ),
+  mode: describeField(
+    UpstreamRipgrepQuerySchema.shape.mode,
+    'Result shape: paginated/default for normal reading, discovery for cheap presence checks, detailed for expanded snippets.'
+  ),
   matchContentLength: matchContentLengthField,
   verbosity: createVerbosityField(),
   charLength: localCharLengthField,
@@ -333,6 +354,10 @@ const RipgrepQueryBaseSchema = UpstreamRipgrepQuerySchema.omit(
   // Symmetric context window, clamped so one query can't request an absurd
   // span. Asymmetric before/after is hidden — contextLines covers the need.
   contextLines: contextLinesField,
+  // Pre-pagination hard caps — bounded so the published schema doesn't expose
+  // the ±MAX_SAFE_INTEGER range and absurd values are rejected up front.
+  maxFiles: ripgrepCapField,
+  maxMatchesPerFile: ripgrepCapField,
 });
 
 // Strict per-query schema (base + mutex). The executor `safeParse`s each query
@@ -385,7 +410,30 @@ export const BulkRipgrepQuerySchema = createRelaxedBulkQuerySchema(
 // the verbosity field, the relaxed numeric ranges, and pagination defaults.
 export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.extend({
   ...optionalMetaFields,
+  path: describeField(
+    UpstreamFindFilesQuerySchema.shape.path,
+    "Directory root for metadata search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+  ),
+  name: describeField(
+    UpstreamFindFilesQuerySchema.shape.name,
+    'Case-sensitive filename glob such as "*.ts". Use iname for case-insensitive matching or names for multiple globs.'
+  ),
+  iname: describeField(
+    UpstreamFindFilesQuerySchema.shape.iname,
+    'Case-insensitive filename glob, useful for README/readme or mixed-case filenames.'
+  ),
+  names: describeField(
+    UpstreamFindFilesQuerySchema.shape.names,
+    'Multiple filename globs OR-combined in one metadata search.'
+  ),
+  pathPattern: describeField(
+    UpstreamFindFilesQuerySchema.shape.pathPattern,
+    'Glob matched against the full path, useful for monorepo package roots or nested directory slices.'
+  ),
   charLength: localCharLengthField,
+  charOffset: charOffsetField,
+  minDepth: fsDepthField,
+  maxDepth: fsDepthField,
   verbosity: createVerbosityField(),
   filesPerPage: relaxedPaginationLimitField.default(10),
   filePageNumber: relaxedPageNumberField.default(1),
@@ -412,8 +460,29 @@ export const BulkFindFilesSchema = createRelaxedBulkQuerySchema(
 // re-validates each query against the strict schema below (per-query error).
 const FetchContentQueryBaseSchema = UpstreamFetchContentQuerySchema.extend({
   ...optionalMetaFields,
+  path: describeField(
+    UpstreamFetchContentQuerySchema.shape.path,
+    "File path to read. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+  ),
+  fullContent: describeField(
+    UpstreamFetchContentQuerySchema.shape.fullContent,
+    'Read the whole file. Mutually exclusive with matchString and startLine/endLine.'
+  ),
+  matchString: describeField(
+    UpstreamFetchContentQuerySchema.shape.matchString,
+    'Anchor text or regex used to return matching slices with matchStringContextLines around each match.'
+  ),
+  startLine: describeField(
+    lineNumberField,
+    '1-based first line to include. Use with endLine; mutually exclusive with fullContent and matchString.'
+  ),
+  endLine: describeField(
+    lineNumberField,
+    '1-based last line to include. Use with startLine; mutually exclusive with fullContent and matchString.'
+  ),
   verbosity: createVerbosityField(),
   charLength: localCharLengthField,
+  charOffset: charOffsetField,
   matchStringContextLines: contextLinesField.default(5),
 });
 
@@ -452,9 +521,16 @@ export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.omit(
   VIEW_STRUCTURE_HIDDEN_FIELDS
 ).extend({
   ...optionalMetaFields,
+  path: describeField(
+    UpstreamViewStructureQuerySchema.shape.path,
+    "Directory to browse. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS). Start at the repo root with depth=1."
+  ),
   charLength: localCharLengthField,
+  charOffset: charOffsetField,
   verbosity: createVerbosityField(),
-  entriesPerPage: relaxedPaginationLimitField.default(20),
+  entriesPerPage: relaxedPaginationLimitField
+    .describe('Number of directory entries per page before char pagination.')
+    .default(20),
   entryPageNumber: relaxedPageNumberField.default(1),
   limit: limitField,
   depth: depthField,

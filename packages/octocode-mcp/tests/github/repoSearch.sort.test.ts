@@ -69,4 +69,48 @@ describe('Repo Search - Sorting', () => {
       expect(result.data.repositories?.[1]?.repo).toBe('repoB');
     }
   });
+
+  it.each([
+    ['stars', 'stars'],
+    ['forks', 'forks'],
+    ['updated', 'updated'],
+  ] as const)(
+    'forwards GitHub-supported sort "%s" to the API',
+    async (sort, expected) => {
+      const searchReposMock = vi.fn().mockResolvedValue({
+        data: { items: [], total_count: 0 },
+        headers: {},
+      });
+      vi.mocked(getOctokit).mockResolvedValue({
+        rest: { search: { repos: searchReposMock } },
+      } as unknown as ReturnType<typeof getOctokit>);
+
+      await searchGitHubReposAPI({ keywordsToSearch: ['test'], sort });
+
+      expect(searchReposMock).toHaveBeenCalledWith(
+        expect.objectContaining({ sort: expected })
+      );
+    }
+  );
+
+  it.each(['created', 'best-match'] as const)(
+    'does NOT forward client-only sort "%s" to the API (GitHub would ignore/reject it)',
+    async sort => {
+      const searchReposMock = vi.fn().mockResolvedValue({
+        data: { items: [], total_count: 0 },
+        headers: {},
+      });
+      vi.mocked(getOctokit).mockResolvedValue({
+        rest: { search: { repos: searchReposMock } },
+      } as unknown as ReturnType<typeof getOctokit>);
+
+      await searchGitHubReposAPI({
+        keywordsToSearch: ['test'],
+        sort: sort as 'created',
+      });
+
+      const passed = searchReposMock.mock.calls[0]?.[0] ?? {};
+      expect(passed).not.toHaveProperty('sort');
+    }
+  );
 });

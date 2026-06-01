@@ -23,7 +23,6 @@ export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
   enabled: true,
   enableClone: false,
   allowedPaths: [],
-  workspaceRoot: undefined,
 };
 
 /**
@@ -63,7 +62,9 @@ export const DEFAULT_LSP_CONFIG: RequiredLspConfig = {
 export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
   format: 'yaml',
   pagination: {
-    defaultCharLength: 8000,
+    // THE single pagination char limit for every tool result (~500 tokens).
+    // Larger result sets are reached by paginating, never one big payload.
+    defaultCharLength: 2000,
   },
 };
 

@@ -278,4 +278,23 @@ describe('mergeReferenceResults - branch coverage', () => {
     expect(result.pagination!.totalPages).toBe(5);
     expect(result.pagination!.hasMore).toBe(true);
   });
+
+  it('omits the resultsPerPage sentinel (MAX_SAFE_INTEGER) from pagination', () => {
+    // The global-merge query uses referencesPerPage = MAX_SAFE_INTEGER to mean
+    // "return everything". That sentinel carries no information and must not be
+    // serialized into the payload (#A3a).
+    const locs = Array.from({ length: 3 }, (_, i) => makeLocation('a.ts', i));
+    const lspResult: any = { locations: locs, totalReferences: 3, hints: [] };
+    const patternResult: any = {
+      locations: locs.map(l => makeLocation(l.uri, l.range.start.line)),
+      totalReferences: 3,
+    };
+    const result = mergeReferenceResults(lspResult, patternResult, {
+      ...baseQuery,
+      referencesPerPage: Number.MAX_SAFE_INTEGER,
+      page: 1,
+    });
+    expect(result.pagination!.resultsPerPage).toBeUndefined();
+    expect(result.pagination!.totalResults).toBe(3);
+  });
 });

@@ -27,6 +27,7 @@ import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
+import { LOCAL_OVERLAY_MAX_LIMIT } from '../../scheme/localSchemaOverlay.js';
 import {
   isConcise,
   isCompact,
@@ -163,7 +164,7 @@ function buildFindFilesHints(ctx: {
       : []),
     ...(wasFileCapped
       ? [
-          `Results capped at ${maxFiles} of ${discoveredFileCount}. Narrow with name/type/time filters or increase limit.`,
+          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via filePageNumber; to see the rest, narrow with name/type/time filters.`,
         ]
       : []),
     ...(totalFiles === 0
@@ -248,7 +249,14 @@ export async function findFiles(
       .filter(line => line.trim())
       .map(line => line.trim());
 
-    const maxFiles = query.limit || 1000;
+    // `limit` is an EXPLICIT user cap. When omitted, the discovery cap matches
+    // the documented `limit` maximum (10000, the schema bound) so EVERY
+    // discovered file is reachable by paging (filePageNumber/filesPerPage) —
+    // not silently truncated at an implicit 1000 that pagination can't escape.
+    // The cap remains a perf guard (it bounds the stat fan-out); when it bites,
+    // the hint below tells the agent to narrow filters. Defaulting to the
+    // schema's `limit` max keeps the cap and the documented bound in lock-step.
+    const maxFiles = query.limit ?? LOCAL_OVERLAY_MAX_LIMIT;
     const discoveredFileCount = filePaths.length;
     const wasFileCapped = discoveredFileCount > maxFiles;
     filePaths = filePaths.slice(0, maxFiles);

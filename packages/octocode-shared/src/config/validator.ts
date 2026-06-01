@@ -215,12 +215,6 @@ function validateLocal(local: unknown, errors: string[]): void {
     );
     errors.push(...pathErrors);
   }
-
-  const workspaceRootError = validateString(
-    loc.workspaceRoot,
-    'local.workspaceRoot'
-  );
-  if (workspaceRootError) errors.push(workspaceRootError);
 }
 
 function validateTools(tools: unknown, errors: string[]): void {

@@ -91,7 +91,9 @@ function buildReferencePagination(
     totalPages,
     totalResults: totalReferences,
     hasMore,
-    resultsPerPage: referencesPerPage,
+    ...(referencesPerPage < Number.MAX_SAFE_INTEGER
+      ? { resultsPerPage: referencesPerPage }
+      : {}),
   };
 }
 

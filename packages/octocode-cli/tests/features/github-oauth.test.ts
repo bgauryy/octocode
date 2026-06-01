@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { TokenSource } from 'octocode-shared';
 
@@ -44,7 +42,6 @@ vi.mock('@octokit/oauth-methods', () => ({
 }));
 
 vi.mock('@octokit/request', () => {
-
   const mockRequestFn = vi.fn().mockResolvedValue({
     data: { login: 'testuser' },
     status: 200,
@@ -140,7 +137,6 @@ describe('GitHub OAuth', () => {
           hostname?: string
         ) => string | null | Promise<string | null>;
       }) => {
-
         for (const envVar of ENV_TOKEN_VARS) {
           const token = process.env[envVar];
           if (token && token.trim()) {
@@ -226,13 +222,11 @@ describe('GitHub OAuth', () => {
         }
         const isExpired = tokenStorage.isTokenExpired(credentials);
         if (isExpired) {
-
           if (credentials.token.refreshToken) {
             const refreshResult = await tokenStorage.refreshAuthToken(
               hostname ?? 'github.com'
             );
             if (refreshResult.success) {
-
               return {
                 token: credentials.token.token,
                 source: 'refreshed' as const,
@@ -490,7 +484,6 @@ describe('GitHub OAuth', () => {
         token: {
           token: 'test-token',
           tokenType: 'oauth',
-
         },
         gitProtocol: 'https',
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -532,7 +525,6 @@ describe('GitHub OAuth', () => {
     });
 
     it('should delegate to shared refreshAuthToken and return success', async () => {
-
       const { getCredentials, isRefreshTokenExpired, refreshAuthToken } =
         await import('../../src/utils/token-storage.js');
 
@@ -774,7 +766,6 @@ describe('GitHub OAuth', () => {
     const originalEnv = process.env;
 
     beforeEach(() => {
-
       process.env = { ...originalEnv };
       delete process.env.OCTOCODE_TOKEN;
       delete process.env.GH_TOKEN;
@@ -786,7 +777,6 @@ describe('GitHub OAuth', () => {
     });
 
     it('should return env var token in auto mode (priority: OCTOCODE_TOKEN > GH_TOKEN > GITHUB_TOKEN)', async () => {
-
       process.env.GITHUB_TOKEN = 'env-token-123';
 
       const { getToken } = await import('../../src/features/github-oauth.js');
@@ -852,7 +842,6 @@ describe('GitHub OAuth', () => {
     });
 
     it('should only check octocode storage when source is octocode', async () => {
-
       process.env.GITHUB_TOKEN = 'env-token-ignored';
 
       const { getGitHubCLIToken } =
@@ -882,7 +871,6 @@ describe('GitHub OAuth', () => {
     });
 
     it('should only check gh CLI when source is gh', async () => {
-
       process.env.GITHUB_TOKEN = 'env-token-ignored';
 
       const { getGitHubCLIToken, checkGitHubAuth } =
@@ -902,7 +890,6 @@ describe('GitHub OAuth', () => {
     });
 
     it('should prioritize GITHUB_TOKEN over gh CLI in auto mode', async () => {
-
       process.env.GITHUB_TOKEN = 'env-wins';
 
       const { getGitHubCLIToken } =
@@ -917,7 +904,6 @@ describe('GitHub OAuth', () => {
     });
 
     it('should prioritize octocode over gh CLI in auto mode', async () => {
-
       const { getGitHubCLIToken, checkGitHubAuth } =
         await import('../../src/features/gh-auth.js');
       vi.mocked(getGitHubCLIToken).mockReturnValue('gh-loses');

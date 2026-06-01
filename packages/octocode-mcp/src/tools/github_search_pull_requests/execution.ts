@@ -51,8 +51,6 @@ import {
   createSuccessResult,
   createErrorResult,
 } from '../utils.js';
-import { applyOutputSizeLimit } from '../../utils/pagination/outputSizeLimit.js';
-import { serializeForPagination } from '../../utils/pagination/core.js';
 import {
   buildPaginationHints,
   mapPullRequestProviderResultData,
@@ -143,10 +141,27 @@ export async function searchMultipleGitHubPullRequests(
 
         // A prNumber lookup targets one PR — return its full body, not the
         // 500-char search preview (and make the truncation hint truthful).
-        const { pullRequests, resultData, pagination } =
-          mapPullRequestProviderResultData(providerResult.response.data, {
-            fullBody: query.prNumber !== undefined,
-          });
+        // type="metadata" (the triage default) drops the per-PR file list to
+        // keep the payload lean; counts (changedFilesCount) are retained.
+        const prType = (query as { type?: string }).type;
+        const includeFileChanges =
+          prType === 'fullContent' || prType === 'partialContent';
+        const {
+          pullRequests,
+          resultData,
+          pagination: rawPagination,
+        } = mapPullRequestProviderResultData(providerResult.response.data, {
+          includeFileChanges,
+        });
+
+        // A direct prNumber lookup resolves a single PR — the search-style
+        // pagination block (totalMatches:0, totalPages:1, hasMore:false) is
+        // meaningless noise, so drop it from both the hints and the payload.
+        const pagination =
+          query.prNumber !== undefined ? undefined : rawPagination;
+        if (query.prNumber !== undefined) {
+          delete (resultData as Record<string, unknown>).pagination;
+        }
 
         const hasContent = pullRequests.length > 0;
 
@@ -163,32 +178,14 @@ export async function searchMultipleGitHubPullRequests(
             )
           : [];
 
-        const serialized = serializeForPagination(resultData, true);
-        const sizeLimitResult = applyOutputSizeLimit(serialized, {
-          charOffset: query.charOffset,
-          charLength: query.charLength,
-        });
-
-        let outputLimitData: Record<string, unknown> = resultData;
-        if (sizeLimitResult.wasLimited && sizeLimitResult.pagination) {
-          const pg = sizeLimitResult.pagination;
-          outputLimitData = {
-            ...resultData,
-            outputPagination: {
-              charOffset: pg.charOffset!,
-              charLength: pg.charLength!,
-              totalChars: pg.totalChars!,
-              hasMore: pg.hasMore,
-              currentPage: pg.currentPage,
-              totalPages: pg.totalPages,
-            },
-          };
-        }
-
-        const outputLimitHints = [
-          ...sizeLimitResult.warnings,
-          ...sizeLimitResult.paginationHints,
-        ];
+        // Char-pagination is owned by the unified bulk engine: per-query
+        // charOffset/charLength flow through applyQueryOutputPagination and the
+        // aggregate through applyBulkResponsePagination (see
+        // structuredPagination.ts). Both slice the `pull_requests` array
+        // losslessly against the single getOutputCharLimit() and expose a
+        // cursor — so this tool no longer pre-paginates (the old per-query
+        // applyOutputSizeLimit attached metadata but never clipped the body,
+        // emitting contradictory totals). resultData is passed through as-is.
 
         const fileChangeHints: string[] = [];
         const largeFileChangePRs = pullRequests.filter(
@@ -219,21 +216,28 @@ export async function searchMultipleGitHubPullRequests(
             `Large PR(s) ${prNumbers} have ${maxFiles}+ file changes.`
           );
         }
+        if (!includeFileChanges) {
+          const withChanges = pullRequests.filter(
+            (pr: Record<string, unknown>) =>
+              typeof pr.changedFilesCount === 'number' &&
+              pr.changedFilesCount > 0
+          ).length;
+          if (withChanges > 0) {
+            fileChangeHints.push(
+              'Metadata mode: file lists include paths + counts only (no diffs). Use type="partialContent" (with partialContentMetadata) or type="fullContent" to fetch patches.'
+            );
+          }
+        }
 
-        const hasMore = Boolean(
-          pagination?.hasMore ||
-          (sizeLimitResult.wasLimited && sizeLimitResult.pagination?.hasMore)
-        );
+        // Result-page completeness only; char-pagination completeness is
+        // reflected by the engine via responsePagination + evidence reasons.
+        const hasMore = Boolean(pagination?.hasMore);
 
         const shaped = applyGithubSearchPullRequestsVerbosity(
           {
-            data: outputLimitData,
+            data: resultData,
             pullRequests,
-            extraHints: [
-              ...paginationHints,
-              ...outputLimitHints,
-              ...fileChangeHints,
-            ],
+            extraHints: [...paginationHints, ...fileChangeHints],
           },
           query as PartialPRQuery
         );
@@ -280,7 +284,6 @@ export async function searchMultipleGitHubPullRequests(
       keysPriority: [
         'pull_requests',
         'pagination',
-        'outputPagination',
         'total_count',
         'error',
       ] satisfies Array<keyof GitHubSearchPullRequestsToolResult>,

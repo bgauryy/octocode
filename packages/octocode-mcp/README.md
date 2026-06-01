@@ -47,7 +47,6 @@ Hermetic evals: **212/212 passing**. Octocode MCP is the best default for agent 
 |---|---:|---:|---|
 | **Octocode MCP** | `███████████████████░` | **99/105 · 94%** | Deep agent research + local/LSP flow |
 | Octocode CLI | `███████████████░░░░░` | 79/105 · 75% | Short scripted research |
-| RTK | `███░░░░░░░░░░░░░░░░░` | 18/105 · 17% | Shallow PR/local summaries and writes |
 | raw `gh` | `not scored` | baseline | Writes and direct GitHub API access |
 
 **Token × Quality visual axis**
@@ -64,19 +63,18 @@ Quality ↑
  50 |
  40 |
  30 |
- 20 |                                                   ● RTK
- 10 |                                                     18/105 quality
-  0 | ● raw gh                                            90% T5-only savings
+ 20 |
+ 10 |
+  0 | ● raw gh
     +--------------------------------------------------------------→ Token savings
       0%               40%               80%              90%+
-      baseline                          CLI 81%        MCP 89% / RTK T5 90%
+      baseline                          CLI 81%        MCP 89%
 ```
 
 | Point | X: token benchmark | Y: quality benchmark | Interpretation |
 |---|---:|---:|---|
 | **Octocode MCP** | 89% less than `gh` | **99/105** | Best combined token + quality result |
 | Octocode CLI | 81% less than `gh` | 79/105 | Best short/scripted structured runner |
-| RTK | 90% less on T5 only | 18/105 | Very cheap but shallow and narrow |
 | raw `gh` | baseline | not scored | Direct API/writes; verbose reads |
 
 **Best-by-scenario matrix**
@@ -85,15 +83,15 @@ Quality ↑
 |---|---|---|---|
 | Full remote research sweep | **Octocode MCP** | **Octocode MCP** | Default for agent research |
 | Short one-off scripted run | **Octocode CLI** | Octocode CLI / MCP | Use CLI when MCP init is not amortized |
-| Shallow PR listing | **RTK** | **Octocode MCP** | RTK for titles only; MCP for triage |
+| Shallow PR listing | **Octocode MCP** | **Octocode MCP** | MCP for triage |
 | PR triage with diff stats | **Octocode MCP** | **Octocode MCP** | MCP avoids `1 + N` follow-up calls |
 | Remote directory browsing | **Octocode MCP** | **Octocode MCP** | Raw `gh api /contents` is very verbose |
-| Local shallow grep/find | **RTK** | **Octocode local tools** | RTK for quick summaries; Octocode for evidence |
+| Local shallow grep/find | **Octocode local tools** | **Octocode local tools** | Octocode for evidence |
 | Local targeted code read | **Octocode local tools** | **Octocode local tools** | Use `matchString` / line ranges |
 | Local semantic flow | **Octocode MCP LSP** | **Octocode MCP LSP** | Definitions, references, call hierarchy |
-| GitHub writes | **raw `gh` / RTK** | **raw `gh` / RTK** | Octocode is read-only |
+| GitHub writes | **raw `gh`** | **raw `gh`** | Octocode is read-only |
 
-Local verdict: RTK is cheapest for shallow grep/find; Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"concise"` is available for lossy broad probes; use compact/default for evidence.
+Local verdict: Octocode local tools win for structured evidence, metadata, targeted reads, PCRE2, and LSP (`definition`, `references`, `call hierarchy`). Octocode `verbosity:"concise"` is available for lossy broad probes; use compact/default for evidence.
 
 Details: [Benchmark Suite](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/README.md)
 

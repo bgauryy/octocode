@@ -12,8 +12,6 @@ await esbuild.build({
     withSecurityValidation: 'src/withSecurityValidation.ts',
     mask: 'src/mask.ts',
     ignoredPathFilter: 'src/ignoredPathFilter.ts',
-    workspaceRoot: 'src/workspaceRoot.ts',
-    executionContextValidator: 'src/executionContextValidator.ts',
     pathUtils: 'src/pathUtils.ts',
     types: 'src/types.ts',
     paramExtractors: 'src/paramExtractors.ts',

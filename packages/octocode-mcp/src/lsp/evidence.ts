@@ -30,13 +30,33 @@ export function attachLspEvidence<T>(
   const pagination = (
     result as Record<string, { hasMore?: boolean } | undefined>
   )[opts.paginationKey];
+  const paginationHasMore = pagination?.hasMore ?? false;
+  const reasons: string[] = [];
+
+  if (!hasResults) {
+    reasons.push(
+      opts.kind === 'references'
+        ? 'No references were resolved for the supplied symbol and line hint.'
+        : 'No calls were resolved for the supplied symbol and line hint.'
+    );
+  }
+  if (paginationHasMore) {
+    reasons.push(
+      opts.paginationKey === 'pagination'
+        ? 'LSP result pagination has more results.'
+        : 'LSP output pagination has more data.'
+    );
+  }
+  if (mode === 'fallback') {
+    reasons.push(opts.fallbackReason);
+  }
 
   const evidence = {
     kind: opts.kind,
     answerReady: hasResults,
-    complete: hasResults && !(pagination?.hasMore ?? false),
+    complete: hasResults && !paginationHasMore,
     confidence: isSemantic ? ('high' as const) : ('low' as const),
-    ...(mode === 'fallback' ? { reason: opts.fallbackReason } : {}),
+    ...(reasons.length > 0 ? { reason: reasons.join(' ') } : {}),
   };
 
   // Mutate in place so any non-enumerable raw-chars symbol attached upstream

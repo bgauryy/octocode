@@ -59,12 +59,3 @@ export interface ISanitizer {
   sanitizeContent(content: string, filePath?: string): SanitizationResult;
   validateInputParameters(params: Record<string, unknown>): ValidationResult;
 }
-
-/**
- * Abstract workspace root resolver interface.
- * Allows consumers to depend on the abstraction rather than the
- * concrete resolveWorkspaceRoot function.
- */
-export interface IWorkspaceRootResolver {
-  (explicit?: string): string;
-}

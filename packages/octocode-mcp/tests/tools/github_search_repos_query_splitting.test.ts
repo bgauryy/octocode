@@ -187,7 +187,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
       expect(responseText).toContain('duplicate/repo');
     });
 
-    it('omits pagination hints when merged topic and keyword searches both succeed', async () => {
+    it('exposes merged pagination (as an upper bound) when both searches succeed', async () => {
       mockProvider.searchRepos
         .mockResolvedValueOnce({
           data: {
@@ -210,7 +210,13 @@ describe('GitHub Search Repositories Query Splitting', () => {
               },
             ],
             totalCount: 1,
-            pagination: { currentPage: 1, totalPages: 2, hasMore: true },
+            pagination: {
+              currentPage: 1,
+              totalPages: 2,
+              hasMore: true,
+              entriesPerPage: 10,
+              totalMatches: 15,
+            },
           },
           status: 200,
           provider: 'github',
@@ -236,7 +242,13 @@ describe('GitHub Search Repositories Query Splitting', () => {
               },
             ],
             totalCount: 1,
-            pagination: { currentPage: 1, totalPages: 3, hasMore: true },
+            pagination: {
+              currentPage: 1,
+              totalPages: 3,
+              hasMore: true,
+              entriesPerPage: 10,
+              totalMatches: 25,
+            },
           },
           status: 200,
           provider: 'github',
@@ -259,11 +271,23 @@ describe('GitHub Search Repositories Query Splitting', () => {
       );
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain(
-        'Combined topic and keyword searches into one result; pagination is omitted because multiple result sets were merged.'
-      );
-      expect(responseText).not.toContain('Page 1/');
-      expect(responseText).not.toContain('pagination:');
+      // The combined search is now PAGINABLE — no "omitted" dead-end.
+      expect(responseText).not.toContain('pagination is omitted');
+      // Structured pagination present so the agent can fetch the next page.
+      expect(responseText).toContain('pagination:');
+      // hasMore = either variant; next page guidance present.
+      expect(responseText).toContain('fetch page 2');
+      // totalMatches is the summed upper bound (15 + 25), disclosed as such.
+      expect(responseText).toContain('upper bound');
+
+      const structured = result.structuredContent as {
+        results?: Array<{
+          data?: { pagination?: { hasMore?: boolean; totalMatches?: number } };
+        }>;
+      };
+      const pg = structured.results?.[0]?.data?.pagination;
+      expect(pg?.hasMore).toBe(true);
+      expect(pg?.totalMatches).toBe(40);
     });
 
     it('ranks merged split-query repositories by explicit relevance', async () => {

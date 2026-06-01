@@ -1,5 +1,3 @@
-
-
 import { vi, beforeEach } from 'vitest';
 
 vi.spyOn(process, 'exit').mockImplementation(code => {

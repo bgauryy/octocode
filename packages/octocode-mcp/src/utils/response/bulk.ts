@@ -19,7 +19,9 @@ import {
 } from './structuredPagination.js';
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
 import { tsvFormat } from './tsvFormat.js';
+import { stripTsvEnvelope } from '../../scheme/tsvEnvelope.js';
 import { getTsvProjection } from './tsvColumns.js';
+import { finalizeTsv, relativizeResultPaths } from './tsvFinalize.js';
 import { isConcise } from '../../scheme/verbosity.js';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 
@@ -193,11 +195,20 @@ function createBulkResponse<
     ? dedupePeerHints(queryPaginatedResults)
     : [];
 
+  // When every query asked for concise, the bulk runs in probe mode: the
+  // display arrays are dropped and the per-query counts are the answer, so
+  // display-pagination "has more" must not mark the aggregate incomplete.
+  const allConcise =
+    queries.length > 0 &&
+    queries.every((q): boolean =>
+      isConcise((q as { verbosity?: Verbosity } | undefined)?.verbosity)
+    );
+
   // Same idea for `evidence`: lift per-query `data.evidence` blocks into a
   // single top-level summary (kind taken from first present; answerReady /
   // complete combined with AND; confidence is the weakest of all).
   const aggregatedEvidence = config.peerEvidence
-    ? aggregatePeerEvidence(queryPaginatedResults)
+    ? aggregatePeerEvidence(queryPaginatedResults, allConcise)
     : undefined;
 
   const responseData: BulkToolResponse = applyBulkResponsePagination(
@@ -210,6 +221,18 @@ function createBulkResponse<
     },
     config.toolName
   );
+
+  // Leanness: hoist the common directory of absolute `path` fields out of the
+  // canonical structuredContent (the payload the model reads) into a single
+  // top-level `base`. Reconstruction is exact: abs = `${base}/${path}`.
+  // Runs before TSV projection so rows inherit the already-relative paths and
+  // the same `base` is used everywhere. No-op for repo-relative github paths.
+  if (!allConcise && Array.isArray(responseData.results)) {
+    const dataBase = relativizeResultPaths(
+      responseData.results as Array<{ data?: unknown }>
+    );
+    if (dataBase) responseData.base = dataBase;
+  }
 
   // Second lift-and-dedupe pass: applyBulkResponsePagination can re-introduce
   // hints into per-query `data` (via withPaginationHints) AFTER the initial
@@ -231,29 +254,46 @@ function createBulkResponse<
     responseData.hints = mergedHints;
   }
 
-  if (aggregatedEvidence) {
-    responseData.evidence = aggregatedEvidence;
+  const finalEvidence = aggregatedEvidence
+    ? dropRedundantPaginationReason(
+        withEvidenceReasons(
+          aggregatedEvidence,
+          responsePaginationReasons(responseData)
+        ),
+        mergedHints
+      )
+    : undefined;
+
+  if (finalEvidence) {
+    responseData.evidence = finalEvidence;
   }
 
   // TSV mode — emit columns/rows derived from the per-tool projection and
   // mark the envelope with `format: "tsv"`. Skip TSV entirely when every
   // query is verbosity:"concise" (concise wipes the data field, so there are
   // no rows to emit; emitting empty columns/rows is just noise).
-  const allConcise =
-    queries.length > 0 &&
-    queries.every((q): boolean =>
-      isConcise((q as { verbosity?: Verbosity } | undefined)?.verbosity)
-    );
   const tsvEmitted = config.format === 'tsv' && !allConcise;
   if (tsvEmitted) {
     const projection = getTsvProjection(config.toolName);
     if (projection) {
-      const rows = queryPaginatedResults.flatMap(q =>
-        projection.toRows(q.data)
-      );
+      // Render rows from the BULK-paginated results (responseData.results),
+      // not the pre-bulk queryPaginatedResults — so the agent-facing TSV and
+      // the canonical structuredContent reflect the SAME page bounded by the
+      // single responsePagination cursor. (Rendering from the unpaginated
+      // per-query results would emit an unbounded TSV that contradicts the
+      // pagination breadcrumb.)
+      const rowSource = Array.isArray(responseData.results)
+        ? (responseData.results as FlatQueryResult[])
+        : queryPaginatedResults;
+      const rawRows = rowSource.flatMap(q => projection.toRows(q.data));
+      // Strip redundancy (relativize paths, hoist constants, drop empty cols)
+      // from the agent-facing TSV. structuredContent keeps absolute paths.
+      const lean = finalizeTsv(projection.columns, rawRows);
       responseData.format = 'tsv';
-      responseData.columns = projection.columns;
-      responseData.rows = tsvFormat(projection.columns, rows);
+      responseData.columns = lean.columns;
+      responseData.rows = tsvFormat(lean.columns, lean.rows);
+      if (lean.base) responseData.base = lean.base;
+      if (lean.shared) responseData.shared = lean.shared;
     }
   }
 
@@ -291,10 +331,14 @@ function createBulkResponse<
         text,
       },
     ],
-    structuredContent: sanitizeStructuredContent(responseData) as Record<
-      string,
-      unknown
-    >,
+    // structuredContent holds the canonical structured records (results +
+    // pagination + hints + evidence + `base`). The presentation-only TSV
+    // envelope (format/columns/rows/shared) lives only in content[0].text.
+    // `base` is retained here: canonical paths are relativized against it, so
+    // the model reconstructs abs = `${base}/${path}`. (#A1)
+    structuredContent: sanitizeStructuredContent(
+      stripTsvEnvelope(responseData)
+    ) as Record<string, unknown>,
     isError:
       flatQueries.length > 0 &&
       flatQueries.every(queryResult => queryResult.status === 'error'),
@@ -326,6 +370,88 @@ function dedupePeerHints(queries: FlatQueryResult[]): string[] {
   return out;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasMorePagination(value: unknown): boolean {
+  return isRecord(value) && value.hasMore === true;
+}
+
+function queryPaginationReasons(data: Record<string, unknown>): string[] {
+  const reasons: string[] = [];
+  if (
+    hasMorePagination(data.outputPagination) ||
+    hasMorePagination(data.charPagination)
+  ) {
+    reasons.push('One or more query-level output pages have more data.');
+  }
+  if (hasMorePagination(data.pagination)) {
+    reasons.push('Result pagination has more results.');
+  }
+  return reasons;
+}
+
+function responsePaginationReasons(data: BulkToolResponse): string[] {
+  return hasMorePagination(data.responsePagination)
+    ? ['Bulk response pagination has more data.']
+    : [];
+}
+
+function withEvidenceReasons(
+  evidence: EvidenceMetadata,
+  extraReasons: readonly string[]
+): EvidenceMetadata {
+  const reasons = Array.from(
+    new Set(
+      [
+        typeof evidence.reason === 'string' ? evidence.reason : '',
+        ...extraReasons,
+      ]
+        .map(reason => reason.trim())
+        .filter(Boolean)
+    )
+  );
+  if (reasons.length === 0) {
+    return evidence;
+  }
+  return {
+    ...evidence,
+    complete: false,
+    reason: reasons.join('; '),
+  };
+}
+
+const RESULT_PAGINATION_REASON = 'Result pagination has more results.';
+
+/** True when a hint already carries the actionable result-page cursor. */
+function hasResultPageCursorHint(hints: readonly string[]): boolean {
+  return hints.some(h => /\bNext:\s*page=|\bPage\s+\d+\/\d+/i.test(h));
+}
+
+/**
+ * #B2: when a cursor hint (e.g. "Page 1/10 … Next: page=2") already tells the
+ * agent there's more, the generic `evidence.reason` "Result pagination has more
+ * results." is pure redundancy — drop it. `complete` stays false (the hint
+ * conveys incompleteness); other reasons are preserved.
+ */
+export function dropRedundantPaginationReason(
+  evidence: EvidenceMetadata,
+  hints: readonly string[]
+): EvidenceMetadata {
+  if (!evidence.reason || !hasResultPageCursorHint(hints)) return evidence;
+  const parts = evidence.reason
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean);
+  const kept = parts.filter(part => part !== RESULT_PAGINATION_REASON);
+  if (kept.length === parts.length) return evidence; // nothing removed
+  const next: EvidenceMetadata = { ...evidence };
+  if (kept.length > 0) next.reason = kept.join('; ');
+  else delete next.reason;
+  return next;
+}
+
 /**
  * Walk every query and combine their `data.evidence` blocks into one
  * top-level summary. Mutates each query to drop its local `evidence` so the
@@ -337,8 +463,9 @@ function dedupePeerHints(queries: FlatQueryResult[]): string[] {
  *   - `missingFields` → deduped union of all entries.
  *   - `reason`        → joined when multiple queries supplied one.
  */
-function aggregatePeerEvidence(
-  queries: FlatQueryResult[]
+export function aggregatePeerEvidence(
+  queries: FlatQueryResult[],
+  allConcise = false
 ): EvidenceMetadata | undefined {
   const rankConfidence: Record<
     NonNullable<EvidenceMetadata['confidence']>,
@@ -355,7 +482,7 @@ function aggregatePeerEvidence(
   for (const q of queries) {
     const data = q.data as Record<string, unknown> | undefined;
     const raw = data?.evidence as EvidenceMetadata | undefined;
-    if (!raw || typeof raw !== 'object') continue;
+    if (!data || !raw || typeof raw !== 'object') continue;
     sawAny = true;
     if (!combinedKind && raw.kind) combinedKind = raw.kind;
     if (typeof raw.answerReady === 'boolean') {
@@ -379,6 +506,17 @@ function aggregatePeerEvidence(
     if (typeof raw.reason === 'string' && raw.reason.trim().length > 0) {
       reasons.push(raw.reason.trim());
     }
+    // In all-concise probe mode the display arrays were dropped and the counts
+    // are the answer, so display-pagination "has more" is expected and must not
+    // mark the aggregate incomplete. (The per-query builders already suppress
+    // their own pagination reasons under concise.)
+    if (!allConcise) {
+      const paginationReasons = queryPaginationReasons(data);
+      if (paginationReasons.length > 0) {
+        completeAll = false;
+        reasons.push(...paginationReasons);
+      }
+    }
     if (Array.isArray(raw.missingFields)) {
       for (const f of raw.missingFields) {
         if (typeof f === 'string' && f.length > 0) missing.add(f);
@@ -396,7 +534,8 @@ function aggregatePeerEvidence(
   if (answerReadyAll !== undefined) out.answerReady = answerReadyAll;
   if (completeAll !== undefined) out.complete = completeAll;
   if (weakestConfidence) out.confidence = weakestConfidence;
-  if (reasons.length > 0) out.reason = reasons.join('; ');
+  const uniqueReasons = Array.from(new Set(reasons));
+  if (uniqueReasons.length > 0) out.reason = uniqueReasons.join('; ');
   if (missing.size > 0) out.missingFields = Array.from(missing);
   return Object.keys(out).length > 0 ? out : undefined;
 }

@@ -393,11 +393,15 @@ async function fetchNpmPackageByView(
 async function searchNpmPackageViaSearch(
   keywords: string,
   limit: number,
-  fetchMetadata: boolean
+  fetchMetadata: boolean,
+  from: number = 0
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
   try {
     const registryUrl = await getNpmRegistryUrl();
-    const url = `${registryUrl}/-/v1/search?text=${encodeURIComponent(keywords)}&size=${limit}`;
+    // `from` (result-count cursor) is appended only when paging beyond page 1,
+    // so page-1 URLs are unchanged.
+    const fromParam = from > 0 ? `&from=${from}` : '';
+    const url = `${registryUrl}/-/v1/search?text=${encodeURIComponent(keywords)}&size=${limit}${fromParam}`;
 
     let raw: unknown;
     try {
@@ -507,23 +511,26 @@ async function searchNpmPackageViaSearch(
 export async function searchNpmPackage(
   packageName: string,
   limit: number,
-  fetchMetadata: boolean
+  fetchMetadata: boolean,
+  from: number = 0
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
   const cacheKey = generateCacheKey('npm-search', {
     name: packageName,
     limit,
     metadata: fetchMetadata,
+    from,
   });
 
   return withDataCache(
     cacheKey,
     async () => {
       // If limit is > 1, we want to see alternatives, so force a search
-      // even if the name looks like an exact match.
-      if (limit === 1 && isExactPackageName(packageName)) {
+      // even if the name looks like an exact match. Paging (from > 0) also
+      // forces search — the exact-view lookup has no offset.
+      if (from === 0 && limit === 1 && isExactPackageName(packageName)) {
         return fetchNpmPackageByView(packageName, fetchMetadata);
       }
-      return searchNpmPackageViaSearch(packageName, limit, fetchMetadata);
+      return searchNpmPackageViaSearch(packageName, limit, fetchMetadata, from);
     },
     {
       // Don't cache errors or empty results. Empty results may indicate

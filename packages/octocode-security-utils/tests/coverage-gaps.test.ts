@@ -4,7 +4,6 @@
  * Targets every uncovered line/branch identified in coverage report:
  *   - contentSanitizer.ts: lines 89, 203-249, 286 (chunked detection, error paths)
  *   - commandValidator.ts: lines 366, 480, 543, 567 (find/git edge cases)
- *   - executionContextValidator.ts: line 91 (generic error path)
  *   - ignoredPathFilter.ts: line 76 (shouldIgnoreFile with full path)
  *   - mask.ts: lines 60-69 (non-overlapping iteration)
  *   - pathUtils.ts: lines 15, 72 (normalizePath edge, HOME_DIR fallback)
@@ -492,56 +491,6 @@ describe('commandValidator — coverage gaps', () => {
       expect(result.isValid).toBe(false);
       expect(result.error).toContain('Arguments must be an array');
     });
-  });
-});
-
-describe('executionContextValidator — coverage gaps', () => {
-  let validateExecutionContext: typeof import('../src/executionContextValidator.js').validateExecutionContext;
-
-  beforeEach(async () => {
-    vi.resetModules();
-    const mod = await import('../src/executionContextValidator.js');
-    validateExecutionContext = mod.validateExecutionContext;
-  });
-
-  it('should handle generic (non-ENOENT) errors during validation', () => {
-    const nonExistentPath = path.join(
-      process.cwd(),
-      'src',
-      'test-nonexistent-' + Date.now()
-    );
-    const resolvedPath = path.resolve(nonExistentPath);
-
-    const originalLstatSync = fs.lstatSync;
-    vi.spyOn(fs, 'lstatSync').mockImplementation(function (
-      this: typeof fs,
-      p: fs.PathLike,
-      ...args: unknown[]
-    ) {
-      if (p.toString() === resolvedPath) {
-        const err = new Error('Permission denied');
-        (err as NodeJS.ErrnoException).code = 'EACCES';
-        throw err;
-      }
-      return originalLstatSync.call(this, p, ...(args as []));
-    } as typeof fs.lstatSync);
-
-    const result = validateExecutionContext(nonExistentPath);
-    expect(result.isValid).toBe(false);
-    expect(result.error).toContain('Cannot validate execution context');
-
-    vi.restoreAllMocks();
-  });
-
-  it('should accept additionalRoots parameter', () => {
-    const tmpRoot = '/tmp/test-additional-root-' + Date.now();
-
-    const result = validateExecutionContext(tmpRoot + '/subdir', undefined, [
-      tmpRoot,
-    ]);
-
-    expect(result.isValid).toBe(true);
-    expect(result.sanitizedPath).toContain(tmpRoot);
   });
 });
 

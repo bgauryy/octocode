@@ -22,6 +22,15 @@ import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
+import { normalizeResponseHeaders } from './responseHeaders.js';
+
+/**
+ * Default page size when a caller hits this API layer WITHOUT a `limit`. Note
+ * the MCP surface always injects its own (leaner) default via the schema, so
+ * this only applies to direct/internal API callers — it is intentionally not
+ * the same value as the tool-schema default.
+ */
+const RAW_API_DEFAULT_LIMIT = 30;
 
 export async function searchGitHubCodeAPI(
   params: WithOptionalMeta<GitHubCodeSearchQuery>,
@@ -101,7 +110,7 @@ async function searchGitHubCodeAPIInternal(
     }
 
     const perPage = Math.min(
-      typeof params.limit === 'number' ? params.limit : 30,
+      typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
       100
     );
     const currentPage = params.page || 1;
@@ -144,7 +153,7 @@ async function searchGitHubCodeAPIInternal(
         },
       },
       status: 200,
-      headers: result.headers as unknown as Record<string, string>,
+      headers: normalizeResponseHeaders(result.headers),
       rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
@@ -152,13 +161,17 @@ async function searchGitHubCodeAPIInternal(
     // not exist) is "no matches", not a failure — return a clean empty result.
     if (isNoResultsSearchError(error)) {
       const perPage = Math.min(
-        typeof params.limit === 'number' ? params.limit : 30,
+        typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
         100
       );
       return {
         data: {
           total_count: 0,
           items: [],
+          // Signal that the empty result is a nonexistent owner/repo/user, not
+          // a valid scope with zero matches — so the caller hints at the scope
+          // rather than reporting authoritative absence.
+          nonExistentScope: true,
           pagination: {
             currentPage: params.page || 1,
             totalPages: 0,

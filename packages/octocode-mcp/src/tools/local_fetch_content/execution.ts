@@ -9,11 +9,46 @@ import {
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  EvidenceMetadata,
+  ProcessedBulkResult,
+} from '../../types/toolResults.js';
+import {
+  attachEvidence,
+  buildEvidenceMetadata,
+  hasMorePagination,
+  incompleteHintReasons,
+  isRecord,
+} from '../evidence.js';
 
 // Verbosity shaping is defined alongside fetchContent (used internally before
 // `createSuccessResult`). Re-exported here so every tool exposes
 // `apply<Tool>Verbosity` from execution.ts.
 export { applyFetchContentVerbosity } from './fetchContent.js';
+
+function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
+  const data = isRecord(result) ? result : {};
+  const hasContent =
+    typeof data.content === 'string'
+      ? data.content.length > 0
+      : typeof data.totalLines === 'number';
+  const reasons: string[] = [];
+
+  if (data.isPartial === true) {
+    reasons.push('File content is partial.');
+  }
+  if (hasMorePagination(data.pagination)) {
+    reasons.push('Character pagination has more data.');
+  }
+  reasons.push(...incompleteHintReasons(data));
+
+  return buildEvidenceMetadata({
+    kind: 'content',
+    answerReady: hasContent,
+    incompleteReasons: reasons,
+    emptyReason: 'No file content was returned.',
+  });
+}
 
 /**
  * Execute bulk fetch content operation.
@@ -40,7 +75,11 @@ export async function executeFetchContent(
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          return fetchContent(validation.data);
+          const result = await fetchContent(validation.data);
+          return attachEvidence(
+            result as ProcessedBulkResult,
+            buildFetchContentEvidence(result)
+          );
         },
       }),
     {
@@ -50,6 +89,7 @@ export async function executeFetchContent(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

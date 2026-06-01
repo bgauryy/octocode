@@ -5,7 +5,6 @@
 
 import path from 'path';
 import os from 'os';
-import { resolveWorkspaceRoot } from './workspaceRoot.js';
 
 /**
  * Normalizes a path for consistent cross-platform comparison.
@@ -69,7 +68,9 @@ export function redactPath(
   if (!absolutePath) return '';
 
   const normalized = normalizePath(absolutePath);
-  const rootSource = workspaceRoot ?? resolveWorkspaceRoot();
+  // Relativize against an explicit root if given, else the process cwd (display
+  // only — no security dependency on a workspace-root concept).
+  const rootSource = workspaceRoot ?? process.cwd();
   const root = normalizePath(rootSource);
 
   // Primary: show project-relative path

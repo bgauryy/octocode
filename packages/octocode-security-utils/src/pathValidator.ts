@@ -9,14 +9,17 @@ import os from 'os';
 import type { PathValidationResult } from './types.js';
 import { shouldIgnore } from './ignoredPathFilter.js';
 import { redactPath } from './pathUtils.js';
-import { resolveWorkspaceRoot } from './workspaceRoot.js';
 import { securityRegistry } from './registry.js';
 
 /**
  * PathValidator configuration options
  */
 interface PathValidatorOptions {
-  /** Primary workspace root directory. Defaults to CWD. */
+  /**
+   * Optional explicit allowed root directory. No implicit default — when
+   * omitted, access is bounded only by the home directory (unless
+   * `includeHomeDir: false`), `ALLOWED_PATHS`, and registered roots.
+   */
   workspaceRoot?: string;
   /** Additional allowed root directories */
   additionalRoots?: string[];
@@ -33,9 +36,13 @@ export class PathValidator {
   constructor(options?: PathValidatorOptions) {
     const opts = options || {};
 
-    const root = this.expandTilde(resolveWorkspaceRoot(opts.workspaceRoot));
-
-    this.allowedRoots = [path.resolve(root)];
+    // No implicit workspace/CWD root: the old WORKSPACE_ROOT sandbox was
+    // removed. A path is bounded only by the home directory (default),
+    // ALLOWED_PATHS, registered roots, and an explicit `workspaceRoot` a caller
+    // still chooses to pass.
+    this.allowedRoots = opts.workspaceRoot
+      ? [path.resolve(this.expandTilde(opts.workspaceRoot))]
+      : [];
 
     // Add home directory by default (can be disabled with includeHomeDir: false)
     if (opts.includeHomeDir !== false) {

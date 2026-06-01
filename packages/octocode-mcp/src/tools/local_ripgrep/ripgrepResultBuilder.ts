@@ -6,6 +6,7 @@ import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-
 type UpstreamRipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import type { SearchStats } from '../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
+import { compareIsoDateDescending } from '../../utils/core/compare.js';
 import { promises as fs } from 'fs';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import {
@@ -255,22 +256,9 @@ function compareRipgrepFilesByRelevance(
   if (matchDelta !== 0) return matchDelta;
 
   if (query.showFileLastModified) {
-    const modifiedDelta = compareModifiedDescending(a.modified, b.modified);
+    const modifiedDelta = compareIsoDateDescending(a.modified, b.modified);
     if (modifiedDelta !== 0) return modifiedDelta;
   }
 
   return a.path.localeCompare(b.path);
-}
-
-function compareModifiedDescending(left?: string, right?: string): number {
-  if (!left && !right) return 0;
-  if (!left) return 1;
-  if (!right) return -1;
-
-  const leftTime = Date.parse(left);
-  const rightTime = Date.parse(right);
-  if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
-  if (Number.isNaN(leftTime)) return 1;
-  if (Number.isNaN(rightTime)) return -1;
-  return rightTime - leftTime;
 }

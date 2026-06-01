@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('octocode-shared', () => ({
-
   storeCredentials: vi.fn().mockResolvedValue({ success: true }),
   getCredentials: vi.fn().mockResolvedValue(null),
   getCredentialsSync: vi.fn().mockReturnValue(null),

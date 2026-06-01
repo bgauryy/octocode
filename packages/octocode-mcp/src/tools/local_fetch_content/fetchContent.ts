@@ -1,5 +1,4 @@
 import { open, readFile, stat } from 'fs/promises';
-import { getConfigSync } from 'octocode-shared';
 import { getHints } from '../../hints/index.js';
 import { applyMinification } from './contentMinifier.js';
 import { extractMatchingLines } from './contentExtractor.js';
@@ -9,6 +8,7 @@ import {
 } from '../../utils/pagination/core.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
+import { getOutputCharLimit } from '../../utils/pagination/charLimit.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   validateToolPath,
@@ -46,9 +46,6 @@ type FetchContentQuery = WithVerbosity<
   WithOptionalMeta<UpstreamFetchContentQuery>
 >;
 
-const DEFAULT_OUTPUT_CHAR_LENGTH = 8000;
-const MAX_MATCH_LINES = 50;
-
 type FileStats = Awaited<ReturnType<typeof stat>>;
 
 interface ExtractionState {
@@ -62,28 +59,6 @@ interface ExtractionState {
   // payload free of empty `warnings: []` clutter.
   warnings?: string[];
   earlyResult?: LocalGetFileContentToolResult;
-}
-
-function readConfiguredDefaultCharLength(): number {
-  const config = getConfigSync() as {
-    output?: {
-      pagination?: {
-        defaultCharLength?: number;
-      };
-    };
-  };
-
-  return (
-    config.output?.pagination?.defaultCharLength ?? DEFAULT_OUTPUT_CHAR_LENGTH
-  );
-}
-
-function getDefaultOutputCharLengthSafe(): number {
-  try {
-    return readConfiguredDefaultCharLength();
-  } catch {
-    return DEFAULT_OUTPUT_CHAR_LENGTH;
-  }
 }
 
 function validateExtractionOptions(
@@ -325,13 +300,16 @@ function buildMatchExtractionState(
   totalLines: number,
   defaultOutputCharLength: number
 ): ExtractionState {
+  // No match cap: extract EVERY matched range. Oversized output is bounded
+  // losslessly by char-pagination (auto-paginate below, or explicit charLength/
+  // charOffset), which gives the agent a cursor to the rest — never a silent
+  // "first 50 matches" cut.
   const result = extractMatchingLines(
     lines,
     query.matchString!,
     query.matchStringContextLines ?? 5,
     query.matchStringIsRegex ?? false,
-    query.matchStringCaseSensitive ?? false,
-    MAX_MATCH_LINES
+    query.matchStringCaseSensitive ?? false
   );
 
   if (result.lines.length === 0) {
@@ -354,28 +332,6 @@ function buildMatchExtractionState(
       actualEndLine = lastRange.end;
       matchRanges = result.matchRanges;
     }
-  }
-
-  if (result.matchCount > MAX_MATCH_LINES) {
-    return {
-      isPartial: true,
-      earlyResult: {
-        content: resultContent,
-        isPartial: true,
-        totalLines,
-        ...(actualStartLine !== undefined && {
-          startLine: actualStartLine,
-          endLine: actualEndLine,
-          matchRanges,
-        }),
-        warnings: [
-          `Pattern matched ${result.matchCount} lines. Truncated to first ${MAX_MATCH_LINES} matches.`,
-        ],
-        hints: [
-          `Pattern matched ${result.matchCount} lines (truncated to ${MAX_MATCH_LINES}). Use a more specific pattern, or paginate with charLength.`,
-        ],
-      },
-    };
   }
 
   if (!query.charLength && resultContent.length > defaultOutputCharLength) {
@@ -584,7 +540,7 @@ function buildSuccessResult(
 export async function fetchContent(
   query: FetchContentQuery
 ): Promise<LocalGetFileContentToolResult> {
-  const defaultOutputCharLength = getDefaultOutputCharLengthSafe();
+  const defaultOutputCharLength = getOutputCharLimit();
 
   try {
     const pathValidation = validateToolPath(
@@ -693,12 +649,18 @@ export function applyFetchContentVerbosity(
     const minified = filePath ? applyMinification(raw, String(filePath)) : raw;
     const rawTokens = Math.ceil(raw.length / 4);
     const minTokens = Math.ceil(minified.length / 4);
+    const hints = [
+      `${filePath}: ${totalLines} lines, ~${rawTokens}→${minTokens} tokens (minified)`,
+    ];
+    // Parity with the GitHub fetch-content tool: surface the downgrade so a
+    // fullContent request that got minified under concise isn't silent.
+    if ((query as { fullContent?: boolean }).fullContent === true) {
+      hints.push('fullContent=true minified under concise');
+    }
     const shaped: LocalGetFileContentToolResult = {
       ...result,
       content: minified,
-      hints: [
-        `${filePath}: ${totalLines} lines, ~${rawTokens}→${minTokens} tokens (minified)`,
-      ],
+      hints,
     };
     delete (shaped as { lastModified?: string }).lastModified;
     delete (shaped as { lastModifiedBy?: string }).lastModifiedBy;

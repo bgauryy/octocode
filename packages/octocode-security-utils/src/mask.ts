@@ -18,7 +18,13 @@ function resolvePatterns(
 ): SensitiveDataPattern[] {
   const base = explicit ?? allRegexPatterns;
   const extra = securityRegistry.extraSecretPatterns;
-  return extra.length > 0 ? [...base, ...extra] : base;
+  const combined = extra.length > 0 ? [...base, ...extra] : base;
+  // Masking runs on serialized blobs with no file-path context, so patterns
+  // gated by `fileContext` (e.g. the bare 40-hex `wandbApiKey` matcher) cannot
+  // be applied safely — without their context guard they false-positive on git
+  // commit SHAs, content hashes, and similar 40-hex strings. ContentSanitizer
+  // already skips fileContext patterns when no filePath is known; mirror that.
+  return combined.filter(pattern => !pattern.fileContext);
 }
 
 /**

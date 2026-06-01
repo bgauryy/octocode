@@ -51,6 +51,12 @@ export async function fetchDirectoryContentsRecursivelyAPI(
       sha: item.sha,
     }));
 
+    // Intentional projection: `apiItems` carries the fields downstream consumes
+    // (name/path/type/size/urls/sha) but omits `_links` and narrows `size` to
+    // optional, so it is a structural subset of GitHubApiFileItem rather than a
+    // member of it. This is an internal reshape of already-typed API data — not
+    // an untrusted boundary — so the bridge cast is the right tool here (a
+    // runtime validator would add cost without adding safety).
     const allItems: GitHubApiFileItem[] = [
       ...apiItems,
     ] as unknown as GitHubApiFileItem[];

@@ -1,12 +1,17 @@
-import { getConfigSync } from 'octocode-shared';
 import { TOOL_NAMES } from '../../tools/toolMetadata/proxies.js';
+import { getOutputCharLimit } from '../pagination/charLimit.js';
 import type { BulkToolResponse } from '../../types/bulk.js';
 import type {
   FlatQueryResult,
   PaginationInfo,
 } from '../../types/toolResults.js';
-
-const DEFAULT_OUTPUT_CHAR_LENGTH = 8000;
+// Hard ceiling for the auto-pagination default. Even if the deployment config
+// sets a very high `output.pagination.defaultCharLength`, a single aggregated
+// bulk response must never exceed the documented max single-response budget —
+// otherwise one large query (e.g. a fullContent PR with many files) sails past
+// the MCP client's token limit and is truncated/spilled wholesale instead of
+// being paginated with a cursor. Mirrors LOCAL_OVERLAY_MAX_CHAR_LENGTH. (#T2)
+const MAX_DEFAULT_OUTPUT_CHAR_LENGTH = 100_000;
 const FALLBACK_EXCLUDED_FIELDS = new Set([
   'hints',
   'warnings',
@@ -54,26 +59,13 @@ interface CollectionSegment {
   itemPaginator?: CollectionConfig['itemPaginator'];
 }
 
-function readConfiguredDefaultCharLength(): number {
-  const config = getConfigSync() as {
-    output?: {
-      pagination?: {
-        defaultCharLength?: number;
-      };
-    };
-  };
-
-  return (
-    config.output?.pagination?.defaultCharLength ?? DEFAULT_OUTPUT_CHAR_LENGTH
-  );
-}
-
 function getDefaultCharLength(): number {
-  try {
-    return readConfiguredDefaultCharLength();
-  } catch {
-    return DEFAULT_OUTPUT_CHAR_LENGTH;
-  }
+  // One pagination limit for every flow. Clamp to the hard ceiling so a high
+  // deployment default can't produce an un-paginated overflow response. (#T2)
+  return Math.min(
+    Math.max(getOutputCharLimit(), 1),
+    MAX_DEFAULT_OUTPUT_CHAR_LENGTH
+  );
 }
 
 function resolveRequest(request: PaginationRequest): ResolvedPaginationRequest {
@@ -105,18 +97,30 @@ function createOutputPagination(
 ): PaginationInfo {
   const safePageSize = Math.max(pageSize, 1);
   const safeTotalChars = Math.max(totalChars, 0);
-  const totalPages = Math.max(1, Math.ceil(safeTotalChars / safePageSize));
+  // Uniform-page estimate. Real pages can consume MORE than pageSize when a
+  // single atomic item (a fullContent PR diff, a huge match) exceeds it, so
+  // this is only an upper bound mid-stream.
+  const estimatedPages = Math.max(1, Math.ceil(safeTotalChars / safePageSize));
   const maxLogicalOffset =
     safeTotalChars === 0 ? 0 : Math.max(safeTotalChars - 1, 0);
   const pageOffset = Math.min(Math.max(charOffset, 0), maxLogicalOffset);
+  const currentPage =
+    safeTotalChars === 0
+      ? 1
+      : Math.min(estimatedPages, Math.floor(pageOffset / safePageSize) + 1);
+  const hasMore = charOffset + charLength < safeTotalChars;
 
   return {
-    currentPage:
-      safeTotalChars === 0
-        ? 1
-        : Math.min(totalPages, Math.floor(pageOffset / safePageSize) + 1),
-    totalPages,
-    hasMore: charOffset + charLength < safeTotalChars,
+    currentPage,
+    // Pin the count to the truth at the boundary: on the LAST page (nothing
+    // more) the total is exactly the current page — an oversized item that ate
+    // >pageSize otherwise leaves the uniform estimate overcounting (e.g.
+    // "1/2" for a single page that fit everything). When more remains, the
+    // count is at least currentPage+1.
+    totalPages: hasMore
+      ? Math.max(estimatedPages, currentPage + 1)
+      : currentPage,
+    hasMore,
     charOffset,
     charLength,
     totalChars: safeTotalChars,
@@ -336,6 +340,18 @@ function paginateSegments(
           value: partial.value,
         });
         pageEnd = segment.start + partial.pageEnd;
+        // A partial only terminates the page when the LENGTH budget ran out
+        // inside this segment. If the partial instead consumed the segment to
+        // its end (a responseCharOffset that resumed MID-segment) and budget
+        // still remains, fall through to the following segments — otherwise a
+        // mid-segment resume returns only this one segment's tail and the
+        // cursor stalls, never advancing into later queries (the multi-query
+        // repo/PR/structure bulk "cursor stall" bug).
+        const segmentFullyConsumed = partial.pageEnd >= partial.totalChars;
+        const budgetRemains = pageEnd - actualOffset < request.length;
+        if (segmentFullyConsumed && budgetRemains) {
+          continue;
+        }
         break;
       }
     }
@@ -699,6 +715,48 @@ function paginateGitHubSearchCodeFile(
   ]);
 }
 
+/**
+ * Escape valve for an oversized single PR. A `fullContent` PR carries a
+ * `fileChanges[]` array whose `patch` strings dominate the payload; without
+ * sub-slicing, one PR's diff (~12KB seen live) is emitted whole on page 1,
+ * blowing past the char budget. This paginates the fileChanges array and, when
+ * a single patch still overflows, slices that patch string — so a page stays
+ * near the budget and the rest is reachable via the cursor (lossless).
+ */
+function paginatePullRequest(
+  value: unknown,
+  request: ResolvedPaginationRequest
+): ValuePageResult<unknown> | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  // Only engage the escape valve for a genuinely oversized PR — one whose own
+  // serialized size exceeds a WHOLE page. `request.length` here is the leftover
+  // budget on the current page, not a full page, so comparing against it would
+  // sub-slice a normal PR that merely crossed the boundary (leaving a sub-char
+  // remainder + a spurious extra page). A PR that fits in a full page is
+  // cleaner deferred WHOLE to the next page by the array paginator.
+  if (serialize(value).length <= getDefaultCharLength()) {
+    return null;
+  }
+
+  return paginateConfiguredObjectValue(value, request, [
+    {
+      field: 'fileChanges',
+      kind: 'array',
+      itemPaginator: (item, nestedRequest) =>
+        isPlainObject(item)
+          ? paginateObjectStringField(
+              item as Record<string, unknown>,
+              'patch',
+              nestedRequest
+            )
+          : null,
+    },
+  ]);
+}
+
 function paginateGitHubRepository(
   value: unknown,
   request: ResolvedPaginationRequest
@@ -818,6 +876,47 @@ function paginateLspLocation(
   return paginateObjectStringField(value, 'content', request);
 }
 
+function paginateCallHierarchyNode(
+  value: unknown,
+  request: ResolvedPaginationRequest
+): ValuePageResult<unknown> | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  // A call node nests the resolved item under `from` (incoming) or `to`
+  // (outgoing); the heavy field is that nested node's `content` snippet. Slice
+  // THAT field specifically (not via the generic fallback, which would waste
+  // the budget slicing the first short string it finds). This is what lets us
+  // drop the per-node content pre-clip and stay lossless.
+  const nestedKey = isPlainObject(value.from)
+    ? 'from'
+    : isPlainObject(value.to)
+      ? 'to'
+      : null;
+  if (nestedKey) {
+    return paginateObjectFieldCore(
+      value,
+      nestedKey,
+      request,
+      {},
+      (inner, req) => {
+        const node = inner as Record<string, unknown>;
+        const sliced = paginateObjectStringField(node, 'content', req);
+        if (sliced) return sliced;
+        const total = serialize(node).length;
+        return {
+          value: node,
+          actualOffset: 0,
+          pageEnd: total,
+          totalChars: total,
+          paginated: false,
+        };
+      }
+    );
+  }
+  return paginateObjectStringField(value, 'content', request);
+}
+
 function pageToolDataValue(
   toolName: string,
   data: Record<string, unknown>,
@@ -906,29 +1005,25 @@ function pageToolDataValue(
         {
           field: 'incomingCalls',
           kind: 'array',
-          itemPaginator: paginateFallbackValue,
+          itemPaginator: paginateCallHierarchyNode,
         },
         {
           field: 'outgoingCalls',
           kind: 'array',
-          itemPaginator: paginateFallbackValue,
+          itemPaginator: paginateCallHierarchyNode,
         },
       ]);
       break;
     case TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS:
-      if (data.outputPagination) {
-        return {
-          value: data,
-          actualOffset: 0,
-          pageEnd: serialize(data).length,
-          totalChars: serialize(data).length,
-          paginated: false,
-        };
-      }
+      // The unified engine owns char-pagination: it slices the pull_requests
+      // array and — via paginatePullRequest — sub-slices an oversized single PR
+      // (its fileChanges[].patch under fullContent) so one giant diff can't blow
+      // the page budget. Lossless: the rest is reachable through the cursor.
       page = paginateConfiguredObjectValue(data, request, [
         {
           field: 'pull_requests',
           kind: 'array',
+          itemPaginator: paginatePullRequest,
         },
       ]);
       break;
@@ -1093,6 +1188,31 @@ export function applyQueryOutputPagination(
         ? originalQuery.charLength
         : undefined,
   });
+
+  // Per-query char-pagination engages ONLY when the caller explicitly navigates
+  // a single query via charOffset/charLength. Auto-capping the whole response
+  // is owned solely by applyBulkResponsePagination, so the agent gets ONE
+  // coherent cursor (responseCharOffset) instead of two breadcrumbs reporting
+  // different char totals (the per-query pre-slice total vs the bulk total).
+  if (!request.explicit) {
+    // localFindFiles computes its own file-list charPagination upstream; surface
+    // it under the canonical outputPagination key (no re-slicing).
+    if (
+      toolName === TOOL_NAMES.LOCAL_FIND_FILES &&
+      queryResult.data.charPagination &&
+      !queryResult.data.outputPagination
+    ) {
+      return {
+        ...queryResult,
+        data: {
+          ...queryResult.data,
+          outputPagination: queryResult.data.charPagination,
+        },
+      };
+    }
+    return queryResult;
+  }
+
   const page = pageToolDataValue(toolName, queryResult.data, request);
 
   if (!page.paginated) {
@@ -1146,6 +1266,25 @@ export function applyBulkResponsePagination(
   toolName: string
 ): BulkToolResponse {
   const resolvedRequest = resolveRequest(request);
+
+  // Single coherent cursor: when the caller drove PER-QUERY pagination (every
+  // result already carries an outputPagination cursor from an explicit
+  // charOffset/charLength) and did NOT request bulk pagination, the per-query
+  // slices already bound the response. Re-paginating here would emit a SECOND
+  // breadcrumb with a different char total — the contradictory-cursor smell.
+  // So skip the bulk pass and let the per-query cursor stand alone.
+  if (
+    !resolvedRequest.explicit &&
+    response.results.length > 0 &&
+    response.results.every(
+      r =>
+        isPlainObject(r?.data) &&
+        (r.data as Record<string, unknown>).outputPagination !== undefined
+    )
+  ) {
+    return response;
+  }
+
   const page = paginateConfiguredObjectValue(
     { results: response.results },
     resolvedRequest,

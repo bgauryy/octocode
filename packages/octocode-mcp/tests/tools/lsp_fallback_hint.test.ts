@@ -221,12 +221,16 @@ describe('LSP fallback hint — surfaced when isLanguageServerAvailable=false', 
       reasoning: 'r',
     } as unknown as Parameters<typeof processCallHierarchy>[0]);
 
-    const totalChars = (
-      pageOne as unknown as {
-        outputPagination?: { totalChars?: number; charLength?: number };
-      }
-    ).outputPagination?.totalChars;
-    expect(totalChars, 'expected pagination to trigger').toBeGreaterThan(200);
+    // processCallHierarchy no longer injects outputPagination itself — that
+    // responsibility moved to the unified bulk engine (applyQueryOutputPagination /
+    // applyBulkResponsePagination). What we verify here is that the data needed
+    // for pagination IS present: the raw result is large enough for the bulk
+    // engine to auto-cap, and lspMode / hints survive.
+    const serializedLen = JSON.stringify(pageOne).length;
+    expect(
+      serializedLen,
+      'expected result to be large enough for the bulk engine to auto-paginate'
+    ).toBeGreaterThan(200);
 
     vi.mocked(
       callHierarchyPatterns.callHierarchyWithPatternMatching

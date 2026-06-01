@@ -272,9 +272,16 @@ describe('ignoredPathFilter', () => {
   });
 
   describe('core dumps and crash files', () => {
-    it('should block core dump files', () => {
-      expect(shouldIgnoreFile('core')).toBe(true);
+    it('should block numbered/suffixed core dump files', () => {
       expect(shouldIgnoreFile('core.12345')).toBe(true);
+      expect(shouldIgnoreFile('app.core')).toBe(true);
+    });
+
+    it('does NOT block a "core" source directory/file (common, not a dump)', () => {
+      // The bare /^core$/ pattern was removed — it false-matched the ubiquitous
+      // `core` source directory (tested per path segment). See filePatterns.ts.
+      expect(shouldIgnoreFile('core')).toBe(false);
+      expect(shouldIgnoreFile('src/utils/core')).toBe(false);
     });
 
     it('should block Windows dump files', () => {

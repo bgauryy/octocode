@@ -23,8 +23,8 @@ describe('tsvColumns fallback chains', () => {
       results: [{ matches: [{}, { path: 'x.ts' }] }],
     });
     expect(rows).toEqual([
-      { id: '', owner: '', repo: '', path: '', value: '' },
-      { id: '', owner: '', repo: '', path: 'x.ts', value: '' },
+      { owner: '', repo: '', path: '', value: '' },
+      { owner: '', repo: '', path: 'x.ts', value: '' },
     ]);
   });
 
@@ -108,7 +108,6 @@ describe('tsvColumns fallback chains', () => {
     });
     expect(rows[0]).toEqual({
       name: 'x',
-      path: '',
       type: 'f',
       size: '',
       modified: '',
@@ -150,6 +149,49 @@ describe('tsvColumns fallback chains', () => {
       line: 5,
       column: 2,
     });
+  });
+
+  it('lspFindReferences emits grouped by-file rows when flat refs are absent', () => {
+    const rows = project(STATIC_TOOL_NAMES.LSP_FIND_REFERENCES, {
+      locations: [],
+      byFile: [
+        { uri: 'src/a.ts', count: 3, firstLine: 9, firstCharacter: 2 },
+        { uri: 'src/b.ts', count: 1, hasDefinition: true },
+      ],
+    });
+    expect(rows).toEqual([
+      {
+        uri: 'src/a.ts',
+        name: '',
+        kind: '',
+        line: 9,
+        column: 2,
+        count: 3,
+        content: '',
+        snippet: '',
+        isDeclaration: '',
+      },
+      {
+        uri: 'src/b.ts',
+        name: '',
+        kind: '',
+        line: '',
+        column: '',
+        count: 1,
+        content: '',
+        snippet: '',
+        isDeclaration: true,
+      },
+    ]);
+  });
+
+  it('lspFindReferences prefers flat references over grouped by-file rollups', () => {
+    const rows = project(STATIC_TOOL_NAMES.LSP_FIND_REFERENCES, {
+      references: [{ uri: 'flat.ts', line: 1, column: 0 }],
+      byFile: [{ uri: 'grouped.ts', count: 10 }],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ uri: 'flat.ts', line: 1, column: 0 });
   });
 
   it('lspGotoDefinition tolerates ranges without start.character (uses start.column)', () => {

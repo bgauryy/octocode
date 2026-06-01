@@ -11,7 +11,7 @@
 //   "octocode": { "1": 3, "2": 2, ... },
 //   "gh":       { "1": 3, "2": 1, ... },
 //   "drift":   [5, 12],              // optional: excluded from wins/totals
-//   "exclude": [9]                   // optional: bad questions excluded
+//   "exclude": [9]                   // optional: excluded questions
 // }
 //
 // Usage:

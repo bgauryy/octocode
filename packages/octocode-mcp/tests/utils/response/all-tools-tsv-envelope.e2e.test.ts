@@ -52,7 +52,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'o\tr\t\t\td\t\t1\t\t0\t0\tTypeScript',
+    rowProbe: 'o\tr\td\t1\t0\t0\tTypeScript\t["x"]\t2026',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -94,7 +94,7 @@ const genericCases: GenericCase[] = [
         '.': { files: ['README.md'], folders: ['src'] },
       },
     },
-    rowProbe: '.\tREADME.md\tfile',
+    rowProbe: 'README.md\tfile',
   },
   {
     toolName: STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
@@ -158,7 +158,7 @@ const genericCases: GenericCase[] = [
         { name: 'src', type: 'd', size: '4KB', modified: '2026', depth: 1 },
       ],
     },
-    rowProbe: 'src\t\td\t4KB',
+    rowProbe: 'src\td\t4KB\t2026\t1',
   },
   {
     toolName: STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
@@ -212,7 +212,7 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'incoming\tcaller\t\tsrc/c.ts\t5\t2',
+    rowProbe: 'incoming\tcaller\tsrc/c.ts\t5\t2',
   },
 ];
 
@@ -236,44 +236,34 @@ describe('every generic-bulk tool emits the TSV envelope by default', () => {
           peerHints: true,
         }
       );
+      // #A1: the TSV envelope is emitted only in content[0].text (the
+      // model-facing payload). structuredContent carries the canonical
+      // structured records — never a second, stringified TSV copy.
+      const text = (result.content[0] as { text: string }).text;
+      // text is a YAML/JSON-serialized string, so the row's tabs and quotes are
+      // escaped exactly as a quoted scalar — derive that form via JSON.stringify.
+      const escapedProbe = JSON.stringify(rowProbe).slice(1, -1);
+      expect(text, `${toolName} text missing TSV rows`).toContain(escapedProbe);
+
       const sc = result.structuredContent as Record<string, unknown>;
-      expect(sc.format, `${toolName} did not emit format=tsv`).toBe('tsv');
-      expect(Array.isArray(sc.columns)).toBe(true);
-      expect(typeof sc.rows).toBe('string');
-      expect(String(sc.rows)).toContain(rowProbe);
+      expect(
+        sc.format,
+        `${toolName} leaked TSV envelope into structuredContent`
+      ).toBeUndefined();
+      expect(sc.columns).toBeUndefined();
+      expect(sc.rows).toBeUndefined();
+      expect(sc.base).toBeUndefined();
+      expect(sc.shared).toBeUndefined();
 
       if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS) {
-        expect(sc.columns).toEqual(
-          expect.arrayContaining([
-            'number',
-            'state',
-            'draft',
-            'author',
-            'title',
-            'body',
-            'url',
-            'assignees',
-            'labels',
-            'sourceBranch',
-            'targetBranch',
-            'sourceSha',
-            'targetSha',
-            'createdAt',
-            'updatedAt',
-            'closedAt',
-            'mergedAt',
-            'commentsCount',
-            'changedFilesCount',
-            'additions',
-            'deletions',
-            'comments',
-            'fileChanges',
-          ])
-        );
-        expect(String(sc.rows)).toContain('2026-05-25T12:00:00Z');
-        expect(String(sc.rows)).toContain('abc123');
-        expect(String(sc.rows)).toContain('body text');
-        expect(String(sc.rows)).toContain('src/a.ts');
+        // column headers + values live in the TSV text payload
+        for (const col of ['sourceSha', 'targetSha', 'fileChanges', 'body']) {
+          expect(text).toContain(col);
+        }
+        expect(text).toContain('2026-05-25T12:00:00Z');
+        expect(text).toContain('abc123');
+        expect(text).toContain('body text');
+        expect(text).toContain('src/a.ts');
       }
     }
   );
@@ -312,14 +302,15 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
       },
     };
     const out = finalize(input);
+    // #A1: envelope in text, canonical records in structuredContent.
+    expect(out.text).toContain('a.ts');
+    expect(out.text).toContain('export class A {}');
+    expect(out.text).toContain('value'); // column header
     const sc = out.structuredContent as Record<string, unknown>;
-    expect(sc.format).toBe('tsv');
-    expect(Array.isArray(sc.columns)).toBe(true);
-    expect(typeof sc.rows).toBe('string');
-    expect(sc.columns).toEqual(['id', 'owner', 'repo', 'path', 'value']);
-    expect(String(sc.rows)).toContain('o/r');
-    expect(String(sc.rows)).toContain('a.ts');
-    expect(String(sc.rows)).toContain('export class A {}');
+    expect(sc.format).toBeUndefined();
+    expect(sc.columns).toBeUndefined();
+    expect(sc.rows).toBeUndefined();
+    expect(Array.isArray(sc.results)).toBe(true);
   });
 
   it('githubGetFileContent finalizer attaches format/columns/rows', () => {
@@ -359,13 +350,13 @@ describe('custom finalizers emit the TSV envelope when format=tsv', () => {
       },
     };
     const out = finalize(input);
+    // #A1: envelope in text, canonical records in structuredContent.
+    expect(out.text).toContain('a.ts');
+    expect(out.text).toContain('o/r');
     const sc = out.structuredContent as Record<string, unknown>;
-    expect(sc.format).toBe('tsv');
-    expect(Array.isArray(sc.columns)).toBe(true);
-    expect(typeof sc.rows).toBe('string');
-    expect(String(sc.rows)).toContain('1\t');
-    expect(String(sc.rows)).toContain('o/r');
-    expect(String(sc.rows)).toContain('a.ts');
+    expect(sc.format).toBeUndefined();
+    expect(sc.columns).toBeUndefined();
+    expect(sc.rows).toBeUndefined();
   });
 });
 

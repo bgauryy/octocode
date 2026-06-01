@@ -11,6 +11,11 @@ vi.mock('octocode-shared', () => ({
   getConfigSync: vi.fn(() => {
     throw new Error('config unavailable');
   }),
+  // getOutputCharLimit() falls back to this when getConfigSync throws.
+  DEFAULT_OUTPUT_CONFIG: {
+    format: 'yaml',
+    pagination: { defaultCharLength: 2000 },
+  },
 }));
 
 import { applyOutputSizeLimit } from '../../src/utils/pagination/outputSizeLimit.js';

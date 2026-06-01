@@ -20,6 +20,14 @@ import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { logSessionError } from '../session.js';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
+import { normalizeResponseHeaders } from './responseHeaders.js';
+
+/**
+ * Default page size when a caller hits this API layer WITHOUT a `limit`. The
+ * MCP surface always injects its own (leaner) default via the schema, so this
+ * only applies to direct/internal API callers.
+ */
+const RAW_API_DEFAULT_LIMIT = 30;
 
 /** Pagination info for repository search results */
 interface RepoSearchPagination {
@@ -30,16 +38,22 @@ interface RepoSearchPagination {
   hasMore: boolean;
 }
 
+/** Successful repo-search payload shape returned by the API layer. */
+interface RepoSearchAPIData {
+  repositories: GitHubRepositoryOutput[];
+  pagination?: RepoSearchPagination;
+  /**
+   * True when the empty result is a nonexistent searched owner/user (GitHub
+   * 422), not a valid scope that matched nothing.
+   */
+  nonExistentScope?: boolean;
+}
+
 export async function searchGitHubReposAPI(
   params: WithOptionalMeta<GitHubReposSearchSingleQuery>,
   authInfo?: AuthInfo,
   sessionId?: string
-): Promise<
-  GitHubAPIResponse<{
-    repositories: GitHubRepositoryOutput[];
-    pagination?: RepoSearchPagination;
-  }>
-> {
+): Promise<GitHubAPIResponse<RepoSearchAPIData>> {
   // Cache key excludes context fields (mainResearchGoal, researchGoal, reasoning)
   // as they don't affect the API response
   const cacheKey = generateCacheKey(
@@ -61,12 +75,7 @@ export async function searchGitHubReposAPI(
     sessionId
   );
 
-  const result = await withDataCache<
-    GitHubAPIResponse<{
-      repositories: GitHubRepositoryOutput[];
-      pagination?: RepoSearchPagination;
-    }>
-  >(
+  const result = await withDataCache<GitHubAPIResponse<RepoSearchAPIData>>(
     cacheKey,
     async () => {
       return await searchGitHubReposAPIInternal(params, authInfo);
@@ -83,12 +92,7 @@ export async function searchGitHubReposAPI(
 async function searchGitHubReposAPIInternal(
   params: WithOptionalMeta<GitHubReposSearchSingleQuery>,
   authInfo?: AuthInfo
-): Promise<
-  GitHubAPIResponse<{
-    repositories: GitHubRepositoryOutput[];
-    pagination?: RepoSearchPagination;
-  }>
-> {
+): Promise<GitHubAPIResponse<RepoSearchAPIData>> {
   try {
     const octokit = await getOctokit(authInfo);
     const query = buildRepoSearchQuery(params);
@@ -105,7 +109,7 @@ async function searchGitHubReposAPIInternal(
       };
     }
 
-    const perPage = Math.min(params.limit || 30, 100);
+    const perPage = Math.min(params.limit || RAW_API_DEFAULT_LIMIT, 100);
     const currentPage = params.page || 1;
 
     const searchParams: SearchReposParameters = {
@@ -114,7 +118,12 @@ async function searchGitHubReposAPIInternal(
       page: currentPage,
     };
 
-    if (params.sort && params.sort !== 'best-match') {
+    // GitHub repo search only accepts stars | forks | updated (+ help-wanted-
+    // issues). `created` and `best-match` are NOT valid API sorts — forwarding
+    // them makes GitHub ignore the param. Those are handled by client-side
+    // ranking (compareByRequestedSort) instead, so don't send them here.
+    const API_SORTS = ['stars', 'forks', 'updated'] as const;
+    if (params.sort && (API_SORTS as readonly string[]).includes(params.sort)) {
       searchParams.sort = params.sort as SearchReposParameters['sort'];
     }
 
@@ -172,17 +181,19 @@ async function searchGitHubReposAPIInternal(
         },
       },
       status: 200,
-      headers: result.headers as unknown as Record<string, string>,
+      headers: normalizeResponseHeaders(result.headers),
       rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
     // A 422 referencing a nonexistent entity (e.g. owner:/user: that does not
     // exist) is "no matches", not a failure — return a clean empty result.
     if (isNoResultsSearchError(error)) {
-      const perPage = Math.min(params.limit || 30, 100);
+      const perPage = Math.min(params.limit || RAW_API_DEFAULT_LIMIT, 100);
       return {
         data: {
           repositories: [],
+          // Nonexistent owner/user scope, not a valid-but-empty search.
+          nonExistentScope: true,
           pagination: {
             currentPage: params.page || 1,
             totalPages: 0,

@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MCPConfig } from '../../src/types/index.js';
 import type { MCPRegistryEntry } from '../../src/configs/mcp-registry.js';
@@ -234,7 +232,6 @@ describe('MCP Config Coverage Tests', () => {
 
       const result = registryEntryToServerConfig(mockEntry, {
         API_KEY: 'my-api-key',
-
       });
 
       expect(result.args).toContain('my-api-key');
@@ -614,7 +611,6 @@ describe('MCP Config Coverage Tests', () => {
 
       const result = validateRequiredEnvVars(entryWithRequiredVars, {
         API_KEY: 'key123',
-
       });
 
       expect(result.valid).toBe(false);
@@ -810,7 +806,6 @@ describe('MCP Config Coverage Tests', () => {
 
   describe('mergeOctocodeConfig Windows behavior', () => {
     it('should use Windows config when isWindows is true', async () => {
-
       vi.resetModules();
 
       vi.doMock('../../src/utils/platform.js', () => ({

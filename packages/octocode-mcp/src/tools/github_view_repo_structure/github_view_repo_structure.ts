@@ -17,5 +17,10 @@ export const registerViewGitHubRepoStructureTool = createRemoteToolRegistration(
     inputSchema: GitHubViewRepoStructureBulkQueryLocalSchema,
     outputSchema: GitHubViewRepoStructureOutputLocalSchema,
     executionFn: exploreMultipleRepositoryStructures,
+    describe: base => `${base}
+<vsGithubGetFileContent>
+- Use githubViewRepoStructure to inspect a remote tree cheaply without cloning.
+- Use githubGetFileContent type="directory" when you need files materialized on disk for local/LSP tools.
+</vsGithubGetFileContent>`,
   }
 );

@@ -13,21 +13,18 @@
 import type { BulkFinalizer } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
 import {
+  applyBulkCharWindow,
   collectFlatErrors,
   dedupeHints,
   formatFinalizedResponse,
-  paginateGroupsWithNestedItemEscape,
-  paginateNestedItems,
+  paginateGroupsCharWindow,
   readNonNegativeNumber,
   readPositiveNumber,
   type CharPagination,
   type PerQueryPagination,
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
-import type {
-  GitHubCodeSearchOutputLocal,
-  GroupedToolWarning,
-} from '../../scheme/remoteSchemaOverlay.js';
+import type { GitHubCodeSearchOutputLocal } from '../../scheme/remoteSchemaOverlay.js';
 import {
   isConcise,
   isCompact,
@@ -35,6 +32,7 @@ import {
   makeAdvisoryPredicate,
 } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
+import { buildEvidenceMetadata } from '../evidence.js';
 
 export const CONCISE_SEARCH_CODE_LIMIT = 3;
 
@@ -42,8 +40,6 @@ export const CONCISE_SEARCH_CODE_LIMIT = 3;
  * Substring-OR, case-insensitive. */
 const isAdvisorySearchCodeHint = makeAdvisoryPredicate([
   'pivot term',
-  'long match value',
-  'truncated',
   'cross-repo search',
   'zero hits',
   'check repo structure',
@@ -57,6 +53,7 @@ import {
 } from '../providerMappers.js';
 import { tsvFormat } from '../../utils/response/tsvFormat.js';
 import { getTsvProjection } from '../../utils/response/tsvColumns.js';
+import { finalizeTsv } from '../../utils/response/tsvFinalize.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 type PerQueryGroups = {
@@ -64,11 +61,6 @@ type PerQueryGroups = {
   groups: CodeSearchGroupedResult[];
   pagination?: PerQueryPagination;
 };
-
-type TruncationWarning = Extract<
-  GroupedToolWarning,
-  { kind: 'match-value-truncated' }
->;
 
 function readPerQueryFlat(result: FlatQueryResult): CodeSearchFlatResult {
   const data = result.data as Partial<CodeSearchFlatResult> | undefined;
@@ -123,32 +115,86 @@ function setMatches(
   return { ...group, matches };
 }
 
-function truncateOversizedMatch(
+/** The single paginatable text field on a code-search match. */
+const getMatchText = (match: CodeSearchGroupedMatch): string | undefined =>
+  match.value;
+const setMatchText = (
   match: CodeSearchGroupedMatch,
-  charLength: number,
-  group: CodeSearchGroupedResult,
-  warnings: TruncationWarning[]
-): CodeSearchGroupedMatch {
-  if (!match.value) return match;
-  const marker = '… [truncated]';
-  const valueBudget = Math.max(
-    0,
-    charLength - match.path.length - marker.length - 64
+  value: string
+): CodeSearchGroupedMatch => ({ ...match, value });
+
+function collectPeerHints(results: readonly FlatQueryResult[]): string[] {
+  return dedupeHints(
+    results.flatMap(result => {
+      const raw = result.data.hints;
+      return Array.isArray(raw)
+        ? raw.filter((hint): hint is string => typeof hint === 'string')
+        : [];
+    })
   );
-  if (match.value.length <= valueBudget) return match;
-  warnings.push({
-    kind: 'match-value-truncated',
-    groupId: group.id,
-    path: match.path,
-    fullValueLength: match.value.length,
-    truncatedAt: valueBudget,
-    recovery:
-      'Retry with larger responseCharLength or narrow the search to this file/path.',
+}
+
+function buildCodeEvidence(
+  groups: readonly CodeSearchGroupedResult[],
+  upstreamPagination: CodeSearchPagination | undefined,
+  outputPagination: readonly PerQueryPagination[],
+  responsePagination: CharPagination | undefined,
+  errors: readonly { id: string; error: string }[]
+): NonNullable<GitHubCodeSearchOutputLocal['evidence']> {
+  const totalMatches = groups.reduce(
+    (sum, group) => sum + group.matches.length,
+    0
+  );
+  const reasons: string[] = [];
+
+  if (upstreamPagination?.hasMore) {
+    reasons.push('GitHub search pagination has more matches.');
+  }
+  if (outputPagination.some(page => page.hasMore)) {
+    reasons.push('One or more query-level char pages have more data.');
+  }
+  if (responsePagination?.hasMore) {
+    reasons.push('Bulk response pagination has more data.');
+  }
+  if (errors.length > 0) {
+    reasons.push(`${errors.length} query result(s) failed.`);
+  }
+
+  return buildEvidenceMetadata({
+    kind: 'code',
+    answerReady: totalMatches > 0,
+    incompleteReasons: reasons,
+    emptyReason: 'No code matches were returned for the supplied filters.',
   });
-  return {
-    ...match,
-    value: `${match.value.slice(0, valueBudget)}${marker}`,
-  };
+}
+
+function conciseMatchValue(value: string | undefined): string {
+  if (!value) return '';
+  const firstLine =
+    value
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .find(line => line.length > 0) ?? '';
+  const maxLength = 160;
+  return firstLine.length > maxLength
+    ? `${firstLine.slice(0, maxLength - 1)}…`
+    : firstLine;
+}
+
+function dedupeConciseMatchesByPath(
+  matches: readonly CodeSearchGroupedMatch[]
+): CodeSearchGroupedMatch[] {
+  const seen = new Set<string>();
+  const deduped: CodeSearchGroupedMatch[] = [];
+  for (const match of matches) {
+    if (seen.has(match.path)) continue;
+    seen.add(match.path);
+    deduped.push({
+      ...match,
+      value: conciseMatchValue(match.value),
+    });
+  }
+  return deduped;
 }
 
 export function buildGithubSearchCodeFinalizer<
@@ -156,7 +202,6 @@ export function buildGithubSearchCodeFinalizer<
 >(): BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal> {
   return ({ queries, results, config }) => {
     const perQueryGroups: PerQueryGroups[] = [];
-    const warnings: TruncationWarning[] = [];
     let upstreamPagination: CodeSearchPagination | undefined;
     let upstreamPaginationQueries = 0;
 
@@ -196,10 +241,12 @@ export function buildGithubSearchCodeFinalizer<
         groups.length > 0 &&
         (requestedLength !== undefined || requestedOffset !== undefined)
       ) {
-        const sliced = paginateNestedItems({
+        const sliced = paginateGroupsCharWindow({
           groups,
           getItems: getMatches,
           setItems: setMatches,
+          getItemText: getMatchText,
+          setItemText: setMatchText,
           charOffset: requestedOffset ?? 0,
           charLength: requestedLength ?? Number.MAX_SAFE_INTEGER,
         });
@@ -220,24 +267,15 @@ export function buildGithubSearchCodeFinalizer<
       .map(group => group.pagination)
       .filter((p): p is PerQueryPagination => p !== undefined);
 
-    let responsePagination: CharPagination | undefined;
-    if (
-      groups.length > 0 &&
-      (config.responseCharLength !== undefined ||
-        config.responseCharOffset !== undefined)
-    ) {
-      const sliced = paginateGroupsWithNestedItemEscape({
-        groups,
-        getItems: getMatches,
-        setItems: setMatches,
-        charOffset: config.responseCharOffset ?? 0,
-        charLength: config.responseCharLength ?? Number.MAX_SAFE_INTEGER,
-        truncateOversizedItem: (match, charLength, group) =>
-          truncateOversizedMatch(match, charLength, group, warnings),
-      });
-      groups = sliced.groups;
-      responsePagination = sliced.pagination;
-    }
+    // Bulk char-pagination via the shared "explicit-or-overflow" policy.
+    const bulk = applyBulkCharWindow(groups, config, {
+      getItems: getMatches,
+      setItems: setMatches,
+      getItemText: getMatchText,
+      setItemText: setMatchText,
+    });
+    groups = bulk.groups;
+    const responsePagination = bulk.responsePagination;
 
     const paginationHints =
       upstreamPagination && upstreamPaginationQueries === 1
@@ -256,8 +294,12 @@ export function buildGithubSearchCodeFinalizer<
       );
     }
 
-    const hints = dedupeHints([...paginationHints, ...continuationHints]);
     const errors = collectFlatErrors(results);
+    const hints = dedupeHints([
+      ...(config.peerHints ? collectPeerHints(results) : []),
+      ...paginationHints,
+      ...continuationHints,
+    ]);
     const responseData: GitHubCodeSearchOutputLocal = { results: groups };
 
     if (upstreamPagination && upstreamPaginationQueries === 1) {
@@ -268,13 +310,21 @@ export function buildGithubSearchCodeFinalizer<
     if (responsePagination)
       responseData.responsePagination = responsePagination;
     if (hints.length > 0) responseData.hints = hints;
-    if (warnings.length > 0) responseData.warnings = warnings;
     if (emptyQueries.length > 0) {
       responseData.emptyQueries = emptyQueries.map(({ id, hints }) =>
         hints.length > 0 ? { id, hints } : { id }
       );
     }
     if (errors.length > 0) responseData.errors = errors;
+    if (config.peerEvidence) {
+      responseData.evidence = buildCodeEvidence(
+        groups,
+        upstreamPagination,
+        outputPagination,
+        responsePagination,
+        errors
+      );
+    }
 
     // ── Verbosity shaping ───────────────────────────────────────────────
     const allConcise = applyGithubSearchCodeVerbosity(responseData, queries);
@@ -285,12 +335,15 @@ export function buildGithubSearchCodeFinalizer<
     if (config.format === 'tsv' && !allConcise) {
       const projection = getTsvProjection(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE);
       if (projection) {
-        responseData.format = 'tsv';
-        responseData.columns = [...projection.columns];
-        responseData.rows = tsvFormat(
+        const lean = finalizeTsv(
           projection.columns,
-          projection.toRows({ results: groups })
+          Array.from(projection.toRows({ results: groups }))
         );
+        responseData.format = 'tsv';
+        responseData.columns = lean.columns;
+        responseData.rows = tsvFormat(lean.columns, lean.rows);
+        if (lean.base) responseData.base = lean.base;
+        if (lean.shared) responseData.shared = lean.shared;
       }
     }
 
@@ -309,7 +362,6 @@ export function buildGithubSearchCodeFinalizer<
         'outputPagination',
         'responsePagination',
         'hints',
-        'warnings',
         'emptyQueries',
         'errors',
       ],
@@ -320,7 +372,7 @@ export function buildGithubSearchCodeFinalizer<
 
 /**
  * Per-tool verbosity shaping for githubSearchCode. Under concise (when every
- * query in the bulk opts in), caps groups to 3, blanks `matches[].value`, and
+ * query in the bulk opts in), caps groups to 3, keeps one line per path, and
  * emits a summary + drill-back hint. Under compact, advisory hints are trimmed
  * to 2. Basic / omitted / mixed bulks: passthrough.
  *
@@ -350,7 +402,7 @@ export function applyGithubSearchCodeVerbosity(
     const topPath = topGroup?.matches?.[0]?.path;
     const cappedGroups = groups.slice(0, CONCISE_SEARCH_CODE_LIMIT).map(g => ({
       ...g,
-      matches: g.matches.map(m => ({ ...m, value: '' })),
+      matches: dedupeConciseMatchesByPath(g.matches),
     }));
     responseData.results = cappedGroups as typeof responseData.results;
     const topLoc = topPath

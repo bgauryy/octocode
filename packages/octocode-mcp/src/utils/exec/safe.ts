@@ -4,7 +4,6 @@
  */
 
 import { validateCommand } from 'octocode-security-utils/commandValidator';
-import { validateExecutionContext } from 'octocode-security-utils/executionContextValidator';
 import { spawnWithTimeout, validateArgs } from './spawn.js';
 import type { ExecResult, ExecOptions } from '../core/types.js';
 
@@ -36,16 +35,9 @@ export async function safeExec(
     );
   }
 
-  // Validate execution context
-  const contextValidation = validateExecutionContext(
-    options.cwd,
-    process.env.WORKSPACE_ROOT
-  );
-  if (!contextValidation.isValid) {
-    throw new Error(
-      `Execution context validation failed: ${contextValidation.error || 'Invalid working directory'}`
-    );
-  }
+  // (Command-execution context is no longer confined to a workspace root —
+  // the WORKSPACE_ROOT sandbox was removed. Command + arg validation above,
+  // plus the path validator on file inputs, remain the active guards.)
 
   const {
     timeout = 30000,

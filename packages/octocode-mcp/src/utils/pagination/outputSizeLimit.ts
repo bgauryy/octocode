@@ -1,32 +1,18 @@
 /**
  * Output size limit utility for large tool responses.
  *
- * Applies character-based pagination to serialized output when it exceeds
- * the MAX_OUTPUT_CHARS threshold. Used by tools like githubSearchPullRequests
- * and lspCallHierarchy that can produce very large responses.
+ * Applies character-based pagination to serialized output when it exceeds the
+ * single pagination limit (getOutputCharLimit()). Used by tools like
+ * githubSearchPullRequests and lspCallHierarchy that can produce large output.
  *
- * Follows the same pattern as localViewStructure and localFetchContent:
- * - Auto-paginates when output > MAX_OUTPUT_CHARS (2000 chars)
+ * - Auto-paginates when output > getOutputCharLimit() (the one limit)
  * - Supports explicit charOffset/charLength for manual pagination
  * - Returns pagination metadata for next-page navigation
  */
 
-import { DEFAULTS, RESOURCE_LIMITS } from '../core/constants.js';
-import { getConfigSync } from 'octocode-shared';
 import { applyPagination, createPaginationInfo } from './core.js';
+import { getOutputCharLimit } from './charLimit.js';
 import type { PaginationInfo } from '../../types/toolResults.js';
-
-function readConfiguredDefaultCharLength(): number | undefined {
-  const config = getConfigSync() as {
-    output?: {
-      pagination?: {
-        defaultCharLength?: number;
-      };
-    };
-  };
-
-  return config.output?.pagination?.defaultCharLength;
-}
 
 /**
  * Options for applying output size limits
@@ -36,9 +22,9 @@ interface OutputSizeLimitOptions {
   charOffset?: number;
   /** Character length for pagination */
   charLength?: number;
-  /** Custom max output chars threshold (defaults to DEFAULTS.MAX_OUTPUT_CHARS) */
+  /** Override the trigger threshold (defaults to getOutputCharLimit()). */
   maxOutputChars?: number;
-  /** Custom recommended char length for auto-pagination (defaults to RESOURCE_LIMITS.RECOMMENDED_CHAR_LENGTH) */
+  /** Override the auto-pagination page size (defaults to getOutputCharLimit()). */
   recommendedCharLength?: number;
 }
 
@@ -61,8 +47,8 @@ interface OutputSizeLimitResult {
 /**
  * Apply output size limits to serialized content.
  *
- * When content exceeds MAX_OUTPUT_CHARS and no explicit charLength is provided,
- * auto-paginates with RECOMMENDED_CHAR_LENGTH. When explicit charOffset/charLength
+ * When content exceeds the limit and no explicit charLength is provided,
+ * auto-paginates at getOutputCharLimit(). When explicit charOffset/charLength
  * are provided, applies exact pagination.
  *
  * @param content - Serialized content string to check/paginate
@@ -73,20 +59,10 @@ export function applyOutputSizeLimit(
   content: string,
   options: OutputSizeLimitOptions
 ): OutputSizeLimitResult {
-  let configuredDefaultCharLength: number | undefined;
-  try {
-    configuredDefaultCharLength = readConfiguredDefaultCharLength();
-  } catch {
-    configuredDefaultCharLength = undefined;
-  }
-  const maxOutputChars =
-    options.maxOutputChars ??
-    configuredDefaultCharLength ??
-    DEFAULTS.MAX_OUTPUT_CHARS;
-  const recommendedCharLength =
-    options.recommendedCharLength ??
-    configuredDefaultCharLength ??
-    RESOURCE_LIMITS.RECOMMENDED_CHAR_LENGTH;
+  // One limit, one place: trigger AND page size both come from getOutputCharLimit().
+  const limit = getOutputCharLimit();
+  const maxOutputChars = options.maxOutputChars ?? limit;
+  const recommendedCharLength = options.recommendedCharLength ?? limit;
 
   const warnings: string[] = [];
 

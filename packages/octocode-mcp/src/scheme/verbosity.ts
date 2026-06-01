@@ -1,21 +1,29 @@
 /**
- * Verbosity Helpers — canonical 3-tier contract.
+ * Verbosity Helpers — canonical 3-tier contract (as implemented).
  *
- * Each tier moves THREE dimensions in lockstep, identically across every tool:
- *
- *                | fields per result        | page size (result count) | data truncation
- *   -------------|--------------------------|--------------------------|----------------
- *   basic (def.) | all schema fields        | full  (PAGE × 1)         | none
- *   compact      | core fields only         | half  (PAGE ÷ 2)         | none
- *   concise        | identity/count fields    | top   (small cap)        | yes (content/snippets dropped)
+ *                | fields per result      | result count       | content
+ *   -------------|------------------------|--------------------|------------------------
+ *   basic (def.) | all schema fields      | full               | full
+ *   compact      | core fields (per-tool) | full (same as basic) | full; advisory hints trimmed
+ *   concise      | identity/count fields  | small top-N cap     | dropped (count/edge view)
  *
  * Rules that hold for ALL tools:
- *  - Omitted ≡ basic.
- *  - Truncation happens ONLY in concise. basic and compact never truncate a
- *    returned value — they differ only in which fields and how many rows.
- *  - The verbosity feature itself emits NO hints. No "detail dropped",
- *    no "drill-back", no tier commentary. Tiers shape data silently; only
- *    genuinely data-bearing hints (pagination cursors, counts) remain.
+ *  - Omitted ≡ basic. The schema field stays `.optional()` (no injected default,
+ *    so parsed queries are not mutated); the SINGLE source of truth for the
+ *    "omitted ≡ basic" rule is the helpers here (`isBasic` / `normalizeVerbosity`).
+ *    Every tool resolves the tier through them — never by re-deriving the default.
+ *  - Content is reduced ONLY in concise. basic and compact never drop a returned
+ *    value; compact differs from basic only by trimming *advisory* hints (it does
+ *    NOT halve the page size — page size is governed solely by pagination).
+ *  - Verbosity is ORTHOGONAL to pagination. Verbosity (concise) caps the
+ *    conceptual result count (top-N); pagination (charOffset/charLength,
+ *    page/*PerPage) bounds serialized size. When both apply, the result is the
+ *    tighter of the two — neither overrides the other.
+ *  - Verbosity emits no *tier commentary* ("detail dropped", "drill-back").
+ *    Genuinely data-bearing hints stay — including recovery hints a tool must
+ *    surface when it changes behavior (e.g. PR concise coercing `type:"metadata"`
+ *    emits "use type=partialContent/fullContent for diffs"; that is a data-bearing
+ *    recovery hint, not tier commentary).
  *
  * @see ../scheme/localSchemaOverlay.ts (`verbosityField`, `createVerbosityField`)
  */

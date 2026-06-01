@@ -1,5 +1,3 @@
-
-
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -428,7 +426,6 @@ describe('MCP Paths Utilities', () => {
   });
 
   describe('Cross-registry consistency (CLI ↔ VSCode contract)', () => {
-
     it('Roo Code path should use mcp_settings.json (matches VSCode extension)', async () => {
       const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
       const rooPath = getMCPConfigPath('vscode-roo');

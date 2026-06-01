@@ -83,6 +83,10 @@ export async function searchMultipleGitHubCode(
           hasOwnerRepo: Boolean(query.owner && query.repo),
           owner: query.owner,
           repo: query.repo,
+          // GitHub reported the owner/repo/user does not exist (422) — distinct
+          // from a valid scope that matched nothing. Drives a scope-spelling
+          // hint instead of authoritative "not found".
+          nonExistentScope: flat.nonExistentScope,
           match: query.match,
           extension: query.extension,
           filename: query.filename,
@@ -118,6 +122,8 @@ export async function searchMultipleGitHubCode(
       responseCharOffset,
       responseCharLength,
       format,
+      peerHints: true,
+      peerEvidence: true,
       finalize: buildGithubSearchCodeFinalizer<PartialCodeSearchQuery>(),
     }
   );

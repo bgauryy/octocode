@@ -250,6 +250,67 @@ describe('githubSearchCode — empty + error', () => {
     expect(h.some(s => s?.includes('packageSearch'))).toBe(true);
   });
 
+  it('empty + owner/repo always warns archived repos may be unindexed (SC-4)', () => {
+    const h = ghCodeHints.empty({
+      hasOwnerRepo: true,
+      owner: 'facebookexperimental',
+      repo: 'Recoil',
+      keywords: ['useSyncExternalStore'],
+    } as never);
+    expect(h.some(s => s?.includes('archived'))).toBe(true);
+    expect(
+      h.some(
+        s => s?.includes('githubGetFileContent') && s?.includes('"not found"')
+      )
+    ).toBe(true);
+  });
+
+  it('empty + nonExistentScope: one concise scope hint, no archived noise', () => {
+    const h = ghCodeHints.empty({
+      hasOwnerRepo: true,
+      owner: 'nope',
+      repo: 'does-not-exist',
+      nonExistentScope: true,
+      keywords: ['foo'],
+    } as never);
+    // Single, terse hint — the agent should not also get archived/path prose.
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatch(/exist|searchable/i);
+    expect(h.some(s => s?.includes('archived'))).toBe(false);
+    // Concise: keep it under a tight character budget.
+    expect(h[0]!.length).toBeLessThan(120);
+  });
+
+  it('empty + path filter explains path: is directory-only (SC-2 recovery)', () => {
+    const h = ghCodeHints.empty({
+      hasOwnerRepo: true,
+      owner: 'a',
+      repo: 'b',
+      path: 'src',
+      keywords: ['foo'],
+    } as never);
+    // path: is matched against a directory, so the lever is broadening the
+    // directory / using filename: — NOT dropping the phrase.
+    expect(h.some(s => s?.includes('directory'))).toBe(true);
+    expect(h.some(s => s?.includes('filename:'))).toBe(true);
+    expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
+      false
+    );
+  });
+
+  it('empty + multi-word keyword (no path) gives phrase-broadening guidance', () => {
+    const h = ghCodeHints.empty({
+      hasOwnerRepo: true,
+      owner: 'a',
+      repo: 'b',
+      keywords: ['export function parse'],
+    } as never);
+    expect(h.some(s => s?.includes('phrase'))).toBe(true);
+    expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
+      false
+    );
+  });
+
   it('empty without context returns []', () => {
     expect(ghCodeHints.empty({} as never)).toEqual([]);
   });

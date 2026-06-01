@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 
@@ -67,7 +65,6 @@ describe('GitHub Auth', () => {
     it('should return authenticated with username', async () => {
       vi.mocked(spawnSync)
         .mockReturnValueOnce({
-
           status: 0,
           stdout: '/usr/local/bin/gh',
           stderr: '',
@@ -76,7 +73,6 @@ describe('GitHub Auth', () => {
           signal: null,
         })
         .mockReturnValueOnce({
-
           status: 0,
           stdout: 'Logged in to github.com account testuser (keyring)',
           stderr: '',
@@ -96,7 +92,6 @@ describe('GitHub Auth', () => {
     it('should return not authenticated when auth fails', async () => {
       vi.mocked(spawnSync)
         .mockReturnValueOnce({
-
           status: 0,
           stdout: '/usr/local/bin/gh',
           stderr: '',
@@ -105,7 +100,6 @@ describe('GitHub Auth', () => {
           signal: null,
         })
         .mockReturnValueOnce({
-
           status: 1,
           stdout: '',
           stderr: 'You are not logged in',
@@ -408,7 +402,6 @@ describe('GitHub Auth', () => {
     });
 
     it('should return token when authenticated', async () => {
-
       vi.mocked(spawnSync).mockReturnValueOnce({
         status: 0,
         stdout: '/usr/local/bin/gh',

@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { execSync, exec } from 'node:child_process';
 
@@ -180,7 +178,6 @@ describe('Node Check', () => {
 
   describe('checkNodeEnvironment', () => {
     it('should return complete environment status', async () => {
-
       vi.mocked(execSync)
         .mockReturnValueOnce('v20.10.0\n')
         .mockReturnValueOnce('10.2.3\n');

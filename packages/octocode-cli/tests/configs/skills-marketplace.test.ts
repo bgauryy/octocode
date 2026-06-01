@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   SKILLS_MARKETPLACES,
@@ -132,7 +130,6 @@ describe('Skills Marketplace Registry', () => {
     });
 
     it('should return true for local sources', () => {
-
       const mockLocalSource = {
         ...SKILLS_MARKETPLACES[0],
         type: 'local' as const,

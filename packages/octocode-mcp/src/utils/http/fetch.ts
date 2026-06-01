@@ -10,6 +10,11 @@ import {
   logSessionError,
 } from '../../session.js';
 import { ignoreBestEffortFailure } from '../core/bestEffort.js';
+import {
+  assertCircuitAvailable,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+} from './circuitBreaker.js';
 
 interface ExtendedError extends Error {
   status?: number;
@@ -227,6 +232,10 @@ export async function fetchWithRetries(
     throw new Error(FETCH_ERRORS.FETCH_NOT_AVAILABLE.message);
   }
 
+  // Fail fast if this host's circuit is open (recent repeated failures), so a
+  // down dependency doesn't drag every call through its full retry budget. (#T13)
+  assertCircuitAvailable(finalUrl);
+
   let lastError: Error | undefined;
   const maxAttempts = maxRetries + 1;
 
@@ -253,10 +262,13 @@ export async function fetchWithRetries(
       }
 
       if (res.status === 204) {
+        recordCircuitSuccess(finalUrl);
         return null;
       }
 
-      return await res.json();
+      const json = await res.json();
+      recordCircuitSuccess(finalUrl);
+      return json;
     } catch (error: unknown) {
       const extendedError = error as ExtendedError;
 
@@ -288,6 +300,10 @@ export async function fetchWithRetries(
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
+
+  // Retry budget exhausted — count one fetch-level failure toward the host's
+  // circuit (4xx and aborts return/throw earlier, so they don't count). (#T13)
+  recordCircuitFailure(finalUrl);
 
   await logSessionError(
     'fetchWithRetries',

@@ -186,7 +186,10 @@ export interface LSPPaginationInfo {
   totalPages: number;
   totalResults: number;
   hasMore: boolean;
-  resultsPerPage: number;
+  // Optional: omitted when it would be the "return everything" sentinel
+  // (Number.MAX_SAFE_INTEGER), which carries no information and only bloats
+  // the payload (e.g. groupByFile / global-merge reference results).
+  resultsPerPage?: number;
 }
 
 /**

@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 

@@ -8,13 +8,12 @@
  *
  * 1. PathValidator - direct traversal attacks
  * 2. validateToolPath - tool-level wrapper
- * 3. executionContextValidator - cwd isolation
- * 4. commandValidator - injection via args
- * 5. include/exclude/excludeDir - secondary path params
- * 6. Symlink-based escapes
- * 7. Encoding & Unicode tricks
- * 8. Prefix collision attacks
- * 9. Race condition considerations
+ * 3. commandValidator - injection via args
+ * 4. include/exclude/excludeDir - secondary path params
+ * 5. Symlink-based escapes
+ * 6. Encoding & Unicode tricks
+ * 7. Prefix collision attacks
+ * 8. Race condition considerations
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -23,7 +22,6 @@ import {
   reinitializePathValidator,
 } from 'octocode-security-utils/pathValidator';
 import { validateCommand } from 'octocode-security-utils/commandValidator';
-import { validateExecutionContext } from 'octocode-security-utils/executionContextValidator';
 import { validateToolPath } from '../../src/utils/file/toolHelpers.js';
 import path from 'path';
 import fs from 'fs';
@@ -574,84 +572,6 @@ describe('SEC-04: validateToolPath – Tool Entry Point Security', () => {
 // SECTION 5: Execution Context Validator (cwd isolation)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe('SEC-05: Execution Context Validator – CWD Isolation', () => {
-  describe('CWD escape attempts', () => {
-    const cwdAttacks = [
-      '/etc',
-      '/tmp',
-      '/root',
-      '/',
-      PARENT,
-      GRANDPARENT,
-      WORKSPACE + '-evil',
-      WORKSPACE + '2',
-      '../',
-      '../../',
-      '../'.repeat(15),
-      `${WORKSPACE}/src/../../../etc`,
-    ];
-
-    cwdAttacks.forEach(cwd => {
-      it(`should BLOCK cwd="${cwd.substring(0, 60)}"`, () => {
-        const r = validateExecutionContext(cwd, WORKSPACE);
-        expect(r.isValid).toBe(false);
-      });
-    });
-  });
-
-  describe('CWD within workspace – allowed', () => {
-    it('should ALLOW workspace root', () => {
-      expect(validateExecutionContext(WORKSPACE, WORKSPACE).isValid).toBe(true);
-    });
-
-    it('should ALLOW workspace/src', () => {
-      expect(
-        validateExecutionContext(`${WORKSPACE}/src`, WORKSPACE).isValid
-      ).toBe(true);
-    });
-
-    it('should ALLOW undefined cwd (safe default)', () => {
-      expect(validateExecutionContext(undefined, WORKSPACE).isValid).toBe(true);
-    });
-  });
-
-  describe('CWD edge cases', () => {
-    it('should BLOCK empty string cwd', () => {
-      expect(validateExecutionContext('', WORKSPACE).isValid).toBe(false);
-    });
-
-    it('should BLOCK whitespace cwd', () => {
-      expect(validateExecutionContext('   ', WORKSPACE).isValid).toBe(false);
-    });
-
-    it('should handle trailing slash gracefully', () => {
-      const r = validateExecutionContext(`${WORKSPACE}/src/`, WORKSPACE);
-      expect(r.isValid).toBe(true);
-    });
-  });
-
-  describe('CWD symlink escape (mocked)', () => {
-    it('should BLOCK cwd symlink pointing outside workspace', () => {
-      const tmpDir = path.join(WORKSPACE, 'test-cwd-symlink-tmp');
-
-      // Mock lstatSync to indicate path exists, realpathSync to return escape
-      const lstatMock = vi.spyOn(fs, 'lstatSync').mockReturnValue({
-        isDirectory: () => true,
-      } as fs.Stats);
-      const realpathMock = vi.spyOn(fs, 'realpathSync').mockReturnValue('/etc');
-
-      try {
-        const r = validateExecutionContext(tmpDir, WORKSPACE);
-        expect(r.isValid).toBe(false);
-        expect(r.error).toContain('Symlink target');
-      } finally {
-        lstatMock.mockRestore();
-        realpathMock.mockRestore();
-      }
-    });
-  });
-});
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION 6: Command Validator – Injection Prevention
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1020,11 +940,6 @@ describe('SEC-09: End-to-End Attack Scenarios', () => {
   });
 
   describe('Scenario: Command injection via tool execution', () => {
-    it('safeExec rejects cwd outside workspace', () => {
-      const r = validateExecutionContext('/tmp', WORKSPACE);
-      expect(r.isValid).toBe(false);
-    });
-
     it('command validator blocks arbitrary commands', () => {
       expect(validateCommand('bash', ['-c', 'cat /etc/passwd']).isValid).toBe(
         false
@@ -1147,10 +1062,5 @@ describe('SEC-11: Prefix Matching Security', () => {
     expect(v.validate(WORKSPACE).isValid).toBe(true);
     // Ensure workspace + sep + file is valid
     expect(v.validate(WORKSPACE + '/test.txt').isValid).toBe(true);
-  });
-
-  it('executionContextValidator also uses sep-aware prefix check', () => {
-    const r = validateExecutionContext(WORKSPACE + '-evil', WORKSPACE);
-    expect(r.isValid).toBe(false);
   });
 });

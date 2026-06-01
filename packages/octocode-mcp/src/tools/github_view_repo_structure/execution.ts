@@ -69,6 +69,21 @@ function collectTopStructureEntries(
   return [...folders, ...files].slice(0, limit);
 }
 
+function buildNextPathHints(
+  structure: unknown,
+  entryCount: number,
+  truncated: boolean
+): string[] {
+  if (!truncated) return [];
+  const topEntries = collectTopStructureEntries(structure, CONCISE_TOP_ENTRIES);
+  if (topEntries.length === 0) return [];
+  const more =
+    entryCount > topEntries.length
+      ? ` (+${entryCount - topEntries.length} more)`
+      : '';
+  return [`Next paths: ${topEntries.join(', ')}${more}`];
+}
+
 function filterStructure(
   structure: Record<string, GitHubRepoStructureDirectoryEntry>
 ): Record<string, GitHubRepoStructureDirectoryEntry> {
@@ -255,6 +270,11 @@ export function applyGithubViewRepoStructureVerbosity(
   query: PartialRepoStructureQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
   const verbosity = (query as WithVerbosity<typeof query>).verbosity;
+  const nextPathHints = buildNextPathHints(
+    (input.data as { structure?: unknown }).structure,
+    input.entryCount,
+    Boolean(input.summary?.truncated)
+  );
   if (isConcise(verbosity)) {
     // Keep concise research-grade: drop the full tree but surface a sample of
     // top folder/file names so the agent has a concrete path to drill into.
@@ -275,6 +295,9 @@ export function applyGithubViewRepoStructureVerbosity(
         summary: input.summary,
         entryCount: input.entryCount,
       },
+      // `topHint` already samples the same top entries (with the same
+      // "(+N more)" suffix) as `nextPathHints`, so emitting both is pure
+      // duplication in concise mode — keep only `top:`.
       extraHints: [
         `${input.entryCount} entries${input.summary ? ` (${JSON.stringify(input.summary)})` : ''}`,
         ...topHint,
@@ -287,11 +310,14 @@ export function applyGithubViewRepoStructureVerbosity(
       data: input.data,
       extraHints:
         compactTrimHints(
-          input.extraHints,
+          [...nextPathHints, ...input.extraHints],
           isAdvisoryViewRepoStructureHint,
           2
         ) ?? [],
     };
   }
-  return { data: input.data, extraHints: input.extraHints };
+  return {
+    data: input.data,
+    extraHints: [...nextPathHints, ...input.extraHints],
+  };
 }

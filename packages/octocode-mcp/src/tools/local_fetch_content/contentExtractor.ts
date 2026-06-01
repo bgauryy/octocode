@@ -4,6 +4,11 @@
  */
 import { createSafeRegExp } from '../../utils/core/safeRegex.js';
 
+/** Remove all whitespace so anchors survive minification/reflow differences. */
+function stripWhitespace(s: string): string {
+  return s.replace(/\s+/g, '');
+}
+
 export function extractMatchingLines(
   lines: string[],
   pattern: string,
@@ -45,6 +50,25 @@ export function extractMatchingLines(
       matchingLineNumbers.push(index + 1);
     }
   });
+
+  // Whitespace-tolerant fallback (literal anchors only): an anchor copied from
+  // a minified search snippet has its whitespace stripped (e.g.
+  // `foo(a,b,c)`), so an exact `includes` against the raw line `foo(a, b, c)`
+  // misses. Retry once comparing both sides with all whitespace removed so the
+  // anchor still resolves instead of returning a false "not found".
+  if (!isRegex && matchingLineNumbers.length === 0) {
+    const needle = stripWhitespace(caseSensitive ? pattern : literalPattern);
+    if (needle.length > 0) {
+      lines.forEach((line, index) => {
+        const haystack = stripWhitespace(
+          caseSensitive ? line : line.toLowerCase()
+        );
+        if (haystack.includes(needle)) {
+          matchingLineNumbers.push(index + 1);
+        }
+      });
+    }
+  }
 
   const totalMatchCount = matchingLineNumbers.length;
 

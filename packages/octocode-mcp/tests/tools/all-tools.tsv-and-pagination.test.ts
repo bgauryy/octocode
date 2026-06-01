@@ -219,6 +219,28 @@ describe('tool TSV projections — sample data', () => {
     });
   });
 
+  it('lspFindReferences emits grouped by-file rows in TSV mode', () => {
+    const { rows } = project(STATIC_TOOL_NAMES.LSP_FIND_REFERENCES, {
+      locations: [],
+      byFile: [
+        {
+          uri: 'src/b.ts',
+          count: 4,
+          firstLine: 22,
+          firstCharacter: 0,
+          hasDefinition: true,
+        },
+      ],
+    });
+    expect(rows[0]).toMatchObject({
+      uri: 'src/b.ts',
+      line: 22,
+      column: 0,
+      count: 4,
+      isDeclaration: true,
+    });
+  });
+
   it('lspCallHierarchy omits direction and uri params', () => {
     const { rows, columns } = project(STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY, {
       calls: [

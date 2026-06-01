@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,16 +18,14 @@ describe('File System Utilities', () => {
   let tempDir: string;
 
   beforeEach(() => {
-
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-test-'));
   });
 
   afterEach(() => {
-
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {
-
+      // ignore cleanup errors
     }
   });
 
@@ -49,7 +45,6 @@ describe('File System Utilities', () => {
     });
 
     it('should return false on error (invalid path)', () => {
-
       expect(dirExists('\0')).toBe(false);
     });
   });
@@ -233,7 +228,6 @@ describe('File System Utilities', () => {
 
   describe('copyDirectory', () => {
     it('should copy directory recursively', () => {
-
       const srcDir = path.join(tempDir, 'src');
       fs.mkdirSync(srcDir);
       fs.writeFileSync(path.join(srcDir, 'file1.txt'), 'content1');
@@ -293,7 +287,6 @@ describe('File System Utilities', () => {
     });
 
     it('should work when destination directory already exists', () => {
-
       const srcDir = path.join(tempDir, 'existing-src');
       fs.mkdirSync(srcDir);
       fs.writeFileSync(path.join(srcDir, 'file.txt'), 'content');

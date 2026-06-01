@@ -123,6 +123,8 @@ export interface CodeSearchPagination {
 export interface CodeSearchFlatResult {
   results: CodeSearchGroupedResult[];
   pagination?: CodeSearchPagination;
+  /** True when the searched owner/repo/user does not exist (GitHub 422). */
+  nonExistentScope?: boolean;
 }
 
 function splitRepositoryPath(repositoryPath: string): {
@@ -169,6 +171,7 @@ export function mapCodeSearchProviderResult(
 
   const result: CodeSearchFlatResult = {
     results: Array.from(groups.values()),
+    ...(data.nonExistentScope ? { nonExistentScope: true } : {}),
   };
 
   if (data.pagination && data.pagination.totalPages > 1) {
@@ -196,6 +199,9 @@ export function mapRepoSearchToolQuery(
     created: query.created,
     updated: query.updated,
     language: (query as Record<string, unknown>).language as string | undefined,
+    archived: (query as Record<string, unknown>).archived as
+      | boolean
+      | undefined,
     match: query.match,
     sort: query.sort as
       | 'stars'
@@ -287,6 +293,9 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     matchScope: query.matchScope as
       | Array<'title' | 'body' | 'comments'>
       | undefined,
+    archived: (query as Record<string, unknown>).archived as
+      | boolean
+      | undefined,
     withComments: query.withComments,
     withCommits: query.withCommits,
     type: query.type as
@@ -305,24 +314,8 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
   };
 }
 
-const MAX_PR_BODY_LENGTH = 500;
-const MAX_FILE_CHANGES_DEFAULT = 20;
-
-function truncatePrBody(
-  body: string | undefined | null,
-  fullBody = false
-): string | undefined {
-  if (!body) return body ?? undefined;
-  // A prNumber lookup is a targeted single-PR fetch — return the whole body
-  // rather than the search preview. (This is also what the truncation hint
-  // below promises, so it must actually hold for prNumber lookups.)
-  if (fullBody || body.length <= MAX_PR_BODY_LENGTH) return body;
-  return `${body.substring(0, MAX_PR_BODY_LENGTH)}... (${body.length} chars total, use prNumber for full body)`;
-}
-
 function capFileChanges(
-  fileChanges: ProviderPullRequestSearchResult['items'][number]['fileChanges'],
-  cap: number = MAX_FILE_CHANGES_DEFAULT
+  fileChanges: ProviderPullRequestSearchResult['items'][number]['fileChanges']
 ): {
   capped: typeof fileChanges;
   totalCount: number;
@@ -330,24 +323,98 @@ function capFileChanges(
 } {
   if (!fileChanges)
     return { capped: undefined, totalCount: 0, wasTruncated: false };
-  const totalCount = fileChanges.length;
-  if (totalCount <= cap)
-    return { capped: fileChanges, totalCount, wasTruncated: false };
-  return { capped: fileChanges.slice(0, cap), totalCount, wasTruncated: true };
+  // No count cap: return EVERY file change. Output size is bounded losslessly
+  // by the response char-paginator (agents page for more via responseCharOffset),
+  // never by silently dropping files. Nothing is omitted.
+  return {
+    capped: fileChanges,
+    totalCount: fileChanges.length,
+    wasTruncated: false,
+  };
+}
+
+/**
+ * Strip patches from a file-changes list, keeping path + status + counts.
+ * Lets metadata (triage) mode answer "which files changed?" without the diff
+ * payload — and without forcing a second partialContent/fullContent call.
+ */
+function toLightweightFileChanges(
+  fileChanges: ProviderPullRequestSearchResult['items'][number]['fileChanges']
+): ProviderPullRequestSearchResult['items'][number]['fileChanges'] {
+  if (!fileChanges) return fileChanges;
+  return fileChanges.map(({ patch: _patch, ...rest }) => rest);
+}
+
+type ProviderPrComment = NonNullable<
+  ProviderPullRequestSearchResult['items'][number]['comments']
+>[number];
+
+function detectReviewThemes(comments: readonly ProviderPrComment[]): string[] {
+  const bodies = comments.map(comment => comment.body.toLowerCase());
+  const themes: string[] = [];
+
+  if (
+    bodies.some(body => /\b(lgtm|looks good|approved|ship it)\b/.test(body))
+  ) {
+    themes.push('approval');
+  }
+  if (
+    bodies.some(body =>
+      /\b(change|fix|concern|blocker|blocking|request changes?)\b/.test(body)
+    )
+  ) {
+    themes.push('changes-requested');
+  }
+  if (bodies.some(body => body.includes('?'))) {
+    themes.push('question');
+  }
+
+  return themes.length > 0 ? themes : ['discussion'];
+}
+
+function buildReviewSummary(
+  comments: readonly ProviderPrComment[] | undefined
+):
+  | {
+      totalComments: number;
+      commenters: string[];
+      latestCommentAt?: string;
+      themes: string[];
+    }
+  | undefined {
+  if (!comments || comments.length === 0) return undefined;
+  const commenters = Array.from(
+    new Set(comments.map(comment => comment.author))
+  );
+  const latestCommentAt = comments
+    .map(comment => comment.updatedAt || comment.createdAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  return {
+    totalComments: comments.length,
+    commenters: commenters.slice(0, 8),
+    ...(latestCommentAt ? { latestCommentAt } : {}),
+    themes: detectReviewThemes(comments),
+  };
 }
 
 export function mapPullRequestProviderResultData(
   data: ProviderPullRequestSearchResult,
-  options: { fullBody?: boolean } = {}
+  options: { includeFileChanges?: boolean } = {}
 ) {
-  const { fullBody = false } = options;
+  const { includeFileChanges = true } = options;
   const pullRequests = data.items.map(pr => {
     const { capped: cappedFileChanges, totalCount: originalFileChangeCount } =
       capFileChanges(pr.fileChanges);
+    const comments = Array.isArray(pr.comments) ? pr.comments : undefined;
+    const reviewSummary = buildReviewSummary(comments);
     return {
       number: pr.number,
       title: pr.title,
-      body: truncatePrBody(pr.body, fullBody),
+      // Full body, never truncated — response size is bounded losslessly by
+      // the char-paginator (agents page for more), not by a 500-char preview.
+      body: pr.body ?? undefined,
       url: pr.url,
       state: pr.state,
       draft: pr.draft,
@@ -367,7 +434,18 @@ export function mapPullRequestProviderResultData(
       additions: pr.additions,
       deletions: pr.deletions,
       ...(pr.comments && { comments: pr.comments }),
-      ...(cappedFileChanges && { fileChanges: cappedFileChanges }),
+      ...(reviewSummary && { reviewSummary }),
+      // In metadata (triage) mode we keep a LIGHTWEIGHT file list — paths +
+      // additions/deletions, no patch — so "which files changed?" is answered
+      // without a second partialContent/fullContent round-trip. Full patches
+      // still require type="partialContent"/"fullContent".
+      ...(cappedFileChanges
+        ? {
+            fileChanges: includeFileChanges
+              ? cappedFileChanges
+              : toLightweightFileChanges(cappedFileChanges),
+          }
+        : {}),
     };
   });
 

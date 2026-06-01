@@ -80,10 +80,18 @@ export async function findReferences(
 ): Promise<FindReferencesResult> {
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
-  return attachRawResponseChars(
-    attachReferencesEvidence(applyFindReferencesVerbosity(result, query)),
-    rawChars
+  // Output bounding is owned by the bulk char-paginator: executeBulkOperation
+  // runs applyQueryOutputPagination / applyBulkResponsePagination, and the
+  // LSP_FIND_REFERENCES case (structuredPagination.ts) char-paginates the
+  // `locations` array — slicing it to the budget and sub-slicing an oversized
+  // single location's `content`. The remainder is reached by advancing the
+  // charOffset cursor. So NO lossy backstop here: dropping trailing locations
+  // would discard data the cursor can no longer reach. Row navigation stays on
+  // `page` / `referencesPerPage`; the char cursor bounds serialized size.
+  const shaped = attachReferencesEvidence(
+    applyFindReferencesVerbosity(result, query)
   );
+  return attachRawResponseChars(shaped, rawChars);
 }
 
 function attachReferencesEvidence(
@@ -326,7 +334,9 @@ export function mergeReferenceResults(
         totalPages,
         totalResults: totalReferences,
         hasMore: false,
-        resultsPerPage: referencesPerPage,
+        ...(referencesPerPage < Number.MAX_SAFE_INTEGER
+          ? { resultsPerPage: referencesPerPage }
+          : {}),
       },
       hasMultipleFiles: uniqueFiles.size > 1,
       hints: [
@@ -353,7 +363,9 @@ export function mergeReferenceResults(
       totalPages,
       totalResults: totalReferences,
       hasMore: page < totalPages,
-      resultsPerPage: referencesPerPage,
+      ...(referencesPerPage < Number.MAX_SAFE_INTEGER
+        ? { resultsPerPage: referencesPerPage }
+        : {}),
     },
     hasMultipleFiles: uniqueFiles.size > 1,
     hints,
@@ -438,7 +450,9 @@ function paginateGlobalBranchResult(
         totalPages,
         totalResults: totalReferences,
         hasMore: false,
-        resultsPerPage: referencesPerPage,
+        ...(referencesPerPage < Number.MAX_SAFE_INTEGER
+          ? { resultsPerPage: referencesPerPage }
+          : {}),
       },
       hasMultipleFiles,
       hints: [
@@ -468,7 +482,9 @@ function paginateGlobalBranchResult(
       totalPages,
       totalResults: totalReferences,
       hasMore: page < totalPages,
-      resultsPerPage: referencesPerPage,
+      ...(referencesPerPage < Number.MAX_SAFE_INTEGER
+        ? { resultsPerPage: referencesPerPage }
+        : {}),
     },
     hasMultipleFiles,
     hints,

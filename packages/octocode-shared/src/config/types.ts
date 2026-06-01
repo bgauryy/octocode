@@ -33,8 +33,6 @@ export interface LocalConfigOptions {
   enableClone?: boolean;
   /** Restrict to specific paths (empty = all allowed) */
   allowedPaths?: string[];
-  /** Root directory for path validation (default: cwd()) */
-  workspaceRoot?: string;
 }
 
 /**
@@ -125,7 +123,6 @@ export interface RequiredLocalConfig {
   enabled: boolean;
   enableClone: boolean;
   allowedPaths: string[];
-  workspaceRoot: string | undefined;
 }
 
 export interface RequiredToolsConfig {

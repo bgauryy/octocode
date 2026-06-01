@@ -334,8 +334,8 @@ describe('GitHub Search Repositories Coverage', () => {
       });
 
       const text = getTextContent(result.content);
-      expect(text).toContain('Drop topics first, then keywords');
-      expect(text).toContain('Numeric/date filters applied');
+      expect(text).toContain('Drop topics, then keywords');
+      expect(text).toContain('Filters (');
       expect(text).toContain('stars=');
       expect(text).toContain('created=');
       expect(text).toContain('updated=');
@@ -350,7 +350,7 @@ describe('GitHub Search Repositories Coverage', () => {
       });
 
       const text = getTextContent(result.content);
-      expect(text).toContain('No repos for these topics');
+      expect(text).toContain('No topic match');
     });
 
     it('names keywords-only recovery when only keywords empty', async () => {
@@ -362,7 +362,7 @@ describe('GitHub Search Repositories Coverage', () => {
       });
 
       const text = getTextContent(result.content);
-      expect(text).toContain('No repos for these keywords');
+      expect(text).toContain('No keyword match');
     });
   });
 

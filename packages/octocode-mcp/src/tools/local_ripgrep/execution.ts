@@ -9,11 +9,61 @@ import { searchContentRipgrep } from './searchContentRipgrep.js';
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import type {
+  EvidenceMetadata,
+  ProcessedBulkResult,
+} from '../../types/toolResults.js';
+import {
+  attachEvidence,
+  buildEvidenceMetadata,
+  hasMorePagination,
+  incompleteHintReasons,
+  isRecord,
+  paginationTotal,
+  records,
+} from '../evidence.js';
+import { isConcise } from '../../scheme/verbosity.js';
 
 // Verbosity shaping is defined alongside the result builder to avoid a circular
 // import (execution → searchContentRipgrep → ripgrepExecutor → builder).
 // Re-exported here so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyRipgrepVerbosity } from './ripgrepResultBuilder.js';
+
+/**
+ * @param concise when true the `files` array was dropped by concise/discovery
+ *   verbosity, so `answerReady` is derived from the match count and
+ *   display-pagination "has more" reasons are suppressed.
+ */
+export function buildRipgrepEvidence(
+  result: unknown,
+  concise: boolean
+): EvidenceMetadata {
+  const data = isRecord(result) ? result : {};
+  const files = records(data.files);
+  const filesWithMoreMatches = files.filter(file =>
+    hasMorePagination(file.pagination)
+  ).length;
+  const hasResults =
+    files.length > 0 || paginationTotal(data.pagination, 'totalFiles') > 0;
+  const reasons: string[] = [];
+
+  if (!concise) {
+    if (hasMorePagination(data.pagination)) {
+      reasons.push('File pagination has more results.');
+    }
+    if (filesWithMoreMatches > 0) {
+      reasons.push(`${filesWithMoreMatches} file(s) have more matches.`);
+    }
+  }
+  reasons.push(...incompleteHintReasons(data));
+
+  return buildEvidenceMetadata({
+    kind: 'code',
+    answerReady: hasResults,
+    incompleteReasons: reasons,
+    emptyReason: 'No code matches were returned for the supplied pattern.',
+  });
+}
 
 /**
  * Execute bulk ripgrep search operation.
@@ -40,7 +90,11 @@ export async function executeRipgrepSearch(
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          return searchContentRipgrep(validation.data);
+          const result = await searchContentRipgrep(validation.data);
+          return attachEvidence(
+            result as ProcessedBulkResult,
+            buildRipgrepEvidence(result, isConcise(validation.data.verbosity))
+          );
         },
       }),
     {
@@ -50,6 +104,7 @@ export async function executeRipgrepSearch(
 
       format,
       peerHints: true,
+      peerEvidence: true,
     }
   );
 }

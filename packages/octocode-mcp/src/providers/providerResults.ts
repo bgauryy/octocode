@@ -84,6 +84,11 @@ export interface CodeSearchResult {
     repo: string;
     branch?: string;
   };
+  /**
+   * True when the empty result is a nonexistent searched owner/repo/user
+   * (GitHub 422), not a valid scope that matched nothing.
+   */
+  nonExistentScope?: boolean;
 }
 
 /**
@@ -130,6 +135,11 @@ export interface RepoSearchResult {
   totalCount: number;
   /** Pagination info */
   pagination: PaginationInfo;
+  /**
+   * True when the empty result is a nonexistent searched owner/user (GitHub
+   * 422), not a valid scope that matched nothing.
+   */
+  nonExistentScope?: boolean;
 }
 
 /**

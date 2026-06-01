@@ -230,6 +230,16 @@ describe('PackageSearch ecosystem allow-list', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts packageName as an alias for name', () => {
+    const result = PackageSearchBulkQueryLocalSchema.safeParse({
+      queries: [{ packageName: 'zod' }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.queries[0].name).toBe('zod');
+    }
+  });
+
   it('accepts explicit ecosystem=npm', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
       queries: [{ name: 'react', ecosystem: 'npm' }],

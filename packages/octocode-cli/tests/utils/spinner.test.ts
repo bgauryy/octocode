@@ -1,5 +1,3 @@
-
-
 import {
   describe,
   it,
@@ -17,13 +15,11 @@ describe('Spinner', () => {
   let originalMaxListeners: number;
 
   beforeAll(() => {
-
     originalMaxListeners = process.getMaxListeners();
     process.setMaxListeners(30);
   });
 
   afterAll(() => {
-
     process.setMaxListeners(originalMaxListeners);
   });
 

@@ -258,8 +258,12 @@ export const IGNORED_FILE_PATTERNS: RegExp[] = [
   /^sessionid$/,
   /^\.wget-hsts$/,
 
-  // Core dumps (contain memory with potential secrets)
-  /^core$/,
+  // Core dumps (contain memory with potential secrets). The bare /^core$/ is
+  // intentionally omitted: these patterns are tested per path SEGMENT, and a
+  // segment named exactly "core" is overwhelmingly a source directory
+  // (src/core, packages/core, utils/core) — blocking it breaks legitimate
+  // reads. The numbered/suffixed coredump forms are unambiguous and never
+  // collide with directory names.
   /^core\.\d+$/,
   /\.core$/,
   /\.dmp$/, // Windows crash dump

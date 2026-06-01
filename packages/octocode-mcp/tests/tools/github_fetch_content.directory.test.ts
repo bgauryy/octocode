@@ -35,7 +35,12 @@ vi.mock('octocode-shared', () => ({
       allowedPaths: [],
       workspaceRoot: '/tmp',
     },
+    output: { format: 'yaml', pagination: { defaultCharLength: 2000 } },
   })),
+  DEFAULT_OUTPUT_CONFIG: {
+    format: 'yaml',
+    pagination: { defaultCharLength: 2000 },
+  },
   incrementToolCharSavings: vi.fn(() => ({ success: true })),
 }));
 

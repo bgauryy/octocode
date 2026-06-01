@@ -140,6 +140,7 @@ export async function searchPullRequests(
     reactions: query.reactions,
     interactions: query.interactions,
     match: query.matchScope,
+    archived: query.archived,
     withComments: query.withComments,
     withCommits: query.withCommits,
     type: query.type,

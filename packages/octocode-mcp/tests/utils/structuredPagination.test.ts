@@ -211,6 +211,41 @@ describe('tool-owned structured pagination', () => {
     );
   });
 
+  it('advances past a mid-segment resume into later queries instead of stalling', () => {
+    // Multi-query repo bulk. A responseCharOffset that resumes MID query-1
+    // must, when budget remains, pack the FOLLOWING queries too — not return
+    // only query-1's tail and stall (the cursor-stall bug).
+    const mkRepo = (owner: string, repo: string) => ({
+      owner,
+      repo,
+      stars: 1,
+      description: `description for ${owner}/${repo}`,
+      url: `https://github.com/${owner}/${repo}`,
+      createdAt: '2025-01-01T00:00:00Z',
+      updatedAt: '2025-01-01T00:00:00Z',
+      pushedAt: '2025-01-01T00:00:00Z',
+    });
+    const response = applyBulkResponsePagination(
+      {
+        results: [
+          { id: 'repo_q1', data: { repositories: [mkRepo('a', 'one')] } },
+          { id: 'repo_q2', data: { repositories: [mkRepo('b', 'two')] } },
+          { id: 'repo_q3', data: { repositories: [mkRepo('c', 'three')] } },
+        ],
+      },
+      // Offset well inside query-1's segment; ample length to span all three.
+      { offset: 120, length: 100_000 },
+      TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
+    );
+
+    const ids = (response.results as Array<{ id: string }>).map(r => r.id);
+    // The page must reach query-3, proving the cursor advanced past the
+    // mid-segment resume rather than stopping at query-1's tail.
+    expect(ids).toContain('repo_q3');
+    expect(ids.length).toBeGreaterThan(1);
+    expect(response.responsePagination?.hasMore).toBe(false);
+  });
+
   it('paginates githubSearchRepositories topics through the repository branch', () => {
     const oversizedTopic = 'topic-'.repeat(500);
 

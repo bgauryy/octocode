@@ -9,7 +9,6 @@ export type {
   PathValidationResult,
   ToolResult,
   ISanitizer,
-  IWorkspaceRootResolver,
 } from './types.js';
 
 export {
@@ -42,11 +41,7 @@ export {
   shouldIgnoreFile,
 } from './ignoredPathFilter.js';
 
-export { validateExecutionContext } from './executionContextValidator.js';
-
 export { redactPath } from './pathUtils.js';
-
-export { resolveWorkspaceRoot } from './workspaceRoot.js';
 
 export {
   ALLOWED_COMMANDS,

@@ -8,6 +8,7 @@ type GitHubReposSearchSingleQuery = z.infer<
 >;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { compareIsoDateDescending } from '../../utils/core/compare.js';
 import {
   isConcise,
   isCompact,
@@ -49,18 +50,20 @@ export function applyGithubSearchReposVerbosity(
   extraHints: string[];
 } {
   if (isConcise(query.verbosity)) {
-    const projected = (data.repositories ?? []).slice(0, 3).map(r => {
-      const owner = (r as { owner?: string }).owner;
-      const repo = (r as { repo?: string }).repo;
-      const full_name =
-        (r as { full_name?: string }).full_name ??
-        (owner && repo ? `${owner}/${repo}` : undefined);
-      return {
-        full_name,
-        stars: (r as { stars?: number }).stars,
-        language: (r as { language?: string }).language,
-      };
-    });
+    const projected = (data.repositories ?? [])
+      .slice(0, CONCISE_REPOS_LIMIT)
+      .map(r => {
+        const owner = (r as { owner?: string }).owner;
+        const repo = (r as { repo?: string }).repo;
+        const full_name =
+          (r as { full_name?: string }).full_name ??
+          (owner && repo ? `${owner}/${repo}` : undefined);
+        return {
+          full_name,
+          stars: (r as { stars?: number }).stars,
+          language: (r as { language?: string }).language,
+        };
+      });
     const summary = `${data.repositories?.length ?? 0} repos${
       projected[0]?.full_name ? ` (top: ${projected[0].full_name})` : ''
     }`;
@@ -265,19 +268,6 @@ function repositoryFullName(repo: GitHubRepositoryOutput): string {
   return `${repo.owner}/${repo.repo}`;
 }
 
-function compareIsoDateDescending(left?: string, right?: string): number {
-  if (!left && !right) return 0;
-  if (!left) return 1;
-  if (!right) return -1;
-
-  const leftTime = Date.parse(left);
-  const rightTime = Date.parse(right);
-  if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
-  if (Number.isNaN(leftTime)) return 1;
-  if (Number.isNaN(rightTime)) return -1;
-  return rightTime - leftTime;
-}
-
 function buildResultPagination(pagination: {
   currentPage: number;
   totalPages: number;
@@ -292,6 +282,50 @@ function buildResultPagination(pagination: {
     totalMatches: pagination.totalMatches || 0,
     hasMore: pagination.hasMore,
   };
+}
+
+type EffectivePagination = {
+  currentPage: number;
+  totalPages: number;
+  hasMore: boolean;
+  entriesPerPage?: number;
+  totalMatches?: number;
+};
+
+/**
+ * Merge the per-variant pagination of a topics+keywords combined search into a
+ * single paginable signal. Both variants share the requested `page`, so the
+ * merged set is still paginable: `hasMore` if EITHER variant has more, and
+ * `totalMatches` is the SUM — an upper bound, since a repo matching both topics
+ * AND keywords is counted in each variant's total.
+ */
+function buildMergedPagination(
+  variants: SuccessfulRepoSearchVariant[]
+): EffectivePagination | undefined {
+  const pages = variants
+    .map(variant => variant.response.data.pagination)
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  if (pages.length === 0) return undefined;
+
+  return {
+    currentPage: pages[0]!.currentPage,
+    totalPages: Math.max(...pages.map(p => p.totalPages)),
+    hasMore: pages.some(p => p.hasMore),
+    entriesPerPage: pages[0]!.entriesPerPage,
+    totalMatches: pages.reduce((sum, p) => sum + (p.totalMatches ?? 0), 0),
+  };
+}
+
+/**
+ * Pagination hint for a merged combined search. Unlike the single-variant hint,
+ * we don't claim a precise "showing X–Y" range (a merged page can return up to
+ * 2× perPage rows); we give the actionable next-page + the upper-bound total.
+ */
+function buildMergedPaginationHints(pagination: EffectivePagination): string[] {
+  if (!pagination.hasMore) return [];
+  return [
+    `More topic+keyword results — fetch page ${pagination.currentPage + 1}; ~${pagination.totalMatches ?? 0} total (upper bound, repos matching both counted twice).`,
+  ];
 }
 
 function createVariantFailureHints(
@@ -336,16 +370,12 @@ function generateSearchSpecificHints(
   const hints: string[] = [];
 
   if (hasTopics && hasKeywords) {
-    hints.push(
-      'No repos match topics AND keywords. Drop topics first, then keywords.'
-    );
+    hints.push('No match for topics AND keywords. Drop topics, then keywords.');
   } else if (hasTopics) {
-    hints.push(
-      'No repos for these topics. Drop a topic, try synonyms, or switch to a keywords search.'
-    );
+    hints.push('No topic match. Drop one, try synonyms, or use keywords.');
   } else if (hasKeywords) {
     hints.push(
-      'No repos for these keywords. Drop the rarest keyword, broaden synonyms, or switch to topics.'
+      'No keyword match. Drop the rarest, try synonyms, or use topics.'
     );
   }
 
@@ -354,9 +384,7 @@ function generateSearchSpecificHints(
   if (created) filters.push(`created="${created}"`);
   if (updated) filters.push(`updated="${updated}"`);
   if (filters.length > 0) {
-    hints.push(
-      `Numeric/date filters applied (${filters.join(', ')}) — try widening or removing them.`
-    );
+    hints.push(`Filters (${filters.join(', ')}) — try widening/removing.`);
   }
 
   if (hints.length === 0) {
@@ -378,8 +406,9 @@ export async function searchMultipleGitHubRepos(
       try {
         const currentProviderContext = getProviderContext();
         // Pre-flight: cap user-passed `limit` under concise so the upstream
-        // fetch reflects the trimmed response. Emit verbosity-downgrade
-        // warning when the cap actually fires.
+        // fetch reflects the trimmed response. No downgrade hint is emitted —
+        // concise's cap is its documented contract and pagination.totalMatches
+        // keeps the true count visible.
         const userLimit = (query as { limit?: number }).limit;
         const verbosityIsConcise = isConcise(
           (query as WithVerbosity<typeof query>).verbosity
@@ -438,26 +467,42 @@ export async function searchMultipleGitHubRepos(
           query
         );
 
+        // GitHub reported the searched owner/user does not exist (422), as
+        // opposed to a valid scope that matched nothing. Lead recovery with the
+        // scope rather than filter-widening when this is the cause.
+        const nonExistentScope = successfulVariants.some(
+          variant =>
+            (variant.response.data as { nonExistentScope?: boolean })
+              .nonExistentScope
+        );
+        const scopeHints =
+          repositories.length === 0 && nonExistentScope
+            ? [
+                `Owner "${query.owner ?? '?'}" doesn't exist or isn't searchable — verify spelling/access, not filters.`,
+              ]
+            : [];
         const searchHints = generateSearchSpecificHints(
           query,
           repositories.length > 0
         );
         const onlySuccessfulVariant =
           successfulVariants.length === 1 ? successfulVariants[0] : undefined;
-        const successfulPagination =
-          onlySuccessfulVariant?.response.data.pagination;
-        const paginationHints = successfulPagination
-          ? buildPaginationHints(successfulPagination, 'repos')
+        const isMergedResult = successfulVariants.length > 1;
+        // Combined topics+keywords searches are now paginable: merge the
+        // per-variant pagination into a single upper-bound signal instead of
+        // dropping it.
+        const effectivePagination: EffectivePagination | undefined =
+          isMergedResult
+            ? buildMergedPagination(successfulVariants)
+            : onlySuccessfulVariant?.response.data.pagination;
+        const paginationHints = effectivePagination
+          ? isMergedResult
+            ? buildMergedPaginationHints(effectivePagination)
+            : buildPaginationHints(effectivePagination, 'repos')
           : [];
-        const resultPagination = successfulPagination
-          ? buildResultPagination(successfulPagination)
+        const resultPagination = effectivePagination
+          ? buildResultPagination(effectivePagination)
           : undefined;
-        const mergeHints =
-          successfulVariants.length > 1
-            ? [
-                'Combined topic and keyword searches into one result; pagination is omitted because multiple result sets were merged.',
-              ]
-            : [];
         const partialFailureHints =
           variants.length > 1 && successfulVariants.length === 1
             ? [
@@ -467,7 +512,7 @@ export async function searchMultipleGitHubRepos(
             : createVariantFailureHints(failedVariants);
 
         const hasContent = repositories.length > 0;
-        const hasMore = Boolean(successfulPagination?.hasMore);
+        const hasMore = Boolean(effectivePagination?.hasMore);
         const variantsPartial =
           variants.length > 1 && successfulVariants.length < variants.length;
 
@@ -479,8 +524,8 @@ export async function searchMultipleGitHubRepos(
         // No verbosity-feature hint: concise's limit cap is its documented
         // contract and pagination.totalMatches keeps the full count visible.
         const allExtraHints = [
+          ...scopeHints,
           ...verbosityShape.extraHints,
-          ...mergeHints,
           ...partialFailureHints,
           ...paginationHints,
           ...(searchHints || []),
@@ -510,8 +555,9 @@ export async function searchMultipleGitHubRepos(
               ...(hasContent
                 ? {}
                 : {
-                    reason:
-                      'No repositories matched the supplied filters; consider dropping topics/keywords or widening stars/created/updated ranges.',
+                    reason: nonExistentScope
+                      ? `Owner "${query.owner ?? '?'}" doesn't exist or isn't searchable — verify the scope, not filters.`
+                      : 'No repositories matched the supplied filters; consider dropping topics/keywords or widening stars/created/updated ranges.',
                   }),
             },
             rawResponse: sumVariantRawResponseChars([

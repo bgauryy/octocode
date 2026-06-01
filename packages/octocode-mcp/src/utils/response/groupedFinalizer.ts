@@ -5,6 +5,8 @@ import {
 import type { BulkFinalizerOutput } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
 import { countSerializedChars } from './charSavings.js';
+import { stripTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { getOutputCharLimit } from '../pagination/charLimit.js';
 
 export type CharPagination = {
   currentPage: number;
@@ -25,23 +27,22 @@ export type QueryWithPagination = {
   charOffset?: unknown;
 };
 
-type ItemPaginationConfig<TGroup, TItem> = {
+/**
+ * Configuration for {@link paginateGroupsCharWindow} — the single grouped
+ * paginator. `getItemText`/`setItemText` are OPTIONAL: when supplied they name
+ * the one paginatable text field of an item (e.g. a code match's `value` or a
+ * file's `content`) so an oversized item is *windowed* across pages instead of
+ * truncated. Items without a text field (e.g. directory entries) are treated as
+ * atomic.
+ */
+type CharWindowConfig<TGroup, TItem> = {
   groups: TGroup[];
   getItems: (group: TGroup) => readonly TItem[];
   setItems: (group: TGroup, items: TItem[]) => TGroup;
+  getItemText?: (item: TItem) => string | undefined;
+  setItemText?: (item: TItem, text: string) => TItem;
   charOffset: number;
   charLength: number;
-};
-
-type GroupPaginationConfig<TGroup, TItem> = ItemPaginationConfig<
-  TGroup,
-  TItem
-> & {
-  truncateOversizedItem?: (
-    item: TItem,
-    charLength: number,
-    group: TGroup
-  ) => TItem;
 };
 
 function readNumber(
@@ -88,172 +89,184 @@ function buildCharPagination(
   };
 }
 
-export function paginateNestedItems<TGroup, TItem>({
+/**
+ * Single char-accurate windowing paginator for grouped tool output.
+ *
+ * Replaces the former `paginateNestedItems` + `paginateGroupsWithNestedItemEscape`
+ * + `truncateOversizedItem` trio. There is NO truncation: an item whose
+ * paginatable text field (`getItemText`) is larger than the page budget is
+ * SLICED to fit, and the remainder is reached by advancing `charOffset` on the
+ * next call — pure pagination, with no "… [truncated]" marker and no
+ * out-of-band recovery warning pointing at a different tool. The former magic
+ * envelope constants (`-64` / `-128`) are replaced by a COMPUTED per-item
+ * envelope (`countSerializedChars` of the item with its text field emptied).
+ *
+ * Guarantees:
+ *  - The serialized page never exceeds `charLength` by more than a single
+ *    group's wrapper envelope (id/owner/repo + braces) — never by item
+ *    content, and never the old ≤2× overflow.
+ *  - `totalChars` is computed from a wrapper+item cell model that BOTH the
+ *    per-query and bulk callers use, so the two layers always agree (no
+ *    wrapper-undercount drift).
+ *  - Forward progress: an item whose envelope alone exceeds the budget is still
+ *    emitted (text sliced to whatever fits, possibly empty) and the cursor
+ *    advances, so the agent is never stuck on a zero-progress page.
+ */
+export function paginateGroupsCharWindow<TGroup, TItem>({
   groups,
   getItems,
   setItems,
+  getItemText,
+  setItemText,
   charOffset,
   charLength,
-}: ItemPaginationConfig<TGroup, TItem>): {
+}: CharWindowConfig<TGroup, TItem>): {
   groups: TGroup[];
   pagination: CharPagination;
 } {
-  type Cell = {
+  // Narrow the optional accessor pair ONCE into a single non-null object, so
+  // the text-slicing paths below need no `!` non-null assertions.
+  const textAccessors =
+    getItemText && setItemText ? { get: getItemText, set: setItemText } : null;
+
+  type ItemCell = {
     groupIndex: number;
-    item: TItem | null;
+    item: TItem;
+    /** Absolute char offset where this item's paginatable text begins. */
+    textStart: number;
+    textLen: number;
     start: number;
     end: number;
   };
 
-  const cells: Cell[] = [];
+  // Build the full ordered cell stream: each group contributes a wrapper cost
+  // (its envelope with zero items — this is what counts id/owner/repo so the
+  // total matches the bulk serialization) plus one cell per item.
+  const cells: ItemCell[] = [];
   let cursor = 0;
-  groups.forEach((group, groupIndex) => {
-    const items = getItems(group);
-    if (items.length === 0) {
-      const size = countSerializedChars(setItems(group, []));
-      cells.push({
-        groupIndex,
-        item: null,
-        start: cursor,
-        end: cursor + size,
-      });
-      cursor += size;
-      return;
-    }
 
-    for (const item of items) {
-      const size = countSerializedChars(item);
-      cells.push({ groupIndex, item, start: cursor, end: cursor + size });
-      cursor += size;
+  groups.forEach((group, groupIndex) => {
+    cursor += countSerializedChars(setItems(group, []));
+
+    for (const item of getItems(group)) {
+      const text = textAccessors?.get(item);
+      if (textAccessors && text !== undefined) {
+        const envelope = countSerializedChars(textAccessors.set(item, ''));
+        const textLen = text.length;
+        const start = cursor;
+        const textStart = start + envelope;
+        const end = textStart + textLen;
+        cells.push({ groupIndex, item, textStart, textLen, start, end });
+        cursor = end;
+      } else {
+        const size = countSerializedChars(item);
+        const start = cursor;
+        cells.push({
+          groupIndex,
+          item,
+          textStart: start,
+          textLen: 0,
+          start,
+          end: start + size,
+        });
+        cursor = start + size;
+      }
     }
   });
 
   const totalChars = cursor;
-  const start = Math.max(0, charOffset);
-  const end = start + charLength;
+  const safeLength = Math.max(charLength, 1);
+  const start = Math.min(Math.max(charOffset, 0), totalChars);
+  const end = Math.min(start + safeLength, totalChars);
+
+  const sliceText = (cell: ItemCell): TItem => {
+    if (cell.textLen === 0 || !textAccessors) return cell.item;
+    const textFrom = Math.min(
+      Math.max(start - cell.textStart, 0),
+      cell.textLen
+    );
+    const textTo = Math.min(Math.max(end - cell.textStart, 0), cell.textLen);
+    if (textFrom === 0 && textTo === cell.textLen) return cell.item;
+    const full = textAccessors.get(cell.item) ?? '';
+    return textAccessors.set(cell.item, full.slice(textFrom, textTo));
+  };
+
   const selectedByGroup = new Map<number, TItem[]>();
-  let lastConsumedEnd = start;
+  let consumedEnd = start;
 
   for (const cell of cells) {
-    if (cell.start < start) continue;
-    if (cell.start >= end) break;
+    if (cell.end <= start) continue; // fully before the window
+    if (cell.start >= end) break; // fully after the window
     const bucket = selectedByGroup.get(cell.groupIndex) ?? [];
-    if (cell.item) bucket.push(cell.item);
+    bucket.push(sliceText(cell));
     selectedByGroup.set(cell.groupIndex, bucket);
-    lastConsumedEnd = cell.end;
+    consumedEnd = Math.max(consumedEnd, Math.min(cell.end, end));
   }
 
-  const selectedGroups = Array.from(selectedByGroup.entries()).map(
-    ([groupIndex, items]) => setItems(groups[groupIndex]!, items)
-  );
+  // Forward-progress backstop: the window landed in a gap (e.g. the requested
+  // offset skipped past every item that overlaps `[start, end)`) but more data
+  // exists. Pull in the first item at/after `start` so the cursor advances and
+  // the agent is never stuck re-requesting the same empty page.
+  if (selectedByGroup.size === 0 && start < totalChars) {
+    const next = cells.find(cell => cell.end > start);
+    if (next) {
+      selectedByGroup.set(next.groupIndex, [sliceText(next)]);
+      consumedEnd = Math.max(consumedEnd, Math.min(next.end, end));
+    }
+  }
+
+  // Iterate groups in their natural order and pull the selected items from the
+  // map — this preserves order without a sort and uses each `group` directly,
+  // so there is no `groups[index]!` array-access assertion.
+  const selectedGroups: TGroup[] = [];
+  groups.forEach((group, groupIndex) => {
+    const items = selectedByGroup.get(groupIndex);
+    if (items) selectedGroups.push(setItems(group, items));
+  });
 
   return {
     groups: selectedGroups,
     pagination: buildCharPagination(
-      charOffset,
-      charLength,
-      Math.max(0, lastConsumedEnd - start),
+      start,
+      safeLength,
+      Math.max(0, consumedEnd - start),
       totalChars
     ),
   };
 }
 
-export function paginateGroupsWithNestedItemEscape<TGroup, TItem>({
-  groups,
-  getItems,
-  setItems,
-  charOffset,
-  charLength,
-  truncateOversizedItem,
-}: GroupPaginationConfig<TGroup, TItem>): {
-  groups: TGroup[];
-  pagination: CharPagination;
-} {
-  const sizes = groups.map(group => countSerializedChars(group));
-  let cursor = 0;
-  const offsets = sizes.map(size => {
-    const offset = { start: cursor, end: cursor + size };
-    cursor += size;
-    return offset;
+/**
+ * Bulk char-window policy shared by every grouped finalizer (search_code,
+ * fetch_content, …). Auto-paginates the merged groups at the single
+ * {@link getOutputCharLimit}, adopting the slice ONLY when the caller drove
+ * pagination (explicit `responseCharOffset`/`responseCharLength`) OR the
+ * response actually overflowed — so a response that fits is emitted whole with
+ * no pagination noise. Centralizing this here keeps the "explicit-or-overflow"
+ * rule in one place instead of copy-pasted per finalizer (drift risk).
+ */
+export function applyBulkCharWindow<TGroup, TItem>(
+  groups: TGroup[],
+  config: { responseCharOffset?: number; responseCharLength?: number },
+  accessors: {
+    getItems: (group: TGroup) => readonly TItem[];
+    setItems: (group: TGroup, items: TItem[]) => TGroup;
+    getItemText?: (item: TItem) => string | undefined;
+    setItemText?: (item: TItem, text: string) => TItem;
+  }
+): { groups: TGroup[]; responsePagination?: CharPagination } {
+  if (groups.length === 0) return { groups };
+  const explicitlyPaginated =
+    config.responseCharLength !== undefined ||
+    config.responseCharOffset !== undefined;
+  const sliced = paginateGroupsCharWindow({
+    groups,
+    ...accessors,
+    charOffset: config.responseCharOffset ?? 0,
+    charLength: config.responseCharLength ?? getOutputCharLimit(),
   });
-  const totalChars = cursor;
-  const start = Math.max(0, charOffset);
-  const firstIndex = groups.findIndex(
-    (_, index) => offsets[index]!.start >= start
-  );
-  const safeLength = Math.max(charLength, 1);
-
-  if (firstIndex === -1) {
-    return {
-      groups: [],
-      pagination: buildCharPagination(charOffset, charLength, 0, totalChars),
-    };
-  }
-
-  const firstSize = sizes[firstIndex]!;
-  if (firstSize > 2 * safeLength) {
-    const oversized = groups[firstIndex]!;
-    const offsetWithinGroup = Math.max(0, start - offsets[firstIndex]!.start);
-    let sliced = paginateNestedItems({
-      groups: [oversized],
-      getItems,
-      setItems,
-      charOffset: offsetWithinGroup,
-      charLength,
-    });
-    let consumed = sliced.pagination.charLength;
-
-    if (consumed > 2 * safeLength && truncateOversizedItem) {
-      const oversizedGroup = sliced.groups[0];
-      const firstItem = oversizedGroup
-        ? getItems(oversizedGroup)[0]
-        : undefined;
-      if (firstItem) {
-        const truncated = truncateOversizedItem(
-          firstItem,
-          safeLength,
-          oversizedGroup!
-        );
-        const rest = oversizedGroup ? getItems(oversizedGroup).slice(1) : [];
-        const nextGroup = setItems(oversizedGroup!, [truncated, ...rest]);
-        sliced = {
-          groups: [nextGroup],
-          pagination: sliced.pagination,
-        };
-        consumed = countSerializedChars(nextGroup);
-      }
-    }
-
-    return {
-      groups: sliced.groups,
-      pagination: buildCharPagination(
-        charOffset,
-        charLength,
-        consumed,
-        totalChars
-      ),
-    };
-  }
-
-  const selected: TGroup[] = [];
-  let consumed = 0;
-  for (let index = firstIndex; index < groups.length; index += 1) {
-    const size = sizes[index]!;
-    if (selected.length > 0 && consumed + size > charLength) break;
-    selected.push(groups[index]!);
-    consumed += size;
-    if (consumed >= charLength) break;
-  }
-
-  return {
-    groups: selected,
-    pagination: buildCharPagination(
-      charOffset,
-      charLength,
-      consumed,
-      totalChars
-    ),
-  };
+  return explicitlyPaginated || sliced.pagination.hasMore
+    ? { groups: sliced.groups, responsePagination: sliced.pagination }
+    : { groups };
 }
 
 export function dedupeHints(hints: readonly string[]): string[] {
@@ -332,7 +345,11 @@ export function formatFinalizedResponse<T extends Record<string, unknown>>(
   );
 
   return {
-    structuredContent: sanitizeStructuredContent(responseData) as T,
+    // structuredContent holds the canonical records; the presentation-only TSV
+    // envelope stays in `text` so the same rows aren't serialized twice. (#A1)
+    structuredContent: sanitizeStructuredContent(
+      stripTsvEnvelope(responseData)
+    ) as T,
     text,
     isError,
   };

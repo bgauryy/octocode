@@ -118,10 +118,9 @@ export function resolveGitHub(
 export function resolveLocal(
   fileConfig?: OctocodeConfig['local']
 ): RequiredLocalConfig {
-  // Env vars: ENABLE_LOCAL, ENABLE_CLONE, WORKSPACE_ROOT, ALLOWED_PATHS
+  // Env vars: ENABLE_LOCAL, ENABLE_CLONE, ALLOWED_PATHS
   const envEnableLocal = parseBooleanEnv(process.env.ENABLE_LOCAL);
   const envEnableClone = parseBooleanEnv(process.env.ENABLE_CLONE);
-  const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
   const envAllowedPaths = parseStringArrayEnv(process.env.ALLOWED_PATHS);
 
   return {
@@ -135,10 +134,6 @@ export function resolveLocal(
       envAllowedPaths ??
       fileConfig?.allowedPaths ??
       DEFAULT_LOCAL_CONFIG.allowedPaths,
-    workspaceRoot:
-      envWorkspaceRoot ??
-      fileConfig?.workspaceRoot ??
-      DEFAULT_LOCAL_CONFIG.workspaceRoot,
   };
 }
 

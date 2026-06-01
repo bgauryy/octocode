@@ -590,6 +590,26 @@ describe('searchPackage - NPM (CLI)', () => {
     );
   });
 
+  it('pages registry results: page=2 sends the from offset (#2)', async () => {
+    const query: PackageSearchInput = {
+      ecosystem: 'npm',
+      name: 'lodash utilities', // multi-word → keyword search (not exact lookup)
+      searchLimit: 5,
+      page: 2,
+      mainResearchGoal: 'Test',
+      researchGoal: 'Test',
+      reasoning: 'Test',
+    };
+
+    await searchPackage(query);
+
+    // page 2 with searchLimit 5 → registry `from=5`, reachable beyond page 1.
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/-\/v1\/search.*[?&]from=5\b/),
+      expect.any(Object)
+    );
+  });
+
   it('should return package details when npmFetchMetadata is true', async () => {
     // Mock full npm view response
     mockNpmViewFull('test-package', {
@@ -1141,41 +1161,15 @@ describe('registerPackageSearchTool', () => {
       expect(mockServer.server.registerTool).toHaveBeenCalled();
     });
 
-    it('should NOT register tool when npm ping fails', async () => {
+    // Guard removed (#T4): packageSearch is ALWAYS registered regardless of npm
+    // / registry availability — reachability is a per-CALL concern handled by
+    // searchPackages (graceful structured error). The tool must never silently
+    // vanish from the server on a transient blip or offline startup.
+    it('registers even when npm + registry are unavailable (never vanishes)', async () => {
       mockCheckNpmAvailability.mockResolvedValue(false);
-      const result = await registerPackageSearchTool(
-        mockServer.server,
-        mockCallback
-      );
-      expect(result).toBeNull();
-      expect(mockServer.server.registerTool).not.toHaveBeenCalled();
-    });
-
-    it('should NOT register tool when npm ping times out', async () => {
-      mockCheckNpmAvailability.mockResolvedValue(false);
-      const result = await registerPackageSearchTool(mockServer.server);
-      expect(result).toBeNull();
-      expect(mockServer.server.registerTool).not.toHaveBeenCalled();
-    });
-
-    it('should call checkNpmAvailability with 10 second timeout', async () => {
-      mockCheckNpmAvailability.mockResolvedValue(true);
-      await registerPackageSearchTool(mockServer.server);
-      expect(mockCheckNpmAvailability).toHaveBeenCalledWith(10000);
-    });
-
-    it('should NOT register tool when npm registry is unreachable', async () => {
-      mockCheckNpmAvailability.mockResolvedValue(true);
-
-      // Make the registry ping fail
       mockFetch.mockRejectedValue(new Error('fetch failed'));
-
-      const result = await registerPackageSearchTool(
-        mockServer.server,
-        mockCallback
-      );
-      expect(result).toBeNull();
-      expect(mockServer.server.registerTool).not.toHaveBeenCalled();
+      await registerPackageSearchTool(mockServer.server, mockCallback);
+      expect(mockServer.server.registerTool).toHaveBeenCalled();
     });
   });
 
@@ -1360,8 +1354,11 @@ describe('registerPackageSearchTool', () => {
       });
 
       expect(result.content).toBeDefined();
-      // CLI is used for: 1 × config get registry + 2 × deprecation check = 3 calls
-      expect(mockExecuteNpmCommand).toHaveBeenCalledTimes(3);
+      // CLI: registry-URL resolution (`config get registry`, now done lazily at
+      // first call since the registration guard that pre-warmed the module cache
+      // was removed — #T4) + 2 × deprecation check. The registry URL is cached
+      // module-level, so this stays O(1) in config calls regardless of bulk size.
+      expect(mockExecuteNpmCommand).toHaveBeenCalledTimes(4);
     });
 
     it('should handle empty queries array', async () => {

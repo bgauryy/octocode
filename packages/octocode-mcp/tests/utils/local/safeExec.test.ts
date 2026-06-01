@@ -440,14 +440,6 @@ describe('safeExec', () => {
       ).rejects.toThrow('Command validation failed');
     });
 
-    it('should reject execution outside workspace', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
-
-      await expect(safeExec('ls', ['-la'], { cwd: '/tmp' })).rejects.toThrow(
-        'Execution context validation failed'
-      );
-    });
-
     it('should handle command validation failure without error message', async () => {
       // Mock command validator to return invalid without error message
       const commandValidatorModule =
@@ -482,25 +474,6 @@ describe('safeExec', () => {
       await expect(
         safeExec('ls', [longArg], { cwd: process.cwd() })
       ).rejects.toThrow('Argument validation failed');
-    });
-
-    it('should handle context validation failure without error message', async () => {
-      // Mock execution context validator to return invalid without error message
-      const contextValidatorModule =
-        await import('octocode-security-utils/executionContextValidator');
-      const validateContextSpy = vi.spyOn(
-        contextValidatorModule,
-        'validateExecutionContext'
-      );
-      validateContextSpy.mockReturnValueOnce({ isValid: false });
-
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
-
-      await expect(safeExec('ls', [], { cwd: process.cwd() })).rejects.toThrow(
-        'Execution context validation failed: Invalid working directory'
-      );
-
-      validateContextSpy.mockRestore();
     });
 
     it('should not forward non-allowlisted env overrides to child processes', async () => {

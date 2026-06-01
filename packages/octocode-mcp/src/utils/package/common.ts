@@ -20,8 +20,11 @@ export async function searchPackage(
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
   const fetchMetadata = query.npmFetchMetadata ?? false;
   const searchLimit = query.searchLimit ?? 1;
+  // Result-count cursor: page N fetches the registry window at offset
+  // (N-1)*searchLimit, so matches beyond the first page are reachable.
+  const from = Math.max(0, ((query.page ?? 1) - 1) * searchLimit);
 
-  return searchNpmPackage(query.name, searchLimit, fetchMetadata);
+  return searchNpmPackage(query.name, searchLimit, fetchMetadata, from);
 }
 
 export { checkNpmDeprecation };

@@ -1,10 +1,10 @@
 /**
  * Tests for extra allowed roots via SecurityRegistry.
  *
- * Verifies that PathValidator and executionContextValidator respect
- * roots registered through securityRegistry.addAllowedRoots(),
- * which is how octocode-mcp (and any other consumer) grants access
- * to app-specific directories like ~/.octocode/repos/.
+ * Verifies that PathValidator respects roots registered through
+ * securityRegistry.addAllowedRoots(), which is how octocode-mcp (and any
+ * other consumer) grants access to app-specific directories like
+ * ~/.octocode/repos/.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -12,7 +12,6 @@ import path from 'path';
 import os from 'os';
 
 import { PathValidator } from '../src/pathValidator.js';
-import { validateExecutionContext } from '../src/executionContextValidator.js';
 import { securityRegistry } from '../src/registry.js';
 
 describe('extra allowed roots via SecurityRegistry', () => {
@@ -68,27 +67,6 @@ describe('extra allowed roots via SecurityRegistry', () => {
       const roots = validator.getAllowedRoots();
       const count = roots.filter(r => r === path.resolve(MOCK_APP_HOME)).length;
       expect(count).toBe(1);
-    });
-  });
-
-  describe('executionContextValidator allows registry roots', () => {
-    it('should allow cwd inside registered root', () => {
-      expect(validateExecutionContext(repoPath)).toMatchObject({
-        isValid: true,
-      });
-    });
-
-    it('should allow cwd nested under a registered root', () => {
-      const nestedPath = path.join(repoPath, 'packages', 'core');
-      expect(validateExecutionContext(nestedPath)).toMatchObject({
-        isValid: true,
-      });
-    });
-
-    it('should allow cwd at the registered root itself', () => {
-      expect(validateExecutionContext(MOCK_APP_HOME)).toMatchObject({
-        isValid: true,
-      });
     });
   });
 

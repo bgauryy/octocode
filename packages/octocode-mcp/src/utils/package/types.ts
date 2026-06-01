@@ -2,6 +2,8 @@ export interface PackageSearchInput {
   ecosystem: 'npm';
   name: string;
   searchLimit?: number;
+  /** 1-based result page; maps to the registry `from` offset (page-1)*searchLimit. */
+  page?: number;
   npmFetchMetadata?: boolean;
   mainResearchGoal?: string;
   researchGoal?: string;

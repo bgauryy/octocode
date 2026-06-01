@@ -366,7 +366,7 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     }
   });
 
-  it('truncates an oversized single file and records a content-truncated warning', () => {
+  it('windows an oversized single file by char pagination — no truncation warning', () => {
     const huge = 'Z'.repeat(60_000);
     const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'huge.ts' }];
     const results: FlatQueryResult[] = [
@@ -379,9 +379,14 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     const data = out.structuredContent as {
       warnings?: Array<{ kind: string; path?: string }>;
       results: Array<{ files?: Array<{ content: string }> }>;
+      responsePagination?: { hasMore: boolean };
     };
-    expect(data.warnings?.some(w => w.kind === 'content-truncated')).toBe(true);
-    expect(data.results[0].files![0].content.length).toBeLessThan(huge.length);
+    // No truncation warnings — the content is paginated, not clipped.
+    expect(data.warnings).toBeUndefined();
+    const content = data.results[0].files![0].content;
+    expect(content.length).toBeLessThan(huge.length);
+    expect(content).not.toMatch(/\[(truncated|clipped)\]/i);
+    expect(data.responsePagination?.hasMore).toBe(true);
   });
 
   it('paginates a group of small files + a directory without truncating any item', () => {
@@ -654,7 +659,7 @@ describe('applyGithubFetchContentVerbosity', () => {
         },
       ],
       hints: [
-        'content may be truncated',
+        'file_too_large to display fully',
         'too large to display',
         'useful hint 1',
         'useful hint 2',
@@ -669,7 +674,7 @@ describe('applyGithubFetchContentVerbosity', () => {
     );
     expect(applied).toBe(false);
     const hints = responseData.hints as string[];
-    // Advisory hints stripped; some hints remain.
-    expect(hints.some(h => /content may be truncated/.test(h))).toBe(false);
+    // Advisory hints (file_too_large / too large) stripped under compact.
+    expect(hints.some(h => /too large/.test(h))).toBe(false);
   });
 });

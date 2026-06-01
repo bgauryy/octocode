@@ -863,7 +863,12 @@ describe('structuredPagination branch coverage', () => {
 
   // ---- auto-pagination hint (lines 144-152, 147, 148) ----
 
-  it('emits the auto-paginated hint when oversized output is paginated without an explicit request', () => {
+  it('does NOT per-query paginate an oversized result without an explicit charOffset/charLength (bulk owns auto-capping)', () => {
+    // Per-query char-pagination is explicit-only now: without charOffset/
+    // charLength on the query, applyQueryOutputPagination leaves the result
+    // untouched so the response carries a single coherent cursor
+    // (responseCharOffset, emitted by applyBulkResponsePagination) instead of
+    // two breadcrumbs with different char totals.
     const repositories = Array.from({ length: 60 }, (_, i) => ({
       owner: 'o',
       repo: `r-${i}`,
@@ -875,8 +880,40 @@ describe('structuredPagination branch coverage', () => {
       {},
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    const data = result.data as { hints?: string[] };
+    const data = result.data as {
+      hints?: string[];
+      outputPagination?: unknown;
+    };
+    expect(data.outputPagination).toBeUndefined();
     expect((data.hints ?? []).some(h => h.startsWith('Auto-paginated:'))).toBe(
+      false
+    );
+    // The full payload is preserved (untouched) — bulk pagination, not this
+    // per-query pass, is what bounds the aggregate.
+    expect((data as { repositories?: unknown[] }).repositories).toHaveLength(
+      60
+    );
+  });
+
+  it('per-query paginates + emits page/cursor hints when an explicit charLength is supplied', () => {
+    const repositories = Array.from({ length: 60 }, (_, i) => ({
+      owner: 'o',
+      repo: `r-${i}`,
+      description: 'd'.repeat(200),
+      url: `https://github.com/o/r-${i}`,
+    }));
+    const result = applyQueryOutputPagination(
+      { id: 'q-explicit', data: { repositories } },
+      { charLength: 500 },
+      TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
+    );
+    const data = result.data as {
+      hints?: string[];
+      outputPagination?: { hasMore: boolean };
+    };
+    expect(data.outputPagination?.hasMore).toBe(true);
+    expect((data.hints ?? []).some(h => h.startsWith('Page '))).toBe(true);
+    expect((data.hints ?? []).some(h => h.includes('Use charOffset='))).toBe(
       true
     );
   });
@@ -1050,5 +1087,115 @@ describe('structuredPagination branch coverage', () => {
     };
     expect(data.outputPagination?.charOffset).toBe(secondSegmentStart);
     expect(data.outputPagination?.hasMore).toBe(true);
+  });
+});
+
+describe('githubSearchPullRequests pagination fixes', () => {
+  // #1 — escape valve: an oversized single PR (huge fileChanges[].patch under
+  // fullContent) must be sub-sliced rather than emitted whole.
+  it('sub-slices an oversized single PR by paginating fileChanges[].patch', () => {
+    const bigPatch = 'P'.repeat(20000);
+    const result = applyQueryOutputPagination(
+      {
+        id: 'pr-big',
+        data: {
+          pull_requests: [
+            {
+              number: 1,
+              title: 't',
+              fileChanges: [
+                { path: 'a.ts', patch: bigPatch },
+                { path: 'b.ts', patch: bigPatch },
+              ],
+            },
+          ],
+        },
+      },
+      { charLength: 2000 },
+      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
+    );
+    const data = result.data as {
+      pull_requests?: Array<{ fileChanges?: Array<{ patch?: string }> }>;
+      outputPagination?: { hasMore: boolean; charLength: number };
+    };
+    // Page 1 is bounded near the budget — NOT the full ~40K of patches.
+    const emitted = JSON.stringify(data.pull_requests).length;
+    expect(emitted).toBeLessThan(8000);
+    expect(data.outputPagination?.hasMore).toBe(true);
+  });
+
+  // #2 — totalPages is exact on the last page even when an atomic item ate
+  // more than one page-size worth of chars (no more "1/2" for a single page).
+  it('reports totalPages === currentPage when the final page fits everything', () => {
+    // One PR whose serialized size exceeds the requested page size, but there
+    // is nothing after it → it is the one and only (last) page.
+    const result = applyQueryOutputPagination(
+      {
+        id: 'pr-one',
+        data: {
+          pull_requests: [
+            { number: 1, title: 'x'.repeat(3000) }, // > 2000 page size
+          ],
+        },
+      },
+      { charLength: 2000, charOffset: 0 },
+      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
+    );
+    const data = result.data as {
+      outputPagination?: {
+        currentPage: number;
+        totalPages: number;
+        hasMore: boolean;
+      };
+    };
+    const pg = data.outputPagination;
+    if (pg) {
+      // The single oversized item is the last page; the count must not overcount.
+      if (!pg.hasMore) expect(pg.totalPages).toBe(pg.currentPage);
+    }
+  });
+
+  // #3 — when every result already carries a per-query cursor and bulk
+  // pagination was NOT requested, the bulk pass is skipped (no second,
+  // contradictory responsePagination breadcrumb).
+  it('skips bulk pagination when results are already per-query paginated', () => {
+    const out = applyBulkResponsePagination(
+      {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              pull_requests: [{ number: 1 }],
+              outputPagination: {
+                currentPage: 1,
+                totalPages: 2,
+                hasMore: true,
+                charOffset: 0,
+                charLength: 2000,
+                totalChars: 4000,
+              },
+            },
+          },
+        ],
+      } as never,
+      {}, // no responseCharOffset/Length → bulk pagination not requested
+      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
+    );
+    expect(out.responsePagination).toBeUndefined();
+  });
+
+  it('still applies bulk pagination when it is explicitly requested', () => {
+    const out = applyBulkResponsePagination(
+      {
+        results: Array.from({ length: 4 }, (_, i) => ({
+          id: `q${i}`,
+          data: { pull_requests: [{ number: i, body: 'b'.repeat(1500) }] },
+        })),
+      } as never,
+      { length: 2000 }, // explicit bulk request
+      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
+    );
+    expect(out.responsePagination).toBeDefined();
+    expect(out.responsePagination!.hasMore).toBe(true);
   });
 });

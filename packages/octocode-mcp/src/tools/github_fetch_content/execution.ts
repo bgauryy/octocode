@@ -75,6 +75,8 @@ export async function fetchMultipleGitHubFileContents(
       responseCharLength,
 
       format,
+      peerHints: true,
+      peerEvidence: true,
       finalize: buildGithubFetchContentFinalizer<PartialFileContentQuery>(),
     }
   );

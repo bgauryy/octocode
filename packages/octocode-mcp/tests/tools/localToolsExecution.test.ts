@@ -315,6 +315,36 @@ describe('Local Tools Execution', () => {
       expect(result).toBeDefined();
       expect(result).toHaveProperty('status', 'error');
     });
+
+    it('marks capped find results as incomplete evidence', async () => {
+      const { executeFindFiles } =
+        await import('../../src/tools/local_find_files/execution.js');
+      const { executeBulkOperation } =
+        await import('../../src/utils/response/bulk.js');
+      const { findFiles } =
+        await import('../../src/tools/local_find_files/findFiles.js');
+
+      vi.mocked(findFiles).mockResolvedValueOnce({
+        files: [{ path: '/test/a.ts' }],
+        hints: ['Results capped at 5 of 14. Narrow filters or increase limit.'],
+      } as any);
+
+      const query = {
+        id: 'test',
+        researchGoal: 'Test',
+        reasoning: 'capped evidence',
+        path: '/test',
+      };
+      await executeFindFiles({ queries: [query] as any });
+
+      const callback = vi.mocked(executeBulkOperation).mock.calls[0]![1];
+      const result = await callback(query, 0);
+      expect(result.evidence).toMatchObject({
+        complete: false,
+        confidence: 'medium',
+      });
+      expect(result.evidence?.reason).toContain('capped');
+    });
   });
 
   describe('executeRipgrepSearch', () => {
@@ -391,6 +421,36 @@ describe('Local Tools Execution', () => {
         expect.any(Function),
         expect.objectContaining({ toolName: 'localSearchCode' })
       );
+    });
+
+    it('marks limited ripgrep results as incomplete evidence', async () => {
+      const { executeRipgrepSearch } =
+        await import('../../src/tools/local_ripgrep/execution.js');
+      const { executeBulkOperation } =
+        await import('../../src/utils/response/bulk.js');
+      const { searchContentRipgrep } =
+        await import('../../src/tools/local_ripgrep/searchContentRipgrep.js');
+
+      vi.mocked(searchContentRipgrep).mockResolvedValueOnce({
+        files: [{ path: '/test/a.ts', matches: [] }],
+        hints: ['Results limited to 10 files (found 17 matching)'],
+      } as any);
+
+      const query = {
+        researchGoal: 'Test',
+        reasoning: 'limited evidence',
+        pattern: 'test',
+        path: '/test',
+      } as RipgrepQuery;
+      await executeRipgrepSearch({ queries: [query] });
+
+      const callback = vi.mocked(executeBulkOperation).mock.calls[0]![1];
+      const result = await callback(query, 0);
+      expect(result.evidence).toMatchObject({
+        complete: false,
+        confidence: 'medium',
+      });
+      expect(result.evidence?.reason).toContain('limited');
     });
   });
 

@@ -288,6 +288,28 @@ describe('directToolCatalog', () => {
     );
   });
 
+  it('preserves schema-native snake_case fields for direct tool input', () => {
+    const prepared = prepareDirectToolInput(
+      STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
+      {
+        owner: 'bgauryy',
+        repo: 'octocode',
+        branch: 'main',
+        sparse_path: 'packages/octocode-mcp/src/tools',
+      },
+      { sourceLabel: 'unit-test' }
+    );
+
+    expect(prepared.queries[0]).toEqual(
+      expect.objectContaining({
+        owner: 'bgauryy',
+        repo: 'octocode',
+        branch: 'main',
+        sparse_path: 'packages/octocode-mcp/src/tools',
+      })
+    );
+  });
+
   it('reports direct tool input errors without CLI-owned parsing logic', () => {
     expect(() =>
       prepareDirectToolInputFromJsonText(

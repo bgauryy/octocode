@@ -8,10 +8,10 @@ import type {
   PaginationInfo,
 } from '../../types/toolResults.js';
 import {
+  applyBulkCharWindow,
   collectFlatErrors,
   dedupeHints,
   formatFinalizedResponse,
-  paginateGroupsWithNestedItemEscape,
   type CharPagination,
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
@@ -26,19 +26,19 @@ import {
   makeAdvisoryPredicate,
 } from '../../scheme/verbosity.js';
 import { applyMinification } from '../local_fetch_content/contentMinifier.js';
+import { buildEvidenceMetadata } from '../evidence.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 /** Advisory hints githubGetFileContent emits; stripped under compact.
  * Substring-OR, case-insensitive. */
 const isAdvisoryFetchContentHint = makeAdvisoryPredicate([
-  'content may be truncated',
-  'content-truncated',
   'file_too_large',
   'too large',
 ]);
 import { tsvFormat } from '../../utils/response/tsvFormat.js';
 import { getTsvProjection } from '../../utils/response/tsvColumns.js';
+import { finalizeTsv } from '../../utils/response/tsvFinalize.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
@@ -102,6 +102,88 @@ function readStringArray(value: unknown): string[] | undefined {
     (item): item is string => typeof item === 'string'
   );
   return strings.length > 0 ? strings : undefined;
+}
+
+function collectPeerHints(results: readonly FlatQueryResult[]): string[] {
+  return dedupeHints(
+    results.flatMap(result => {
+      const raw = result.data.hints;
+      return Array.isArray(raw)
+        ? raw.filter((hint): hint is string => typeof hint === 'string')
+        : [];
+    })
+  );
+}
+
+function buildFetchEvidence(
+  groups: readonly RepoGroup[],
+  responsePagination: CharPagination | undefined,
+  errors: ReadonlyArray<NonNullable<FileContentResponse['errors']>[number]>
+): NonNullable<GitHubFetchContentOutputLocal['evidence']> {
+  const fileCount = groups.reduce(
+    (sum, group) => sum + (group.files?.length ?? 0),
+    0
+  );
+  const directoryCount = groups.reduce(
+    (sum, group) => sum + (group.directories?.length ?? 0),
+    0
+  );
+  const partialFiles = groups.reduce(
+    (sum, group) =>
+      sum + (group.files ?? []).filter(file => file.isPartial).length,
+    0
+  );
+  const paginatedFiles = groups.reduce(
+    (sum, group) =>
+      sum + (group.files ?? []).filter(file => file.pagination?.hasMore).length,
+    0
+  );
+  const reasons: string[] = [];
+
+  if (partialFiles > 0) {
+    reasons.push(`${partialFiles} file slice(s) are partial.`);
+  }
+  if (paginatedFiles > 0) {
+    reasons.push(`${paginatedFiles} file content page(s) have more data.`);
+  }
+  for (const group of groups) {
+    for (const file of group.files ?? []) {
+      if (
+        file.pagination?.hasMore &&
+        typeof file.pagination.charOffset === 'number'
+      ) {
+        const nextOffset =
+          file.pagination.charOffset + (file.pagination.charLength ?? 0);
+        reasons.push(
+          `Use charOffset=${nextOffset} for ${group.id}:${file.path}.`
+        );
+      }
+      if (
+        file.isPartial &&
+        typeof file.endLine === 'number' &&
+        typeof file.totalLines === 'number' &&
+        file.endLine < file.totalLines
+      ) {
+        reasons.push(
+          `Use startLine=${file.endLine + 1} with an endLine up to ${file.totalLines} for ${group.id}:${file.path}.`
+        );
+      }
+    }
+  }
+  if (responsePagination?.hasMore) {
+    reasons.push('Bulk response pagination has more data.');
+  }
+  if (errors.length > 0) {
+    reasons.push(`${errors.length} query result(s) failed.`);
+  }
+
+  const hasContent = fileCount + directoryCount > 0;
+  return buildEvidenceMetadata({
+    kind: 'content',
+    answerReady: hasContent,
+    incompleteReasons: reasons,
+    emptyReason: 'No file or directory content was returned.',
+  });
 }
 
 const OPTIONAL_PAGINATION_NUMERIC_FIELDS = [
@@ -259,38 +341,18 @@ function setGroupItems(
   };
 }
 
-function makeTruncator(warnings: GroupedToolWarning[]) {
-  return (
-    item: FileEntry | DirectoryEntry,
-    charLength: number,
-    group: RepoGroup
-  ): FileEntry | DirectoryEntry => {
-    if (!('content' in item)) return item;
-    const marker = '\n… [truncated by responseCharLength]';
-    const budget = Math.max(
-      0,
-      charLength - item.path.length - marker.length - 128
-    );
-    if (item.content.length <= budget) return item;
-    warnings.push({
-      kind: 'content-truncated',
-      groupId: group.id,
-      path: item.path,
-      fullContentLength: item.content.length,
-      truncatedAt: budget,
-      recovery:
-        "Re-query with larger responseCharLength, or use this file's startLine/endLine to fetch the rest precisely.",
-    });
-    return {
-      ...item,
-      content: `${item.content.slice(0, budget)}${marker}`,
-      warnings: dedupeHints([
-        ...(item.warnings ?? []),
-        'Content truncated by responseCharLength; see top-level warnings[] for structured signal.',
-      ]),
-    };
-  };
-}
+/**
+ * The single paginatable text field on a fetch-content item. Directory entries
+ * have no `content`, so they are atomic (getter returns undefined).
+ */
+const getFileContent = (
+  item: FileEntry | DirectoryEntry
+): string | undefined => ('content' in item ? item.content : undefined);
+const setFileContent = (
+  item: FileEntry | DirectoryEntry,
+  content: string
+): FileEntry | DirectoryEntry =>
+  'content' in item ? { ...item, content } : item;
 
 function buildRuntimeHints(
   groups: readonly RepoGroup[],
@@ -372,35 +434,38 @@ export function buildGithubFetchContentFinalizer<
 >(): BulkFinalizer<TQuery, GitHubFetchContentOutputLocal> {
   return ({ queries, results, config }) => {
     let groups = buildGroups(results, queries);
-    let responsePagination: CharPagination | undefined;
-    const warnings: GroupedToolWarning[] = [];
 
-    if (
-      groups.length > 0 &&
-      (config.responseCharLength !== undefined ||
-        config.responseCharOffset !== undefined)
-    ) {
-      const sliced = paginateGroupsWithNestedItemEscape({
-        groups,
-        getItems: getGroupItems,
-        setItems: setGroupItems,
-        charOffset: config.responseCharOffset ?? 0,
-        charLength: config.responseCharLength ?? Number.MAX_SAFE_INTEGER,
-        truncateOversizedItem: makeTruncator(warnings),
-      });
-      groups = sliced.groups;
-      responsePagination = sliced.pagination;
-    }
+    // Bulk char-pagination via the shared "explicit-or-overflow" policy. Pure
+    // pagination — an oversized file's `content` is windowed by char offset
+    // (not truncated): the next page is reached by advancing responseCharOffset
+    // (or charOffset on the path).
+    const bulk = applyBulkCharWindow(groups, config, {
+      getItems: getGroupItems,
+      setItems: setGroupItems,
+      getItemText: getFileContent,
+      setItemText: setFileContent,
+    });
+    groups = bulk.groups;
+    const responsePagination = bulk.responsePagination;
 
     const errors = collectFileErrors(results, queries);
-    const hints = buildRuntimeHints(groups, responsePagination);
+    const hints = dedupeHints([
+      ...(config.peerHints ? collectPeerHints(results) : []),
+      ...buildRuntimeHints(groups, responsePagination),
+    ]);
     const responseData: FileContentResponse = { results: groups };
 
     if (responsePagination)
       responseData.responsePagination = responsePagination;
     if (hints.length > 0) responseData.hints = hints;
-    if (warnings.length > 0) responseData.warnings = warnings;
     if (errors && errors.length > 0) responseData.errors = errors;
+    if (config.peerEvidence) {
+      responseData.evidence = buildFetchEvidence(
+        groups,
+        responsePagination,
+        errors ?? []
+      );
+    }
 
     // ── Verbosity shaping ───────────────────────────────────────────────
     const allConcise = applyGithubFetchContentVerbosity(responseData, queries);
@@ -410,12 +475,15 @@ export function buildGithubFetchContentFinalizer<
         STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT
       );
       if (projection) {
-        responseData.format = 'tsv';
-        responseData.columns = [...projection.columns];
-        responseData.rows = tsvFormat(
+        const lean = finalizeTsv(
           projection.columns,
-          projection.toRows({ results: groups })
+          Array.from(projection.toRows({ results: groups }))
         );
+        responseData.format = 'tsv';
+        responseData.columns = lean.columns;
+        responseData.rows = tsvFormat(lean.columns, lean.rows);
+        if (lean.base) responseData.base = lean.base;
+        if (lean.shared) responseData.shared = lean.shared;
       }
     }
 
@@ -440,7 +508,6 @@ export function buildGithubFetchContentFinalizer<
         'pagination',
         'responsePagination',
         'hints',
-        'warnings',
         'errors',
       ],
       groups.length === 0 && Boolean(errors && errors.length > 0)

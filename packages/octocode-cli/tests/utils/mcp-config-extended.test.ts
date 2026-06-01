@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MCPConfig } from '../../src/types/index.js';
 

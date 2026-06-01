@@ -64,7 +64,9 @@ describe('config/resolver', () => {
       expect(config.version).toBe(DEFAULT_CONFIG.version);
       expect(config.github.apiUrl).toBe(DEFAULT_CONFIG.github.apiUrl);
       expect(config.local.enabled).toBe(DEFAULT_CONFIG.local.enabled);
-      expect(config.output.pagination.defaultCharLength).toBe(8000);
+      expect(config.output.pagination.defaultCharLength).toBe(
+        DEFAULT_CONFIG.output.pagination.defaultCharLength
+      );
       expect(config.source).toBe('defaults');
     });
 
@@ -259,12 +261,6 @@ describe('config/resolver', () => {
         expect(config.telemetry.logging).toBe(true);
       });
 
-      it('parses WORKSPACE_ROOT', () => {
-        process.env.WORKSPACE_ROOT = '/custom/workspace';
-        const config = resolveConfigSync();
-        expect(config.local.workspaceRoot).toBe('/custom/workspace');
-      });
-
       it('parses OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH', () => {
         process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH = '12000';
         const config = resolveConfigSync();
@@ -281,20 +277,6 @@ describe('config/resolver', () => {
         process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH = '999999';
         expect(resolveConfigSync().output.pagination.defaultCharLength).toBe(
           50000
-        );
-      });
-
-      it('trims whitespace from WORKSPACE_ROOT', () => {
-        process.env.WORKSPACE_ROOT = '  /custom/workspace  ';
-        const config = resolveConfigSync();
-        expect(config.local.workspaceRoot).toBe('/custom/workspace');
-      });
-
-      it('ignores empty WORKSPACE_ROOT', () => {
-        process.env.WORKSPACE_ROOT = '   ';
-        const config = resolveConfigSync();
-        expect(config.local.workspaceRoot).toBe(
-          DEFAULT_CONFIG.local.workspaceRoot
         );
       });
 
@@ -450,42 +432,6 @@ describe('config/resolver', () => {
 
         const config = resolveConfigSync();
         expect(config.local.enableClone).toBe(DEFAULT_CONFIG.local.enableClone);
-      });
-    });
-
-    describe('local.workspaceRoot', () => {
-      it('env overrides file', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            local: { workspaceRoot: '/file/workspace' },
-          })
-        );
-        process.env.WORKSPACE_ROOT = '/env/workspace';
-
-        const config = resolveConfigSync();
-        expect(config.local.workspaceRoot).toBe('/env/workspace');
-      });
-
-      it('file overrides default', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            local: { workspaceRoot: '/file/workspace' },
-          })
-        );
-
-        const config = resolveConfigSync();
-        expect(config.local.workspaceRoot).toBe('/file/workspace');
-      });
-
-      it('falls back to default when neither env nor file', () => {
-        vi.mocked(existsSync).mockReturnValue(false);
-
-        const config = resolveConfigSync();
-        expect(config.local.workspaceRoot).toBe(
-          DEFAULT_CONFIG.local.workspaceRoot
-        );
       });
     });
 
@@ -808,20 +754,11 @@ describe('config/resolver', () => {
 
     it('source is "defaults" when no file even with env overrides', () => {
       vi.mocked(existsSync).mockReturnValue(false);
-      process.env.WORKSPACE_ROOT = '/some/path';
+      process.env.ALLOWED_PATHS = '/some/path';
 
       const config = resolveConfigSync();
       // No file → source is 'defaults' even though env overrides exist
       expect(config.source).toBe('defaults');
-    });
-
-    it('detects WORKSPACE_ROOT as env override for mixed source', () => {
-      vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
-      process.env.WORKSPACE_ROOT = '/env/workspace';
-
-      const config = resolveConfigSync();
-      expect(config.source).toBe('mixed');
     });
 
     it('detects ALLOWED_PATHS as env override for mixed source', () => {
@@ -1119,9 +1056,6 @@ describe('config/resolver', () => {
       expect(config.local.enableClone).toBe(DEFAULT_CONFIG.local.enableClone);
       expect(config.local.allowedPaths).toEqual(
         DEFAULT_CONFIG.local.allowedPaths
-      );
-      expect(config.local.workspaceRoot).toBe(
-        DEFAULT_CONFIG.local.workspaceRoot
       );
     });
   });

@@ -43,6 +43,91 @@ describe('executeBulkOperation', () => {
       ).toBeLessThan(3);
     });
 
+    it('marks peer evidence incomplete when query output pagination has more data', async () => {
+      const queries = [{ id: 'q1' }];
+      const processor = vi.fn().mockResolvedValue({
+        incomingCalls: [],
+        outputPagination: { hasMore: true },
+        evidence: {
+          kind: 'calls',
+          answerReady: true,
+          complete: true,
+          confidence: 'high',
+        },
+      });
+
+      const result = await executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.LSP_CALL_HIERARCHY,
+        peerEvidence: true,
+      });
+
+      const structured = result.structuredContent as {
+        evidence?: {
+          kind?: string;
+          complete?: boolean;
+          confidence?: string;
+          reason?: string;
+        };
+      };
+
+      expect(structured.evidence).toMatchObject({
+        kind: 'calls',
+        complete: false,
+        confidence: 'high',
+      });
+      expect(structured.evidence?.reason).toContain(
+        'One or more query-level output pages have more data.'
+      );
+    });
+
+    it('marks peer evidence incomplete when bulk response pagination has more data', async () => {
+      const queries = Array.from({ length: 5 }, (_, index) => ({
+        id: `q${index + 1}`,
+      }));
+      const processor = vi.fn().mockImplementation(query =>
+        Promise.resolve({
+          packages: [
+            {
+              name: query.id,
+              description: 'x'.repeat(500),
+            },
+          ],
+          evidence: {
+            kind: 'package',
+            answerReady: true,
+            complete: true,
+            confidence: 'high',
+          },
+        })
+      );
+
+      const result = await executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.PACKAGE_SEARCH,
+        peerEvidence: true,
+        responseCharLength: 1000,
+      });
+
+      const structured = result.structuredContent as {
+        responsePagination?: { hasMore: boolean };
+        evidence?: {
+          kind?: string;
+          complete?: boolean;
+          confidence?: string;
+          reason?: string;
+        };
+      };
+
+      expect(structured.responsePagination?.hasMore).toBe(true);
+      expect(structured.evidence).toMatchObject({
+        kind: 'package',
+        complete: false,
+        confidence: 'high',
+      });
+      expect(structured.evidence?.reason).toContain(
+        'Bulk response pagination has more data.'
+      );
+    });
+
     it('should process single query with hasResults status', async () => {
       const queries = [{ id: 'q1', name: 'test1' }];
       const processor = vi.fn().mockResolvedValue({
@@ -1535,12 +1620,15 @@ describe('executeBulkOperation', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
 
-      // Response should be auto-paginated to ~RECOMMENDED_CHAR_LENGTH (10000)
-      // and NOT exceed 15000 chars (10000 + pagination hints overhead)
+      // Auto-capping is owned by the single bulk pagination flow: an oversized
+      // response with no explicit pagination knob is still bounded to ~the one
+      // output limit (2000) plus breadcrumb overhead — never the full payload.
       expect(responseText.length).toBeLessThan(15000);
 
-      // Should contain pagination hints telling consumer to use charOffset
-      expect(responseText).toContain('Auto-paginated');
+      // Carries a coherent page/cursor breadcrumb (the misleading standalone
+      // "Auto-paginated: … exceeds N" line was removed — the Page x/y + cursor
+      // hint conveys the same, with consistent totals).
+      expect(responseText).toMatch(/Page \d+\/\d+/);
       expect(responseText).toContain('charOffset');
     });
 

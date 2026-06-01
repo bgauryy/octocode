@@ -19,6 +19,9 @@ import { getTsvProjection } from '../../src/utils/response/tsvColumns.js';
 import { getHints } from '../../src/hints/index.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
+import { applyGithubSearchCodeVerbosity } from '../../src/tools/github_search_code/finalizer.js';
+import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
+import { applyGithubViewRepoStructureVerbosity } from '../../src/tools/github_view_repo_structure/execution.js';
 
 beforeAll(async () => {
   await initializeToolMetadata();
@@ -117,7 +120,7 @@ describe('TSV projection: githubSearchCode', () => {
         ],
       }
     );
-    expect(columns).toEqual(['id', 'owner', 'repo', 'path', 'value']);
+    expect(columns).toEqual(['owner', 'repo', 'path', 'value']);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       owner: 'modelcontextprotocol',
@@ -141,9 +144,41 @@ describe('TSV projection: githubSearchCode', () => {
         ],
       }
     );
-    expect(columns).toEqual(['id', 'owner', 'repo', 'path', 'value']);
-    expect(rows).toEqual([
-      { id: '', owner: 'o', repo: 'r', path: 'x.ts', value: '' },
+    expect(columns).toEqual(['owner', 'repo', 'path', 'value']);
+    expect(rows).toEqual([{ owner: 'o', repo: 'r', path: 'x.ts', value: '' }]);
+  });
+});
+
+describe('Verbosity: githubSearchCode', () => {
+  it('keeps a one-line snippet and dedupes duplicate paths in concise mode', () => {
+    const responseData = {
+      results: [
+        {
+          id: 'facebook/react',
+          owner: 'facebook',
+          repo: 'react',
+          matches: [
+            {
+              path: 'ReactFiberThrow.js',
+              value: 'function throwException() {',
+            },
+            { path: 'ReactFiberThrow.js', value: 'throw value;' },
+            {
+              path: 'ReactFiberHooks.js',
+              value: '\n  export function useState() {\n    return null;\n  }',
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      applyGithubSearchCodeVerbosity(responseData, [{ verbosity: 'concise' }])
+    ).toBe(true);
+
+    expect(responseData.results[0]!.matches).toEqual([
+      { path: 'ReactFiberThrow.js', value: 'function throwException() {' },
+      { path: 'ReactFiberHooks.js', value: 'export function useState() {' },
     ]);
   });
 });
@@ -174,7 +209,6 @@ describe('TSV projection: githubGetFileContent', () => {
     // `content` intentionally omitted from TSV columns — file body lives in
     // JSON `data.results[].files[].content` only. TSV is the metadata view.
     expect(columns).toEqual([
-      'id',
       'owner',
       'repo',
       'path',
@@ -224,6 +258,54 @@ describe('TSV projection: githubGetFileContent', () => {
     expect(text).not.toContain('line1');
     expect(text).not.toContain('line2');
     expect(text).not.toContain('line3');
+  });
+});
+
+describe('Evidence: githubGetFileContent', () => {
+  it('nudges the next pagination parameter for partial file content', () => {
+    const finalizer = buildGithubFetchContentFinalizer();
+    const output = finalizer({
+      queries: [
+        {
+          owner: 'o',
+          repo: 'r',
+          path: 'src/a.ts',
+        },
+      ],
+      results: [
+        {
+          id: 'q1',
+          data: {
+            path: 'src/a.ts',
+            content: 'partial',
+            isPartial: true,
+            totalLines: 120,
+            startLine: 1,
+            endLine: 40,
+            pagination: {
+              currentPage: 1,
+              totalPages: 3,
+              hasMore: true,
+              charOffset: 0,
+              charLength: 200,
+              totalChars: 600,
+            },
+          },
+        },
+      ],
+      config: {
+        toolName: STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        format: 'json',
+        peerEvidence: true,
+      },
+    });
+
+    expect(output.structuredContent.evidence?.reason).toContain(
+      'Use charOffset=200 for o/r:src/a.ts.'
+    );
+    expect(output.structuredContent.evidence?.reason).toContain(
+      'Use startLine=41 with an endLine up to 120 for o/r:src/a.ts.'
+    );
   });
 });
 
@@ -299,8 +381,34 @@ describe('TSV projection: githubSearchPullRequests', () => {
   });
 });
 
+describe('Verbosity: githubViewRepoStructure', () => {
+  it('suggests concrete next paths when a structure response is truncated', () => {
+    const shaped = applyGithubViewRepoStructureVerbosity(
+      {
+        data: {
+          path: '',
+          structure: {
+            '.': {
+              folders: ['packages', 'docs'],
+              files: ['README.md'],
+            },
+          },
+        },
+        entryCount: 3,
+        summary: { truncated: true },
+        extraHints: [],
+      },
+      { verbosity: 'basic' }
+    );
+
+    expect(shaped.extraHints).toContain(
+      'Next paths: packages/, docs/, README.md'
+    );
+  });
+});
+
 describe('TSV projection: githubViewRepoStructure', () => {
-  it('flattens the nested tree to (parent, name, type) rows', () => {
+  it('flattens the nested tree to (path, type) rows', () => {
     const { columns, rows } = projectAndFormat(
       STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
       {
@@ -310,25 +418,21 @@ describe('TSV projection: githubViewRepoStructure', () => {
         },
       }
     );
-    // Lean projection: 4 useful columns. `size`/`sha`/`url` were dropped —
-    // the structure payload carries no data for them, so they were always
-    // empty placeholders. `path` is the full path, not an empty stub.
-    expect(columns).toEqual(['parent', 'name', 'type', 'path']);
+    // Lean projection: 2 useful columns. `parent`/`name` were dropped —
+    // `path` (= parent/name) is the chainable full path and basename/dirname
+    // are derivable from it, so emitting all three duplicated every row.
+    // `size`/`sha`/`url` were dropped earlier — the structure payload carries
+    // no data for them.
+    expect(columns).toEqual(['path', 'type']);
     expect(rows).toContainEqual({
-      parent: '.',
-      name: 'README.md',
       type: 'file',
       path: 'README.md',
     });
     expect(rows).toContainEqual({
-      parent: '.',
-      name: 'src',
       type: 'dir',
       path: 'src',
     });
     expect(rows).toContainEqual({
-      parent: 'src',
-      name: 'index.ts',
       type: 'file',
       path: 'src/index.ts',
     });
@@ -340,7 +444,7 @@ describe('TSV projection: githubViewRepoStructure', () => {
       { structure: {} }
     );
     expect(rows).toHaveLength(0);
-    expect(text).toBe('parent\tname\ttype\tpath');
+    expect(text).toBe('path\ttype');
   });
 });
 

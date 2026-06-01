@@ -92,4 +92,4 @@ JSON-RPC envelope and `gh` command prefix are excluded so neither agent pays for
 | `validate-pipeline.mjs` | Is the metering code deterministic? | metric diff across runs |
 | judge agent | How well did the agent answer, and who wins by quality per token/char? | semantic — no pass/fail |
 | `score-token-usage.mjs` | Given judge scores, who wins by quality per measured char? | missing/invalid score file or run summaries |
-| `cross-run.mjs`, `report-variance.mjs` | What's the spread / median? | never (descriptive) |
+| `cross-run.mjs`, `report-variance.mjs` | What's the spread / median? | descriptive only |

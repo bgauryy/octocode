@@ -620,8 +620,8 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
     });
 
     it('should respect item limit based on depth', async () => {
-      // Generate many items
-      const manyItems = Array.from({ length: 100 }, (_, i) => ({
+      // Generate many items (above the default page size of 100)
+      const manyItems = Array.from({ length: 150 }, (_, i) => ({
         name: `file${i}.ts`,
         path: `file${i}.ts`,
         type: 'file' as const,
@@ -660,8 +660,8 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should be limited (default is 50 for depth 1)
-        expect(result.structure['.']?.files?.length).toBeLessThanOrEqual(50);
+        // Should be limited (default page size is 100)
+        expect(result.structure['.']?.files?.length).toBeLessThanOrEqual(100);
         expect(result.summary?.truncated).toBe(true);
         expect(result.summary?.originalCount).toBeGreaterThan(
           result.structure['.']?.files?.length ?? 0

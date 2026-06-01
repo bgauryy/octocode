@@ -43,14 +43,6 @@
       "types": "./dist/ignoredPathFilter.d.ts",
       "import": "./dist/ignoredPathFilter.js"
     },
-    "./workspaceRoot": {
-      "types": "./dist/workspaceRoot.d.ts",
-      "import": "./dist/workspaceRoot.js"
-    },
-    "./executionContextValidator": {
-      "types": "./dist/executionContextValidator.d.ts",
-      "import": "./dist/executionContextValidator.js"
-    },
     "./pathUtils": {
       "types": "./dist/pathUtils.d.ts",
       "import": "./dist/pathUtils.js"
@@ -91,12 +83,6 @@
       ],
       "ignoredPathFilter": [
         "./dist/ignoredPathFilter.d.ts"
-      ],
-      "workspaceRoot": [
-        "./dist/workspaceRoot.d.ts"
-      ],
-      "executionContextValidator": [
-        "./dist/executionContextValidator.d.ts"
       ],
       "pathUtils": [
         "./dist/pathUtils.d.ts"

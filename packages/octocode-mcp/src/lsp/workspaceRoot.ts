@@ -1,8 +1,6 @@
 import { existsSync } from 'fs';
 import path from 'path';
 
-import { resolveWorkspaceRoot } from 'octocode-security-utils/workspaceRoot';
-
 const WORKSPACE_MARKERS = [
   'package.json',
   'tsconfig.json',
@@ -53,11 +51,11 @@ export async function resolveWorkspaceRootForFile(
   filePath: string
 ): Promise<string> {
   const absoluteFilePath = path.resolve(filePath);
-  const configuredRoot = resolveWorkspaceRoot();
+  const configuredRoot = process.cwd();
 
   // Prefer the *tightest* root: marker-based discovery from the file's own
-  // directory. We only fall back to the configured root (typically
-  // `process.cwd()` or `$WORKSPACE_ROOT`) when:
+  // directory. We only fall back to the configured root (the process working
+  // directory) when:
   //   • no marker is found anywhere above the file, OR
   //   • the configured root is itself a tighter match (i.e. lives between the
   //     marker-based root and the file).

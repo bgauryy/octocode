@@ -27,6 +27,11 @@ import {
   relaxedPaginationLimitField,
   relaxedPageNumberField,
   depthField,
+  describeField,
+  requiredLineHintField,
+  orderHintField,
+  charOffsetField,
+  localCharLengthField,
 } from './localSchemaOverlay.js';
 
 // Description text lives upstream in octocode-core baseSchema.verbosity;
@@ -41,8 +46,22 @@ import {
 export const LSPGotoDefinitionQuerySchema =
   UpstreamGotoDefinitionQuerySchema.extend({
     ...optionalMetaFields,
+    uri: describeField(
+      UpstreamGotoDefinitionQuerySchema.shape.uri,
+      'File URI or path containing the symbol usage; absolute paths and workspace-relative paths are accepted.'
+    ),
+    lineHint: describeField(
+      requiredLineHintField,
+      '1-based line number near the symbol. Get it from localSearchCode before calling LSP tools.'
+    ),
+    orderHint: describeField(
+      orderHintField,
+      'Optional 0-based occurrence index on the hinted line when a symbol appears multiple times.'
+    ),
     verbosity: createVerbosityField(),
     contextLines: contextLinesField,
+    charOffset: charOffsetField,
+    charLength: localCharLengthField,
   }).strip();
 
 export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
@@ -61,11 +80,35 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
 export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.extend({
     ...optionalMetaFields,
+    uri: describeField(
+      UpstreamFindReferencesQuerySchema.shape.uri,
+      'File URI or path containing the symbol definition or usage to resolve.'
+    ),
+    lineHint: describeField(
+      requiredLineHintField,
+      '1-based line number near the symbol. Get it from localSearchCode before calling LSP tools.'
+    ),
+    orderHint: orderHintField,
+    charOffset: charOffsetField,
+    charLength: localCharLengthField,
+    includePattern: describeField(
+      UpstreamFindReferencesQuerySchema.shape.includePattern,
+      'Optional glob(s) limiting reference results to matching file paths, useful in monorepos.'
+    ),
+    excludePattern: describeField(
+      UpstreamFindReferencesQuerySchema.shape.excludePattern,
+      'Optional glob(s) excluding noisy generated, fixture, or vendor paths from reference results.'
+    ),
     verbosity: createVerbosityField(),
     contextLines: contextLinesField,
     referencesPerPage: relaxedPaginationLimitField.default(10),
     page: relaxedPageNumberField.default(1),
-    groupByFile: z.boolean().optional(),
+    groupByFile: z
+      .boolean()
+      .optional()
+      .describe(
+        'Return a per-file reference count rollup instead of individual snippets. Best for blast-radius probes.'
+      ),
   }).strip();
 
 export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
@@ -83,8 +126,23 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
 export const LSPCallHierarchyQuerySchema =
   UpstreamCallHierarchyQuerySchema.extend({
     ...optionalMetaFields,
+    uri: describeField(
+      UpstreamCallHierarchyQuerySchema.shape.uri,
+      'File URI or path containing the function or method whose call graph should be traced.'
+    ),
+    lineHint: describeField(
+      requiredLineHintField,
+      '1-based line number near the callable symbol. Get it from localSearchCode before calling LSP tools.'
+    ),
+    orderHint: orderHintField,
+    direction: describeField(
+      UpstreamCallHierarchyQuerySchema.shape.direction,
+      'Call graph direction: incoming shows callers; outgoing shows callees.'
+    ),
     verbosity: createVerbosityField(),
     contextLines: contextLinesField,
+    charOffset: charOffsetField,
+    charLength: localCharLengthField,
     callsPerPage: relaxedPaginationLimitField.default(10),
     page: relaxedPageNumberField.default(1),
     depth: depthField,

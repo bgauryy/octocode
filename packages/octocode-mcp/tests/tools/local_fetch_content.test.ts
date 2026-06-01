@@ -915,7 +915,7 @@ describe('localGetFileContent', () => {
       expect(result.status).toBeUndefined();
     });
 
-    it('should return partial results with warning when matches are excessive without pagination', async () => {
+    it('should auto-paginate (lossless cursor), not truncate, when matches are excessive without pagination', async () => {
       const manyLines = Array.from({ length: 2000 }, () => 'MATCH').join('\n');
       mockStat.mockResolvedValue({
         size: manyLines.length,
@@ -925,14 +925,18 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'huge.txt',
         matchString: 'MATCH',
-        // No charLength specified -> returns partial results with warning
+        // No charLength specified -> auto-paginates with a cursor (no match cap)
       });
 
       expect(result.status).toBeUndefined();
       expect(result.isPartial).toBe(true);
+      // Lossless: a pagination cursor reaches the rest — nothing is dropped.
+      expect(result.pagination).toBeDefined();
       expect(result.warnings).toBeDefined();
       expect(result.warnings?.[0]).toContain('2000');
-      expect(result.warnings?.[0]).toContain('Truncated to first 50 matches');
+      expect(result.warnings?.[0]).toContain('Auto-paginated');
+      // The old hard "first 50 matches" cap must be gone.
+      expect(result.warnings?.[0]).not.toContain('Truncated to first 50');
     });
 
     it('should auto-paginate when matchString result exceeds MAX_OUTPUT_CHARS without charLength (lines 206-212)', async () => {

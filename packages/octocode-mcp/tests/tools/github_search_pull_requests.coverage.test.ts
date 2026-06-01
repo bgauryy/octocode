@@ -306,6 +306,122 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       const text = getTextContent(result.content);
       expect(text).not.toContain('file changes.');
     });
+
+    it('keeps a lightweight file list (paths+counts, no patch) in metadata mode (default)', async () => {
+      const fileChanges = Array.from({ length: 5 }, (_, i) => ({
+        filename: `src/file${i}.ts`,
+        status: 'modified',
+        additions: 1,
+        deletions: 0,
+        patch: '@@ -1 +1 @@\n-a\n+b',
+      }));
+      mockProvider.searchPullRequests.mockResolvedValue(
+        providerResponse([basePR({ number: 44, fileChanges })])
+      );
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          // type omitted ⇒ metadata (triage) default.
+          queries: [{ owner: 'test', repo: 'repo', state: 'open' }],
+        }
+      );
+
+      expect(result.isError).toBe(false);
+      const prs = (
+        (result.structuredContent as Record<string, unknown>)?.results as Array<
+          Record<string, unknown>
+        >
+      )?.flatMap(
+        q =>
+          ((q.data as Record<string, unknown>)?.pull_requests as Array<
+            Record<string, unknown>
+          >) ?? []
+      );
+      expect(prs?.length).toBe(1);
+      // Metadata keeps the file list (so "which files?" needs no second call)
+      // but strips patches.
+      const metaFileChanges = prs?.[0]?.fileChanges as
+        | Array<Record<string, unknown>>
+        | undefined;
+      expect(metaFileChanges).toHaveLength(5);
+      expect(metaFileChanges?.every(f => f.patch === undefined)).toBe(true);
+      expect(prs?.[0]?.changedFilesCount).toBe(5);
+      expect(getTextContent(result.content)).toContain(
+        'Metadata mode: file lists include paths + counts only'
+      );
+    });
+
+    it('keeps the file list when type="fullContent"', async () => {
+      const fileChanges = Array.from({ length: 5 }, (_, i) => ({
+        filename: `src/file${i}.ts`,
+        status: 'modified',
+        additions: 1,
+        deletions: 0,
+      }));
+      mockProvider.searchPullRequests.mockResolvedValue(
+        providerResponse([basePR({ number: 45, fileChanges })])
+      );
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          queries: [
+            { owner: 'test', repo: 'repo', state: 'open', type: 'fullContent' },
+          ],
+        }
+      );
+
+      expect(result.isError).toBe(false);
+      const prs = (
+        (result.structuredContent as Record<string, unknown>)?.results as Array<
+          Record<string, unknown>
+        >
+      )?.flatMap(
+        q =>
+          ((q.data as Record<string, unknown>)?.pull_requests as Array<
+            Record<string, unknown>
+          >) ?? []
+      );
+      expect(Array.isArray(prs?.[0]?.fileChanges)).toBe(true);
+    });
+
+    it('omits the pagination block on a prNumber lookup (#A3b)', async () => {
+      mockProvider.searchPullRequests.mockResolvedValue(
+        providerResponse([basePR({ number: 410 })])
+      );
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        { queries: [{ owner: 'test', repo: 'repo', prNumber: 410 }] }
+      );
+
+      const data = (
+        (result.structuredContent as Record<string, unknown>)?.results as Array<
+          Record<string, unknown>
+        >
+      )?.[0]?.data as Record<string, unknown> | undefined;
+      expect(data?.pull_requests).toBeDefined();
+      expect(data?.pagination).toBeUndefined();
+    });
+
+    it('keeps the pagination block on a normal search', async () => {
+      mockProvider.searchPullRequests.mockResolvedValue(
+        providerResponse([basePR({ number: 1 }), basePR({ number: 2 })])
+      );
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        { queries: [{ owner: 'test', repo: 'repo', state: 'open' }] }
+      );
+
+      const data = (
+        (result.structuredContent as Record<string, unknown>)?.results as Array<
+          Record<string, unknown>
+        >
+      )?.[0]?.data as Record<string, unknown> | undefined;
+      expect(data?.pagination).toBeDefined();
+    });
   });
 });
 

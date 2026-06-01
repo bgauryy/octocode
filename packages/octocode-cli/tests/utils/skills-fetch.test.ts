@@ -1,5 +1,3 @@
-
-
 import { join } from 'node:path';
 import os from 'node:os';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -194,7 +192,6 @@ describe('Skills Fetch Utilities', () => {
 
   describe('fetchMarketplaceSkills', () => {
     it('should fetch and parse flat-md skills', async () => {
-
       vi.mocked(global.fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => mockTreeResponse,

@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect } from 'vitest';
 import { c, bold, dim, underline } from '../src/utils/colors.js';
 

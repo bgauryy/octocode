@@ -172,7 +172,9 @@ describe('localFindFiles', () => {
       expect(result.status).toBe('empty');
     });
 
-    it('should tell callers when results were capped by limit', async () => {
+    it('does NOT implicitly cap at 1000 — all discovered files stay paginable', async () => {
+      // 1002 files, no explicit limit: every file must be reachable via
+      // filePageNumber (the old silent 1000 cap dropped 2 files unrecoverably).
       const paths = Array.from(
         { length: 1002 },
         (_, index) => `/test/path/file-${index}.ts`
@@ -187,6 +189,25 @@ describe('localFindFiles', () => {
       const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
+      expect(result.pagination?.totalFiles).toBe(1002);
+      // No cap hint — nothing was dropped.
+      expect(result.hints?.some(h => /capped at/i.test(h))).toBeFalsy();
+    });
+
+    it('caps + warns only when an explicit limit is given (a deliberate user cap)', async () => {
+      const paths = Array.from(
+        { length: 1002 },
+        (_, index) => `/test/path/file-${index}.ts`
+      ).join('\0');
+      mockSafeExec.mockResolvedValue({
+        success: true,
+        code: 0,
+        stdout: `${paths}\0`,
+        stderr: '',
+      });
+
+      const result = await findFiles({ path: '/test/path', limit: 1000 });
+
       expect(result.pagination?.totalFiles).toBe(1000);
       expect(result.hints?.some(h => /capped at 1000/i.test(h))).toBe(true);
       expect(result.hints?.some(h => h.includes('1002'))).toBe(true);

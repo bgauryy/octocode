@@ -121,6 +121,10 @@ export interface BulkToolResponse {
   columns?: readonly string[];
   /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
   rows?: string;
+  /** Common directory the relativized `path` cells hang off (lean TSV). */
+  base?: string;
+  /** Columns hoisted out of every row because they shared one value (lean TSV). */
+  shared?: Record<string, string>;
   /** Aggregated evidence metadata, lifted from per-query `data.evidence`. */
   evidence?: EvidenceMetadata;
 }

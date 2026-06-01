@@ -142,6 +142,13 @@ export type OptimizedCodeSearchResult = {
     totalMatches: number;
     hasMore: boolean;
   };
+  /**
+   * True when the empty result is because GitHub reported the searched
+   * owner/repo/user does NOT exist (a 422 nonexistent-entity), as opposed to a
+   * valid scope that genuinely matched nothing. Lets the caller emit a
+   * "check the scope spelling" hint instead of "no matches found".
+   */
+  nonExistentScope?: boolean;
 };
 
 /**
@@ -226,11 +233,19 @@ export interface GitHubPullRequestsSearchParams {
   'no-milestone'?: boolean;
   'no-project'?: boolean;
   match?: ('title' | 'body' | 'comments')[];
+  /** Include PRs from archived repositories. Default false excludes them. */
+  archived?: boolean;
   sort?: 'created' | 'updated' | 'best-match';
   order?: 'asc' | 'desc';
   limit?: number;
   withComments?: boolean;
   withCommits?: boolean;
+  /**
+   * When fetching comments, include bot authors (vercel[bot], CodeRabbit, …).
+   * Default false — bot deploy tables / base64 status blobs are stripped to
+   * keep the review signal cheap. Set true to restore the full thread.
+   */
+  includeBots?: boolean;
   type?: 'metadata' | 'fullContent' | 'partialContent';
   partialContentMetadata?: {
     file: string;

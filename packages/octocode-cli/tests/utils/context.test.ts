@@ -1,5 +1,3 @@
-
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/utils/shell.js', () => ({
@@ -26,7 +24,6 @@ describe('Context Utilities', () => {
 
   describe('getAppContext', () => {
     it('should return context with cwd, ide, and git info', async () => {
-
       const os = await import('node:os');
       vi.mocked(os.homedir).mockReturnValue('/Users/test');
 

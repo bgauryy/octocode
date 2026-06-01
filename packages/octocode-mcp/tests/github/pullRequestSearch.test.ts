@@ -514,7 +514,133 @@ describe('Pull Request Search', () => {
         owner: 'test',
         repo: 'repo',
         issue_number: 123,
+        per_page: 100,
+        page: 1,
       });
+    });
+
+    it('paginates ALL comments past page 1 (no silent 100-comment cap)', async () => {
+      const mockPR = {
+        number: 123,
+        title: 'Long thread PR',
+        state: 'open',
+        draft: false,
+        user: { login: 'testuser' },
+        labels: [],
+        created_at: '2023-01-01T00:00:00Z',
+        updated_at: '2023-01-02T00:00:00Z',
+        closed_at: null,
+        html_url: 'https://github.com/test/repo/pull/123',
+        head: { ref: 'feature', sha: 'abc123' },
+        base: { ref: 'main', sha: 'def456' },
+        body: 'Test description',
+      };
+      const mkComments = (start: number, n: number) =>
+        Array.from({ length: n }, (_, i) => ({
+          id: start + i,
+          user: { login: `human${start + i}` },
+          body: `comment ${start + i}`,
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-03T00:00:00Z',
+        }));
+
+      mockOctokit.rest.pulls.get.mockResolvedValue({ data: mockPR });
+      // Page 1 returns a full page (100) → the loop MUST fetch page 2.
+      mockOctokit.rest.issues.listComments
+        .mockResolvedValueOnce({ data: mkComments(1, 100) })
+        .mockResolvedValueOnce({ data: mkComments(101, 30) });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        prNumber: 123,
+        withComments: true,
+      });
+
+      // The fetch loop continued PAST the full first page — comments 101+ are
+      // no longer silently skipped at the API layer (the bug this guards). Any
+      // further size-bounding is the response char-paginator's job (lossless).
+      expect(result.pull_requests).toHaveLength(1);
+      expect(mockOctokit.rest.issues.listComments).toHaveBeenCalledTimes(2);
+      expect(mockOctokit.rest.issues.listComments).toHaveBeenLastCalledWith({
+        owner: 'test',
+        repo: 'repo',
+        issue_number: 123,
+        per_page: 100,
+        page: 2,
+      });
+    });
+
+    it('drops bot comments and strips machine blobs by default (PR-1/PR-2)', async () => {
+      const mockPR = {
+        number: 124,
+        title: 'Test PR',
+        state: 'open',
+        draft: false,
+        user: { login: 'testuser' },
+        labels: [],
+        created_at: '2023-01-01T00:00:00Z',
+        updated_at: '2023-01-02T00:00:00Z',
+        closed_at: null,
+        html_url: 'https://github.com/test/repo/pull/124',
+        head: { ref: 'feature', sha: 'abc123' },
+        base: { ref: 'main', sha: 'def456' },
+        body: 'Test description',
+      };
+
+      const mockComments = [
+        {
+          id: 1,
+          user: { login: 'vercel[bot]' },
+          body: 'Deploy preview ready',
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-03T00:00:00Z',
+        },
+        {
+          id: 2,
+          user: { login: 'coderabbitai' },
+          body: 'Review',
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-03T00:00:00Z',
+        },
+        {
+          id: 3,
+          user: { login: 'human-reviewer' },
+          body: 'Looks good to me\n<!-- internal state start -->\nAAAA\n<!-- internal state end -->\n[vc]: #deadbeef==',
+          created_at: '2023-01-04T00:00:00Z',
+          updated_at: '2023-01-04T00:00:00Z',
+        },
+      ];
+
+      mockOctokit.rest.pulls.get.mockResolvedValue({ data: mockPR });
+      mockOctokit.rest.issues.listComments.mockResolvedValue({
+        data: mockComments,
+      });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        prNumber: 124,
+        withComments: true,
+      });
+
+      const pr = result.pull_requests[0] as Record<string, unknown>;
+      // Output shape: `comments` is the count, `comment_details` is the array.
+      const comments = pr.comment_details as Array<{
+        user: string;
+        body: string;
+      }>;
+      // Both bot comments dropped; only the human one survives.
+      expect(pr.comments).toBe(1);
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.user).toBe('human-reviewer');
+      // Machine blobs stripped from the surviving body.
+      expect(comments[0]!.body).toContain('Looks good to me');
+      expect(comments[0]!.body).not.toContain('internal state');
+      expect(comments[0]!.body).not.toContain('[vc]:');
+      // Non-silent: a note records what was hidden.
+      const warnings = (pr._sanitization_warnings as string[]) ?? [];
+      expect(warnings.some(w => w.includes('bot comment'))).toBe(true);
     });
 
     it('should sanitize PR title and body', async () => {

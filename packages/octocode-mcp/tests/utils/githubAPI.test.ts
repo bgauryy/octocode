@@ -668,7 +668,9 @@ describe('GitHub API Utils', () => {
             },
           },
           status: 200,
-          headers: undefined,
+          // normalizeResponseHeaders() returns a clean {} when the provider
+          // omits headers (was previously `undefined` cast as a Record).
+          headers: {},
           rawResponseChars: expect.any(Number),
         });
       });

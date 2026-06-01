@@ -34,16 +34,10 @@ vi.mock('../../src/providers/factory.js', () => ({
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 
-type Warning =
-  | {
-      kind: 'content-truncated';
-      groupId: string;
-      path: string;
-      fullContentLength: number;
-      truncatedAt: number;
-      recovery: string;
-    }
-  | { kind: string; [key: string]: unknown };
+// The only remaining grouped-tool warning kind is `verbosity-downgrade`
+// (truncation kinds were removed). These tests assert `warnings` is undefined,
+// so a permissive shape is enough.
+type Warning = { kind: string; [key: string]: unknown };
 
 type FlatResponse = {
   results: Array<{
@@ -92,8 +86,13 @@ describe('githubGetFileContent — content-truncated structured warning', () => 
     vi.resetAllMocks();
   });
 
-  it('emits a structured content-truncated warning when a single file content exceeds responseCharLength', async () => {
-    const huge = 'A'.repeat(50_000);
+  it('windows an oversized file content by char pagination (no truncation warning) and reassembles losslessly', async () => {
+    // Realistic code content — a uniform char run would trip the secret
+    // sanitizer (redacted to a short marker) and never paginate.
+    const huge = Array.from(
+      { length: 3_000 },
+      (_, i) => `export const value${i} = ${i};`
+    ).join('\n');
     mockProvider.getFileContent.mockResolvedValue({
       data: {
         path: 'src/giant.ts',
@@ -108,38 +107,40 @@ describe('githubGetFileContent — content-truncated structured warning', () => 
       rawResponseChars: huge.length,
     });
 
-    const result = await mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
-      queries: [
-        {
-          owner: 'owner',
-          repo: 'giant',
-          path: 'src/giant.ts',
-          branch: 'main',
-        },
-      ],
-      responseCharLength: 5_000,
-    });
+    const call = (responseCharOffset?: number) =>
+      mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
+        queries: [
+          {
+            owner: 'owner',
+            repo: 'giant',
+            path: 'src/giant.ts',
+            branch: 'main',
+          },
+        ],
+        responseCharLength: 5_000,
+        ...(responseCharOffset !== undefined ? { responseCharOffset } : {}),
+      });
 
-    const data = result.structuredContent as FlatResponse;
+    const first = (await call()).structuredContent as FlatResponse;
 
-    // Top-level structured warning is the canonical signal.
-    expect(data.warnings).toBeDefined();
-    const truncWarning = data.warnings!.find(
-      w => w.kind === 'content-truncated'
-    ) as Extract<Warning, { kind: 'content-truncated' }> | undefined;
-    expect(truncWarning).toBeDefined();
-    expect(truncWarning!.groupId).toBe('owner/giant');
-    expect(truncWarning!.path).toBe('src/giant.ts');
-    expect(truncWarning!.fullContentLength).toBe(50_000);
-    expect(truncWarning!.truncatedAt).toBeLessThan(50_000);
-    expect(truncWarning!.recovery).toMatch(
-      /responseCharLength|startLine|endLine/i
-    );
-
-    // Inline file.warnings still pointer to the structured signal.
-    const file = data.results[0]?.files?.[0];
+    // There are NO truncation warnings and NO marker — oversized content is
+    // bounded by char pagination, and the remainder is reachable purely by a
+    // cursor (bulk responseCharOffset and/or the per-file charOffset hint).
+    expect(first.warnings).toBeUndefined();
+    const file = first.results[0]?.files?.[0];
     expect(file?.content.length).toBeLessThan(huge.length);
-    expect(file?.warnings?.some(w => /warnings\[\]/i.test(w))).toBe(true);
+    expect(file?.content).not.toMatch(/\[(truncated|clipped)\]/i);
+    expect(first.responsePagination!.hasMore).toBe(true);
+    expect(first.hints?.some(h => /charOffset/i.test(h))).toBe(true);
+
+    // Advancing the bulk cursor returns a different slice (forward progress,
+    // no stuck page).
+    const firstContent = file?.content ?? '';
+    const p1 = first.responsePagination!;
+    const second = (await call(p1.charOffset + p1.charLength))
+      .structuredContent as FlatResponse;
+    const secondContent = second.results[0]?.files?.[0]?.content ?? '';
+    expect(secondContent).not.toBe(firstContent);
   });
 
   it('emits no warnings when content fits the budget', async () => {

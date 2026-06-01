@@ -14,8 +14,6 @@ import {
   ContentSanitizer,
   maskSensitiveData,
   validateCommand,
-  validateExecutionContext,
-  resolveWorkspaceRoot,
   shouldIgnore,
   shouldIgnorePath,
   shouldIgnoreFile,
@@ -77,14 +75,6 @@ describe('README: Quick Start', () => {
   it('validateCommand allows valid rg invocation', () => {
     const result = validateCommand('rg', ['pattern', './src']);
     expect(result.isValid).toBe(true);
-  });
-
-  it('validateExecutionContext validates workspace-internal path', () => {
-    const result = validateExecutionContext(
-      path.join(workspace, 'packages', 'octocode-security')
-    );
-    expect(result.isValid).toBe(true);
-    expect(result.sanitizedPath).toBeDefined();
   });
 });
 
@@ -509,68 +499,6 @@ describe('README: helper exports', () => {
   });
 });
 
-describe('README: validateExecutionContext', () => {
-  it('returns isValid: true for workspace-internal path', () => {
-    const result = validateExecutionContext(
-      path.join(workspace, 'packages', 'octocode-security')
-    );
-    expect(result.isValid).toBe(true);
-    expect(result.sanitizedPath).toBeDefined();
-  });
-
-  it('returns isValid: false for outside path', () => {
-    const result = validateExecutionContext('/etc');
-    expect(result.isValid).toBe(false);
-    expect(result.error).toContain(
-      'Can only execute commands within the configured workspace directory'
-    );
-  });
-
-  it('returns isValid: true for undefined cwd', () => {
-    const result = validateExecutionContext(undefined);
-    expect(result.isValid).toBe(true);
-  });
-
-  it('returns isValid: false for empty string', () => {
-    const result = validateExecutionContext('');
-    expect(result.isValid).toBe(false);
-    expect(result.error).toContain('cannot be empty');
-  });
-
-  it('accepts optional workspaceRoot override', () => {
-    const result = validateExecutionContext('/tmp/sub', '/tmp');
-    expect(result.isValid).toBe(true);
-  });
-});
-
-describe('README: resolveWorkspaceRoot', () => {
-  const savedEnv = process.env.WORKSPACE_ROOT;
-
-  afterEach(() => {
-    if (savedEnv === undefined) {
-      delete process.env.WORKSPACE_ROOT;
-    } else {
-      process.env.WORKSPACE_ROOT = savedEnv;
-    }
-  });
-
-  it('returns explicit path when provided', () => {
-    expect(resolveWorkspaceRoot('/explicit/path')).toBe(
-      path.resolve('/explicit/path')
-    );
-  });
-
-  it('falls back to WORKSPACE_ROOT env var', () => {
-    process.env.WORKSPACE_ROOT = workspace;
-    expect(resolveWorkspaceRoot()).toBe(path.resolve(workspace));
-  });
-
-  it('falls back to process.cwd()', () => {
-    delete process.env.WORKSPACE_ROOT;
-    expect(resolveWorkspaceRoot()).toBe(process.cwd());
-  });
-});
-
 describe('README: Ignored Path Filters', () => {
   describe('shouldIgnore()', () => {
     it('returns true for .git paths', () => {
@@ -794,12 +722,6 @@ describe('README: Sub-path Exports', () => {
 
     const cmdMod = await import('../src/commandValidator.js');
     expect(cmdMod.validateCommand).toBeDefined();
-
-    const execMod = await import('../src/executionContextValidator.js');
-    expect(execMod.validateExecutionContext).toBeDefined();
-
-    const wrMod = await import('../src/workspaceRoot.js');
-    expect(wrMod.resolveWorkspaceRoot).toBeDefined();
 
     const ignoreMod = await import('../src/ignoredPathFilter.js');
     expect(ignoreMod.shouldIgnore).toBeDefined();

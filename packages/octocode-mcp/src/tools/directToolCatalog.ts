@@ -126,7 +126,7 @@ let providerRuntimeInitPromise: Promise<void> | null = null;
 const DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES: readonly DirectToolAutoFilledField[] =
   ['id', 'mainResearchGoal', 'researchGoal', 'reasoning'];
 
-export const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set(
+const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set(
   DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES
 );
 
@@ -426,9 +426,14 @@ function buildDirectToolPayload(
 
   return {
     queries: queriesInput.map((query, index) =>
-      applyDefaultQueryFields(toolName, index, normalizeQueryObject(query), {
-        sourceLabel: options.sourceLabel,
-      })
+      applyDefaultQueryFields(
+        toolName,
+        index,
+        normalizeQueryObject(toolName, query),
+        {
+          sourceLabel: options.sourceLabel,
+        }
+      )
     ),
     responseCharLength,
     responseCharOffset,
@@ -481,16 +486,28 @@ function buildDefaultGoal(toolName: string, sourceLabel: string): string {
   return `Execute ${toolName} via ${sourceLabel}`;
 }
 
-function normalizeQueryObject(query: unknown): Record<string, unknown> {
+function normalizeQueryObject(
+  toolName: string,
+  query: unknown
+): Record<string, unknown> {
   if (!isRecord(query)) {
     throw new DirectToolInputError(
       'Tool input must be a JSON object or an array of objects.'
     );
   }
 
+  const schemaFields = new Set([
+    ...getDirectToolDisplayFields(toolName).map(field => field.name),
+    ...DIRECT_TOOL_AUTO_FILLED_FIELDS,
+  ]);
   const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(query)) {
-    normalized[normalizeKey(key)] = value;
+    if (schemaFields.has(key)) {
+      normalized[key] = value;
+      continue;
+    }
+    const normalizedKey = normalizeKey(key);
+    normalized[schemaFields.has(normalizedKey) ? normalizedKey : key] = value;
   }
 
   return normalized;
