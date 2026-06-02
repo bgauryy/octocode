@@ -52,14 +52,21 @@ function renderTsv(projection: TsvProjection, data: unknown): TsvExport {
   };
 }
 
+// LSP protocol is 0-based for both lines and characters. We convert
+// `range.start.line` to 1-based so TSV values are editor-friendly and
+// consistent with the byFile `firstLine` field (already 1-based) and with
+// the concise verbosity strings in all LSP tools (which use `line + 1`).
+// The flat `loc.line` fallback is passed through unchanged: it comes from
+// simplified/legacy structures that may already carry a 1-based value.
 function locationLineColumn(loc: Record<string, unknown>): {
   line: unknown;
   column: unknown;
 } {
   const range = obj(loc.range);
   const start = obj(range.start);
+  const rangeLine = start.line;
   return {
-    line: start.line ?? loc.line ?? '',
+    line: typeof rangeLine === 'number' ? rangeLine + 1 : (loc.line ?? ''),
     column: start.character ?? start.column ?? loc.column ?? '',
   };
 }
@@ -592,6 +599,22 @@ export const localFetchContentColumns = [
   'content',
 ] as const;
 
+/** Render matchRanges as "start-end;start-end" pairs, e.g. "338-354;400-420" */
+function formatMatchRanges(matchRanges: unknown): string | undefined {
+  const ranges = arr(matchRanges);
+  if (ranges.length === 0) return undefined;
+  const parts = ranges
+    .map(r => {
+      const range = obj(r);
+      if (typeof range.start === 'number' && typeof range.end === 'number') {
+        return `${range.start}-${range.end}`;
+      }
+      return null;
+    })
+    .filter((p): p is string => p !== null);
+  return parts.length > 0 ? parts.join(';') : undefined;
+}
+
 export const localFetchContentProjection: TsvProjection = {
   columns: localFetchContentColumns,
   toRows: data => {
@@ -606,7 +629,7 @@ export const localFetchContentProjection: TsvProjection = {
         isPartial: scalar(d.isPartial),
         startLine: scalar(d.startLine),
         endLine: scalar(d.endLine),
-        matchRanges: scalar(d.matchRanges),
+        matchRanges: formatMatchRanges(d.matchRanges),
         content: scalar(d.content),
       },
     ];
@@ -722,8 +745,22 @@ export const lspCallHierarchyColumns = [
   'uri',
   'line',
   'column',
-  'fromRanges',
+  'fromLines',
 ] as const;
+
+/** Render fromRanges as comma-separated line numbers, e.g. "42,117" */
+function formatFromLines(fromRanges: unknown): string | undefined {
+  const ranges = arr(fromRanges);
+  if (ranges.length === 0) return undefined;
+  const lines = ranges
+    .map(r => {
+      const range = obj(r);
+      const start = obj(range.start);
+      return typeof start.line === 'number' ? String(start.line + 1) : null;
+    })
+    .filter((l): l is string => l !== null);
+  return lines.length > 0 ? lines.join(',') : undefined;
+}
 
 export const lspCallHierarchyProjection: TsvProjection = {
   columns: lspCallHierarchyColumns,
@@ -752,7 +789,7 @@ export const lspCallHierarchyProjection: TsvProjection = {
         uri: scalar(node.uri),
         line: pos.line,
         column: pos.column,
-        fromRanges: scalar(call.fromRanges),
+        fromLines: formatFromLines(call.fromRanges),
       };
     });
   },

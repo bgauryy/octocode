@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { executeWithErrorIsolation } from '../../src/utils/core/promise.js';
 
 describe('promiseUtils - Concurrency and Timeout Coverage', () => {
@@ -142,6 +142,14 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
   });
 
   describe('Timeout Scenarios', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should timeout slow promises', async () => {
       const slowPromise = async () => {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -153,20 +161,17 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         return 'fast';
       };
 
-      const results = await executeWithErrorIsolation(
-        [slowPromise, fastPromise],
-        {
-          timeout: 50, // Short timeout
-        }
-      );
+      const resultP = executeWithErrorIsolation([slowPromise, fastPromise], {
+        timeout: 50,
+      });
+      // Advance past fastPromise (10ms) then past timeout cutoff (50ms)
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(50);
+      const results = await resultP;
 
       expect(results).toHaveLength(2);
-
-      // First promise should timeout
       expect(results[0]?.success).toBe(false);
       expect(results[0]?.error?.message).toContain('timed out');
-
-      // Second promise should succeed
       expect(results[1]?.success).toBe(true);
       expect(results[1]?.data).toBe('fast');
     });
@@ -179,12 +184,14 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         return 'done';
       };
 
-      await executeWithErrorIsolation([slowPromise], {
+      const resultP = executeWithErrorIsolation([slowPromise], {
         timeout: 50,
         onError: (error, index) => {
           timeoutErrors.push({ error, index });
         },
       });
+      await vi.advanceTimersByTimeAsync(50);
+      await resultP;
 
       expect(timeoutErrors).toHaveLength(1);
       expect(timeoutErrors[0]?.error?.message).toContain('timed out');
@@ -192,7 +199,6 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
     });
 
     it('should properly cleanup timeouts for fast promises', async () => {
-      // This test verifies timeout cleanup happens
       const fastPromises = Array(10)
         .fill(null)
         .map((_, i) => async () => {
@@ -200,9 +206,11 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
           return i;
         });
 
-      const results = await executeWithErrorIsolation(fastPromises, {
-        timeout: 5000, // Long timeout that shouldn't trigger
+      const resultP = executeWithErrorIsolation(fastPromises, {
+        timeout: 5000,
       });
+      await vi.advanceTimersByTimeAsync(5);
+      const results = await resultP;
 
       expect(results).toHaveLength(10);
       expect(results.every(r => r.success)).toBe(true);
@@ -228,18 +236,45 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         },
       ];
 
-      const results = await executeWithErrorIsolation(promises, {
+      const resultP = executeWithErrorIsolation(promises, {
         timeout: 50,
         concurrency: 2,
       });
+      // With concurrency=2: fast-1+slow-1 start at t=0, fast-1 resolves at
+      // t=10 → fast-2 starts, fast-2 resolves at t=20 → slow-2 starts.
+      // slow-1 times out at t=50, slow-2 times out at t=70 (started at t=20).
+      // Advance well past t=70 to ensure all results are collected.
+      await vi.advanceTimersByTimeAsync(100);
+      const results = await resultP;
 
       expect(results).toHaveLength(4);
-
       const successCount = results.filter(r => r.success).length;
       const timeoutCount = results.filter(r => !r.success).length;
-
       expect(successCount).toBe(2); // fast-1 and fast-2
       expect(timeoutCount).toBe(2); // slow-1 and slow-2
+    });
+
+    it('should handle all promises timing out', async () => {
+      const promises = [
+        async () => {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return 'done-1';
+        },
+        async () => {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return 'done-2';
+        },
+      ];
+
+      const resultP = executeWithErrorIsolation(promises, { timeout: 50 });
+      await vi.advanceTimersByTimeAsync(50);
+      const results = await resultP;
+
+      expect(results).toHaveLength(2);
+      expect(results.every(r => !r.success)).toBe(true);
+      expect(results.every(r => r.error?.message.includes('timed out'))).toBe(
+        true
+      );
     });
   });
 
@@ -377,6 +412,14 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
   });
 
   describe('Complex Scenarios', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should handle large number of promises with concurrency', async () => {
       const promises = Array(100)
         .fill(null)
@@ -385,15 +428,18 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
           return i;
         });
 
-      const results = await executeWithErrorIsolation(promises, {
+      const resultP = executeWithErrorIsolation(promises, {
         concurrency: 10,
         timeout: 5000,
       });
+      // 100 promises / 10 concurrency = 10 batches × 1ms each = 10ms total.
+      // Advance well past that to ensure all batches complete.
+      await vi.advanceTimersByTimeAsync(50);
+      const results = await resultP;
 
       expect(results).toHaveLength(100);
       expect(results.every(r => r.success)).toBe(true);
 
-      // Verify all indices are present
       const indices = results.map(r => r.index).sort((a, b) => a - b);
       expect(indices).toEqual(Array.from({ length: 100 }, (_, i) => i));
     });
@@ -406,9 +452,11 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         },
       ];
 
-      const results = await executeWithErrorIsolation(promises, {
-        timeout: 100, // More than enough time
+      const resultP = executeWithErrorIsolation(promises, {
+        timeout: 100,
       });
+      await vi.advanceTimersByTimeAsync(20);
+      const results = await resultP;
 
       expect(results).toHaveLength(1);
       expect(results[0]?.success).toBe(true);
@@ -468,9 +516,9 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         },
       ];
 
-      const results = await executeWithErrorIsolation(promises, {
-        timeout: 50,
-      });
+      const resultP = executeWithErrorIsolation(promises, { timeout: 50 });
+      await vi.advanceTimersByTimeAsync(50);
+      const results = await resultP;
 
       expect(results).toHaveLength(2);
       expect(results.every(r => !r.success)).toBe(true);

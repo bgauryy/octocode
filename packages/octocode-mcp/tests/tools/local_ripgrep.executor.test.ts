@@ -132,7 +132,10 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
     expect(result.error).toContain('Pattern validation failed');
   });
 
-  it('returns timeout error when stderr includes "timeout" (line 95)', async () => {
+  it('returns non-success error when stderr has timeout text but code is 0 (line 95)', async () => {
+    // code=0 with stderr text is not a timeout — it falls to the
+    // non-success branch (code >= 2). The stderr string check was removed
+    // because it was fragile and code===null already covers process kill.
     mockSafeExec.mockResolvedValue({
       success: false,
       code: 0,
@@ -142,7 +145,7 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
 
     const result = await executeRipgrepSearchInternal(baseQuery as any);
     expect(result.status).toBe('error');
-    expect(result.error).toContain('timed out');
+    expect(result.error).toBeDefined();
   });
 
   it('returns timeout error when exit code is null (line 96)', async () => {

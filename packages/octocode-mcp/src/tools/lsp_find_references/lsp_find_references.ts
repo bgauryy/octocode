@@ -93,14 +93,13 @@ export async function findReferences(
   }
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
-  // Output bounding is owned by the bulk char-paginator: executeBulkOperation
-  // runs applyQueryOutputPagination / applyBulkResponsePagination, and the
-  // LSP_FIND_REFERENCES case (structuredPagination.ts) char-paginates the
-  // `locations` array — slicing it to the budget and sub-slicing an oversized
-  // single location's `content`. The remainder is reached by advancing the
-  // charOffset cursor. So NO lossy backstop here: dropping trailing locations
-  // would discard data the cursor can no longer reach. Row navigation stays on
-  // `page` / `referencesPerPage`; the char cursor bounds serialized size.
+  // Output bounding for this tool is handled exclusively by applyBulkResponsePagination
+  // (the query-level applyQueryOutputPagination is bypassed — see the early-return
+  // guard in structuredPagination.ts). The LSP_FIND_REFERENCES case in
+  // structuredPagination.ts char-paginates the `locations` array, slicing it
+  // to the responseCharLength budget and sub-slicing an oversized single
+  // location's `content`. Row navigation stays on `page` / `referencesPerPage`;
+  // bulk responseCharOffset / responseCharLength are the only cursor levers.
   const shaped = attachReferencesEvidence(
     applyFindReferencesVerbosity(result, query)
   );
@@ -183,7 +182,7 @@ async function findReferencesInternal(
               `Searched +/-${error.searchRadius} lines from line ${lineHint}`,
               'Verify the exact symbol name (case-sensitive, no partial matches)',
               'Use localGetFileContent to check the file content around that line',
-              'TIP: Use localSearchCode to find the correct line number first',
+              'Use localSearchCode to find the correct line number first',
             ],
           },
           content.length

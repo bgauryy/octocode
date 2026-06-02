@@ -203,6 +203,35 @@ describe('findFiles sortBy branches', () => {
     expect(files[1]!.path).toContain('old.ts');
   });
 
+  it('warns when sortBy="modified" cannot be honored without showFileLastModified', async () => {
+    mockSafeExec.mockResolvedValue({
+      success: true,
+      code: 0,
+      stdout: '/test/b.ts\0/test/a.ts\0',
+      stderr: '',
+    });
+
+    mockFs.promises.lstat.mockResolvedValue({
+      isFile: () => true,
+      isDirectory: () => false,
+      isSymbolicLink: () => false,
+      size: 100,
+      mode: parseInt('100644', 8),
+      mtime: new Date('2024-01-01'),
+    } as unknown as import('fs').Stats);
+
+    const result = await findFiles({
+      path: '/test',
+      sortBy: 'modified',
+      showFileLastModified: false,
+    });
+
+    expect(result.status).toBeUndefined();
+    expect(result.hints).toContain(
+      'sortBy="modified" ignored: showFileLastModified=false; sorted by path instead.'
+    );
+  });
+
   it('should return empty files when charOffset >= totalChars (line 262)', async () => {
     mockSafeExec.mockResolvedValue({
       success: true,

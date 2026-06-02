@@ -397,11 +397,12 @@ async function searchNpmPackageViaSearch(
   from: number = 0
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
   try {
-    const registryUrl = await getNpmRegistryUrl();
-    // `from` (result-count cursor) is appended only when paging beyond page 1,
-    // so page-1 URLs are unchanged.
+    // Always search the public npmjs.org registry — the /-/v1/search endpoint
+    // is a public npm API. Using getNpmRegistryUrl() here would route searches
+    // to a corporate/private registry (e.g. Wix, Artifactory) when the user's
+    // npm config points to one, returning private packages instead of public ones.
     const fromParam = from > 0 ? `&from=${from}` : '';
-    const url = `${registryUrl}/-/v1/search?text=${encodeURIComponent(keywords)}&size=${limit}${fromParam}`;
+    const url = `${DEFAULT_NPM_REGISTRY}/-/v1/search?text=${encodeURIComponent(keywords)}&size=${limit}${fromParam}`;
 
     let raw: unknown;
     try {

@@ -96,6 +96,28 @@ describe('localViewStructure', () => {
     });
   });
 
+  it('emits active filter echo-back for successful listings', async () => {
+    mockReaddir.mockResolvedValue(['file.ts', 'file.js']);
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      isSymbolicLink: () => false,
+      size: 10,
+      mtime: new Date('2024-01-01'),
+    } as Stats);
+
+    const result = await viewStructure({
+      path: '/test/path',
+      depth: 1,
+      extension: 'ts',
+    });
+
+    expect(result.status).toBeUndefined();
+    expect(result.hints).toContain(
+      'Active filters — path: /test/path | depth: 1 | extension: ts'
+    );
+  });
+
   describe('ls command not available (lines 52-56)', () => {
     it('should return ToolErrors.commandNotAvailable when ls is not available in non-recursive mode', async () => {
       vi.mocked(checkCommandAvailability).mockResolvedValue({

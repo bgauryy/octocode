@@ -183,7 +183,8 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: '10\t4',
+    // range.start.line 10 (0-based LSP) → 11 (1-based TSV)
+    rowProbe: '11\t4',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
@@ -196,7 +197,8 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: '22\t0',
+    // range.start.line 22 (0-based LSP) → 23 (1-based TSV)
+    rowProbe: '23\t0',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
@@ -212,7 +214,8 @@ const genericCases: GenericCase[] = [
         },
       ],
     },
-    rowProbe: 'incoming\tcaller\tsrc/c.ts\t5\t2',
+    // range.start.line 5 (0-based LSP) → 6 (1-based TSV)
+    rowProbe: 'incoming\tcaller\tsrc/c.ts\t6\t2',
   },
 ];
 

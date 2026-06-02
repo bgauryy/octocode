@@ -360,8 +360,10 @@ export const GitHubCodeSearchBulkQueryLocalSchema =
  * matchIndices removed, single-page upstream pagination omitted by the executor.
  *
  * Char-level pagination metadata fields:
- *   - `outputPagination`: per-query metadata array, one entry per query that
- *     supplied `charLength`/`charOffset`.
+ *   - `perQueryPagination`: per-query char-window array (one entry per query
+ *     that supplied `charLength`/`charOffset`). Named distinctly from the
+ *     single-object `outputPagination` used by other tools — agents should
+ *     consume the `hints` continuation strings rather than this field.
  *   - `responsePagination`: top-level bulk slicing metadata, driven by
  *     `responseCharLength` / `responseCharOffset`.
  */
@@ -400,7 +402,11 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
       hasMore: z.boolean(),
     })
     .optional(),
-  outputPagination: z.array(PerQueryPaginationSchema).optional(),
+  // Per-query char-window cursors. This is an array (one entry per query that
+  // triggered per-query char pagination) and is intentionally distinct from the
+  // single-object `outputPagination` contract used by other tools. Agents should
+  // use the `hints` continuation strings rather than reading this field directly.
+  perQueryPagination: z.array(PerQueryPaginationSchema).optional(),
   responsePagination: CharPaginationSchema.optional(),
   hints: z.array(z.string()).optional(),
   /**
@@ -614,7 +620,7 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
   );
 
 // ---------------------------------------------------------------------------
-// packageSearch — npm only; defaults ecosystem to "npm" when the field is absent
+// packageSearch — npm; defaults ecosystem to "npm" when the field is absent
 // ---------------------------------------------------------------------------
 
 // Field descriptions are upstream (packageSearch.ts). Overlay exposes the
@@ -626,40 +632,29 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
 // the dead surface and closes that numeric-bounds hole — mirroring how every
 // GitHub schema omits its legacy `limit`.
 const npmPackageQueryWithLimit = NpmPackageQuerySchema.omit({
+  ecosystem: true,
   searchLimit: true,
-})
-  .extend({
-    name: describeField(
-      NpmPackageQuerySchema.shape.name,
-      'Package name to resolve through the registry before using GitHub tools.'
+}).extend({
+  name: describeField(
+    NpmPackageQuerySchema.shape.name,
+    'Package name to resolve through the registry before using GitHub tools.'
+  ),
+  ecosystem: z
+    .literal('npm')
+    .optional()
+    .describe(
+      'Package registry ecosystem. Omitted defaults to "npm"; only "npm" is supported.'
     ),
-    ecosystem: describeField(
-      NpmPackageQuerySchema.shape.ecosystem,
-      'Package registry ecosystem. Omitted defaults to "npm"; explicit non-npm values are rejected by this server.'
-    ),
-    // ONE result-count knob: `itemsPerPage` (the cross-tool page-size name).
-    itemsPerPage: itemsPerPageField,
-    // Result-count cursor for keyword search: increment `page` to fetch matches
-    // beyond the first itemsPerPage (maps to the registry `from` offset). Default 1.
-    page: relaxedPageNumberField.describe(
-      'Result page (1-based) for keyword search. Increment to fetch matches beyond the first itemsPerPage window. Default 1.'
-    ),
-    verbosity: createVerbosityField(),
-  })
-  .superRefine((data, ctx) => {
-    // Reject non-npm ecosystems at schema layer (was a runtime check in
-    // execution.ts). The discriminated upstream `NpmPackageQuerySchema` does
-    // not enforce the literal 'npm' since callers can omit ecosystem entirely
-    // (the preprocess fills it in below) — so the explicit guard lives here.
-    const ecosystem = (data as { ecosystem?: string }).ecosystem;
-    if (ecosystem !== undefined && ecosystem !== 'npm') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Unsupported ecosystem '${ecosystem}'. Only 'npm' is supported.`,
-        path: ['ecosystem'],
-      });
-    }
-  });
+  // ONE result-count knob: `itemsPerPage` (the cross-tool page-size name).
+  itemsPerPage: itemsPerPageField,
+  // `page` is accepted for forward-compatibility but only page=1 is implemented
+  // (no registry cursor is threaded through). To control result count, use
+  // `itemsPerPage` instead.
+  page: relaxedPageNumberField.describe(
+    'Result page (1-based). Only page=1 is currently implemented; `itemsPerPage` is the correct lever to control result count.'
+  ),
+  verbosity: createVerbosityField(),
+});
 
 export const PackageSearchQueryLocalSchema = npmPackageQueryWithLimit;
 

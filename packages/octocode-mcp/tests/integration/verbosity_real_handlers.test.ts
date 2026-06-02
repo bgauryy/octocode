@@ -217,31 +217,4 @@ describe('E2E: verbosity:"concise" on real handlers', () => {
     expect(concise.calls).toEqual([]);
     expect((concise.hints ?? []).join('\n')).toMatch(/serve → doWork \(×2\)/);
   });
-
-  // Skipped: depends on real upstream RipgrepQuerySchema validation; the test
-  // mock setup stubs the schema as passthrough so workflow-mode application
-  // doesn't fire, and the underlying ripgrep search returns an error envelope.
-  // Verbosity behavior is covered directly by tests/scheme/verbosity_concise.test.ts.
-  it.skip('localSearchCode — drops files[], emits "N matches in M files (top: …)"', async () => {
-    const base: any = {
-      id: 'e2e',
-      researchGoal: 'sanity',
-      reasoning: 'check',
-      pattern: 'applyRipgrepVerbosity',
-      path: `${WORKSPACE}/src`,
-    };
-    const def = await searchContentRipgrep(base);
-    const concise = await searchContentRipgrep({
-      ...base,
-      verbosity: 'concise',
-    });
-    reportSavings('localSearchCode', def, concise);
-    expect(def.status).toBeUndefined();
-    expect(concise.status).toBeUndefined();
-    expect(concise.files).toEqual([]);
-    const blob = (concise.hints ?? []).join('\n');
-    expect(blob).toMatch(/\d+ matches in \d+ files/);
-    expect(blob).toMatch(/top: .*ripgrepResultBuilder\.ts:/);
-    expect(blob.toLowerCase()).not.toMatch(/drill-back|detail dropped/);
-  });
 });

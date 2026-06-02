@@ -13,6 +13,7 @@ import {
   beforeEach,
   afterEach,
 } from 'vitest';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import {
   findWorkspaceRoot,
@@ -80,6 +81,21 @@ describe('LSP Find References Coverage Tests', () => {
 
   afterEach(() => {
     vi.resetAllMocks();
+  });
+
+  it('does not prefix recovery hints with TIP labels', () => {
+    const source = readFileSync(
+      new URL(
+        '../../src/tools/lsp_find_references/lsp_find_references.ts',
+        import.meta.url
+      ),
+      'utf8'
+    );
+
+    expect(source).not.toContain('TIP: Use localSearchCode');
+    expect(source).toContain(
+      'Use localSearchCode to find the correct line number first'
+    );
   });
 
   describe('findWorkspaceRoot function', () => {

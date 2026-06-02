@@ -75,6 +75,7 @@ export async function walkDirectory(
           name: relativePath,
           type,
           size: formatFileSize(fileStats.size),
+          sizeBytes: fileStats.size,
           extension: getExtension(item),
           depth,
         };

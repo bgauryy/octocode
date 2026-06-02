@@ -105,6 +105,32 @@ function validateExtractionOptions(
     return result;
   }
 
+  // Partial line-range: only one of startLine/endLine was provided.
+  // hasLineRangeRequest() requires BOTH, so providing only startLine silently
+  // falls back to charOffset reading from the beginning — a confusing no-op.
+  const hasStartLine = query.startLine !== undefined;
+  const hasEndLine = query.endLine !== undefined;
+  if (hasStartLine && !hasEndLine) {
+    return {
+      status: 'error',
+      error: `startLine=${query.startLine} provided without endLine — both are required for line-range extraction.`,
+      hints: [
+        `Add endLine to complete the range, e.g. endLine=${query.startLine! + 50}.`,
+        'Use matchString for search-driven extraction when you do not know the exact end line.',
+      ],
+    };
+  }
+  if (hasEndLine && !hasStartLine) {
+    return {
+      status: 'error',
+      error: `endLine=${query.endLine} provided without startLine — both are required for line-range extraction.`,
+      hints: [
+        `Add startLine to complete the range, e.g. startLine=1.`,
+        'Use matchString for search-driven extraction when you do not know the exact start line.',
+      ],
+    };
+  }
+
   return null;
 }
 
@@ -357,6 +383,11 @@ function buildMatchExtractionState(
         pagination: createPaginationInfo(autoPagination),
         warnings: [
           `Auto-paginated: ${result.matchCount} matches exceeded display limit`,
+          ...(matchRanges && matchRanges.length > 0
+            ? [
+                'matchRanges covers this page only — advance charOffset to access further match positions.',
+              ]
+            : []),
         ],
         hints: generatePaginationHints(autoPagination, {
           toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
@@ -501,9 +532,22 @@ function buildSuccessResult(
     );
   }
 
+  const charOffset = query.charOffset ?? 0;
+  if (charOffset > 0 && charOffset >= extraction.resultContent.length) {
+    return {
+      status: 'error',
+      error: `charOffset ${charOffset} exceeds file content length (${extraction.resultContent.length} chars). Use charOffset < ${extraction.resultContent.length} or omit charOffset to read from the beginning.`,
+      hints: [
+        `File has ${totalLines} lines and ${extraction.resultContent.length} chars total.`,
+        `Valid charOffset range: 0 – ${extraction.resultContent.length - 1}.`,
+        'Omit charOffset to read from the start, or use charLength to get the first page.',
+      ],
+    };
+  }
+
   const pagination = applyPagination(
     extraction.resultContent,
-    query.charOffset ?? 0,
+    charOffset,
     effectiveCharLength
   );
 

@@ -111,13 +111,23 @@ async function handleDirectoryFetch(
     );
   }
 
+  if (!query.owner || !query.repo) {
+    return createErrorResult(
+      'Directory fetch requires both owner and repo.',
+      query,
+      {
+        rawResponse: 0,
+      }
+    );
+  }
+
   const branch =
     query.branch ??
-    (await resolveDefaultBranch(query.owner!, query.repo!, authInfo));
+    (await resolveDefaultBranch(query.owner, query.repo, authInfo));
 
   const result = await fetchDirectoryContents(
-    query.owner!,
-    query.repo!,
+    query.owner,
+    query.repo,
     String(query.path),
     branch,
     authInfo,
@@ -141,7 +151,7 @@ async function handleDirectoryFetch(
     true,
     TOOL_NAMES.GITHUB_FETCH_CONTENT,
     {
-      rawResponse: result.totalSize || countSerializedChars(result),
+      rawResponse: result.totalSize ?? countSerializedChars(result),
     }
   );
 }

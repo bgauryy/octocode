@@ -47,7 +47,7 @@ type FlatResponse = {
     repo: string;
     matches: Array<{ path: string; value?: string }>;
   }>;
-  outputPagination?: PerQueryPagination[];
+  perQueryPagination?: PerQueryPagination[];
   responsePagination?: Pagination;
   hints?: string[];
   // githubSearchCode no longer emits any warnings (truncation removed); kept
@@ -105,7 +105,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
   });
 
   describe('No pagination metadata when response fits', () => {
-    it('omits outputPagination and responsePagination for small responses', async () => {
+    it('omits perQueryPagination and responsePagination for small responses', async () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [makeItem('owner/repo', 'src/index.ts', 'short')],
@@ -123,7 +123,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.outputPagination).toBeUndefined();
+      expect(data.perQueryPagination).toBeUndefined();
       expect(data.responsePagination).toBeUndefined();
       expect(data.results).toHaveLength(1);
     });
@@ -168,7 +168,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
     });
   });
 
-  describe('Query-level outputPagination (charLength / charOffset)', () => {
+  describe('Query-level perQueryPagination (charLength / charOffset)', () => {
     function setupPaginatedFixture() {
       mockProvider.searchCode.mockResolvedValue({
         data: {
@@ -183,7 +183,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       });
     }
 
-    it('slices results to fit charLength and emits outputPagination with hasMore=true', async () => {
+    it('slices results to fit charLength and emits perQueryPagination with hasMore=true', async () => {
       setupPaginatedFixture();
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
@@ -198,9 +198,9 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.outputPagination).toBeDefined();
-      expect(data.outputPagination).toHaveLength(1);
-      const page0 = data.outputPagination![0]!;
+      expect(data.perQueryPagination).toBeDefined();
+      expect(data.perQueryPagination).toHaveLength(1);
+      const page0 = data.perQueryPagination![0]!;
       expect(page0.charOffset).toBe(0);
       // charLength reports the actually-consumed bytes so callers can use
       // nextOffset = charOffset + charLength to advance.
@@ -229,7 +229,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      const firstPage = first.outputPagination![0]!;
+      const firstPage = first.perQueryPagination![0]!;
       const nextOffset = firstPage.charOffset + firstPage.charLength;
 
       const second = (
@@ -246,7 +246,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      expect(second.outputPagination![0]!.charOffset).toBe(nextOffset);
+      expect(second.perQueryPagination![0]!.charOffset).toBe(nextOffset);
       const firstPaths = first.results[0]?.matches.map(m => m.path) ?? [];
       const secondPaths = second.results[0]?.matches.map(m => m.path) ?? [];
       // No file is skipped across the page boundary: the union covers all 5,
@@ -275,7 +275,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      expect(data.outputPagination![0]!.hasMore).toBe(false);
+      expect(data.perQueryPagination![0]!.hasMore).toBe(false);
       expect(data.results[0]?.matches).toHaveLength(5);
     });
 
@@ -425,7 +425,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      expect(data.outputPagination).toBeDefined();
+      expect(data.perQueryPagination).toBeDefined();
       expect(data.responsePagination).toBeDefined();
     });
   });
@@ -456,7 +456,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       ).structuredContent as FlatResponse;
 
       expect(data.results).toEqual([]);
-      expect(data.outputPagination).toBeUndefined();
+      expect(data.perQueryPagination).toBeUndefined();
     });
 
     it('clamps charOffset past totalChars to the last page', async () => {
@@ -484,11 +484,11 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      expect(data.outputPagination![0]!.hasMore).toBe(false);
+      expect(data.perQueryPagination![0]!.hasMore).toBe(false);
     });
   });
 
-  describe('Per-query outputPagination across multiple queries', () => {
+  describe('Per-query perQueryPagination across multiple queries', () => {
     it('honors per-query charLength independently for each query', async () => {
       // Two queries, each hits a separate repo with 4 large files.
       mockProvider.searchCode
@@ -536,9 +536,9 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      expect(data.outputPagination).toHaveLength(2);
-      const qA = data.outputPagination!.find(p => p.id === 'qA')!;
-      const qB = data.outputPagination!.find(p => p.id === 'qB')!;
+      expect(data.perQueryPagination).toHaveLength(2);
+      const qA = data.perQueryPagination!.find(p => p.id === 'qA')!;
+      const qB = data.perQueryPagination!.find(p => p.id === 'qB')!;
       expect(qA.hasMore).toBe(true);
       expect(qB.hasMore).toBe(false);
       const alphaGroup = data.results.find(g => g.repo === 'alpha');
@@ -547,7 +547,7 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
       expect(betaGroup?.matches.length).toBe(4);
     });
 
-    it('omits outputPagination[] entries for queries without charLength/charOffset', async () => {
+    it('omits perQueryPagination[] entries for queries without charLength/charOffset', async () => {
       mockProvider.searchCode
         .mockResolvedValueOnce({
           data: {
@@ -586,8 +586,8 @@ describe('GitHub Search Code Tool - Char-Level Pagination', () => {
         })
       ).structuredContent as FlatResponse;
 
-      expect(data.outputPagination).toHaveLength(1);
-      expect(data.outputPagination![0]!.id).toBe('qB');
+      expect(data.perQueryPagination).toHaveLength(1);
+      expect(data.perQueryPagination![0]!.id).toBe('qB');
     });
   });
 

@@ -1065,7 +1065,9 @@ describe('searchNpmPackage - custom registry URL', () => {
     );
   });
 
-  it('should use custom registry URL for search endpoint', async () => {
+  it('should always use the public npmjs.org registry for search (ignoring corporate registry config)', async () => {
+    // Even when npm config get registry returns a corporate registry,
+    // search must always target the public npmjs.org /-/v1/search endpoint.
     mockExecuteNpmCommand.mockResolvedValueOnce({
       stdout: 'https://npm.corp.com\n',
       stderr: '',
@@ -1076,7 +1078,7 @@ describe('searchNpmPackage - custom registry URL', () => {
     await searchNpmPackage('test keyword', 5, false);
 
     expect(mockFetchWithRetries).toHaveBeenCalledWith(
-      expect.stringContaining('https://npm.corp.com/-/v1/search'),
+      expect.stringContaining('https://registry.npmjs.org/-/v1/search'),
       expect.any(Object)
     );
   });

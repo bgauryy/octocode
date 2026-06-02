@@ -214,7 +214,7 @@ function collectPeerHints(results: readonly FlatQueryResult[]): string[] {
 function buildCodeEvidence(
   groups: readonly CodeSearchGroupedResult[],
   upstreamPagination: CodeSearchPagination | undefined,
-  outputPagination: readonly PerQueryPagination[],
+  perQueryPagination: readonly PerQueryPagination[],
   responsePagination: CharPagination | undefined,
   errors: readonly { id: string; error: string }[]
 ): NonNullable<GitHubCodeSearchOutputLocal['evidence']> {
@@ -227,7 +227,7 @@ function buildCodeEvidence(
   if (upstreamPagination?.hasMore) {
     reasons.push('GitHub search pagination has more matches.');
   }
-  if (outputPagination.some(page => page.hasMore)) {
+  if (perQueryPagination.some(page => page.hasMore)) {
     reasons.push('One or more query-level char pages have more data.');
   }
   if (responsePagination?.hasMore) {
@@ -355,7 +355,7 @@ export function buildGithubSearchCodeFinalizer<
       mergeGroups(perQueryGroups),
       allKeywords
     );
-    const outputPagination = perQueryGroups
+    const perQueryPagination = perQueryGroups
       .map(group => group.pagination)
       .filter((p): p is PerQueryPagination => p !== undefined);
 
@@ -374,7 +374,7 @@ export function buildGithubSearchCodeFinalizer<
         ? buildPaginationHints(upstreamPagination, 'matches')
         : [];
     const continuationHints: string[] = [];
-    for (const pagination of outputPagination) {
+    for (const pagination of perQueryPagination) {
       if (!pagination.hasMore) continue;
       continuationHints.push(
         `Use charOffset=${pagination.charOffset + pagination.charLength} on query id=${pagination.id} to continue.`
@@ -397,8 +397,8 @@ export function buildGithubSearchCodeFinalizer<
     if (upstreamPagination && upstreamPaginationQueries === 1) {
       responseData.pagination = upstreamPagination;
     }
-    if (outputPagination.length > 0)
-      responseData.outputPagination = outputPagination;
+    if (perQueryPagination.length > 0)
+      responseData.perQueryPagination = perQueryPagination;
     if (responsePagination)
       responseData.responsePagination = responsePagination;
     if (hints.length > 0) responseData.hints = hints;
@@ -412,7 +412,7 @@ export function buildGithubSearchCodeFinalizer<
       responseData.evidence = buildCodeEvidence(
         groups,
         upstreamPagination,
-        outputPagination,
+        perQueryPagination,
         responsePagination,
         errors
       );
@@ -451,7 +451,7 @@ export function buildGithubSearchCodeFinalizer<
         'repo',
         'matches',
         'pagination',
-        'outputPagination',
+        'perQueryPagination',
         'responsePagination',
         'hints',
         'emptyQueries',

@@ -46,7 +46,9 @@ export function buildFindFilesEvidence(
     if (hasMorePagination(data.pagination)) {
       reasons.push('File pagination has more results.');
     }
-    if (hasMorePagination(data.charPagination)) {
+    // Check outputPagination first (canonical); fall back to charPagination
+    // (the upstream type name set by findFiles.ts before shim promotion).
+    if (hasMorePagination(data.outputPagination ?? data.charPagination)) {
       reasons.push('Character pagination has more data.');
     }
   }

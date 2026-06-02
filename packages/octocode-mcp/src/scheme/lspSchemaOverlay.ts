@@ -81,6 +81,12 @@ export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.omit({
     // Renamed to the cross-tool `itemsPerPage` (references are the atomic item).
     referencesPerPage: true,
+    // charOffset / charLength are removed: query-level char pagination is
+    // bypassed for this tool. Only bulk responseCharOffset / responseCharLength
+    // work. Omitting prevents the upstream unbounded z.number() fields from
+    // leaking into the schema (they'd fail the numeric-bounds invariant).
+    charOffset: true,
+    charLength: true,
   })
     .extend({
       ...optionalMetaFields,
@@ -93,8 +99,10 @@ export const LSPFindReferencesQuerySchema =
         '1-based line number near the symbol. Get it from localSearchCode before calling LSP tools.'
       ),
       orderHint: orderHintField,
-      charOffset: charOffsetField,
-      charLength: localCharLengthField,
+      // NOTE: charOffset/charLength are intentionally absent for lspFindReferences.
+      // Query-level char pagination is bypassed for this tool (structuredPagination.ts:
+      // applyQueryOutputPagination returns early). Use responseCharOffset /
+      // responseCharLength (bulk-envelope) for output bounding instead.
       includePattern: describeField(
         UpstreamFindReferencesQuerySchema.shape.includePattern,
         'Optional glob(s) limiting reference results to matching file paths, useful in monorepos.'
@@ -107,6 +115,8 @@ export const LSPFindReferencesQuerySchema =
       contextLines: contextLinesField,
       // References are the atomic item → the cross-tool `itemsPerPage` (default
       // 20). Page through them with the unified `page`.
+      // For output bounding use the bulk-envelope responseCharOffset /
+      // responseCharLength (query-level charOffset has no effect here).
       itemsPerPage: itemsPerPageField,
       page: relaxedPageNumberField.default(1),
       groupByFile: z

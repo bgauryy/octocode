@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core';
 
 // Mock the GitHub client
 const mockOctokit = vi.hoisted(() => ({
@@ -31,111 +30,6 @@ vi.mock('../../src/serverConfig.js', () => ({
 
 // Import after mocking
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
-
-describe.skip('GitHubCodeSearchQuerySchema', () => {
-  describe('new qualifiers validation', () => {
-    // Helper to add required research fields to queries
-    const withResearchFields = <T extends object>(query: T) => ({
-      ...query,
-      id: 'test:code-search',
-      mainResearchGoal: 'Test research goal',
-      researchGoal: 'Testing schema validation',
-      reasoning: 'Unit test for schema',
-    });
-
-    it('should validate owner qualifier', () => {
-      const validOwnerQuery = withResearchFields({
-        keywordsToSearch: ['function'],
-        owner: 'octocat',
-      });
-
-      const result = GitHubCodeSearchQuerySchema.safeParse(validOwnerQuery);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.owner).toBe('octocat');
-      }
-    });
-
-    it('should validate owner qualifier with organization name', () => {
-      const validOrgOwnerQuery = withResearchFields({
-        keywordsToSearch: ['function'],
-        owner: 'wix-private',
-      });
-
-      const result = GitHubCodeSearchQuerySchema.safeParse(validOrgOwnerQuery);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.owner).toBe('wix-private');
-      }
-    });
-
-    it('should validate path qualifier', () => {
-      const pathQuery = withResearchFields({
-        keywordsToSearch: ['function'],
-        path: 'src/components',
-      });
-
-      const result = GitHubCodeSearchQuerySchema.safeParse(pathQuery);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.path).toBe('src/components');
-      }
-    });
-
-    it('should validate complex query with all qualifiers', () => {
-      const complexQuery = withResearchFields({
-        keywordsToSearch: ['function', 'component'],
-        owner: 'facebook',
-        repo: 'react',
-        path: 'src/components',
-        filename: 'App.js',
-        extension: 'js',
-        match: 'file',
-        limit: 10,
-      });
-
-      const result = GitHubCodeSearchQuerySchema.safeParse(complexQuery);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.owner).toBe('facebook');
-        expect(result.data.repo).toBe('react');
-        expect(result.data.path).toBe('src/components');
-        expect(result.data.filename).toBe('App.js');
-        expect(result.data.extension).toBe('js');
-        expect(result.data.match).toBe('file');
-        expect(result.data.limit).toBe(10);
-      }
-    });
-
-    it('should reject array values for owner (simplified schema)', () => {
-      const arrayOwnerQuery = withResearchFields({
-        keywordsToSearch: ['function'],
-        owner: ['facebook', 'microsoft'],
-      });
-
-      const result = GitHubCodeSearchQuerySchema.safeParse(arrayOwnerQuery);
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        // Should fail because owner only accepts strings now
-        expect(
-          result.error.issues.some(issue => issue.path.includes('owner'))
-        ).toBe(true);
-      }
-    });
-
-    it('should accept minimal query with keywords only', () => {
-      const basicQuery = withResearchFields({
-        keywordsToSearch: ['function'],
-      });
-
-      const result = GitHubCodeSearchQuerySchema.safeParse(basicQuery);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.keywordsToSearch).toEqual(['function']);
-      }
-    });
-  });
-});
 
 describe('Quality Boosting and Research Goals', () => {
   beforeEach(() => {

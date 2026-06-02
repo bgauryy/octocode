@@ -155,7 +155,7 @@ export async function exploreMultipleRepositoryStructures(
         const apiHints = providerResult.response.data.hints || [];
         const branchHints: string[] = branchFallback
           ? [
-              `⚠️ IMPORTANT: Branch '${String((branchFallback as { requestedBranch: string }).requestedBranch)}' not found — showing '${String((branchFallback as { actualBranch: string }).actualBranch)}' (default branch). Re-query with the correct branch name if branch-specific results are required.`,
+              `WARNING: Branch '${String((branchFallback as { requestedBranch: string }).requestedBranch)}' not found. Showing '${String((branchFallback as { actualBranch: string }).actualBranch)}' (default branch). Re-query with the correct branch name if branch-specific results are required.`,
             ]
           : [];
         const entryCount = Object.values(filteredStructure).reduce(

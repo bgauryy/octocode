@@ -46,7 +46,6 @@ await Promise.all([
     entryPoints: ['src/public.ts'],
     outfile: 'dist/public.js',
     banner: { js: shimBanner },
-    sourcemap: true,
   }),
 ]);
 

@@ -63,6 +63,18 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
   });
 
   describe('Status: hasResults', () => {
+    it('rejects an empty search before calling the provider', async () => {
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+        queries: [{ keywordsToSearch: [] }],
+      });
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain(
+        'At least one search term or scope filter is required'
+      );
+      expect(mockProvider.searchCode).not.toHaveBeenCalled();
+    });
+
     it('should return hasResults status when API returns items', async () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {

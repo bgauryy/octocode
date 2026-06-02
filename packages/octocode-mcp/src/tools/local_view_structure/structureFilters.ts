@@ -11,6 +11,8 @@ export interface DirectoryEntry {
   name: string;
   type: 'file' | 'directory' | 'symlink';
   size?: string;
+  /** Raw size in bytes — used for numeric sort to avoid parseFileSize round-trip loss. */
+  sizeBytes?: number;
   modified?: string;
   permissions?: string;
   extension?: string;

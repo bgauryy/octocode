@@ -597,6 +597,10 @@ describe('GitHub View Repository Structure Tool', () => {
       expect(responseText).toContain('nonexistent-branch');
       expect(responseText).toContain('main');
       expect(responseText).toContain('defaultBranch');
+      expect(responseText).toContain(
+        "WARNING: Branch 'nonexistent-branch' not found"
+      );
+      expect(responseText).not.toContain('⚠️ IMPORTANT');
     });
   });
 

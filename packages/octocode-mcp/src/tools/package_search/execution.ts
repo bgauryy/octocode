@@ -2,7 +2,12 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod/v4';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
-type NpmPackageQuery = z.infer<typeof NpmPackageQuerySchema>;
+type PackageSearchQuery = Omit<
+  z.infer<typeof NpmPackageQuerySchema>,
+  'ecosystem'
+> & {
+  ecosystem?: 'npm';
+};
 import {
   searchPackage,
   checkNpmDeprecation,
@@ -22,7 +27,7 @@ import {
 } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 
-const CONCISE_PACKAGE_SEARCH_LIMIT = 1;
+const CONCISE_PACKAGE_SEARCH_LIMIT = 3;
 
 /** Advisory hints packageSearch emits; stripped under compact. Substring-OR,
  * case-insensitive — tolerates wording shifts and surrounding wrappers. */
@@ -86,13 +91,13 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 // enrichment is currently only applied to exact-match lookups (itemsPerPage=1)
 // via fetchPackageDetailsWithError.
 export async function searchPackages(
-  args: ToolExecutionArgs<NpmPackageQuery>
+  args: ToolExecutionArgs<PackageSearchQuery>
 ): Promise<CallToolResult> {
   const { queries, responseCharOffset, responseCharLength, format } = args;
 
   return executeBulkOperation(
     queries,
-    async (query: NpmPackageQuery, _index: number) => {
+    async (query: PackageSearchQuery, _index: number) => {
       try {
         // Pre-flight verbosity caps under concise: cap searchLimit to 1 and
         // force npmFetchMetadata=false (concise's documented lean contract).
@@ -122,16 +127,26 @@ export async function searchPackages(
             query
           );
         }
-        if (query.ecosystem && query.ecosystem !== 'npm') {
+        if (query.ecosystem !== undefined && query.ecosystem !== 'npm') {
           return createErrorResult(
-            `Unsupported ecosystem '${query.ecosystem}'. Only 'npm' is supported.`,
+            'Only ecosystem="npm" is supported for package search',
+            query
+          );
+        }
+        // page > 1 has no registry cursor implementation. Reject early so agents
+        // don't silently receive duplicate first-page data. Use `itemsPerPage` to
+        // control how many results the first (and only) page returns.
+        const requestedPage = (query as { page?: number }).page ?? 1;
+        if (requestedPage > 1) {
+          return createErrorResult(
+            `packageSearch does not support page=${requestedPage}. Only page=1 is implemented. Use itemsPerPage to control result count.`,
             query
           );
         }
         const validatedQuery = {
           ...query,
-          ecosystem: 'npm' as const,
-        } as NpmPackageQuery & {
+          ecosystem: query.ecosystem ?? ('npm' as const),
+        } as PackageSearchQuery & {
           ecosystem: 'npm';
           name: string;
         };
@@ -166,17 +181,25 @@ export async function searchPackages(
 
         const extraHints = hasContent
           ? generateSuccessHints(result, deprecationInfo)
-          : generateEmptyHints(query);
+          : generateEmptyHints(validatedQuery);
 
         const shaped = applyPackageSearchVerbosity(
           { data: result, extraHints },
           query
         );
-        const totalFound =
+        // `itemsPerPage` is what we asked the registry for. When totalFound is
+        // not returned by the API, assume there may be more if the result count
+        // exactly hits the requested cap (conservative partial signal).
+        const itemsPerPage =
+          (query as { itemsPerPage?: number }).itemsPerPage ?? 20;
+        const isPartial =
           typeof result.totalFound === 'number'
-            ? result.totalFound
-            : result.packages.length;
-        const isPartial = totalFound > result.packages.length;
+            ? result.totalFound > result.packages.length
+            : result.packages.length >= itemsPerPage;
+        const partialReason =
+          typeof result.totalFound === 'number'
+            ? `${result.packages.length} of ${result.totalFound} package result(s) returned.`
+            : `${result.packages.length} result(s) returned; registry did not report total — there may be more. Try a more specific name or reduce itemsPerPage.`;
 
         return createSuccessResult(
           query,
@@ -192,7 +215,7 @@ export async function searchPackages(
               ...(isPartial
                 ? {
                     confidence: 'medium' as const,
-                    reason: `${result.packages.length} of ${totalFound} package result(s) returned.`,
+                    reason: partialReason,
                   }
                 : hasContent
                   ? {}
@@ -238,10 +261,23 @@ function generateSuccessHints(
     hints.push(`DEPRECATED: ${name} - ${msg}`);
   }
 
+  // Escalation path: guide agents to the GitHub source for deeper research.
+  const repoUrl = getPackageRepo(pkg);
+  const { owner, repo } = parseRepoInfo(repoUrl);
+  if (owner && repo) {
+    hints.push(
+      `Source: github.com/${owner}/${repo} — use githubViewRepoStructure or githubSearchCode to explore the implementation.`
+    );
+  } else if (repoUrl) {
+    hints.push(
+      `Repository: ${repoUrl} — use githubSearchRepositories to find it on GitHub.`
+    );
+  }
+
   return hints;
 }
 
-function generateEmptyHints(query: NpmPackageQuery): string[] {
+function generateEmptyHints(query: PackageSearchQuery): string[] {
   const hints: string[] = [];
   const name = query.name;
 
@@ -257,7 +293,7 @@ function generateEmptyHints(query: NpmPackageQuery): string[] {
 
 /**
  * Per-tool verbosity shaping for packageSearch. Under concise, projects each
- * package to {name, version, repository, deprecated} (cap 1) and emits a
+ * package to {name, version, repository, deprecated} (cap 3) and emits a
  * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
  * Basic / omitted: passthrough.
  */
@@ -266,7 +302,7 @@ export function applyPackageSearchVerbosity(
     data: { packages: PackageResult[]; totalFound: number };
     extraHints: string[];
   },
-  query: NpmPackageQuery
+  query: PackageSearchQuery
 ): {
   data: { packages: unknown[]; totalFound: number };
   extraHints: string[];
@@ -274,12 +310,14 @@ export function applyPackageSearchVerbosity(
   const verbosity = (query as WithVerbosity<typeof query>).verbosity;
 
   if (isConcise(verbosity)) {
-    const projected = (input.data.packages ?? []).slice(0, 1).map(p => ({
-      name: (p as { name?: string }).name,
-      version: (p as { version?: string }).version,
-      repository: (p as { repository?: string }).repository,
-      deprecated: (p as { deprecated?: unknown }).deprecated,
-    }));
+    const projected = (input.data.packages ?? [])
+      .slice(0, CONCISE_PACKAGE_SEARCH_LIMIT)
+      .map(p => ({
+        name: getPackageName(p),
+        version: (p as { version?: string }).version,
+        repository: getPackageRepo(p),
+        deprecated: (p as { deprecated?: unknown }).deprecated,
+      }));
     const summary = `${input.data.packages?.length ?? 0} packages found`;
     return {
       data: { packages: projected, totalFound: input.data.totalFound },

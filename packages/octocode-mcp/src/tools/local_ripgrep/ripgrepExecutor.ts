@@ -91,7 +91,7 @@ export async function executeRipgrepSearchInternal(
 
   const result = await safeExec(command, args);
 
-  if (result.stderr?.includes('timeout') || result.code === null) {
+  if (result.code === null) {
     const timeoutMs = RESOURCE_LIMITS.DEFAULT_EXEC_TIMEOUT_MS;
     return attachRawResponseChars(
       {

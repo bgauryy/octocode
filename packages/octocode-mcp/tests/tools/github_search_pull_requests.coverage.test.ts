@@ -138,19 +138,33 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
+      const query = {
+        owner: 'test',
+        repo: 'repo',
+        state: 'open',
+        itemsPerPage: 50,
+        type: 'fullContent',
+        partialContentMetadata: { foo: 'bar' },
+        verbosity: 'concise',
+      };
 
-      await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, {
-        queries: [
-          {
-            owner: 'test',
-            repo: 'repo',
-            state: 'open',
-            itemsPerPage: 50,
-            type: 'fullContent',
-            partialContentMetadata: { foo: 'bar' },
-            verbosity: 'concise',
-          },
-        ],
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          queries: [query],
+        }
+      );
+
+      const text = getTextContent(result.content);
+      expect(text).toContain("type coerced to 'metadata' under concise");
+      expect(query).toEqual({
+        owner: 'test',
+        repo: 'repo',
+        state: 'open',
+        itemsPerPage: 50,
+        type: 'fullContent',
+        partialContentMetadata: { foo: 'bar' },
+        verbosity: 'concise',
       });
 
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);

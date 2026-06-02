@@ -419,8 +419,10 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', modifiedWithin: 'invalid' })
         .build();
 
-      expect(args).toContain('-mtime');
-      expect(args).toContain('-0');
+      // Invalid format → filter is silently skipped (no -mtime flag emitted)
+      // rather than producing -mtime -0 which would match nothing.
+      expect(args).not.toContain('-mtime');
+      expect(args).not.toContain('-0');
     });
 
     it('should handle invalid access time string gracefully', () => {
@@ -429,8 +431,10 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', accessedWithin: 'invalid' })
         .build();
 
-      expect(args).toContain('-atime');
-      expect(args).toContain('-0');
+      // Invalid format → filter is silently skipped (no -atime flag emitted)
+      // rather than producing -atime -0.
+      expect(args).not.toContain('-atime');
+      expect(args).not.toContain('-0');
     });
   });
 

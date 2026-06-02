@@ -77,6 +77,7 @@ export function applyGithubSearchReposVerbosity(
 import {
   handleCatchError,
   handleProviderError,
+  createErrorResult,
   createSuccessResult,
 } from '../utils.js';
 import type { RepoSearchResult as ProviderRepoSearchResult } from '../../providers/types.js';
@@ -128,6 +129,21 @@ function hasValidTopics(query: PartialReposSearchQuery): boolean {
 
 function hasValidKeywords(query: PartialReposSearchQuery): boolean {
   return Boolean(query.keywordsToSearch && query.keywordsToSearch.length > 0);
+}
+
+function hasValidRepositorySearchParams(
+  query: PartialReposSearchQuery
+): boolean {
+  return Boolean(
+    hasValidKeywords(query) ||
+    hasValidTopics(query) ||
+    query.owner ||
+    query.language ||
+    query.stars ||
+    query.created ||
+    query.updated ||
+    query.size
+  );
 }
 
 function createSearchReasoning(
@@ -404,6 +420,13 @@ export async function searchMultipleGitHubRepos(
     queries,
     async (query: PartialReposSearchQuery, _index: number) => {
       try {
+        if (!hasValidRepositorySearchParams(query)) {
+          return createErrorResult(
+            'At least one repository search term or filter is required.',
+            query
+          );
+        }
+
         const currentProviderContext = getProviderContext();
         // Pre-flight: cap the effective per_page under concise so the upstream
         // fetch reflects the trimmed response. No downgrade hint is emitted —
@@ -529,12 +552,24 @@ export async function searchMultipleGitHubRepos(
 
         // No verbosity-feature hint: concise's limit cap is its documented
         // contract and pagination.totalMatches keeps the full count visible.
+        // Escalation hints guide agents to the next research step when repos
+        // are found — the top result is the most actionable anchor.
+        const escalationHints: string[] = [];
+        if (hasContent) {
+          const top = repositories[0];
+          if (top?.owner && top?.repo) {
+            escalationHints.push(
+              `Top result: ${top.owner}/${top.repo} — use githubViewRepoStructure to browse or githubSearchCode to search within it.`
+            );
+          }
+        }
         const allExtraHints = [
           ...scopeHints,
           ...verbosityShape.extraHints,
           ...partialFailureHints,
           ...paginationHints,
           ...(searchHints || []),
+          ...escalationHints,
         ];
         // Compact trim: drop advisory hints (recovery prose, synonym
         // suggestions) while keeping pagination + downgrade + drill-back.

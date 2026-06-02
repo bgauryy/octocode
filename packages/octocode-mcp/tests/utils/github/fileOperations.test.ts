@@ -66,32 +66,6 @@ function createTestParams(overrides: Record<string, unknown> = {}) {
 }
 
 describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
-  describe.skip('Schema defaults', () => {
-    it('should have correct schema defaults', async () => {
-      const { FileContentQuerySchema } =
-        await import('@octocodeai/octocode-core');
-
-      // Test minimal valid input (only required fields)
-      const minimalInput = {
-        id: 'test:file-ops',
-        owner: 'test',
-        repo: 'repo',
-        path: 'test.js',
-        mainResearchGoal: 'Test research goal',
-        researchGoal: 'Testing schema defaults',
-        reasoning: 'Unit test for schema',
-      };
-
-      const parsed = FileContentQuerySchema.parse(minimalInput);
-
-      expect(parsed.fullContent).toBe(false); // Should default to false
-      expect(parsed.startLine).toBeUndefined(); // Should be optional
-      expect(parsed.endLine).toBeUndefined(); // Should be optional
-      expect(parsed.matchString).toBeUndefined(); // Should be optional
-      expect(parsed.matchStringContextLines).toBe(5); // Should have default
-      // minified and sanitize are now always enabled (not schema parameters)
-    });
-  });
   let mockOctokit: {
     rest: {
       repos: {

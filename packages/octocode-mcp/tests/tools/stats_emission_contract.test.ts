@@ -14,7 +14,7 @@ const registeredTools = [
     executionFiles: ['src/tools/github_fetch_content/execution.ts'],
     rawEvidence: [
       /rawResponse:\s*providerResult\.response\.rawResponseChars/,
-      /rawResponse:\s*result\.totalSize\s*\|\|\s*countSerializedChars\(result\)/,
+      /rawResponse:\s*result\.totalSize\s*\?\?\s*countSerializedChars\(result\)/,
     ],
   },
   {

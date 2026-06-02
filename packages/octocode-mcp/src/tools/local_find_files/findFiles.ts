@@ -131,6 +131,7 @@ function buildFindFilesHints(ctx: {
   maxFiles: number;
   discoveredFileCount: number;
   hasConfigFiles: boolean;
+  extraHints?: string[];
   paginationMetadata:
     | Parameters<typeof generatePaginationHints>[0]
     | null
@@ -146,10 +147,40 @@ function buildFindFilesHints(ctx: {
     maxFiles,
     discoveredFileCount,
     hasConfigFiles,
+    extraHints = [],
     paginationMetadata,
   } = ctx;
 
+  // Build active-filter summary so agents know exactly which constraints
+  // were applied — silent filters are the #1 source of "why no results" confusion.
+  const q = query as Record<string, unknown>;
+  const activeFilters: string[] = [];
+  const namePattern =
+    (q.name as string | undefined) ?? (q.iname as string | undefined);
+  if (namePattern) {
+    const caseNote = q.iname ? ' (case-insensitive)' : '';
+    activeFilters.push(`name: ${namePattern}${caseNote}`);
+  }
+  if (q.type)
+    activeFilters.push(
+      `type: ${q.type === 'f' ? 'files' : q.type === 'd' ? 'directories' : String(q.type)}`
+    );
+  if (q.modifiedAfter) activeFilters.push(`modified after: ${q.modifiedAfter}`);
+  if (q.modifiedBefore)
+    activeFilters.push(`modified before: ${q.modifiedBefore}`);
+  if (q.modifiedWithin)
+    activeFilters.push(`modified within: ${q.modifiedWithin}`);
+  if (q.sizeGreater) activeFilters.push(`size > ${q.sizeGreater}`);
+  if (q.sizeLess) activeFilters.push(`size < ${q.sizeLess}`);
+  if (Array.isArray(q.excludeDir) && q.excludeDir.length > 0) {
+    activeFilters.push(`excluding: ${(q.excludeDir as string[]).join(', ')}`);
+  }
+
   return [
+    ...extraHints,
+    ...(activeFilters.length > 0
+      ? [`Active filters — ${activeFilters.join(' | ')}`]
+      : []),
     ...(filePageNumber < totalPages
       ? [
           `Page ${filePageNumber}/${totalPages} (showing ${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
@@ -222,6 +253,8 @@ export async function findFiles(
       ),
     };
 
+    const timeFormatWarnings = validateTimeFilterFormats(queryWithDefaults);
+
     const builder = new FindCommandBuilder();
     const { command, args } = builder.fromQuery(queryWithDefaults).build();
 
@@ -272,6 +305,12 @@ export async function findFiles(
 
     const sortBy = query.sortBy || 'modified';
     sortLocalFindFilesEntrys(files, sortBy, showLastModified);
+    const sortHints =
+      query.sortBy === 'modified' && !showLastModified
+        ? [
+            'sortBy="modified" ignored: showFileLastModified=false; sorted by path instead.',
+          ]
+        : [];
 
     const filesForOutput = formatForOutput(files, details, showLastModified);
     const totalFiles = filesForOutput.length;
@@ -296,6 +335,28 @@ export async function findFiles(
       configFilePatterns.test(f.path.split('/').pop() || '')
     );
 
+    // Surface find stderr (e.g. permission-denied sub-directory warnings).
+    // find exits 0 even when individual paths are inaccessible, so these
+    // warnings would otherwise be silently swallowed.
+    const findStderrWarnings: string[] = [];
+    if (result.stderr?.trim()) {
+      const stderrLines = result.stderr
+        .trim()
+        .split('\n')
+        .map(l => l.replace(/^find:\s*/i, '').trim())
+        .filter(Boolean);
+      if (stderrLines.length > 0) {
+        findStderrWarnings.push(...stderrLines.slice(0, 5));
+        if (stderrLines.length > 5) {
+          findStderrWarnings.push(
+            `... and ${stderrLines.length - 5} more find warning(s)`
+          );
+        }
+      }
+    }
+
+    const allWarnings = [...timeFormatWarnings, ...findStderrWarnings];
+
     const fullResult: LocalFindFilesToolResult = {
       // status omitted on success (absent ≡ "hasResults"); 'empty' is set
       // explicitly below when totalFiles === 0.
@@ -311,6 +372,7 @@ export async function findFiles(
       ...(paginationMetadata && {
         charPagination: createPaginationInfo(paginationMetadata),
       }),
+      ...(allWarnings.length > 0 && { warnings: allWarnings }),
       hints: buildFindFilesHints({
         query,
         filePageNumber,
@@ -321,6 +383,7 @@ export async function findFiles(
         maxFiles,
         discoveredFileCount,
         hasConfigFiles,
+        extraHints: sortHints,
         paginationMetadata,
       }),
     };
@@ -554,4 +617,31 @@ async function getFileDetails(
   await Promise.all(workers);
 
   return results;
+}
+
+const VALID_TIME_STRING_RE = /^\d+[hdwm]$/;
+
+/**
+ * Validate time-filter fields that are passed to `find -mtime / -mmin`.
+ * Only relative durations like "7d", "2h", "1w", "3m" are supported.
+ * ISO timestamps (e.g. "2026-06-01T00:00:00Z") are NOT supported and
+ * would silently produce -mtime -0 / +0 (match nothing / match everything).
+ * This function surfaces an explicit warning for each invalid field.
+ */
+function validateTimeFilterFormats(query: FindFilesQuery): string[] {
+  const warnings: string[] = [];
+  const fields: Array<{ key: string; value: string | undefined }> = [
+    { key: 'modifiedAfter', value: (query as Record<string, unknown>).modifiedAfter as string | undefined },
+    { key: 'modifiedBefore', value: query.modifiedBefore },
+    { key: 'modifiedWithin', value: query.modifiedWithin },
+    { key: 'accessedWithin', value: (query as Record<string, unknown>).accessedWithin as string | undefined },
+  ];
+  for (const { key, value } of fields) {
+    if (value && !VALID_TIME_STRING_RE.test(value)) {
+      warnings.push(
+        `${key}="${value}" has an unsupported format — filter was skipped. Use a relative duration like "7d", "2h", "1w", or "3m".`
+      );
+    }
+  }
+  return warnings;
 }

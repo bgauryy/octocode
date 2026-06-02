@@ -161,6 +161,30 @@ export async function buildSearchResult(
     totalMatches
   );
 
+  // Active-filter echo-back: agents need to know which constraints were applied
+  // so they can diagnose empty results or unexpected narrowing.
+  const q = configuredQuery as Record<string, unknown>;
+  const activeFilters: string[] = [];
+  const includeGlobs = q.include as string[] | undefined;
+  if (Array.isArray(includeGlobs) && includeGlobs.length > 0) {
+    activeFilters.push(`include: ${includeGlobs.join(', ')}`);
+  }
+  const excludeGlobs = q.exclude as string[] | undefined;
+  if (Array.isArray(excludeGlobs) && excludeGlobs.length > 0) {
+    activeFilters.push(`exclude: ${excludeGlobs.join(', ')}`);
+  }
+  const excludeDir = q.excludeDir as string[] | undefined;
+  if (Array.isArray(excludeDir) && excludeDir.length > 0) {
+    activeFilters.push(`excludeDir: ${excludeDir.join(', ')}`);
+  }
+  const fileType = q.type as string | undefined;
+  if (fileType) activeFilters.push(`type: ${fileType}`);
+  if (q.caseSensitive) activeFilters.push('case-sensitive');
+  if (q.wholeWord) activeFilters.push('whole-word');
+  if (activeFilters.length > 0) {
+    refinementHints.unshift(`Active filters — ${activeFilters.join(' | ')}`);
+  }
+
   const fullResult: LocalSearchCodeToolResult = {
     // status omitted on success (absent ≡ "hasResults"); empty/error
     // branches set it explicitly. searchEngine also omitted — only one

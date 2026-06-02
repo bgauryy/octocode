@@ -73,19 +73,21 @@ export async function searchMultipleGitHubPullRequests(
     async (query: PartialPRQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
+        let effectiveQuery: PartialPRQuery = { ...query };
+        const verbosityDowngradeHints: string[] = [];
 
         // Pre-flight verbosity caps under concise: cap page size to 3; coerce
         // type→"metadata" unless caller passed prNumber + explicit type;
         // drop partialContentMetadata when type is coerced. Record what
         // fired so we can emit a verbosity-downgrade warning later.
         const prVerbosityIsConcise = isConcise(
-          (query as WithVerbosity<typeof query>).verbosity
+          (effectiveQuery as WithVerbosity<typeof effectiveQuery>).verbosity
         );
         if (prVerbosityIsConcise) {
           // Cap the effective per_page to the concise probe size via both knobs
           // the resolver reads (itemsPerPage drives per_page; githubAPILimit
           // overrides it when present).
-          const q = query as {
+          const q = effectiveQuery as {
             itemsPerPage?: number;
             githubAPILimit?: number;
           };
@@ -98,27 +100,38 @@ export async function searchMultipleGitHubPullRequests(
             q.githubAPILimit = Math.min(q.githubAPILimit, CONCISE_PR_LIMIT);
           }
           const hasExplicitType =
-            (query as { type?: string }).type !== undefined;
-          const hasPrNumber = query.prNumber !== undefined;
+            (effectiveQuery as { type?: string }).type !== undefined;
+          const hasPrNumber = effectiveQuery.prNumber !== undefined;
           const shouldCoerceType = !(hasPrNumber && hasExplicitType);
           if (shouldCoerceType) {
-            const currentType = (query as { type?: string }).type;
+            const currentType = (effectiveQuery as { type?: string }).type;
+            const hadPartialContentMetadata =
+              (effectiveQuery as { partialContentMetadata?: unknown })
+                .partialContentMetadata !== undefined;
             if (currentType && currentType !== 'metadata') {
-              (query as { type?: string }).type = 'metadata';
+              (effectiveQuery as { type?: string }).type = 'metadata';
+              verbosityDowngradeHints.push(
+                "type coerced to 'metadata' under concise verbosity"
+              );
             } else if (!currentType) {
-              (query as { type?: string }).type = 'metadata';
+              (effectiveQuery as { type?: string }).type = 'metadata';
             }
-            if (
-              (query as { partialContentMetadata?: unknown })
-                .partialContentMetadata !== undefined
-            ) {
-              delete (query as { partialContentMetadata?: unknown })
-                .partialContentMetadata;
+            if (hadPartialContentMetadata) {
+              const {
+                partialContentMetadata: _partialContentMetadata,
+                ...rest
+              } = effectiveQuery as PartialPRQuery & {
+                partialContentMetadata?: unknown;
+              };
+              effectiveQuery = rest as PartialPRQuery;
+              verbosityDowngradeHints.push(
+                'partialContentMetadata dropped under concise metadata mode'
+              );
             }
           }
         }
 
-        if (query.query && String(query.query).length > 256) {
+        if (effectiveQuery.query && String(effectiveQuery.query).length > 256) {
           return createErrorResult(
             'Query too long. Maximum 256 characters allowed.',
             query
@@ -126,12 +139,14 @@ export async function searchMultipleGitHubPullRequests(
         }
 
         const hasValidParams =
-          query.query?.trim() ||
-          query.owner ||
-          query.repo ||
-          query.author ||
-          query.assignee ||
-          (query.prNumber && query.owner && query.repo);
+          effectiveQuery.query?.trim() ||
+          effectiveQuery.owner ||
+          effectiveQuery.repo ||
+          effectiveQuery.author ||
+          effectiveQuery.assignee ||
+          (effectiveQuery.prNumber &&
+            effectiveQuery.owner &&
+            effectiveQuery.repo);
 
         if (!hasValidParams) {
           return createErrorResult(
@@ -140,10 +155,12 @@ export async function searchMultipleGitHubPullRequests(
           );
         }
 
-        const providerResult = await executeProviderOperation(query, () =>
-          currentProviderContext.provider.searchPullRequests(
-            mapPullRequestToolQuery(query)
-          )
+        const providerResult = await executeProviderOperation(
+          effectiveQuery,
+          () =>
+            currentProviderContext.provider.searchPullRequests(
+              mapPullRequestToolQuery(effectiveQuery)
+            )
         );
 
         if (providerResult.ok === false) {
@@ -154,7 +171,7 @@ export async function searchMultipleGitHubPullRequests(
         // 500-char search preview (and make the truncation hint truthful).
         // type="metadata" (the triage default) drops the per-PR file list to
         // keep the payload lean; counts (changedFilesCount) are retained.
-        const prType = (query as { type?: string }).type;
+        const prType = (effectiveQuery as { type?: string }).type;
         const includeFileChanges =
           prType === 'fullContent' || prType === 'partialContent';
         const {
@@ -169,8 +186,8 @@ export async function searchMultipleGitHubPullRequests(
         // pagination block (totalMatches:0, totalPages:1, hasMore:false) is
         // meaningless noise, so drop it from both the hints and the payload.
         const pagination =
-          query.prNumber !== undefined ? undefined : rawPagination;
-        if (query.prNumber !== undefined) {
+          effectiveQuery.prNumber !== undefined ? undefined : rawPagination;
+        if (effectiveQuery.prNumber !== undefined) {
           delete (resultData as Record<string, unknown>).pagination;
         }
 
@@ -248,13 +265,17 @@ export async function searchMultipleGitHubPullRequests(
           {
             data: resultData,
             pullRequests,
-            extraHints: [...paginationHints, ...fileChangeHints],
+            extraHints: [
+              ...paginationHints,
+              ...verbosityDowngradeHints,
+              ...fileChangeHints,
+            ],
           },
-          query as PartialPRQuery
+          effectiveQuery as PartialPRQuery
         );
 
         return createSuccessResult(
-          query,
+          effectiveQuery,
           shaped.data,
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -264,12 +285,12 @@ export async function searchMultipleGitHubPullRequests(
             // (state, author, prNumber, query) instead of generic prose.
             hintContext: {
               matchCount: pullRequests.length,
-              state: query.state,
-              owner: query.owner,
-              repo: query.repo,
-              author: query.author,
-              query: query.query,
-              prNumber: query.prNumber,
+              state: effectiveQuery.state,
+              owner: effectiveQuery.owner,
+              repo: effectiveQuery.repo,
+              author: effectiveQuery.author,
+              query: effectiveQuery.query,
+              prNumber: effectiveQuery.prNumber,
             },
             extraHints: shaped.extraHints,
             evidence: {

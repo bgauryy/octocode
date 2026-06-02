@@ -621,9 +621,10 @@ async function resolveDefinitionViaModulePath(
   if (!content) return null;
 
   const lines = content.split(/\r?\n/);
+  const symbolWordBoundaryRe = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (/^\s*export\b/.test(line) && line.includes(symbolName)) {
+    if (/^\s*export\b/.test(line) && symbolWordBoundaryRe.test(line)) {
       const charIdx = line.indexOf(symbolName);
       return {
         uri: resolvedPath,

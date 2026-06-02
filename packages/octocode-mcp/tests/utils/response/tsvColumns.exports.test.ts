@@ -237,12 +237,13 @@ const cases: ExportCase[] = [
         {
           uri: 'a.ts',
           name: 'foo',
+          // range.start.line is 0-based LSP; TSV emits +1 (line=2).
           range: { start: { line: 1, character: 2 } },
         },
       ],
     },
     expectedColumns: ['uri', 'name', 'kind', 'line', 'column'],
-    rowProbe: 'a.ts\tfoo\t\t1\t2',
+    rowProbe: 'a.ts\tfoo\t\t2\t2',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
@@ -254,12 +255,13 @@ const cases: ExportCase[] = [
         {
           uri: 'b.ts',
           name: 'foo',
+          // range.start.line is 0-based LSP; TSV emits +1 (line=4).
           range: { start: { line: 3, character: 4 } },
         },
       ],
     },
     expectedColumns: ['uri', 'name', 'line', 'column', 'isDeclaration'],
-    rowProbe: 'b.ts\tfoo\t\t3\t4',
+    rowProbe: 'b.ts\tfoo\t\t4\t4',
   },
   {
     toolName: STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
@@ -273,13 +275,14 @@ const cases: ExportCase[] = [
           from: {
             name: 'caller',
             uri: 'c.ts',
+            // range.start.line is 0-based LSP; TSV emits +1 (line=6).
             range: { start: { line: 5, character: 6 } },
           },
         },
       ],
     },
     expectedColumns: ['direction', 'name', 'kind', 'uri', 'line', 'column'],
-    rowProbe: 'incoming\tcaller\t\tc.ts\t5\t6',
+    rowProbe: 'incoming\tcaller\t\tc.ts\t6\t6',
   },
 ];
 

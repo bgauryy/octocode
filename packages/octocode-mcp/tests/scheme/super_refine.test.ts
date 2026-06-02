@@ -216,9 +216,16 @@ describe('RipgrepQuerySchema mutex checks', () => {
 });
 
 describe('PackageSearch ecosystem allow-list', () => {
-  it('rejects non-npm ecosystems at schema layer', () => {
+  it('rejects pypi ecosystem at schema layer', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
       queries: [{ name: 'react', ecosystem: 'pypi' }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects python ecosystem alias at schema layer', () => {
+    const result = PackageSearchBulkQueryLocalSchema.safeParse({
+      queries: [{ name: 'requests', ecosystem: 'python' }],
     });
     expect(result.success).toBe(false);
   });

@@ -43,22 +43,17 @@ describe('package_search execution branches', () => {
       expect(mockSearchPackage).not.toHaveBeenCalled();
     });
 
-    it('should return error when ecosystem is not npm', async () => {
+    it('should reject non-npm ecosystems without searching the registry', async () => {
       const result = await searchPackages({
         queries: [
-          { ...baseQuery, name: 'requests', ecosystem: 'python' } as never,
+          { ...baseQuery, name: 'requests', ecosystem: 'pypi' } as never,
         ],
       });
 
-      expect(result.content).toBeDefined();
-      const content = Array.isArray(result.content)
-        ? result.content
-        : [{ type: 'text', text: JSON.stringify(result.content) }];
-      const text = content
-        .map((c: { text?: string }) => c.text)
-        .join('')
-        .toLowerCase();
-      expect(text).toContain('unsupported ecosystem');
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(result.isError).toBe(true);
+      expect(text).toContain('Only ecosystem');
+      expect(text).toContain('npm');
       expect(mockSearchPackage).not.toHaveBeenCalled();
     });
 
@@ -149,6 +144,58 @@ describe('package_search execution branches', () => {
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
       expect(text).toContain('DEPRECATED');
       expect(text).toContain('Use new-pkg instead');
+    });
+  });
+
+  describe('packageSearch verbosity shaping', () => {
+    it('concise keeps the top three package candidates', async () => {
+      const { applyPackageSearchVerbosity } =
+        await import('../../src/tools/package_search/execution.js');
+
+      const out = applyPackageSearchVerbosity(
+        {
+          data: {
+            packages: [
+              {
+                path: 'one',
+                version: '1.0.0',
+                repoUrl: null,
+                mainEntry: null,
+                typeDefinitions: null,
+              },
+              {
+                path: 'two',
+                version: '2.0.0',
+                repoUrl: null,
+                mainEntry: null,
+                typeDefinitions: null,
+              },
+              {
+                path: 'three',
+                version: '3.0.0',
+                repoUrl: null,
+                mainEntry: null,
+                typeDefinitions: null,
+              },
+              {
+                path: 'four',
+                version: '4.0.0',
+                repoUrl: null,
+                mainEntry: null,
+                typeDefinitions: null,
+              },
+            ],
+            totalFound: 4,
+          },
+          extraHints: [],
+        },
+        { name: 'pkg', ecosystem: 'npm', verbosity: 'concise' } as never
+      );
+
+      expect(out.data.packages).toHaveLength(3);
+      expect(
+        (out.data.packages as Array<Record<string, unknown>>).map(p => p.name)
+      ).toEqual(['one', 'two', 'three']);
     });
   });
 });

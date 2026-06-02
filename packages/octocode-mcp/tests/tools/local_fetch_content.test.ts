@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
-import { FetchContentQuerySchema } from '@octocodeai/octocode-core';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
 
@@ -716,8 +715,10 @@ describe('localGetFileContent', () => {
         charLength: 50,
       });
 
-      // When charOffset is at or beyond content, we still get hasResults with empty content
-      expect(result.status).toBeUndefined();
+      // charOffset >= content length → explicit error with actionable hints
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('charOffset 100 exceeds file content length');
+      expect(result.hints).toBeDefined();
     });
 
     it('should handle charOffset beyond file length', async () => {
@@ -730,8 +731,10 @@ describe('localGetFileContent', () => {
         charLength: 100,
       });
 
-      // When charOffset is beyond content, we still get hasResults with empty content
-      expect(result.status).toBeUndefined();
+      // charOffset >> content length → explicit error with actionable hints
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('charOffset 1000 exceeds file content length');
+      expect(result.hints).toBeDefined();
     });
 
     it('should handle charLength = 1 (single char)', async () => {
@@ -1535,212 +1538,6 @@ describe('localGetFileContent', () => {
       expect(result.status).toBeUndefined();
       expect(result.totalLines).toBe(500);
       expect(result.pagination?.totalChars).toBeDefined();
-    });
-  });
-
-  describe.skip('Schema validation for startLine/endLine', () => {
-    it('should require both startLine and endLine together', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_1',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 1,
-        // Missing endLine
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const firstIssue = result.error.issues[0];
-        expect(firstIssue?.message).toBe(
-          'startLine and endLine must be used together'
-        );
-      }
-    });
-
-    it('should reject endLine without startLine', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_2',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        endLine: 10,
-        // Missing startLine
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const firstIssue = result.error.issues[0];
-        expect(firstIssue?.message).toBe(
-          'startLine and endLine must be used together'
-        );
-      }
-    });
-
-    it('should reject startLine > endLine', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_3',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 10,
-        endLine: 5,
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const firstIssue = result.error.issues[0];
-        expect(firstIssue?.message).toBe(
-          'startLine must be less than or equal to endLine'
-        );
-      }
-    });
-
-    it('should reject combining startLine/endLine with matchString', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_4',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 1,
-        endLine: 10,
-        matchString: 'test',
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const firstIssue = result.error.issues[0];
-        expect(firstIssue?.message).toContain(
-          'Cannot use startLine/endLine with matchString'
-        );
-      }
-    });
-
-    it('should reject combining startLine/endLine with fullContent=true', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_5',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 1,
-        endLine: 10,
-        fullContent: true,
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const firstIssue = result.error.issues[0];
-        expect(firstIssue?.message).toContain(
-          'Cannot use startLine/endLine with fullContent'
-        );
-      }
-    });
-
-    it('should accept valid startLine/endLine range', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_6',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 1,
-        endLine: 10,
-      });
-
-      expect(result.success).toBe(true);
-    });
-
-    it('should accept startLine/endLine with charLength pagination', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_7',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 1,
-        endLine: 100,
-        charLength: 5000,
-      });
-
-      expect(result.success).toBe(true);
-    });
-
-    it('should reject startLine < 1', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_8',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 0,
-        endLine: 10,
-      });
-
-      expect(result.success).toBe(false);
-    });
-
-    it('should accept startLine equal to endLine (single line)', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_9',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        startLine: 5,
-        endLine: 5,
-      });
-
-      expect(result.success).toBe(true);
-    });
-
-    it('should reject fullContent with matchString (TC-12: mutually exclusive)', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_10',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        fullContent: true,
-        matchString: 'export',
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const hasConflictError = result.error.issues.some(
-          issue =>
-            issue.message.includes('fullContent') &&
-            issue.message.includes('matchString')
-        );
-        expect(hasConflictError).toBe(true);
-      }
-    });
-
-    it('should reject fullContent with matchString and startLine/endLine (all conflicts)', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_11',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        fullContent: true,
-        matchString: 'export',
-        startLine: 1,
-        endLine: 10,
-      });
-
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject charLength > 10000 (scheme max constraint)', () => {
-      const result = FetchContentQuerySchema.safeParse({
-        id: 'fetch_schema_charLength',
-        researchGoal: 'Test',
-        reasoning: 'Schema validation',
-        path: 'test.txt',
-        charLength: 10001,
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const charLengthIssue = result.error.issues.find(
-          i => i.path?.includes('charLength') || i.message?.includes('10000')
-        );
-        expect(charLengthIssue).toBeDefined();
-      }
     });
   });
 });

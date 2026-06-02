@@ -9,7 +9,7 @@
  *
  * Mocks at the boundary: a stub factory replaces real LSP spawning.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { LspClientPool, type PoolKey } from '../../src/lsp/lspClientPool.js';
 
 interface FakeClient {
@@ -170,21 +170,26 @@ describe('T3.2 — LspClientPool', () => {
   });
 
   it('evicts idle clients after the configured timeout', async () => {
-    const factory = vi.fn(async () => makeFakeClient());
-    const pool = new LspClientPool<FakeClient>({
-      idleTimeoutMs: 25,
-      factory,
-    });
+    vi.useFakeTimers();
+    try {
+      const factory = vi.fn(async () => makeFakeClient());
+      const pool = new LspClientPool<FakeClient>({
+        idleTimeoutMs: 25,
+        factory,
+      });
 
-    const a = await acquireNonNull(pool, {
-      workspaceRoot: '/r1',
-      languageId: 'typescript',
-    });
+      const a = await acquireNonNull(pool, {
+        workspaceRoot: '/r1',
+        languageId: 'typescript',
+      });
 
-    // Wait past the idle timer and let the stop() microtask flush.
-    await new Promise(r => setTimeout(r, 80));
-    expect(a.stopped).toBe(true);
-    expect(pool.size()).toBe(0);
+      // Advance past the idle timer and flush microtasks.
+      await vi.advanceTimersByTimeAsync(30);
+      expect(a.stopped).toBe(true);
+      expect(pool.size()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keys() returns active pool keys for diagnostics', async () => {
@@ -216,46 +221,56 @@ describe('T3.2 — LspClientPool', () => {
   });
 
   it('survives clear() racing against the idle-eviction timer for the same key', async () => {
-    const factory = vi.fn(async () => makeFakeClient());
-    const pool = new LspClientPool<FakeClient>({
-      idleTimeoutMs: 20,
-      factory,
-    });
-    const key: PoolKey = { workspaceRoot: '/r1', languageId: 'typescript' };
+    vi.useFakeTimers();
+    try {
+      const factory = vi.fn(async () => makeFakeClient());
+      const pool = new LspClientPool<FakeClient>({
+        idleTimeoutMs: 20,
+        factory,
+      });
+      const key: PoolKey = { workspaceRoot: '/r1', languageId: 'typescript' };
 
-    const a = await acquireNonNull(pool, key);
+      const a = await acquireNonNull(pool, key);
 
-    // Clear synchronously cancels the idle timer; ensure double-eviction
-    // (idle + explicit) doesn't crash and the client is stopped exactly once.
-    await pool.clear(key);
-    expect(a.stopped).toBe(true);
-    expect(pool.size()).toBe(0);
+      // Clear synchronously cancels the idle timer; ensure double-eviction
+      // (idle + explicit) doesn't crash and the client is stopped exactly once.
+      await pool.clear(key);
+      expect(a.stopped).toBe(true);
+      expect(pool.size()).toBe(0);
 
-    // Now wait past the original idle window: the entry is already gone,
-    // so the timer firing must hit the `if (!entry) return` guard cleanly.
-    await new Promise(r => setTimeout(r, 60));
-    expect(pool.size()).toBe(0);
+      // Now advance past the original idle window: the entry is already gone,
+      // so the timer firing must hit the `if (!entry) return` guard cleanly.
+      await vi.advanceTimersByTimeAsync(60);
+      expect(pool.size()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('resets the idle timer on every acquire so warm clients are not evicted mid-use', async () => {
-    const factory = vi.fn(async () => makeFakeClient());
-    const pool = new LspClientPool<FakeClient>({
-      idleTimeoutMs: 40,
-      factory,
-    });
-    const key: PoolKey = { workspaceRoot: '/r1', languageId: 'typescript' };
+    vi.useFakeTimers();
+    try {
+      const factory = vi.fn(async () => makeFakeClient());
+      const pool = new LspClientPool<FakeClient>({
+        idleTimeoutMs: 40,
+        factory,
+      });
+      const key: PoolKey = { workspaceRoot: '/r1', languageId: 'typescript' };
 
-    const a = await acquireNonNull(pool, key);
-    // Re-acquire just before the original idle window expires — should
-    // reset the timer rather than spawn a new client.
-    await new Promise(r => setTimeout(r, 25));
-    const b = await acquireNonNull(pool, key);
-    expect(a).toBe(b);
-    expect(factory).toHaveBeenCalledTimes(1);
+      const a = await acquireNonNull(pool, key);
+      // Re-acquire just before the original idle window expires — should
+      // reset the timer rather than spawn a new client.
+      await vi.advanceTimersByTimeAsync(25);
+      const b = await acquireNonNull(pool, key);
+      expect(a).toBe(b);
+      expect(factory).toHaveBeenCalledTimes(1);
 
-    // After a full second window from the LAST acquire the client evicts.
-    await new Promise(r => setTimeout(r, 80));
-    expect(a.stopped).toBe(true);
-    expect(pool.size()).toBe(0);
+      // After a full idle window from the LAST acquire the client evicts.
+      await vi.advanceTimersByTimeAsync(45);
+      expect(a.stopped).toBe(true);
+      expect(pool.size()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

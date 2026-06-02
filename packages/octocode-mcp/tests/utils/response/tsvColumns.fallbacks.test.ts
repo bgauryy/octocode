@@ -200,7 +200,9 @@ describe('tsvColumns fallback chains', () => {
         { uri: 'a.ts', range: { start: { line: 1, column: 7 } }, snippet: 's' },
       ],
     });
-    expect(rows[0]).toMatchObject({ line: 1, column: 7 });
+    // range.start.line is 0-based LSP; TSV emits +1 (1-based). column uses
+    // start.column fallback (no +1 — character offsets stay as-is).
+    expect(rows[0]).toMatchObject({ line: 2, column: 7 });
   });
 
   it('lspCallHierarchy falls back through `to` when `from` absent', () => {
@@ -216,9 +218,10 @@ describe('tsvColumns fallback chains', () => {
         },
       ],
     });
+    // range.start.line 12 (0-based) → 13 (1-based) in TSV.
     expect(rows[0]).toMatchObject({
       name: 'callee',
-      line: 12,
+      line: 13,
       column: 4,
     });
   });
@@ -234,7 +237,7 @@ describe('tsvColumns fallback chains', () => {
       uri: '',
       line: '',
       column: '',
-      fromRanges: '',
+      fromLines: undefined,
     });
   });
 

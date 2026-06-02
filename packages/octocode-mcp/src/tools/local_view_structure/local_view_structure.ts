@@ -34,6 +34,21 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 type ViewStructureQuery = WithVerbosity<
   WithOptionalMeta<UpstreamViewStructureQuery>
 >;
+
+function buildActiveViewStructureFilters(query: ViewStructureQuery): string[] {
+  const activeFilters: string[] = [`path: ${query.path}`];
+  if (query.depth !== undefined) activeFilters.push(`depth: ${query.depth}`);
+  if (query.extension) activeFilters.push(`extension: ${query.extension}`);
+  if (query.extensions?.length) {
+    activeFilters.push(`extensions: ${query.extensions.join(', ')}`);
+  }
+  if (query.pattern) activeFilters.push(`pattern: ${query.pattern}`);
+  if (query.filesOnly) activeFilters.push('filesOnly');
+  if (query.directoriesOnly) activeFilters.push('directoriesOnly');
+  if (query.hidden) activeFilters.push('hidden');
+  return [`Active filters — ${activeFilters.join(' | ')}`];
+}
+
 import { ToolErrors } from '../../errors/errorFactories.js';
 import {
   applyEntryFilters,
@@ -157,6 +172,7 @@ export async function viewStructure(
           pagination,
           ...(warnings.length > 0 && { warnings }),
           hints: [
+            ...buildActiveViewStructureFilters(query),
             ...entryPaginationHints,
             ...(isEmpty
               ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
@@ -243,9 +259,10 @@ async function viewStructureRecursive(
       let comparison = 0;
       switch (query.sortBy) {
         case 'size': {
-          // Use numeric comparison instead of string comparison
-          const aSize = a.size ? parseFileSize(a.size) : 0;
-          const bSize = b.size ? parseFileSize(b.size) : 0;
+          // Use raw byte count to avoid parseFileSize round-trip loss on
+          // the formatted size string (e.g. "12.4KB" → parse → float).
+          const aSize = a.sizeBytes ?? (a.size ? parseFileSize(a.size) : 0);
+          const bSize = b.sizeBytes ?? (b.size ? parseFileSize(b.size) : 0);
           comparison = aSize - bSize;
           break;
         }
@@ -305,7 +322,11 @@ async function viewStructureRecursive(
         summary,
         pagination,
         ...(warnings.length > 0 && { warnings }),
-        hints: [...baseHints, ...entryPaginationHints],
+        hints: [
+          ...buildActiveViewStructureFilters(query),
+          ...baseHints,
+          ...entryPaginationHints,
+        ],
       },
       query
     ),

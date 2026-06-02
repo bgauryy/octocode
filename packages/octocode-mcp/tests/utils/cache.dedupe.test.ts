@@ -1,27 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { withDataCache, clearAllCache } from '../../src/utils/http/cache.js';
 
 describe('Cache Deduplication', () => {
   beforeEach(() => {
     clearAllCache();
     vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('should deduplicate concurrent requests for the same key', async () => {
     const key = 'test-key';
     let callCount = 0;
 
-    // Simulates a slow operation
     const operation = vi.fn(async () => {
       callCount++;
       await new Promise(resolve => setTimeout(resolve, 50));
       return 'result';
     });
 
-    // Launch 3 concurrent requests
     const promise1 = withDataCache(key, operation);
     const promise2 = withDataCache(key, operation);
     const promise3 = withDataCache(key, operation);
+
+    await vi.advanceTimersByTimeAsync(50);
 
     const [result1, result2, result3] = await Promise.all([
       promise1,
@@ -47,12 +52,17 @@ describe('Cache Deduplication', () => {
       throw error;
     });
 
-    // Launch concurrent requests
     const promise1 = withDataCache(key, operation);
     const promise2 = withDataCache(key, operation);
 
-    await expect(promise1).rejects.toThrow('Fetch failed');
-    await expect(promise2).rejects.toThrow('Fetch failed');
+    // Attach rejection handlers BEFORE advancing time so neither promise
+    // becomes an unhandled rejection during the timer flush.
+    const check1 = expect(promise1).rejects.toThrow('Fetch failed');
+    const check2 = expect(promise2).rejects.toThrow('Fetch failed');
+
+    await vi.advanceTimersByTimeAsync(20);
+
+    await Promise.all([check1, check2]);
 
     expect(operation).toHaveBeenCalledTimes(1);
 
@@ -68,10 +78,13 @@ describe('Cache Deduplication', () => {
       return 'result';
     });
 
-    await Promise.all([
+    const allP = Promise.all([
       withDataCache('key1', operation),
       withDataCache('key2', operation),
     ]);
+
+    await vi.advanceTimersByTimeAsync(20);
+    await allP;
 
     expect(operation).toHaveBeenCalledTimes(2);
   });

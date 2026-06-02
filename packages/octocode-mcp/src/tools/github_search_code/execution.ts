@@ -10,7 +10,11 @@ import type {
   ToolExecutionArgs,
   WithOptionalMeta,
 } from '../../types/execution.js';
-import { createSuccessResult, handleCatchError } from '../utils.js';
+import {
+  createErrorResult,
+  createSuccessResult,
+  handleCatchError,
+} from '../utils.js';
 import {
   mapCodeSearchProviderResult,
   mapCodeSearchToolQuery,
@@ -30,6 +34,18 @@ import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 export { applyGithubSearchCodeVerbosity } from './finalizer.js';
 
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
+
+function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
+  const keywords = query.keywordsToSearch ?? [];
+  return Boolean(
+    keywords.some(keyword => keyword.trim().length > 0) ||
+    query.owner ||
+    query.repo ||
+    query.path ||
+    query.extension ||
+    query.filename
+  );
+}
 
 export async function searchMultipleGitHubCode(
   args: ToolExecutionArgs<PartialCodeSearchQuery>
@@ -68,6 +84,12 @@ export async function searchMultipleGitHubCode(
               CONCISE_SEARCH_CODE_LIMIT
             );
           }
+        }
+        if (!hasValidCodeSearchParams(query)) {
+          return createErrorResult(
+            'At least one search term or scope filter is required.',
+            query
+          );
         }
         const ctx = getProviderContext();
         const providerResult = await executeProviderOperation(query, () =>

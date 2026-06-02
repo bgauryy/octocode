@@ -190,9 +190,10 @@ describe('tool TSV projections — sample data', () => {
       'content',
       'snippet',
     ]);
+    // range.start.line 10 (0-based LSP) → 11 (1-based TSV).
     expect(rows[0]).toMatchObject({
       uri: 'src/a.ts',
-      line: 10,
+      line: 11,
       column: 4,
       snippet: 'export class A',
     });
@@ -208,8 +209,9 @@ describe('tool TSV projections — sample data', () => {
         },
       ],
     });
+    // range.start.line 22 (0-based LSP) → 23 (1-based TSV).
     expect(rows[0]).toMatchObject({
-      line: 22,
+      line: 23,
       column: 0,
     });
   });
@@ -256,13 +258,14 @@ describe('tool TSV projections — sample data', () => {
       'uri',
       'line',
       'column',
-      'fromRanges',
+      'fromLines',
     ]);
+    // range.start.line 5 (0-based LSP) → 6 (1-based TSV).
     expect(rows[0]).toMatchObject({
       direction: 'incoming',
       name: 'callerFn',
       uri: 'src/c.ts',
-      line: 5,
+      line: 6,
       column: 2,
     });
   });

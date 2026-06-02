@@ -80,11 +80,17 @@ export function validateToolPath(
       errorResult: createErrorResult(toolError, query, { toolName }),
     };
   }
-  const cwd = process.cwd();
+  const cwd = process.env.WORKSPACE_ROOT ?? process.cwd();
   const inputPath = query.path.replace(/^file:\/\//, '');
-  const resolvedPath = path.resolve(inputPath);
+  // Resolve relative paths against WORKSPACE_ROOT (or CWD) so that agents
+  // using relative paths from the workspace root get the correct absolute path.
+  // pathValidator.validate also calls path.resolve internally, so passing the
+  // pre-resolved absolute path ensures sanitizedPath is correct.
+  const resolvedPath = path.isAbsolute(inputPath)
+    ? inputPath
+    : path.resolve(cwd, inputPath);
 
-  const validation = pathValidator.validate(inputPath);
+  const validation = pathValidator.validate(resolvedPath);
 
   if (!validation.isValid) {
     const toolError = ToolErrors.pathValidationFailed(

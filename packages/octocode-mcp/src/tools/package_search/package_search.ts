@@ -3,6 +3,9 @@ import type { z } from 'zod/v4';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type NpmPackageQuery = z.infer<typeof NpmPackageQuerySchema>;
+type PackageSearchQuery = Omit<NpmPackageQuery, 'ecosystem'> & {
+  ecosystem?: 'npm';
+};
 import {
   PackageSearchBulkQueryLocalSchema,
   PackageSearchOutputLocalSchema,
@@ -27,7 +30,7 @@ export function describePackageSearch(base: string): string {
 }
 
 export const registerPackageSearchTool =
-  createRemoteToolRegistration<NpmPackageQuery>({
+  createRemoteToolRegistration<PackageSearchQuery>({
     name: TOOL_NAMES.PACKAGE_SEARCH,
     title: 'Package Search',
     inputSchema: PackageSearchBulkQueryLocalSchema,

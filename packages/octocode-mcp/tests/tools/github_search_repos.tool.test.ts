@@ -62,6 +62,21 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
   });
 
   describe('Status: hasResults', () => {
+    it('rejects an empty repository search before calling the provider', async () => {
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+        {
+          queries: [{}],
+        }
+      );
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain(
+        'At least one repository search term or filter is required'
+      );
+      expect(mockProvider.searchRepos).not.toHaveBeenCalled();
+    });
+
     it('should return hasResults status when API returns repositories', async () => {
       mockProvider.searchRepos.mockResolvedValue({
         data: {

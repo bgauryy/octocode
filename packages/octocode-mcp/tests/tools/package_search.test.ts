@@ -8,7 +8,6 @@ import {
   beforeEach,
   afterEach,
 } from 'vitest';
-import { PackageSearchQuerySchema } from '@octocodeai/octocode-core';
 import type { ToolInvocationCallback } from '../../src/types.js';
 import {
   createMockMcpServer,
@@ -317,93 +316,6 @@ import {
 } from '../../src/utils/package/common.js';
 import { registerPackageSearchTool } from '../../src/tools/package_search/package_search.js';
 import { _resetNpmRegistryUrlCache } from '../../src/utils/package/npm.js';
-
-describe.skip('PackageSearchQuerySchema', () => {
-  const withResearchFields = <T extends object>(query: T) => ({
-    id: 'test:pkg-search',
-    ...query,
-    mainResearchGoal: 'Test research goal',
-    researchGoal: 'Testing package search',
-    reasoning: 'Unit test for schema',
-  });
-
-  describe('NPM ecosystem validation', () => {
-    it('should validate NPM package query', () => {
-      const query = withResearchFields({
-        ecosystem: 'npm',
-        name: 'axios',
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.ecosystem).toBe('npm');
-        expect(result.data.name).toBe('axios');
-      }
-    });
-
-    it('should validate NPM query with itemsPerPage', () => {
-      const query = withResearchFields({
-        ecosystem: 'npm',
-        name: 'lodash',
-        itemsPerPage: 5,
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.itemsPerPage).toBe(5);
-      }
-    });
-
-    it('should validate NPM query with npmFetchMetadata', () => {
-      const query = withResearchFields({
-        ecosystem: 'npm',
-        name: 'react',
-        npmFetchMetadata: true,
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(true);
-      if (result.success && result.data.ecosystem === 'npm') {
-        expect(result.data.npmFetchMetadata).toBe(true);
-      }
-    });
-
-    it('should reject empty package name', () => {
-      const query = withResearchFields({
-        ecosystem: 'npm',
-        name: '',
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject itemsPerPage > 10', () => {
-      const query = withResearchFields({
-        ecosystem: 'npm',
-        name: 'axios',
-        itemsPerPage: 15,
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(false);
-    });
-  });
-
-  describe('Invalid ecosystem', () => {
-    it('should reject invalid ecosystem', () => {
-      const query = withResearchFields({
-        ecosystem: 'invalid',
-        name: 'test',
-      });
-
-      const result = PackageSearchQuerySchema.safeParse(query);
-      expect(result.success).toBe(false);
-    });
-  });
-});
 
 describe('searchPackage - NPM (CLI)', () => {
   beforeEach(() => {

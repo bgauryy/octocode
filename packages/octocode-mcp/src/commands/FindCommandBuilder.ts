@@ -2,7 +2,9 @@ import { BaseCommandBuilder } from './BaseCommandBuilder.js';
 import type { z } from 'zod/v4';
 import type { FindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
 
-type FindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
+type FindFilesQuery = z.infer<typeof FindFilesQuerySchema> & {
+  modifiedAfter?: string;
+};
 
 export class FindCommandBuilder extends BaseCommandBuilder {
   private isMacOS: boolean;
@@ -149,17 +151,22 @@ export class FindCommandBuilder extends BaseCommandBuilder {
 
     if (query.modifiedWithin) {
       const parsed = this.parseTimeString(query.modifiedWithin);
-      this.addOption(parsed.unit, `-${parsed.value}`);
+      if (parsed) this.addOption(parsed.unit, `-${parsed.value}`);
     }
 
     if (query.modifiedBefore) {
       const parsed = this.parseTimeString(query.modifiedBefore);
-      this.addOption(parsed.unit, `+${parsed.value}`);
+      if (parsed) this.addOption(parsed.unit, `+${parsed.value}`);
+    }
+
+    if (query.modifiedAfter) {
+      const parsed = this.parseTimeString(query.modifiedAfter);
+      if (parsed) this.addOption(parsed.unit, `-${parsed.value}`);
     }
 
     if (query.accessedWithin) {
       const parsed = this.parseTimeStringAccess(query.accessedWithin);
-      this.addOption(parsed.unit, `-${parsed.value}`);
+      if (parsed) this.addOption(parsed.unit, `-${parsed.value}`);
     }
 
     if (query.permissions) {
@@ -264,16 +271,18 @@ export class FindCommandBuilder extends BaseCommandBuilder {
   }
 
   /**
-   * Parses time string and returns appropriate find flag
-   * Hours use -mmin (minutes), days/weeks/months use -mtime (days)
+   * Parses a relative time string (e.g. "7d", "2h", "1w", "3m") and returns
+   * the appropriate find flag + value.  Returns `null` for unrecognised
+   * formats (e.g. ISO timestamps) so callers can skip or warn rather than
+   * silently emitting `-mtime -0` or `-mtime +0`.
    */
   private parseTimeString(timeStr: string): {
     value: number;
     unit: '-mtime' | '-mmin';
-  } {
+  } | null {
     const match = timeStr.match(/^(\d+)([hdwm])$/);
     if (!match || !match[1] || !match[2]) {
-      return { value: 0, unit: '-mtime' };
+      return null;
     }
 
     const value = parseInt(match[1], 10);
@@ -295,15 +304,16 @@ export class FindCommandBuilder extends BaseCommandBuilder {
   }
 
   /**
-   * Parses access time string (similar to mtime but uses -atime/-amin)
+   * Parses access time string (similar to mtime but uses -atime/-amin).
+   * Returns null for unrecognised formats so callers can skip gracefully.
    */
   private parseTimeStringAccess(timeStr: string): {
     value: number;
     unit: '-atime' | '-amin';
-  } {
+  } | null {
     const match = timeStr.match(/^(\d+)([hdwm])$/);
     if (!match || !match[1] || !match[2]) {
-      return { value: 0, unit: '-atime' };
+      return null;
     }
 
     const value = parseInt(match[1], 10);
