@@ -1084,7 +1084,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBe(150);
       expect(result.pagination?.hasMore).toBe(true);
-      expect(result.entries!.length).toBe(20); // Default page size
+      expect(result.entries!.length).toBe(100); // Default page size is 100
     });
 
     it('should paginate tree view when requested', async () => {
@@ -1558,9 +1558,9 @@ describe('localViewStructure', () => {
   });
 
   describe('NEW FEATURE: Entry-based pagination with default time sorting', () => {
-    it('should paginate with default 20 entries per page', async () => {
+    it('should paginate with default 100 entries per page', async () => {
       const fileList = Array.from(
-        { length: 50 },
+        { length: 150 },
         (_, i) => `file${i}.txt`
       ).join('\n');
       mockSafeExec.mockResolvedValue({
@@ -1589,7 +1589,7 @@ describe('localViewStructure', () => {
       mockSafeExec.mockResolvedValue({
         success: true,
         code: 0,
-        stdout: Array.from({ length: 50 }, (_, i) => `file${i}.txt`).join('\n'),
+        stdout: Array.from({ length: 150 }, (_, i) => `file${i}.txt`).join('\n'),
         stderr: '',
       });
 
@@ -1946,7 +1946,7 @@ describe('localViewStructure', () => {
     // C5: Char pagination was removed; these tests verify legacy char fields are safely ignored.
     it('should paginate entries even when charOffset/charLength are provided', async () => {
       const largeOutput = Array.from(
-        { length: 100 },
+        { length: 150 },
         (_, i) => `file${i}.txt`
       ).join('\n');
       mockSafeExec.mockResolvedValue({
@@ -1969,7 +1969,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.currentPage).toBe(1);
-      expect(result.pagination?.totalEntries).toBe(100);
+      expect(result.pagination?.totalEntries).toBe(150);
       expect(result.pagination?.hasMore).toBe(true);
       expect(result.pagination).not.toHaveProperty('charOffset');
       expect(result.pagination).not.toHaveProperty('totalChars');
@@ -2294,7 +2294,7 @@ describe('localViewStructure', () => {
 
     it('should show character pagination hints', async () => {
       const largeOutput = Array.from(
-        { length: 100 },
+        { length: 150 },
         (_, i) => `file${i}.txt`
       ).join('\n');
       mockSafeExec.mockResolvedValue({
@@ -2321,7 +2321,7 @@ describe('localViewStructure', () => {
 
     it('should show hints for next page using entry pagination', async () => {
       const largeOutput = Array.from(
-        { length: 100 },
+        { length: 150 },
         (_, i) => `file${i}.txt`
       ).join('\n');
       mockSafeExec.mockResolvedValue({
@@ -2678,7 +2678,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.warnings).toBeUndefined();
-      expect(result.entries!.length).toBeLessThanOrEqual(20); // Default entriesPerPage
+      expect(result.entries!.length).toBeLessThanOrEqual(100); // Default entriesPerPage is 100
     });
 
     it('should use entry pagination in non-recursive mode (C5: no char truncation)', async () => {
@@ -2701,7 +2701,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeLessThanOrEqual(20); // Default page size
+      expect(result.entries!.length).toBeLessThanOrEqual(100); // Default page size is 100
     });
   });
 

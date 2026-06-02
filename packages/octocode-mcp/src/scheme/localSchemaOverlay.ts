@@ -613,11 +613,13 @@ export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.omit(
   charLength: localCharLengthField,
   charOffset: charOffsetField,
   verbosity: createVerbosityField(),
-  // Entries are view-structure's atomic item → the canonical page-size knob.
-  itemsPerPage: describeField(
-    itemsPerPageField,
-    'Directory entries returned per response page — the page window over discovered entries (≤ limit). Default 20.'
-  ),
+  // Entries are view-structure's atomic item — default 100 so typical dirs
+  // fit on one page without a follow-up call.
+  itemsPerPage: clampedInt(1, 200)
+    .default(100)
+    .describe(
+      'Directory entries returned per response page (1–200). Default 100.'
+    ),
   page: relaxedPageNumberField.default(1),
   limit: limitField,
   depth: depthField,

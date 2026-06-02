@@ -18,7 +18,9 @@ export type {
 export async function searchPackage(
   query: PackageSearchInput
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
-  const fetchMetadata = query.npmFetchMetadata ?? false;
+  // Default to true so all results include description, license, weeklyDownloads,
+  // mainEntry and typeDefinitions — fields agents need for package evaluation.
+  const fetchMetadata = query.npmFetchMetadata ?? true;
   const searchLimit = query.itemsPerPage ?? 1;
   // Result-count cursor: page N fetches the registry window at offset
   // (N-1)*itemsPerPage, so matches beyond the first page are reachable.

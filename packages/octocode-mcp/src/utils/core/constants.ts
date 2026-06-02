@@ -35,9 +35,9 @@ export const RESOURCE_LIMITS = {
   /** Default maximum number of files to process */
   MAX_FILES_DEFAULT: 1000,
   /** Default entries per page for view_structure */
-  DEFAULT_ENTRIES_PER_PAGE: 20,
+  DEFAULT_ENTRIES_PER_PAGE: 100,
   /** Maximum entries per page for view_structure */
-  MAX_ENTRIES_PER_PAGE: 20,
+  MAX_ENTRIES_PER_PAGE: 200,
   /** Maximum list items to return in detailed mode (with size/permissions) */
   MAX_LIST_ITEMS_DETAILED: 100,
   /** Maximum list items to return in simple mode (paths only) */

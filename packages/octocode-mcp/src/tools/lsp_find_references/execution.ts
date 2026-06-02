@@ -27,7 +27,11 @@ export { applyFindReferencesVerbosity } from './lsp_find_references.js';
 export async function executeFindReferences(
   args: ToolExecutionArgs<LSPFindReferencesQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries, responseCharOffset } = args;
+  // LSP reference results must always be returned in full — char-based
+  // pagination forces agents to make multiple calls to reconstruct a complete
+  // reference list, breaking research flow. Bypass the env-var default.
+  const responseCharLength = Number.MAX_SAFE_INTEGER;
 
   return executeBulkOperation(
     queries || [],

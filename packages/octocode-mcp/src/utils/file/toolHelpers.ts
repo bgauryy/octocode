@@ -73,7 +73,7 @@ export function validateToolPath(
   query: PartialBaseQueryLocal & { path?: string },
   toolName: string
 ): ToolPathValidationResult {
-  if (!query.path) {
+  if (!query.path?.trim()) {
     const toolError = ToolErrors.pathValidationFailed('', 'path is required');
     return {
       isValid: false,

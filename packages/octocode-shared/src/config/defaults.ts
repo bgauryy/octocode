@@ -62,9 +62,9 @@ export const DEFAULT_LSP_CONFIG: RequiredLspConfig = {
 export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
   format: 'yaml',
   pagination: {
-    // THE single pagination char limit for every tool result (~500 tokens).
+    // THE single pagination char limit for every tool result (~2000 tokens).
     // Larger result sets are reached by paginating, never one big payload.
-    defaultCharLength: 2000,
+    defaultCharLength: 8000,
   },
 };
 

@@ -381,6 +381,9 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
         z.object({
           path: z.string(),
           value: z.string().optional(),
+          matchIndices: z
+            .array(z.object({ start: z.number(), end: z.number() }))
+            .optional(),
         })
       ),
     })
@@ -460,8 +463,11 @@ export const GitHubViewRepoStructureQueryLocalSchema =
       UpstreamGitHubViewRepoStructureQuerySchema.shape.branch,
       'Branch, tag, or commit SHA. Omit to use the repository default branch.'
     ),
-    // Entries are the atomic item → the canonical page-size knob.
-    itemsPerPage: itemsPerPageField,
+    // Entries are the atomic item → default 100 so typical repos return in one
+    // page without a follow-up entryPageNumber=2 call.
+    itemsPerPage: clampedInt(1, 200)
+      .default(100)
+      .describe('Entries returned per page (1–200). Default 100.'),
     page: relaxedPageNumberField.default(1),
     // Clamp the upstream unbounded `depth` (it otherwise serializes the
     // ±9e15 safe-integer sentinel — schema bloat + a validation gap). Matches

@@ -16,6 +16,7 @@ import type {
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../types/execution.js';
 import { resolveGithubPerPage } from '../scheme/localSchemaOverlay.js';
+import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constants.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
@@ -106,6 +107,9 @@ export function mapCodeSearchToolQuery(
 export interface CodeSearchGroupedMatch {
   path: string;
   value?: string;
+  /** Char start/end positions of the keyword within `value`. Populated from
+   *  the provider's `positions` field when available. */
+  matchIndices?: Array<{ start: number; end: number }>;
 }
 
 export interface CodeSearchGroupedResult {
@@ -168,7 +172,11 @@ export function mapCodeSearchProviderResult(
     }
 
     for (const m of item.matches) {
-      group.matches.push({ path: item.path, value: m.context });
+      const match: CodeSearchGroupedMatch = { path: item.path, value: m.context };
+      if (m.positions?.length > 0) {
+        match.matchIndices = m.positions.map(([start, end]) => ({ start, end }));
+      }
+      group.matches.push(match);
     }
   }
 
@@ -547,9 +555,10 @@ export function mapRepoStructureToolQuery(
     // Tool surface uses the cross-tool `itemsPerPage` (page size) + `page`
     // (page number); the provider/structure layer still calls its params
     // `entriesPerPage` / `entryPageNumber` internally.
+    // Default to 100 so typical monorepo roots return in a single call.
     entriesPerPage: (() => {
       const ipp = (query as { itemsPerPage?: number }).itemsPerPage;
-      return typeof ipp === 'number' ? ipp : undefined;
+      return typeof ipp === 'number' ? ipp : GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
     })(),
     entryPageNumber: (() => {
       const p = (query as { page?: number }).page;

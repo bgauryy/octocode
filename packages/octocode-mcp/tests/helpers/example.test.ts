@@ -321,8 +321,8 @@ describe('Example: Using Unified Test Helpers', () => {
 
       const result = await viewStructure({
         path: '/workspace',
-        entriesPerPage: 10,
-        entryPageNumber: 1,
+        itemsPerPage: 10,
+        page: 1,
       });
 
       expect(result.status).toBeUndefined();
