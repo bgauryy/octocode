@@ -1315,12 +1315,12 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
     npmPackage: 'octocode-mcp',
     installConfig: {
       command: 'npx',
-      args: ['-y', 'octocode-mcp'],
+      args: ['-y', 'octocode-mcp@latest'],
     },
     requiredEnvVars: [
       {
-        name: 'GITHUB_PERSONAL_ACCESS_TOKEN',
-        description: 'GitHub Personal Access Token',
+        name: 'GITHUB_TOKEN',
+        description: 'GitHub token (also accepts OCTOCODE_TOKEN or GH_TOKEN)',
       },
     ],
     tags: ['github', 'npm', 'research', 'code'],

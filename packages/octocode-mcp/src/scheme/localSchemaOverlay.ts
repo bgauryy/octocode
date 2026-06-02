@@ -370,25 +370,19 @@ const RIPGREP_HIDDEN_FIELDS = {
   matchesPerPage: true,
   filesPerPage: true,
   filePageNumber: true,
-  smartCase: true, // default behavior — no need to expose; caseSensitive overrides
-  caseInsensitive: true, // smartCase covers it; rare to force on an uppercase pattern
-  invertMatch: true, // niche ("lines NOT matching")
+  smartCase: true, // default behavior — no need to expose; caseSensitive/caseInsensitive override
   beforeContext: true, // asymmetric context — contextLines covers the common case
   afterContext: true,
-  multiline: true, // line-based search covers ~all code lookups
-  multilineDotall: true,
   binaryFiles: true, // default (skip binaries) is right; agents don't grep binaries
   encoding: true, // auto-detection is reliable
   includeStats: true, // diagnostic
   noMessages: true, // agents should SEE errors, not suppress them
-  lineRegexp: true, // niche (whole-line match)
+  lineRegexp: true, // niche (whole-line match) — achievable with anchored regex ^X$
   passthru: true, // prints all lines — conflicts with structured output
   debug: true, // diagnostic
   showFileLastModified: true, // metadata → localFindFiles
-  sort: true, // result ordering → default path order; time-sort via localFindFiles
-  sortReverse: true,
   noUnicode: true, // perf/encoding edge
-  threads: true, // perf knob — never agent-relevant
+  threads: true, // perf knob — capped at 4 in builder for MCP parallel-query safety
   mmap: true, // perf knob
   followSymlinks: true, // niche
 } as const;
@@ -423,9 +417,49 @@ const RipgrepQueryBaseSchema = UpstreamRipgrepQuerySchema.omit(
   itemsPerPage: itemsPerPageField,
   matchesPerFile: matchesPerFileField,
   page: relaxedPageNumberField.default(1),
+  // Pattern-behaviour modifiers restored to the MCP surface — each has clear
+  // agent use cases that the hidden-field rationale undervalued.
+  invertMatch: UpstreamRipgrepQuerySchema.shape.invertMatch.describe(
+    'Return lines/files NOT matching the pattern (-v). ' +
+      'Combine with filesOnly to list files that lack a pattern entirely.'
+  ),
+  caseInsensitive: UpstreamRipgrepQuerySchema.shape.caseInsensitive.describe(
+    'Force case-insensitive matching (-i). Overrides smartCase. ' +
+      'Use when the pattern has uppercase letters but case should be ignored ' +
+      '(e.g. pattern="TodoItem", want to match todoitem / TODOITEM too). ' +
+      'Mutually exclusive with caseSensitive.'
+  ),
+  multiline: UpstreamRipgrepQuerySchema.shape.multiline.describe(
+    'Enable cross-line matching (-U). Pattern can span multiple lines. ' +
+      'Useful for multi-line function signatures, JSDoc-above-function, ' +
+      'try/catch spans, or destructured imports. ' +
+      'Pair with perlRegex for named captures; pair with multilineDotall to let . match newlines.'
+  ),
+  multilineDotall: UpstreamRipgrepQuerySchema.shape.multilineDotall.describe(
+    'Make . match newlines in multiline mode (--multiline-dotall). ' +
+      'Requires multiline=true. Use for patterns that span arbitrary-length blocks.'
+  ),
+  // Sort by content-search results directly, avoiding a separate localFindFiles call.
+  // The builder already defaults to --sort path; exposing this lets agents override
+  // to sort by modification time in one call (e.g. "recently changed files matching X").
+  sort: z
+    .enum(['path', 'modified', 'accessed', 'created'])
+    .optional()
+    .default('path')
+    .describe(
+      'Sort results by: path (default, deterministic), modified (most recently changed first), ' +
+        'accessed, or created. Use modified to surface recently changed files matching a pattern ' +
+        'without a separate localFindFiles call. ' +
+        'Note: accessed is unreliable on Windows (NTFS disables atime by default) — prefer modified or created there.'
+    ),
+  sortReverse: UpstreamRipgrepQuerySchema.shape.sortReverse.describe(
+    'Reverse sort direction. Pair with sort (e.g. sort=modified + sortReverse=true for oldest first).'
+  ),
   // Symmetric context window, clamped so one query can't request an absurd
   // span. Asymmetric before/after is hidden — contextLines covers the need.
-  contextLines: contextLinesField,
+  // Default 2: most agent queries benefit from a small context window without
+  // explicitly requesting one — saves a param on the majority of calls.
+  contextLines: contextLinesField.default(2),
   // Pre-pagination hard caps — bounded so the published schema doesn't expose
   // the ±MAX_SAFE_INTEGER range and absurd values are rejected up front.
   maxFiles: ripgrepCapField,
@@ -441,6 +475,10 @@ export const RipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
       filesWithoutMatch?: boolean;
       fixedString?: boolean;
       perlRegex?: boolean;
+      caseSensitive?: boolean;
+      caseInsensitive?: boolean;
+      multiline?: boolean;
+      multilineDotall?: boolean;
     };
     if (d.filesOnly === true && d.filesWithoutMatch === true) {
       ctx.addIssue({
@@ -456,6 +494,22 @@ export const RipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
         message:
           '`fixedString` and `perlRegex` are mutually exclusive. fixedString treats the pattern as a literal string; perlRegex treats it as a Perl-compatible regex. Choose ONE.',
         path: ['perlRegex'],
+      });
+    }
+    if (d.caseSensitive === true && d.caseInsensitive === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          '`caseSensitive` and `caseInsensitive` are mutually exclusive. Choose ONE: caseSensitive=true for exact-case matching, OR caseInsensitive=true to ignore case entirely.',
+        path: ['caseInsensitive'],
+      });
+    }
+    if (d.multilineDotall === true && d.multiline !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          '`multilineDotall` requires `multiline=true`. Set multiline=true to enable cross-line matching first.',
+        path: ['multilineDotall'],
       });
     }
   }

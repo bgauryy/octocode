@@ -27,6 +27,20 @@ octocode-cli auth                  # GitHub authentication
 
 ---
 
+## GitHub Token
+
+Octocode resolves a GitHub token in this order: **environment variable → Octocode-managed token (`auth login`) → `gh` CLI**.
+
+For env-based setup, any of these are accepted (checked in this priority): `OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`.
+
+```bash
+export GITHUB_TOKEN=ghp_xxx        # or OCTOCODE_TOKEN / GH_TOKEN
+octocode-cli token --source        # show which token & source is being used
+octocode-cli token --validate      # ping the GitHub API to verify it
+```
+
+---
+
 ## Run Tools
 
 Call any of the 14 Octocode tools directly from the terminal — great for scripts, pipelines, and one-off queries.

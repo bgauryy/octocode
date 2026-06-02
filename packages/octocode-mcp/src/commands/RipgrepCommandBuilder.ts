@@ -286,8 +286,15 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     query: RipgrepQuery,
     isPlainTextOutput: boolean
   ): void {
+    // Cap at 4 threads for MCP mode: up to 5 bulk queries run in parallel,
+    // each spawning rg. Without a cap, rg auto-selects CPU count threads —
+    // on an 8-core host that's 40 threads from a single bulk call. 4 threads
+    // is enough for fast ripgrep performance while leaving headroom for sibling queries.
+    const MAX_MCP_THREADS = 4;
     if (query.threads !== undefined) {
-      this.addOption('-j', query.threads);
+      this.addOption('-j', Math.min(query.threads, MAX_MCP_THREADS));
+    } else {
+      this.addOption('-j', MAX_MCP_THREADS);
     }
 
     if (query.mmap === false) {
