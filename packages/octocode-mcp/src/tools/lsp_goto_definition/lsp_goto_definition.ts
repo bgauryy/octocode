@@ -6,7 +6,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
 
 import { BulkLSPGotoDefinitionQuerySchema } from '../../scheme/lspSchemaOverlay.js';
 import { executeGotoDefinition, TOOL_NAME } from './execution.js';
@@ -23,7 +23,9 @@ export function registerLSPGotoDefinitionTool(server: McpServer) {
     {
       description: DESCRIPTIONS[TOOL_NAME],
       inputSchema: toMCPSchema(BulkLSPGotoDefinitionQuerySchema),
-      outputSchema: toMCPSchema(withTsvEnvelope(LspGotoDefinitionOutputSchema)),
+      outputSchema: toMCPSchema(
+        withResponseEnvelope(LspGotoDefinitionOutputSchema)
+      ),
       annotations: {
         title: 'Go To Definition',
         readOnlyHint: true,

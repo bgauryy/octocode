@@ -5,7 +5,6 @@ import {
 import type { BulkFinalizerOutput } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
 import { countSerializedChars } from './charSavings.js';
-import { stripTsvEnvelope } from '../../scheme/tsvEnvelope.js';
 import { getBulkDefaultCharLength } from '../pagination/charLimit.js';
 
 export type CharPagination = {
@@ -381,11 +380,9 @@ export function formatFinalizedResponse<T extends Record<string, unknown>>(
   );
 
   return {
-    // structuredContent holds the canonical records; the presentation-only TSV
-    // envelope stays in `text` so the same rows aren't serialized twice. (#A1)
-    structuredContent: sanitizeStructuredContent(
-      stripTsvEnvelope(responseData)
-    ) as T,
+    // structuredContent holds the canonical records, surfaced identically in
+    // `text` and here. (#A1)
+    structuredContent: sanitizeStructuredContent(responseData) as T,
     text,
     isError,
   };

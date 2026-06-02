@@ -6,9 +6,9 @@ This playbook verifies that every Octocode MCP tool works as a research tool, no
 
 The active MCP tool catalog is defined in [packages/octocode-mcp/src/tools/toolConfig.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/toolConfig.ts). The public schema overlays live in [packages/octocode-mcp/src/scheme/localSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/localSchemaOverlay.ts), [packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts), and [packages/octocode-mcp/src/scheme/lspSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/lspSchemaOverlay.ts).
 
-Response behavior is shared through [packages/octocode-mcp/src/utils/response/bulk.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/bulk.ts), [packages/octocode-mcp/src/utils/response/structuredPagination.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/structuredPagination.ts), [packages/octocode-mcp/src/utils/pagination/hints.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/pagination/hints.ts), [packages/octocode-mcp/src/scheme/tsvEnvelope.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/tsvEnvelope.ts), and [packages/octocode-mcp/src/scheme/verbosity.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/verbosity.ts).
+Response behavior is shared through [packages/octocode-mcp/src/utils/response/bulk.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/bulk.ts), [packages/octocode-mcp/src/utils/response/structuredPagination.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/structuredPagination.ts), [packages/octocode-mcp/src/utils/pagination/hints.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/pagination/hints.ts), [packages/octocode-mcp/src/scheme/responseEnvelope.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/responseEnvelope.ts), and [packages/octocode-mcp/src/scheme/verbosity.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/verbosity.ts).
 
-Existing contract tests that this playbook extends include [packages/octocode-mcp/tests/tools/all-tools.tsv-and-pagination.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/all-tools.tsv-and-pagination.test.ts), [packages/octocode-mcp/tests/tools/hints/all-tools.lean-contract.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/hints/all-tools.lean-contract.test.ts), [packages/octocode-mcp/tests/tools/response_structure.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/response_structure.test.ts), and [packages/octocode-mcp/tests/tools/executionBoundaries.flows.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/executionBoundaries.flows.test.ts).
+Existing contract tests that this playbook extends include [packages/octocode-mcp/tests/tools/all-tools.pagination.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/all-tools.pagination.test.ts), [packages/octocode-mcp/tests/tools/hints/all-tools.lean-contract.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/hints/all-tools.lean-contract.test.ts), [packages/octocode-mcp/tests/tools/response_structure.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/response_structure.test.ts), and [packages/octocode-mcp/tests/tools/executionBoundaries.flows.test.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/tests/tools/executionBoundaries.flows.test.ts).
 
 ## Verification Goals
 
@@ -19,7 +19,7 @@ Every tool must pass the same top-level contract:
 | Registration | Tool is present in `ALL_TOOLS`, has a direct execution definition, has MCP input and output schema, and registers with the expected security wrapper. |
 | Bulk envelope | `queries` accepts 1 to 5 items, preserves order, rejects duplicate `id`, isolates per-query errors, and does not let one bad query block siblings. |
 | Metadata | `id`, `mainResearchGoal`, `researchGoal`, and `reasoning` flow into execution when provided but are not echoed into tool data. Direct CLI auto-fill should keep direct calls usable with only tool-specific fields. |
-| Output modes | `format:"tsv"` emits `format`, `columns`, and `rows`; `format:"json"` preserves native shape; `structuredContent` remains complete enough for programmatic callers. |
+| Output shape | Responses are structured YAML/JSON `results[]` (single source of truth in `content[0].text` and `structuredContent`). Lean hoists apply: `base` relativizes absolute `path`/`uri`, `shared` collapses constants identical across leaves (identity keys `owner`/`repo`/`name`/`id` are never hoisted). |
 | Pagination | Native page fields, query-level `charOffset`/`charLength`, and top-level `responseCharOffset`/`responseCharLength` work independently and together. Pagination hints appear only when `hasMore=true`. |
 | Hints | Tool `hints.ts` files expose only `empty` and `error`. Empty hints are conditional and filter-aware. Error hints classify the failure and stay short. Success path hints are limited to data-bearing signals such as pagination or warnings. |
 | Empty results | Successful no-match responses are not errors. They must include a clear empty signal, preserve query identity, and provide recovery hints only when the query context makes a concrete next step possible. |
@@ -43,7 +43,7 @@ Run these scenarios for every tool before adding tool-specific edge cases:
 | Six queries | Bulk schema rejects more than five queries. |
 | Mixed success, empty, error | One response contains all three states, preserves input order, dedupes top-level hints, and sets `isError=false` unless all entries failed. |
 | All errors | Tool sets `isError=true`, preserves one error per query, and includes no misleading success evidence. |
-| TSV projection | Projection has columns, renders a header even with no rows, escapes tabs/newlines, and does not duplicate large content fields. |
+| Lean output | `base` relativizes absolute `path`/`uri` against a common root; `shared` hoists scalar fields identical across all leaves; both are lossless and reconstructable, and identity keys (`owner`/`repo`/`name`/`id`) stay per-item. |
 | Query pagination | `charLength` creates query-level pagination metadata and a next cursor; re-calling with the cursor continues without duplicating content. |
 | Response pagination | `responseCharLength` pages the outer multi-query response and leaves native per-query pagination intact. |
 | Final page | No pagination hint appears when `hasMore=false`. |
@@ -65,7 +65,7 @@ Primary code: [src/tools/github_search_code/](https://github.com/bgauryy/octocod
 | Pagination | Upstream provider pagination, per-query `outputPagination`, and top-level `responsePagination` can all appear without overwriting each other. |
 | Empty | No-match queries appear in `emptyQueries` with query id and concrete recovery hints. Empty groups are not silently dropped in mixed bulk calls. |
 | Warnings | `match-value-truncated` includes group id, path, full length, truncation point, and recovery. |
-| Research quality | A hit must include enough path and snippet evidence to justify a follow-up `githubGetFileContent` call. TSV rows must include `id`, `owner`, `repo`, `path`, and `value`. |
+| Research quality | A hit must include enough path and snippet evidence to justify a follow-up `githubGetFileContent` call. Each result must carry `owner`, `repo`, and per-match `path` and `value`. |
 
 ### `githubGetFileContent`
 
@@ -91,7 +91,7 @@ Primary code: [src/tools/github_view_repo_structure/](https://github.com/bgauryy
 | Implementation | Tree keys are stable, files and folders are separated, branch fallback details are preserved, and provider errors retain owner/repo/path context. |
 | Pagination | Entry pagination uses `entryPageNumber=N+1` hints only while more entries exist. Page counts must match total entries, not only visible folders. |
 | Empty | Empty repository paths or filters return empty with precise path/branch context. Missing paths return error. |
-| Research quality | Structure should support choosing the next content or search query without guessing. TSV rows must flatten parent/name/type/path. |
+| Research quality | Structure should support choosing the next content or search query without guessing. Entries must expose `path` and `type`. |
 
 ### `githubSearchRepositories`
 
@@ -192,7 +192,7 @@ Primary code: [src/tools/local_fetch_content/](https://github.com/bgauryy/octoco
 | Implementation | Handles UTF-8 files, large files, minified content, binary/unreadable files, no trailing newline, and out-of-range line requests. |
 | Pagination | Character pagination continues exact content without overlap. Match extraction plus pagination should preserve `matchRanges`. |
 | Empty | A missing `matchString` result returns empty with no fake content. Missing file and invalid path are errors. |
-| Research quality | Returned content must include path, line range, total lines, `isPartial`, and enough source text to cite or reason from. TSV omits content by design. |
+| Research quality | Returned content must include path, line range, total lines, `isPartial`, and enough source text to cite or reason from. Partial line-range reads emit a `startLine=N` continuation hint. |
 
 ### `lspGotoDefinition`
 
@@ -270,15 +270,15 @@ Use this list to turn verification failures into focused improvements:
 | Pagination | Add end-to-end cursor replay tests for every pagination dimension, not only generator unit tests. |
 | LSP semantics | Add fixtures covering same-symbol multiple occurrences, import/export chains, dynamic imports, generated files, and non-TypeScript language fallbacks. |
 | Remote semantics | Add provider-mapper tests for branch fallback, merged PR state, repository language filtering, topic/query merging, and package repo URL normalization. |
-| TSV contract | Add sample-shaped TSV tests for remote tools with warnings, empty queries, and mixed results, not only happy-path rows. |
-| Direct CLI parity | Verify direct CLI schema help, auto-filled metadata, JSON/TSV output, and direct execution match MCP behavior. |
+| Lean-output contract | Add tests for `base`/`shared` hoisting across tools with warnings, empty queries, and mixed results — including identity-key exclusion and exact reconstruction. |
+| Direct CLI parity | Verify direct CLI schema help, auto-filled metadata, JSON/YAML output, and direct execution match MCP behavior. |
 
 ## Suggested Command Sets
 
 From `packages/octocode-mcp/`, run the focused suites first:
 
 ```bash
-yarn test tests/tools/all-tools.tsv-and-pagination.test.ts
+yarn test tests/tools/all-tools.pagination.test.ts
 yarn test tests/tools/hints/all-tools.lean-contract.test.ts
 yarn test tests/tools/response_structure.test.ts
 yarn test tests/tools/executionBoundaries.flows.test.ts
@@ -305,9 +305,9 @@ npx knip
 
 Do not mark a tool-surface change complete until these are true:
 
-1. All 14 tools still register and have TSV projections.
+1. All 14 tools still register with input and output schemas.
 2. All public schema defaults, caps, hidden fields, and mutex rules have tests.
-3. Every tool has success, empty, error, mixed-bulk, pagination, TSV, JSON, and verbosity coverage.
+3. Every tool has success, empty, error, mixed-bulk, pagination, lean-output (`base`/`shared`), and verbosity coverage.
 4. Remote tools cover auth, rate limit, provider error, no results, and provider-mapper edge cases.
 5. Local tools cover path validation, large output, hidden/ignored files, empty results, and command allow-list behavior.
 6. LSP tools cover semantic success, fallback mode, symbol-not-found, wrong line hint, `orderHint`, pagination, and context snippets.

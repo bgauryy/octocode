@@ -17,7 +17,7 @@ These run with `npx vitest run` and gate every change:
 | Concern | Test |
 |---|---|
 | Per-tool pagination-knob declaration + no silent-loss language | `tests/tools/all-tools.pagination-contract.test.ts` |
-| TSV projection + pagination-cursor uniformity | `tests/tools/all-tools.tsv-and-pagination.test.ts` |
+| pagination-cursor uniformity | `tests/tools/all-tools.pagination.test.ts` |
 | Bulk-envelope numeric bounds (`responseChar*`, ≤5 queries) | `tests/scheme/bulk_envelope_bounds.test.ts` |
 | Catalog registration + bulk-schema existence | `tests/tools/directToolCatalog.test.ts` |
 | Pagination engine (within-item slicing, oversized items) | `tests/utils/structuredPagination*.test.ts` |

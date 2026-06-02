@@ -3,7 +3,7 @@
 > Search code across public GitHub repos.
 >
 > **Manual runtime checklist** — run each step against the live MCP tool (or `benchmark/github/scripts/call-tool.mjs githubSearchCode '<queries-json>'`) and tick the box.
-> Automated schema-contract checks live in `tests/tools/all-tools.pagination-contract.test.ts`; TSV + cursor-uniformity in `tests/tools/all-tools.tsv-and-pagination.test.ts`.
+> Automated schema-contract checks live in `tests/tools/all-tools.pagination-contract.test.ts`; cursor-uniformity in `tests/tools/all-tools.pagination.test.ts`.
 
 ## 1. Scheme
 - [ ] Tool is registered and accepts the bulk envelope: `queries[]`, `responseCharOffset`, `responseCharLength`, `format`.
@@ -25,7 +25,7 @@
 - [ ] Identifiers (paths, owners, line numbers, SHAs) are accurate and not mangled.
 
 ## 4. Token effectiveness
-- [ ] Default `format` is **TSV** (lean); request `format:"json"` only when nested fields are needed.
+- [ ] Output is lean structured YAML — `base` relativizes paths and `shared` hoists constants shared across rows (no per-call `format` knob).
 - [ ] `verbosity:"concise"` yields a **strictly smaller** payload than `basic` for the same query.
 - [ ] The size knob (`charLength` / `page`) lets you fetch exactly what you need — the tool never over-returns.
 

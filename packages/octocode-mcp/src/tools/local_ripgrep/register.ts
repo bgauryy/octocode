@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 import { BulkRipgrepQuerySchema } from '../../scheme/localSchemaOverlay.js';
 import { executeRipgrepSearch } from './execution.js';
@@ -19,7 +19,9 @@ export function registerLocalRipgrepTool(server: McpServer) {
     {
       description: DESCRIPTION,
       inputSchema: toMCPSchema(BulkRipgrepQuerySchema),
-      outputSchema: toMCPSchema(withTsvEnvelope(LocalSearchCodeOutputSchema)),
+      outputSchema: toMCPSchema(
+        withResponseEnvelope(LocalSearchCodeOutputSchema)
+      ),
       annotations: {
         title: 'Local Ripgrep Search',
         readOnlyHint: true,

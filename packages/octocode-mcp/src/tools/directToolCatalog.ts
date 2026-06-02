@@ -2,7 +2,6 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod/v4';
 import { initialize } from '../serverConfig.js';
 import { initializeProviders } from '../providers/factory.js';
-import { DEFAULT_TOOL_RESPONSE_FORMAT } from '../types/execution.js';
 import {
   buildToolErrorResult,
   sanitizeCallToolResult,
@@ -18,7 +17,6 @@ export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];
   responseCharLength?: number;
   responseCharOffset?: number;
-  format?: 'tsv' | 'json';
 };
 
 export interface DirectToolDefinition {
@@ -90,7 +88,6 @@ type DirectToolAutoFilledField =
   | 'reasoning';
 
 export interface PrepareDirectToolInputOptions {
-  format?: 'tsv' | 'json';
   sourceLabel?: string;
 }
 
@@ -437,7 +434,6 @@ function buildDirectToolPayload(
     ),
     responseCharLength,
     responseCharOffset,
-    format: options.format ?? DEFAULT_TOOL_RESPONSE_FORMAT,
   };
 }
 

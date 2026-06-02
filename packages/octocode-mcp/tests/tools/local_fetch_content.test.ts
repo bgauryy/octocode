@@ -717,7 +717,9 @@ describe('localGetFileContent', () => {
 
       // charOffset >= content length → explicit error with actionable hints
       expect(result.status).toBe('error');
-      expect(result.error).toContain('charOffset 100 exceeds file content length');
+      expect(result.error).toContain(
+        'charOffset 100 exceeds file content length'
+      );
       expect(result.hints).toBeDefined();
     });
 
@@ -733,7 +735,9 @@ describe('localGetFileContent', () => {
 
       // charOffset >> content length → explicit error with actionable hints
       expect(result.status).toBe('error');
-      expect(result.error).toContain('charOffset 1000 exceeds file content length');
+      expect(result.error).toContain(
+        'charOffset 1000 exceeds file content length'
+      );
       expect(result.hints).toBeDefined();
     });
 
@@ -1222,6 +1226,66 @@ describe('localGetFileContent', () => {
       expect(result.hints?.some(h => h.includes('exceeds file length'))).toBe(
         true
       );
+    });
+
+    it('should emit a line-range continuation hint when the read stops before EOF', async () => {
+      const lines = [];
+      for (let i = 1; i <= 100; i++) {
+        lines.push(`line ${i}`);
+      }
+      mockReadFile.mockResolvedValue(lines.join('\n'));
+
+      const result = await fetchContent({
+        path: 'test.txt',
+        startLine: 1,
+        endLine: 40,
+      });
+
+      expect(result.status).toBeUndefined();
+      expect(result.isPartial).toBe(true);
+      expect(
+        result.hints?.some(h =>
+          h.includes(
+            'More content: use startLine=41 to continue (60 lines remaining)'
+          )
+        )
+      ).toBe(true);
+    });
+
+    it('preserves the line-range continuation hint under concise verbosity', async () => {
+      const lines = [];
+      for (let i = 1; i <= 100; i++) {
+        lines.push(`const x${i} = ${i};`);
+      }
+      mockReadFile.mockResolvedValue(lines.join('\n'));
+
+      const result = await fetchContent({
+        path: 'test.ts',
+        startLine: 1,
+        endLine: 40,
+        verbosity: 'concise',
+      });
+
+      // Concise rewrites hints to a tiny summary, but pagination is orthogonal
+      // to verbosity — the continuation cursor must survive.
+      expect(
+        result.hints?.some(h =>
+          h.includes('More content: use startLine=41 to continue')
+        )
+      ).toBe(true);
+    });
+
+    it('should NOT emit a continuation hint when the range reaches EOF', async () => {
+      const testContent = 'line 1\nline 2\nline 3';
+      mockReadFile.mockResolvedValue(testContent);
+
+      const result = await fetchContent({
+        path: 'test.txt',
+        startLine: 1,
+        endLine: 3,
+      });
+
+      expect(result.hints?.some(h => h.includes('More content'))).toBeFalsy();
     });
 
     it('should apply minification to extracted lines', async () => {

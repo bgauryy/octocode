@@ -208,11 +208,10 @@ describe('directToolCatalog', () => {
     const single = prepareDirectToolInput(
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
       query,
-      { sourceLabel: 'unit-test', format: 'json' }
+      { sourceLabel: 'unit-test' }
     );
     expect(single).toEqual(
       expect.objectContaining({
-        format: 'json',
         queries: [
           expect.objectContaining({
             id: `${STATIC_TOOL_NAMES.LOCAL_RIPGREP}-1`,
@@ -237,7 +236,6 @@ describe('directToolCatalog', () => {
       expect.objectContaining({
         responseCharLength: 1000,
         responseCharOffset: 25,
-        format: 'tsv',
       })
     );
 

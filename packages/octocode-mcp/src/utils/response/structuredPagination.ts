@@ -998,7 +998,9 @@ function pageToolDataValue(
       // createOutputPagination to return hasMore=true in responsePagination,
       // preventing agents from thinking all data was delivered when 13 more
       // file pages remain (the file cursor is advanced via page=N, not charOffset).
-      const filePagination = data.pagination as { hasMore?: boolean } | undefined;
+      const filePagination = data.pagination as
+        | { hasMore?: boolean }
+        | undefined;
       return {
         value: promotedData,
         actualOffset: 0,

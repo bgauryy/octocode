@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 import { BulkFetchContentQuerySchema } from '../../scheme/localSchemaOverlay.js';
 import { executeFetchContent } from './execution.js';
@@ -17,7 +17,7 @@ export function registerLocalFetchContentTool(server: McpServer) {
       description: DESCRIPTIONS[TOOL_NAMES.LOCAL_FETCH_CONTENT],
       inputSchema: toMCPSchema(BulkFetchContentQuerySchema),
       outputSchema: toMCPSchema(
-        withTsvEnvelope(LocalGetFileContentOutputSchema)
+        withResponseEnvelope(LocalGetFileContentOutputSchema)
       ),
       annotations: {
         title: 'Local Fetch Content',

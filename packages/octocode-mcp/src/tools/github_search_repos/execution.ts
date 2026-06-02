@@ -412,8 +412,7 @@ function generateSearchSpecificHints(
 export async function searchMultipleGitHubRepos(
   args: ToolExecutionArgs<PartialReposSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
-    args;
+  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -616,8 +615,6 @@ export async function searchMultipleGitHubRepos(
       keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
     }

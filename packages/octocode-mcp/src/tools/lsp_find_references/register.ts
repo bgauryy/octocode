@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
 import { BulkLSPFindReferencesQuerySchema } from '../../scheme/lspSchemaOverlay.js';
 import { executeFindReferences } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
@@ -15,7 +15,7 @@ export function registerLSPFindReferencesTool(server: McpServer) {
       description: DESCRIPTIONS[TOOL_NAME],
       inputSchema: toMCPSchema(BulkLSPFindReferencesQuerySchema),
       outputSchema: toMCPSchema(
-        withTsvEnvelope(LspFindReferencesOutputLocalSchema)
+        withResponseEnvelope(LspFindReferencesOutputLocalSchema)
       ),
       annotations: {
         title: 'Find References',

@@ -631,10 +631,20 @@ const VALID_TIME_STRING_RE = /^\d+[hdwm]$/;
 function validateTimeFilterFormats(query: FindFilesQuery): string[] {
   const warnings: string[] = [];
   const fields: Array<{ key: string; value: string | undefined }> = [
-    { key: 'modifiedAfter', value: (query as Record<string, unknown>).modifiedAfter as string | undefined },
+    {
+      key: 'modifiedAfter',
+      value: (query as Record<string, unknown>).modifiedAfter as
+        | string
+        | undefined,
+    },
     { key: 'modifiedBefore', value: query.modifiedBefore },
     { key: 'modifiedWithin', value: query.modifiedWithin },
-    { key: 'accessedWithin', value: (query as Record<string, unknown>).accessedWithin as string | undefined },
+    {
+      key: 'accessedWithin',
+      value: (query as Record<string, unknown>).accessedWithin as
+        | string
+        | undefined,
+    },
   ];
   for (const { key, value } of fields) {
     if (value && !VALID_TIME_STRING_RE.test(value)) {

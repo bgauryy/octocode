@@ -4,7 +4,7 @@
  * Deliberately NON-overlapping with the neighbouring suites:
  *   - catalog registration / bulk-schema existence → directToolCatalog.test.ts
  *   - envelope numeric bounds (responseChar*) per tool → scheme/bulk_envelope_bounds.test.ts
- *   - TSV projection + pagination-cursor uniformity → all-tools.tsv-and-pagination.test.ts
+ *   - pagination-cursor generator uniformity → all-tools.pagination.test.ts
  *
  * What ONLY this suite asserts, uniformly across all 14 tools:
  *   1. each tool declares a usable per-query pagination knob (the agent can

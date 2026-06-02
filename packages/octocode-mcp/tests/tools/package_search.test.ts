@@ -1148,7 +1148,7 @@ describe('registerPackageSearchTool', () => {
       });
 
       const text = (result.content[0] as { text: string }).text;
-      expect(text).not.toContain('Install: npm install lodash');
+      expect(text).toContain('Install: npm install lodash');
     });
   });
 
@@ -1334,7 +1334,7 @@ describe('registerPackageSearchTool', () => {
 
       const text = (result.content[0] as { text: string }).text;
       // Should have install hint but NOT the githubViewRepoStructure hint (no repo)
-      expect(text).not.toContain('Install: npm install');
+      expect(text).toContain('Install: npm install');
       expect(text).not.toContain('githubViewRepoStructure');
     });
   });
@@ -1368,7 +1368,7 @@ describe('registerPackageSearchTool', () => {
       const text = (result.content[0] as { text: string }).text;
 
       // Hints are inside each result - verify install hint
-      expect(text).not.toContain('Install: npm install no-repo-pkg');
+      expect(text).toContain('Install: npm install no-repo-pkg');
       expect(text).not.toContain('githubViewRepoStructure');
 
       // Verify result status (YAML format uses quoted strings)

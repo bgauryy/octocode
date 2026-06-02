@@ -235,7 +235,6 @@ describe('tool-command coverage', () => {
             repo: 'octocode-mcp',
           }),
         ],
-        format: 'tsv',
       })
     );
     expect(consoleSpy).toHaveBeenCalledWith('cloned');
@@ -443,13 +442,11 @@ describe('tool-command coverage', () => {
     expect(parsed.isError).toBe(false);
   });
 
-  it('printToolResult: --json mode preserves TSV structuredContent results', async () => {
+  it('printToolResult: --json mode preserves structuredContent results', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: {
-        format: 'tsv',
-        columns: ['path', 'line'],
-        rows: 'path\tline\nfoo.ts\t1',
+        base: '/repo/src',
         results: [{ id: 'q1', status: 'hasResults', data: {} }],
       },
     });
@@ -468,9 +465,7 @@ describe('tool-command coverage', () => {
     const raw = consoleSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(raw);
     expect(parsed.content).toEqual([{ type: 'text', text: 'yaml output' }]);
-    expect(parsed.structuredContent.format).toBe('tsv');
-    expect(parsed.structuredContent.columns).toEqual(['path', 'line']);
-    expect(parsed.structuredContent.rows).toContain('foo.ts');
+    expect(parsed.structuredContent.base).toBe('/repo/src');
     expect(parsed.structuredContent.results).toEqual([
       { id: 'q1', status: 'hasResults', data: {} },
     ]);

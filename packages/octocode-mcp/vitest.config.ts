@@ -20,10 +20,9 @@ export default defineConfig({
       exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
       thresholds: {
         statements: 90,
-        // Branches at 88 because defensive `??` fallback chains in the
-        // tsvColumns projection registry (per-tool field tolerance for
-        // partial upstream shapes) add many low-value branches. The other
-        // three metrics stay at 90.
+        // Branches at 88 because defensive `??` fallback chains across the
+        // response/finalizer layers (per-tool tolerance for partial upstream
+        // shapes) add many low-value branches. The other three stay at 90.
         branches: 88,
         functions: 90,
         lines: 90,

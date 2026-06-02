@@ -14,18 +14,18 @@ import {
   LocalViewStructureDataSchema,
   LocalViewStructureOutputSchema as UpstreamLocalViewStructureOutputSchema,
 } from '@octocodeai/octocode-core';
-import { withTsvEnvelope } from '../../src/scheme/tsvEnvelope.js';
+import { withResponseEnvelope } from '../../src/scheme/responseEnvelope.js';
 
-const LocalFindFilesOutputSchema = withTsvEnvelope(
+const LocalFindFilesOutputSchema = withResponseEnvelope(
   UpstreamLocalFindFilesOutputSchema
 );
-const LocalGetFileContentOutputSchema = withTsvEnvelope(
+const LocalGetFileContentOutputSchema = withResponseEnvelope(
   UpstreamLocalGetFileContentOutputSchema
 );
-const LocalSearchCodeOutputSchema = withTsvEnvelope(
+const LocalSearchCodeOutputSchema = withResponseEnvelope(
   UpstreamLocalSearchCodeOutputSchema
 );
-const LocalViewStructureOutputSchema = withTsvEnvelope(
+const LocalViewStructureOutputSchema = withResponseEnvelope(
   UpstreamLocalViewStructureOutputSchema
 );
 import { registerLocalRipgrepTool } from '../../src/tools/local_ripgrep/register.js';

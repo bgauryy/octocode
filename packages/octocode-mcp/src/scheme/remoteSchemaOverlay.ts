@@ -259,16 +259,12 @@ const GitHubFetchDirectoryEntrySchema = z.object({
 });
 
 export const GitHubFetchContentOutputLocalSchema = z.object({
-  /** Output format marker — only present when format='tsv' was requested. */
-  format: z.literal('tsv').optional(),
-  /** TSV column header list (only when format='tsv'). */
-  columns: z.array(z.string()).optional(),
-  /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
-  rows: z.string().optional(),
-  /** Common directory the `path` cells are relative to in lean TSV output. */
+  /** Common directory the `path` cells are relativized against (lean output). */
   base: z.string().optional(),
-  /** Columns hoisted out because every TSV row shared one value. */
-  shared: z.record(z.string(), z.string()).optional(),
+  /** Scalar fields hoisted out of every leaf because they shared one value. */
+  shared: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+    .optional(),
   /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
   evidence: EvidenceSchema,
   results: z.array(
@@ -368,16 +364,12 @@ export const GitHubCodeSearchBulkQueryLocalSchema =
  *     `responseCharLength` / `responseCharOffset`.
  */
 export const GitHubCodeSearchOutputLocalSchema = z.object({
-  /** Output format marker — only present when format='tsv' was requested. */
-  format: z.literal('tsv').optional(),
-  /** TSV column header list (only when format='tsv'). */
-  columns: z.array(z.string()).optional(),
-  /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
-  rows: z.string().optional(),
-  /** Common directory the `path` cells are relative to in lean TSV output. */
+  /** Common directory the `path` cells are relativized against (lean output). */
   base: z.string().optional(),
-  /** Columns hoisted out because every TSV row shared one value. */
-  shared: z.record(z.string(), z.string()).optional(),
+  /** Scalar fields hoisted out of every leaf because they shared one value. */
+  shared: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+    .optional(),
   /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
   evidence: EvidenceSchema,
   results: z.array(
@@ -683,10 +675,9 @@ export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output schema extensions — add peer-level `hints` and TSV envelope fields
-// (`format`, `columns`, `rows`) to each upstream output schema. Wraps the
-// upstream object so the bulk runner can emit these top-level keys without
-// failing strict Zod validation.
+// Output schema extensions — add peer-level `hints`, `base`, and `evidence`
+// to each upstream output schema. Wraps the upstream object so the bulk runner
+// can emit these top-level keys without failing strict Zod validation.
 // ---------------------------------------------------------------------------
 import {
   GitHubSearchRepositoriesOutputSchema as UpstreamReposOutput,
@@ -695,17 +686,10 @@ import {
   PackageSearchOutputSchema as UpstreamPackageOutput,
 } from '@octocodeai/octocode-core/schemas/outputs';
 
-import { EvidenceSchema, tsvEnvelopeFields } from './tsvEnvelope.js';
+import { EvidenceSchema, responseEnvelopeFields } from './responseEnvelope.js';
 import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core/schemas/outputs';
 
-const peerEnvelopeFields = {
-  hints: z.array(z.string()).optional(),
-  format: z.literal('tsv').optional(),
-  columns: z.array(z.string()).optional(),
-  rows: z.string().optional(),
-  /** Cross-tool evidence metadata (kind / answerReady / confidence / complete). */
-  evidence: EvidenceSchema,
-} as const;
+const peerEnvelopeFields = responseEnvelopeFields;
 
 export const GitHubSearchRepositoriesOutputLocalSchema =
   UpstreamReposOutput.extend(peerEnvelopeFields);
@@ -719,5 +703,6 @@ export const GitHubViewRepoStructureOutputLocalSchema =
 export const PackageSearchOutputLocalSchema =
   UpstreamPackageOutput.extend(peerEnvelopeFields);
 
-export const GitHubCloneRepoOutputLocalSchema =
-  UpstreamCloneRepoOutput.extend(tsvEnvelopeFields);
+export const GitHubCloneRepoOutputLocalSchema = UpstreamCloneRepoOutput.extend(
+  responseEnvelopeFields
+);

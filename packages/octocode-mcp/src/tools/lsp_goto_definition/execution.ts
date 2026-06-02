@@ -76,7 +76,7 @@ export const TOOL_NAME = TOOL_NAMES.LSP_GOTO_DEFINITION;
 export async function executeGotoDefinition(
   args: ToolExecutionArgs<LSPGotoDefinitionQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength, format } = args;
+  const { queries, responseCharOffset, responseCharLength } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -92,8 +92,6 @@ export async function executeGotoDefinition(
       toolName: TOOL_NAME,
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
       minQueryTimeoutMs: 30_000,

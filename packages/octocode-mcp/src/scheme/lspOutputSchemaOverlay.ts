@@ -137,9 +137,10 @@ const LspCallHierarchyDataLocalSchema = z
  */
 export const LspFindReferencesOutputLocalSchema = z
   .object({
-    format: z.literal('tsv').optional(),
-    columns: z.array(z.string()).optional(),
-    rows: z.string().optional(),
+    base: z.string().optional(),
+    shared: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .optional(),
     hints: z.array(z.string()).optional(),
     results: z.array(
       z.union([
@@ -171,9 +172,10 @@ export const LspFindReferencesOutputLocalSchema = z
  */
 export const LspCallHierarchyOutputLocalSchema = z
   .object({
-    format: z.literal('tsv').optional(),
-    columns: z.array(z.string()).optional(),
-    rows: z.string().optional(),
+    base: z.string().optional(),
+    shared: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .optional(),
     hints: z.array(z.string()).optional(),
     results: z.array(
       // Three variants: empty / error / hasResults. The hasResults variant

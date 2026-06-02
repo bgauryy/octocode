@@ -3,7 +3,6 @@ import './cjs-shim.js';
 import { c, bold, dim } from '../utils/colors.js';
 import {
   buildDirectToolExampleQuery,
-  DEFAULT_TOOL_RESPONSE_FORMAT,
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
   DirectToolInputError,
@@ -394,7 +393,6 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
   try {
     const input = prepareDirectToolInputFromJsonText(tool.name, inputText, {
-      format: DEFAULT_TOOL_RESPONSE_FORMAT,
       sourceLabel: 'octocode-cli',
     });
     if (!input) {

@@ -111,8 +111,7 @@ function filterStructure(
 export async function exploreMultipleRepositoryStructures(
   args: ToolExecutionArgs<PartialRepoStructureQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
-    args;
+  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -246,8 +245,6 @@ export async function exploreMultipleRepositoryStructures(
       ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
     }

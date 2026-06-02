@@ -27,7 +27,7 @@ export { applyFindReferencesVerbosity } from './lsp_find_references.js';
 export async function executeFindReferences(
   args: ToolExecutionArgs<LSPFindReferencesQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength, format } = args;
+  const { queries, responseCharOffset, responseCharLength } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -42,8 +42,6 @@ export async function executeFindReferences(
       toolName: TOOL_NAME,
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
       minQueryTimeoutMs: 30_000,

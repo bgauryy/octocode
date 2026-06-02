@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withTsvEnvelope } from '../../scheme/tsvEnvelope.js';
+import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
 import { BulkLSPCallHierarchyQuerySchema } from '../../scheme/lspSchemaOverlay.js';
 import { LspCallHierarchyOutputLocalSchema } from '../../scheme/lspOutputSchemaOverlay.js';
 import { executeCallHierarchy } from './execution.js';
@@ -17,7 +17,7 @@ export function registerLSPCallHierarchyTool(server: McpServer) {
       description: DESCRIPTIONS[TOOL_NAMES.LSP_CALL_HIERARCHY],
       inputSchema: toMCPSchema(BulkLSPCallHierarchyQuerySchema),
       outputSchema: toMCPSchema(
-        withTsvEnvelope(LspCallHierarchyOutputLocalSchema)
+        withResponseEnvelope(LspCallHierarchyOutputLocalSchema)
       ),
       annotations: {
         title: 'Call Hierarchy',

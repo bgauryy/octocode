@@ -32,8 +32,7 @@ const CACHE_HIT_HINT = 'Served from 24-hour cache.';
 export async function executeCloneRepo(
   args: ToolExecutionArgs<PartialCloneRepoQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
-    args;
+  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -100,7 +99,6 @@ export async function executeCloneRepo(
       keysPriority: ['resolvedBranch', 'localPath', 'cached', 'error'],
       responseCharOffset,
       responseCharLength,
-      format,
       peerHints: true,
       peerEvidence: true,
     }

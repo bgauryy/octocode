@@ -13,8 +13,7 @@ describe('Response Utilities', () => {
       const result = {
         content: [{ type: 'text' as const, text: 'text output' }],
         structuredContent: {
-          format: 'tsv',
-          rows: 'path\tline\nfoo.ts\t1',
+          base: '/repo/src',
           results: [{ id: 'q1', status: 'hasResults', data: {} }],
         },
         isError: false,

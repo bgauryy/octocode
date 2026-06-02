@@ -93,7 +93,7 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 export async function searchPackages(
   args: ToolExecutionArgs<PackageSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength, format } = args;
+  const { queries, responseCharOffset, responseCharLength } = args;
 
   return executeBulkOperation(
     queries,
@@ -236,8 +236,6 @@ export async function searchPackages(
       keysPriority: ['packages', 'totalFound', 'error'],
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
     }
@@ -260,6 +258,10 @@ function generateSuccessHints(
     const msg = deprecationInfo.message || 'This package is deprecated';
     hints.push(`DEPRECATED: ${name} - ${msg}`);
   }
+
+  // Exact install command using the resolved package name — an actionable
+  // next step that uses data only available after the registry search resolves.
+  hints.push(`Install: npm install ${name}`);
 
   // Escalation path: guide agents to the GitHub source for deeper research.
   const repoUrl = getPackageRepo(pkg);

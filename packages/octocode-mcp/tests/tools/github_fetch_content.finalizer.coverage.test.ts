@@ -5,8 +5,7 @@
  * `results`/`queries` arrays, so these tests drive the finalizer and the
  * verbosity shaper directly rather than through the MCP server. They target
  * the narrowing helpers (pagination / file / directory entries), runtime
- * hints, error hints, char-pagination, TSV formatting, and the concise/compact
- * verbosity paths.
+ * hints, error hints, char-pagination, and the concise/compact verbosity paths.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -21,7 +20,6 @@ type Config = {
   toolName: string;
   responseCharOffset?: number;
   responseCharLength?: number;
-  format?: 'tsv' | 'json';
 };
 
 // Build the finalizer once; it is stateless.
@@ -73,7 +71,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
       },
     ];
 
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as {
       results: Array<{ files?: Array<Record<string, unknown>> }>;
     };
@@ -104,7 +102,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         },
       },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as {
       results: Array<{ files?: Array<Record<string, unknown>> }>;
     };
@@ -138,7 +136,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         },
       },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as {
       results: Array<{ directories?: Array<Record<string, unknown>> }>;
     };
@@ -163,7 +161,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         data: { localPath: '/x', totalSize: 1, cached: true, files: [] },
       },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as { hints?: string[] };
     expect(data.hints?.some(h => /served from cache/.test(h))).toBe(true);
   });
@@ -183,7 +181,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         },
       },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as {
       results: Array<{ directories?: Array<Record<string, unknown>> }>;
       hints?: string[];
@@ -205,7 +203,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     // Hits `String(query.path ?? '')` -> '' side on line 173.
     const queries: Query[] = [{ owner: 'o', repo: 'r' }];
     const results: FlatQueryResult[] = [{ id: 'q1', data: { content: 'c' } }];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as {
       results: Array<{ files?: Array<{ path: string }> }>;
     };
@@ -219,7 +217,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
       { id: 'q1', data: { path: 'a.ts', content: 'x' } },
       { id: 'q2', data: { path: 'b.ts', content: 'y' } },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as { results: Array<unknown> };
     expect(data.results).toHaveLength(1);
   });
@@ -239,7 +237,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         data: { error: 'boom' },
       },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as {
       results: Array<{ owner: string }>;
     };
@@ -268,7 +266,7 @@ describe('buildGithubFetchContentFinalizer — runtime hints', () => {
         },
       },
     ];
-    const out = run(queries, results, { format: 'json' });
+    const out = run(queries, results);
     const data = out.structuredContent as { hints?: string[] };
     expect(data.hints?.some(h => /charOffset=150/.test(h))).toBe(true);
   });
@@ -283,7 +281,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const out = run(
       [{ owner: 'o', repo: 'r', path: 'gone.ts' }],
       [errorResult('Not Found', 404)],
-      { format: 'json' }
+      {}
     );
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[]; owner?: string; path?: string }>;
@@ -301,7 +299,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const out = run(
       [{ owner: 'o', repo: 'r' }],
       [errorResult('403 Forbidden')],
-      { format: 'json' }
+      {}
     );
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[]; path?: string }>;
@@ -316,7 +314,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const out = run(
       [{ owner: 'o', repo: 'r', path: 'x' }],
       [errorResult('API rate limit exceeded', 429)],
-      { format: 'json' }
+      {}
     );
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[] }>;
@@ -330,7 +328,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const out = run(
       [{ owner: 'o', repo: 'r', path: 'x' }],
       [errorResult('something weird', 500)],
-      { format: 'json' }
+      {}
     );
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[] }>;
@@ -351,7 +349,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       { id: 'q2', data: { path: 'b.ts', content: big } },
     ];
     const out = run(queries, results, {
-      format: 'json',
       responseCharOffset: 0,
       responseCharLength: 5_000,
     });
@@ -373,7 +370,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       { id: 'q1', data: { path: 'huge.ts', content: huge } },
     ];
     const out = run(queries, results, {
-      format: 'json',
       responseCharLength: 5_000,
     });
     const data = out.structuredContent as {
@@ -422,7 +418,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       },
     ];
     const out = run(queries, results, {
-      format: 'json',
       // offset set but length omitted -> charLength defaults to MAX_SAFE.
       responseCharOffset: 0,
     });
@@ -442,42 +437,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     expect(data.results[0].directories).toHaveLength(1);
     // charOffset continuation hint uses charLength default of 0 -> charOffset=7.
     expect(data.hints?.some(h => /charOffset=7\b/.test(h))).toBe(true);
-  });
-});
-
-describe('buildGithubFetchContentFinalizer — TSV format', () => {
-  it('produces TSV columns/rows when format=tsv and not all concise', () => {
-    const queries: Query[] = [
-      { owner: 'o', repo: 'r', path: 'a.ts', verbosity: 'basic' },
-    ];
-    const results: FlatQueryResult[] = [
-      { id: 'q1', data: { path: 'a.ts', content: 'abc', totalLines: 1 } },
-    ];
-    const out = run(queries, results, { format: 'tsv' });
-    const data = out.structuredContent as {
-      format?: string;
-      columns?: string[];
-      rows?: unknown;
-    };
-    // Projection may or may not exist; if it does, format flips to tsv.
-    if (data.format === 'tsv') {
-      expect(Array.isArray(data.columns)).toBe(true);
-      expect(data.rows).toBeDefined();
-    } else {
-      expect(data.columns).toBeUndefined();
-    }
-  });
-
-  it('skips TSV when all queries are concise (allConcise short-circuits format)', () => {
-    const queries: Query[] = [
-      { owner: 'o', repo: 'r', path: 'a.ts', verbosity: 'concise' },
-    ];
-    const results: FlatQueryResult[] = [
-      { id: 'q1', data: { path: 'a.ts', content: '// hi\nconst x = 1;\n' } },
-    ];
-    const out = run(queries, results, { format: 'tsv' });
-    const data = out.structuredContent as { format?: string };
-    expect(data.format).not.toBe('tsv');
   });
 });
 

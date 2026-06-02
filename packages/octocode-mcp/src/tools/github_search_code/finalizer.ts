@@ -51,10 +51,6 @@ import {
   type CodeSearchGroupedResult,
   type CodeSearchPagination,
 } from '../providerMappers.js';
-import { tsvFormat } from '../../utils/response/tsvFormat.js';
-import { getTsvProjection } from '../../utils/response/tsvColumns.js';
-import { finalizeTsv } from '../../utils/response/tsvFinalize.js';
-import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 type PerQueryGroups = {
   id: string;
@@ -419,32 +415,11 @@ export function buildGithubSearchCodeFinalizer<
     }
 
     // ── Verbosity shaping ───────────────────────────────────────────────
-    const allConcise = applyGithubSearchCodeVerbosity(responseData, queries);
-
-    // TSV branch — render flattened rows from the merged groups and attach
-    // the columns/rows pair next to `results`. Callers can read either.
-    // Skip under all-concise: no rows worth emitting.
-    if (config.format === 'tsv' && !allConcise) {
-      const projection = getTsvProjection(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE);
-      if (projection) {
-        const lean = finalizeTsv(
-          projection.columns,
-          Array.from(projection.toRows({ results: groups }))
-        );
-        responseData.format = 'tsv';
-        responseData.columns = lean.columns;
-        responseData.rows = tsvFormat(lean.columns, lean.rows);
-        if (lean.base) responseData.base = lean.base;
-        if (lean.shared) responseData.shared = lean.shared;
-      }
-    }
+    applyGithubSearchCodeVerbosity(responseData, queries);
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,
       [
-        'format',
-        'columns',
-        'rows',
         'results',
         'id',
         'owner',
@@ -468,8 +443,7 @@ export function buildGithubSearchCodeFinalizer<
  * emits a summary + drill-back hint. Under compact, advisory hints are trimmed
  * to 2. Basic / omitted / mixed bulks: passthrough.
  *
- * Mutates `responseData` in place; returns `true` when concise applied so the
- * caller can skip TSV emission.
+ * Mutates `responseData` in place; returns `true` when concise applied.
  */
 export function applyGithubSearchCodeVerbosity(
   responseData: GitHubCodeSearchOutputLocal,

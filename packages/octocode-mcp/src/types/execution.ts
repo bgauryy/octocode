@@ -6,9 +6,6 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { HintContext } from './metadata.js';
 
-/** Default response format for MCP tool calls and CLI direct tool execution. */
-export const DEFAULT_TOOL_RESPONSE_FORMAT = 'tsv' as const;
-
 /**
  * Makes all upstream fields optional so tests can call src functions without
  * providing ZodDefault fields (which are required in the inferred TypeScript type
@@ -45,12 +42,6 @@ export interface ToolExecutionArgs<TQuery> {
 
   /** Character length budget for top-level bulk response pagination across results[] */
   responseCharLength?: number;
-
-  /**
-   * Output format. MCP tool schemas and CLI direct execution default to 'tsv'.
-   * 'tsv' emits a tab-delimited rows view per the tool's column projection.
-   */
-  format?: 'tsv' | 'json';
 
   /** Optional OAuth authentication info (GitHub tools) */
   authInfo?: AuthInfo;

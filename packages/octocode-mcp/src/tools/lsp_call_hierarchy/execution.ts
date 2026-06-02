@@ -30,7 +30,7 @@ export { applyCallHierarchyVerbosity } from './callHierarchy.js';
 export async function executeCallHierarchy(
   args: ToolExecutionArgs<LSPCallHierarchyQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength, format } = args;
+  const { queries, responseCharOffset, responseCharLength } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -46,8 +46,6 @@ export async function executeCallHierarchy(
       toolName: TOOL_NAME,
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
       minQueryTimeoutMs: 30_000,

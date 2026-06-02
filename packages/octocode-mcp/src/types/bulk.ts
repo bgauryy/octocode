@@ -65,13 +65,6 @@ export interface BulkResponseConfig<
   responseCharOffset?: number;
   responseCharLength?: number;
   /**
-   * Output format. "tsv" (default) emits a tab-delimited rows view
-   * optimized for token efficiency. "json" preserves the structured
-   * nested response when callers need every field.
-   * Wired from the per-call `format` field on relaxed bulk schemas.
-   */
-  format?: 'tsv' | 'json';
-  /**
    * When true, hints attached to each query's data are lifted out and
    * deduped into a single top-level `hints` array on the response.
    * Opt-in because some output schemas reject extra top-level fields.
@@ -115,16 +108,11 @@ export interface BulkToolResponse {
   responsePagination?: PaginationInfo;
   /** Hints aggregated to peer level (no longer nested per-query). */
   hints?: string[];
-  /** TSV mode marker — present only when format='tsv' was requested. */
-  format?: 'tsv';
-  /** TSV column header list (only when format='tsv'). */
-  columns?: readonly string[];
-  /** TSV row payload as a single tab-delimited string (only when format='tsv'). */
-  rows?: string;
-  /** Common directory the relativized `path` cells hang off (lean TSV). */
+  /** Common directory the relativized `path`/`uri` cells hang off (lean output). */
   base?: string;
-  /** Columns hoisted out of every row because they shared one value (lean TSV). */
-  shared?: Record<string, string>;
+  /** Scalar fields hoisted out of every leaf object because they shared one
+   * identical value (lean output). Each leaf re-gains every key on reconstruction. */
+  shared?: Record<string, string | number | boolean>;
   /** Aggregated evidence metadata, lifted from per-query `data.evidence`. */
   evidence?: EvidenceMetadata;
 }

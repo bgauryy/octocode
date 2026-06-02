@@ -50,7 +50,7 @@ function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
 export async function searchMultipleGitHubCode(
   args: ToolExecutionArgs<PartialCodeSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength, format } = args;
+  const { queries, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(args.authInfo);
 
   return executeBulkOperation(
@@ -155,7 +155,6 @@ export async function searchMultipleGitHubCode(
       toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
       responseCharOffset,
       responseCharLength,
-      format,
       peerHints: true,
       peerEvidence: true,
       finalize: buildGithubSearchCodeFinalizer<PartialCodeSearchQuery>(),

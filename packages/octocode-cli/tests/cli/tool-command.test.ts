@@ -128,7 +128,6 @@ describe('toolCommand', () => {
             reasoning: 'Executed via octocode-cli tool command',
           }),
         ],
-        format: 'tsv',
       })
     );
     expect(consoleSpy).toHaveBeenCalledWith('tool output');
@@ -162,7 +161,6 @@ describe('toolCommand', () => {
           }),
         ],
         responseCharLength: 1200,
-        format: 'tsv',
       })
     );
     expect(consoleSpy).toHaveBeenCalledWith('github output');

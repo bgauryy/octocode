@@ -499,6 +499,37 @@ function buildExtractionState(
   };
 }
 
+/**
+ * Continuation hint for a line-range read that stopped before EOF, derived
+ * from the result's STRUCTURED fields (never by parsing hint text). Pagination
+ * is orthogonal to verbosity, so this is re-applied after concise shaping to
+ * keep the cursor an agent needs to read the rest. Scoped to line-range reads:
+ * `matchRanges` present means a matchString read, whose continuation is
+ * char-offset paginated — a `startLine` cursor would be wrong there.
+ */
+export function lineRangeContinuationHints(r: {
+  isPartial?: boolean;
+  startLine?: number;
+  endLine?: number;
+  totalLines?: number;
+  matchRanges?: unknown;
+}): string[] {
+  if (
+    r.isPartial === true &&
+    r.matchRanges === undefined &&
+    typeof r.startLine === 'number' &&
+    typeof r.endLine === 'number' &&
+    typeof r.totalLines === 'number' &&
+    r.endLine < r.totalLines
+  ) {
+    const remaining = r.totalLines - r.endLine;
+    return [
+      `More content: use startLine=${r.endLine + 1} to continue (${remaining} line${remaining === 1 ? '' : 's'} remaining)`,
+    ];
+  }
+  return [];
+}
+
 function buildSuccessResult(
   query: FetchContentQuery,
   extraction: ExtractionState,
@@ -553,7 +584,13 @@ function buildSuccessResult(
 
   const isPartial = extraction.isPartial || pagination.hasMore;
 
-  const baseHints: string[] = [];
+  const baseHints: string[] = lineRangeContinuationHints({
+    isPartial,
+    startLine: extraction.actualStartLine,
+    endLine: extraction.actualEndLine,
+    totalLines,
+    matchRanges: extraction.matchRanges,
+  });
 
   const paginationHints =
     effectiveCharLength || autoPaginated
@@ -704,6 +741,14 @@ export function applyFetchContentVerbosity(
     if ((query as { fullContent?: boolean }).fullContent === true) {
       hints.push('fullContent=true minified under concise');
     }
+    // Pagination is orthogonal to verbosity: re-derive the line-range
+    // continuation from the result's structured fields so concise never drops
+    // the cursor for the rest of the file.
+    hints.push(
+      ...lineRangeContinuationHints(
+        result as Parameters<typeof lineRangeContinuationHints>[0]
+      )
+    );
     const shaped: LocalGetFileContentToolResult = {
       ...result,
       content: minified,

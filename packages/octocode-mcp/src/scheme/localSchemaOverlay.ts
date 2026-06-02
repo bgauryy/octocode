@@ -299,14 +299,6 @@ export function createRelaxedBulkQuerySchema(
         .describe(
           `Optional character limit for the aggregated response. Use to control token usage. Max ${LOCAL_OVERLAY_MAX_CHAR_LENGTH}.`
         ),
-      format: z
-        .enum(['tsv', 'json'])
-        .default('tsv')
-        .describe(
-          'Output format. "tsv" (default) emits a tab-delimited rows view ' +
-            'optimized for token efficiency. "json" preserves the structured ' +
-            'nested response when callers need every field.'
-        ),
     })
     .strip()
     .superRefine((data, ctx) => {

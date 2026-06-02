@@ -18,10 +18,7 @@ import {
   applyQueryOutputPagination,
 } from './structuredPagination.js';
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
-import { tsvFormat } from './tsvFormat.js';
-import { stripTsvEnvelope } from '../../scheme/tsvEnvelope.js';
-import { getTsvProjection } from './tsvColumns.js';
-import { finalizeTsv, relativizeResultPaths } from './tsvFinalize.js';
+import { relativizeResultPaths, hoistSharedFields } from './pathRelativize.js';
 import { isConcise } from '../../scheme/verbosity.js';
 import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 
@@ -106,14 +103,7 @@ function createBulkResponse<
   errors: QueryError[],
   queries: Array<TQuery>
 ): CallToolResult {
-  const topLevelFields = [
-    'format',
-    'columns',
-    'rows',
-    'results',
-    'hints',
-    'evidence',
-  ];
+  const topLevelFields = ['results', 'hints', 'evidence', 'base', 'shared'];
   const resultFields = ['id', 'status', 'data'];
   const fullKeysPriority = [
     ...new Set([
@@ -222,16 +212,22 @@ function createBulkResponse<
     config.toolName
   );
 
-  // Leanness: hoist the common directory of absolute `path` fields out of the
-  // canonical structuredContent (the payload the model reads) into a single
-  // top-level `base`. Reconstruction is exact: abs = `${base}/${path}`.
-  // Runs before TSV projection so rows inherit the already-relative paths and
-  // the same `base` is used everywhere. No-op for repo-relative github paths.
+  // Leanness: hoist redundancy out of the canonical structuredContent (the
+  // payload the model reads). Both are lossless and reconstructable.
+  //   - `base`: common directory of absolute `path`/`uri` fields; abs =
+  //     `${base}/${path}`. No-op for repo-relative github paths.
+  //   - `shared`: scalar fields identical across every leaf object; each leaf
+  //     re-gains every `shared` key on reconstruction.
   if (!allConcise && Array.isArray(responseData.results)) {
     const dataBase = relativizeResultPaths(
       responseData.results as Array<{ data?: unknown }>
     );
     if (dataBase) responseData.base = dataBase;
+
+    const shared = hoistSharedFields(
+      responseData.results as Array<{ data?: unknown }>
+    );
+    if (shared) responseData.shared = shared;
   }
 
   // Second lift-and-dedupe pass: applyBulkResponsePagination can re-introduce
@@ -268,60 +264,11 @@ function createBulkResponse<
     responseData.evidence = finalEvidence;
   }
 
-  // TSV mode — emit columns/rows derived from the per-tool projection and
-  // mark the envelope with `format: "tsv"`. Skip TSV entirely when every
-  // query is verbosity:"concise" (concise wipes the data field, so there are
-  // no rows to emit; emitting empty columns/rows is just noise).
-  const tsvEmitted = config.format === 'tsv' && !allConcise;
-  if (tsvEmitted) {
-    const projection = getTsvProjection(config.toolName);
-    if (projection) {
-      // Render rows from the BULK-paginated results (responseData.results),
-      // not the pre-bulk queryPaginatedResults — so the agent-facing TSV and
-      // the canonical structuredContent reflect the SAME page bounded by the
-      // single responsePagination cursor. (Rendering from the unpaginated
-      // per-query results would emit an unbounded TSV that contradicts the
-      // pagination breadcrumb.)
-      const rowSource = Array.isArray(responseData.results)
-        ? (responseData.results as FlatQueryResult[])
-        : queryPaginatedResults;
-      const rawRows = rowSource.flatMap(q => projection.toRows(q.data));
-      // Strip redundancy (relativize paths, hoist constants, drop empty cols)
-      // from the agent-facing TSV. structuredContent keeps absolute paths.
-      const lean = finalizeTsv(projection.columns, rawRows);
-      responseData.format = 'tsv';
-      responseData.columns = lean.columns;
-      responseData.rows = tsvFormat(lean.columns, lean.rows);
-      if (lean.base) responseData.base = lean.base;
-      if (lean.shared) responseData.shared = lean.shared;
-    }
-  }
-
-  // In TSV mode, exclude *successful* `results` from content[0].text — agents
-  // reading the text only need the compact rows, not the full per-query JSON
-  // structs (the complete array is still available via structuredContent).
-  // BUT error results carry their message in `data.error`, which never makes
-  // it into the TSV rows; dropping them would hide failures entirely — and
-  // when every query errors that text is the only thing surfaced. So retain
-  // error entries in the text payload while still trimming success structs.
-  type BulkResponseForText = Omit<BulkToolResponse, 'results'> &
-    Partial<Pick<BulkToolResponse, 'results'>>;
-  const errorResultsForText = Array.isArray(responseData.results)
-    ? (responseData.results as FlatQueryResult[]).filter(
-        r => r.status === 'error'
-      )
-    : [];
-  const textPayload: BulkResponseForText = tsvEmitted
-    ? {
-        ...responseData,
-        results:
-          errorResultsForText.length > 0 ? errorResultsForText : undefined,
-      }
-    : responseData;
-  const text = createResponseFormat(
-    textPayload as BulkToolResponse,
-    fullKeysPriority
-  );
+  // Structured YAML/JSON output: the full per-query `results` array is the
+  // single source of truth, surfaced identically in content[0].text and
+  // structuredContent. `base` relativization keeps paths compact; evidence /
+  // pagination / hints carry the response-state signal.
+  const text = createResponseFormat(responseData, fullKeysPriority);
   recordBulkCharSavings(config.toolName, results, errors, text.length);
 
   return {
@@ -332,13 +279,13 @@ function createBulkResponse<
       },
     ],
     // structuredContent holds the canonical structured records (results +
-    // pagination + hints + evidence + `base`). The presentation-only TSV
-    // envelope (format/columns/rows/shared) lives only in content[0].text.
-    // `base` is retained here: canonical paths are relativized against it, so
-    // the model reconstructs abs = `${base}/${path}`. (#A1)
-    structuredContent: sanitizeStructuredContent(
-      stripTsvEnvelope(responseData)
-    ) as Record<string, unknown>,
+    // pagination + hints + evidence + `base`). `base` is retained here:
+    // canonical paths are relativized against it, so the model reconstructs
+    // abs = `${base}/${path}`. (#A1)
+    structuredContent: sanitizeStructuredContent(responseData) as Record<
+      string,
+      unknown
+    >,
     isError:
       flatQueries.length > 0 &&
       flatQueries.every(queryResult => queryResult.status === 'error'),

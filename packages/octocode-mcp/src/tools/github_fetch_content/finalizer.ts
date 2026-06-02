@@ -36,10 +36,6 @@ const isAdvisoryFetchContentHint = makeAdvisoryPredicate([
   'file_too_large',
   'too large',
 ]);
-import { tsvFormat } from '../../utils/response/tsvFormat.js';
-import { getTsvProjection } from '../../utils/response/tsvColumns.js';
-import { finalizeTsv } from '../../utils/response/tsvFinalize.js';
-import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
   QueryWithPagination;
@@ -468,31 +464,11 @@ export function buildGithubFetchContentFinalizer<
     }
 
     // ── Verbosity shaping ───────────────────────────────────────────────
-    const allConcise = applyGithubFetchContentVerbosity(responseData, queries);
-
-    if (config.format === 'tsv' && !allConcise) {
-      const projection = getTsvProjection(
-        STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT
-      );
-      if (projection) {
-        const lean = finalizeTsv(
-          projection.columns,
-          Array.from(projection.toRows({ results: groups }))
-        );
-        responseData.format = 'tsv';
-        responseData.columns = lean.columns;
-        responseData.rows = tsvFormat(lean.columns, lean.rows);
-        if (lean.base) responseData.base = lean.base;
-        if (lean.shared) responseData.shared = lean.shared;
-      }
-    }
+    applyGithubFetchContentVerbosity(responseData, queries);
 
     return formatFinalizedResponse<GitHubFetchContentOutputLocal>(
       responseData,
       [
-        'format',
-        'columns',
-        'rows',
         'results',
         'id',
         'owner',
@@ -521,8 +497,7 @@ export function buildGithubFetchContentFinalizer<
  * estimate + drill-back hint. Under compact (any query opts in), trims
  * advisory hints. Basic / omitted: passthrough.
  *
- * Mutates `responseData` in place; returns `true` when concise was applied so
- * the caller can skip downstream formats (TSV) that no longer make sense.
+ * Mutates `responseData` in place; returns `true` when concise was applied.
  */
 export function applyGithubFetchContentVerbosity(
   responseData: GitHubFetchContentOutputLocal,

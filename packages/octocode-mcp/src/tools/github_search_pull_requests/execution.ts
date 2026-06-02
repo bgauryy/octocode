@@ -64,8 +64,7 @@ import {
 export async function searchMultipleGitHubPullRequests(
   args: ToolExecutionArgs<PartialPRQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength, format } =
-    args;
+  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -321,8 +320,6 @@ export async function searchMultipleGitHubPullRequests(
       ] satisfies Array<keyof GitHubSearchPullRequestsToolResult>,
       responseCharOffset,
       responseCharLength,
-
-      format,
       peerHints: true,
       peerEvidence: true,
     }

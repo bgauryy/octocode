@@ -194,11 +194,9 @@ describe('executeBulkOperation', () => {
       expect(responseText).toContain('Test hint for error');
     });
 
-    it('surfaces error messages in the TSV text payload when every query fails (regression)', async () => {
-      // TSV mode trims successful per-query structs from content[0].text since
-      // their data is in the rows. But error results carry their message in
-      // `data.error`, which never reaches the rows — so on an all-error bulk
-      // the text used to be a bare TSV header with the failures invisible.
+    it('surfaces error messages in the text payload when every query fails (regression)', async () => {
+      // Error results carry their message in `data.error`. On an all-error bulk
+      // the serialized text must still surface every failure, not swallow them.
       const queries = [
         { id: 'q1', pattern: 'x', path: '/tmp' },
         { id: 'q2', pattern: 'y', path: '/tmp' },
@@ -210,7 +208,6 @@ describe('executeBulkOperation', () => {
 
       const result = await executeBulkOperation(queries, processor, {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        format: 'tsv',
       });
 
       expect(result.isError).toBe(true);
