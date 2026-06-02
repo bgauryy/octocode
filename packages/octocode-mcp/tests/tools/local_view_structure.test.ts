@@ -1589,7 +1589,9 @@ describe('localViewStructure', () => {
       mockSafeExec.mockResolvedValue({
         success: true,
         code: 0,
-        stdout: Array.from({ length: 150 }, (_, i) => `file${i}.txt`).join('\n'),
+        stdout: Array.from({ length: 150 }, (_, i) => `file${i}.txt`).join(
+          '\n'
+        ),
         stderr: '',
       });
 

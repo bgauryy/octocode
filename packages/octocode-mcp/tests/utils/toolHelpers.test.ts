@@ -14,7 +14,9 @@ vi.mock('octocode-security-utils/pathValidator', () => {
 
 vi.mock('../../src/errors/errorFactories.js', () => ({
   ToolErrors: {
-    pathValidationFailed: vi.fn((p: string, msg: string) => new Error(`${p}: ${msg}`)),
+    pathValidationFailed: vi.fn(
+      (p: string, msg: string) => new Error(`${p}: ${msg}`)
+    ),
   },
 }));
 
@@ -25,7 +27,8 @@ vi.mock('../../src/utils/response/error.js', () => ({
   })),
 }));
 
-const { validateToolPath } = await import('../../src/utils/file/toolHelpers.js');
+const { validateToolPath } =
+  await import('../../src/utils/file/toolHelpers.js');
 const { pathValidator } = await import('octocode-security-utils/pathValidator');
 
 afterEach(() => {

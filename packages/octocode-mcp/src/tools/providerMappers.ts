@@ -172,9 +172,15 @@ export function mapCodeSearchProviderResult(
     }
 
     for (const m of item.matches) {
-      const match: CodeSearchGroupedMatch = { path: item.path, value: m.context };
+      const match: CodeSearchGroupedMatch = {
+        path: item.path,
+        value: m.context,
+      };
       if (m.positions?.length > 0) {
-        match.matchIndices = m.positions.map(([start, end]) => ({ start, end }));
+        match.matchIndices = m.positions.map(([start, end]) => ({
+          start,
+          end,
+        }));
       }
       group.matches.push(match);
     }
@@ -558,7 +564,9 @@ export function mapRepoStructureToolQuery(
     // Default to 100 so typical monorepo roots return in a single call.
     entriesPerPage: (() => {
       const ipp = (query as { itemsPerPage?: number }).itemsPerPage;
-      return typeof ipp === 'number' ? ipp : GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
+      return typeof ipp === 'number'
+        ? ipp
+        : GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
     })(),
     entryPageNumber: (() => {
       const p = (query as { page?: number }).page;
