@@ -423,4 +423,242 @@ describe('syncCommand', () => {
     expect(featureSyncMocks.analyzeSyncState).toHaveBeenCalled();
     expect(featureSyncMocks.quickSync).not.toHaveBeenCalled();
   });
+
+  it('status --json outputs structured client/summary report', async () => {
+    const features = await import('../../../src/features/sync.js');
+    vi.mocked(features.getClientDisplayName).mockImplementation(
+      (c: string) => `Name:${c}`
+    );
+    vi.mocked(features.analyzeSyncState).mockReturnValue({
+      clients: [
+        {
+          client: 'cursor',
+          configPath: '/p',
+          config: null,
+          exists: true,
+          mcpCount: 2,
+        },
+      ],
+      summary: {
+        clientsWithConfig: 1,
+        totalUniqueMCPs: 2,
+        consistentMCPs: 1,
+        needsSyncCount: 0,
+        conflictCount: 0,
+      },
+    } as unknown as ReturnType<typeof features.analyzeSyncState>);
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: [],
+      options: { status: true, json: true },
+    });
+
+    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const parsed = JSON.parse(out.trim());
+    expect(parsed.clients[0].client).toBe('cursor');
+    expect(parsed.clients[0].name).toBe('Name:cursor');
+    expect(parsed.summary.totalUniqueMCPs).toBe(2);
+  });
+
+  it('dry-run plan --json outputs operations and summary', async () => {
+    const features = await import('../../../src/features/sync.js');
+    vi.mocked(features.analyzeSyncState).mockReturnValue({
+      clients: [],
+      needsSync: [
+        { mcpId: 'add-me', presentIn: ['cursor'], missingIn: ['claude-code'] },
+      ],
+      conflicts: [
+        {
+          mcpId: 'conflicted',
+          presentIn: ['cursor', 'claude-code'],
+          missingIn: [],
+        },
+      ],
+      fullyConsistent: [
+        {
+          mcpId: 'synced',
+          presentIn: ['cursor', 'claude-code'],
+          missingIn: [],
+        },
+      ],
+      summary: {
+        clientsWithConfig: 2,
+        totalUniqueMCPs: 3,
+        consistentMCPs: 1,
+        needsSyncCount: 1,
+        conflictCount: 1,
+      },
+    } as unknown as ReturnType<typeof features.analyzeSyncState>);
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: [],
+      options: { 'dry-run': true, json: true },
+    });
+
+    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const parsed = JSON.parse(out.trim());
+    expect(parsed.dryRun).toBe(true);
+    const types = parsed.operations.map((o: { type: string }) => o.type).sort();
+    expect(types).toEqual(['add', 'conflict', 'ok']);
+  });
+
+  it('dry-run plan (non-json) prints actionable add/conflict lines and hints', async () => {
+    const features = await import('../../../src/features/sync.js');
+    vi.mocked(features.analyzeSyncState).mockReturnValue({
+      clients: [],
+      needsSync: [
+        { mcpId: 'add-me', presentIn: ['cursor'], missingIn: ['claude-code'] },
+      ],
+      conflicts: [
+        {
+          mcpId: 'conflicted',
+          presentIn: ['cursor', 'claude-code'],
+          missingIn: [],
+        },
+      ],
+      fullyConsistent: [],
+      summary: {
+        clientsWithConfig: 2,
+        totalUniqueMCPs: 2,
+        consistentMCPs: 0,
+        needsSyncCount: 1,
+        conflictCount: 1,
+      },
+    } as unknown as ReturnType<typeof features.analyzeSyncState>);
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: ['plan'],
+      options: {},
+    });
+
+    expect(
+      consoleSpy.mock.calls.some(c => String(c[0]).includes('Sync Plan'))
+    ).toBe(true);
+    expect(
+      consoleSpy.mock.calls.some(c => String(c[0]).includes('add-me'))
+    ).toBe(true);
+    expect(
+      consoleSpy.mock.calls.some(c => String(c[0]).includes('conflicted'))
+    ).toBe(true);
+    expect(
+      consoleSpy.mock.calls.some(c =>
+        String(c[0]).includes('auto-resolve conflicts')
+      )
+    ).toBe(true);
+  });
+
+  it('dry-run plan (non-json) shows all-in-sync when no actionable ops', async () => {
+    const features = await import('../../../src/features/sync.js');
+    vi.mocked(features.analyzeSyncState).mockReturnValue({
+      clients: [],
+      needsSync: [],
+      conflicts: [],
+      fullyConsistent: [
+        { mcpId: 'synced', presentIn: ['cursor'], missingIn: [] },
+      ],
+      summary: {
+        clientsWithConfig: 1,
+        totalUniqueMCPs: 1,
+        consistentMCPs: 1,
+        needsSyncCount: 0,
+        conflictCount: 0,
+      },
+    } as unknown as ReturnType<typeof features.analyzeSyncState>);
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: [],
+      options: { 'dry-run': true },
+    });
+
+    expect(
+      consoleSpy.mock.calls.some(c =>
+        String(c[0]).includes('All MCPs are in sync.')
+      )
+    ).toBe(true);
+  });
+
+  it('dry-run plan (non-json) needsSync only prints apply hint without force hint', async () => {
+    const features = await import('../../../src/features/sync.js');
+    vi.mocked(features.analyzeSyncState).mockReturnValue({
+      clients: [],
+      needsSync: [
+        { mcpId: 'add-me', presentIn: ['cursor'], missingIn: ['claude-code'] },
+      ],
+      conflicts: [],
+      fullyConsistent: [],
+      summary: {
+        clientsWithConfig: 2,
+        totalUniqueMCPs: 1,
+        consistentMCPs: 0,
+        needsSyncCount: 1,
+        conflictCount: 0,
+      },
+    } as unknown as ReturnType<typeof features.analyzeSyncState>);
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: [],
+      options: { 'dry-run': true },
+    });
+
+    expect(
+      consoleSpy.mock.calls.some(c => String(c[0]).includes('to apply.'))
+    ).toBe(true);
+    expect(
+      consoleSpy.mock.calls.some(c =>
+        String(c[0]).includes('auto-resolve conflicts')
+      )
+    ).toBe(false);
+  });
+
+  it('sync (default) --json outputs result object', async () => {
+    featureSyncMocks.quickSync.mockResolvedValue({
+      success: true,
+      message: 'Synced!',
+      syncPerformed: true,
+    });
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: [],
+      options: { json: true },
+    });
+
+    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const parsed = JSON.parse(out.trim());
+    expect(parsed.success).toBe(true);
+    expect(parsed.syncPerformed).toBe(true);
+    expect(parsed.message).toBe('Synced!');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('sync (default) --json failure sets exit code', async () => {
+    featureSyncMocks.quickSync.mockResolvedValue({
+      success: false,
+      message: 'nope',
+      syncPerformed: false,
+    });
+
+    const syncCommand = await loadCommand();
+    await syncCommand.handler({
+      command: 'sync',
+      args: [],
+      options: { j: true },
+    });
+
+    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const parsed = JSON.parse(out.trim());
+    expect(parsed.success).toBe(false);
+    expect(process.exitCode).toBe(1);
+  });
 });

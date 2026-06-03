@@ -1583,4 +1583,733 @@ description: RAG pipelines
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('octocode-engineer');
   });
+
+  function findJsonLine(): unknown {
+    return consoleSpy.mock.calls.flat().find((line: unknown) => {
+      if (typeof line !== 'string') return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  // --- read: GitHub URL + edge parsing ---
+
+  it('read: parses full GitHub tree URL with path', async () => {
+    const content = '# Skill\nContent.';
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce(content);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: [
+        'read',
+        'https://github.com/owner/repo/tree/dev/skills/my-skill/SKILL.md',
+      ],
+      options: {},
+    });
+
+    expect(skillsFetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
+      'owner',
+      'repo',
+      'skills/my-skill',
+      'dev'
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('read: parses bare GitHub repo URL (no path, defaults main)', async () => {
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Repo skill');
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'https://github.com/owner/repo'],
+      options: {},
+    });
+
+    expect(skillsFetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
+      'owner',
+      'repo',
+      '',
+      'main'
+    );
+    // name falls back to repo when skillPath is empty
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('repo');
+  });
+
+  it('read: unparseable GitHub URL errors', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'https://github.com/'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Cannot parse path')
+    );
+  });
+
+  it('read: expands ~/ local path', async () => {
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsReadMocks.readFileContent.mockReturnValue('# Home skill');
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', '~/my-skill'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Home skill');
+  });
+
+  it('read: --local flag provides path when no positional arg', async () => {
+    fsReadMocks.fileExists.mockReturnValue(true);
+    fsReadMocks.readFileContent.mockReturnValue('# Via local flag');
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read'],
+      options: { local: '/fake/skills/my-skill' },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Via local flag');
+  });
+
+  it('read: empty content from GitHub treated as error', async () => {
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('');
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['read', 'owner/repo/skills/empty'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Empty content')
+    );
+  });
+
+  // --- search --direct --install (auto-install top result) ---
+
+  function directInstallResults() {
+    return {
+      results: [
+        {
+          id: 'owner/repo/top-skill',
+          skillId: 'top-skill',
+          name: 'top-skill',
+          installs: 900,
+          source: 'owner/repo',
+        },
+        {
+          id: 'owner/repo/other-skill',
+          skillId: 'other-skill',
+          name: 'other-skill',
+          installs: 100,
+          source: 'owner/repo',
+        },
+      ],
+      count: 2,
+    };
+  }
+
+  it('search --direct --install: installs top result to targets', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce(
+      directInstallResults()
+    );
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Top skill');
+    // dest dir does not yet exist → write proceeds
+    fsUtilsMocks.dirExists.mockImplementation((p: string) =>
+      p === '/fake/skills/src' ? true : false
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: { direct: true, install: true, targets: 'claude-code' },
+    });
+
+    expect(skillsFetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
+      'owner',
+      'repo',
+      'top-skill/SKILL.md',
+      'main'
+    );
+    const fs = await import('node:fs');
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Auto-installing top result');
+    expect(output).toContain('Installed top-skill');
+  });
+
+  it('search --direct --install: skips existing target without --force', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce(
+      directInstallResults()
+    );
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Top skill');
+    // dest dir for the skill already exists → skipped
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: { direct: true, install: true, targets: 'claude-code' },
+    });
+
+    const fs = await import('node:fs');
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Already installed in all targets');
+  });
+
+  it('search --direct --install: --force overwrites existing', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce(
+      directInstallResults()
+    );
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Top skill');
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: {
+        direct: true,
+        install: true,
+        force: true,
+        targets: 'claude-code',
+      },
+    });
+
+    const fs = await import('node:fs');
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Installed top-skill');
+  });
+
+  it('search --direct --install: write failure sets exit code', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce(
+      directInstallResults()
+    );
+    skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Top skill');
+    fsUtilsMocks.dirExists.mockImplementation((p: string) =>
+      p === '/fake/skills/src' ? true : false
+    );
+    (fsMocks.mkdirSync as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => {
+        throw new Error('mkdir failed');
+      }
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: { direct: true, install: true, targets: 'claude-code' },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Failed to write');
+  });
+
+  it('search --direct --install: fetch failure shows cannot-fetch message', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce(
+      directInstallResults()
+    );
+    skillsFetchMocks.readSkillFromGitHub.mockRejectedValueOnce(
+      new Error('boom')
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: { direct: true, install: true, targets: 'claude-code' },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Could not fetch skill');
+  });
+
+  it('search --direct: results with zero installs omit installs suffix', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce({
+      results: [
+        {
+          id: 'owner/repo/zero-skill',
+          skillId: 'zero-skill',
+          name: 'zero-skill',
+          installs: 0,
+          source: 'owner/repo',
+        },
+      ],
+      count: 1,
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: { direct: true },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('zero-skill');
+  });
+
+  it('search: clamps limit from string option', async () => {
+    skillsFetchMocks.fetchSkillsShSearch.mockResolvedValueOnce({
+      results: [],
+      count: 0,
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['search', 'thing'],
+      options: { direct: true, limit: '5' },
+    });
+
+    expect(skillsFetchMocks.fetchSkillsShSearch).toHaveBeenCalledWith(
+      'thing',
+      5
+    );
+  });
+
+  // --- list --target filter ---
+
+  it('list: valid --target filters to one target', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['list'],
+      options: { target: 'cursor' },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('cursor');
+    expect(output).not.toContain('claude-desktop');
+  });
+
+  it('list: invalid --target errors (non-json)', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['list'],
+      options: { target: 'bogus' },
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid --target')
+    );
+  });
+
+  it('list: invalid --target errors (json)', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['list'],
+      options: { target: 'bogus', json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.error).toContain('Invalid target');
+  });
+
+  it('list: truncates description longer than 200 chars', async () => {
+    const { getSkillMetadata } = skillsUtilsMocks;
+    (getSkillMetadata as ReturnType<typeof vi.fn>).mockReturnValue({
+      name: 'big-skill',
+      description: 'd'.repeat(300),
+    });
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['big-skill']);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['list'],
+      options: { target: 'cursor' },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('…');
+  });
+
+  // --- install --dry-run ---
+
+  it('install --dry-run: non-json shows plan with install/skip/overwrite', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    // skill-a already exists in dest → "skip (exists)"
+    fsUtilsMocks.dirExists.mockImplementation((p: string) => {
+      if (p === '/fake/skills/src') return true;
+      return p.endsWith('skill-a');
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: { 'dry-run': true, targets: 'claude-code', mode: 'copy' },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('DRY RUN');
+    expect(output).toContain('skip (exists)');
+    expect(output).toContain('Remove --dry-run to apply.');
+    expect(fsUtilsMocks.copyDirectory).not.toHaveBeenCalled();
+  });
+
+  it('install --dry-run --force: shows overwrite for existing', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    fsUtilsMocks.dirExists.mockImplementation((p: string) => {
+      if (p === '/fake/skills/src') return true;
+      return p.endsWith('skill-a');
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        'dry-run': true,
+        force: true,
+        targets: 'claude-code',
+        mode: 'copy',
+      },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('overwrite');
+  });
+
+  it('install --dry-run --json: outputs plan', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {
+        'dry-run': true,
+        targets: 'claude-code',
+        mode: 'copy',
+        json: true,
+      },
+    });
+
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.dryRun).toBe(true);
+    expect(Array.isArray(parsed.plan)).toBe(true);
+  });
+
+  it('install --json: no skills available outputs empty plan', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue([]);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: { targets: 'claude-code', mode: 'copy', json: true },
+    });
+
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.skills).toEqual([]);
+    expect(Array.isArray(parsed.plan)).toBe(true);
+  });
+
+  // --- sync subcommand ---
+
+  it('sync: missing targets errors (non-json)', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('octocode skills sync')
+    );
+  });
+
+  it('sync: missing targets errors (json)', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor'],
+      options: { json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.success).toBe(false);
+  });
+
+  it('sync: invalid target errors (non-json)', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'bogus', 'cursor'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid target')
+    );
+  });
+
+  it('sync: invalid target errors (json)', async () => {
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'bogus', 'alsobad'],
+      options: { json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.error).toContain('Invalid target');
+  });
+
+  it('sync: source dir missing errors (non-json)', async () => {
+    fsUtilsMocks.dirExists.mockImplementation((p: string) =>
+      p === '/fake/skills/src' ? true : false
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Source target has no skills')
+    );
+  });
+
+  it('sync: source dir missing errors (json)', async () => {
+    fsUtilsMocks.dirExists.mockImplementation((p: string) =>
+      p === '/fake/skills/src' ? true : false
+    );
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: { json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.error).toContain('Source target has no skills');
+  });
+
+  it('sync: copies skills successfully (non-json)', async () => {
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a', 'skill-b']);
+    fsMocks.existsSync.mockReturnValue(false);
+    fsUtilsMocks.copyDirectory.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(fsUtilsMocks.copyDirectory).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Synced');
+  });
+
+  it('sync: skipped existing prints warning', async () => {
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    fsMocks.existsSync.mockReturnValue(true); // already exists → skipped
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: {},
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Skipped');
+  });
+
+  it('sync: copy failure sets exit code (non-json)', async () => {
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    fsMocks.existsSync.mockReturnValue(false);
+    fsUtilsMocks.copyDirectory.mockReturnValue(false); // fails
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: {},
+    });
+
+    expect(process.exitCode).toBe(1);
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Failed');
+  });
+
+  it('sync: --json success output', async () => {
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    fsMocks.existsSync.mockReturnValue(false);
+    fsUtilsMocks.copyDirectory.mockReturnValue(true);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: { json: true },
+    });
+
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.success).toBe(true);
+    expect(parsed.from).toBe('cursor');
+    expect(parsed.to).toBe('codex');
+  });
+
+  it('sync: --json failure sets exit code', async () => {
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    fsMocks.existsSync.mockReturnValue(false);
+    fsUtilsMocks.copyDirectory.mockReturnValue(false);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: { json: true },
+    });
+
+    expect(process.exitCode).toBe(1);
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.success).toBe(false);
+  });
+
+  it('sync --dry-run: non-json shows plan with copy/skip statuses', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a', 'skill-b']);
+    fsUtilsMocks.dirExists.mockImplementation((p: string) => {
+      if (p === '/fake/skills/src') return true;
+      if (p.includes('.cursor')) return true; // source exists
+      return p.endsWith('skill-a'); // skill-a exists in dest
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: { 'dry-run': true },
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('DRY RUN');
+    expect(fsUtilsMocks.copyDirectory).not.toHaveBeenCalled();
+  });
+
+  it('sync --dry-run --force: shows overwrite status', async () => {
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+    fsUtilsMocks.dirExists.mockImplementation((p: string) => {
+      if (p === '/fake/skills/src') return true;
+      if (p.includes('.cursor')) return true;
+      return p.endsWith('skill-a');
+    });
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: { 'dry-run': true, force: true },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('overwrite');
+  });
+
+  it('sync --dry-run --json: outputs plan', async () => {
+    fsUtilsMocks.dirExists.mockReturnValue(true);
+    fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['sync', 'cursor', 'codex'],
+      options: { 'dry-run': true, json: true },
+    });
+
+    const parsed = JSON.parse(findJsonLine() as string);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.from).toBe('cursor');
+  });
+
+  // --- TTY claude-only preset ---
+
+  it('TTY install claude-only preset copies to claude targets', async () => {
+    setStdoutTTY(true);
+    promptsMocks.select
+      .mockResolvedValueOnce('claude-only')
+      .mockResolvedValueOnce('copy');
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {},
+    });
+
+    expect(fsUtilsMocks.copyDirectory).toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('TTY install custom with empty checkbox cancels', async () => {
+    setStdoutTTY(true);
+    promptsMocks.select
+      .mockResolvedValueOnce('custom')
+      .mockResolvedValueOnce('copy');
+    promptsMocks.checkbox.mockResolvedValue([]);
+
+    const skillsCommand = await loadCommand();
+    await skillsCommand.handler({
+      command: 'skills',
+      args: ['install'],
+      options: {},
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('cancelled')
+    );
+  });
 });
