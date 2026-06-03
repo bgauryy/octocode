@@ -36,18 +36,6 @@ describe('MCP Config Extended', () => {
       expect(result.args).toContain('octocode-mcp@latest');
     });
 
-    it('should return direct config with bash', async () => {
-      const { getOctocodeServerConfig } =
-        await import('../../src/utils/mcp-config.js');
-
-      const result = getOctocodeServerConfig('direct');
-
-      expect(result.command).toBe('bash');
-      expect(result.args).toBeDefined();
-      expect(result.args![0]).toBe('-c');
-      expect(result.args![1]).toContain('curl');
-    });
-
     it('should throw error for unknown method', async () => {
       const { getOctocodeServerConfig } =
         await import('../../src/utils/mcp-config.js');
@@ -59,18 +47,6 @@ describe('MCP Config Extended', () => {
   });
 
   describe('getOctocodeServerConfigWindows', () => {
-    it('should return powershell config for direct method', async () => {
-      const { getOctocodeServerConfigWindows } =
-        await import('../../src/utils/mcp-config.js');
-
-      const result = getOctocodeServerConfigWindows('direct');
-
-      expect(result.command).toBe('powershell');
-      expect(result.args).toBeDefined();
-      expect(result.args![0]).toBe('-Command');
-      expect(result.args![1]).toContain('Invoke-WebRequest');
-    });
-
     it('should return npx config for npx method', async () => {
       const { getOctocodeServerConfigWindows } =
         await import('../../src/utils/mcp-config.js');
@@ -175,7 +151,7 @@ describe('MCP Config Extended', () => {
       expect(getConfiguredMethod(config)).toBe('npx');
     });
 
-    it('should return direct when command is bash', async () => {
+    it('should return null for legacy bash command', async () => {
       const { getConfiguredMethod } =
         await import('../../src/utils/mcp-config.js');
 
@@ -185,10 +161,10 @@ describe('MCP Config Extended', () => {
         },
       };
 
-      expect(getConfiguredMethod(config)).toBe('direct');
+      expect(getConfiguredMethod(config)).toBeNull();
     });
 
-    it('should return direct when command is powershell', async () => {
+    it('should return null for legacy powershell command', async () => {
       const { getConfiguredMethod } =
         await import('../../src/utils/mcp-config.js');
 
@@ -198,7 +174,7 @@ describe('MCP Config Extended', () => {
         },
       };
 
-      expect(getConfiguredMethod(config)).toBe('direct');
+      expect(getConfiguredMethod(config)).toBeNull();
     });
 
     it('should return null when no octocode config', async () => {

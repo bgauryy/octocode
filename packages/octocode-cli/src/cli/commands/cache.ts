@@ -13,7 +13,7 @@ export const cacheCommand: CLICommand = {
   name: 'cache',
   description: 'Inspect and clean Octocode cache and logs',
   usage:
-    'octocode-cli cache [status|clean] [--repos] [--skills] [--logs] [--tools|--local|--lsp|--api] [--all]',
+    'octocode cache [status|clean] [--repos] [--skills] [--logs] [--tools|--local|--lsp|--api] [--all]',
   options: [
     {
       name: 'json',
@@ -139,9 +139,9 @@ export const cacheCommand: CLICommand = {
       console.log(`  ${bold('Total:')} ${formatBytes(total)}`);
       console.log();
       console.log(`  ${dim('Clean examples:')}`);
-      console.log(`    ${c('yellow', 'octocode-cli cache clean --repos')}`);
-      console.log(`    ${c('yellow', 'octocode-cli cache clean --tools')}`);
-      console.log(`    ${c('yellow', 'octocode-cli cache clean --all')}`);
+      console.log(`    ${c('yellow', 'octocode cache clean --repos')}`);
+      console.log(`    ${c('yellow', 'octocode cache clean --tools')}`);
+      console.log(`    ${c('yellow', 'octocode cache clean --all')}`);
       console.log();
       return;
     }
@@ -155,7 +155,7 @@ export const cacheCommand: CLICommand = {
         } else {
           console.log();
           console.log(`  ${c('red', 'X')} ${err}`);
-          console.log(`  ${dim('Example:')} octocode-cli cache clean --all`);
+          console.log(`  ${dim('Example:')} octocode cache clean --all`);
           console.log();
         }
         process.exitCode = 1;
@@ -313,7 +313,7 @@ export const cacheCommand: CLICommand = {
     console.log();
     console.log(`  ${c('red', '✗')} Unknown cache subcommand: ${subcommand}`);
     console.log(
-      `  ${dim('Usage:')} octocode-cli cache [status|clean] [--repos] [--skills] [--logs] [--tools|--local|--lsp|--api] [--all]`
+      `  ${dim('Usage:')} octocode cache [status|clean] [--repos] [--skills] [--logs] [--tools|--local|--lsp|--api] [--all]`
     );
     console.log();
     process.exitCode = 1;

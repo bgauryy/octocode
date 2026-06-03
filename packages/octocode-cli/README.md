@@ -16,13 +16,28 @@
 
 ---
 
+## Install
+
+```bash
+# Homebrew (macOS / Linux) — installs the `octocode` command
+brew install bgauryy/octocode/octocode
+
+# or npm (global)
+npm install -g octocode-cli
+
+# or run once without installing
+npx octocode-cli install
+```
+
+The installed command is **`octocode`** (e.g. `octocode --help`).
+
 ## Quick Start
 
 ```bash
 npx octocode-cli install           # Interactive setup wizard
-octocode-cli install --ide cursor  # Install for a specific IDE
-octocode-cli install --ide cursor --check   # Pre-flight: check writability & current state
-octocode-cli auth                  # GitHub authentication
+octocode install --ide cursor  # Install for a specific IDE
+octocode install --ide cursor --check   # Pre-flight: check writability & current state
+octocode auth                  # GitHub authentication
 ```
 
 ---
@@ -35,8 +50,8 @@ For env-based setup, any of these are accepted (checked in this priority): `OCTO
 
 ```bash
 export GITHUB_TOKEN=ghp_xxx        # or OCTOCODE_TOKEN / GH_TOKEN
-octocode-cli token --source        # show which token & source is being used
-octocode-cli token --validate      # ping the GitHub API to verify it
+octocode token --source        # show which token & source is being used
+octocode token --validate      # ping the GitHub API to verify it
 ```
 
 ---
@@ -47,19 +62,19 @@ Call any of the 14 Octocode tools directly from the terminal — great for scrip
 
 ```bash
 # Discover tools
-octocode-cli tools                    # list all tools with descriptions
-octocode-cli tools localSearchCode    # show schema for a specific tool
-octocode-cli tools localSearchCode githubSearchCode   # batch schemas
+octocode tools                    # list all tools with descriptions
+octocode tools localSearchCode    # show schema for a specific tool
+octocode tools localSearchCode githubSearchCode   # batch schemas
 
 # Run a tool
-octocode-cli tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
-octocode-cli tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
+octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
+octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
 
 # Machine-readable output
-octocode-cli tools localSearchCode --queries '{"path":".","pattern":"TODO"}' --json
+octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}' --json
 
 # Full MCP instructions + all schemas (for agents)
-octocode-cli instructions
+octocode instructions
 ```
 
 Shared fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-filled — only provide tool-specific fields.
@@ -133,12 +148,12 @@ Shared fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-f
 ## Troubleshooting
 
 ```bash
-octocode-cli status --sync          # Full health check including sync analysis
-octocode-cli token --validate       # Verify your GitHub token against the API
-octocode-cli token --source         # Debug token resolution chain
-octocode-cli install --ide cursor --check   # Pre-flight before installing
-octocode-cli sync plan              # Preview sync changes before applying
-octocode-cli cache clean --all --dry-run    # See what cache clean would free
+octocode status --sync          # Full health check including sync analysis
+octocode token --validate       # Verify your GitHub token against the API
+octocode token --source         # Debug token resolution chain
+octocode install --ide cursor --check   # Pre-flight before installing
+octocode sync plan              # Preview sync changes before applying
+octocode cache clean --all --dry-run    # See what cache clean would free
 ```
 
 ---

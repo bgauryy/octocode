@@ -4,7 +4,7 @@ import type { CLICommandSpec } from './types.js';
 export function showCommandHelp(command: CLICommandSpec): void {
   const lines = [
     '',
-    `  ${c('magenta', bold('🔍🐙 octocode-cli ' + command.name))}`,
+    `  ${c('magenta', bold('🔍🐙 octocode ' + command.name))}`,
     '',
     `  ${command.description}`,
     '',
@@ -12,9 +12,7 @@ export function showCommandHelp(command: CLICommandSpec): void {
 
   if (command.usage) {
     lines.push(`  ${bold('USAGE')}`);
-    lines.push(
-      `    ${command.usage.replace(/^octocode(\s|$)/, 'octocode-cli$1')}`
-    );
+    lines.push(`    ${command.usage}`);
     lines.push('');
   }
 

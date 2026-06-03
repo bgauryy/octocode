@@ -93,12 +93,6 @@ export const IDE_INFO = {
 } as const;
 
 export const INSTALL_METHOD_INFO = {
-  direct: {
-    name: 'Direct (curl)',
-    description: 'Download and run directly from octocode.ai',
-    pros: ['Always latest version', 'No npm required'],
-    cons: ['Requires curl (or PowerShell on Windows)', 'Slower startup'],
-  },
   npx: {
     name: 'NPX',
     description: 'Run via npx from npm registry',

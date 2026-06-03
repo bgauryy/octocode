@@ -199,7 +199,7 @@ describe('cli/commands/shared', () => {
         expect.stringContaining('To login')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode-cli login')
+        expect.stringContaining('octocode login')
       );
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('or'));
       expect(consoleSpy).toHaveBeenCalledWith(
@@ -246,7 +246,7 @@ describe('cli/commands/shared', () => {
         expect.stringContaining('Not authenticated')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode-cli login')
+        expect.stringContaining('octocode login')
       );
     });
   });

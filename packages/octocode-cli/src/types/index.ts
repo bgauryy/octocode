@@ -60,7 +60,7 @@ export interface MCPClientInfo {
   envVars?: string[];
 }
 
-export type InstallMethod = 'direct' | 'npx';
+export type InstallMethod = 'npx';
 
 export interface GitHubAuthStatus {
   installed: boolean;

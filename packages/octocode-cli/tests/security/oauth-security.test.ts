@@ -268,22 +268,22 @@ describe('OAuth Security Gaps', () => {
   describe('getGhCliToken', () => {
     it('returns gh-cli source when gh auth provides token', async () => {
       const tokenStorage = await import('../../src/utils/token-storage.js');
-      vi.mocked(tokenStorage.getGhCliToken).mockReturnValue('ghp_clitoken');
+      vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('ghp_clitoken');
 
       const { getGhCliToken } =
         await import('../../src/features/github-oauth.js');
-      const result = getGhCliToken();
+      const result = await getGhCliToken();
       expect(result.source).toBe('gh-cli');
       expect(result.token).toBe('ghp_clitoken');
     });
 
     it('returns source=none when gh CLI has no token', async () => {
       const tokenStorage = await import('../../src/utils/token-storage.js');
-      vi.mocked(tokenStorage.getGhCliToken).mockReturnValue(null);
+      vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue(null);
 
       const { getGhCliToken } =
         await import('../../src/features/github-oauth.js');
-      const result = getGhCliToken();
+      const result = await getGhCliToken();
       expect(result.source).toBe('none');
       expect(result.token).toBeNull();
     });

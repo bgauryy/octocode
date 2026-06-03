@@ -77,15 +77,13 @@ describe('MCP Config Utilities', () => {
       expect(config.args).toContain('octocode-mcp@latest');
     });
 
-    it('should return direct config', async () => {
+    it('should throw for unknown method (direct removed)', async () => {
       const { getOctocodeServerConfig } =
         await import('../../src/utils/mcp-config.js');
-      const config = getOctocodeServerConfig('direct');
 
-      expect(config.command).toBe('bash');
-      expect(config.args).toBeDefined();
-      expect(config.args![0]).toBe('-c');
-      expect(config.args![1]).toContain('curl');
+      expect(() => getOctocodeServerConfig('direct' as any)).toThrow(
+        'Unknown install method'
+      );
     });
 
     it('should add env options when provided', async () => {

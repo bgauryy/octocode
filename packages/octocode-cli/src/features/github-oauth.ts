@@ -323,10 +323,10 @@ export async function getOctocodeToken(
   };
 }
 
-export function getGhCliToken(
+export async function getGhCliToken(
   hostname: string = DEFAULT_HOSTNAME
-): TokenResult {
-  const ghToken = sharedGetGhCliToken(hostname);
+): Promise<TokenResult> {
+  const ghToken = await sharedGetGhCliToken(hostname);
 
   if (ghToken) {
     const ghAuth = checkGitHubAuth();

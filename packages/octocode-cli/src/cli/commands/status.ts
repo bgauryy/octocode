@@ -17,7 +17,7 @@ export const statusCommand: CLICommand = {
   name: 'status',
   aliases: ['s'],
   description: 'Show full Octocode health status (auth + MCPs + cache)',
-  usage: 'octocode-cli status [--hostname <host>] [--json]',
+  usage: 'octocode status [--hostname <host>] [--json]',
   options: [
     {
       name: 'hostname',
@@ -186,18 +186,18 @@ export const statusCommand: CLICommand = {
       }
       if (syncData.summary.needsSyncCount > 0) {
         console.log(
-          `    ${c('yellow', '○')} ${syncData.summary.needsSyncCount} can be auto-synced — run ${c('cyan', 'octocode-cli sync')}`
+          `    ${c('yellow', '○')} ${syncData.summary.needsSyncCount} can be auto-synced — run ${c('cyan', 'octocode sync')}`
         );
       }
       if (syncData.summary.conflictCount > 0) {
         console.log(
-          `    ${c('red', '!')} ${syncData.summary.conflictCount} conflicts — run ${c('cyan', 'octocode-cli sync --force')}`
+          `    ${c('red', '!')} ${syncData.summary.conflictCount} conflicts — run ${c('cyan', 'octocode sync --force')}`
         );
       }
     } else {
       console.log();
       console.log(
-        `  ${dim('Run')} ${c('cyan', 'octocode-cli status --sync')} ${dim('to include sync analysis.')}`
+        `  ${dim('Run')} ${c('cyan', 'octocode status --sync')} ${dim('to include sync analysis.')}`
       );
     }
     console.log();

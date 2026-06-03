@@ -81,48 +81,20 @@ describe('MCP Config Coverage Tests', () => {
       expect(result.env).toBeUndefined();
     });
 
-    it('should include env options for direct method', async () => {
+    it('should throw for removed direct method', async () => {
       const { getOctocodeServerConfig } =
         await import('../../src/utils/mcp-config.js');
 
-      const result = getOctocodeServerConfig('direct', {
-        enableLocal: true,
-        githubToken: 'ghp_token',
-      });
-
-      expect(result.command).toBe('bash');
-      expect(result.env).toBeDefined();
-      expect(result.env!.ENABLE_LOCAL).toBe('true');
-      expect(result.env!.GITHUB_TOKEN).toBe('ghp_token');
+      expect(() =>
+        getOctocodeServerConfig('direct' as any, {
+          enableLocal: true,
+          githubToken: 'ghp_token',
+        })
+      ).toThrow('Unknown install method');
     });
   });
 
   describe('getOctocodeServerConfigWindows with env options', () => {
-    it('should include env options for direct method on Windows', async () => {
-      const { getOctocodeServerConfigWindows } =
-        await import('../../src/utils/mcp-config.js');
-
-      const result = getOctocodeServerConfigWindows('direct', {
-        enableLocal: true,
-        githubToken: 'ghp_wintoken',
-      });
-
-      expect(result.command).toBe('powershell');
-      expect(result.env).toBeDefined();
-      expect(result.env!.ENABLE_LOCAL).toBe('true');
-      expect(result.env!.GITHUB_TOKEN).toBe('ghp_wintoken');
-    });
-
-    it('should not include env when envOptions is empty for Windows direct', async () => {
-      const { getOctocodeServerConfigWindows } =
-        await import('../../src/utils/mcp-config.js');
-
-      const result = getOctocodeServerConfigWindows('direct', {});
-
-      expect(result.command).toBe('powershell');
-      expect(result.env).toBeUndefined();
-    });
-
     it('should delegate to getOctocodeServerConfig for npx method with env', async () => {
       const { getOctocodeServerConfigWindows } =
         await import('../../src/utils/mcp-config.js');
@@ -157,7 +129,7 @@ describe('MCP Config Coverage Tests', () => {
       const { mergeOctocodeConfig } =
         await import('../../src/utils/mcp-config.js');
 
-      const result = mergeOctocodeConfig({ mcpServers: {} }, 'direct', {
+      const result = mergeOctocodeConfig({ mcpServers: {} }, 'npx', {
         enableLocal: true,
       });
 
@@ -829,9 +801,9 @@ describe('MCP Config Coverage Tests', () => {
       const { mergeOctocodeConfig } =
         await import('../../src/utils/mcp-config.js');
 
-      const result = mergeOctocodeConfig({ mcpServers: {} }, 'direct');
+      const result = mergeOctocodeConfig({ mcpServers: {} }, 'npx');
 
-      expect(result.mcpServers!.octocode.command).toBe('powershell');
+      expect(result.mcpServers!.octocode.command).toBe('npx');
     });
   });
 });

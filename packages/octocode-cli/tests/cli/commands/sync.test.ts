@@ -180,7 +180,7 @@ describe('syncCommand', () => {
       expect.stringContaining('have conflicts')
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('octocode-cli sync')
+      expect.stringContaining('octocode sync')
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--force'));
   });

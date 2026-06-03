@@ -45,12 +45,12 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
 ]);
 
 const CANONICAL_TOOL_USAGE = [
-  'octocode-cli tools                                   # list all tools',
-  'octocode-cli tools <name>                            # show input schema',
-  'octocode-cli tools <n1> <n2> ...                     # batch input schemas',
-  "octocode-cli tools <name> --queries '<json>'         # run a tool",
-  "octocode-cli tools <name> --queries '<json>' --json  # run, raw JSON output",
-  'octocode-cli instructions                            # MCP instructions + all schemas',
+  'octocode tools                                   # list all tools',
+  'octocode tools <name>                            # show input schema',
+  'octocode tools <n1> <n2> ...                     # batch input schemas',
+  "octocode tools <name> --queries '<json>'         # run a tool",
+  "octocode tools <name> --queries '<json>' --json  # run, raw JSON output",
+  'octocode instructions                            # MCP instructions + all schemas',
 ].join('\n');
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
@@ -96,7 +96,7 @@ async function getOptionalToolMetadata(): Promise<Awaited<
 
 function formatToolExampleCommand(toolName: string): string {
   const exampleInput = JSON.stringify(buildDirectToolExampleQuery(toolName));
-  return `octocode-cli tools ${toolName} --queries '${exampleInput}'`;
+  return `octocode tools ${toolName} --queries '${exampleInput}'`;
 }
 
 function getUnexpectedToolOptionKeys(args: ParsedArgs): string[] {
@@ -415,7 +415,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 export const toolCommand: CLICommand = {
   name: 'tool',
   description: 'Run an Octocode tool directly',
-  usage: `octocode-cli --tool <toolName> --queries '<json-stringified-input>'`,
+  usage: `octocode --tool <toolName> --queries '<json-stringified-input>'`,
   options: [
     {
       name: 'tool',

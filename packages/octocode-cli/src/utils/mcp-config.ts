@@ -26,16 +26,6 @@ export function getOctocodeServerConfig(
   let config: MCPServer;
 
   switch (method) {
-    case 'direct':
-      config = {
-        command: 'bash',
-        args: [
-          '-c',
-          'set -euo pipefail; TMPDIR=$(mktemp -d); trap \'rm -rf "$TMPDIR"\' EXIT; curl -fsSL https://octocodeai.com/octocode/latest/index.js -o "$TMPDIR/index.js"; node "$TMPDIR/index.js"',
-        ],
-      };
-      break;
-
     case 'npx':
       config = {
         command: 'npx',
@@ -70,34 +60,6 @@ export function getOctocodeServerConfigWindows(
   method: InstallMethod,
   envOptions?: OctocodeEnvOptions
 ): MCPServer {
-  if (method === 'direct') {
-    const config: MCPServer = {
-      command: 'powershell',
-      args: [
-        '-Command',
-        "$tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName()); New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null; $tmpFile = Join-Path $tmpDir 'index.js'; Invoke-WebRequest -Uri 'https://octocodeai.com/octocode/latest/index.js' -OutFile $tmpFile; node $tmpFile; Remove-Item -Recurse -Force $tmpDir",
-      ],
-    };
-
-    if (envOptions) {
-      const env: Record<string, string> = {};
-
-      if (envOptions.enableLocal) {
-        env.ENABLE_LOCAL = 'true';
-      }
-
-      if (envOptions.githubToken) {
-        env.GITHUB_TOKEN = envOptions.githubToken;
-      }
-
-      if (Object.keys(env).length > 0) {
-        config.env = env;
-      }
-    }
-
-    return config;
-  }
-
   return getOctocodeServerConfig(method, envOptions);
 }
 
@@ -128,9 +90,6 @@ export function getConfiguredMethod(config: MCPConfig): InstallMethod | null {
   if (!octocode) return null;
 
   if (octocode.command === 'npx') return 'npx';
-  if (octocode.command === 'bash' || octocode.command === 'powershell') {
-    return 'direct';
-  }
   return null;
 }
 

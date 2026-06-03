@@ -40,10 +40,10 @@ async function loadHelpModule(): Promise<{
 function printLegacyToolCommandError(): void {
   console.log();
   console.log(
-    "  Use octocode-cli --tool <toolName> --queries '<json-stringified-input>'."
+    "  Use octocode --tool <toolName> --queries '<json-stringified-input>'."
   );
   console.log(
-    '  Example: octocode-cli --tool localSearchCode --queries \'{"path":".","pattern":"runCLI"}\''
+    '  Example: octocode --tool localSearchCode --queries \'{"path":".","pattern":"runCLI"}\''
   );
   console.log();
 }
@@ -51,7 +51,7 @@ function printLegacyToolCommandError(): void {
 function showVersion(): void {
   const version =
     typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown';
-  console.log(`octocode-cli v${version}`);
+  console.log(`octocode v${version}`);
 }
 
 export async function runCLI(argv?: string[]): Promise<boolean> {
@@ -167,7 +167,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (!command) {
     console.log();
     console.log(`  Unknown command: ${args.command}`);
-    console.log(`  Run 'octocode-cli --help' to see available commands.`);
+    console.log(`  Run 'octocode --help' to see available commands.`);
     console.log();
     process.exitCode = 1;
     return true;

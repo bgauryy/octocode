@@ -13,7 +13,7 @@ export const syncCommand: CLICommand = {
   name: 'sync',
   aliases: ['sy'],
   description: 'Sync MCP configurations across all IDE clients',
-  usage: 'octocode-cli sync [--force] [--dry-run] [--status]',
+  usage: 'octocode sync [--force] [--dry-run] [--status]',
   options: [
     {
       name: 'force',
@@ -115,7 +115,7 @@ export const syncCommand: CLICommand = {
         analysis.summary.conflictCount > 0
       ) {
         console.log(
-          `  ${dim('Run')} ${c('cyan', 'octocode-cli sync')} ${dim('to synchronize.')}`
+          `  ${dim('Run')} ${c('cyan', 'octocode sync')} ${dim('to synchronize.')}`
         );
         if (analysis.summary.conflictCount > 0) {
           console.log(
@@ -192,7 +192,7 @@ export const syncCommand: CLICommand = {
       console.log();
       if (analysis.needsSync.length > 0 || analysis.conflicts.length > 0) {
         console.log(
-          `  ${dim('Run')} ${c('cyan', 'octocode-cli sync')} ${dim('to apply.')}`
+          `  ${dim('Run')} ${c('cyan', 'octocode sync')} ${dim('to apply.')}`
         );
         if (analysis.conflicts.length > 0) {
           console.log(

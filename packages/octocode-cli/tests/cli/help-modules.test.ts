@@ -161,7 +161,7 @@ describe('help (dynamic fallback)', () => {
     expect(output).toContain('test-cmd');
     expect(output).toContain('A test command');
     expect(output).toContain('USAGE');
-    expect(output).toContain('octocode-cli test-cmd --flag');
+    expect(output).toContain('octocode test-cmd --flag');
     expect(output).toContain('OPTIONS');
     expect(output).toContain('-f, --flag');
     expect(output).toContain('(default: yes)');

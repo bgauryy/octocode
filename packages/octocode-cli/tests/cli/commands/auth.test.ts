@@ -557,7 +557,7 @@ describe('cli/commands/auth', () => {
         expect.stringContaining('Not authenticated')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode-cli login')
+        expect.stringContaining('octocode login')
       );
       expect(process.exitCode).toBe(1);
     });
@@ -718,7 +718,7 @@ describe('cli/commands/auth', () => {
         expect.stringContaining('Not authenticated')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode-cli login')
+        expect.stringContaining('octocode login')
       );
     });
   });

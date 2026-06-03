@@ -82,7 +82,7 @@ export const mcpCommand: CLICommand = {
   name: 'mcp',
   description: 'Non-interactive MCP marketplace management',
   usage:
-    'octocode-cli mcp [list|install|remove|status] [--id <mcp-id>] [--client <client>|--config <path>] [--search <text>] [--category <name>] [--env KEY=VALUE[,KEY=VALUE]] [--force]',
+    'octocode mcp [list|install|remove|status] [--id <mcp-id>] [--client <client>|--config <path>] [--search <text>] [--category <name>] [--env KEY=VALUE[,KEY=VALUE]] [--force]',
   options: [
     {
       name: 'id',
@@ -620,9 +620,7 @@ export const mcpCommand: CLICommand = {
 
     console.log();
     console.log(`  ${c('red', 'X')} Unknown mcp subcommand: ${subcommand}`);
-    console.log(
-      `  ${dim('Usage:')} octocode-cli mcp [list|install|remove|status]`
-    );
+    console.log(`  ${dim('Usage:')} octocode mcp [list|install|remove|status]`);
     console.log();
     process.exitCode = 1;
   },

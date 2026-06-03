@@ -54,29 +54,20 @@ describe('Finding 3 — writeFileContent uses restrictive permissions', () => {
   });
 });
 
-describe('Finding 4 — Direct installer uses unique temp directory', () => {
-  it('Linux direct install: mktemp, trap, strict mode, no hardcoded /tmp', () => {
-    const config = getOctocodeServerConfig('direct');
-    const cmd = config.args!.join(' ');
-
-    expect(cmd).toContain('mktemp -d');
-    expect(cmd).toContain('set -euo pipefail');
-    expect(cmd).toContain('trap');
-    expect(cmd).toContain('rm -rf');
-    expect(cmd).toContain('curl -fsSL');
-    expect(cmd).not.toContain('/tmp/index.js');
+describe('Finding 4 — Direct installer removed (RCE/supply-chain risk)', () => {
+  it('direct method throws — curl-pipe pattern is removed', () => {
+    expect(() => getOctocodeServerConfig('direct' as any)).toThrow(
+      'Unknown install method'
+    );
   });
 
-  it('Windows direct install: GetRandomFileName, cleanup, no hardcoded path', () => {
-    const config = getOctocodeServerConfigWindows('direct');
-    const cmd = config.args!.join(' ');
-
-    expect(cmd).toContain('GetRandomFileName');
-    expect(cmd).toContain('Remove-Item');
-    expect(cmd).not.toContain('/tmp/index.js');
+  it('Windows direct method throws — PowerShell Invoke-WebRequest pattern is removed', () => {
+    expect(() => getOctocodeServerConfigWindows('direct' as any)).toThrow(
+      'Unknown install method'
+    );
   });
 
-  it('npx method has no temp files at all', () => {
+  it('npx is the only supported method', () => {
     const config = getOctocodeServerConfig('npx');
     expect(config.command).toBe('npx');
     expect(config.args).toEqual(['octocode-mcp@latest']);

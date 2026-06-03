@@ -1029,7 +1029,7 @@ describe('skillsCommand', () => {
     expect(output).toContain('owner-b/repo-b');
     expect(output).toContain('owner-a/repo-a');
     expect(output).toContain('skill-one');
-    expect(output).toContain('octocode-cli skills read');
+    expect(output).toContain('octocode skills read');
   });
 
   it('search --direct --json: returns structured results array', async () => {

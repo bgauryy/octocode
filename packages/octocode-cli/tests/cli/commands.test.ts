@@ -466,7 +466,7 @@ describe('CLI Commands', () => {
         expect.stringContaining('No Octocode token found')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode-cli login')
+        expect.stringContaining('octocode login')
       );
       expect(process.exitCode).toBe(1);
     });
@@ -678,7 +678,7 @@ describe('CLI Commands', () => {
         expect.stringContaining('Missing clean target')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('octocode-cli cache clean --all')
+        expect.stringContaining('octocode cache clean --all')
       );
       expect(process.exitCode).toBe(1);
     });

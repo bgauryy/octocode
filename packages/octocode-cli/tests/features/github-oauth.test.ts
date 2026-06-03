@@ -130,7 +130,7 @@ describe('GitHub OAuth', () => {
     vi.clearAllMocks();
 
     const tokenStorage = await import('../../src/utils/token-storage.js');
-    vi.mocked(tokenStorage.getGhCliToken).mockReturnValue(null);
+    vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue(null);
     vi.mocked(tokenStorage.resolveTokenFull).mockImplementation(
       async (options?: { hostname?: string; clientId?: string }) => {
         for (const envVar of ENV_TOKEN_VARS) {
@@ -152,14 +152,14 @@ describe('GitHub OAuth', () => {
           if (!isExpired) {
             return {
               token: credentials.token.token,
-              source: 'file' as const,
+              source: 'octocode-storage' as const,
               wasRefreshed: false,
               username: credentials.username,
             };
           }
         }
 
-        const ghToken = tokenStorage.getGhCliToken(options?.hostname);
+        const ghToken = await tokenStorage.getGhCliToken(options?.hostname);
         if (ghToken?.trim()) {
           return {
             token: ghToken.trim(),
@@ -781,7 +781,9 @@ describe('GitHub OAuth', () => {
 
     it('should return gh CLI token when no env vars are set (auto mode)', async () => {
       const tokenStorage = await import('../../src/utils/token-storage.js');
-      vi.mocked(tokenStorage.getGhCliToken).mockReturnValue('gh-cli-token-456');
+      vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue(
+        'gh-cli-token-456'
+      );
 
       const { getToken } = await import('../../src/features/github-oauth.js');
       const result = await getToken('github.com', 'auto');
@@ -854,7 +856,7 @@ describe('GitHub OAuth', () => {
       process.env.GITHUB_TOKEN = 'env-token-ignored';
 
       const tokenStorage = await import('../../src/utils/token-storage.js');
-      vi.mocked(tokenStorage.getGhCliToken).mockReturnValue('gh-only-token');
+      vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('gh-only-token');
 
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
       vi.mocked(checkGitHubAuth).mockReturnValue({
@@ -874,7 +876,7 @@ describe('GitHub OAuth', () => {
       process.env.GITHUB_TOKEN = 'env-wins';
 
       const tokenStorage = await import('../../src/utils/token-storage.js');
-      vi.mocked(tokenStorage.getGhCliToken).mockReturnValue('gh-loses');
+      vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('gh-loses');
 
       const { getToken } = await import('../../src/features/github-oauth.js');
       const result = await getToken('github.com', 'auto');
@@ -885,7 +887,7 @@ describe('GitHub OAuth', () => {
 
     it('should prioritize octocode over gh CLI in auto mode', async () => {
       const tokenStorage = await import('../../src/utils/token-storage.js');
-      vi.mocked(tokenStorage.getGhCliToken).mockReturnValue('gh-loses');
+      vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('gh-loses');
 
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
       vi.mocked(checkGitHubAuth).mockReturnValue({

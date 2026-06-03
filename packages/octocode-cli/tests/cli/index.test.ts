@@ -149,7 +149,7 @@ describe('runCLI', () => {
     expect(mocks.executeToolCommand).not.toHaveBeenCalled();
     expect(mocks.findCommand).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Use octocode-cli --tool')
+      expect.stringContaining('Use octocode --tool')
     );
     expect(process.exitCode).toBe(1);
   });
@@ -221,7 +221,7 @@ describe('runCLI', () => {
 
     expect(handled).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('octocode-cli v')
+      expect.stringContaining('octocode v')
     );
     expect(mocks.findCommand).not.toHaveBeenCalled();
   });
@@ -233,7 +233,7 @@ describe('runCLI', () => {
 
     expect(handled).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('octocode-cli v')
+      expect.stringContaining('octocode v')
     );
   });
 

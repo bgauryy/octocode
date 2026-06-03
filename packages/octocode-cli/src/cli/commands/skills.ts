@@ -171,7 +171,7 @@ export const skillsCommand: CLICommand = {
   aliases: ['sk'],
   description: 'Search, install, and manage Octocode skills across AI clients',
   usage:
-    'octocode-cli skills [search|read|install|remove|list|sync] [--skill <name>] [--targets <list>] [--mode <copy|symlink>] [--json]',
+    'octocode skills [search|read|install|remove|list|sync] [--skill <name>] [--targets <list>] [--mode <copy|symlink>] [--json]',
   options: [
     { name: 'force', short: 'f', description: 'Overwrite existing skills' },
     {
@@ -276,7 +276,7 @@ export const skillsCommand: CLICommand = {
         );
         console.log(`  ${dim('Allowed values:')} copy, symlink`);
         console.log(
-          `  ${dim('Example:')} octocode-cli skills install --mode symlink`
+          `  ${dim('Example:')} octocode skills install --mode symlink`
         );
         console.log();
         process.exitCode = 1;
@@ -359,7 +359,7 @@ export const skillsCommand: CLICommand = {
         console.log();
         console.log(`  ${c('red', '✗')} Missing path`);
         console.log(
-          `  ${dim('Usage:')} octocode-cli skills read <path-to-SKILL.md>`
+          `  ${dim('Usage:')} octocode skills read <path-to-SKILL.md>`
         );
         console.log(`  ${dim('Local:')}  skills read ./my-skill/SKILL.md`);
         console.log(
@@ -503,10 +503,10 @@ export const skillsCommand: CLICommand = {
         console.log();
         console.log(`  ${c('red', '✗')} Missing search query`);
         console.log(
-          `  ${dim('Usage:')} octocode-cli skills search <query> [--direct] [--json] [--limit N]`
+          `  ${dim('Usage:')} octocode skills search <query> [--direct] [--json] [--limit N]`
         );
         console.log(
-          `  ${dim('Example:')} octocode-cli skills search "code review" --direct`
+          `  ${dim('Example:')} octocode skills search "code review" --direct`
         );
         console.log();
         process.exitCode = 1;
@@ -549,8 +549,8 @@ export const skillsCommand: CLICommand = {
                 repo: r.source,
                 installs: r.installs,
                 url: `https://github.com/${r.source}`,
-                readCmd: `octocode-cli skills read ${r.source}/${r.skillId}/SKILL.md`,
-                installCmd: `octocode-cli skills install --local ${r.source}/${r.skillId}`,
+                readCmd: `octocode skills read ${r.source}/${r.skillId}/SKILL.md`,
+                installCmd: `octocode skills install --local ${r.source}/${r.skillId}`,
               })),
               error: webError ?? undefined,
             })
@@ -602,7 +602,7 @@ export const skillsCommand: CLICommand = {
                 : '';
             console.log(`    ${c('green', '•')} ${bold(r.name)}${installsStr}`);
             console.log(
-              `      ${dim('read:')} octocode-cli skills read ${r.source}/${r.skillId}/SKILL.md`
+              `      ${dim('read:')} octocode skills read ${r.source}/${r.skillId}/SKILL.md`
             );
           }
         }
@@ -643,7 +643,7 @@ export const skillsCommand: CLICommand = {
               `  ${c('red', '✗')} Could not fetch skill: ${installError ?? 'empty content'}`
             );
             console.log(
-              `  ${dim('Try manually:')} octocode-cli skills install --local <path>`
+              `  ${dim('Try manually:')} octocode skills install --local <path>`
             );
           } else {
             // Write SKILL.md directly to each target dir — no tmp dir needed
@@ -716,7 +716,7 @@ export const skillsCommand: CLICommand = {
       console.log(`  ${bold('References:')} ${SEARCH_SKILL_REFS}`);
       console.log();
       console.log(
-        `  ${dim('For immediate results:  octocode-cli skills search <query> --direct')}`
+        `  ${dim('For immediate results:  octocode skills search <query> --direct')}`
       );
 
       console.log();
@@ -823,7 +823,7 @@ export const skillsCommand: CLICommand = {
           `  ${dim('Available to install:')} ${availableSkills.join(', ')}`
         );
         console.log(
-          `  ${dim('Install:')} octocode-cli skills install --targets <targets>`
+          `  ${dim('Install:')} octocode skills install --targets <targets>`
         );
       }
       console.log();
@@ -1113,11 +1113,9 @@ export const skillsCommand: CLICommand = {
           `  ${c('red', 'X')} Missing required option: ${c('cyan', '--skill <name>')} or ${c('cyan', '--local <path>')}`
         );
         console.log();
+        console.log(`  ${dim('Usage:')} octocode skills remove --skill <name>`);
         console.log(
-          `  ${dim('Usage:')} octocode-cli skills remove --skill <name>`
-        );
-        console.log(
-          `  ${dim('   or:')} octocode-cli skills remove --local ./my-skill`
+          `  ${dim('   or:')} octocode skills remove --local ./my-skill`
         );
         console.log();
         process.exitCode = 1;
@@ -1197,14 +1195,14 @@ export const skillsCommand: CLICommand = {
       const toTarget = args.args[2];
 
       if (!fromTarget || !toTarget) {
-        const msg = 'Usage: octocode-cli skills sync <from-target> <to-target>';
+        const msg = 'Usage: octocode skills sync <from-target> <to-target>';
         if (jsonOutput) {
           console.log(JSON.stringify({ success: false, error: msg }));
         } else {
           console.log();
           console.log(`  ${c('red', '✗')} ${msg}`);
           console.log(
-            `  ${dim('Example:')} octocode-cli skills sync cursor agents`
+            `  ${dim('Example:')} octocode skills sync cursor agents`
           );
           console.log(`  ${dim('Targets:')} ${formatSkillInstallTargets()}`);
           console.log();
@@ -1347,7 +1345,7 @@ export const skillsCommand: CLICommand = {
     console.log();
     console.log(`  ${c('red', '✗')} Unknown subcommand: ${subcommand}`);
     console.log(
-      `  ${dim('Usage:')} octocode-cli skills [search|read|install|remove|list|sync]`
+      `  ${dim('Usage:')} octocode skills [search|read|install|remove|list|sync]`
     );
     console.log();
     process.exitCode = 1;

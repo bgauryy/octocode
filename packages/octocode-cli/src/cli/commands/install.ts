@@ -33,8 +33,7 @@ export const installCommand: CLICommand = {
   name: 'install',
   aliases: ['i', 'setup'],
   description: 'Install octocode-mcp for an IDE',
-  usage:
-    'octocode-cli install --ide <ide> [--method <npx|direct>] [--force] [--json]',
+  usage: 'octocode install --ide <ide> [--method npx] [--force] [--json]',
   options: [
     {
       name: 'ide',
@@ -44,7 +43,7 @@ export const installCommand: CLICommand = {
     {
       name: 'method',
       short: 'm',
-      description: 'Installation method (npx or direct)',
+      description: 'Installation method (npx)',
       hasValue: true,
       default: 'npx',
     },
@@ -103,7 +102,7 @@ export const installCommand: CLICommand = {
           console.log();
           console.log(`  Missing required option: --ide`);
           console.log(`  Supported: ${SUPPORTED_INSTALL_CLIENTS_TEXT}`);
-          console.log(`  Example: octocode-cli install --ide cursor`);
+          console.log(`  Example: octocode install --ide cursor`);
           console.log();
         }
         process.exitCode = 1;
@@ -276,7 +275,7 @@ export const installCommand: CLICommand = {
       return;
     }
 
-    if (!['npx', 'direct'].includes(method)) {
+    if (method !== 'npx') {
       if (jsonOutput) {
         console.log(
           JSON.stringify({
@@ -284,7 +283,7 @@ export const installCommand: CLICommand = {
             ide: rawIde,
             configPath: null,
             method,
-            error: `Invalid method: ${method}. Supported: npx, direct`,
+            error: `Invalid method: ${method}. Supported: npx`,
           })
         );
         process.exitCode = 1;
@@ -292,7 +291,7 @@ export const installCommand: CLICommand = {
       }
       console.log();
       console.log(`  ${c('red', '✗')} Invalid method: ${method}`);
-      console.log(`  ${dim('Supported:')} npx, direct`);
+      console.log(`  ${dim('Supported:')} npx`);
       console.log();
       process.exitCode = 1;
       return;

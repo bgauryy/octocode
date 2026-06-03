@@ -65,7 +65,6 @@ vi.mock('../../../src/ui/constants.js', () => ({
   },
   INSTALL_METHOD_INFO: {
     npx: { name: 'npx' },
-    direct: { name: 'Direct' },
   },
 }));
 
@@ -374,32 +373,8 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('does not check node/npm when method is direct', async () => {
-    const {
-      installCommand,
-      checkNodeInPath,
-      checkNpmInPath,
-      installOctocodeForClient,
-      getInstallPreviewForClient,
-    } = await loadDeps();
-
-    vi.mocked(checkNodeInPath).mockReturnValue({
-      installed: false,
-      version: null,
-    });
-    vi.mocked(checkNpmInPath).mockReturnValue({
-      installed: false,
-      version: null,
-    });
-    vi.mocked(getInstallPreviewForClient).mockReturnValue({
-      ...basePreview,
-      method: 'direct',
-      action: 'create',
-    });
-    vi.mocked(installOctocodeForClient).mockReturnValue({
-      success: true,
-      configPath: '/path',
-    });
+  it('rejects direct method as invalid', async () => {
+    const { installCommand } = await loadDeps();
 
     await installCommand.handler!({
       command: 'install',
@@ -407,20 +382,29 @@ describe('cli/commands/install', () => {
       options: { ide: 'cursor', method: 'direct' },
     });
 
-    expect(process.exitCode).toBeUndefined();
-    expect(installOctocodeForClient).toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 
-  it('uses short -m method alias', async () => {
+  it('uses short -m method alias with npx', async () => {
     const {
       installCommand,
       installOctocodeForClient,
       getInstallPreviewForClient,
+      checkNodeInPath,
+      checkNpmInPath,
     } = await loadDeps();
 
+    vi.mocked(checkNodeInPath).mockReturnValue({
+      installed: true,
+      version: 'v22.0.0',
+    });
+    vi.mocked(checkNpmInPath).mockReturnValue({
+      installed: true,
+      version: '10.0.0',
+    });
     vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
-      method: 'direct',
+      method: 'npx',
       action: 'create',
     });
     vi.mocked(installOctocodeForClient).mockReturnValue({
@@ -431,13 +415,13 @@ describe('cli/commands/install', () => {
     await installCommand.handler!({
       command: 'install',
       args: [],
-      options: { ide: 'cursor', m: 'direct' },
+      options: { ide: 'cursor', m: 'npx' },
     });
 
-    expect(getInstallPreviewForClient).toHaveBeenCalledWith('cursor', 'direct');
+    expect(getInstallPreviewForClient).toHaveBeenCalledWith('cursor', 'npx');
     expect(installOctocodeForClient).toHaveBeenCalledWith({
       client: 'cursor',
-      method: 'direct',
+      method: 'npx',
       force: false,
     });
   });

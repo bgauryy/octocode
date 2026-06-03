@@ -296,14 +296,14 @@ describe('Token Storage (CLI re-exports from octocode-shared)', () => {
 
       vi.mocked(shared.resolveTokenFull).mockResolvedValue({
         token: 'full-token',
-        source: 'file',
+        source: 'octocode-storage',
         wasRefreshed: false,
       });
 
       const result = await resolveTokenFull();
 
       expect(result?.token).toBe('full-token');
-      expect(result?.source).toBe('file');
+      expect(result?.source).toBe('octocode-storage');
     });
 
     it('should return null when no token', async () => {
