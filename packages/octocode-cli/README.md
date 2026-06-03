@@ -49,6 +49,7 @@ Call any of the 14 Octocode tools directly from the terminal — great for scrip
 # Discover tools
 octocode-cli tools                    # list all tools with descriptions
 octocode-cli tools localSearchCode    # show schema for a specific tool
+octocode-cli tools localSearchCode githubSearchCode   # batch schemas
 
 # Run a tool
 octocode-cli tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
@@ -69,27 +70,57 @@ Shared fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-f
 
 | Command | What it does |
 |---------|--------------|
-| `install` | Configure octocode-mcp for an IDE |
-| `install --check` | Pre-flight: verify config path is writable, show what would change |
-| `install --rollback` | Restore the most recent backup configuration |
+| `install --ide <ide>` | Configure octocode-mcp for an IDE |
+| `install --ide <ide> --check` | Pre-flight: verify config path is writable, show what would change |
+| `install --ide <ide> --rollback` | Restore the most recent backup configuration |
+| `install --ide <ide> --rollback --backup-path <file>` | Restore a specific backup file |
 | `auth` / `login` / `logout` | GitHub authentication |
 | `login --force` | Log out the current session and re-authenticate in one step |
+| `login --git-protocol <ssh\|https>` | Set the git protocol used for clones |
 | `logout --yes` | Skip the confirmation prompt |
 | `auth refresh` | Refresh an Octocode-managed token (source-aware) |
 | `token` | Print the resolved GitHub token |
+| `token --type <auto\|octocode\|gh>` | Force a specific token source instead of auto-resolution |
+| `token --source` | Show which source resolved the token |
 | `token --validate` | Ping the GitHub API to verify the token and show rate-limit |
 | `status` | Full health check: auth + MCP clients + cache |
 | `status --sync` | Also includes per-MCP sync analysis |
 | `sync` | Sync MCP configs across all IDEs |
-| `sync plan` | Show what `sync` would do without writing anything |
-| `sync --dry-run` | Same as `sync plan` |
-| `skills` | Install / remove / list / search bundled skills |
+| `sync plan` / `sync --dry-run` | Show what `sync` would do without writing anything |
+| `sync --status` | Show sync analysis without syncing |
+| `sync --force` | Auto-resolve conflicts (use first variant found) |
+| `skills` | Install / remove / list / search / read bundled skills |
 | `skills search --direct` | Search skills.sh directly (human-readable) |
+| `skills search --direct --install` | Fetch and install top result automatically |
+| `skills read <path\|github:owner/repo/name>` | Preview a SKILL.md from disk or GitHub |
+| `skills install --targets <t1,t2>` | Install all bundled skills to targets |
+| `skills install --skill <name> --targets <t>` | Install one specific skill |
+| `skills install --local <path> --targets <t>` | Install a local skill folder |
+| `skills install --dry-run` | Preview installs without writing |
+| `skills install --mode symlink` | Symlink instead of copy |
+| `skills remove --skill <name> --targets <t>` | Remove a skill |
+| `skills list` | List all installed skills across all targets |
+| `skills list --target <t>` | Filter to one target |
 | `skills sync <from> <to>` | Copy skills between targets |
-| `mcp` | Browse and manage the MCP marketplace |
+| `mcp list` | Scan all OS MCP config files |
+| `mcp list --client <id>` | Search registry for a specific client |
+| `mcp list --installed` | List only installed MCPs with env-var status |
+| `mcp list --search <text>` | Filter by id / name / description / tags |
+| `mcp list --category <name>` | Filter by category |
+| `mcp status --client <id>` | Show servers in one config + env var status |
+| `mcp install --id <id> --client <id>` | Install one MCP server |
 | `mcp install --id a,b,c` | Batch-install MCPs (parallel preflight) |
-| `cache` | Inspect and clean Octocode cache |
-| `cache clean --dry-run` | Show what would be freed without deleting |
+| `mcp install --id <id> --config <path>` | Install into a custom config file |
+| `mcp install --id <id> --env K=V,K2=V2` | Set env vars for the installed server |
+| `mcp install --id <id> --force` | Overwrite existing entry |
+| `mcp remove --id <id> --client <id>` | Remove an MCP server |
+| `cache status` | Inspect cache sizes (repos, skills, logs) |
+| `cache clean --all` | Clean repos + skills + logs |
+| `cache clean --repos` / `--skills` / `--logs` | Clean specific targets |
+| `cache clean --tools` | Clean all tool caches (local + lsp + api) |
+| `cache clean --local` / `--lsp` / `--api` | Clean individual tool caches |
+| `cache clean --all --dry-run` | Show what would be freed without deleting |
+| `cache clean --all --yes` | Skip confirmation prompt |
 
 ---
 
@@ -118,8 +149,6 @@ octocode-cli cache clean --all --dry-run    # See what cache clean would free
 - [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md) — bundled skills installation
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md)
 - [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md)
-- [Agents / automation guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-cli/AGENTS.md) — non-interactive usage, `--json` flags, tool execution
-
 ---
 
 ## Privacy & Telemetry
