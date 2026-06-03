@@ -6995,7 +6995,7 @@ __metadata:
     typescript: "npm:^5.9.3"
     vitest: "npm:^4.0.16"
   bin:
-    octocode-cli: ./out/octocode-cli.js
+    octocode: ./out/octocode-cli.js
   languageName: unknown
   linkType: soft
 
