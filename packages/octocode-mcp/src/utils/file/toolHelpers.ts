@@ -11,6 +11,7 @@ import {
   createErrorResult,
   type UnifiedErrorResult,
 } from '../response/error.js';
+import { getConfigSync } from 'octocode-shared';
 
 /**
  * Local error result type - compatible with UnifiedErrorResult
@@ -80,7 +81,11 @@ export function validateToolPath(
       errorResult: createErrorResult(toolError, query, { toolName }),
     };
   }
-  const cwd = process.env.WORKSPACE_ROOT ?? process.cwd();
+  // Priority: WORKSPACE_ROOT env var > local.workspaceRoot (.octocoderc) > process.cwd()
+  const cwd =
+    process.env.WORKSPACE_ROOT?.trim() ||
+    getConfigSync().local.workspaceRoot ||
+    process.cwd();
   const inputPath = query.path.replace(/^file:\/\//, '');
   // Resolve relative paths against WORKSPACE_ROOT (or CWD) so that agents
   // using relative paths from the workspace root get the correct absolute path.

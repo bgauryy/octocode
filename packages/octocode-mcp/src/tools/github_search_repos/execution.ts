@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 
@@ -49,7 +49,7 @@ export function applyGithubSearchReposVerbosity(
   data: { repositories: unknown[]; pagination?: unknown };
   extraHints: string[];
 } {
-  if (isConcise(query.verbosity)) {
+  if (isConcise(query)) {
     const projected = (data.repositories ?? [])
       .slice(0, CONCISE_REPOS_LIMIT)
       .map(r => {
@@ -432,7 +432,7 @@ export async function searchMultipleGitHubRepos(
         // concise's cap is its documented contract and pagination.totalMatches
         // keeps the true count visible. Cap BOTH per_page knobs.
         const verbosityIsConcise = isConcise(
-          (query as WithVerbosity<typeof query>).verbosity
+          query as WithVerbosity<typeof query>
         );
         if (verbosityIsConcise) {
           const q = query as {
@@ -572,9 +572,7 @@ export async function searchMultipleGitHubRepos(
         ];
         // Compact trim: drop advisory hints (recovery prose, synonym
         // suggestions) while keeping pagination + downgrade + drill-back.
-        const compactMode = isCompact(
-          (query as WithVerbosity<typeof query>).verbosity
-        );
+        const compactMode = isCompact(query as WithVerbosity<typeof query>);
         const finalExtraHints = compactMode
           ? (compactTrimHints(allExtraHints, isAdvisorySearchReposHint, 2) ??
             [])

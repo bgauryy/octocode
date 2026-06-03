@@ -20,7 +20,7 @@ import type {
 import { searchGitHubCodeAPI } from '../../github/codeSearch.js';
 import { searchGitHubReposAPI } from '../../github/repoSearch.js';
 
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type {
   GitHubCodeSearchQuerySchema,
   GitHubReposSearchSingleQuerySchema,

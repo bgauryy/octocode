@@ -11,7 +11,6 @@ describe('attachLspEvidence', () => {
       {
         kind: 'calls',
         paginationKey: 'outputPagination',
-        fallbackReason: 'Fallback call hierarchy used.',
       }
     );
 
@@ -32,7 +31,6 @@ describe('attachLspEvidence', () => {
       {
         kind: 'calls',
         paginationKey: 'outputPagination',
-        fallbackReason: 'Fallback call hierarchy used.',
       }
     );
 
@@ -45,17 +43,15 @@ describe('attachLspEvidence', () => {
     });
   });
 
-  it('combines fallback and pagination reasons', () => {
+  it('adds only the pagination reason for references (always high confidence)', () => {
     const result = attachLspEvidence(
       {
-        lspMode: 'fallback' as const,
         locations: [],
         pagination: { hasMore: true },
       },
       {
         kind: 'references',
         paginationKey: 'pagination',
-        fallbackReason: 'LSP unavailable; fallback pattern matching used.',
       }
     );
 
@@ -63,9 +59,8 @@ describe('attachLspEvidence', () => {
       kind: 'references',
       answerReady: true,
       complete: false,
-      confidence: 'low',
-      reason:
-        'LSP result pagination has more results. LSP unavailable; fallback pattern matching used.',
+      confidence: 'high',
+      reason: 'LSP result pagination has more results.',
     });
   });
 
@@ -78,7 +73,6 @@ describe('attachLspEvidence', () => {
       {
         kind: 'references',
         paginationKey: 'pagination',
-        fallbackReason: 'LSP unavailable; fallback pattern matching used.',
       }
     );
 

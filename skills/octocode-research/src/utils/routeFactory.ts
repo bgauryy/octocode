@@ -12,7 +12,7 @@
  */
 
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import { parseAndValidate } from '../middleware/queryParser.js';
 import { parseToolResponse, type ParsedResponse } from './responseParser.js';
 

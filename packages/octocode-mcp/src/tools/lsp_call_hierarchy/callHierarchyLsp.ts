@@ -15,7 +15,7 @@ import type {
   ExactPosition,
   CodeSnippet,
 } from '../../lsp/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type LSPCallHierarchyQuery = z.infer<typeof LSPCallHierarchyQuerySchema>;
@@ -103,6 +103,7 @@ async function resolveIncomingCalls(
         'The function may not be called directly in the workspace',
         'Check if it is called via alias or dynamic invocation',
         'Try lspFindReferences for broader usage search',
+        'If no callers seems wrong, use lspFindReferences as the semantic fallback.',
       ],
     });
   }
@@ -189,6 +190,7 @@ async function resolveOutgoingCalls(
         `No callees found in '${query.symbolName}' via Language Server`,
         'The function may only contain primitive operations',
         'Check if calls use dynamic invocation patterns',
+        'If no callees seems wrong, retry at the definition returned by lspGotoDefinition.',
       ],
     });
   }

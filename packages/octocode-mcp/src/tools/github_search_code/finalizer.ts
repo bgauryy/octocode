@@ -454,8 +454,8 @@ export function applyGithubSearchCodeVerbosity(
   >;
   const allConcise =
     queriesWithVerbosity.length > 0 &&
-    queriesWithVerbosity.every(q => isConcise(q.verbosity));
-  const anyCompact = queriesWithVerbosity.some(q => isCompact(q.verbosity));
+    queriesWithVerbosity.every(q => isConcise(q));
+  const anyCompact = queriesWithVerbosity.some(q => isCompact(q));
   const groups = (responseData.results ?? []) as CodeSearchGroupedResult[];
 
   if (allConcise) {

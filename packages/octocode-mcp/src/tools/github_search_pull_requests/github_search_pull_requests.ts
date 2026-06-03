@@ -1,4 +1,4 @@
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type GitHubPullRequestSearchQuery = z.infer<

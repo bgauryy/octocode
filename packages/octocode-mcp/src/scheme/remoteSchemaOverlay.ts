@@ -29,7 +29,7 @@
  *    so callers that only supply `name` get npm behaviour without an error.
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import {
   GitHubPullRequestSearchQuerySchema,
   NpmPackageQuerySchema,
@@ -43,7 +43,7 @@ import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
-  createVerbosityField,
+  createVerbosityFields,
   describeField,
   localCharLengthField,
   contextLinesField,
@@ -64,14 +64,17 @@ import { validateFileContentExtractionMode } from './fileContentModeValidation.j
 /**
  * Relaxed version of BulkCloneRepoSchema.
  * Since UpstreamBulkCloneRepoSchema is already a bulk schema, we extract its
- * element schema and extend it with the cross-tool verbosity field.
+ * element schema and extend it with the cross-tool detail controls.
  */
 const CloneRepoElementSchema = (
   UpstreamBulkCloneRepoSchema.shape.queries as z.ZodArray<z.ZodTypeAny>
 ).element as unknown as z.ZodObject<z.ZodRawShape>;
 
-// Clone is a one-shot side-effecting action — no verbosity field.
-export const CloneRepoQueryLocalSchema = CloneRepoElementSchema;
+// Clone is a one-shot side-effecting action, but it still accepts the shared
+// detail controls so every tool has the same `verbose` boolean surface.
+export const CloneRepoQueryLocalSchema = CloneRepoElementSchema.extend({
+  ...createVerbosityFields(),
+});
 
 export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
@@ -139,7 +142,7 @@ export const FileContentQueryBaseLocalSchema =
     charLength: localCharLengthField,
     charOffset: charOffsetField,
     matchStringContextLines: contextLinesField,
-    verbosity: createVerbosityField(),
+    ...createVerbosityFields(),
   });
 
 // Strict per-query schema (base + mutex). The executor `safeParse`s each query
@@ -307,7 +310,7 @@ export const GitHubCodeSearchQueryLocalSchema =
   UpstreamGitHubCodeSearchQuerySchema.omit({ limit: true }).extend({
     keywordsToSearch: describeField(
       UpstreamGitHubCodeSearchQuerySchema.shape.keywordsToSearch,
-      'Search terms combined by GitHub code search. Use a small set of distinctive identifiers or phrases.'
+      'Search terms AND-combined by GitHub. Each array element is a separate required term — do NOT put multi-word phrases in one element (split them: ["foo","bar"] not ["foo bar"]). Use a small set of distinctive identifiers.'
     ),
     owner: describeField(
       UpstreamGitHubCodeSearchQuerySchema.shape.owner,
@@ -334,7 +337,7 @@ export const GitHubCodeSearchQueryLocalSchema =
     // Raw GitHub per_page override (renamed from `limit`). Optional; omit to
     // track itemsPerPage. GitHub caps per_page at 100; walk pages with `page`.
     githubAPILimit: githubApiLimitField,
-    verbosity: createVerbosityField(),
+    ...createVerbosityFields(),
   });
 
 export const GitHubCodeSearchBulkQueryLocalSchema =
@@ -473,7 +476,7 @@ export const GitHubViewRepoStructureQueryLocalSchema =
     // ±9e15 safe-integer sentinel — schema bloat + a validation gap). Matches
     // the local view-structure bound (0-20).
     depth: depthField,
-    verbosity: createVerbosityField(),
+    ...createVerbosityFields(),
   });
 
 export const GitHubViewRepoStructureBulkQueryLocalSchema =
@@ -493,7 +496,7 @@ export const GitHubReposSearchSingleQueryLocalSchema =
   UpstreamGitHubReposSearchSingleQuerySchema.omit({ limit: true }).extend({
     keywordsToSearch: describeField(
       UpstreamGitHubReposSearchSingleQuerySchema.shape.keywordsToSearch,
-      'Repository name, description, or README keywords. Prefer language for language filtering.'
+      'Repository name/description keywords — each array element is a separate AND term. Do NOT use multi-word phrases in one element (["react","hooks"] not ["react hooks"]). Prefer fewer, distinctive terms.'
     ),
     topicsToSearch: describeField(
       UpstreamGitHubReposSearchSingleQuerySchema.shape.topicsToSearch,
@@ -526,7 +529,7 @@ export const GitHubReposSearchSingleQueryLocalSchema =
     page: relaxedPageNumberField.default(1),
     itemsPerPage: githubItemsPerPageField,
     githubAPILimit: githubApiLimitField,
-    verbosity: createVerbosityField(),
+    ...createVerbosityFields(),
   });
 
 export const GitHubReposSearchBulkQueryLocalSchema =
@@ -608,7 +611,7 @@ export const GitHubPullRequestSearchQueryLocalSchema =
         })
       )
       .optional(),
-    verbosity: createVerbosityField(),
+    ...createVerbosityFields(),
   });
 
 export const GitHubPullRequestSearchBulkQueryLocalSchema =
@@ -640,18 +643,13 @@ const npmPackageQueryWithLimit = NpmPackageQuerySchema.omit({
   ecosystem: z
     .literal('npm')
     .optional()
-    .describe(
-      'Package registry ecosystem. Omitted defaults to "npm"; only "npm" is supported.'
-    ),
+    .describe('Registry ecosystem — always "npm". Omit or set to "npm".'),
   // ONE result-count knob: `itemsPerPage` (the cross-tool page-size name).
   itemsPerPage: itemsPerPageField,
-  // `page` is accepted for forward-compatibility but only page=1 is implemented
-  // (no registry cursor is threaded through). To control result count, use
-  // `itemsPerPage` instead.
   page: relaxedPageNumberField.describe(
-    'Result page (1-based). Only page=1 is currently implemented; `itemsPerPage` is the correct lever to control result count.'
+    'Result page (1-based). Exact package-name lookups return one canonical package; keyword searches use page with itemsPerPage to walk registry results.'
   ),
-  verbosity: createVerbosityField(),
+  ...createVerbosityFields(),
 });
 
 export const PackageSearchQueryLocalSchema = npmPackageQueryWithLimit;

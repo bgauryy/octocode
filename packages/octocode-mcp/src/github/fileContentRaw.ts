@@ -1,6 +1,6 @@
 import { RequestError } from 'octokit';
 import type { GetContentParameters, GitHubAPIResponse } from './githubAPI.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;

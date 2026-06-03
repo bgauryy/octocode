@@ -3,16 +3,15 @@
  *
  * Mirrors the pattern in `localSchemaOverlay.ts` for LSP tools. The Zod
  * schemas for the LSP tools ship in `@octocodeai/octocode-core`; this overlay
- * re-publishes them with the cross-cutting `verbosity` field (basic | compact
- * | concise, default "basic") so the agent sees the cost lever in the tool's
- * input schema.
+ * re-publishes them with the cross-cutting detail controls (`verbose` boolean
+ * plus legacy `verbosity`) so the agent sees the cost lever in the tool's input
+ * schema.
  *
  * Behaviour is wired per-tool in each handler. Omitted ≡ `"basic"` (full
- * content + full hints). Description text comes from upstream
- * `baseSchema.verbosity` — no per-tool describe.
+ * content + full hints). Shared field descriptions live in the local overlay.
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import {
   LSPGotoDefinitionQuerySchema as UpstreamGotoDefinitionQuerySchema,
   LSPFindReferencesQuerySchema as UpstreamFindReferencesQuerySchema,
@@ -21,7 +20,7 @@ import {
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
-  createVerbosityField,
+  createVerbosityFields,
   contextLinesField,
   optionalMetaFields,
   itemsPerPageField,
@@ -34,7 +33,7 @@ import {
   localCharLengthField,
 } from './localSchemaOverlay.js';
 
-// Description text lives upstream in octocode-core baseSchema.verbosity;
+// Description text lives in the shared local overlay/base schema;
 // LSP-specific guidance belongs in each tool's <gotchas>.
 
 // ---------------------------------------------------------------------------
@@ -42,13 +41,17 @@ import {
 // ---------------------------------------------------------------------------
 
 // Field descriptions are upstream (lspGotoDefinition.ts). Overlay supplies
-// only the verbosity field and context-lines range.
+// only detail controls and context-lines range.
 export const LSPGotoDefinitionQuerySchema =
   UpstreamGotoDefinitionQuerySchema.extend({
     ...optionalMetaFields,
     uri: describeField(
       UpstreamGotoDefinitionQuerySchema.shape.uri,
       'File URI or path containing the symbol usage; absolute paths and workspace-relative paths are accepted.'
+    ),
+    symbolName: describeField(
+      UpstreamGotoDefinitionQuerySchema.shape.symbolName,
+      'Exact symbol name to resolve (case-sensitive). Copy verbatim from localSearchCode matches — partial names or aliases will not resolve.'
     ),
     lineHint: describeField(
       requiredLineHintField,
@@ -58,7 +61,7 @@ export const LSPGotoDefinitionQuerySchema =
       orderHintField,
       'Optional 0-based occurrence index on the hinted line when a symbol appears multiple times.'
     ),
-    verbosity: createVerbosityField(),
+    ...createVerbosityFields(),
     contextLines: contextLinesField,
     charOffset: charOffsetField,
     charLength: localCharLengthField,
@@ -75,7 +78,7 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
 // ---------------------------------------------------------------------------
 
 // Field descriptions are upstream (lspFindReferences.ts). Overlay supplies
-// only the verbosity field, context-lines/pagination ranges, and the
+// only detail controls, context-lines/pagination ranges, and the
 // `groupByFile` boolean (which has no upstream description today).
 export const LSPFindReferencesQuerySchema =
   UpstreamFindReferencesQuerySchema.omit({
@@ -94,6 +97,10 @@ export const LSPFindReferencesQuerySchema =
         UpstreamFindReferencesQuerySchema.shape.uri,
         'File URI or path containing the symbol definition or usage to resolve.'
       ),
+      symbolName: describeField(
+        UpstreamFindReferencesQuerySchema.shape.symbolName,
+        'Exact symbol name to find all usages of (case-sensitive). Copy verbatim from localSearchCode matches — partial names or aliases will not resolve.'
+      ),
       lineHint: describeField(
         requiredLineHintField,
         '1-based line number near the symbol. Get it from localSearchCode before calling LSP tools.'
@@ -111,7 +118,7 @@ export const LSPFindReferencesQuerySchema =
         UpstreamFindReferencesQuerySchema.shape.excludePattern,
         'Optional glob(s) excluding noisy generated, fixture, or vendor paths from reference results.'
       ),
-      verbosity: createVerbosityField(),
+      ...createVerbosityFields(),
       contextLines: contextLinesField,
       // References are the atomic item → the cross-tool `itemsPerPage` (default
       // 20). Page through them with the unified `page`.
@@ -139,7 +146,7 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
 // ---------------------------------------------------------------------------
 
 // Field descriptions are upstream (lspCallHierarchy.ts). Overlay supplies
-// only the verbosity field and context/pagination ranges.
+// only detail controls and context/pagination ranges.
 export const LSPCallHierarchyQuerySchema =
   UpstreamCallHierarchyQuerySchema.omit({
     // Renamed to the cross-tool `itemsPerPage` (calls are the atomic item).
@@ -151,6 +158,10 @@ export const LSPCallHierarchyQuerySchema =
         UpstreamCallHierarchyQuerySchema.shape.uri,
         'File URI or path containing the function or method whose call graph should be traced.'
       ),
+      symbolName: describeField(
+        UpstreamCallHierarchyQuerySchema.shape.symbolName,
+        'Exact function or method name to trace (case-sensitive). Copy verbatim from localSearchCode matches — partial names will not resolve.'
+      ),
       lineHint: describeField(
         requiredLineHintField,
         '1-based line number near the callable symbol. Get it from localSearchCode before calling LSP tools.'
@@ -160,7 +171,7 @@ export const LSPCallHierarchyQuerySchema =
         UpstreamCallHierarchyQuerySchema.shape.direction,
         'Call graph direction: incoming shows callers; outgoing shows callees.'
       ),
-      verbosity: createVerbosityField(),
+      ...createVerbosityFields(),
       contextLines: contextLinesField,
       charOffset: charOffsetField,
       charLength: localCharLengthField,

@@ -4,7 +4,7 @@
  * Validates parsed JSON from lsp-servers.json config files.
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 const MAX_COMMAND_LENGTH = 512;
 const MAX_ARG_LENGTH = 1024;

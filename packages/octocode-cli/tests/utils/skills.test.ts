@@ -74,7 +74,7 @@ describe('Skills Utilities', () => {
       vi.mocked(dirExists).mockReturnValue(false);
 
       expect(() => getSkillsSourcePath()).toThrow('Skills directory not found');
-      expect(dirExists).toHaveBeenCalledTimes(3);
+      expect(dirExists).toHaveBeenCalledTimes(4);
     });
 
     it('should check fromOut path first', () => {
@@ -98,7 +98,7 @@ describe('Skills Utilities', () => {
       const result = getSkillsSourceDir();
 
       expect(result).toMatch(/skills$/);
-      expect(dirExists).toHaveBeenCalledTimes(3);
+      expect(dirExists).toHaveBeenCalledTimes(4);
     });
 
     it('should return the second candidate when the first is missing', () => {

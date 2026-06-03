@@ -43,16 +43,6 @@ vi.mock('../../src/lsp/manager.js', () => ({
   acquirePooledClient: vi.fn().mockResolvedValue(null),
 }));
 
-// Mock pattern matching module
-vi.mock('../../src/tools/lsp_find_references/lspReferencesPatterns.js', () => ({
-  findReferencesWithPatternMatching: vi.fn().mockResolvedValue({
-    locations: [],
-    totalReferences: 0,
-  }),
-  findWorkspaceRoot: vi.fn(async () => '/workspace'),
-  isLikelyDefinition: vi.fn(),
-}));
-
 // Mock lspReferencesCore
 vi.mock('../../src/tools/lsp_find_references/lspReferencesCore.js', () => ({
   findReferencesWithLSP: vi.fn().mockResolvedValue(null),
@@ -86,7 +76,6 @@ vi.mock('../../src/errors/errorFactories.js', () => ({
 import * as fs from 'fs/promises';
 import * as resolverModule from '../../src/lsp/resolver.js';
 import * as managerModule from '../../src/lsp/manager.js';
-import * as patternModule from '../../src/tools/lsp_find_references/lspReferencesPatterns.js';
 import * as coreModule from '../../src/tools/lsp_find_references/lspReferencesCore.js';
 import {
   validateToolPath,
@@ -147,16 +136,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       };
     });
 
-    vi.mocked(
-      patternModule.findReferencesWithPatternMatching
-    ).mockResolvedValue({
-      locations: [],
-      totalReferences: 0,
-      researchGoal: 'test',
-      reasoning: 'test',
-    } as any);
-
-    vi.mocked(patternModule.findWorkspaceRoot).mockResolvedValue('/workspace');
     vi.mocked(coreModule.findReferencesWithLSP).mockResolvedValue(null);
   });
 
@@ -230,6 +209,9 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       // reference set, never the paginated page slice. 25 refs across 3 files
       // with referencesPerPage=10 → page 1 holds only 10, but the rollup must
       // still report 25 across 3 files.
+      vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
+        true
+      );
       const make = (uri: string, line: number) => ({
         uri,
         range: {
@@ -244,9 +226,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         ...Array.from({ length: 5 }, (_, i) => make('/workspace/src/c.ts', i)),
       ];
 
-      vi.mocked(
-        patternModule.findReferencesWithPatternMatching
-      ).mockResolvedValue({
+      vi.mocked(coreModule.findReferencesWithLSP).mockResolvedValue({
         locations: allLocations,
         totalReferences: allLocations.length,
         researchGoal: 'test',
@@ -329,30 +309,36 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       expect(result.status).toBe('error');
     });
 
-    it('should fallback to pattern matching when LSP returns null (line 151)', async () => {
+    it('should return an empty LSP-not-installed result when no language server is available', async () => {
+      vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
+        false
+      );
+
+      const result = await findReferences(baseQuery);
+
+      expect(result.status).toBe('empty');
+      expect(result.errorCode).toBe('LSP_NOT_INSTALLED');
+      expect(result.locations).toBeUndefined();
+      // LSP-only: no text/regex fallback was attempted.
+      expect(coreModule.findReferencesWithLSP).not.toHaveBeenCalled();
+      expect(result.hints?.some(h => h.includes('localSearchCode'))).toBe(true);
+    });
+
+    it('should return an empty LSP-empty result when LSP is available but returns nothing', async () => {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
       vi.mocked(coreModule.findReferencesWithLSP).mockResolvedValue(null);
 
-      vi.mocked(
-        patternModule.findReferencesWithPatternMatching
-      ).mockResolvedValue({
-        locations: [{ uri: '/workspace/src/file.ts', range: {} }],
-        totalReferences: 1,
-        researchGoal: 'test',
-        reasoning: 'test',
-      } as any);
-
       const result = await findReferences(baseQuery);
 
-      expect(result.status).toBeUndefined();
-      expect(
-        patternModule.findReferencesWithPatternMatching
-      ).toHaveBeenCalled();
+      expect(result.status).toBe('empty');
+      expect(result.errorCode).toBe('LSP_EMPTY');
+      expect(result.locations).toBeUndefined();
+      expect(coreModule.findReferencesWithLSP).toHaveBeenCalled();
     });
 
-    it('should fallback to pattern matching when LSP throws (line 152)', async () => {
+    it('should return an empty LSP-empty result when LSP throws', async () => {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
@@ -362,13 +348,12 @@ describe('LSP Find References - Branch Coverage Tests', () => {
 
       const result = await findReferences(baseQuery);
 
-      expect(result.status).toBeUndefined();
-      expect(
-        patternModule.findReferencesWithPatternMatching
-      ).toHaveBeenCalled();
+      expect(result.status).toBe('empty');
+      expect(result.errorCode).toBe('LSP_EMPTY');
+      expect(coreModule.findReferencesWithLSP).toHaveBeenCalled();
     });
 
-    it('should merge LSP and pattern results when both return data (line 151)', async () => {
+    it('should return LSP semantic results when both available and populated', async () => {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
@@ -386,27 +371,12 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       const result = await findReferences(baseQuery);
 
       expect(result.status).toBeUndefined();
-      // Pattern matching is always called for hybrid merge
-      expect(
-        patternModule.findReferencesWithPatternMatching
-      ).toHaveBeenCalled();
-    });
-
-    it('should use process.cwd() when WORKSPACE_ROOT env not set (line 137)', async () => {
-      delete process.env.WORKSPACE_ROOT;
-      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/mock/cwd');
-
-      await findReferences(baseQuery);
-
-      expect(cwdSpy).toHaveBeenCalled();
-      // findWorkspaceRoot is no longer called - process.cwd() is used instead
-      expect(patternModule.findWorkspaceRoot).not.toHaveBeenCalled();
-      cwdSpy.mockRestore();
+      expect(coreModule.findReferencesWithLSP).toHaveBeenCalled();
     });
   });
 
-  describe('global merge semantics', () => {
-    it('should build merged pagination from full branch datasets before final paging', async () => {
+  describe('global pagination semantics', () => {
+    it('should page over the full LSP dataset', async () => {
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
@@ -421,40 +391,19 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         isDefinition: false,
       });
 
-      vi.mocked(coreModule.findReferencesWithLSP).mockImplementation(
-        async (_filePath, _workspaceRoot, _position, q) => {
-          const query = q as LSPFindReferencesQuery;
-          const isGlobalRequest =
-            query.page === 1 &&
-            typeof query.referencesPerPage === 'number' &&
-            query.referencesPerPage > 1000;
-          return {
-            locations: isGlobalRequest
-              ? [makeLocation('src/lspA.ts', 1), makeLocation('src/lspB.ts', 2)]
-              : [makeLocation('src/lspA.ts', 1)],
-            hints: [],
-          } as any;
-        }
-      );
-
-      vi.mocked(
-        patternModule.findReferencesWithPatternMatching
-      ).mockImplementation(async (_absolutePath, _workspaceRoot, q) => {
-        const query = q as LSPFindReferencesQuery;
-        const isGlobalRequest =
-          query.page === 1 &&
-          typeof query.referencesPerPage === 'number' &&
-          query.referencesPerPage > 1000;
-        return {
-          locations: isGlobalRequest
-            ? [
-                makeLocation('src/patternA.ts', 3),
-                makeLocation('src/patternB.ts', 4),
-              ]
-            : [makeLocation('src/patternA.ts', 3)],
-          hints: [],
-        } as any;
-      });
+      // The core builder owns pagination; emulate a paged response: page 2 of 4
+      // with 1 result per page over 4 total references.
+      vi.mocked(coreModule.findReferencesWithLSP).mockResolvedValue({
+        locations: [makeLocation('src/lspB.ts', 2)],
+        pagination: {
+          currentPage: 2,
+          totalPages: 4,
+          totalResults: 4,
+          hasMore: true,
+          resultsPerPage: 1,
+        },
+        hints: [],
+      } as any);
 
       const result = await findReferences({
         ...baseQuery,

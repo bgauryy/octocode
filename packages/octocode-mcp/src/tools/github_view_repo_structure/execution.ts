@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type {
   GitHubViewRepoStructureToolResult,
@@ -47,14 +47,11 @@ import {
 const CONCISE_TOP_ENTRIES = 5;
 
 /**
- * Sample top entry names from a structure map for the concise `top:` hint.
- * Folders first (suffixed `/`), then files — folders are the more useful
- * drill targets during recon.
+ * Collect ALL entry names from a structure map — folders first (suffixed `/`),
+ * then files. Used in concise mode to return a lightweight flat name list
+ * without size/date metadata.
  */
-function collectTopStructureEntries(
-  structure: unknown,
-  limit: number
-): string[] {
+function collectAllStructureEntries(structure: unknown): string[] {
   if (!structure || typeof structure !== 'object') return [];
   const folders: string[] = [];
   const files: string[] = [];
@@ -66,7 +63,19 @@ function collectTopStructureEntries(
     if (Array.isArray(e.files))
       for (const f of e.files) if (typeof f === 'string') files.push(f);
   }
-  return [...folders, ...files].slice(0, limit);
+  return [...folders, ...files];
+}
+
+/**
+ * Sample top entry names from a structure map for the `top:` hint.
+ * Folders first (suffixed `/`), then files — folders are the more useful
+ * drill targets during recon.
+ */
+function collectTopStructureEntries(
+  structure: unknown,
+  limit: number
+): string[] {
+  return collectAllStructureEntries(structure).slice(0, limit);
 }
 
 function buildNextPathHints(
@@ -266,23 +275,23 @@ export function applyGithubViewRepoStructureVerbosity(
   },
   query: PartialRepoStructureQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
-  const verbosity = (query as WithVerbosity<typeof query>).verbosity;
+  const queryWithVerbosity = query as WithVerbosity<typeof query>;
   const nextPathHints = buildNextPathHints(
     (input.data as { structure?: unknown }).structure,
     input.entryCount,
     Boolean(input.summary?.truncated)
   );
-  if (isConcise(verbosity)) {
-    // Keep concise research-grade: drop the full tree but surface a sample of
-    // top folder/file names so the agent has a concrete path to drill into.
-    // A bare entry count is a dead-end for repo recon; names give the next move.
-    const topEntries = collectTopStructureEntries(
-      (input.data as { structure?: unknown }).structure,
-      CONCISE_TOP_ENTRIES
+  if (isConcise(queryWithVerbosity)) {
+    // Concise = all entry names (folders first, suffixed `/`, then files)
+    // without size/date/type metadata. Agents get the full name list for
+    // routing decisions; metadata is omitted to keep token cost low.
+    const allEntries = collectAllStructureEntries(
+      (input.data as { structure?: unknown }).structure
     );
+    const topEntries = allEntries.slice(0, CONCISE_TOP_ENTRIES);
     const more =
-      input.entryCount > topEntries.length
-        ? ` (+${input.entryCount - topEntries.length} more)`
+      allEntries.length > topEntries.length
+        ? ` (+${allEntries.length - topEntries.length} more)`
         : '';
     const topHint =
       topEntries.length > 0 ? [`top: ${topEntries.join(', ')}${more}`] : [];
@@ -291,10 +300,10 @@ export function applyGithubViewRepoStructureVerbosity(
         path: (input.data as { path?: string }).path,
         summary: input.summary,
         entryCount: input.entryCount,
+        // All names in one flat array — folders suffixed `/`, then files.
+        // Provides full navigation context without size/date metadata.
+        entries: allEntries,
       },
-      // `topHint` already samples the same top entries (with the same
-      // "(+N more)" suffix) as `nextPathHints`, so emitting both is pure
-      // duplication in concise mode — keep only `top:`.
       extraHints: [
         `${input.entryCount} entries${input.summary ? ` (${JSON.stringify(input.summary)})` : ''}`,
         ...topHint,
@@ -302,7 +311,7 @@ export function applyGithubViewRepoStructureVerbosity(
       ],
     };
   }
-  if (isCompact(verbosity)) {
+  if (isCompact(queryWithVerbosity)) {
     return {
       data: input.data,
       extraHints:

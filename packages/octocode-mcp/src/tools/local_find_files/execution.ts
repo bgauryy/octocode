@@ -90,7 +90,7 @@ export async function executeFindFiles(
           const result = await findFiles(validation.data);
           return attachEvidence(
             result as ProcessedBulkResult,
-            buildFindFilesEvidence(result, isConcise(validation.data.verbosity))
+            buildFindFilesEvidence(result, isConcise(validation.data))
           );
         },
       }),

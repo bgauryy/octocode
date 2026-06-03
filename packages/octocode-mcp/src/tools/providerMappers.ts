@@ -5,7 +5,7 @@ import type {
   RepoSearchResult as ProviderRepoSearchResult,
   RepoStructureResult as ProviderRepoStructureResult,
 } from '../providers/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type {
   FileContentQuerySchema,
   GitHubCodeSearchQuerySchema,

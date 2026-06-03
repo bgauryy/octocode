@@ -1,5 +1,5 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { FindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type FindFilesQuery = z.infer<typeof FindFilesQuerySchema> & {

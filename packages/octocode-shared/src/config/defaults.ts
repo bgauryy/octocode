@@ -23,6 +23,7 @@ export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
   enabled: true,
   enableClone: false,
   allowedPaths: [],
+  workspaceRoot: undefined,
 };
 
 /**

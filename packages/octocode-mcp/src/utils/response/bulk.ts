@@ -191,7 +191,7 @@ function createBulkResponse<
   const allConcise =
     queries.length > 0 &&
     queries.every((q): boolean =>
-      isConcise((q as { verbosity?: Verbosity } | undefined)?.verbosity)
+      isConcise(q as { verbosity?: Verbosity; verbose?: boolean } | undefined)
     );
 
   // Same idea for `evidence`: lift per-query `data.evidence` blocks into a

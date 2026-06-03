@@ -6,7 +6,8 @@ Use when the user wants to shop for skills beyond raw GitHub code search — mar
 
 | User goal | Best first surface |
 |-----------|--------------------|
-| "Search skills by keyword or topic" | skills.sh Registry API (`/api/search?q=...`) — sort by `installs` |
+| "Search skills by keyword or topic" | skills.sh Registry API (`/api/search?q=...`) — sort by `installs` — run in parallel with GitHub/Octocode + web search |
+| "Find skills mentioned in articles / awesome-lists / outside known registries" | Runtime web search tool (e.g. `WebSearch`): topic + "agent skill"/"claude skill"/"SKILL.md"; confirm each lead's real `SKILL.md` via Octocode |
 | "Is skill X published / battle-tested?" | `https://www.skills.sh/<owner>/<repo>/<skill-name>` |
 | "What are the most-installed skills right now?" | `https://www.skills.sh` leaderboard |
 | "Find a Claude Code plugin" | `claude-plugins.dev` (REST + UI) |

@@ -5,7 +5,7 @@
  * Used by the ripgrep parser, LSP find references, and call hierarchy tools.
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 const RipgrepPathSchema = z.object({ text: z.string() });
 

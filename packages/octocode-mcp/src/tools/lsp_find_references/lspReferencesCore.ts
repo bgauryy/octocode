@@ -17,12 +17,11 @@ import type {
   LSPRange,
   ExactPosition,
 } from '../../lsp/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { LSPFindReferencesQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type LSPFindReferencesQuery = z.infer<typeof LSPFindReferencesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
-import type { SymbolKind } from '../../lsp/types.js';
 import { acquirePooledClient } from '../../lsp/manager.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAME } from './constants.js';
@@ -31,31 +30,6 @@ import {
   buildFindReferencesPageOutOfRangeResult,
   buildFindReferencesPageResult,
 } from './referenceResultHelpers.js';
-
-/**
- * Infer symbol kind from the definition line content.
- * Used to provide accurate symbolKind instead of hardcoding 'function'.
- * @internal Exported for testing
- */
-export function inferSymbolKindFromContent(lineContent: string): SymbolKind {
-  const trimmed = lineContent.trim();
-  if (/\bclass\b/.test(trimmed)) return 'class';
-  if (/\binterface\b/.test(trimmed)) return 'interface';
-  if (/\b(type)\s+\w/.test(trimmed)) return 'type';
-  if (/\benum\b/.test(trimmed)) return 'enum';
-  if (/\bnamespace\b/.test(trimmed)) return 'namespace';
-  if (/\bmodule\b/.test(trimmed)) return 'module';
-  if (/\bconst\b/.test(trimmed) && !/=>|function/.test(trimmed))
-    return 'constant';
-  if (/\b(?:let|var)\b/.test(trimmed) && !/=>|function/.test(trimmed))
-    return 'variable';
-  if (
-    /\bproperty\b/.test(trimmed) ||
-    /^\s*(public|private|protected|readonly)\s+\w+\s*[:;]/.test(trimmed)
-  )
-    return 'property';
-  return 'function';
-}
 
 /**
  * Check if a relative file path matches include/exclude glob patterns.
@@ -290,17 +264,11 @@ async function enhanceReferenceLocation(
   }
 
   // Emit isDefinition only when true — the common case (regular reference)
-  // adds no information. Same for symbolKind: only the definition row needs
-  // to carry it; non-definition rows would just repeat the value.
+  // adds no information.
   return {
     uri: raw.absoluteUri,
     range: raw.range,
     content,
-    ...(raw.isDefinition
-      ? {
-          isDefinition: true as const,
-          symbolKind: inferSymbolKindFromContent(content),
-        }
-      : {}),
+    ...(raw.isDefinition ? { isDefinition: true as const } : {}),
   };
 }

@@ -15,7 +15,7 @@ import type {
 
 import { viewGitHubRepositoryStructureAPI } from '../../github/repoStructure.js';
 
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type GitHubViewRepoStructureQuery = z.infer<

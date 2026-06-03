@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { expect } from 'vitest';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 
 type BulkResultStatus = 'hasResults' | 'empty' | 'error';
 

@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import { logError, logWarn, sanitizeQueryParams } from '../utils/logger.js';
 import { logSessionError } from '../index.js';
 import { fireAndForgetWithTimeout } from '../utils/asyncTimeout.js';

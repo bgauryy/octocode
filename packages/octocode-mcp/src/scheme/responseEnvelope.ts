@@ -7,7 +7,7 @@
  * once and use the wrapper at every tool registration point.
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 /**
  * Shared evidence metadata. Tools opt in to populating these fields so the

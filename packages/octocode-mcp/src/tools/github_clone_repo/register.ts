@@ -7,7 +7,7 @@
  */
 
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;

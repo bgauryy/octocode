@@ -55,7 +55,8 @@ describe('all-tools pagination contract', () => {
         }
       });
 
-      it('declares verbosity (token cost lever)', () => {
+      it('declares detail controls (boolean verbose plus legacy verbosity)', () => {
+        expect(schemaText).toMatch(/"verbose"/);
         expect(schemaText).toMatch(/"verbosity"/);
       });
 

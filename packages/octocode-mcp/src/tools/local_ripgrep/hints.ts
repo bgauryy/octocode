@@ -26,18 +26,27 @@ export const hints: ToolHintGenerators = {
     if (excludeDir.length > 0)
       filters.push(`excludeDir=${JSON.stringify(excludeDir)}`);
 
+    const out: string[] = [];
     if (filters.length > 0) {
-      return [
-        `No matches in ${path ?? 'this scope'} with ${filters.join(' + ')}.`,
-      ];
+      out.push(`No matches in ${path ?? 'this scope'} with ${filters.join(' + ')}.`);
+      out.push('Remove `type`, `include`, or `excludeDir` filters one at a time to widen the search.');
+    } else {
+      out.push(`No matches in ${path ?? 'this scope'}.`);
     }
-    return [];
+
+    out.push(
+      'Try `filesOnly=true` first to see which files match by name, then narrow with `include` or `type` before reading content.'
+    );
+    out.push(
+      'If the symbol may be case-different, set `caseSensitive=false` to catch all variations.'
+    );
+    return out;
   },
 
   error: (ctx: HintContext = {}) => {
     if (ctx.errorType === 'size_limit') {
       const count = ctx.matchCount ? ` (${ctx.matchCount} matches)` : '';
-      return [`Too many results${count}. Narrow pattern or scope.`];
+      return [`Too many results${count} — narrow the pattern, add a type filter, or restrict the search path.`];
     }
     return [];
   },

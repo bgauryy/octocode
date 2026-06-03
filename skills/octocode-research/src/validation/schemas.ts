@@ -7,7 +7,7 @@
  * @module validation/schemas
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 // =============================================================================
 // Import HTTP preprocessing utilities

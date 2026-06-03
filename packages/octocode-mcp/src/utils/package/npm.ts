@@ -110,6 +110,18 @@ interface NpmRegistrySearchItem {
   };
 }
 
+interface NpmCliSearchItem {
+  name?: string;
+  version?: string;
+  description?: string;
+  links?: {
+    npm?: string;
+    homepage?: string;
+    repository?: string;
+  };
+  repository?: string | { url?: string; type?: string };
+}
+
 function cleanRepoUrl(url: string): string {
   return url.replace(/^git\+/, '').replace(/\.git$/, '');
 }
@@ -150,6 +162,18 @@ function isExactPackageName(query: string): boolean {
     return false;
   }
   return /^[a-z0-9][a-z0-9._-]*$/i.test(query);
+}
+
+function parseRegistrySearchTotal(
+  total: string | number | undefined,
+  fallback: number
+): number {
+  if (typeof total === 'number' && Number.isFinite(total)) return total;
+  if (typeof total === 'string') {
+    const parsed = Number.parseInt(total, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function mapToResult(
@@ -225,6 +249,33 @@ function mapToResult(
   return result;
 }
 
+function getSearchItemRepoUrl(item: NpmCliSearchItem): string | null {
+  if (typeof item.links?.repository === 'string') {
+    return cleanRepoUrl(item.links.repository);
+  }
+  if (typeof item.repository === 'string') {
+    return cleanRepoUrl(item.repository);
+  }
+  if (typeof item.repository?.url === 'string') {
+    return cleanRepoUrl(item.repository.url);
+  }
+  return null;
+}
+
+function mapSearchItemToResult(
+  item: NpmCliSearchItem
+): NpmPackageResult | null {
+  if (!item.name) return null;
+  return {
+    repoUrl: getSearchItemRepoUrl(item),
+    path: item.name,
+    version: item.version ?? 'unknown',
+    mainEntry: null,
+    typeDefinitions: null,
+    ...(item.description ? { description: item.description } : {}),
+  };
+}
+
 /**
  * Encode a package name for use in the npm registry URL.
  * Scoped packages (@scope/pkg) need the '/' encoded as %2F to avoid
@@ -279,14 +330,113 @@ async function fetchLastPublished(
   }
 }
 
-async function fetchPackageDetailsWithError(
-  packageName: string,
-  includeExtendedMetadata: boolean = false
-): Promise<{
+type PackageDetailsLookupResult = {
   pkg: NpmPackageResult | null;
   errorDetail?: string;
   rawResponseChars: number;
-}> {
+};
+
+async function enrichPackageDetails(
+  packageName: string,
+  pkg: NpmPackageResult,
+  rawResponseChars: number
+): Promise<PackageDetailsLookupResult> {
+  const [downloadsResult, lastPublishedResult] = await Promise.all([
+    fetchWeeklyDownloads(packageName),
+    pkg.lastPublished
+      ? Promise.resolve({ lastPublished: undefined, rawResponseChars: 0 })
+      : fetchLastPublished(packageName),
+  ]);
+  if (downloadsResult.downloads !== undefined) {
+    pkg.weeklyDownloads = downloadsResult.downloads;
+  }
+  if (lastPublishedResult.lastPublished && !pkg.lastPublished) {
+    pkg.lastPublished = lastPublishedResult.lastPublished;
+  }
+
+  return {
+    pkg,
+    rawResponseChars:
+      rawResponseChars +
+      downloadsResult.rawResponseChars +
+      lastPublishedResult.rawResponseChars,
+  };
+}
+
+function isNotFoundMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('404') ||
+    lower.includes('not found') ||
+    lower.includes('e404')
+  );
+}
+
+async function fetchPackageDetailsFromCli(
+  packageName: string,
+  includeExtendedMetadata: boolean
+): Promise<PackageDetailsLookupResult> {
+  try {
+    const result = await executeNpmCommand('view', [packageName, '--json'], {
+      timeout: 15000,
+    });
+    if (result.error || result.exitCode !== 0) {
+      const msg =
+        result.error?.message ||
+        result.stderr ||
+        `npm exited ${result.exitCode}`;
+      return {
+        pkg: null,
+        ...(isNotFoundMessage(msg) ? {} : { errorDetail: msg }),
+        rawResponseChars: countRawPayloadChars(result.stdout),
+      };
+    }
+
+    const output = result.stdout.trim();
+    if (!output || output === 'undefined') {
+      return { pkg: null, rawResponseChars: 0 };
+    }
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(output);
+    } catch {
+      return {
+        pkg: null,
+        errorDetail: 'Invalid npm view JSON output',
+        rawResponseChars: output.length,
+      };
+    }
+
+    const rawResponseChars = countRawPayloadChars(raw);
+    const validation = NpmViewResultSchema.safeParse(raw);
+    if (!validation.success) {
+      return {
+        pkg: null,
+        errorDetail: 'Invalid npm view response format',
+        rawResponseChars,
+      };
+    }
+
+    const pkg = mapToResult(
+      validation.data as NpmViewResult,
+      includeExtendedMetadata
+    );
+    return { pkg, rawResponseChars };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      pkg: null,
+      ...(isNotFoundMessage(msg) ? {} : { errorDetail: msg }),
+      rawResponseChars: 0,
+    };
+  }
+}
+
+async function fetchPackageDetailsFromRegistry(
+  packageName: string,
+  includeExtendedMetadata: boolean
+): Promise<PackageDetailsLookupResult> {
   try {
     const registryUrl = await getNpmRegistryUrl();
     const urlName = encodeRegistryPackageName(packageName);
@@ -329,30 +479,51 @@ async function fetchPackageDetailsWithError(
       includeExtendedMetadata
     );
 
-    const [downloadsResult, lastPublishedResult] = await Promise.all([
-      fetchWeeklyDownloads(packageName),
-      pkg.lastPublished
-        ? Promise.resolve({ lastPublished: undefined, rawResponseChars: 0 })
-        : fetchLastPublished(packageName),
-    ]);
-    if (downloadsResult.downloads !== undefined) {
-      pkg.weeklyDownloads = downloadsResult.downloads;
-    }
-    if (lastPublishedResult.lastPublished && !pkg.lastPublished) {
-      pkg.lastPublished = lastPublishedResult.lastPublished;
-    }
-
-    return {
-      pkg,
-      rawResponseChars:
-        rawResponseChars +
-        downloadsResult.rawResponseChars +
-        lastPublishedResult.rawResponseChars,
-    };
+    return { pkg, rawResponseChars };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return { pkg: null, errorDetail: msg, rawResponseChars: 0 };
+    return {
+      pkg: null,
+      ...(isNotFoundMessage(msg) ? {} : { errorDetail: msg }),
+      rawResponseChars: 0,
+    };
   }
+}
+
+async function fetchPackageDetailsWithError(
+  packageName: string,
+  includeExtendedMetadata: boolean = false
+): Promise<PackageDetailsLookupResult> {
+  const cliResult = await fetchPackageDetailsFromCli(
+    packageName,
+    includeExtendedMetadata
+  );
+  if (cliResult.pkg) {
+    return enrichPackageDetails(
+      packageName,
+      cliResult.pkg,
+      cliResult.rawResponseChars
+    );
+  }
+
+  const registryResult = await fetchPackageDetailsFromRegistry(
+    packageName,
+    includeExtendedMetadata
+  );
+  if (registryResult.pkg) {
+    return enrichPackageDetails(
+      packageName,
+      registryResult.pkg,
+      registryResult.rawResponseChars
+    );
+  }
+
+  return {
+    pkg: null,
+    errorDetail: registryResult.errorDetail,
+    rawResponseChars:
+      cliResult.rawResponseChars + registryResult.rawResponseChars,
+  };
 }
 
 async function fetchNpmPackageByView(
@@ -390,7 +561,92 @@ async function fetchNpmPackageByView(
   };
 }
 
-async function searchNpmPackageViaSearch(
+async function searchNpmPackageViaCliSearch(
+  keywords: string,
+  limit: number,
+  fetchMetadata: boolean,
+  from: number = 0
+): Promise<PackageSearchAPIResult | PackageSearchError> {
+  const searchLimit = Math.max(limit + from, limit);
+  const result = await executeNpmCommand(
+    'search',
+    [keywords, '--json', '--searchlimit', String(searchLimit)],
+    { timeout: 15000 }
+  );
+  if (result.error || result.exitCode !== 0) {
+    const msg =
+      result.error?.message || result.stderr || `npm exited ${result.exitCode}`;
+    return {
+      error: `NPM CLI search failed: ${msg}`,
+      rawResponseChars: countRawPayloadChars(result.stdout),
+    };
+  }
+
+  const output = result.stdout.trim();
+  if (!output) {
+    return {
+      packages: [],
+      ecosystem: 'npm',
+      totalFound: 0,
+      rawResponseChars: 0,
+    };
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(output);
+  } catch {
+    return {
+      error: 'Invalid npm search JSON output',
+      rawResponseChars: output.length,
+    };
+  }
+
+  const rawResponseChars = countRawPayloadChars(raw);
+  if (!Array.isArray(raw)) {
+    return {
+      error: 'Invalid npm search response format',
+      rawResponseChars,
+    };
+  }
+
+  const pageItems = raw.slice(from, from + limit) as unknown[];
+  const packageResults = await Promise.all(
+    pageItems.map(async item => {
+      if (!item || typeof item !== 'object') return null;
+      const searchItem = item as NpmCliSearchItem;
+      if (!searchItem.name) return null;
+      if (fetchMetadata) {
+        const detailsResult = await fetchPackageDetailsWithError(
+          searchItem.name,
+          true
+        );
+        if (detailsResult.pkg) return detailsResult;
+      }
+      return {
+        pkg: mapSearchItemToResult(searchItem),
+        rawResponseChars: 0,
+      };
+    })
+  );
+
+  const packages = packageResults
+    .map(item => item?.pkg)
+    .filter((pkg): pkg is NpmPackageResult => Boolean(pkg));
+  const detailRawResponseChars = packageResults.reduce(
+    (sum, item) => sum + (item?.rawResponseChars ?? 0),
+    0
+  );
+
+  return {
+    packages,
+    ecosystem: 'npm',
+    totalFound: raw.length,
+    rawResponseChars: rawResponseChars + detailRawResponseChars,
+  };
+}
+
+async function searchNpmPackageViaRegistrySearch(
   keywords: string,
   limit: number,
   fetchMetadata: boolean,
@@ -493,7 +749,10 @@ async function searchNpmPackageViaSearch(
     return {
       packages,
       ecosystem: 'npm',
-      totalFound: packages.length,
+      totalFound: parseRegistrySearchTotal(
+        validation.data.total,
+        packages.length
+      ),
       rawResponseChars: searchRawResponseChars + detailRawResponseChars,
     };
   } catch (error) {
@@ -507,6 +766,32 @@ async function searchNpmPackageViaSearch(
       ],
     };
   }
+}
+
+async function searchNpmPackageViaSearch(
+  keywords: string,
+  limit: number,
+  fetchMetadata: boolean,
+  from: number = 0
+): Promise<PackageSearchAPIResult | PackageSearchError> {
+  try {
+    const cliResult = await searchNpmPackageViaCliSearch(
+      keywords,
+      limit,
+      fetchMetadata,
+      from
+    );
+    if (!('error' in cliResult)) return cliResult;
+  } catch {
+    // CLI search is best-effort. Fall through to the registry search API.
+  }
+
+  return searchNpmPackageViaRegistrySearch(
+    keywords,
+    limit,
+    fetchMetadata,
+    from
+  );
 }
 
 export async function searchNpmPackage(
@@ -525,11 +810,13 @@ export async function searchNpmPackage(
   return withDataCache(
     cacheKey,
     async () => {
-      // If limit is > 1, we want to see alternatives, so force a search
-      // even if the name looks like an exact match. Paging (from > 0) also
-      // forces search — the exact-view lookup has no offset.
-      if (from === 0 && limit === 1 && isExactPackageName(packageName)) {
-        return fetchNpmPackageByView(packageName, fetchMetadata);
+      if (from === 0 && isExactPackageName(packageName)) {
+        const exactResult = await fetchNpmPackageByView(
+          packageName,
+          fetchMetadata
+        );
+        if ('error' in exactResult) return exactResult;
+        if (exactResult.packages.length > 0 || limit === 1) return exactResult;
       }
       return searchNpmPackageViaSearch(packageName, limit, fetchMetadata, from);
     },

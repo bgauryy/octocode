@@ -3,7 +3,7 @@ import type {
   RepoSearchResultItem,
   GitHubAPIResponse,
 } from './githubAPI.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 

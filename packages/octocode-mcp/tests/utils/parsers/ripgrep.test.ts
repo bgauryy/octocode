@@ -335,6 +335,48 @@ describe('parseRipgrepJson', () => {
     expect(files[0]!.matches[0]!.value).toContain('context before 2');
   });
 
+  it('should not double-space snippets when ripgrep JSON lines include trailing newlines', () => {
+    const jsonOutput = [
+      JSON.stringify({
+        type: 'context',
+        data: {
+          path: { text: '/test/file.ts' },
+          lines: { text: 'context before\n' },
+          line_number: 9,
+          absolute_offset: 80,
+        },
+      }),
+      JSON.stringify({
+        type: 'match',
+        data: {
+          path: { text: '/test/file.ts' },
+          lines: { text: 'test match\n' },
+          line_number: 10,
+          absolute_offset: 100,
+          submatches: [{ match: { text: 'test' }, start: 0, end: 4 }],
+        },
+      }),
+      JSON.stringify({
+        type: 'context',
+        data: {
+          path: { text: '/test/file.ts' },
+          lines: { text: 'context after\n' },
+          line_number: 11,
+          absolute_offset: 120,
+        },
+      }),
+    ].join('\n');
+
+    const { files } = parseRipgrepJson(jsonOutput, {
+      ...baseQuery,
+      contextLines: 1,
+    });
+
+    expect(files[0]!.matches[0]!.value).toBe(
+      ['context before', 'test match', 'context after'].join('\n')
+    );
+  });
+
   it('should handle begin/end messages (ignored)', () => {
     const jsonOutput = [
       JSON.stringify({

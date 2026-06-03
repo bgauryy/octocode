@@ -7,14 +7,15 @@
  * details only:
  *   - the `kind` discriminator (e.g. 'calls' vs 'references')
  *   - the pagination key name ('outputPagination' vs 'pagination')
- * everything else — including the fallback rationale wording — is parameterized.
+ *
+ * Results are always derived from a real language server (there is no text
+ * fallback), so confidence is always `high`.
  */
 export function attachLspEvidence<T>(
   result: T,
   opts: {
     kind: 'calls' | 'references';
     paginationKey: 'pagination' | 'outputPagination';
-    fallbackReason: string;
   }
 ): T {
   // Only annotate well-shaped LSP results. Raw error envelopes
@@ -24,9 +25,6 @@ export function attachLspEvidence<T>(
   if (status !== undefined && status !== 'empty') return result;
 
   const hasResults = status === undefined;
-  // lspMode absent ≡ semantic; only 'fallback' is emitted explicitly.
-  const mode = (result as { lspMode?: 'semantic' | 'fallback' }).lspMode;
-  const isSemantic = mode === undefined || mode === 'semantic';
   const pagination = (
     result as Record<string, { hasMore?: boolean } | undefined>
   )[opts.paginationKey];
@@ -47,15 +45,12 @@ export function attachLspEvidence<T>(
         : 'LSP output pagination has more data.'
     );
   }
-  if (mode === 'fallback') {
-    reasons.push(opts.fallbackReason);
-  }
 
   const evidence = {
     kind: opts.kind,
     answerReady: hasResults,
     complete: hasResults && !paginationHasMore,
-    confidence: isSemantic ? ('high' as const) : ('low' as const),
+    confidence: 'high' as const,
     ...(reasons.length > 0 ? { reason: reasons.join(' ') } : {}),
   };
 

@@ -397,7 +397,7 @@ export function anotherFunction() {
       expect(result).toBeDefined();
     });
 
-    it('should explain fallback when available LSP returns no references', async () => {
+    it('should return an empty result (no text fallback) when available LSP finds no references', async () => {
       process.env.WORKSPACE_ROOT = process.cwd();
       const testPath = `${process.cwd()}/src/test.ts`;
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
@@ -416,16 +416,15 @@ export function anotherFunction() {
             symbolName: 'testFunction',
             lineHint: 4,
             researchGoal: 'Find refs',
-            reasoning: 'Testing observable LSP fallback',
+            reasoning: 'Testing semantic-only empty result',
           },
         ],
       });
 
       const text = result.content?.[0]?.text ?? '';
-      expect(text).toContain('lspMode: "fallback"');
-      expect(text).toContain(
-        'LSP semantic references returned no result; using text fallback'
-      );
+      expect(text).toContain('status: "empty"');
+      // LSP-only: there is no text/regex fallback and no lspMode field.
+      expect(text).not.toContain('lspMode');
     });
 
     it('should paginate and enhance locations when LSP returns references', async () => {
@@ -503,36 +502,14 @@ export function anotherFunction() {
     });
   });
 
-  describe('Fallback search (ripgrep/grep)', () => {
-    it('should parse ripgrep JSON output and return references', async () => {
+  describe('LSP unavailable (no text fallback)', () => {
+    it('should return an LSP-not-installed empty result instead of a text fallback', async () => {
       process.env.WORKSPACE_ROOT = process.cwd();
       const testPath = `${process.cwd()}/src/test.ts`;
-      const otherPath = `${process.cwd()}/src/other.ts`;
 
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         false
       );
-
-      vi.mocked(childProcess.exec).mockResolvedValue({
-        stdout: [
-          JSON.stringify({
-            type: 'match',
-            data: {
-              path: { text: testPath },
-              line_number: 4,
-              lines: { text: 'export function testFunction() {}\n' },
-            },
-          }),
-          JSON.stringify({
-            type: 'match',
-            data: {
-              path: { text: otherPath },
-              line_number: 3,
-              lines: { text: 'const x = testFunction();\n' },
-            },
-          }),
-        ].join('\n'),
-      } as any);
 
       vi.mocked(fs.readFile).mockImplementation(async p => {
         const filePath = typeof p === 'string' ? p : String(p);
@@ -545,9 +522,6 @@ export function anotherFunction() {
             'line5',
           ].join('\n');
         }
-        if (filePath === otherPath) {
-          return ['a', 'b', 'const x = testFunction();', 'd'].join('\n');
-        }
         return sampleTypeScriptContent;
       });
 
@@ -560,65 +534,17 @@ export function anotherFunction() {
             lineHint: 4,
             contextLines: 1,
             researchGoal: 'Find refs',
-            reasoning: 'Testing ripgrep JSON parsing fallback',
+            reasoning: 'Testing LSP-unavailable empty result',
           },
         ],
       });
 
       const text = result.content?.[0]?.text ?? '';
       expect(text).toContain('status: "empty"');
-      expect(text).toContain("No references found for 'testFunction'");
-    });
-
-    it('should fall back to grep when rg fails with non-1 exit code', async () => {
-      process.env.WORKSPACE_ROOT = process.cwd();
-      const testPath = `${process.cwd()}/src/test.ts`;
-      const otherPath = `${process.cwd()}/src/other.ts`;
-
-      vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
-        false
-      );
-
-      vi.mocked(childProcess.exec).mockImplementation((cmd: string) => {
-        if (cmd.startsWith('rg ')) {
-          const err: any = new Error('rg failed');
-          err.code = 2;
-          return Promise.reject(err) as any;
-        }
-        if (cmd.startsWith('grep -rn')) {
-          return Promise.resolve({
-            stdout: `${otherPath}:3:const x = testFunction();\n`,
-          }) as any;
-        }
-        return Promise.resolve({ stdout: '' }) as any;
-      });
-
-      vi.mocked(fs.readFile).mockImplementation(async p => {
-        const filePath = typeof p === 'string' ? p : String(p);
-        if (filePath === testPath) return sampleTypeScriptContent;
-        if (filePath === otherPath) {
-          return ['a', 'b', 'const x = testFunction();', 'd'].join('\n');
-        }
-        return sampleTypeScriptContent;
-      });
-
-      const handler = createHandler();
-      const result = await handler({
-        queries: [
-          {
-            uri: testPath,
-            symbolName: 'testFunction',
-            lineHint: 4,
-            contextLines: 1,
-            researchGoal: 'Find refs',
-            reasoning: 'Testing grep fallback after rg failure',
-          },
-        ],
-      });
-
-      const text = result.content?.[0]?.text ?? '';
-      expect(text).toContain('status: "empty"');
-      expect(text).toContain("No references found for 'testFunction'");
+      expect(text).toContain('LSP_NOT_INSTALLED');
+      // No regex/text fallback exists anymore.
+      expect(text).not.toContain('lspMode');
+      expect(text).toContain('localSearchCode');
     });
   });
 

@@ -1,4 +1,4 @@
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
@@ -508,8 +508,8 @@ export function applyGithubFetchContentVerbosity(
   >;
   const allConcise =
     queriesWithVerbosity.length > 0 &&
-    queriesWithVerbosity.every(q => isConcise(q.verbosity));
-  const anyCompact = queriesWithVerbosity.some(q => isCompact(q.verbosity));
+    queriesWithVerbosity.every(q => isConcise(q));
+  const anyCompact = queriesWithVerbosity.some(q => isCompact(q));
 
   if (allConcise) {
     let totalLines = 0;

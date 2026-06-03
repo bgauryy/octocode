@@ -21,7 +21,7 @@ import {
   prepareDirectToolInputFromJsonText,
   sortDirectToolNames,
 } from '../../src/tools/directToolCatalog.js';
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 describe('directToolCatalog', () => {
   it('uses the MCP tool config as the direct tool name/order contract', () => {

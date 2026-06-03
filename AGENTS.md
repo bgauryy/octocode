@@ -201,7 +201,7 @@ Tools return `structuredContent` validated against `outputSchema`. Handles track
 | `GITHUB_API_URL` | GitHub API base URL | `https://api.github.com` |
 | `ENABLE_LOCAL` | Enable local FS tools | `true` |
 | `ENABLE_CLONE` | Enable `githubCloneRepo` + directory mode (requires `ENABLE_LOCAL`) | `false` |
-| `WORKSPACE_ROOT` | Root directory for local tool operations | `process.cwd()` |
+| `WORKSPACE_ROOT` | Root directory for resolving relative paths in local tools. Also configurable via `local.workspaceRoot` in `~/.octocode/.octocoderc` (env var takes priority) | `process.cwd()` |
 | `ALLOWED_PATHS` | Restrict local tools to these paths (comma-separated; empty = all) | `[]` |
 | `OCTOCODE_CACHE_TTL_MS` | Clone cache TTL (ms) | `86400000` |
 | `LOG` | Enable session logging | `true` |

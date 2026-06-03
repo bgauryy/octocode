@@ -152,6 +152,18 @@ describe('toolMetadata/state', () => {
     });
   });
 
+  describe('BASE_SCHEMA proxy', () => {
+    it('adds the local verbose boolean description when upstream metadata lacks it', async () => {
+      const { BASE_SCHEMA } =
+        await import('../../../src/tools/toolMetadata/baseSchema.js');
+
+      const base = BASE_SCHEMA as Record<string, unknown>;
+
+      expect(base.verbose).toContain('Boolean detail switch');
+      expect(Object.keys(BASE_SCHEMA)).toContain('verbose');
+    });
+  });
+
   describe('getMetadataOrThrow', () => {
     it('should throw when metadata not initialized', async () => {
       const { getMetadataOrThrow, _resetMetadataState } =

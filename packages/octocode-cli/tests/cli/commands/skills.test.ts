@@ -419,7 +419,10 @@ describe('skillsCommand', () => {
     );
   });
 
-  it('list: missing src dir errors', async () => {
+  it('list: works without bundled source dir', async () => {
+    // Only the bundled-install path needs the packaged skills source.
+    // `list` scans installed-skill target dirs, so a missing src dir
+    // must NOT block it or set a failure exit code.
     fsUtilsMocks.dirExists.mockImplementation((path: string) =>
       path === '/fake/skills/src' ? false : true
     );
@@ -430,10 +433,12 @@ describe('skillsCommand', () => {
       args: ['list'],
       options: {},
     });
-    expect(process.exitCode).toBe(1);
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Skills directory not found')
-    );
+    expect(process.exitCode).toBeUndefined();
+    expect(
+      consoleSpy.mock.calls.some((call: unknown[]) =>
+        String(call[0]).includes('Skills directory not found')
+      )
+    ).toBe(false);
   });
 
   it('install specific: success with copy', async () => {

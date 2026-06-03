@@ -5,7 +5,7 @@ import type {
   GitHubAPIResponse,
   OptimizedCodeSearchResult,
 } from './githubAPI.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;

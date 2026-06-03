@@ -15,7 +15,7 @@ import type {
 
 import { fetchGitHubFileContentAPI } from '../../github/fileContent.js';
 
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type GHFileContentQuery = z.infer<typeof FileContentQuerySchema>;

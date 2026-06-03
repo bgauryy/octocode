@@ -410,7 +410,7 @@ export function caller() {
       expect(result).toBeDefined();
     });
 
-    it('should explain fallback when available LSP call hierarchy produces no semantic result', async () => {
+    it('should return empty (LSP_EMPTY) when available LSP call hierarchy throws', async () => {
       process.env.WORKSPACE_ROOT = process.cwd();
       const testPath = `${process.cwd()}/src/test.ts`;
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
@@ -434,16 +434,16 @@ export function caller() {
             lineHint: 4,
             direction: 'incoming',
             researchGoal: 'Find callers',
-            reasoning: 'Testing observable LSP fallback',
+            reasoning: 'Testing observable LSP empty result',
           },
         ],
       });
 
+      // No text fallback: a failing LSP yields a clean empty result with no
+      // lspMode marker and no regex-derived call graph.
       const text = result.content?.[0]?.text ?? '';
-      expect(text).toContain('lspMode: "fallback"');
-      expect(text).toContain(
-        'LSP semantic call hierarchy returned no result; using text fallback'
-      );
+      expect(text).not.toContain('lspMode');
+      expect(text).toContain('LSP_EMPTY');
     });
   });
 

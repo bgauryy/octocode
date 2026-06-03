@@ -3,8 +3,6 @@
  *
  * Covers:
  * - matchesFilePatterns utility (picomatch-based glob matching)
- * - buildRipgrepGlobArgs (ripgrep --glob flag generation)
- * - buildGrepFilterArgs (grep --include/--exclude flag generation)
  * - Lazy enhancement in LSP path
  */
 
@@ -142,60 +140,6 @@ describe('File Pattern Filtering - Unit Tests', () => {
           matchesFilePatterns('src/data.json', undefined, ['**/*.json'])
         ).toBe(false);
       });
-    });
-  });
-
-  describe('buildRipgrepGlobArgs', () => {
-    let buildRipgrepGlobArgs: typeof import('../../src/tools/lsp_find_references/lspReferencesPatterns.js').buildRipgrepGlobArgs;
-    let buildRipgrepSearchArgs: typeof import('../../src/tools/lsp_find_references/lspReferencesPatterns.js').buildRipgrepSearchArgs;
-
-    beforeEach(async () => {
-      const mod =
-        await import('../../src/tools/lsp_find_references/lspReferencesPatterns.js');
-      buildRipgrepGlobArgs = mod.buildRipgrepGlobArgs;
-      buildRipgrepSearchArgs = mod.buildRipgrepSearchArgs;
-    });
-
-    it('should return empty array when no patterns', () => {
-      expect(buildRipgrepGlobArgs()).toEqual([]);
-      expect(buildRipgrepGlobArgs([], [])).toEqual([]);
-    });
-
-    it('should add --glob for include patterns', () => {
-      const args = buildRipgrepGlobArgs(['**/*.test.ts', '**/src/**']);
-      expect(args).toEqual(['--glob', '**/*.test.ts', '--glob', '**/src/**']);
-    });
-
-    it('should add --glob with ! prefix for exclude patterns', () => {
-      const args = buildRipgrepGlobArgs(undefined, [
-        '**/node_modules/**',
-        '**/dist/**',
-      ]);
-      expect(args).toEqual([
-        '--glob',
-        '!**/node_modules/**',
-        '--glob',
-        '!**/dist/**',
-      ]);
-    });
-
-    it('should combine include and exclude patterns', () => {
-      const args = buildRipgrepGlobArgs(['**/*.ts'], ['**/node_modules/**']);
-      expect(args).toEqual([
-        '--glob',
-        '**/*.ts',
-        '--glob',
-        '!**/node_modules/**',
-      ]);
-    });
-
-    it('should add -- separator before symbol and workspace root', () => {
-      const args = buildRipgrepSearchArgs('/workspace', '--pre=cat');
-      const separatorIndex = args.indexOf('--');
-
-      expect(separatorIndex).toBeGreaterThan(-1);
-      expect(args[separatorIndex + 1]).toBe('--pre=cat');
-      expect(args[separatorIndex + 2]).toBe('/workspace');
     });
   });
 });

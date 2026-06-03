@@ -51,6 +51,10 @@ const npmViewFullResponses: Map<
     keywords?: string[];
     license?: string;
     homepage?: string;
+    author?: string | { name?: string; email?: string; url?: string };
+    engines?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
     repository?: string | { type?: string; url?: string; directory?: string };
   }
 > = new Map();
@@ -70,6 +74,10 @@ function mockNpmViewFull(
     keywords?: string[];
     license?: string;
     homepage?: string;
+    author?: string | { name?: string; email?: string; url?: string };
+    engines?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
     repository?: string | { type?: string; url?: string; directory?: string };
   }
 ): void {
@@ -320,6 +328,7 @@ import { _resetNpmRegistryUrlCache } from '../../src/utils/package/npm.js';
 describe('searchPackage - NPM (CLI)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecuteNpmCommand.mockReset();
     clearAllCache();
     clearNpmRegistryMocks();
     clearNpmCliViewMocks();
@@ -327,7 +336,7 @@ describe('searchPackage - NPM (CLI)', () => {
     setupDefaultFetchMock();
   });
 
-  it('should return minimal NPM package results by default (name and repository only)', async () => {
+  it('should return lightweight NPM package findings by default', async () => {
     // Mock full npm view response for exact package lookup
     mockNpmViewFull('axios', {
       name: 'axios',
@@ -365,7 +374,8 @@ describe('searchPackage - NPM (CLI)', () => {
       // version IS present now
       expect(pkg.version).toBe('1.6.0');
 
-      // description is now always included (npmFetchMetadata defaults to true)
+      // description is lightweight comparison data; extended fields require
+      // npmFetchMetadata=true or verbose:true.
       expect(pkg.description).toBe(
         'Promise based HTTP client for the browser and node.js'
       );
@@ -374,9 +384,10 @@ describe('searchPackage - NPM (CLI)', () => {
       expect(result.totalFound).toBe(1);
     }
 
-    // Verify registry HTTP endpoint was used (not CLI)
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/axios/latest'),
+    // Exact package lookup is CLI-first.
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
+      'view',
+      ['axios', '--json'],
       expect.any(Object)
     );
   });
@@ -431,6 +442,114 @@ describe('searchPackage - NPM (CLI)', () => {
       expect(result.ecosystem).toBe('npm');
       expect(result.totalFound).toBe(1);
     }
+  });
+
+  it('should use verbose as the boolean metadata switch while preserving findings', async () => {
+    mockNpmViewFull('verbose-pkg', {
+      name: 'verbose-pkg',
+      version: '2.0.0',
+      description: 'Verbose package',
+      keywords: ['detail', 'metadata'],
+      repository: 'git+https://github.com/octo/verbose-pkg.git',
+      homepage: 'https://example.com/verbose',
+      author: { name: 'Octo Dev' },
+      peerDependencies: { react: '^18.0.0' },
+    });
+    mockNpmViewFull('lean-pkg', {
+      name: 'lean-pkg',
+      version: '1.0.0',
+      description: 'Lean package',
+      keywords: ['hidden-unless-verbose'],
+      repository: 'git+https://github.com/octo/lean-pkg.git',
+      homepage: 'https://example.com/lean',
+      author: 'Hidden Author',
+      peerDependencies: { react: '^18.0.0' },
+    });
+
+    mockExecuteNpmCommand.mockImplementation(
+      createNpmCommandMock({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      })
+    );
+
+    const verboseResult = await searchPackage({
+      ecosystem: 'npm',
+      name: 'verbose-pkg',
+      verbose: true,
+      mainResearchGoal: 'Test',
+      researchGoal: 'Test',
+      reasoning: 'Test',
+    });
+    const leanResult = await searchPackage({
+      ecosystem: 'npm',
+      name: 'lean-pkg',
+      verbose: false,
+      mainResearchGoal: 'Test',
+      researchGoal: 'Test',
+      reasoning: 'Test',
+    });
+
+    expect('packages' in verboseResult).toBe(true);
+    expect('packages' in leanResult).toBe(true);
+    if ('packages' in verboseResult && 'packages' in leanResult) {
+      const verbosePkg = verboseResult.packages[0] as NpmPackageResult;
+      const leanPkg = leanResult.packages[0] as NpmPackageResult;
+
+      expect(verbosePkg.path).toBe('verbose-pkg');
+      expect(verbosePkg.repoUrl).toBe('https://github.com/octo/verbose-pkg');
+      expect(verbosePkg.version).toBe('2.0.0');
+      expect(verbosePkg.keywords).toEqual(['detail', 'metadata']);
+      expect(verbosePkg.homepage).toBe('https://example.com/verbose');
+      expect(verbosePkg.author).toBe('Octo Dev');
+      expect(verbosePkg.peerDependencies).toEqual({ react: '^18.0.0' });
+
+      expect(leanPkg.path).toBe('lean-pkg');
+      expect(leanPkg.repoUrl).toBe('https://github.com/octo/lean-pkg');
+      expect(leanPkg.version).toBe('1.0.0');
+      expect(leanPkg.description).toBe('Lean package');
+      expect(leanPkg.keywords).toBeUndefined();
+      expect(leanPkg.homepage).toBeUndefined();
+      expect(leanPkg.author).toBeUndefined();
+      expect(leanPkg.peerDependencies).toBeUndefined();
+    }
+  });
+
+  it('should fall back to registry document when npm view exact lookup fails', async () => {
+    mockNpmViewFull('left-pad', {
+      name: 'left-pad',
+      version: '1.3.0',
+      repository: 'git+https://github.com/stevemao/left-pad.git',
+    });
+    mockExecuteNpmCommand.mockResolvedValue({
+      stdout: '',
+      stderr: 'npm ERR! code E404',
+      exitCode: 1,
+    });
+
+    const query: PackageSearchInput = {
+      ecosystem: 'npm',
+      name: 'left-pad',
+      itemsPerPage: 20,
+      mainResearchGoal: 'Test',
+      researchGoal: 'Test',
+      reasoning: 'Test',
+    };
+
+    const result = await searchPackage(query);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages).toHaveLength(1);
+      const pkg = result.packages[0] as NpmPackageResult;
+      expect(pkg.path).toBe('left-pad');
+      expect(pkg.repoUrl).toBe('https://github.com/stevemao/left-pad');
+    }
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/left-pad/latest'),
+      expect.any(Object)
+    );
   });
 
   it('should handle NPM CLI search with multiple results (keyword search)', async () => {
@@ -493,9 +612,10 @@ describe('searchPackage - NPM (CLI)', () => {
       expect(pkg.mainEntry).toBeNull();
     }
 
-    // Verify registry search endpoint was used (not CLI)
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/-/v1/search'),
+    // Verify npm CLI search was used before any registry fallback.
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
+      'search',
+      ['lodash utilities', '--json', '--searchlimit', '5'],
       expect.any(Object)
     );
   });
@@ -631,61 +751,16 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should succeed with exact package name + itemsPerPage=3 (BUG-02 exact repro)', async () => {
-    // Exact repro: name='typescript', itemsPerPage=3.
-    // With limit > 1, even an exact name routes to searchNpmPackageViaSearch (not npm view).
-    // Before fix: Zod schema rejected extra score/searchScore fields → "Invalid npm registry search response format".
-    // After fix: schema uses .passthrough() and version is optional → returns packages.
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          objects: [
-            {
-              package: {
-                name: 'typescript',
-                version: '5.7.3',
-                description:
-                  'TypeScript is a language for application scale JavaScript development',
-                links: { npm: 'https://www.npmjs.com/package/typescript' },
-              },
-              score: {
-                final: 0.9999,
-                detail: { quality: 1, popularity: 1, maintenance: 1 },
-              },
-              searchScore: 100000.123,
-            },
-            {
-              package: {
-                name: '@types/typescript',
-                version: '1.0.0',
-                description: 'TypeScript type definitions',
-                links: {
-                  npm: 'https://www.npmjs.com/package/@types/typescript',
-                },
-              },
-              score: { final: 0.7 },
-              searchScore: 30000,
-            },
-            {
-              package: {
-                name: 'typescript-eslint',
-                version: '8.0.0',
-                description: 'TypeScript ESLint tooling',
-                links: {
-                  npm: 'https://www.npmjs.com/package/typescript-eslint',
-                },
-              },
-              score: { final: 0.85 },
-              searchScore: 60000,
-            },
-          ],
-          total: 100,
-          time: 'Thu Jan 09 2025 00:00:00 GMT+0000',
-        }),
-      body: null,
+  it('should return one canonical package for exact name + itemsPerPage=3', async () => {
+    mockNpmViewFull('typescript', {
+      name: 'typescript',
+      version: '5.7.3',
+      description:
+        'TypeScript is a language for application scale JavaScript development',
     });
+    mockExecuteNpmCommand.mockImplementation(
+      createNpmCommandMock({ stdout: '', stderr: '', exitCode: 0 })
+    );
 
     const query: PackageSearchInput = {
       ecosystem: 'npm',
@@ -698,10 +773,10 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const result = await searchPackage(query);
 
-    // Must NOT be an error — this was the exact failing case
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
-      expect(result.packages.length).toBe(3);
+      expect(result.packages.length).toBe(1);
+      expect(result.totalFound).toBe(1);
       const first = result.packages[0] as NpmPackageResult;
       expect(first.path).toBe('typescript');
       expect(first.version).toBe('5.7.3');
@@ -760,7 +835,7 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const query: PackageSearchInput = {
       ecosystem: 'npm',
-      name: 'typescript',
+      name: 'typescript runtime',
       itemsPerPage: 3,
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
@@ -892,6 +967,7 @@ describe('searchPackage - NPM (CLI)', () => {
 describe('searchPackage - NPM Edge Cases', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecuteNpmCommand.mockReset();
     clearAllCache();
     clearNpmRegistryMocks();
     _resetNpmRegistryUrlCache();
@@ -937,7 +1013,7 @@ describe('Package search response structure', () => {
     setupDefaultFetchMock();
   });
 
-  it('should return minimal structure by default (name and repository only)', async () => {
+  it('should return lightweight structure by default', async () => {
     mockNpmViewFull('express', {
       name: 'express',
       version: '4.18.2',
@@ -968,7 +1044,8 @@ describe('Package search response structure', () => {
       expect(pkg).toHaveProperty('repoUrl');
       expect(pkg).toHaveProperty('version');
 
-      // description, keywords etc. are now always included (npmFetchMetadata defaults to true)
+      // description is lightweight comparison data; extended fields require
+      // npmFetchMetadata=true or verbose:true.
       expect(pkg).toHaveProperty('description', 'Fast web framework');
     }
   });
@@ -1083,21 +1160,15 @@ describe('registerPackageSearchTool', () => {
 
   describe('Tool Execution - NPM', () => {
     it('should execute npm package search and return results', async () => {
-      const mockCliOutput = JSON.stringify([
-        {
-          name: 'axios',
-          version: '1.6.0',
-          description: 'HTTP client',
-          keywords: ['http'],
-          links: { repository: 'https://github.com/axios/axios' },
-        },
-      ]);
-
-      mockExecuteNpmCommand.mockResolvedValue({
-        stdout: mockCliOutput,
-        stderr: '',
-        exitCode: 0,
+      mockNpmViewFull('axios', {
+        name: 'axios',
+        version: '1.6.0',
+        description: 'HTTP client',
+        repository: 'https://github.com/axios/axios',
       });
+      mockExecuteNpmCommand.mockImplementation(
+        createNpmCommandMock({ stdout: '', stderr: '', exitCode: 0 })
+      );
 
       await registerPackageSearchTool(mockServer.server, mockCallback);
 
@@ -1262,11 +1333,9 @@ describe('registerPackageSearchTool', () => {
       });
 
       expect(result.content).toBeDefined();
-      // CLI: registry-URL resolution (`config get registry`, now done lazily at
-      // first call since the registration guard that pre-warmed the module cache
-      // was removed — #T4) + 2 × deprecation check. The registry URL is cached
-      // module-level, so this stays O(1) in config calls regardless of bulk size.
-      expect(mockExecuteNpmCommand).toHaveBeenCalledTimes(4);
+      // CLI: 2 × exact `npm view <pkg> --json`, 2 × registry-URL resolution
+      // for fallback metadata in the mock, and 2 × deprecation check.
+      expect(mockExecuteNpmCommand).toHaveBeenCalledTimes(6);
     });
 
     it('should handle empty queries array', async () => {
@@ -1730,6 +1799,7 @@ describe('Task 3: Deprecation Detection', () => {
 describe('searchPackage - NPM CLI Repository Fetching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecuteNpmCommand.mockReset();
     clearAllCache();
     clearNpmRegistryMocks();
     clearNpmCliViewMocks();
@@ -1771,9 +1841,10 @@ describe('searchPackage - NPM CLI Repository Fetching', () => {
       expect(pkg.repoUrl).toBe('https://github.com/axios/axios');
     }
 
-    // Verify registry HTTP endpoint was used (not CLI)
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/axios/latest'),
+    // Verify exact lookup used npm view first.
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
+      'view',
+      ['axios', '--json'],
       expect.any(Object)
     );
   });

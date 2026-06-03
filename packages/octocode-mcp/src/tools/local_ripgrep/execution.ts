@@ -93,7 +93,7 @@ export async function executeRipgrepSearch(
           const result = await searchContentRipgrep(validation.data);
           return attachEvidence(
             result as ProcessedBulkResult,
-            buildRipgrepEvidence(result, isConcise(validation.data.verbosity))
+            buildRipgrepEvidence(result, isConcise(validation.data))
           );
         },
       }),

@@ -4,7 +4,7 @@ import {
 } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolNames } from '@octocodeai/octocode-core/types';
-import { type z } from 'zod/v4';
+import { type z } from 'zod';
 import type { ToolInvocationCallback } from '../types/toolResults.js';
 import {
   CloneRepoQueryLocalSchema,

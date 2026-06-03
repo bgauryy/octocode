@@ -14,7 +14,7 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { FetchContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalGetFileContentToolResult } from '@octocodeai/octocode-core/extra-types';
 
@@ -725,7 +725,7 @@ export function applyFetchContentVerbosity(
   query: FetchContentQuery,
   totalLines: number
 ): LocalGetFileContentToolResult {
-  if (isConcise(query.verbosity)) {
+  if (isConcise(query)) {
     // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
     if (result.status !== undefined) return result;
     const filePath = result.filePath ?? query.path;
@@ -758,7 +758,7 @@ export function applyFetchContentVerbosity(
     delete (shaped as { lastModifiedBy?: string }).lastModifiedBy;
     return shaped;
   }
-  if (isCompact(query.verbosity)) {
+  if (isCompact(query)) {
     return {
       ...result,
       hints: compactTrimHints(result.hints, isAdvisoryFetchContentHint, 2),

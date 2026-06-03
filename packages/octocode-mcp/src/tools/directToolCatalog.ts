@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import { initialize } from '../serverConfig.js';
 import { initializeProviders } from '../providers/factory.js';
 import {

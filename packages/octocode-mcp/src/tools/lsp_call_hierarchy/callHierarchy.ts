@@ -15,8 +15,12 @@ import {
   isLanguageServerAvailable,
   LSP_UNAVAILABLE_HINT,
 } from '../../lsp/manager.js';
-import type { CallHierarchyResult } from '../../lsp/types.js';
-import type { z } from 'zod/v4';
+import type {
+  CallHierarchyResult,
+  IncomingCall,
+  OutgoingCall,
+} from '../../lsp/types.js';
+import type { z } from 'zod';
 import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type UpstreamLSPCallHierarchyQuery = z.infer<
@@ -47,7 +51,6 @@ type LSPCallHierarchyQuery = WithVerbosity<
 };
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { callHierarchyWithLSP } from './callHierarchyLsp.js';
-import { callHierarchyWithPatternMatching } from './callHierarchyPatterns.js';
 import { TOOL_NAME } from './constants.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
 import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
@@ -151,75 +154,43 @@ async function processCallHierarchyInternal(
       workspaceRoot
     );
 
-    let semanticFallbackHint: string | undefined;
-    if (lspAvailable) {
-      try {
-        const result = await callHierarchyWithLSP(
-          absolutePath,
-          workspaceRoot,
-          resolvedSymbol.position,
-          query,
-          content
-        );
-        if (result) {
-          // Semantic path: omit lspMode (absent ≡ semantic). Fallback path
-          // below explicitly sets lspMode='fallback'.
-          const semanticResult = result;
-          return attachRawResponseChars(
-            // Output bounding is owned entirely by the bulk char-paginator,
-            // which sub-slices an oversized node's nested `content` — so no
-            // per-tool pre-clip is needed (lossless: the cursor reaches the rest).
-            semanticResult,
-            content.length + countSerializedChars(semanticResult)
-          );
-        }
-        semanticFallbackHint =
-          'LSP semantic call hierarchy returned no result; using text fallback';
-      } catch {
-        semanticFallbackHint =
-          'LSP semantic call hierarchy failed; using text fallback';
-      }
+    // No language server: there is no semantic call graph to return. We do
+    // NOT guess one from regex/text matching — that would masquerade as a
+    // real call hierarchy. Return a clear empty result pointing at the
+    // text-based tools instead.
+    if (!lspAvailable) {
+      return attachRawResponseChars(
+        buildLspUnavailableResult(query),
+        content.length
+      );
     }
 
-    const patternResult = await callHierarchyWithPatternMatching(
-      query,
-      absolutePath,
-      workspaceRoot,
-      content,
-      resolvedSymbol.foundAtLine,
-      resolver
-    );
-    // The published output schema is closed for status='error' — `lspMode`
-    // is only valid on hasResults/empty. Skip the tag on error responses
-    // to keep MCP schema validation passing. We still surface the
-    // LSP-unavailable hint through hints[].
-    const withMode: CallHierarchyResult =
-      patternResult.status === 'error'
-        ? withLspUnavailableHint(
-            patternResult,
-            lspAvailable,
-            semanticFallbackHint
-          )
-        : {
-            ...withLspUnavailableHint(
-              patternResult,
-              lspAvailable,
-              semanticFallbackHint
-            ),
-            lspMode: 'fallback',
-          };
-    // Char-pagination is owned by the unified bulk engine:
-    // applyQueryOutputPagination (explicit charOffset/charLength) and
-    // applyBulkResponsePagination (auto-cap) handle it via the same single
-    // getOutputCharLimit() flow as every other tool. The old per-tool
-    // applyCallHierarchyOutputLimit pre-paginated against JSON length and
-    // emitted its own outputPagination + "Auto-paginated" breadcrumbs
-    // ALONGSIDE the bulk layer — producing contradictory totals (three
-    // different char counts for the same query). Removing it here means the
-    // bulk engine is the one and only pagination authority.
+    let result: CallHierarchyResult | null = null;
+    try {
+      result = await callHierarchyWithLSP(
+        absolutePath,
+        workspaceRoot,
+        resolvedSymbol.position,
+        query,
+        content
+      );
+    } catch {
+      result = null;
+    }
+
+    if (!result) {
+      return attachRawResponseChars(
+        buildLspUnavailableResult(query, true),
+        content.length
+      );
+    }
+
+    // Output bounding is owned entirely by the bulk char-paginator, which
+    // sub-slices an oversized node's nested `content` — so no per-tool
+    // pre-clip is needed (lossless: the cursor reaches the rest).
     return attachRawResponseChars(
-      withMode,
-      content.length + countSerializedChars(withMode)
+      result,
+      content.length + countSerializedChars(result)
     );
   } catch (error) {
     return createErrorResult(error, query, {
@@ -229,25 +200,33 @@ async function processCallHierarchyInternal(
 }
 
 /**
- * Prepend the shared LSP-unavailable hint when the result came from the
- * pattern-matching fallback rather than a real language server. Without
- * this, agents mistake partial text-based matches for semantic call graphs.
+ * Build the empty result returned when no language server can resolve the
+ * call hierarchy. There is no regex/text fallback: a semantic call graph
+ * cannot be faithfully reconstructed from text matching, so rather than
+ * return misleading guesses we point the caller at the text-search tools.
+ *
+ * @param lspFailed true when a language server was available but the request
+ *   failed or returned nothing (vs. no language server installed at all).
  */
-function withLspUnavailableHint(
-  result: CallHierarchyResult,
-  lspAvailable: boolean,
-  semanticFallbackHint?: string
+function buildLspUnavailableResult(
+  query: LSPCallHierarchyQuery,
+  lspFailed = false
 ): CallHierarchyResult {
-  if (semanticFallbackHint) {
-    return {
-      ...result,
-      hints: [semanticFallbackHint, ...(result.hints || [])],
-    };
-  }
-  if (lspAvailable) return result;
   return {
-    ...result,
-    hints: [LSP_UNAVAILABLE_HINT, ...(result.hints || [])],
+    status: 'empty',
+    errorType: 'unknown',
+    errorCode: lspFailed
+      ? LSP_ERROR_CODES.LSP_EMPTY
+      : LSP_ERROR_CODES.LSP_NOT_INSTALLED,
+    direction: query.direction,
+    depth: query.depth ?? 1,
+    hints: [
+      ...getHints(TOOL_NAME, 'empty'),
+      lspFailed
+        ? 'The language server returned no call hierarchy for this symbol.'
+        : LSP_UNAVAILABLE_HINT,
+      'Use localSearchCode to find callers/callees by text, then localGetFileContent to inspect them.',
+    ],
   };
 }
 
@@ -264,6 +243,28 @@ type ConciseEdgeItem = {
   to?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
   fromRanges?: Array<{ start?: { line?: number } }>;
 };
+
+function stripConciseItemContent<T>(item: T): T {
+  if (!item || typeof item !== 'object') return item;
+  const { content: _content, ...rest } = item as T & { content?: unknown };
+  return rest as T;
+}
+
+function stripConciseCallContent<T extends ConciseEdgeItem>(call: T): T {
+  return {
+    ...call,
+    ...(call.from ? { from: stripConciseItemContent(call.from) } : {}),
+    ...(call.to ? { to: stripConciseItemContent(call.to) } : {}),
+  };
+}
+
+function stripIncomingCallContent(call: IncomingCall): IncomingCall {
+  return stripConciseCallContent(call);
+}
+
+function stripOutgoingCallContent(call: OutgoingCall): OutgoingCall {
+  return stripConciseCallContent(call);
+}
 
 /** Render `caller → root` / `root → callee` edge strings for concise output. */
 function buildConciseEdges(
@@ -294,19 +295,21 @@ function buildConciseCallHierarchy(
     | { symbol?: { name?: string }; name?: string }
     | undefined;
   const rootName = root?.symbol?.name ?? root?.name ?? query.symbolName ?? '?';
-  // The pattern-fallback emits `incomingCalls` / `outgoingCalls`, the LSP
-  // path emits `calls`. Treat all three as the same edge list.
-  const items = ((result as { calls?: unknown[] }).calls ??
-    (result as { incomingCalls?: unknown[] }).incomingCalls ??
-    (result as { outgoingCalls?: unknown[] }).outgoingCalls ??
-    []) as ConciseEdgeItem[];
+  // The LSP path emits `incomingCalls` / `outgoingCalls`; `calls` is a legacy
+  // edge-list field name. Treat all three as the same edge list.
+  const calls = (result as { calls?: ConciseEdgeItem[] }).calls;
+  const incomingCalls = (result as { incomingCalls?: IncomingCall[] })
+    .incomingCalls;
+  const outgoingCalls = (result as { outgoingCalls?: OutgoingCall[] })
+    .outgoingCalls;
+  const items = calls ?? incomingCalls ?? outgoingCalls ?? [];
 
   const edges = buildConciseEdges(items, direction, rootName);
   const summary = `${edges.length} ${direction} edge(s) for ${rootName} at depth=${result.depth ?? query.depth ?? 1}`;
 
   // Preserve whichever edge-list field the upstream result used so the
-  // output schema validation still passes. The LSP path emits `calls`, the
-  // pattern-fallback path emits `incomingCalls` / `outgoingCalls`.
+  // output schema validation still passes (the LSP path emits
+  // `incomingCalls` / `outgoingCalls`; `calls` is the legacy field name).
   const hasCalls = 'calls' in (result as object);
   const hasIncoming = 'incomingCalls' in (result as object);
   const hasOutgoing = 'outgoingCalls' in (result as object);
@@ -314,19 +317,21 @@ function buildConciseCallHierarchy(
     result.item && typeof result.item === 'object'
       ? { ...result.item, content: '' }
       : result.item;
-  // Concise is a complete, tiny probe answer (the edge list lives in `hints`).
-  // Drop pagination / outputPagination: they were computed from the full
-  // payload before calls[] was emptied, so they're stale and would both bloat
-  // the response and falsely mark it incomplete. (#T3 / #5b)
+  // Drop only char output pagination: it was computed from the full payload
+  // before content fields were stripped. Item pagination stays valid because
+  // the call arrays are preserved.
   const rest = { ...result } as Record<string, unknown>;
-  delete rest.pagination;
   delete rest.outputPagination;
   return {
     ...(rest as CallHierarchyResult),
-    ...(item ? { item } : {}),
-    ...(hasCalls ? { calls: [] } : {}),
-    ...(hasIncoming ? { incomingCalls: [] } : {}),
-    ...(hasOutgoing ? { outgoingCalls: [] } : {}),
+    ...(item ? { item: stripConciseItemContent(item) } : {}),
+    ...(hasCalls && calls ? { calls: calls.map(stripConciseCallContent) } : {}),
+    ...(hasIncoming
+      ? { incomingCalls: (incomingCalls ?? []).map(stripIncomingCallContent) }
+      : {}),
+    ...(hasOutgoing
+      ? { outgoingCalls: (outgoingCalls ?? []).map(stripOutgoingCallContent) }
+      : {}),
     hints: [summary, `edges: ${edges.join('; ')}`],
   };
 }
@@ -335,25 +340,14 @@ export function applyCallHierarchyVerbosity(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
-  if (isCompact(query.verbosity)) {
+  if (isCompact(query)) {
     return {
       ...result,
       hints: compactTrimHints(result.hints, isAdvisoryCallHierarchyHint, 2),
     };
   }
-  if (!isConcise(query.verbosity)) return result;
+  if (!isConcise(query)) return result;
   if (result.status !== undefined) return result;
 
   return buildConciseCallHierarchy(result, query);
 }
-
-export {
-  parseRipgrepJsonOutput,
-  extractFunctionBody,
-} from './callHierarchyPatterns.js';
-export {
-  isFunctionAssignment,
-  inferSymbolKind,
-  createRange,
-  escapeRegex,
-} from './callHierarchyHelpers.js';

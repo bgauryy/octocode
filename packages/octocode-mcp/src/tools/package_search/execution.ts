@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type PackageSearchQuery = Omit<
@@ -101,9 +101,8 @@ export async function searchPackages(
       try {
         // Pre-flight verbosity caps under concise: cap searchLimit to 1 and
         // force npmFetchMetadata=false (concise's documented lean contract).
-        const pkgVerbosityIsConcise = isConcise(
-          (query as WithVerbosity<typeof query>).verbosity
-        );
+        const queryWithVerbosity = query as WithVerbosity<typeof query>;
+        const pkgVerbosityIsConcise = isConcise(queryWithVerbosity);
         if (pkgVerbosityIsConcise) {
           const userItemsPerPage = (query as { itemsPerPage?: number })
             .itemsPerPage;
@@ -120,6 +119,14 @@ export async function searchPackages(
             (query as { npmFetchMetadata?: boolean }).npmFetchMetadata = false;
           }
         }
+        if (
+          queryWithVerbosity.verbose !== undefined &&
+          (query as { npmFetchMetadata?: boolean }).npmFetchMetadata ===
+            undefined
+        ) {
+          (query as { npmFetchMetadata?: boolean }).npmFetchMetadata =
+            queryWithVerbosity.verbose;
+        }
 
         if (!query.name) {
           return createErrorResult(
@@ -130,16 +137,6 @@ export async function searchPackages(
         if (query.ecosystem !== undefined && query.ecosystem !== 'npm') {
           return createErrorResult(
             'Only ecosystem="npm" is supported for package search',
-            query
-          );
-        }
-        // page > 1 has no registry cursor implementation. Reject early so agents
-        // don't silently receive duplicate first-page data. Use `itemsPerPage` to
-        // control how many results the first (and only) page returns.
-        const requestedPage = (query as { page?: number }).page ?? 1;
-        if (requestedPage > 1) {
-          return createErrorResult(
-            `packageSearch does not support page=${requestedPage}. Only page=1 is implemented. Use itemsPerPage to control result count.`,
             query
           );
         }
@@ -309,9 +306,9 @@ export function applyPackageSearchVerbosity(
   data: { packages: unknown[]; totalFound: number };
   extraHints: string[];
 } {
-  const verbosity = (query as WithVerbosity<typeof query>).verbosity;
+  const queryWithVerbosity = query as WithVerbosity<typeof query>;
 
-  if (isConcise(verbosity)) {
+  if (isConcise(queryWithVerbosity)) {
     const projected = (input.data.packages ?? [])
       .slice(0, CONCISE_PACKAGE_SEARCH_LIMIT)
       .map(p => ({
@@ -328,7 +325,7 @@ export function applyPackageSearchVerbosity(
   }
 
   const allHints = [...input.extraHints];
-  if (isCompact(verbosity)) {
+  if (isCompact(queryWithVerbosity)) {
     return {
       data: input.data,
       extraHints:

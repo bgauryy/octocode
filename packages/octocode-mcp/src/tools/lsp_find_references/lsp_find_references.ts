@@ -9,7 +9,7 @@
 
 import { readFile, stat } from 'fs/promises';
 
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { LSPFindReferencesQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type UpstreamLSPFindReferencesQuery = z.infer<
@@ -56,9 +56,9 @@ import {
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
 import { ToolErrors } from '../../errors/errorFactories.js';
+import { getHints } from '../../hints/index.js';
 import { TOOL_NAME } from './constants.js';
 import { findReferencesWithLSP } from './lspReferencesCore.js';
-import { findReferencesWithPatternMatching } from './lspReferencesPatterns.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
 import { LSP_ERROR_CODES } from '../../lsp/lspErrorCodes.js';
 import {
@@ -112,8 +112,6 @@ function attachReferencesEvidence(
   return attachLspEvidence(result, {
     kind: 'references',
     paginationKey: 'pagination',
-    fallbackReason:
-      'Results derived from text pattern matching; may include false positives or miss renamed/aliased usages.',
   });
 }
 
@@ -192,82 +190,51 @@ async function findReferencesInternal(
     }
 
     const workspaceRoot = await resolveWorkspaceRootForFile(absolutePath);
-    const globalMergeQuery = createGlobalMergeQuery(query);
-
-    let lspResult: FindReferencesResult | null = null;
-    let semanticFallbackHint: string | undefined;
     const lspAvailable = await isLanguageServerAvailable(
       absolutePath,
       workspaceRoot
     );
-    if (lspAvailable) {
-      try {
-        lspResult = await findReferencesWithLSP(
-          absolutePath,
-          workspaceRoot,
-          resolvedSymbol.position,
-          globalMergeQuery
-        );
-      } catch {
-        semanticFallbackHint =
-          'LSP semantic references failed; using text fallback';
-      }
-    }
 
-    const patternResult = await findReferencesWithPatternMatching(
-      absolutePath,
-      workspaceRoot,
-      globalMergeQuery
-    );
-
-    const lspHasLocations =
-      !!lspResult &&
-      lspResult.status === undefined &&
-      !!lspResult.locations?.length;
-    const patternHasLocations =
-      patternResult.status === undefined && !!patternResult.locations?.length;
-
-    if (!lspHasLocations) {
-      // Pattern-only branch — locations did not come from semantic LSP,
-      // even when isLanguageServerAvailable=true (LSP returned empty or
-      // threw). Tag fallback so agents do not treat results as
-      // authoritative — but only when the result shape allows it.
-      // `lspMode` is only valid on hasResults/empty per the published
-      // output schema; injecting it on error would fail MCP validation.
-      if (lspAvailable && !semanticFallbackHint) {
-        semanticFallbackHint =
-          'LSP semantic references returned no result; using text fallback';
-      }
-      const hintedPattern = withLspUnavailableHint(
-        patternResult,
-        lspAvailable,
-        semanticFallbackHint
-      );
-      const tagged: FindReferencesResult =
-        hintedPattern.status === 'error'
-          ? hintedPattern
-          : { ...hintedPattern, lspMode: 'fallback' };
+    // No language server: we do NOT fall back to regex/text matching dressed
+    // up as semantic references (it misses renamed/aliased usages and yields
+    // false positives). Return a clear empty result that routes the caller to
+    // the dedicated text-search tool instead.
+    if (!lspAvailable) {
       return attachRawResponseChars(
-        paginateGlobalBranchResult(tagged, query),
-        content.length + countSerializedChars(tagged)
+        buildLspUnavailableResult(),
+        content.length
       );
     }
 
-    if (!patternHasLocations) {
-      // Semantic path: omit lspMode entirely (absent ≡ semantic).
-      // Only fallback paths set lspMode='fallback' to flag downgraded resolution.
-      const semanticResult = lspResult!;
+    // groupByFile is a full-set rollup: the per-file map must aggregate the
+    // COMPLETE reference set, so fetch every reference on one page. Flat /
+    // snippet modes page normally via the caller's page/referencesPerPage.
+    const lspQuery: LSPFindReferencesQuery = query.groupByFile
+      ? { ...query, page: 1, referencesPerPage: Number.MAX_SAFE_INTEGER }
+      : query;
+
+    let lspResult: FindReferencesResult | null = null;
+    try {
+      lspResult = await findReferencesWithLSP(
+        absolutePath,
+        workspaceRoot,
+        resolvedSymbol.position,
+        lspQuery
+      );
+    } catch {
+      lspResult = null;
+    }
+
+    if (!lspResult) {
       return attachRawResponseChars(
-        paginateGlobalBranchResult(semanticResult, query),
-        content.length + countSerializedChars(semanticResult)
+        buildLspUnavailableResult(true),
+        content.length
       );
     }
 
-    // Semantic merge path: no lspMode marker (absent ≡ semantic).
-    const mergedResult = mergeReferenceResults(lspResult, patternResult, query);
     return attachRawResponseChars(
-      mergedResult,
-      content.length + countSerializedChars(mergedResult)
+      lspResult,
+      content.length + countSerializedChars(lspResult)
     );
   } catch (error) {
     return createErrorResult(error, query, {
@@ -277,229 +244,28 @@ async function findReferencesInternal(
 }
 
 /**
- * Merge LSP and pattern-matching results for comprehensive coverage.
+ * Build the empty result returned when no language server can resolve
+ * references. There is no regex/text fallback: text matching cannot
+ * distinguish semantic references from incidental name collisions, so rather
+ * than return misleading guesses we point the caller at the text-search tool.
  *
- * LSP provides semantic accuracy but may miss cross-file references on cold start.
- * Pattern matching (ripgrep) provides comprehensive text-based coverage.
- * Merging both gives the best of both worlds without persistent caching.
- *
- * Deduplication is by (uri, startLine) to avoid showing the same reference twice.
+ * @param lspFailed true when a language server was available but the request
+ *   failed or returned nothing (vs. no language server installed at all).
  */
-export function mergeReferenceResults(
-  lspResult: FindReferencesResult | null,
-  patternResult: FindReferencesResult,
-  query: LSPFindReferencesQuery
-): FindReferencesResult {
-  if (
-    !lspResult ||
-    lspResult.status === 'empty' ||
-    !lspResult.locations?.length
-  ) {
-    return patternResult;
-  }
-
-  if (patternResult.status === 'empty' || !patternResult.locations?.length) {
-    return lspResult;
-  }
-
-  const seen = new Set(
-    lspResult.locations.map(
-      (loc: ReferenceLocation) =>
-        `${loc.uri}:${loc.range.start.line}:${loc.range.start.character}`
-    )
-  );
-
-  const additionalRefs = patternResult.locations.filter(
-    (loc: ReferenceLocation) =>
-      !seen.has(
-        `${loc.uri}:${loc.range.start.line}:${loc.range.start.character}`
-      )
-  );
-
-  // When pattern matching surfaces nothing beyond the semantic set, the two
-  // agree. Record that, but STILL paginate: previously this branch
-  // short-circuited and returned `lspResult` verbatim — which was fetched via
-  // createGlobalMergeQuery (referencesPerPage = MAX_SAFE_INTEGER), so it
-  // silently ignored the caller's page/referencesPerPage and returned every
-  // reference in a single page. Falling through to the shared pagination
-  // block below fixes that while preserving the "confirmed" hint.
-  const allConfirmed = additionalRefs.length === 0;
-  const mergedLocations = allConfirmed
-    ? [...lspResult.locations]
-    : [...lspResult.locations, ...additionalRefs];
-  const baseHints = [...(lspResult.hints || [])];
-  if (allConfirmed) {
-    baseHints.push('All references confirmed by both LSP and text search');
-  }
-  const totalReferences = mergedLocations.length;
-  const uniqueFiles = new Set(
-    mergedLocations.map((ref: ReferenceLocation) => ref.uri)
-  );
-
-  const { page, referencesPerPage } = resolveReferencePagination(query);
-  const totalPages = Math.ceil(totalReferences / referencesPerPage);
-  if (totalReferences > 0 && page > totalPages) {
-    return {
-      status: 'empty',
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalResults: totalReferences,
-        hasMore: false,
-        ...(referencesPerPage < Number.MAX_SAFE_INTEGER
-          ? { resultsPerPage: referencesPerPage }
-          : {}),
-      },
-      hasMultipleFiles: uniqueFiles.size > 1,
-      hints: [
-        ...baseHints,
-        `Requested page ${page} is outside available range (1-${totalPages}).`,
-      ],
-    };
-  }
-  const startIndex = (page - 1) * referencesPerPage;
-  const endIndex = Math.min(startIndex + referencesPerPage, totalReferences);
-  const paginatedLocations = mergedLocations.slice(startIndex, endIndex);
-
-  const hints = [...baseHints];
-  if (page < totalPages) {
-    hints.push(
-      `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
-    );
-  }
-
+function buildLspUnavailableResult(lspFailed = false): FindReferencesResult {
   return {
-    locations: paginatedLocations,
-    pagination: {
-      currentPage: page,
-      totalPages,
-      totalResults: totalReferences,
-      hasMore: page < totalPages,
-      ...(referencesPerPage < Number.MAX_SAFE_INTEGER
-        ? { resultsPerPage: referencesPerPage }
-        : {}),
-    },
-    hasMultipleFiles: uniqueFiles.size > 1,
-    hints,
-  };
-}
-
-/**
- * Prepend the shared LSP-unavailable hint to the result when no language
- * server could be located. This is the only reliable signal for callers
- * that the returned references come from text search, not semantic
- * analysis, and will therefore miss renamed/aliased usages.
- */
-function withLspUnavailableHint(
-  result: FindReferencesResult,
-  lspAvailable: boolean,
-  semanticFallbackHint?: string
-): FindReferencesResult {
-  if (semanticFallbackHint) {
-    return {
-      ...result,
-      hints: [semanticFallbackHint, ...(result.hints || [])],
-    };
-  }
-  if (lspAvailable) return result;
-  return {
-    ...result,
-    hints: [LSP_UNAVAILABLE_HINT, ...(result.hints || [])],
-  };
-}
-
-/**
- * Effective row pagination for a references query.
- *
- * `groupByFile` is a full-set blast-radius rollup: the per-file map is the
- * unit of output, not individual references. It must therefore aggregate the
- * COMPLETE reference set — paginating the underlying refs first would make the
- * rollup count only the current page (the F1 regression). So groupByFile
- * disables row pagination; flat/snippet modes page normally.
- */
-function resolveReferencePagination(query: LSPFindReferencesQuery): {
-  page: number;
-  referencesPerPage: number;
-} {
-  if (query.groupByFile) {
-    return { page: 1, referencesPerPage: Number.MAX_SAFE_INTEGER };
-  }
-  return {
-    page: query.page ?? 1,
-    referencesPerPage: query.referencesPerPage ?? 20,
-  };
-}
-
-function createGlobalMergeQuery(
-  query: LSPFindReferencesQuery
-): LSPFindReferencesQuery {
-  return {
-    ...query,
-    page: 1,
-    referencesPerPage: Number.MAX_SAFE_INTEGER,
-  };
-}
-
-function paginateGlobalBranchResult(
-  result: FindReferencesResult,
-  query: LSPFindReferencesQuery
-): FindReferencesResult {
-  if (result.status !== undefined || !result.locations?.length) {
-    return result;
-  }
-
-  const { page, referencesPerPage } = resolveReferencePagination(query);
-  const totalReferences = result.locations.length;
-  const totalPages = Math.ceil(totalReferences / referencesPerPage);
-  const hasMultipleFiles =
-    new Set(result.locations.map(ref => ref.uri)).size > 1;
-
-  if (totalReferences > 0 && page > totalPages) {
-    return {
-      status: 'empty',
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalResults: totalReferences,
-        hasMore: false,
-        ...(referencesPerPage < Number.MAX_SAFE_INTEGER
-          ? { resultsPerPage: referencesPerPage }
-          : {}),
-      },
-      hasMultipleFiles,
-      hints: [
-        ...(result.hints || []),
-        `Requested page ${page} is outside available range (1-${totalPages}).`,
-        `Use page=${totalPages} for the last available page.`,
-      ],
-    };
-  }
-
-  const startIndex = (page - 1) * referencesPerPage;
-  const endIndex = Math.min(startIndex + referencesPerPage, totalReferences);
-  const paginatedLocations = result.locations.slice(startIndex, endIndex);
-
-  const hints = [...(result.hints || [])];
-  if (page < totalPages) {
-    hints.push(
-      `Showing page ${page} of ${totalPages}. Use page=${page + 1} for more.`
-    );
-  }
-
-  return {
-    ...result,
-    locations: paginatedLocations,
-    pagination: {
-      currentPage: page,
-      totalPages,
-      totalResults: totalReferences,
-      hasMore: page < totalPages,
-      ...(referencesPerPage < Number.MAX_SAFE_INTEGER
-        ? { resultsPerPage: referencesPerPage }
-        : {}),
-    },
-    hasMultipleFiles,
-    hints,
+    status: 'empty',
+    errorType: 'unknown',
+    errorCode: lspFailed
+      ? LSP_ERROR_CODES.LSP_EMPTY
+      : LSP_ERROR_CODES.LSP_NOT_INSTALLED,
+    hints: [
+      ...getHints(TOOL_NAME, 'empty'),
+      lspFailed
+        ? 'The language server returned no references for this symbol.'
+        : LSP_UNAVAILABLE_HINT,
+      'Use localSearchCode to find textual usages of the symbol across the workspace.',
+    ],
   };
 }
 
@@ -571,14 +337,14 @@ export function applyFindReferencesVerbosity(
     };
   }
 
-  if (isCompact(query.verbosity)) {
+  if (isCompact(query)) {
     return {
       ...result,
       hints: compactTrimHints(result.hints, isAdvisoryFindReferencesHint, 2),
     };
   }
 
-  if (!isConcise(query.verbosity)) return result;
+  if (!isConcise(query)) return result;
 
   const refs = result.locations.map(
     loc => `${loc.uri}:${loc.range.start.line + 1}`
@@ -614,4 +380,3 @@ export function applyFindReferencesVerbosity(
 }
 
 export { findReferencesWithLSP } from './lspReferencesCore.js';
-export { findReferencesWithPatternMatching } from './lspReferencesPatterns.js';

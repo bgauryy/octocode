@@ -38,6 +38,10 @@ const FILES_THAT_MUST_BE_GONE = [
   'tests/utils/graceful_degradation.test.ts',
   // Stranded TYPE_TO_EXTENSIONS lookup — only consumer was GrepCommandBuilder.
   'src/utils/file/types.ts',
+  // LSP pattern/text fallbacks removed — LSP tools are now LSP-only.
+  'src/tools/lsp_call_hierarchy/callHierarchyPatterns.ts',
+  'src/tools/lsp_find_references/lspReferencesPatterns.ts',
+  'src/tools/lsp_find_references/lspReferencesProcess.ts',
 ];
 
 const SOURCE_FILES_THAT_MUST_NOT_REFERENCE: Array<{
@@ -107,59 +111,9 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     ).toBe(false);
   });
 
-  it('callHierarchyPatterns ripgrep args stay inside the security allow-list', async () => {
-    // Regression: searchWithRipgrep used `--line-number` and `-e` which
-    // are NOT in RG_ALLOWED_FLAGS, so every pattern-fallback call hierarchy
-    // failed with "rg option '--line-number' is not allowed".
-    const { readFile } = await import('fs/promises');
-    const source = await readFile(
-      `${ROOT}/src/tools/lsp_call_hierarchy/callHierarchyPatterns.ts`,
-      'utf-8'
-    );
-    expect(
-      source,
-      'searchWithRipgrep must use -n (short form is the only one on the allow-list)'
-    ).not.toMatch(/['"]--line-number['"]/);
-    expect(
-      source,
-      'searchWithRipgrep must pass pattern positionally (-e is not allow-listed)'
-    ).not.toMatch(/['"]-e['"]/);
-  });
-
-  it('callHierarchyPatterns error response stays inside the closed error.data schema', async () => {
-    // Regression: error responses leaked item/direction/depth/lspMode,
-    // which violate the closed `error.data` schema and surface as MCP
-    // -32602 "Structured content does not match the tool's output schema".
-    const { readFile } = await import('fs/promises');
-    const source = await readFile(
-      `${ROOT}/src/tools/lsp_call_hierarchy/callHierarchyPatterns.ts`,
-      'utf-8'
-    );
-    // Bound the slice to the single object literal that owns the
-    // `status: 'error'` line: from "{" up to the matching closing "};".
-    // Greedy ${[\s\S]*?\};} hits the nearest close, which is exactly the
-    // error-response object literal we want to inspect.
-    const errorObjectMatch = source.match(
-      /return\s*\{[\s\S]*?status:\s*['"]error['"][\s\S]*?\};/
-    );
-    expect(errorObjectMatch, 'error response object not found').toBeTruthy();
-    const block = errorObjectMatch![0];
-    expect(
-      block,
-      'error.data must not carry hasResults context fields'
-    ).not.toMatch(/^\s*item:/m);
-    expect(block).not.toMatch(/^\s*direction:/m);
-    expect(block).not.toMatch(/^\s*depth,/m);
-    expect(block).not.toMatch(/^\s*lspMode:/m);
-  });
-
-  it('LSP tools never tag lspMode on error responses (closed error.data schema)', async () => {
-    // Regression: every LSP tool unconditionally appended `lspMode: 'fallback'`
-    // to the result of its pattern-fallback path. When that path returned
-    // status: 'error' (e.g. ripgrep flag rejected), MCP failed validation
-    // with "Structured content does not match the tool's output schema".
-    //
-    // Contract: each tool MUST guard the lspMode injection with a status check.
+  it('LSP tools never emit an lspMode field (LSP-only, absent ≡ semantic)', async () => {
+    // The pattern/text fallback paths were removed, so the `lspMode`
+    // provenance marker is gone entirely. No LSP tool source may emit it.
     const { readFile } = await import('fs/promises');
     const files = [
       'src/tools/lsp_call_hierarchy/callHierarchy.ts',
@@ -168,12 +122,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     ];
     for (const file of files) {
       const src = await readFile(`${ROOT}/${file}`, 'utf-8');
-      // Must reference `status === 'error'` near where `lspMode: 'fallback'`
-      // is built, proving the guard exists.
-      expect(
-        src,
-        `${file} must guard lspMode injection on status==='error'`
-      ).toMatch(/status\s*===\s*['"]error['"]/);
+      expect(src, `${file} must not emit lspMode`).not.toMatch(/lspMode\s*:/);
     }
   });
 

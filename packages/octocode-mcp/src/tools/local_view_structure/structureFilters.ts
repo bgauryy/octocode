@@ -1,4 +1,4 @@
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;

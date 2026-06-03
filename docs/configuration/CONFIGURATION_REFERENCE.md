@@ -317,7 +317,7 @@ For implementation details, see [Session Persistence](https://github.com/bgauryy
 - **Tool filtering:** `TOOLS_TO_RUN` is a strict whitelist that overrides both `ENABLE_TOOLS` and `DISABLE_TOOLS`. When `TOOLS_TO_RUN` is not set, start with all tools, remove `DISABLE_TOOLS`, then add `ENABLE_TOOLS`.
 - **Clone:** Requires both `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
 - **LSP:** Requires `ENABLE_LOCAL=true`. When `OCTOCODE_LSP_CONFIG` is unset, Octocode checks `<workspace>/.octocode/lsp-servers.json` then `${OCTOCODE_HOME:-~/.octocode}/lsp-servers.json`.
-- **WORKSPACE_ROOT and LSP:** LSP tools read `WORKSPACE_ROOT` from the environment only (not `.octocoderc`). Set it as an env variable in your MCP client if you use LSP tools.
+- **WORKSPACE_ROOT:** Configurable via `WORKSPACE_ROOT` env var **or** `local.workspaceRoot` in `.octocoderc`. Priority: env var > `.octocoderc` > `process.cwd()`. Must be an absolute path. LSP tools also respect this setting — the workspace root determines the project context used for symbol resolution.
 - **Auth tokens:** Never store in `.octocoderc`. GitHub fallback chain: env vars > `~/.octocode/credentials.json` > `gh auth token`.
 
 ---

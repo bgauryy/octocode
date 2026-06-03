@@ -36,7 +36,7 @@ npx octocode-cli install
 Verify, then sign in:
 
 ```bash
-octocode --version        # → octocode v1.5.0
+octocode --version        # → octocode v1.5.2
 octocode login            # GitHub OAuth (device flow)
 ```
 
@@ -74,7 +74,7 @@ Call any tool directly from the terminal. Great for scripts, pipelines, and one-
 | **LSP** | `lspGotoDefinition` | Navigate to a symbol's definition |
 | | `lspFindReferences` | Find all usages of a symbol |
 | | `lspCallHierarchy` | Trace function call relationships |
-| **Package** | `packageSearch` | Resolve npm / PyPI packages to their source repo |
+| **Package** | `packageSearch` | Resolve an npm package to its source repo + metadata |
 
 ```bash
 # Discover
@@ -90,6 +90,8 @@ octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}' --json 
 ```
 
 The shared metadata fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-filled. Provide only tool-specific fields.
+
+> **For agents:** before making any tool request — (1) `octocode tools` to list tools, (2) `octocode tools <name>` to read its input schema, (3) `octocode instructions` for the full MCP instructions + all schemas. This same checklist is printed at the top of `octocode --help`.
 
 ---
 
@@ -113,7 +115,7 @@ octocode token --validate         # ping the GitHub API to verify it
 |---------|---------|--------------|
 | `install --ide <ide>` | `i`, `setup` | Configure octocode-mcp for an IDE |
 | `install --ide <ide> --check` | | Pre-flight: verify config path is writable, show what would change |
-| `install --ide <ide> -m <npx\|direct>` | | Choose install method (default `npx`; `direct` points at a local binary) |
+| `install --ide <ide> --method npx` | | Installation method (`npx` is the only/default method) |
 | `install --ide <ide> --force` | | Overwrite an existing configuration |
 | `install --ide <ide> --rollback` | | Restore the most recent backup configuration |
 | `install --ide <ide> --rollback --backup-path <file>` | | Restore a specific backup file |
@@ -134,9 +136,10 @@ octocode token --validate         # ping the GitHub API to verify it
 | `sync --status` | | Show sync analysis without syncing |
 | `sync --force` | | Auto-resolve conflicts (use first variant found) |
 | `skills` | `sk` | Install / remove / list / search / read / sync skills |
-| `skills search --direct` | | Search skills.sh directly (human-readable) |
+| `skills search <query>` | | Agent mode: emits the search protocol (Octocode/GitHub + skills.sh + web search) |
+| `skills search --direct` | | Search skills.sh directly (human-readable, immediate results) |
 | `skills search --direct --install` | | Fetch and install top result automatically |
-| `skills read <path\|github:owner/repo/name>` | | Preview a SKILL.md from disk or GitHub (`--full` for untruncated) |
+| `skills read <path \| owner/repo/path \| github-url>` | | Preview a SKILL.md from disk or GitHub (`--full` for untruncated) |
 | `skills install --targets <t1,t2>` | | Install all bundled skills to targets |
 | `skills install --skill <name> --targets <t>` | | Install one specific skill |
 | `skills install --local <path> --targets <t>` | | Install a local skill folder |

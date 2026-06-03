@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { GitHubSearchPullRequestsToolResult } from '@octocodeai/octocode-core/extra-types';
 
@@ -80,7 +80,7 @@ export async function searchMultipleGitHubPullRequests(
         // drop partialContentMetadata when type is coerced. Record what
         // fired so we can emit a verbosity-downgrade warning later.
         const prVerbosityIsConcise = isConcise(
-          (effectiveQuery as WithVerbosity<typeof effectiveQuery>).verbosity
+          effectiveQuery as WithVerbosity<typeof effectiveQuery>
         );
         if (prVerbosityIsConcise) {
           // Cap the effective per_page to the concise probe size via both knobs
@@ -340,9 +340,9 @@ export function applyGithubSearchPullRequestsVerbosity(
   },
   query: PartialPRQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
-  const verbosity = (query as WithVerbosity<typeof query>).verbosity;
+  const queryWithVerbosity = query as WithVerbosity<typeof query>;
 
-  if (isConcise(verbosity)) {
+  if (isConcise(queryWithVerbosity)) {
     const conciseData = {
       ...input.data,
       pull_requests: input.pullRequests.slice(0, 3).map(pr => ({
@@ -362,7 +362,7 @@ export function applyGithubSearchPullRequestsVerbosity(
   }
 
   const allHints = [...input.extraHints];
-  if (isCompact(verbosity)) {
+  if (isCompact(queryWithVerbosity)) {
     return {
       data: input.data,
       extraHints: compactTrimHints(allHints, isAdvisorySearchPRsHint, 2) ?? [],

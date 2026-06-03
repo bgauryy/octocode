@@ -34,7 +34,7 @@ describe('LSP manager status/restart primitives', () => {
       serverAvailable: false,
     });
     expect(status.languageId).toBeUndefined();
-    expect(status.hints[0]).toContain('LSP unavailable for this file');
+    expect(status.hints[0]).toContain('No language server is available');
   });
 
   it('releasePooledClientForFile returns false for unsupported extensions', async () => {

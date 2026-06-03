@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import {
   FileContentQueryBaseLocalSchema,

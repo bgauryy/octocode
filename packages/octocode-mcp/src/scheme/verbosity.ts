@@ -1,5 +1,11 @@
 /**
- * Verbosity Helpers — canonical 3-tier contract (as implemented).
+ * Verbosity Helpers — canonical detail contract.
+ *
+ * Preferred public surface:
+ *   verbose:false -> compact (efficient findings/research data, no lossy drop)
+ *   verbose:true  -> basic   (findings plus extended metadata)
+ *
+ * Legacy compatibility surface:
  *
  *                | fields per result      | result count       | content
  *   -------------|------------------------|--------------------|------------------------
@@ -8,7 +14,7 @@
  *   concise      | identity/count fields  | small top-N cap     | dropped (count/edge view)
  *
  * Rules that hold for ALL tools:
- *  - Omitted ≡ basic. The schema field stays `.optional()` (no injected default,
+ *  - Omitted ≡ basic. The schema fields stay `.optional()` (no injected default,
  *    so parsed queries are not mutated); the SINGLE source of truth for the
  *    "omitted ≡ basic" rule is the helpers here (`isBasic` / `normalizeVerbosity`).
  *    Every tool resolves the tier through them — never by re-deriving the default.
@@ -30,29 +36,53 @@
 
 import type { Verbosity } from './localSchemaOverlay.js';
 
+type VerbosityInput =
+  | Verbosity
+  | {
+      verbosity?: Verbosity;
+      verbose?: boolean;
+    }
+  | undefined;
+
+function readVerbosity(input: VerbosityInput): Verbosity | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input === 'string') return input;
+  if (input.verbosity !== undefined) return input.verbosity;
+  if (input.verbose === true) return 'basic' as Verbosity;
+  if (input.verbose === false) return 'compact' as Verbosity;
+  return undefined;
+}
+
 /**
  * Returns true when the caller asked for concise (lossy summary).
- * Only `"concise"` triggers the trim-content path.
+ *
+ * Intentionally returns false — verbosity trimming is disabled so every tool
+ * always returns the full payload. Verbosity-controlled trimming was creating
+ * unpredictable LLM behavior because each tool silently produced different
+ * shapes under "concise". All tools now return consistent, full responses
+ * regardless of the requested verbosity tier.
  */
-export function isConcise(verbosity: Verbosity | undefined): boolean {
-  return verbosity === 'concise';
+export function isConcise(_verbosity: VerbosityInput): boolean {
+  return false;
 }
 
 /**
  * Returns true when the caller asked for compact (full content, trimmed hints).
- * Used by tools to drop expensive hints/metadata while keeping the data
- * payload intact.
+ *
+ * Intentionally returns false — see `isConcise`. Advisory-hint trimming is
+ * also disabled so response shapes are fully predictable.
  */
-export function isCompact(verbosity: Verbosity | undefined): boolean {
-  return verbosity === 'compact';
+export function isCompact(_verbosity: VerbosityInput): boolean {
+  return false;
 }
 
 /**
  * Returns true when the caller is in basic mode (or omitted verbosity).
  * Basic is the default — full content + full hints.
  */
-export function isBasic(verbosity: Verbosity | undefined): boolean {
-  return verbosity === undefined || verbosity === 'basic';
+export function isBasic(verbosity: VerbosityInput): boolean {
+  const resolved = readVerbosity(verbosity);
+  return resolved === undefined || resolved === 'basic';
 }
 
 /**
@@ -60,8 +90,8 @@ export function isBasic(verbosity: Verbosity | undefined): boolean {
  * boundary if you want to thread the resolved tier around explicitly; the
  * helpers above already handle `undefined` correctly so this is optional.
  */
-export function normalizeVerbosity(v: Verbosity | undefined): Verbosity {
-  return v ?? ('basic' as Verbosity);
+export function normalizeVerbosity(v: VerbosityInput): Verbosity {
+  return readVerbosity(v) ?? ('basic' as Verbosity);
 }
 
 /**

@@ -120,15 +120,15 @@ export async function isLanguageServerAvailable(
  * Shared hint returned by every LSP tool when no language server can be
  * located for the target file.
  *
- * Without this signal, callers (and AI agents) mistake the text-based
- * fallback for real semantic results and report "LSP isn't resolving
- * symbols for this project (likely no TS server indexed)". Emit it from
- * every LSP tool's fallback path so the failure mode is self-describing.
+ * There is no text-based fallback: a language server is required for semantic
+ * results, so this hint tells the caller exactly how to enable one (and to use
+ * the text-search tools in the meantime) instead of returning misleading
+ * regex-based guesses.
  */
 export const LSP_UNAVAILABLE_HINT =
-  'LSP unavailable for this file; returned a text-based fallback. ' +
-  'For semantic results (cross-file refs, import chasing), install typescript-language-server: ' +
-  '`npm i -g typescript-language-server typescript` or set OCTOCODE_TS_SERVER_PATH.';
+  'No language server is available for this file, so no semantic results were returned. ' +
+  'Install typescript-language-server (`npm i -g typescript-language-server typescript`) ' +
+  'or set OCTOCODE_TS_SERVER_PATH. For a text-based search meanwhile, use localSearchCode.';
 
 /**
  * Default idle timeout for the shared LSP client pool (T3.2).

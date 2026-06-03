@@ -4,6 +4,8 @@ export interface PackageSearchInput {
   itemsPerPage?: number;
   /** 1-based result page; maps to the registry `from` offset (page-1)*itemsPerPage. */
   page?: number;
+  /** Boolean verbosity preference from the tool schema. true enables extended metadata by default. */
+  verbose?: boolean;
   npmFetchMetadata?: boolean;
   mainResearchGoal?: string;
   researchGoal?: string;

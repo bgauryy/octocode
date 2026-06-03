@@ -214,7 +214,7 @@ describe('E2E: verbosity:"concise" on real handlers', () => {
     } as any);
     reportSavings('lspCallHierarchy', def, concise);
     expect(def.calls).toEqual(base.calls);
-    expect(concise.calls).toEqual([]);
+    expect(concise.calls).toEqual(base.calls);
     expect((concise.hints ?? []).join('\n')).toMatch(/serve → doWork \(×2\)/);
   });
 });

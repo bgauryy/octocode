@@ -1,6 +1,6 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
 import { RESOURCE_LIMITS } from '../utils/core/constants.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;

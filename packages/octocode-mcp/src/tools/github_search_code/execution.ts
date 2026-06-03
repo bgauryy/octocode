@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { GitHubSearchCodeData } from '@octocodeai/octocode-core/types';
 
@@ -64,7 +64,7 @@ export async function searchMultipleGitHubCode(
         // githubSearchRepositories pattern. The finalizer's group/value shaping
         // still applies under the all-concise gate.
         const verbosityIsConcise = isConcise(
-          (query as WithVerbosity<typeof query>).verbosity
+          query as WithVerbosity<typeof query>
         );
         if (verbosityIsConcise) {
           // Cap the effective per_page to the concise probe size by capping

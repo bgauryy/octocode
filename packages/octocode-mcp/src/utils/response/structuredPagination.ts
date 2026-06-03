@@ -961,10 +961,9 @@ function pageToolDataValue(
           kind: 'array',
           itemPaginator: paginateCallHierarchyNode,
         },
-        // `calls` is emitted when the LSP server is unavailable and the tool
-        // falls back to pattern-matching (lspMode='fallback'). Include it here
-        // so the dedicated node paginator handles it instead of falling through
-        // to the generic array paginator, which produces less precise chunking.
+        // `calls` is a legacy edge-list field name kept for backward
+        // compatibility. Route it through the dedicated node paginator (rather
+        // than the generic array paginator) for more precise chunking.
         {
           field: 'calls',
           kind: 'array',

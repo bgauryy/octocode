@@ -520,7 +520,7 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   // in newer builds of the host repo. We stub them here with minimal Zod
   // shapes so the test imports resolve. Tests that need richer behavior
   // re-mock specific symbols locally.
-  const { z } = await import('zod/v4');
+  const { z } = await import('zod');
   // Stubs need `.shape.charOffset`, `.shape.queries`, etc. accessed by the
   // overlay code in src/scheme/. Include the keys that are actually read.
   const passthrough = () =>

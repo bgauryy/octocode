@@ -40,6 +40,7 @@ function buildResolvedConfig(
     process.env.ENABLE_LOCAL !== undefined ||
     process.env.ENABLE_CLONE !== undefined ||
     process.env.ALLOWED_PATHS !== undefined ||
+    process.env.WORKSPACE_ROOT !== undefined ||
     process.env.TOOLS_TO_RUN !== undefined ||
     process.env.ENABLE_TOOLS !== undefined ||
     process.env.DISABLE_TOOLS !== undefined ||

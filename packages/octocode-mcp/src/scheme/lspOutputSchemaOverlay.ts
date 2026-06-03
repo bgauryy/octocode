@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 const ResultIdentitySchema = z.object({
@@ -96,7 +96,6 @@ const LspFindReferencesDataLocalSchema = z
     totalFiles: z.number().optional(),
     pagination: LspPaginationSchema.optional(),
     hasMultipleFiles: z.boolean().optional(),
-    lspMode: z.enum(['semantic', 'fallback']).optional(),
     hints: z.array(z.string()).optional(),
     error: z.string().optional(),
     errorType: z.string().optional(),
@@ -117,7 +116,6 @@ const LspCallHierarchyDataLocalSchema = z
     outputPagination: CharPaginationSchema.optional(),
     direction: z.enum(['incoming', 'outgoing']).optional(),
     depth: z.number().optional(),
-    lspMode: z.enum(['semantic', 'fallback']).optional(),
     hints: z.array(z.string()).optional(),
     error: z.string().optional(),
     errorType: z.string().optional(),

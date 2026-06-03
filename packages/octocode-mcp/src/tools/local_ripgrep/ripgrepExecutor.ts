@@ -3,7 +3,7 @@
  */
 import { RipgrepCommandBuilder } from '../../commands/RipgrepCommandBuilder.js';
 import { safeExec } from '../../utils/exec/safe.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
 import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 

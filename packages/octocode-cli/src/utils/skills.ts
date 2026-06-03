@@ -230,6 +230,8 @@ function getSkillsSourceCandidates(): string[] {
 
   return [
     resolve(currentDir, '..', 'skills'),
+    // Bundled chunk build: code lives in out/chunks/*.js, skills in <pkg>/skills
+    resolve(currentDir, '..', '..', 'skills'),
     resolve(currentDir, '..', '..', '..', '..', 'skills'),
     resolve(currentDir, '..', '..', '..', 'skills'),
   ];

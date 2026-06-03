@@ -48,7 +48,7 @@ const mockSafeParse = (query: object) => ({
   data: withParsedDefaults(query),
 });
 vi.mock('@octocodeai/octocode-core', async importOriginal => {
-  const { z } = await import('zod/v4');
+  const { z } = await import('zod');
   const out = () => z.object({}).passthrough();
   return {
     ...(await importOriginal<object>()),

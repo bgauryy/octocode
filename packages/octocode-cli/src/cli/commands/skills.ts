@@ -340,7 +340,11 @@ export const skillsCommand: CLICommand = {
       destDir
     );
 
-    if (!dirExists(srcDir)) {
+    // Only the bundled-install path strictly needs the packaged skills source.
+    // search/read/list/remove/sync work without it, so don't fail them early.
+    const needsBundledSource =
+      subcommand === 'install' && !localPath && !specificSkill;
+    if (needsBundledSource && !dirExists(srcDir)) {
       console.log();
       console.log(`  ${c('red', '✗')} Skills directory not found`);
       console.log(`  ${dim('Expected:')} ${srcDir}`);

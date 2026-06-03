@@ -15,7 +15,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getMcpContent } from '../mcpCache.js';
 import { transformToJsonSchema } from '../types/mcp.js';
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 // Import Zod schemas from octocode-mcp (source of truth)
 import {

@@ -33,6 +33,12 @@ export interface LocalConfigOptions {
   enableClone?: boolean;
   /** Restrict to specific paths (empty = all allowed) */
   allowedPaths?: string[];
+  /**
+   * Absolute path used as the workspace root for resolving relative paths
+   * in all local tools (default: process.cwd()).
+   * Priority: WORKSPACE_ROOT env var > this field > process.cwd()
+   */
+  workspaceRoot?: string;
 }
 
 /**
@@ -123,6 +129,7 @@ export interface RequiredLocalConfig {
   enabled: boolean;
   enableClone: boolean;
   allowedPaths: string[];
+  workspaceRoot: string | undefined;
 }
 
 export interface RequiredToolsConfig {

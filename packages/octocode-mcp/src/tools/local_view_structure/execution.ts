@@ -84,10 +84,7 @@ export async function executeViewStructure(
           const result = await viewStructure(validation.data);
           return attachEvidence(
             result as ProcessedBulkResult,
-            buildViewStructureEvidence(
-              result,
-              isConcise(validation.data.verbosity)
-            )
+            buildViewStructureEvidence(result, isConcise(validation.data))
           );
         },
       }),

@@ -11,7 +11,7 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
 
@@ -364,7 +364,7 @@ export function applyViewStructureVerbosity(
   result: LocalViewStructureToolResult,
   query: ViewStructureQuery
 ): LocalViewStructureToolResult {
-  if (isConcise(query.verbosity)) {
+  if (isConcise(query)) {
     // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
     if (result.status !== undefined) return result;
     // Drop entries[] but keep concise research-grade: emit the count summary
@@ -382,7 +382,7 @@ export function applyViewStructureVerbosity(
     if (names.length > 0) hints.push(`top: ${names.join(', ')}${more}`);
     return { ...result, entries: [], hints };
   }
-  if (isCompact(query.verbosity)) {
+  if (isCompact(query)) {
     return {
       ...result,
       hints: compactTrimHints(result.hints, isAdvisoryViewStructureHint, 2),

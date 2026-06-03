@@ -7,7 +7,7 @@
  * @module validation/httpPreprocess
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import path from 'path';
 import os from 'os';
 

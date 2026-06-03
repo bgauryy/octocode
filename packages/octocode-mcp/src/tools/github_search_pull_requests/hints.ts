@@ -22,7 +22,10 @@ export const hints: ToolHintGenerators = {
     const scope = owner && repo ? `${owner}/${repo}` : undefined;
 
     if (prNumber !== undefined && scope) {
-      return [`PR #${prNumber} not found in ${scope}.`];
+      return [
+        `PR #${prNumber} not found in ${scope}.`,
+        'Verify the PR number is correct, or search by title keyword using `query` with `sort="best-match"`.',
+      ];
     }
 
     const filters: string[] = [];
@@ -33,8 +36,27 @@ export const hints: ToolHintGenerators = {
     if (filters.length === 0) return [];
     return [
       `No PRs in ${scope ?? 'this scope'} matching ${filters.join(' + ')}.`,
+      state === 'merged'
+        ? 'Try `state="closed"` — merged PRs are a subset of closed PRs in the GitHub API.'
+        : 'Try removing filters one at a time: drop `author` or loosen `query` keywords first.',
+      query
+        ? 'For approximate title matching, use `match=["title"]` with `sort="best-match"` to surface the closest PR.'
+        : 'Add a `query` with keywords from the PR title or body to narrow the search.',
     ];
   },
 
-  error: () => [],
+  error: (ctx: HintContext = {}) => {
+    if (ctx.isRateLimited) {
+      return [
+        `GitHub API rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ' Wait before retrying.'}`,
+      ];
+    }
+    if (ctx.status === 401) {
+      return ['GITHUB_TOKEN is missing or expired — set a valid token and retry.'];
+    }
+    if (ctx.status === 403) {
+      return ["Token lacks `repo` scope — update token permissions and retry."];
+    }
+    return [];
+  },
 };

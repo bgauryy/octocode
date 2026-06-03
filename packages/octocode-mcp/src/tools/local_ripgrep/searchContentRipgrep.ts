@@ -8,7 +8,7 @@ import {
   checkCommandAvailability,
   getMissingCommandError,
 } from '../../utils/exec/commandAvailability.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import { applyWorkflowMode } from '@octocodeai/octocode-core/schemas/runtime';
 import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 

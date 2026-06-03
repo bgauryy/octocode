@@ -215,6 +215,35 @@ function validateLocal(local: unknown, errors: string[]): void {
     );
     errors.push(...pathErrors);
   }
+
+  if (loc.workspaceRoot !== undefined && loc.workspaceRoot !== null) {
+    const workspaceRootError = validateString(
+      loc.workspaceRoot,
+      'local.workspaceRoot'
+    );
+    if (workspaceRootError) {
+      errors.push(workspaceRootError);
+    } else if (
+      typeof loc.workspaceRoot === 'string' &&
+      !loc.workspaceRoot.startsWith('/') &&
+      !loc.workspaceRoot.startsWith('~')
+    ) {
+      errors.push(
+        'local.workspaceRoot: must be an absolute path or start with ~ (got "' +
+          loc.workspaceRoot +
+          '")'
+      );
+    } else if (
+      typeof loc.workspaceRoot === 'string' &&
+      loc.workspaceRoot.includes('..')
+    ) {
+      errors.push(
+        'local.workspaceRoot: path traversal (..) not allowed (got "' +
+          loc.workspaceRoot +
+          '")'
+      );
+    }
+  }
 }
 
 function validateTools(tools: unknown, errors: string[]): void {

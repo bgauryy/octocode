@@ -422,18 +422,21 @@ describe('isExactPackageName', () => {
     );
   });
 
-  it('should call search URL when limit > 1 even for exact package name', async () => {
-    mockFetchWithRetries.mockResolvedValue(
-      makeSearchResult([
-        { name: 'react', version: '18.0.0' },
-        { name: 'react-dom', version: '18.0.0' },
-      ])
-    );
+  it('should return the canonical exact package even when limit > 1', async () => {
+    mockFetchWithRetries.mockResolvedValue({
+      name: 'react',
+      version: '18.0.0',
+    });
 
-    await searchNpmPackage('react', 5, false);
+    const result = await searchNpmPackage('react', 5, false);
 
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages).toHaveLength(1);
+      expect((result.packages[0] as NpmPackageResult).path).toBe('react');
+    }
     expect(mockFetchWithRetries).toHaveBeenCalledWith(
-      expect.stringContaining('/-/v1/search'),
+      expect.stringContaining('/react/latest'),
       expect.any(Object)
     );
   });
@@ -1047,6 +1050,11 @@ describe('checkNpmRegistryReachable', () => {
 
 describe('searchNpmPackage - custom registry URL', () => {
   it('should use custom registry URL for exact package lookup', async () => {
+    mockExecuteNpmCommand.mockResolvedValueOnce({
+      stdout: '',
+      stderr: 'npm ERR! code E404',
+      exitCode: 1,
+    });
     mockExecuteNpmCommand.mockResolvedValueOnce({
       stdout: 'https://npm.corp.com\n',
       stderr: '',

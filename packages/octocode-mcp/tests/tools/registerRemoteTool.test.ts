@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import { createRemoteToolRegistration } from '../../src/tools/registerRemoteTool.js';
 
 function createMockServer() {

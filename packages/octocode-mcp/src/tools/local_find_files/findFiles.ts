@@ -16,7 +16,7 @@ import {
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
 import { formatFileSize } from '../../utils/file/size.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { FindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalFindFilesEntry } from '@octocodeai/octocode-core/types';
 import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-types';
@@ -411,7 +411,7 @@ export function applyFindFilesVerbosity(
   query: FindFilesQuery,
   totals: { totalFiles: number }
 ): LocalFindFilesToolResult {
-  if (isConcise(query.verbosity)) {
+  if (isConcise(query)) {
     // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
     if (result.status !== undefined) return result;
     const topFile = result.files?.[0];
@@ -428,7 +428,7 @@ export function applyFindFilesVerbosity(
       hints: [summary],
     };
   }
-  if (isCompact(query.verbosity)) {
+  if (isCompact(query)) {
     return {
       ...result,
       hints: compactTrimHints(result.hints, isAdvisoryFindFilesHint, 2),

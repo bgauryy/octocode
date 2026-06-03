@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type UpstreamLSPCallHierarchyQuery = z.infer<
@@ -59,7 +59,5 @@ function attachCallHierarchyEvidence(
   return attachLspEvidence(result, {
     kind: 'calls',
     paginationKey: 'outputPagination',
-    fallbackReason:
-      'Call graph derived from text pattern matching; cross-file edges may be missed and naive identifier matches may produce false positives.',
   });
 }

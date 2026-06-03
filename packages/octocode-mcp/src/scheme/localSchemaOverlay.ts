@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import {
   RipgrepQuerySchema as UpstreamRipgrepQuerySchema,
   FindFilesQuerySchema as UpstreamFindFilesQuerySchema,
@@ -220,17 +220,22 @@ export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
     `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. For large trees, page the entries (page=N) or narrow the path rather than over-deepening.`
   );
 
-// All field-description text lives upstream in
-// octocode-core/src/resources/global.ts `baseSchema.verbosity`. Overlay
-// supplies only the Zod enum so bulk validation accepts the field.
+// Cross-tool detail controls. `verbosity` is the legacy 3-tier surface kept for
+// compatibility; `verbose` is the boolean surface agents should prefer.
 export const verbosityField = z.enum(VERBOSITY_VALUES).optional();
+export const verboseField = z
+  .boolean()
+  .optional()
+  .describe(
+    'Boolean detail switch. false returns efficient findings/research data; true includes extended metadata as well. If both verbose and verbosity are supplied, verbosity wins.'
+  );
 
 /**
- * Generic helper: adds the optional `verbosity` field to any upstream query
- * type. Lets per-tool query types avoid redeclaring the same `verbosity?:
- * Verbosity` shape.
+ * Generic helper: adds the optional detail fields to any upstream query type.
+ * Lets per-tool query types avoid redeclaring the same `verbosity` / `verbose`
+ * shape.
  */
-export type WithVerbosity<T> = T & { verbosity?: Verbosity };
+export type WithVerbosity<T> = T & { verbosity?: Verbosity; verbose?: boolean };
 
 /**
  * Cross-tool query-metadata shape. Mirrors `optionalMetaFields` so per-tool
@@ -251,17 +256,22 @@ export type WithQueryMeta<T> = T & {
 export type WithLocalOverlay<T> = WithVerbosity<WithQueryMeta<T>>;
 
 /**
- * Per-tool verbosity field. Description text comes from upstream
- * `baseSchema.verbosity` — do not redescribe here.
+ * Legacy per-tool verbosity field.
  */
 export function createVerbosityField() {
   return z.enum(VERBOSITY_VALUES).optional();
 }
 
-// All tools share the same Zod field; description text comes from upstream
-// baseSchema.verbosity. Tool-specific guidance for verbosity goes into the
-// tool's own <gotchas> in octocode-core/src/resources/tools/*.ts.
-// Call createVerbosityField() inline at each .extend() site below.
+export function createVerbosityFields() {
+  return {
+    verbosity: createVerbosityField(),
+    verbose: verboseField,
+  } as const;
+}
+
+// All tools share the same Zod fields. Tool-specific guidance for detail level
+// goes into the tool's own <gotchas> in octocode-core/src/resources/tools/*.ts.
+// Call createVerbosityFields() inline at each .extend() site below.
 
 /**
  * Creates a bulk query schema that is less strict than the upstream one.
@@ -274,7 +284,7 @@ export function createRelaxedBulkQuerySchema(
   options: { maxQueries?: number } = {}
 ) {
   const { maxQueries = 5 } = options;
-  return z
+  const bulkSchema = z
     .object({
       queries: z
         .array(querySchema)
@@ -300,7 +310,6 @@ export function createRelaxedBulkQuerySchema(
           `Optional character limit for the aggregated response. Use to control token usage. Max ${LOCAL_OVERLAY_MAX_CHAR_LENGTH}.`
         ),
     })
-    .strip()
     .superRefine((data, ctx) => {
       const ids = new Set<string>();
       data.queries.forEach((q: unknown, idx) => {
@@ -312,7 +321,7 @@ export function createRelaxedBulkQuerySchema(
         ) {
           if (ids.has(q.id)) {
             ctx.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: 'custom',
               message: `Duplicate query id "${q.id}" at index ${idx}`,
               path: ['queries', idx, 'id'],
             });
@@ -321,10 +330,19 @@ export function createRelaxedBulkQuerySchema(
         }
       });
     });
+
+  // NOTE: z.preprocess(normalizeVerboseFlagInBulk, ...) was removed.
+  // The verbose→verbosity normalization is already handled by verbosity.ts
+  // readVerbosity() which checks both `verbosity` and `verbose` fields.
+  // Removing the z.preprocess wrapper keeps bulkSchema as a plain ZodObject
+  // so the MCP SDK's normalizeObjectSchema can correctly expose its shape
+  // in tools/list — no longer returns { properties: {} }.
+  return bulkSchema;
 }
 
 /**
  * Optional research-metadata fields shared by every tool's per-query schema.
+ * Includes the base detail controls so every tool can accept `verbose`.
  * Exported so LSP / remote overlays reuse the same definitions and
  * descriptions instead of duplicating them.
  */
@@ -342,10 +360,11 @@ export const optionalMetaFields = {
     .string()
     .optional()
     .describe('Why this query helps achieve the research goal.'),
+  ...createVerbosityFields(),
 } as const;
 
 // Field descriptions are upstream (localSearchCode.ts). Overlay supplies only
-// the verbosity field, the relaxed numeric ranges, and pagination defaults.
+// detail controls, relaxed numeric ranges, and pagination defaults.
 // The superRefine mirrors the runtime mutex checks in
 // octocode-core/src/schemas/runtime.ts at the schema layer, so conflicting
 // inputs are rejected with a structured Zod error before the executor
@@ -409,7 +428,7 @@ const RipgrepQueryBaseSchema = UpstreamRipgrepQuerySchema.omit(
     'Result shape (orthogonal to verbosity): "paginated"/default for normal reading, "discovery" for cheap presence checks (pairs with verbosity="concise" for the leanest probe), "detailed" for expanded snippets.'
   ),
   matchContentLength: matchContentLengthField,
-  verbosity: createVerbosityField(),
+  ...createVerbosityFields(),
   charLength: localCharLengthField,
   // Files are the top-level atomic item → the cross-tool `itemsPerPage`
   // (aligned with findFiles/viewStructure). The secondary axis — matches shown
@@ -533,7 +552,7 @@ export const BulkRipgrepQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // Field descriptions are upstream (localFindFiles.ts). Overlay supplies only
-// the verbosity field, the relaxed numeric ranges, and pagination defaults.
+// detail controls, relaxed numeric ranges, and pagination defaults.
 export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.omit({
   // Files are the atomic item → exposed as the cross-tool `itemsPerPage`; the
   // page number is the unified `page`. Omit both upstream names.
@@ -565,7 +584,7 @@ export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.omit({
   charOffset: charOffsetField,
   minDepth: fsDepthField,
   maxDepth: fsDepthField,
-  verbosity: createVerbosityField(),
+  ...createVerbosityFields(),
   // Files are find-files' atomic item → the canonical page-size knob.
   itemsPerPage: describeField(
     itemsPerPageField,
@@ -586,7 +605,7 @@ export const BulkFindFilesSchema = createRelaxedBulkQuerySchema(
 );
 
 // Field descriptions are upstream (localGetFileContent.ts). Overlay supplies
-// only the verbosity field, char-budget range, and matchStringContextLines default.
+// only detail controls, char-budget range, and matchStringContextLines default.
 // The superRefine enforces the same three extraction-mode mutex as
 // githubGetFileContent: fullContent, matchString, and startLine/endLine are
 // mutually exclusive ways to select content.
@@ -615,7 +634,7 @@ const FetchContentQueryBaseSchema = UpstreamFetchContentQuerySchema.extend({
     lineNumberField,
     '1-based last line to include. Use with startLine; mutually exclusive with fullContent and matchString.'
   ),
-  verbosity: createVerbosityField(),
+  ...createVerbosityFields(),
   charLength: localCharLengthField,
   charOffset: charOffsetField,
   matchStringContextLines: contextLinesField.default(5),
@@ -638,7 +657,7 @@ export const BulkFetchContentQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // Field descriptions are upstream (localViewStructure.ts). Overlay supplies
-// only the verbosity field, char-budget range, and pagination defaults.
+// only detail controls, char-budget range, and pagination defaults.
 //
 // Overlap removal — two pairs in the upstream schema do the same job two ways:
 //   • `extension` (singular) ⊂ `extensions` (array). Keep the array; hide the
@@ -666,7 +685,7 @@ export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.omit(
   ),
   charLength: localCharLengthField,
   charOffset: charOffsetField,
-  verbosity: createVerbosityField(),
+  ...createVerbosityFields(),
   // Entries are view-structure's atomic item — default 100 so typical dirs
   // fit on one page without a follow-up call.
   itemsPerPage: clampedInt(1, 200)

@@ -4,10 +4,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  findWorkspaceRoot,
-  isLikelyDefinition,
-} from '../../src/tools/lsp_find_references/lspReferencesPatterns.js';
 
 describe('LSP Find References Tool', () => {
   beforeEach(() => {
@@ -127,61 +123,6 @@ describe('LSP Find References Tool', () => {
     });
   });
 
-  describe('isLikelyDefinition', () => {
-    // Test the definition detection logic using the actual exported function
-    const definitionPatterns = [
-      { line: 'export const myVar = 1;', symbol: 'myVar', expected: true },
-      { line: 'const myVar = 1;', symbol: 'myVar', expected: true },
-      { line: 'let myVar = 1;', symbol: 'myVar', expected: true },
-      { line: 'var myVar = 1;', symbol: 'myVar', expected: true },
-      { line: 'function myFunc() {}', symbol: 'myFunc', expected: true },
-      { line: 'async function myFunc() {}', symbol: 'myFunc', expected: true },
-      {
-        line: 'export function myFunc() {}',
-        symbol: 'myFunc',
-        expected: true,
-      },
-      { line: 'class MyClass {}', symbol: 'MyClass', expected: true },
-      {
-        line: 'interface MyInterface {}',
-        symbol: 'MyInterface',
-        expected: true,
-      },
-      { line: 'type MyType = string;', symbol: 'MyType', expected: true },
-      { line: 'enum MyEnum {}', symbol: 'MyEnum', expected: true },
-      { line: 'def my_func():', symbol: 'my_func', expected: true },
-      { line: 'myVar = 1', symbol: 'myVar', expected: true },
-      { line: 'return myVar;', symbol: 'myVar', expected: false },
-      { line: 'console.log(myVar);', symbol: 'myVar', expected: false },
-    ];
-
-    for (const { line, symbol, expected } of definitionPatterns) {
-      it(`should ${expected ? '' : 'not '}detect "${line}" as definition`, () => {
-        expect(isLikelyDefinition(line, symbol)).toBe(expected);
-      });
-    }
-
-    // Additional edge cases
-    it('should handle empty line', () => {
-      expect(isLikelyDefinition('', 'test')).toBe(false);
-    });
-
-    it('should handle whitespace-only line', () => {
-      expect(isLikelyDefinition('   ', 'test')).toBe(false);
-    });
-
-    it('should detect default export', () => {
-      expect(
-        isLikelyDefinition('export default function myFunc() {}', 'myFunc')
-      ).toBe(true);
-    });
-
-    it('should detect class methods', () => {
-      expect(isLikelyDefinition('public myMethod()', 'myMethod')).toBe(true);
-      expect(isLikelyDefinition('private helper()', 'helper')).toBe(true);
-    });
-  });
-
   describe('Tool name constant', () => {
     it('should use correct tool name from constants', async () => {
       vi.resetModules();
@@ -203,26 +144,6 @@ describe('LSP Find References Tool', () => {
       expect(LSP_FIND_REFERENCES_DESCRIPTION).toBeDefined();
       expect(typeof LSP_FIND_REFERENCES_DESCRIPTION).toBe('string');
       // Description may be empty if tool not in remote metadata (local-only tool)
-    });
-  });
-
-  describe('findWorkspaceRoot', () => {
-    it('should return a directory path', async () => {
-      // findWorkspaceRoot always returns a valid directory path
-      const result = await findWorkspaceRoot('/some/path/to/file.ts');
-      expect(typeof result).toBe('string');
-      expect(result.length).toBeGreaterThan(0);
-    });
-
-    it('should handle deep paths', async () => {
-      const deepPath = '/a/b/c/d/e/f/g/h/i/j/file.ts';
-      const result = await findWorkspaceRoot(deepPath);
-      expect(typeof result).toBe('string');
-    });
-
-    it('should handle relative paths', async () => {
-      const result = await findWorkspaceRoot('src/file.ts');
-      expect(typeof result).toBe('string');
     });
   });
 

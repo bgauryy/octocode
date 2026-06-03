@@ -1,6 +1,6 @@
 ---
 name: octocode-search-skill
-description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns. Do NOT activate for general package search (npm, PyPI, cargo), web search, or code research not involving SKILL.md files.
+description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns. Do NOT activate for general package search (npm, PyPI, cargo), general (non-skill) web search, or code research not involving SKILL.md files.
 ---
 
 # Octocode Search Skill
@@ -52,6 +52,7 @@ Use Octocode MCP for all research — locally and externally — and let user in
 - Lead GitHub when the user is shopping for a skill, comparing options, or asking about something not present locally.
 - Read code or files: `localGetFileContent` or `githubGetFileContent`.
 - Download a remote skill folder before writing it locally: `githubGetFileContent(type="directory")` or `githubCloneRepo`.
+- Web search: for every PUBLIC skill query, MUST also run the runtime's web search tool (e.g. `WebSearch`) in parallel with Octocode/GitHub and the skills.sh API. It catches skills surfaced in articles, awesome-lists, release notes, and registries outside the known set. Treat web-only mentions as LEADS, not recommendations — always resolve the real `(owner/repo, path-to-SKILL.md)` and confirm the actual `SKILL.md` via Octocode (`githubGetFileContent`) before recommending. Skip only for local-only or org/private scopes (Octocode tools only there).
 
 Fallbacks:
 
@@ -92,6 +93,12 @@ Set depth before searching:
 - Improve, rate, or create request: inspect the target skill, adjacent local examples, and `references/agent-skills-guide.md` before writing.
 - Weak results: broaden once, then report the gap and the next best action.
 
+For every public skill query, fan out across three surfaces IN PARALLEL, then merge and dedupe by `(owner/repo, skill name)`:
+
+1. Octocode/GitHub — code and path search for `SKILL.md` (see "Useful GitHub patterns").
+2. skills.sh Registry API — install-ranked candidates (see "Skills.sh Registry API").
+3. Web search — runtime web search tool (e.g. `WebSearch`) for the topic + "agent skill"/"claude skill"/"SKILL.md", to catch skills outside the known registries. Confirm each web lead's real `SKILL.md` via Octocode before recommending.
+
 Search angles:
 
 - Name: exact phrase, lowercase, hyphenated folder name, aliases.
@@ -112,7 +119,7 @@ Useful GitHub patterns:
 
 ### Skills.sh Registry API
 
-MUST run this in parallel with GitHub/Octocode search for every public skill query. MUST NOT use for org-specific or private searches — use Octocode tools only for those.
+MUST run this in parallel with GitHub/Octocode search AND web search for every public skill query (the three-surface fan-out above). MUST NOT use for org-specific or private searches — use Octocode tools only for those.
 
 ```bash
 curl 'https://www.skills.sh/api/search?q={{SEARCH_KEY}}&limit=100' \

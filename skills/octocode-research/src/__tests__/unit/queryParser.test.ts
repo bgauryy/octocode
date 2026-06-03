@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { validateToolCallBody, getValidationHints, MAX_QUERIES } from '../../validation/toolCallSchema.js';
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 
 describe('validateToolCallBody', () => {
   describe('valid inputs', () => {

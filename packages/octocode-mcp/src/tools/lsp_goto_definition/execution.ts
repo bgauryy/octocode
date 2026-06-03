@@ -5,9 +5,8 @@
 
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { readFile } from 'fs/promises';
-import { dirname, resolve as resolvePath } from 'path';
 
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type { LSPGotoDefinitionQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type UpstreamLSPGotoDefinitionQuery = z.infer<
@@ -101,9 +100,10 @@ export async function executeGotoDefinition(
 
 /**
  * Attach cross-tool evidence so the bulk runner can lift it to the response
- * envelope. Confidence is `high` for LSP semantic results and `low` for the
- * text-pattern fallback; the goto-definition response either resolves
- * fully or not at all, so `complete` follows `answerReady`.
+ * envelope. Definitions are always resolved by the language server (there is
+ * no text fallback), so confidence is always `high`; the goto-definition
+ * response either resolves fully or not at all, so `complete` follows
+ * `answerReady`.
  */
 function attachDefinitionEvidence(
   result: GotoDefinitionResult
@@ -114,20 +114,11 @@ function attachDefinitionEvidence(
   const status = (result as { status?: string }).status;
   if (status !== undefined && status !== 'empty') return result;
   const hasResults = status === undefined;
-  // lspMode absent ≡ semantic; 'fallback' is the only emitted marker.
-  const mode = (result as { lspMode?: 'semantic' | 'fallback' }).lspMode;
-  const isSemantic = mode === undefined || mode === 'semantic';
   const evidence = {
     kind: 'definition' as const,
     answerReady: hasResults,
     complete: hasResults,
-    confidence: isSemantic ? ('high' as const) : ('low' as const),
-    ...(mode === 'fallback'
-      ? {
-          reason:
-            'Resolved via text fallback; may point at an import line rather than the source definition.',
-        }
-      : {}),
+    confidence: 'high' as const,
   };
   // Mutate in place so any non-enumerable raw-chars symbol attached
   // upstream (see attachRawResponseChars) survives.
@@ -211,56 +202,42 @@ async function gotoDefinition(
       workspaceRoot
     );
 
-    let semanticFallbackHint: string | undefined;
-    if (lspAvailable) {
-      try {
-        const result = await gotoDefinitionWithLSP(
-          absolutePath,
-          workspaceRoot,
-          resolvedSymbol.position,
-          query,
-          content
-        );
-        if (result) {
-          // Semantic path: omit lspMode (absent ≡ semantic). Fallback path
-          // below explicitly sets lspMode='fallback'.
-          const semanticResult = result;
-          return attachRawResponseChars(
-            applyGotoDefinitionVerbosity(
-              applyGotoDefinitionOutputLimit(semanticResult, query),
-              query
-            ),
-            content.length + countSerializedChars(semanticResult)
-          );
-        }
-        semanticFallbackHint =
-          'LSP semantic lookup returned no result; using text fallback';
-      } catch {
-        semanticFallbackHint =
-          'LSP semantic lookup failed; using text fallback';
-      }
+    // No language server: we do NOT guess a definition from the symbol's own
+    // text occurrence (that just points back at the reference, not the
+    // declaration). Return a clear empty result instead.
+    if (!lspAvailable) {
+      return attachRawResponseChars(
+        buildLspUnavailableResult(),
+        content.length
+      );
     }
 
-    const fallback = createFallbackResult(
-      query,
-      absolutePath,
-      content,
-      resolver,
-      resolvedSymbol,
-      { lspUnavailable: !lspAvailable, semanticFallbackHint }
-    );
-    // `lspMode` is only valid on hasResults/empty per the published
-    // output schema. Skip it on error so MCP schema validation passes.
-    const tagged: GotoDefinitionResult =
-      fallback.status === 'error'
-        ? fallback
-        : { ...fallback, lspMode: 'fallback' };
+    let result: GotoDefinitionResult | null = null;
+    try {
+      result = await gotoDefinitionWithLSP(
+        absolutePath,
+        workspaceRoot,
+        resolvedSymbol.position,
+        query,
+        content
+      );
+    } catch {
+      result = null;
+    }
+
+    if (!result) {
+      return attachRawResponseChars(
+        buildLspUnavailableResult(true),
+        content.length
+      );
+    }
+
     return attachRawResponseChars(
       applyGotoDefinitionVerbosity(
-        applyGotoDefinitionOutputLimit(tagged, query),
+        applyGotoDefinitionOutputLimit(result, query),
         query
       ),
-      content.length + countSerializedChars(tagged)
+      content.length + countSerializedChars(result)
     );
   } catch (error) {
     return createErrorResult(error, query, {
@@ -359,40 +336,6 @@ function buildUnsupportedCapabilityResult(): GotoDefinitionResult {
 }
 
 /**
- * When the LSP returns no locations, try resolving a dynamic-import binding
- * via the module path (`.js` → `.ts`). Returns a ready result on success,
- * or null to let the caller emit the standard "not found" response.
- */
-async function resolveDynamicImportFallback(
-  content: string,
-  position: ExactPosition,
-  filePath: string,
-  symbolName: string,
-  query: LSPGotoDefinitionQuery
-): Promise<GotoDefinitionResult | null> {
-  const lines = content.split(/\r?\n/);
-  const targetLine = lines[position.line];
-  if (!targetLine || !isDynamicImport(targetLine)) return null;
-
-  const manualLocation = await resolveDefinitionViaModulePath(
-    targetLine,
-    filePath,
-    symbolName
-  );
-  if (!manualLocation) return null;
-
-  return applyGotoDefinitionOutputLimit(
-    {
-      locations: [manualLocation],
-      resolvedPosition: position,
-      searchRadius: 5,
-      hints: ['Resolved via dynamic import module path (.js → .ts)'],
-    },
-    query
-  );
-}
-
-/**
  * When the single LSP location is itself an import/re-export in the same
  * file, follow it to the real source — first via a chained gotoDefinition,
  * then via manual module-path resolution. Returns the (possibly rewritten)
@@ -446,17 +389,8 @@ async function followImportToSource(
         };
       }
     }
-
-    const manualLocation = await resolveDefinitionViaModulePath(
-      targetLine,
-      loc.uri,
-      symbolName
-    );
-    if (manualLocation) {
-      return { locations: [manualLocation], followedImport: true };
-    }
   } catch {
-    // Import-chain or module-path resolution failed; keep original LSP locations.
+    // Import-chain resolution failed; keep original LSP locations.
   }
 
   return { locations, followedImport: false };
@@ -523,15 +457,6 @@ async function gotoDefinitionWithLSP(
   let locations = await client.gotoDefinition(filePath, _position);
 
   if (!locations || locations.length === 0) {
-    const fallback = await resolveDynamicImportFallback(
-      _content,
-      _position,
-      filePath,
-      symbolName,
-      query
-    );
-    if (fallback) return fallback;
-
     return {
       status: 'empty',
       error: 'No definition found by language server',
@@ -577,115 +502,29 @@ async function gotoDefinitionWithLSP(
 }
 
 /**
- * Fallback for TypeScript ESM projects that use `.js` extension imports.
+ * Build the empty result returned when no language server can resolve the
+ * definition. There is no text fallback: the symbol's own occurrence is a
+ * reference, not its declaration, so guessing would be misleading. Route the
+ * caller to the text-search / package tools instead.
  *
- * When TypeScript LSP cannot follow `import { X } from './y.js'` to `y.ts`
- * (because the language server only sees the local import binding as the
- * "definition"), we resolve the module path manually:
- *  1. Parse the `from '...'` clause in the import line.
- *  2. Map `.js` → `.ts` (TypeScript ESM convention).
- *  3. Text-search the target file for the first `export` line that
- *     contains the symbol name.
- *
- * Returns a minimal Location object compatible with the locations array, or
- * null when the module cannot be resolved or the symbol is not found.
+ * @param lspFailed true when a language server was available but the request
+ *   failed (vs. no language server installed at all).
  */
-async function resolveDefinitionViaModulePath(
-  importLine: string,
-  sourceFileUri: string,
-  symbolName: string
-): Promise<CodeSnippet | null> {
-  // Try static import: from '...'
-  const fromMatch = /\bfrom\s+['"](.+?)['"]\s*;?\s*$/.exec(importLine);
-  let modulePath: string | null = fromMatch?.[1] ?? null;
-
-  // Try dynamic import: import('...')
-  if (!modulePath) {
-    const dynamicMatch = /\bimport\s*\(\s*['"](.+?)['"]\s*\)/.exec(importLine);
-    modulePath = dynamicMatch?.[1] ?? null;
-  }
-
-  if (!modulePath) return null;
-  if (!modulePath.startsWith('.')) return null;
-
-  const sourceDir = dirname(sourceFileUri);
-  let resolvedPath = resolvePath(sourceDir, modulePath);
-
-  if (resolvedPath.endsWith('.js')) {
-    resolvedPath = resolvedPath.replace(/\.js$/, '.ts');
-  }
-
-  const content = await safeReadFile(resolvedPath);
-  if (!content) return null;
-
-  const lines = content.split(/\r?\n/);
-  const symbolWordBoundaryRe = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^\s*export\b/.test(line) && symbolWordBoundaryRe.test(line)) {
-      const charIdx = line.indexOf(symbolName);
-      return {
-        uri: resolvedPath,
-        content: '',
-        range: {
-          start: { line: i, character: charIdx },
-          end: { line: i, character: charIdx + symbolName.length },
-        },
-      };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Create fallback result when LSP is not available
- */
-function createFallbackResult(
-  query: LSPGotoDefinitionQuery,
-  absolutePath: string,
-  content: string,
-  resolver: SymbolResolver,
-  resolvedSymbol: { position: ExactPosition; foundAtLine: number },
-  options: { lspUnavailable?: boolean; semanticFallbackHint?: string } = {}
-): GotoDefinitionResult {
-  const symbolName = query.symbolName!;
-  const contextLines = query.contextLines ?? 5;
-  const context = resolver.extractContext(
-    content,
-    resolvedSymbol.foundAtLine,
-    contextLines
-  );
-
-  const numberedContent = addLineNumbers(
-    context.content,
-    context.startLine,
-    resolvedSymbol.foundAtLine
-  );
-
-  const codeSnippet: CodeSnippet = {
-    uri: absolutePath,
-    range: {
-      start: resolvedSymbol.position,
-      end: {
-        line: resolvedSymbol.position.line,
-        character: resolvedSymbol.position.character + symbolName.length,
-      },
-    },
-    content: numberedContent,
-  };
-
+function buildLspUnavailableResult(lspFailed = false): GotoDefinitionResult {
   return {
-    locations: [codeSnippet],
-    resolvedPosition: resolvedSymbol.position,
+    status: 'empty',
+    errorType: 'unknown',
+    errorCode: lspFailed
+      ? LSP_ERROR_CODES.LSP_EMPTY
+      : LSP_ERROR_CODES.LSP_NOT_INSTALLED,
     searchRadius: 5,
     hints: [
-      options.lspUnavailable ? LSP_UNAVAILABLE_HINT : undefined,
-      options.semanticFallbackHint,
-      resolvedSymbol.foundAtLine !== query.lineHint
-        ? `Symbol found at line ${resolvedSymbol.foundAtLine} (hint was ${query.lineHint})`
-        : undefined,
-    ].filter(Boolean) as string[],
+      ...getHints(TOOL_NAME, 'empty'),
+      lspFailed
+        ? 'The language server returned no definition for this symbol.'
+        : LSP_UNAVAILABLE_HINT,
+      'Use localSearchCode to locate the declaration by text, or packageSearch for external library source.',
+    ],
   };
 }
 
@@ -700,7 +539,7 @@ export function applyGotoDefinitionVerbosity(
   result: GotoDefinitionResult,
   query: LSPGotoDefinitionQuery
 ): GotoDefinitionResult {
-  if (isConcise(query.verbosity)) {
+  if (isConcise(query)) {
     if (result.status !== undefined) return result;
     const refs = (result.locations ?? []).map(loc => {
       const line = loc.range?.start?.line ?? 0;
@@ -719,7 +558,7 @@ export function applyGotoDefinitionVerbosity(
       hints: [summary],
     };
   }
-  if (isCompact(query.verbosity)) {
+  if (isCompact(query)) {
     return {
       ...result,
       hints: compactTrimHints(result.hints, isAdvisoryGotoDefinitionHint, 2),

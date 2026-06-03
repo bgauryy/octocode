@@ -345,43 +345,13 @@ describe('lspCallHierarchy output size limits', () => {
       ).toBe(true);
     });
 
-    it('should return empty with pagination metadata when pattern page exceeds range', async () => {
+    it('returns a clear empty result when no language server is available', async () => {
+      // No text/pattern fallback: when the LSP is unavailable the tool returns
+      // an empty result routing the caller to localSearchCode, rather than a
+      // regex-derived call graph.
       (managerModule.isLanguageServerAvailable as Mock).mockResolvedValue(
         false
       );
-      (checkCommandAvailability as Mock).mockResolvedValue({
-        available: true,
-        command: expect.stringMatching(/rg$/),
-      });
-      (safeExec as Mock).mockResolvedValue({
-        success: true,
-        code: 0,
-        stderr: '',
-        stdout: [
-          JSON.stringify({
-            type: 'match',
-            data: {
-              path: { text: '/workspace/src/callerA.ts' },
-              line_number: 11,
-              lines: { text: 'targetFunction()\n' },
-              submatches: [
-                { start: 0, end: 14, match: { text: 'targetFunction' } },
-              ],
-            },
-          }),
-          JSON.stringify({
-            type: 'match',
-            data: {
-              path: { text: '/workspace/src/callerB.ts' },
-              line_number: 22,
-              lines: { text: 'targetFunction()\n' },
-              submatches: [
-                { start: 0, end: 14, match: { text: 'targetFunction' } },
-              ],
-            },
-          }),
-        ].join('\n'),
-      });
 
       const result = await toolHandler({
         queries: [
@@ -404,20 +374,9 @@ describe('lspCallHierarchy output size limits', () => {
       const firstResult = results[0];
 
       expect(firstResult.status).toBe('empty');
-      expect(firstResult.pagination).toEqual(
-        expect.objectContaining({
-          currentPage: 9,
-          totalPages: 2,
-          totalResults: 2,
-          hasMore: false,
-          resultsPerPage: 1,
-        })
-      );
-      expect(
-        firstResult.hints.some((h: string) =>
-          h.includes('outside available range')
-        )
-      ).toBe(true);
+      expect(firstResult.errorCode).toBe('LSP_NOT_INSTALLED');
+      expect(firstResult.incomingCalls).toBeUndefined();
+      expect(firstResult.lspMode).toBeUndefined();
     });
   });
 
@@ -486,17 +445,8 @@ describe('lspCallHierarchy output size limits', () => {
       expect(firstResult.outputPagination).toBeUndefined();
     });
 
-    it('should strip item content for concise empty fallback results', async () => {
+    it('returns a concise empty result when LSP yields nothing', async () => {
       (managerModule.acquirePooledClient as Mock).mockResolvedValue(null);
-      (checkCommandAvailability as Mock).mockResolvedValue({
-        available: false,
-      });
-      (safeExec as Mock).mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
-      });
 
       const result = await toolHandler({
         queries: [
@@ -519,7 +469,10 @@ describe('lspCallHierarchy output size limits', () => {
       const firstResult = results[0];
 
       expect(firstResult.status).toBe('empty');
-      expect(firstResult.item?.content).toBe('');
+      expect(firstResult.errorCode).toBe('LSP_EMPTY');
+      // No text/pattern fallback graph, no target item to strip.
+      expect(firstResult.outgoingCalls).toBeUndefined();
+      expect(firstResult.outputPagination).toBeUndefined();
     });
   });
 

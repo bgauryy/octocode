@@ -9,11 +9,14 @@
  *   - Everything else: REAL imports, REAL execution
  *
  * Coverage unique to this file (not duplicated elsewhere):
- *   Finding 1 — escapeForRegex + command-arg builders (pure functions)
  *   Finding 2 — logToolCall telemetry payload (real session + mocked fetch)
  *   Finding 6 — buildChildProcessEnv value leakage (pure function)
  *
  * Full buildChildProcessEnv key/allowlist tests → security-resilience.test.ts
+ *
+ * Note: Finding 1 (escapeForRegex + ripgrep arg builders from the LSP
+ * pattern-fallback path) was removed — the LSP tools are now LSP-only and
+ * lspReferencesPatterns.ts no longer exists.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -28,57 +31,6 @@ import {
   buildChildProcessEnv,
   SENSITIVE_ENV_VARS,
 } from '../../src/utils/exec/spawn.js';
-import {
-  escapeForRegex,
-  buildRipgrepSearchArgs,
-} from '../../src/tools/lsp_find_references/lspReferencesPatterns.js';
-
-describe('Finding 1 — escapeForRegex + command args safety', () => {
-  it('leaves shell metacharacters alone (safe because spawn bypasses shell)', () => {
-    expect(escapeForRegex("'; rm -rf / #")).toBe("'; rm -rf / #");
-    expect(escapeForRegex('`id`')).toBe('`id`');
-  });
-
-  it('escapes every regex metacharacter', () => {
-    const meta = '.*+?^${}()|[]\\';
-    const escaped = escapeForRegex(meta);
-    for (const ch of [
-      '*',
-      '+',
-      '?',
-      '^',
-      '$',
-      '{',
-      '}',
-      '(',
-      ')',
-      '|',
-      '[',
-      ']',
-    ]) {
-      expect(escaped).toContain(`\\${ch}`);
-    }
-  });
-
-  it('buildRipgrepSearchArgs returns an array (safe for spawn)', () => {
-    const malicious = "'; rm -rf / ; echo '";
-    const args = buildRipgrepSearchArgs('/workspace', malicious);
-
-    expect(Array.isArray(args)).toBe(true);
-    args.forEach(a => expect(typeof a).toBe('string'));
-
-    // Malicious payload is ONE element, not shell-split
-    const hits = args.filter(a => a.includes('rm'));
-    expect(hits).toHaveLength(1);
-  });
-
-  it('pipe in malicious input is regex-escaped inside the rg pattern arg', () => {
-    const args = buildRipgrepSearchArgs('/workspace', 'foo | bash');
-    const patternArg = args.find(a => a.includes('foo') && a.includes('bash'));
-    expect(patternArg).toBeDefined();
-    expect(patternArg).toContain('\\|');
-  });
-});
 
 describe('Finding 2 — Telemetry excludes sensitive data', () => {
   let savedLog: string | undefined;

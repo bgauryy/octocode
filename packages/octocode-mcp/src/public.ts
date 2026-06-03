@@ -26,7 +26,7 @@ export { initializeProviders } from './providers/factory.js';
 export type { TokenSourceType } from './types/server.js';
 
 // Tool execution functions and security
-import type { z } from 'zod/v4';
+import type { z } from 'zod';
 import type {
   FileContentQuerySchema,
   FetchContentQuerySchema,

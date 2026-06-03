@@ -745,8 +745,9 @@ describe('LSP Goto Definition Coverage Tests', () => {
       expect(result.content?.[0]?.text).toContain('error');
     });
 
-    it('should hit line 146: console.debug on LSP failure fallback', async () => {
-      // This tests the catch block at line 143-147
+    it('returns an empty result (no text fallback) when LSP throws', async () => {
+      // There is no text-based fallback anymore: when an available language
+      // server fails, we return a clear empty result rather than guessing.
       const testPath = `${process.cwd()}/src/test.ts`;
 
       vi.mocked(fs.readFile).mockResolvedValue('const test = 1;');
@@ -768,17 +769,17 @@ describe('LSP Goto Definition Coverage Tests', () => {
             symbolName: 'test',
             lineHint: 1,
             researchGoal: 'Find def',
-            reasoning: 'Test LSP failure fallback',
+            reasoning: 'Test LSP failure handling',
           },
         ],
       });
 
-      // Should fallback to text-based resolution
       expect(result).toBeDefined();
-      // hasResults is signaled by ABSENT status — only 'empty' / 'error'
-      // get emitted explicitly. Verify the happy path by NOT seeing them.
-      expect(result.content?.[0]?.text).not.toContain('status: "empty"');
-      expect(result.content?.[0]?.text).not.toContain('status: "error"');
+      const text = result.content?.[0]?.text ?? '';
+      expect(text).toContain('status: "empty"');
+      expect(text).toContain('LSP_EMPTY');
+      // No regex/text-based guess masquerading as a definition.
+      expect(text).not.toContain('lspMode');
     });
 
     it('should hit line 187: LSP returns null/empty locations', async () => {
