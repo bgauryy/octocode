@@ -724,7 +724,7 @@ describe('Token Storage', () => {
 
         expect(result).toEqual({
           token: 'ghp_MOCK_TOKEN_00000000000000000000',
-          source: 'file',
+          source: 'octocode-storage',
         });
       });
 
@@ -757,11 +757,11 @@ describe('Token Storage', () => {
         const { resolveToken } =
           await import('../../src/credentials/storage.js');
 
-        // Source is always 'file'
+        // Source is always 'octocode-storage'
         const result = await resolveToken();
 
         expect(result?.token).toBe('ghp_MOCK_TOKEN_00000000000000000000');
-        expect(result?.source).toBe('file');
+        expect(result?.source).toBe('octocode-storage');
       });
 
       it('should return null when no token found anywhere', async () => {
@@ -1413,7 +1413,7 @@ describe('Token Storage', () => {
         const result = await resolveTokenFull();
 
         expect(result?.token).toBe('stored-token');
-        expect(result?.source).toBe('file');
+        expect(result?.source).toBe('octocode-storage');
         expect(result?.username).toBe('__mock_user__');
       });
 
@@ -1449,7 +1449,7 @@ describe('Token Storage', () => {
         const result = await resolveTokenFull();
 
         expect(result?.token).toBe('ghp_MOCK_TOKEN_00000000000000000000');
-        expect(result?.source).toBe('file');
+        expect(result?.source).toBe('octocode-storage');
       });
     });
 

@@ -27,6 +27,32 @@ import { isWindows, isMac, isLinux } from 'octocode-shared/platform';
 
 ## Modules
 
+### GitHub Token
+
+**You don't need to configure anything.** Octocode finds your token automatically.
+
+It checks these sources in order, using the first one it finds:
+
+1. `OCTOCODE_TOKEN` env var
+2. `GH_TOKEN` env var
+3. `GITHUB_TOKEN` env var
+4. Credentials stored by `octocode auth login`
+5. Your existing `gh` CLI login (`gh auth login`)
+
+**The easiest way to get started** — if you already use the GitHub CLI, just run your tool. It will pick up your `gh` session with no extra setup.
+
+**To set a specific token:**
+```bash
+export GITHUB_TOKEN=ghp_your_token_here
+```
+
+**To store credentials permanently:**
+```bash
+octocode-cli auth login
+```
+
+---
+
 ### Credentials
 
 Secure credential storage with AES-256-GCM encryption.

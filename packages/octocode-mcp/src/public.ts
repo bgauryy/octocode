@@ -21,12 +21,7 @@
 // Server registration and configuration
 export { registerTools } from './tools/toolsManager.js';
 export { ALL_TOOLS, type ToolConfig } from './tools/toolConfig.js';
-export {
-  initialize,
-  getGitHubToken,
-  getToken,
-  getTokenSource,
-} from './serverConfig.js';
+export { initialize, getGitHubToken, getTokenSource } from './serverConfig.js';
 export { initializeProviders } from './providers/factory.js';
 export type { TokenSourceType } from './types/server.js';
 

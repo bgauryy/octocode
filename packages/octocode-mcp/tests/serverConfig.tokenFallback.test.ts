@@ -25,7 +25,6 @@ import {
   initialize,
   cleanup,
   getGitHubToken,
-  getToken,
   getTokenSource,
   getServerConfig,
   _setTokenResolvers,
@@ -48,7 +47,7 @@ function mockResult(
     | 'env:OCTOCODE_TOKEN'
     | 'env:GH_TOKEN'
     | 'env:GITHUB_TOKEN'
-    | 'file'
+    | 'octocode-storage'
     | 'gh-cli'
     | null,
   extra?: Partial<FullTokenResolution>
@@ -99,7 +98,7 @@ describe('Token Fallback Chain Behavior', () => {
     it('should transition from env → storage when env token is removed', async () => {
       mockResolveTokenFull
         .mockResolvedValueOnce(mockResult('env-token', 'env:GITHUB_TOKEN'))
-        .mockResolvedValueOnce(mockResult('stored-token', 'file'));
+        .mockResolvedValueOnce(mockResult('stored-token', 'octocode-storage'));
 
       const token1 = await getGitHubToken();
       expect(token1).toBe('env-token');
@@ -121,7 +120,7 @@ describe('Token Fallback Chain Behavior', () => {
 
     it('should transition from storage → gh-cli when storage becomes empty', async () => {
       mockResolveTokenFull
-        .mockResolvedValueOnce(mockResult('stored-token', 'file'))
+        .mockResolvedValueOnce(mockResult('stored-token', 'octocode-storage'))
         .mockResolvedValueOnce(mockResult('gh-cli-fallback', 'gh-cli'));
 
       expect(await getGitHubToken()).toBe('stored-token');
@@ -140,7 +139,7 @@ describe('Token Fallback Chain Behavior', () => {
     it('should transition across full chain: env → storage → gh-cli → none', async () => {
       mockResolveTokenFull
         .mockResolvedValueOnce(mockResult('env-token', 'env:OCTOCODE_TOKEN'))
-        .mockResolvedValueOnce(mockResult('stored-token', 'file'))
+        .mockResolvedValueOnce(mockResult('stored-token', 'octocode-storage'))
         .mockResolvedValueOnce(mockResult('cli-token', 'gh-cli'))
         .mockResolvedValueOnce(null);
 
@@ -154,7 +153,9 @@ describe('Token Fallback Chain Behavior', () => {
     it('should recover when a previously-failed source becomes available', async () => {
       mockResolveTokenFull
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(mockResult('recovered-token', 'file'))
+        .mockResolvedValueOnce(
+          mockResult('recovered-token', 'octocode-storage')
+        )
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockResult('new-env-token', 'env:GITHUB_TOKEN'));
 
@@ -171,7 +172,7 @@ describe('Token Fallback Chain Behavior', () => {
         .mockResolvedValueOnce(mockResult('tok1', 'env:OCTOCODE_TOKEN'))
         .mockResolvedValueOnce(mockResult('tok2', 'env:GH_TOKEN'))
         .mockResolvedValueOnce(mockResult('tok3', 'env:GITHUB_TOKEN'))
-        .mockResolvedValueOnce(mockResult('tok4', 'file'))
+        .mockResolvedValueOnce(mockResult('tok4', 'octocode-storage'))
         .mockResolvedValueOnce(mockResult('tok5', 'gh-cli'))
         .mockResolvedValueOnce(null);
 
@@ -184,7 +185,9 @@ describe('Token Fallback Chain Behavior', () => {
     });
 
     it('should map "file" source to "octocode-storage" consistently', async () => {
-      mockResolveTokenFull.mockResolvedValue(mockResult('stored-tok', 'file'));
+      mockResolveTokenFull.mockResolvedValue(
+        mockResult('stored-tok', 'octocode-storage')
+      );
 
       expect(await getTokenSource()).toBe('octocode-storage');
       expect(await getTokenSource()).toBe('octocode-storage');
@@ -233,7 +236,7 @@ describe('Token Fallback Chain Behavior', () => {
     it('should handle wasRefreshed=true from storage (successful refresh)', async () => {
       mockResolveTokenFull.mockResolvedValue({
         token: 'refreshed-token',
-        source: 'file',
+        source: 'octocode-storage',
         wasRefreshed: true,
         username: 'testuser',
       });
@@ -333,7 +336,8 @@ describe('Token Fallback Chain Behavior', () => {
 
         if (currentCall === 1)
           return mockResult('env-token', 'env:GITHUB_TOKEN');
-        if (currentCall === 2) return mockResult('stored-token', 'file');
+        if (currentCall === 2)
+          return mockResult('stored-token', 'octocode-storage');
         return mockResult('cli-token', 'gh-cli');
       });
 
@@ -352,7 +356,7 @@ describe('Token Fallback Chain Behavior', () => {
       mockResolveTokenFull
         .mockResolvedValueOnce(mockResult('success-1', 'env:GITHUB_TOKEN'))
         .mockRejectedValueOnce(new Error('Intermittent failure'))
-        .mockResolvedValueOnce(mockResult('success-2', 'file'))
+        .mockResolvedValueOnce(mockResult('success-2', 'octocode-storage'))
         .mockRejectedValueOnce(new Error('Another failure'));
 
       const results = await Promise.all([
@@ -383,7 +387,7 @@ describe('Token Fallback Chain Behavior', () => {
 
     it('should initialize with storage fallback token', async () => {
       mockResolveTokenFull.mockResolvedValue(
-        mockResult('init-stored-token', 'file')
+        mockResult('init-stored-token', 'octocode-storage')
       );
 
       await initialize();
@@ -428,29 +432,6 @@ describe('Token Fallback Chain Behavior', () => {
 
       const freshToken = await getGitHubToken();
       expect(freshToken).toBe('fresh-cli-token');
-    });
-  });
-
-  describe('getToken Alias Fallback', () => {
-    it('should follow the same fallback chain as getGitHubToken', async () => {
-      mockResolveTokenFull
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(mockResult('alias-fallback', 'gh-cli'));
-
-      expect(await getToken()).toBeNull();
-      expect(await getToken()).toBe('alias-fallback');
-    });
-
-    it('should return same result as getGitHubToken for same mock state', async () => {
-      mockResolveTokenFull.mockResolvedValue(
-        mockResult('shared-token', 'file')
-      );
-
-      const token1 = await getGitHubToken();
-      const token2 = await getToken();
-
-      expect(token1).toBe('shared-token');
-      expect(token2).toBe('shared-token');
     });
   });
 });

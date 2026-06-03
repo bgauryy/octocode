@@ -111,7 +111,7 @@ describe('tokenResolution', () => {
       const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
       expect(result).toMatchObject({
         token: 'stored',
-        source: 'file',
+        source: 'octocode-storage',
         wasRefreshed: false,
         username: 'user1',
       });
@@ -261,7 +261,10 @@ describe('tokenResolution', () => {
       });
 
       const result = await mod.resolveToken('github.com');
-      expect(result).toMatchObject({ token: 'stored-token', source: 'file' });
+      expect(result).toMatchObject({
+        token: 'stored-token',
+        source: 'octocode-storage',
+      });
     });
 
     it('returns null when neither env nor storage has token', async () => {
@@ -315,7 +318,7 @@ describe('tokenResolution', () => {
       const result = await mod.resolveTokenWithRefresh();
       expect(result).toMatchObject({
         token: 'stored',
-        source: 'file',
+        source: 'octocode-storage',
         wasRefreshed: false,
         username: 'user1',
       });

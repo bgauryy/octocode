@@ -64,6 +64,6 @@ export type TokenSource =
   | 'env:OCTOCODE_TOKEN'
   | 'env:GH_TOKEN'
   | 'env:GITHUB_TOKEN'
-  | 'file'
+  | 'octocode-storage'
   | 'gh-cli'
   | null;

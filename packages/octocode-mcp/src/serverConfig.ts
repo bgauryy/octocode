@@ -10,42 +10,12 @@ import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
 
-/** Result of token resolution with source tracking */
-interface TokenResolutionResult {
-  token: string | null;
-  source: TokenSourceType;
-}
-
 let config: ServerConfig | null = null;
 let initializationPromise: Promise<void> | null = null;
 
 // Injectable resolveTokenFull for testing
 type ResolveTokenFullFn = typeof resolveTokenFull;
 let _resolveTokenFull: ResolveTokenFullFn = resolveTokenFull;
-
-/**
- * Maps source strings from octocode-shared to internal TokenSourceType.
- *
- * @param source - Source string from resolver ('env:*', 'gh-cli', 'file')
- */
-function mapSharedSourceToInternal(
-  source: string | null | undefined
-): TokenSourceType {
-  if (!source) return 'none';
-
-  // Already prefixed env source
-  if (source.startsWith('env:')) return source as TokenSourceType;
-
-  // CLI source
-  if (source === 'gh-cli') return 'gh-cli';
-
-  // Storage sources
-  if (source === 'file' || source === 'octocode-storage') {
-    return 'octocode-storage';
-  }
-
-  return 'none';
-}
 
 /**
  * @internal - For testing only
@@ -66,22 +36,33 @@ export function _resetTokenResolvers(): void {
   _resolveTokenFull = resolveTokenFull;
 }
 
-async function resolveGitHubToken(): Promise<TokenResolutionResult> {
+const VALID_TOKEN_SOURCES = new Set<string>([
+  'env:OCTOCODE_TOKEN',
+  'env:GH_TOKEN',
+  'env:GITHUB_TOKEN',
+  'octocode-storage',
+  'gh-cli',
+  'none',
+]);
+
+async function resolveGitHubToken(): Promise<{
+  token: string | null;
+  source: TokenSourceType;
+}> {
   // Delegate fully to octocode-shared's resolveTokenFull for centralized logic.
-  // Priority: env vars (1-3) → octocode storage (4-5) → gh CLI (6)
+  // Priority: env vars (1-3) → octocode storage → gh CLI
   // The gh CLI fallback uses the default getGhCliToken from octocode-shared.
   try {
-    const result = await _resolveTokenFull({
-      hostname: 'github.com',
-    });
-
+    const result = await _resolveTokenFull({ hostname: 'github.com' });
     if (result?.token) {
+      const raw = result.source ?? 'none';
       return {
         token: result.token,
-        source: mapSharedSourceToInternal(result.source),
+        source: VALID_TOKEN_SOURCES.has(raw)
+          ? (raw as TokenSourceType)
+          : 'none',
       };
     }
-
     return { token: null, source: 'none' };
   } catch {
     return { token: null, source: 'none' };
@@ -159,10 +140,6 @@ export function getServerConfig(): ServerConfig {
 export async function getGitHubToken(): Promise<string | null> {
   const result = await resolveGitHubToken();
   return result.token;
-}
-
-export async function getToken(): Promise<string | null> {
-  return getGitHubToken();
 }
 
 export function isLocalEnabled(): boolean {

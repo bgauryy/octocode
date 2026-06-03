@@ -3,7 +3,6 @@ import {
   initialize,
   cleanup,
   getGitHubToken,
-  getToken,
   getServerConfig,
   isLoggingEnabled,
   isLocalEnabled,
@@ -34,8 +33,8 @@ function mockTokenResult(
     | 'env:OCTOCODE_TOKEN'
     | 'env:GH_TOKEN'
     | 'env:GITHUB_TOKEN'
-    | 'file'
-    | 'file'
+    | 'octocode-storage'
+    | 'octocode-storage'
     | 'gh-cli'
     | null
 ): FullTokenResolution | null {
@@ -73,8 +72,8 @@ function mockTokenResolution(
     | 'env:GITHUB_TOKEN'
     | 'env:GH_TOKEN'
     | 'env:OCTOCODE_TOKEN'
-    | 'file'
-    | 'file'
+    | 'octocode-storage'
+    | 'octocode-storage'
     | 'gh-cli'
     | null = 'env:GITHUB_TOKEN'
 ) {
@@ -272,7 +271,7 @@ describe('ServerConfig - Simplified Version', () => {
       delete process.env.GITHUB_TOKEN;
 
       // resolveTokenFull returns stored token
-      mockTokenResolution('octocode-stored-token', 'file');
+      mockTokenResolution('octocode-stored-token', 'octocode-storage');
 
       const token = await getGitHubToken();
 
@@ -315,7 +314,7 @@ describe('ServerConfig - Simplified Version', () => {
       delete process.env.GITHUB_TOKEN;
 
       // Token is returned trimmed by resolveTokenFull
-      mockTokenResolution('octocode-token-with-spaces', 'file');
+      mockTokenResolution('octocode-token-with-spaces', 'octocode-storage');
 
       const token = await getGitHubToken();
 
@@ -342,12 +341,11 @@ describe('ServerConfig - Simplified Version', () => {
     });
   });
 
-  describe('getToken', () => {
+  describe('getGitHubToken (direct resolution)', () => {
     it('should return token when available', async () => {
-      // Mock resolveTokenFull to return the env token
       mockTokenResolution('available-token', 'env:GITHUB_TOKEN');
 
-      const token = await getToken();
+      const token = await getGitHubToken();
 
       expect(token).toBe('available-token');
     });
@@ -355,7 +353,7 @@ describe('ServerConfig - Simplified Version', () => {
     it('should return null when no token available', async () => {
       mockSpawnFailure();
 
-      const token = await getToken();
+      const token = await getGitHubToken();
 
       expect(token).toBeNull();
     });
@@ -794,7 +792,7 @@ describe('ServerConfig - Simplified Version', () => {
     });
 
     it('should return "octocode-storage" when token comes from file storage', async () => {
-      mockTokenResolution('stored-token', 'file');
+      mockTokenResolution('stored-token', 'octocode-storage');
       const source = await getTokenSource();
       expect(source).toBe('octocode-storage');
     });

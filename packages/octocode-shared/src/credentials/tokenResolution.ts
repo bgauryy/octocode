@@ -97,7 +97,7 @@ export async function resolveTokenFull(options?: {
   if (result.token) {
     return {
       token: result.token,
-      source: 'file',
+      source: 'octocode-storage',
       wasRefreshed: result.source === 'refreshed',
       username: result.username,
     };
