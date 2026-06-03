@@ -36,8 +36,7 @@ function mockTokenResult(
     | 'env:OCTOCODE_TOKEN'
     | 'env:GH_TOKEN'
     | 'env:GITHUB_TOKEN'
-    | 'file'
-    | 'file'
+    | 'octocode-storage'
     | 'gh-cli'
     | null
 ): FullTokenResolution | null {
@@ -143,7 +142,7 @@ describe('ServerConfig Dynamic Token Resolution', () => {
 
     // Token source changes to storage
     mockResolveTokenFull.mockResolvedValueOnce(
-      mockTokenResult('fallback-token', 'file')
+      mockTokenResult('fallback-token', 'octocode-storage')
     );
     const token2 = await getGitHubToken();
     expect(token2).toBe('fallback-token');

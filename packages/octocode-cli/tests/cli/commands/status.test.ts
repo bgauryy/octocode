@@ -4,7 +4,6 @@ import {
   printAuthStatus,
 } from '../../../src/cli/commands/shared.js';
 import {
-  DETECTABLE_MCP_CLIENTS,
   getMCPConfigPath,
   configFileExists,
   MCP_CLIENTS,
@@ -15,7 +14,7 @@ import {
   readAllClientConfigs,
   analyzeSyncState,
 } from '../../../src/features/sync.js';
-import { paths, getDirectorySizeBytes, formatBytes } from 'octocode-shared';
+import { getDirectorySizeBytes, formatBytes } from 'octocode-shared';
 
 const { mockPaths } = vi.hoisted(() => ({
   mockPaths: {

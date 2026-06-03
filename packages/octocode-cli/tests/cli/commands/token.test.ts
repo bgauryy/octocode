@@ -154,7 +154,7 @@ describe('tokenCommand', () => {
     const cmd = await loadCommand();
     expect(cmd.name).toBe('token');
     expect(cmd.aliases).toContain('t');
-    expect(cmd.options.length).toBeGreaterThan(0);
+    expect(cmd.options?.length).toBeGreaterThan(0);
   });
 
   // ---- token type parsing branches ----
@@ -508,7 +508,7 @@ describe('tokenCommand', () => {
       args: [],
       options: { validate: true, hostname: 'ghe.corp.com' },
     });
-    const opts = vi.mocked(https.request).mock.calls[0][0] as {
+    const opts = vi.mocked(https.request).mock.calls[0][0] as unknown as {
       hostname: string;
       path: string;
     };

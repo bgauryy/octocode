@@ -419,12 +419,10 @@ describe('cli/commands/auth', () => {
       });
 
       const lines = jsonLines();
-      const verification = lines.find(l => l.step === 'verification');
-      const result = lines.find(l => l.step === 'result');
-      expect(verification).toBeDefined();
+      const verification = lines.find(l => l.step === 'verification')!;
+      const result = lines.find(l => l.step === 'result')!;
       expect(verification.userCode).toBe('WXYZ-9999');
       expect(verification.expiresIn).toBe(600);
-      expect(result).toBeDefined();
       expect(result.success).toBe(true);
       expect(result.username).toBe('jsondev');
       expect(process.exitCode).toBeUndefined();
@@ -447,7 +445,7 @@ describe('cli/commands/auth', () => {
         options: { json: true },
       });
 
-      const result = jsonLines().find(l => l.step === 'result');
+      const result = jsonLines().find(l => l.step === 'result')!;
       expect(result.success).toBe(false);
       expect(result.error).toBe('denied');
       expect(process.exitCode).toBe(1);

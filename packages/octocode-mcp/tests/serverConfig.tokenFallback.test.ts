@@ -52,9 +52,9 @@ function mockResult(
     | null,
   extra?: Partial<FullTokenResolution>
 ): FullTokenResolution | null {
-  if (!token && !extra?.refreshError) return null;
+  if (!token) return null;
   return {
-    token: token ?? '',
+    token,
     source,
     wasRefreshed: false,
     ...extra,
@@ -194,39 +194,24 @@ describe('Token Fallback Chain Behavior', () => {
     });
   });
 
-  describe('Refresh Error Propagation', () => {
-    it('should return null token when resolveTokenFull returns empty token with refresh error', async () => {
-      mockResolveTokenFull.mockResolvedValue(
-        mockResult(null, null, {
-          token: '',
-          refreshError: 'Token expired and no refresh token available',
-        })
-      );
+  describe('Refresh failure (no token from storage)', () => {
+    it('should return null when resolveTokenFull returns null after storage refresh failure', async () => {
+      mockResolveTokenFull.mockResolvedValue(null);
 
       const token = await getGitHubToken();
       expect(token).toBeNull();
     });
 
-    it('should return "none" source when token is empty with refresh error', async () => {
-      mockResolveTokenFull.mockResolvedValue({
-        token: '',
-        source: null,
-        wasRefreshed: false,
-        refreshError: 'Refresh token has expired. Please login again.',
-      });
+    it('should return "none" source when resolveTokenFull returns null', async () => {
+      mockResolveTokenFull.mockResolvedValue(null);
 
       expect(await getTokenSource()).toBe('none');
       expect(await getGitHubToken()).toBeNull();
     });
 
-    it('should handle refresh error then recovery via gh-cli', async () => {
+    it('should handle null resolution then recovery via gh-cli', async () => {
       mockResolveTokenFull
-        .mockResolvedValueOnce({
-          token: '',
-          source: null,
-          wasRefreshed: false,
-          refreshError: 'Token expired, refresh failed',
-        })
+        .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockResult('cli-rescue', 'gh-cli'));
 
       expect(await getGitHubToken()).toBeNull();

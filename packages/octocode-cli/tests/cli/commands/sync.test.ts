@@ -455,7 +455,9 @@ describe('syncCommand', () => {
       options: { status: true, json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.clients[0].client).toBe('cursor');
     expect(parsed.clients[0].name).toBe('Name:cursor');
@@ -499,7 +501,9 @@ describe('syncCommand', () => {
       options: { 'dry-run': true, json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.dryRun).toBe(true);
     const types = parsed.operations.map((o: { type: string }) => o.type).sort();
@@ -538,16 +542,22 @@ describe('syncCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(c => String(c[0]).includes('Sync Plan'))
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('Sync Plan')
+      )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(c => String(c[0]).includes('add-me'))
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('add-me')
+      )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(c => String(c[0]).includes('conflicted'))
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('conflicted')
+      )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('auto-resolve conflicts')
       )
     ).toBe(true);
@@ -579,7 +589,7 @@ describe('syncCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('All MCPs are in sync.')
       )
     ).toBe(true);
@@ -611,10 +621,12 @@ describe('syncCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(c => String(c[0]).includes('to apply.'))
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('to apply.')
+      )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('auto-resolve conflicts')
       )
     ).toBe(false);
@@ -634,7 +646,9 @@ describe('syncCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(true);
     expect(parsed.syncPerformed).toBe(true);
@@ -656,7 +670,9 @@ describe('syncCommand', () => {
       options: { j: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(process.exitCode).toBe(1);

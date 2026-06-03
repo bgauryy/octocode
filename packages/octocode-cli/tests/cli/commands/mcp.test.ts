@@ -651,7 +651,9 @@ describe('mcpCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(Array.isArray(parsed.configs)).toBe(true);
     expect(
@@ -675,7 +677,7 @@ describe('mcpCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('(no servers configured)')
       )
     ).toBe(true);
@@ -689,7 +691,9 @@ describe('mcpCommand', () => {
       options: { client: 'cursor', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.client).toBe('cursor');
     expect(
@@ -715,7 +719,9 @@ describe('mcpCommand', () => {
         options: { installed: true, json: true },
       });
 
-      const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+      const out = consoleSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
       const parsed = JSON.parse(out.trim());
       const entry = parsed.results.find(
         (r: { id: string }) => r.id === 'test-mcp'
@@ -749,10 +755,14 @@ describe('mcpCommand', () => {
       });
 
       expect(
-        consoleSpy.mock.calls.some(c => String(c[0]).includes('TEST_TOKEN'))
+        consoleSpy.mock.calls.some((c: unknown[]) =>
+          String(c[0]).includes('TEST_TOKEN')
+        )
       ).toBe(true);
       expect(
-        consoleSpy.mock.calls.some(c => String(c[0]).includes('(missing)'))
+        consoleSpy.mock.calls.some((c: unknown[]) =>
+          String(c[0]).includes('(missing)')
+        )
       ).toBe(true);
     } finally {
       delete process.env.TEST_TOKEN;
@@ -775,7 +785,9 @@ describe('mcpCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.servers).toEqual(['alpha', 'zoo']);
   });
@@ -788,7 +800,9 @@ describe('mcpCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('Missing required option');
@@ -803,7 +817,9 @@ describe('mcpCommand', () => {
       options: { id: 'test-mcp', env: 'bad-env', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(process.exitCode).toBe(1);
@@ -817,7 +833,9 @@ describe('mcpCommand', () => {
       options: { id: 'py-mcp', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(true);
     expect(parsed.id).toBe('py-mcp');
@@ -901,7 +919,7 @@ describe('mcpCommand', () => {
     expect(write).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('Pre-flight check failed')
       )
     ).toBe(true);
@@ -930,7 +948,9 @@ describe('mcpCommand', () => {
 
     expect(process.exitCode).toBe(1);
     expect(
-      consoleSpy.mock.calls.some(c => String(c[0]).includes('unreachable'))
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('unreachable')
+      )
     ).toBe(true);
   });
 
@@ -989,7 +1009,9 @@ describe('mcpCommand', () => {
       options: { id: 'py-mcp,local-mcp,ghost-mcp', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(Array.isArray(parsed.results)).toBe(true);
     const ghost = parsed.results.find(
@@ -1008,12 +1030,14 @@ describe('mcpCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('Installed: py-mcp')
       )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(c => String(c[0]).includes('Config:'))
+      consoleSpy.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes('Config:')
+      )
     ).toBe(true);
   });
 
@@ -1031,7 +1055,9 @@ describe('mcpCommand', () => {
       options: { id: 'local-mcp', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBe('disk full');
@@ -1050,7 +1076,7 @@ describe('mcpCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(c =>
+      consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('Failed to write MCP config')
       )
     ).toBe(true);
@@ -1065,7 +1091,9 @@ describe('mcpCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(process.exitCode).toBe(1);
@@ -1079,7 +1107,9 @@ describe('mcpCommand', () => {
       options: { id: 'ghost', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.error).toContain('MCP not installed');
     expect(process.exitCode).toBe(1);
@@ -1102,7 +1132,9 @@ describe('mcpCommand', () => {
       options: { id: 'test-mcp', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBe('perm denied');
@@ -1122,7 +1154,9 @@ describe('mcpCommand', () => {
       options: { id: 'test-mcp', json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(c => String(c[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(true);
     expect(parsed.id).toBe('test-mcp');

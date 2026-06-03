@@ -1,7 +1,6 @@
 import type { ProviderType } from './providers/types.js';
 import {
   resolveTokenFull,
-  type FullTokenResolution,
   getConfigSync,
   invalidateConfigCache,
 } from 'octocode-shared';

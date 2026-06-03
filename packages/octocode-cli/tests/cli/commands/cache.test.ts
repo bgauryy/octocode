@@ -407,7 +407,9 @@ describe('cacheCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.repos.path).toBe('/fake/repos');
     expect(parsed.skills.path).toBe('/fake/cache/skills');
@@ -424,7 +426,9 @@ describe('cacheCommand', () => {
       options: { json: true },
     });
 
-    const out = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('Missing clean target');
@@ -441,7 +445,9 @@ describe('cacheCommand', () => {
 
     expect(rmSync).not.toHaveBeenCalled();
     expect(clearSkillsCache).not.toHaveBeenCalled();
-    const out = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.dryRun).toBe(true);
     expect(parsed.plan.map((p: { target: string }) => p.target)).toEqual([
@@ -462,15 +468,17 @@ describe('cacheCommand', () => {
 
     expect(rmSync).not.toHaveBeenCalled();
     expect(
-      consoleSpy.mock.calls.some(call => String(call[0]).includes('DRY RUN'))
+      consoleSpy.mock.calls.some((call: unknown[]) =>
+        String(call[0]).includes('DRY RUN')
+      )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(call =>
+      consoleSpy.mock.calls.some((call: unknown[]) =>
         String(call[0]).includes('in-memory only')
       )
     ).toBe(true);
     expect(
-      consoleSpy.mock.calls.some(call =>
+      consoleSpy.mock.calls.some((call: unknown[]) =>
         String(call[0]).includes('Remove --dry-run to apply.')
       )
     ).toBe(true);
@@ -496,7 +504,7 @@ describe('cacheCommand', () => {
       expect(confirmMock).toHaveBeenCalled();
       expect(rmSync).not.toHaveBeenCalled();
       expect(
-        consoleSpy.mock.calls.some(call =>
+        consoleSpy.mock.calls.some((call: unknown[]) =>
           String(call[0]).includes('Cancelled.')
         )
       ).toBe(true);
@@ -549,7 +557,9 @@ describe('cacheCommand', () => {
 
     expect(rmSync).toHaveBeenCalled();
     expect(clearSkillsCache).toHaveBeenCalled();
-    const out = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(true);
     expect(parsed.cleaned).toBe(true);
@@ -566,11 +576,13 @@ describe('cacheCommand', () => {
     });
 
     expect(
-      consoleSpy.mock.calls.some(call =>
+      consoleSpy.mock.calls.some((call: unknown[]) =>
         String(call[0]).includes('No disk caches to clean')
       )
     ).toBe(false);
-    const out = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    const out = consoleSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('\n');
     const parsed = JSON.parse(out.trim());
     expect(parsed.success).toBe(true);
     expect(parsed.cleaned).toBe(false);
