@@ -1,6 +1,6 @@
 {
   "name": "octocode-cli",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Interactive CLI installer for octocode-mcp - Configure MCP servers for Cursor, Claude Desktop, and more",
   "keywords": [
     "ai-coding",
