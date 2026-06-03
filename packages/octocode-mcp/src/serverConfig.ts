@@ -1,9 +1,7 @@
 import type { ProviderType } from './providers/types.js';
-import { getGithubCLIToken } from './utils/exec/npm.js';
 import {
   resolveTokenFull,
   type FullTokenResolution,
-  type GhCliTokenGetter,
   getConfigSync,
   invalidateConfigCache,
 } from 'octocode-shared';
@@ -21,15 +19,8 @@ interface TokenResolutionResult {
 let config: ServerConfig | null = null;
 let initializationPromise: Promise<void> | null = null;
 
-// Injectable function for testing (gh CLI is passed to resolveTokenFull)
-let _getGithubCLIToken = getGithubCLIToken;
-
 // Injectable resolveTokenFull for testing
-type ResolveTokenFullFn = (options?: {
-  hostname?: string;
-  clientId?: string;
-  getGhCliToken?: GhCliTokenGetter;
-}) => Promise<FullTokenResolution | null>;
+type ResolveTokenFullFn = typeof resolveTokenFull;
 let _resolveTokenFull: ResolveTokenFullFn = resolveTokenFull;
 
 /**
@@ -61,12 +52,8 @@ function mapSharedSourceToInternal(
  * Use `resolveTokenFull` to mock the entire resolution chain
  */
 export function _setTokenResolvers(resolvers: {
-  getGithubCLIToken?: typeof getGithubCLIToken;
   resolveTokenFull?: ResolveTokenFullFn;
 }): void {
-  if (resolvers.getGithubCLIToken) {
-    _getGithubCLIToken = resolvers.getGithubCLIToken;
-  }
   if (resolvers.resolveTokenFull) {
     _resolveTokenFull = resolvers.resolveTokenFull;
   }
@@ -76,17 +63,16 @@ export function _setTokenResolvers(resolvers: {
  * @internal - For testing only
  */
 export function _resetTokenResolvers(): void {
-  _getGithubCLIToken = getGithubCLIToken;
   _resolveTokenFull = resolveTokenFull;
 }
 
 async function resolveGitHubToken(): Promise<TokenResolutionResult> {
-  // Delegate to octocode-shared's resolveTokenFull for centralized logic
+  // Delegate fully to octocode-shared's resolveTokenFull for centralized logic.
   // Priority: env vars (1-3) → octocode storage (4-5) → gh CLI (6)
+  // The gh CLI fallback uses the default getGhCliToken from octocode-shared.
   try {
     const result = await _resolveTokenFull({
       hostname: 'github.com',
-      getGhCliToken: _getGithubCLIToken,
     });
 
     if (result?.token) {

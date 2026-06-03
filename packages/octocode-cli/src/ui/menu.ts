@@ -28,11 +28,8 @@ import {
   type VerificationInfo,
 } from '../features/github-oauth.js';
 import type { OctocodeAuthStatus } from '../types/index.js';
-import {
-  checkGitHubAuth,
-  runGitHubAuthLogout,
-  getGitHubCLIToken,
-} from '../features/gh-auth.js';
+import { checkGitHubAuth, runGitHubAuthLogout } from '../features/gh-auth.js';
+import { getGhCliToken } from '../utils/token-storage.js';
 import { getCredentials, hasEnvToken } from '../utils/token-storage.js';
 import open from 'open';
 import { runToolTerminalFlow } from './tool-terminal.js';
@@ -507,7 +504,7 @@ async function showAuthMenu(
 
   const isUsingEnv = status.tokenSource === 'env';
 
-  const ghCliToken = getGitHubCLIToken();
+  const ghCliToken = getGhCliToken();
   const ghAuth = checkGitHubAuth();
   const octocodeCredentials = await getCredentials();
 

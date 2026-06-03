@@ -35,3 +35,20 @@ export function getEnvTokenSource(): TokenSource {
 export function hasEnvToken(): boolean {
   return getTokenFromEnv() !== null;
 }
+
+/** Returns token + source in a single pass, avoiding the double scan. */
+export function resolveEnvToken(): {
+  token: string;
+  source: NonNullable<TokenSource>;
+} | null {
+  for (const envVar of ENV_TOKEN_VARS) {
+    const token = process.env[envVar];
+    if (token?.trim()) {
+      return {
+        token: token.trim(),
+        source: `env:${envVar}` as NonNullable<TokenSource>,
+      };
+    }
+  }
+  return null;
+}

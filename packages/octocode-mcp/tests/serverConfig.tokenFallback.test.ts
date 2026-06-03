@@ -37,9 +37,6 @@ type ResolveTokenFullMock = Mock<
   (options?: {
     hostname?: string;
     clientId?: string;
-    getGhCliToken?: (
-      hostname?: string
-    ) => string | null | Promise<string | null>;
   }) => Promise<FullTokenResolution | null>
 >;
 
@@ -371,43 +368,6 @@ describe('Token Fallback Chain Behavior', () => {
       expect(failures.length).toBe(2);
       expect(successes).toContain('success-1');
       expect(successes).toContain('success-2');
-    });
-  });
-
-  describe('getGhCliToken Callback Passthrough', () => {
-    it('should pass getGhCliToken callback to resolveTokenFull on every call', async () => {
-      mockResolveTokenFull.mockResolvedValue(null);
-
-      await getGitHubToken();
-      await getGitHubToken();
-      await getGitHubToken();
-
-      expect(mockResolveTokenFull).toHaveBeenCalledTimes(3);
-      for (const call of mockResolveTokenFull.mock.calls) {
-        expect(call[0]).toMatchObject({
-          hostname: 'github.com',
-          getGhCliToken: expect.any(Function),
-        });
-      }
-    });
-
-    it('should use injected getGithubCLIToken when calling resolveTokenFull', async () => {
-      const customCLIGetter = vi.fn(async () => 'custom-cli-token');
-
-      _setTokenResolvers({
-        getGithubCLIToken: customCLIGetter,
-        resolveTokenFull: mockResolveTokenFull,
-      });
-
-      mockResolveTokenFull.mockImplementation(async options => {
-        const cliToken = await options?.getGhCliToken?.();
-        if (cliToken) return mockResult(cliToken, 'gh-cli');
-        return null;
-      });
-
-      const token = await getGitHubToken();
-      expect(token).toBe('custom-cli-token');
-      expect(customCLIGetter).toHaveBeenCalled();
     });
   });
 

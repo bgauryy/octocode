@@ -15,6 +15,7 @@ import {
   printSectionHeader,
   printSummary,
   printValidatorBanner,
+  resolveValidatorToken,
   splitValidationResults,
   topByStars,
   writeValidationProgress,
@@ -43,7 +44,8 @@ async function checkSkillsPath(
   repo: string,
   path: string,
   branch: string,
-  skillPattern: 'flat-md' | 'skill-folders'
+  skillPattern: 'flat-md' | 'skill-folders',
+  token?: string | null
 ): Promise<{
   exists: boolean;
   error?: string;
@@ -55,7 +57,7 @@ async function checkSkillsPath(
 
   try {
     const response = await fetch(url, {
-      headers: buildGitHubApiHeaders('octocode-skills-validator'),
+      headers: buildGitHubApiHeaders('octocode-skills-validator', token),
     });
 
     if (!response.ok) {
@@ -101,12 +103,14 @@ async function checkSkillsPath(
 
 async function validateMarketplace(
   marketplace: MarketplaceSource,
-  checkSkills: boolean
+  checkSkills: boolean,
+  token?: string | null
 ): Promise<ValidationResult> {
   const result = await checkGitHubRepository(
     marketplace.owner,
     marketplace.repo,
-    'octocode-skills-validator'
+    'octocode-skills-validator',
+    token
   );
 
   if (!result.exists) {
@@ -176,7 +180,8 @@ async function validateMarketplace(
       marketplace.repo,
       marketplace.skillsPath,
       marketplace.branch,
-      marketplace.skillPattern
+      marketplace.skillPattern,
+      token
     );
 
     validationResult.skillsPathValid = skillsResult.exists;
@@ -203,7 +208,8 @@ async function validateMarketplace(
 async function validateAllMarketplaces(
   concurrency: number = 3,
   delayMs: number = 200,
-  checkSkills: boolean = false
+  checkSkills: boolean = false,
+  token?: string | null
 ): Promise<ValidationResult[]> {
   const results: ValidationResult[] = [];
   const total = SKILLS_MARKETPLACES.length;
@@ -220,7 +226,7 @@ async function validateAllMarketplaces(
   for (let i = 0; i < total; i += concurrency) {
     const batch = SKILLS_MARKETPLACES.slice(i, i + concurrency);
     const batchResults = await Promise.all(
-      batch.map(m => validateMarketplace(m, checkSkills))
+      batch.map(m => validateMarketplace(m, checkSkills, token))
     );
     results.push(...batchResults);
 
@@ -370,18 +376,17 @@ async function main(): Promise<void> {
     args.find(a => a.startsWith('--concurrency='))?.split('=')[1] || '3'
   );
 
+  const token = await resolveValidatorToken();
+
   if (!jsonOutput) {
     printValidatorBanner('SKILLS MARKETPLACE VALIDATOR - octocode-cli');
 
-    if (
-      !process.env.GITHUB_TOKEN &&
-      !process.env.GITHUB_PERSONAL_ACCESS_TOKEN
-    ) {
+    if (!token) {
       printRateLimitTip();
     }
   }
 
-  const results = await validateAllMarketplaces(concurrency, 200, checkSkills);
+  const results = await validateAllMarketplaces(concurrency, 200, checkSkills, token);
 
   if (jsonOutput) {
     outputJson(results);

@@ -14,6 +14,7 @@ import {
   printSectionHeader,
   printSummary,
   printValidatorBanner,
+  resolveValidatorToken,
   splitValidationResults,
   topByStars,
   writeValidationProgress,
@@ -129,7 +130,8 @@ async function checkPipPackage(
 
 async function validateMCP(
   mcp: MCPRegistryEntry,
-  checkPackages: boolean
+  checkPackages: boolean,
+  token?: string | null
 ): Promise<ValidationResult> {
   const parsed = parseGitHubUrl(mcp.repository);
 
@@ -146,7 +148,8 @@ async function validateMCP(
   const result = await checkGitHubRepository(
     parsed.owner,
     parsed.repo,
-    'octocode-mcp-validator'
+    'octocode-mcp-validator',
+    token
   );
 
   if (!result.exists) {
@@ -234,7 +237,8 @@ async function validateMCP(
 async function validateAllMCPs(
   concurrency: number = 5,
   delayMs: number = 100,
-  checkPackages: boolean = false
+  checkPackages: boolean = false,
+  token?: string | null
 ): Promise<ValidationResult[]> {
   const results: ValidationResult[] = [];
   const total = MCP_REGISTRY.length;
@@ -251,7 +255,7 @@ async function validateAllMCPs(
   for (let i = 0; i < total; i += concurrency) {
     const batch = MCP_REGISTRY.slice(i, i + concurrency);
     const batchResults = await Promise.all(
-      batch.map(mcp => validateMCP(mcp, checkPackages))
+      batch.map(mcp => validateMCP(mcp, checkPackages, token))
     );
     results.push(...batchResults);
 
@@ -384,18 +388,17 @@ async function main(): Promise<void> {
     args.find(a => a.startsWith('--concurrency='))?.split('=')[1] || '5'
   );
 
+  const token = await resolveValidatorToken();
+
   if (!jsonOutput) {
     printValidatorBanner('MCP REGISTRY VALIDATOR - octocode-cli');
 
-    if (
-      !process.env.GITHUB_TOKEN &&
-      !process.env.GITHUB_PERSONAL_ACCESS_TOKEN
-    ) {
+    if (!token) {
       printRateLimitTip();
     }
   }
 
-  const results = await validateAllMCPs(concurrency, 100, checkPackages);
+  const results = await validateAllMCPs(concurrency, 100, checkPackages, token);
 
   if (jsonOutput) {
     outputJson(results);

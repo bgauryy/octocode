@@ -11,4 +11,5 @@ export {
   resolveTokenFull,
   refreshAuthToken,
   getTokenWithRefresh,
+  getGhCliToken,
 } from 'octocode-shared';

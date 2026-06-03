@@ -68,7 +68,6 @@ import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_co
 import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
 import { registerSearchGitHubPullRequestsTool } from '../src/tools/github_search_pull_requests/github_search_pull_requests.js';
 import { registerViewGitHubRepoStructureTool } from '../src/tools/github_view_repo_structure/github_view_repo_structure.js';
-import { getGithubCLIToken } from '../src/utils/exec/npm.js';
 import {
   initialize,
   cleanup,
@@ -96,7 +95,6 @@ const mockTransport = {
 
 const mockMcpServerConstructor = vi.mocked(McpServer);
 const mockStdioServerTransport = vi.mocked(StdioServerTransport);
-const mockGetGithubCLIToken = vi.mocked(getGithubCLIToken);
 const mockRegisterTools = vi.mocked(registerTools);
 const mockGetGitHubToken = vi.mocked(getGitHubToken);
 const mockInitialize = vi.mocked(initialize);
@@ -155,9 +153,6 @@ describe('Index Module', () => {
         typeof StdioServerTransport
       >;
     });
-
-    // Mock GitHub CLI token
-    mockGetGithubCLIToken.mockResolvedValue('cli-token');
 
     // Create spies for process methods - use a safer mock that doesn't throw by default
     processExitSpy = vi.spyOn(process, 'exit').mockImplementation(function (
@@ -338,7 +333,6 @@ describe('Index Module', () => {
     it('should use CLI token when no env tokens are present', async () => {
       delete process.env.GITHUB_TOKEN;
       delete process.env.GH_TOKEN;
-      mockGetGithubCLIToken.mockResolvedValue('cli-token');
 
       await import('../src/index.js');
       await waitForAsyncOperations();
@@ -349,7 +343,6 @@ describe('Index Module', () => {
     it('should exit when no token is available', async () => {
       delete process.env.GITHUB_TOKEN;
       delete process.env.GH_TOKEN;
-      mockGetGithubCLIToken.mockResolvedValue(null);
 
       // Mock getToken to throw when no token is available
       mockGetGitHubToken.mockRejectedValue(new Error('No token available'));

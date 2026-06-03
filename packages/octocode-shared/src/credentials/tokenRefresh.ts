@@ -11,10 +11,10 @@ import { refreshToken as octokitRefreshToken } from '@octokit/oauth-methods';
 import { request } from '@octokit/request';
 import type { OAuthToken, StoredCredentials } from './types.js';
 import { isRefreshTokenExpired, isTokenExpired } from './credentialUtils.js';
-
-// Default OAuth client ID for octocode (same as CLI)
-const DEFAULT_CLIENT_ID = '178c6fc778ccc68e1d6a';
-const DEFAULT_HOSTNAME = 'github.com';
+import {
+  OCTOCODE_GITHUB_APP_CLIENT_ID,
+  DEFAULT_HOSTNAME,
+} from './constants.js';
 
 /**
  * Mask sensitive data in error messages to prevent token leakage in logs.
@@ -67,7 +67,7 @@ type UpdateTokenFn = (hostname: string, token: OAuthToken) => Promise<boolean>;
 export async function refreshAuthToken(
   deps: { getCredentials: GetCredentialsFn; updateToken: UpdateTokenFn },
   hostname: string = DEFAULT_HOSTNAME,
-  clientId: string = DEFAULT_CLIENT_ID
+  clientId: string = OCTOCODE_GITHUB_APP_CLIENT_ID
 ): Promise<RefreshResult> {
   const credentials = await deps.getCredentials(hostname);
 
@@ -160,7 +160,7 @@ export interface TokenWithRefreshResult {
 export async function getTokenWithRefresh(
   deps: { getCredentials: GetCredentialsFn; updateToken: UpdateTokenFn },
   hostname: string = DEFAULT_HOSTNAME,
-  clientId: string = DEFAULT_CLIENT_ID
+  clientId: string = OCTOCODE_GITHUB_APP_CLIENT_ID
 ): Promise<TokenWithRefreshResult> {
   const credentials = await deps.getCredentials(hostname);
 

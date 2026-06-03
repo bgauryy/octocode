@@ -1,6 +1,6 @@
 {
   "name": "octocode-shared",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "Shared utilities for Octocode packages - credential management and platform detection",
   "keywords": [
     "config",
@@ -58,6 +58,12 @@
       "import": "./dist/paths.js",
       "require": "./dist/paths.js",
       "default": "./dist/paths.js"
+    },
+    "./testing": {
+      "types": "./dist/credentials/testing.d.ts",
+      "import": "./dist/credentials/testing.js",
+      "require": "./dist/credentials/testing.js",
+      "default": "./dist/credentials/testing.js"
     }
   },
   "files": [

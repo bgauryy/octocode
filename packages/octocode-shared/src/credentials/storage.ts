@@ -51,6 +51,7 @@ import {
   resolveTokenFull,
   type FullTokenResolution,
   type GhCliTokenGetter,
+  resetTokenResolution,
 } from './tokenResolution.js';
 import {
   getTokenFromEnv,
@@ -352,14 +353,16 @@ export async function getTokenWithRefresh(
 
 export type { RefreshResult, TokenWithRefreshResult };
 
-// Inject storage deps into tokenResolution (breaks the cycle)
-initTokenResolution({ getToken, getTokenWithRefresh });
+// Inject storage deps into tokenResolution (breaks the cycle).
+// Only getTokenWithRefresh is needed — all resolution paths use it.
+initTokenResolution({ getTokenWithRefresh });
 
 // Token resolution
 export {
   resolveToken,
   resolveTokenWithRefresh,
   resolveTokenFull,
+  resetTokenResolution,
   type ResolvedToken,
   type ResolvedTokenWithRefresh,
   type FullTokenResolution,

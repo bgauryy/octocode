@@ -9,7 +9,6 @@ import {
   PROXY_ENV_VARS,
   spawnWithTimeout,
   spawnCheckSuccess,
-  spawnCollectStdout,
   validateArgs,
 } from './spawn.js';
 
@@ -22,14 +21,6 @@ function getNpmScriptPath(): string {
   const nodeDir = dirname(process.execPath);
   const npmBinary = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   return join(nodeDir, npmBinary);
-}
-
-/**
- * Get GitHub CLI authentication token
- * @returns Promise resolving to token string or null if not authenticated
- */
-export async function getGithubCLIToken(): Promise<string | null> {
-  return spawnCollectStdout('gh', ['auth', 'token'], 10000);
 }
 
 const ALLOWED_NPM_COMMANDS = [

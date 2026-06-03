@@ -1,3 +1,5 @@
+import { resolveTokenFull } from 'octocode-shared';
+
 export type ValidationStatus = 'valid' | 'invalid' | 'error' | 'warning';
 
 export interface BaseValidationResult {
@@ -44,15 +46,27 @@ const REPORT_WIDTH = 80;
 const BANNER_INNER_WIDTH = 79;
 const STALE_REPOSITORY_WARNING = 'not been updated in over 1 year';
 
+export async function resolveValidatorToken(): Promise<string | null> {
+  try {
+    const result = await resolveTokenFull();
+    return result?.token || null;
+  } catch {
+    return null;
+  }
+}
+
 export function buildGitHubApiHeaders(
-  userAgent: string
+  userAgent: string,
+  token?: string | null
 ): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3+json',
     'User-Agent': userAgent,
   };
 
-  if (process.env.GITHUB_TOKEN) {
+  if (token) {
+    headers.Authorization = `token ${token}`;
+  } else if (process.env.GITHUB_TOKEN) {
     headers.Authorization = `token ${process.env.GITHUB_TOKEN}`;
   } else if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
     headers.Authorization = `token ${process.env.GITHUB_PERSONAL_ACCESS_TOKEN}`;
@@ -64,13 +78,14 @@ export function buildGitHubApiHeaders(
 export async function checkGitHubRepository(
   owner: string,
   repo: string,
-  userAgent: string
+  userAgent: string,
+  token?: string | null
 ): Promise<GitHubRepositoryCheckResult> {
   const url = `https://api.github.com/repos/${owner}/${repo}`;
 
   try {
     const response = await fetch(url, {
-      headers: buildGitHubApiHeaders(userAgent),
+      headers: buildGitHubApiHeaders(userAgent, token),
     });
 
     if (response.ok) {

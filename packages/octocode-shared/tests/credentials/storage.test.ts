@@ -1271,7 +1271,7 @@ describe('Token Storage', () => {
       expect(result).toBeNull();
     });
 
-    it('should return refresh error when token expired and no refresh token', async () => {
+    it('should return null when token expired and no refresh token available', async () => {
       const storedCreds = createMockCredentials({
         token: {
           token: 'expired-token',
@@ -1304,9 +1304,8 @@ describe('Token Storage', () => {
         await import('../../src/credentials/storage.js');
       const result = await resolveTokenWithRefresh();
 
-      expect(result?.token).toBe('');
-      expect(result?.source).toBeNull();
-      expect(result?.refreshError).toContain('no refresh token');
+      // Expired token with no refresh token → null (no { token: '' } anti-pattern)
+      expect(result).toBeNull();
     });
   });
 
@@ -1617,7 +1616,7 @@ describe('Token Storage', () => {
         expect(result?.token).toBe('ghp_MOCK_TOKEN_00000000000000000000');
       });
 
-      it('should include refresh error when falling back to gh CLI', async () => {
+      it('should fall back to gh CLI when storage token is expired', async () => {
         const storedCreds = createMockCredentials({
           token: {
             token: 'expired-token',
@@ -1659,7 +1658,6 @@ describe('Token Storage', () => {
 
         expect(result?.token).toBe('gh-cli-fallback');
         expect(result?.source).toBe('gh-cli');
-        expect(result?.refreshError).toContain('no refresh token');
       });
     });
 
@@ -1669,12 +1667,12 @@ describe('Token Storage', () => {
 
         const { resolveTokenFull } =
           await import('../../src/credentials/storage.js');
-        const result = await resolveTokenFull();
+        const result = await resolveTokenFull({ getGhCliToken: () => null });
 
         expect(result).toBeNull();
       });
 
-      it('should return refresh error when token expired and no gh CLI', async () => {
+      it('should return null when token expired, no refresh token, and no gh CLI', async () => {
         const storedCreds = createMockCredentials({
           token: {
             token: 'expired-token',
@@ -1708,11 +1706,10 @@ describe('Token Storage', () => {
 
         const { resolveTokenFull } =
           await import('../../src/credentials/storage.js');
-        const result = await resolveTokenFull();
+        const result = await resolveTokenFull({ getGhCliToken: () => null });
 
-        expect(result?.token).toBe('');
-        expect(result?.source).toBeNull();
-        expect(result?.refreshError).toContain('no refresh token');
+        // No usable token from any source → null (not the old { token: '' } anti-pattern)
+        expect(result).toBeNull();
       });
     });
 
@@ -1758,8 +1755,10 @@ describe('Token Storage', () => {
         const { resolveTokenFull } =
           await import('../../src/credentials/storage.js');
 
-        // Default hostname should not find the enterprise token
-        const defaultResult = await resolveTokenFull();
+        // Default hostname should not find the enterprise token (no gh CLI in test)
+        const defaultResult = await resolveTokenFull({
+          getGhCliToken: () => null,
+        });
         expect(defaultResult).toBeNull();
 
         // Custom hostname should find it

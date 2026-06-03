@@ -9,7 +9,7 @@ import type {
   TokenResult,
   TokenSource,
 } from '../types/index.js';
-import { getGitHubCLIToken, checkGitHubAuth } from './gh-auth.js';
+import { checkGitHubAuth } from './gh-auth.js';
 import {
   storeCredentials,
   getCredentials,
@@ -22,6 +22,7 @@ import {
   resolveTokenFull,
   refreshAuthToken as sharedRefreshAuthToken,
   getTokenWithRefresh,
+  getGhCliToken as sharedGetGhCliToken,
 } from '../utils/token-storage.js';
 
 const DEFAULT_CLIENT_ID = '178c6fc778ccc68e1d6a';
@@ -325,7 +326,7 @@ export async function getOctocodeToken(
 export function getGhCliToken(
   hostname: string = DEFAULT_HOSTNAME
 ): TokenResult {
-  const ghToken = getGitHubCLIToken(hostname);
+  const ghToken = sharedGetGhCliToken(hostname);
 
   if (ghToken) {
     const ghAuth = checkGitHubAuth();
@@ -356,10 +357,7 @@ export async function getToken(
     return getGhCliToken(hostname);
   }
 
-  const result = await resolveTokenFull({
-    hostname,
-    getGhCliToken: getGitHubCLIToken,
-  });
+  const result = await resolveTokenFull({ hostname });
 
   if (result?.token) {
     const source: TokenSource =

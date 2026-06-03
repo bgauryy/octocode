@@ -97,10 +97,6 @@ vi.mock('../../src/github/client.js', () => ({
   clearOctokitInstances: vi.fn(),
 }));
 
-vi.mock('../../src/utils/exec/npm.js', () => ({
-  getGithubCLIToken: vi.fn().mockResolvedValue('mocked-cli-token'),
-}));
-
 // Import after mocking
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
 import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';

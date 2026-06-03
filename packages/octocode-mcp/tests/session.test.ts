@@ -1,8 +1,4 @@
 // Must mock before any imports that use these modules
-vi.mock('../src/utils/exec/npm.js', () => ({
-  getGithubCLIToken: vi.fn(() => Promise.resolve('mock-token')),
-}));
-
 // Mock octocode-shared session storage to prevent filesystem access
 vi.mock('octocode-shared', async importOriginal => {
   const actual = await importOriginal<typeof import('octocode-shared')>();

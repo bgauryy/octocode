@@ -53,7 +53,6 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
 }));
 
 vi.mock('../../src/utils/exec/npm.js', () => ({
-  getGithubCLIToken: vi.fn().mockResolvedValue(null),
   checkNpmAvailability: vi.fn().mockResolvedValue({ available: true }),
   executeNpmCommand: vi.fn().mockResolvedValue({ success: true, stdout: '' }),
 }));

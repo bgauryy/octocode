@@ -207,7 +207,7 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
       expect(token).toBe('gh-auth-token');
     });
 
-    it('should pass getGhCliToken option to resolveTokenFull', async () => {
+    it('should call resolveTokenFull with hostname on every call', async () => {
       mockResolveTokenFull.mockResolvedValue(null);
 
       await getGitHubToken();
@@ -215,7 +215,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
       expect(mockResolveTokenFull).toHaveBeenCalledWith(
         expect.objectContaining({
           hostname: 'github.com',
-          getGhCliToken: expect.any(Function),
         })
       );
     });

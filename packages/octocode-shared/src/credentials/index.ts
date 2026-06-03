@@ -44,6 +44,9 @@ export {
   type FullTokenResolution,
   type GhCliTokenGetter,
 
+  // Reset resolution state (testing only — prefer octocode-shared/testing)
+  resetTokenResolution,
+
   // List/check operations
   listStoredHosts,
   listStoredHostsSync,
@@ -73,8 +76,7 @@ export {
   getTokenFromEnv,
   getEnvTokenSource,
   hasEnvToken,
-
-  // Testing utilities
-  _getCacheStats,
-  _resetCredentialsCache,
 } from './storage.js';
+
+// gh CLI token getter (default used by resolveTokenFull)
+export { getGhCliToken } from './ghCli.js';

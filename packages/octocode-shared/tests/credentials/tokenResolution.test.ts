@@ -1,7 +1,6 @@
 /**
- * TDD: tokenResolution — initTokenResolution, resolveToken, resolveTokenWithRefresh, resolveTokenFull
- *
- * Fills gap: uninitialized resolution error path, isolated DI init, gh-cli fallback.
+ * TDD: tokenResolution — initTokenResolution, resetTokenResolution, resolveTokenFull,
+ * and the deprecated resolveToken / resolveTokenWithRefresh wrappers.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -38,10 +37,10 @@ describe('tokenResolution', () => {
     return import('../../src/credentials/tokenResolution.js');
   }
 
-  describe('initTokenResolution', () => {
-    it('throws when resolveToken called before init', async () => {
+  describe('initTokenResolution / resetTokenResolution', () => {
+    it('throws when resolveTokenFull called before init', async () => {
       const mod = await loadModule();
-      await expect(mod.resolveToken()).rejects.toThrow(
+      await expect(mod.resolveTokenFull()).rejects.toThrow(
         'Token resolution not initialized'
       );
     });
@@ -49,24 +48,201 @@ describe('tokenResolution', () => {
     it('succeeds after initTokenResolution is called', async () => {
       const mod = await loadModule();
       mod.initTokenResolution({
-        getToken: vi.fn().mockResolvedValue(null),
         getTokenWithRefresh: vi
           .fn()
-          .mockResolvedValue({ token: null, source: null }),
+          .mockResolvedValue({ token: null, source: 'none' }),
       });
-      const result = await mod.resolveToken();
+      const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
       expect(result).toBeNull();
+    });
+
+    it('throws again after resetTokenResolution', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+      mod.resetTokenResolution();
+      await expect(mod.resolveTokenFull()).rejects.toThrow(
+        'Token resolution not initialized'
+      );
     });
   });
 
-  describe('resolveToken', () => {
+  describe('resolveTokenFull', () => {
+    it('prefers env over storage over gh-cli', async () => {
+      process.env.GITHUB_TOKEN = 'env-val';
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi.fn(),
+      });
+
+      const result = await mod.resolveTokenFull({
+        getGhCliToken: vi.fn().mockReturnValue('gh-cli-val'),
+      });
+      expect(result?.source).toBe('env:GITHUB_TOKEN');
+    });
+
+    it('OCTOCODE_TOKEN wins over all other env vars', async () => {
+      process.env.OCTOCODE_TOKEN = 'oc-wins';
+      process.env.GH_TOKEN = 'gh-loses';
+      process.env.GITHUB_TOKEN = 'github-loses';
+      const mod = await loadModule();
+      mod.initTokenResolution({ getTokenWithRefresh: vi.fn() });
+
+      const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
+      expect(result).toMatchObject({
+        token: 'oc-wins',
+        source: 'env:OCTOCODE_TOKEN',
+      });
+    });
+
+    it('falls back to storage when no env token', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi.fn().mockResolvedValue({
+          token: 'stored',
+          source: 'stored',
+          username: 'user1',
+        }),
+      });
+
+      const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
+      expect(result).toMatchObject({
+        token: 'stored',
+        source: 'file',
+        wasRefreshed: false,
+        username: 'user1',
+      });
+    });
+
+    it('reports wasRefreshed=true when token was refreshed', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi.fn().mockResolvedValue({
+          token: 'new-tok',
+          source: 'refreshed',
+          username: 'user1',
+        }),
+      });
+
+      const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
+      expect(result?.wasRefreshed).toBe(true);
+    });
+
+    it('falls back to gh-cli when storage has no token', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      const result = await mod.resolveTokenFull({
+        getGhCliToken: vi.fn().mockReturnValue('gh-cli-token'),
+      });
+      expect(result).toMatchObject({
+        token: 'gh-cli-token',
+        source: 'gh-cli',
+      });
+    });
+
+    it('trims whitespace from gh-cli token', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      const result = await mod.resolveTokenFull({
+        getGhCliToken: () => '  spaced  ',
+      });
+      expect(result?.token).toBe('spaced');
+    });
+
+    it('handles gh-cli throwing error gracefully', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      const result = await mod.resolveTokenFull({
+        getGhCliToken: () => {
+          throw new Error('gh not found');
+        },
+      });
+      expect(result).toBeNull();
+    });
+
+    it('returns null when no token source available', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      expect(
+        await mod.resolveTokenFull({ getGhCliToken: () => null })
+      ).toBeNull();
+    });
+
+    it('returns null when storage refresh fails and gh-cli also fails', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi.fn().mockResolvedValue({
+          token: null,
+          source: 'none',
+          refreshError: 'token expired',
+        }),
+      });
+
+      const result = await mod.resolveTokenFull({
+        getGhCliToken: () => null,
+      });
+      expect(result).toBeNull();
+    });
+
+    it('passes hostname to gh-cli getter', async () => {
+      const mod = await loadModule();
+      const ghCliGetter = vi.fn().mockReturnValue(null);
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      await mod.resolveTokenFull({
+        hostname: 'enterprise.example.com',
+        getGhCliToken: ghCliGetter,
+      });
+      expect(ghCliGetter).toHaveBeenCalledWith('enterprise.example.com');
+    });
+
+    it('supports async gh-cli getter', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      const result = await mod.resolveTokenFull({
+        getGhCliToken: async () => 'async-gh-token',
+      });
+      expect(result?.token).toBe('async-gh-token');
+    });
+  });
+
+  describe('resolveToken (deprecated wrapper)', () => {
     it('returns env token with highest priority', async () => {
       process.env.OCTOCODE_TOKEN = 'env-token';
       const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi.fn(),
-      });
+      mod.initTokenResolution({ getTokenWithRefresh: vi.fn() });
 
       const result = await mod.resolveToken();
       expect(result).toEqual({
@@ -77,36 +253,46 @@ describe('tokenResolution', () => {
 
     it('falls back to storage when no env token', async () => {
       const mod = await loadModule();
-      const getToken = vi.fn().mockResolvedValue('stored-token');
       mod.initTokenResolution({
-        getToken,
-        getTokenWithRefresh: vi.fn(),
+        getTokenWithRefresh: vi.fn().mockResolvedValue({
+          token: 'stored-token',
+          source: 'stored',
+        }),
       });
 
       const result = await mod.resolveToken('github.com');
-      expect(result).toEqual({ token: 'stored-token', source: 'file' });
-      expect(getToken).toHaveBeenCalledWith('github.com');
+      expect(result).toMatchObject({ token: 'stored-token', source: 'file' });
     });
 
     it('returns null when neither env nor storage has token', async () => {
       const mod = await loadModule();
       mod.initTokenResolution({
-        getToken: vi.fn().mockResolvedValue(null),
-        getTokenWithRefresh: vi.fn(),
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
       });
 
       expect(await mod.resolveToken()).toBeNull();
     });
+
+    it('does not use gh-cli', async () => {
+      const mod = await loadModule();
+      mod.initTokenResolution({
+        getTokenWithRefresh: vi
+          .fn()
+          .mockResolvedValue({ token: null, source: 'none' }),
+      });
+
+      // Even if gh-cli would work, wrapper disables it
+      expect(await mod.resolveToken()).toBeNull();
+    });
   });
 
-  describe('resolveTokenWithRefresh', () => {
+  describe('resolveTokenWithRefresh (deprecated wrapper)', () => {
     it('returns env token without refresh', async () => {
       process.env.GH_TOKEN = 'env-gh';
       const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi.fn(),
-      });
+      mod.initTokenResolution({ getTokenWithRefresh: vi.fn() });
 
       const result = await mod.resolveTokenWithRefresh();
       expect(result).toMatchObject({
@@ -116,13 +302,12 @@ describe('tokenResolution', () => {
       });
     });
 
-    it('returns file token with wasRefreshed=false when not refreshed', async () => {
+    it('returns stored token with wasRefreshed=false when not refreshed', async () => {
       const mod = await loadModule();
       mod.initTokenResolution({
-        getToken: vi.fn(),
         getTokenWithRefresh: vi.fn().mockResolvedValue({
           token: 'stored',
-          source: 'cache',
+          source: 'stored',
           username: 'user1',
         }),
       });
@@ -139,7 +324,6 @@ describe('tokenResolution', () => {
     it('returns wasRefreshed=true when token was refreshed', async () => {
       const mod = await loadModule();
       mod.initTokenResolution({
-        getToken: vi.fn(),
         getTokenWithRefresh: vi.fn().mockResolvedValue({
           token: 'refreshed-tok',
           source: 'refreshed',
@@ -151,166 +335,28 @@ describe('tokenResolution', () => {
       expect(result?.wasRefreshed).toBe(true);
     });
 
-    it('returns refreshError when refresh fails', async () => {
+    it('returns null when no token and no refresh token available', async () => {
       const mod = await loadModule();
       mod.initTokenResolution({
-        getToken: vi.fn(),
         getTokenWithRefresh: vi.fn().mockResolvedValue({
           token: null,
-          source: null,
-          refreshError: 'API timeout',
+          source: 'none',
+          refreshError: 'Token expired and no refresh token available',
         }),
       });
 
-      const result = await mod.resolveTokenWithRefresh();
-      expect(result).toMatchObject({
-        token: '',
-        source: null,
-        refreshError: 'API timeout',
-      });
+      expect(await mod.resolveTokenWithRefresh()).toBeNull();
     });
 
     it('returns null when no token and no refresh error', async () => {
       const mod = await loadModule();
       mod.initTokenResolution({
-        getToken: vi.fn(),
         getTokenWithRefresh: vi
           .fn()
-          .mockResolvedValue({ token: null, source: null }),
+          .mockResolvedValue({ token: null, source: 'none' }),
       });
 
       expect(await mod.resolveTokenWithRefresh()).toBeNull();
-    });
-  });
-
-  describe('resolveTokenFull', () => {
-    it('prefers env over storage over gh-cli', async () => {
-      process.env.GITHUB_TOKEN = 'env-val';
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi.fn(),
-      });
-
-      const result = await mod.resolveTokenFull({
-        getGhCliToken: vi.fn().mockReturnValue('gh-cli-val'),
-      });
-      expect(result?.source).toBe('env:GITHUB_TOKEN');
-    });
-
-    it('falls back to gh-cli when storage has no token', async () => {
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi
-          .fn()
-          .mockResolvedValue({ token: null, source: null }),
-      });
-
-      const result = await mod.resolveTokenFull({
-        getGhCliToken: vi.fn().mockReturnValue('gh-cli-token'),
-      });
-      expect(result).toMatchObject({
-        token: 'gh-cli-token',
-        source: 'gh-cli',
-      });
-    });
-
-    it('trims gh-cli token', async () => {
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi
-          .fn()
-          .mockResolvedValue({ token: null, source: null }),
-      });
-
-      const result = await mod.resolveTokenFull({
-        getGhCliToken: () => '  spaced  ',
-      });
-      expect(result?.token).toBe('spaced');
-    });
-
-    it('handles gh-cli throwing error gracefully', async () => {
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi
-          .fn()
-          .mockResolvedValue({ token: null, source: null }),
-      });
-
-      const result = await mod.resolveTokenFull({
-        getGhCliToken: () => {
-          throw new Error('gh not found');
-        },
-      });
-      expect(result).toBeNull();
-    });
-
-    it('returns refreshError from storage when gh-cli also fails', async () => {
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi.fn().mockResolvedValue({
-          token: null,
-          source: null,
-          refreshError: 'token expired',
-        }),
-      });
-
-      const result = await mod.resolveTokenFull({
-        getGhCliToken: () => null,
-      });
-      expect(result).toMatchObject({
-        token: '',
-        source: null,
-        refreshError: 'token expired',
-      });
-    });
-
-    it('returns null when no token source available and no getGhCliToken', async () => {
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi
-          .fn()
-          .mockResolvedValue({ token: null, source: null }),
-      });
-
-      expect(await mod.resolveTokenFull()).toBeNull();
-    });
-
-    it('passes hostname to gh-cli getter', async () => {
-      const mod = await loadModule();
-      const ghCliGetter = vi.fn().mockReturnValue(null);
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi
-          .fn()
-          .mockResolvedValue({ token: null, source: null }),
-      });
-
-      await mod.resolveTokenFull({
-        hostname: 'enterprise.example.com',
-        getGhCliToken: ghCliGetter,
-      });
-      expect(ghCliGetter).toHaveBeenCalledWith('enterprise.example.com');
-    });
-
-    it('supports async gh-cli getter', async () => {
-      const mod = await loadModule();
-      mod.initTokenResolution({
-        getToken: vi.fn(),
-        getTokenWithRefresh: vi
-          .fn()
-          .mockResolvedValue({ token: null, source: null }),
-      });
-
-      const result = await mod.resolveTokenFull({
-        getGhCliToken: async () => 'async-gh-token',
-      });
-      expect(result?.token).toBe('async-gh-token');
     });
   });
 });
