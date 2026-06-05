@@ -65,9 +65,9 @@ export const RESOURCE_LIMITS = {
   /** Maximum matches per page */
   MAX_MATCHES_PER_PAGE: 100,
   /** Default files per page for file-level pagination */
-  DEFAULT_FILES_PER_PAGE: 10,
+  DEFAULT_FILES_PER_PAGE: 20,
   /** Maximum files per page */
-  MAX_FILES_PER_PAGE: 20,
+  MAX_FILES_PER_PAGE: 50,
 
   /** Maximum directory size in MB before suggesting chunking workflow (100MB) */
   MAX_RIPGREP_DIRECTORY_SIZE_MB: 100,

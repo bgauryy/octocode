@@ -1,9 +1,7 @@
 /**
  * Response-state hints for localFindFiles.
  *
- * Empty branch names the actual filters that produced zero results (name
- * pattern, extension, modifiedWithin window, etc.) and proposes a single
- * concrete recovery move.
+ * Empty branch names the active filters and proposes a concrete recovery move.
  *
  * @module tools/local_find_files/hints
  */
@@ -28,8 +26,28 @@ export const hints: ToolHintGenerators = {
     if (sizeLess) filters.push(`sizeLess="${sizeLess}"`);
 
     if (filters.length === 0) return [];
-    return [`No files match ${filters.join(' + ')} in ${path ?? 'this path'}.`];
+
+    return [
+      `No files match ${filters.join(' + ')} in ${path ?? 'this path'}.`,
+      'Widen: remove filters one at a time; use `iname` for case-insensitive glob or `names` for an OR list of patterns.',
+      'For content-based search, use `localSearchCode` instead — `localFindFiles` matches metadata only.',
+    ];
   },
 
-  error: (_ctx: HintContext = {}) => [],
+  error: (ctx: HintContext = {}) => {
+    if (ctx.errorType === 'not_found') {
+      const c = ctx as Record<string, unknown>;
+      const path = typeof c.path === 'string' ? c.path : undefined;
+      return [
+        `Path '${path ?? 'specified'}' not found.`,
+        'Verify the path with `localViewStructure` at the parent directory.',
+      ];
+    }
+    if (ctx.errorType === 'permission') {
+      return [
+        'Permission denied — check ALLOWED_PATHS configuration; the path may be outside the permitted scope.',
+      ];
+    }
+    return [];
+  },
 };

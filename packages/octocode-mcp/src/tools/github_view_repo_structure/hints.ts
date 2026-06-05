@@ -32,10 +32,12 @@ export const hints: ToolHintGenerators = {
       ];
     }
     if (ctx.status === 401) {
-      return ['GITHUB_TOKEN is missing or expired — set a valid token and retry.'];
+      return [
+        'GITHUB_TOKEN is missing or expired — set a valid token and retry.',
+      ];
     }
     if (ctx.status === 403) {
-      return ["Token lacks `repo` scope — update token permissions and retry."];
+      return ['Token lacks `repo` scope — update token permissions and retry.'];
     }
     if (ctx.status === 404) {
       const c = ctx as Record<string, unknown>;

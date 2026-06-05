@@ -1,30 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { aggregatePeerEvidence } from '../../../src/utils/response/bulk.js';
 
-// A concise query keeps its pagination cursor (display rows) even though the
-// count is the complete answer. The aggregator must not let that display
-// pagination flip the aggregate to incomplete when the whole bulk is concise.
-function conciseQueryResult() {
+// A query result with pagination.hasMore=true should flip complete=false.
+function queryResultWithPagination() {
   return {
     id: 'q1',
     data: {
-      // per-query builder already produced a concise-correct evidence block
       evidence: { kind: 'metadata', answerReady: true, complete: true },
       pagination: { hasMore: true, totalFiles: 227 },
     },
   } as unknown as Parameters<typeof aggregatePeerEvidence>[0][number];
 }
 
-describe('aggregatePeerEvidence — concise probe gate (#3)', () => {
-  it('keeps complete=true and adds no pagination reason when allConcise', () => {
-    const out = aggregatePeerEvidence([conciseQueryResult()], true);
+function queryResultComplete() {
+  return {
+    id: 'q1',
+    data: {
+      evidence: { kind: 'metadata', answerReady: true, complete: true },
+    },
+  } as unknown as Parameters<typeof aggregatePeerEvidence>[0][number];
+}
+
+describe('aggregatePeerEvidence — pagination completeness gate', () => {
+  it('keeps complete=true when no pagination hasMore', () => {
+    const out = aggregatePeerEvidence([queryResultComplete()]);
     expect(out?.answerReady).toBe(true);
     expect(out?.complete).toBe(true);
     expect(out?.reason).toBeUndefined();
   });
 
-  it('flags incomplete via result pagination when not allConcise', () => {
-    const out = aggregatePeerEvidence([conciseQueryResult()], false);
+  it('flags incomplete via result pagination when pagination hasMore=true', () => {
+    const out = aggregatePeerEvidence([queryResultWithPagination()]);
     expect(out?.complete).toBe(false);
     expect(out?.reason).toContain('Result pagination has more results.');
   });

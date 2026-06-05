@@ -1,9 +1,8 @@
 /**
  * Response-state hints for localSearchCode (ripgrep).
  *
- * Empty branch is query-shape aware: inspects pattern length, filters in
- * play (type/include/path/excludeDir), and case sensitivity to propose
- * the most likely-helpful next move.
+ * Empty branch is query-shape aware: inspects the pattern, active filters
+ * (type/include/excludeDir), and path to propose the most actionable next move.
  *
  * @module tools/local_ripgrep/hints
  */
@@ -19,6 +18,12 @@ export const hints: ToolHintGenerators = {
     const excludeDir = Array.isArray(c.excludeDir)
       ? (c.excludeDir as unknown[])
       : [];
+    const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
+
+    // Stay silent when there is nothing meaningful to guide the agent.
+    if (!pattern && !path && !type && include.length === 0 && excludeDir.length === 0) {
+      return [];
+    }
 
     const filters: string[] = [];
     if (type) filters.push(`type="${type}"`);
@@ -28,25 +33,37 @@ export const hints: ToolHintGenerators = {
 
     const out: string[] = [];
     if (filters.length > 0) {
-      out.push(`No matches in ${path ?? 'this scope'} with ${filters.join(' + ')}.`);
-      out.push('Remove `type`, `include`, or `excludeDir` filters one at a time to widen the search.');
+      out.push(
+        `No matches in ${path ?? 'this scope'} with ${filters.join(' + ')}.`
+      );
+      out.push(
+        'Remove filters one at a time (type → include → excludeDir) to widen the search.'
+      );
     } else {
-      out.push(`No matches in ${path ?? 'this scope'}.`);
+      // No active filters — pattern + path only
+      out.push(`No matches for "${pattern}" in ${path ?? 'this scope'}.`);
+      out.push(
+        'Broaden: (1) use fixedString=true for a literal match; (2) drop regex meta-chars; ' +
+          '(3) try a shorter/partial term; (4) run separate queries scoped to different subdirectories.'
+      );
+      out.push(
+        "Verify files exist: use `localFindFiles` with a name filter or `localViewStructure` to confirm the path isn't empty before retrying."
+      );
     }
-
-    out.push(
-      'Try `filesOnly=true` first to see which files match by name, then narrow with `include` or `type` before reading content.'
-    );
-    out.push(
-      'If the symbol may be case-different, set `caseSensitive=false` to catch all variations.'
-    );
     return out;
   },
 
   error: (ctx: HintContext = {}) => {
     if (ctx.errorType === 'size_limit') {
       const count = ctx.matchCount ? ` (${ctx.matchCount} matches)` : '';
-      return [`Too many results${count} — narrow the pattern, add a type filter, or restrict the search path.`];
+      return [
+        `Too many results${count} — narrow the pattern, add a type/path filter, or use fixedString=true.`,
+      ];
+    }
+    if (ctx.errorType === 'not_found') {
+      return [
+        'Search path not found — verify it with `localViewStructure` at the parent directory.',
+      ];
     }
     return [];
   },

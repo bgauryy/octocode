@@ -15,11 +15,7 @@ import {
   isLanguageServerAvailable,
   LSP_UNAVAILABLE_HINT,
 } from '../../lsp/manager.js';
-import type {
-  CallHierarchyResult,
-  IncomingCall,
-  OutgoingCall,
-} from '../../lsp/types.js';
+import type { CallHierarchyResult } from '../../lsp/types.js';
 import type { z } from 'zod';
 import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
 
@@ -28,21 +24,7 @@ type UpstreamLSPCallHierarchyQuery = z.infer<
 >;
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
-
-/** Advisory hints lspCallHierarchy emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryCallHierarchyHint = makeAdvisoryPredicate([
-  'prefer depth=1',
-  'risks timeouts',
-  'hot function',
-  'fallback',
-]);
+import { isVerbose } from '../../scheme/verbosity.js';
 
 type LSPCallHierarchyQuery = WithVerbosity<
   WithOptionalMeta<UpstreamLSPCallHierarchyQuery>
@@ -63,8 +45,9 @@ import {
 /**
  * Process a single call hierarchy query.
  *
- * Wraps the internal core logic with the verbosity transformer so that
- * `verbosity:"concise"` returns graph edges only (no per-node content).
+ * Wraps the internal core logic with the verbosity transformer.
+ * verbose=false (default): graph edges only (no per-node snippets).
+ * verbose=true: full per-node content included.
  */
 export async function processCallHierarchy(
   query: LSPCallHierarchyQuery
@@ -231,123 +214,20 @@ function buildLspUnavailableResult(
 }
 
 /**
- * When `verbosity:"concise"` is requested, drop tree node content and emit
- * graph edges only. Omitted / `"basic"` / `"compact"` behave identically
- * to today.
+ * Verbosity shaping for lspCallHierarchy.
  *
- * Exported for direct unit testing in `tests/scheme/verbosity_concise.test.ts`.
+ * verbose=false (default): omit `lspMode` metadata from results.
+ * verbose=true: include all fields including LSP mode info.
+ *
+ * Calls are never dropped. Hints are always returned fully.
  */
-/** Call-hierarchy edge item shape used to render the concise edge list. */
-type ConciseEdgeItem = {
-  from?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
-  to?: { name?: string; uri?: string; range?: { start?: { line?: number } } };
-  fromRanges?: Array<{ start?: { line?: number } }>;
-};
-
-function stripConciseItemContent<T>(item: T): T {
-  if (!item || typeof item !== 'object') return item;
-  const { content: _content, ...rest } = item as T & { content?: unknown };
-  return rest as T;
-}
-
-function stripConciseCallContent<T extends ConciseEdgeItem>(call: T): T {
-  return {
-    ...call,
-    ...(call.from ? { from: stripConciseItemContent(call.from) } : {}),
-    ...(call.to ? { to: stripConciseItemContent(call.to) } : {}),
-  };
-}
-
-function stripIncomingCallContent(call: IncomingCall): IncomingCall {
-  return stripConciseCallContent(call);
-}
-
-function stripOutgoingCallContent(call: OutgoingCall): OutgoingCall {
-  return stripConciseCallContent(call);
-}
-
-/** Render `caller → root` / `root → callee` edge strings for concise output. */
-function buildConciseEdges(
-  items: ConciseEdgeItem[],
-  direction: 'incoming' | 'outgoing',
-  rootName: string
-): string[] {
-  return items.map(item => {
-    const peer = direction === 'incoming' ? item.from : item.to;
-    const peerName = peer?.name ?? '?';
-    const callSites = item.fromRanges?.length ?? 1;
-    const suffix = callSites > 1 ? ` (×${callSites})` : '';
-    return direction === 'incoming'
-      ? `${peerName} → ${rootName}${suffix}`
-      : `${rootName} → ${peerName}${suffix}`;
-  });
-}
-
-/** Collapse a call-hierarchy result to the tiny concise summary form. */
-function buildConciseCallHierarchy(
-  result: CallHierarchyResult,
-  query: LSPCallHierarchyQuery
-): CallHierarchyResult {
-  const direction = (result.direction ?? query.direction ?? 'incoming') as
-    | 'incoming'
-    | 'outgoing';
-  const root = (result.root ?? (result as { item?: unknown }).item) as
-    | { symbol?: { name?: string }; name?: string }
-    | undefined;
-  const rootName = root?.symbol?.name ?? root?.name ?? query.symbolName ?? '?';
-  // The LSP path emits `incomingCalls` / `outgoingCalls`; `calls` is a legacy
-  // edge-list field name. Treat all three as the same edge list.
-  const calls = (result as { calls?: ConciseEdgeItem[] }).calls;
-  const incomingCalls = (result as { incomingCalls?: IncomingCall[] })
-    .incomingCalls;
-  const outgoingCalls = (result as { outgoingCalls?: OutgoingCall[] })
-    .outgoingCalls;
-  const items = calls ?? incomingCalls ?? outgoingCalls ?? [];
-
-  const edges = buildConciseEdges(items, direction, rootName);
-  const summary = `${edges.length} ${direction} edge(s) for ${rootName} at depth=${result.depth ?? query.depth ?? 1}`;
-
-  // Preserve whichever edge-list field the upstream result used so the
-  // output schema validation still passes (the LSP path emits
-  // `incomingCalls` / `outgoingCalls`; `calls` is the legacy field name).
-  const hasCalls = 'calls' in (result as object);
-  const hasIncoming = 'incomingCalls' in (result as object);
-  const hasOutgoing = 'outgoingCalls' in (result as object);
-  const item =
-    result.item && typeof result.item === 'object'
-      ? { ...result.item, content: '' }
-      : result.item;
-  // Drop only char output pagination: it was computed from the full payload
-  // before content fields were stripped. Item pagination stays valid because
-  // the call arrays are preserved.
-  const rest = { ...result } as Record<string, unknown>;
-  delete rest.outputPagination;
-  return {
-    ...(rest as CallHierarchyResult),
-    ...(item ? { item: stripConciseItemContent(item) } : {}),
-    ...(hasCalls && calls ? { calls: calls.map(stripConciseCallContent) } : {}),
-    ...(hasIncoming
-      ? { incomingCalls: (incomingCalls ?? []).map(stripIncomingCallContent) }
-      : {}),
-    ...(hasOutgoing
-      ? { outgoingCalls: (outgoingCalls ?? []).map(stripOutgoingCallContent) }
-      : {}),
-    hints: [summary, `edges: ${edges.join('; ')}`],
-  };
-}
-
 export function applyCallHierarchyVerbosity(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryCallHierarchyHint, 2),
-    };
-  }
-  if (!isConcise(query)) return result;
-  if (result.status !== undefined) return result;
-
-  return buildConciseCallHierarchy(result, query);
+  if (isVerbose(query) || result.status !== undefined) return result;
+  if (!('lspMode' in (result as object))) return result;
+  const { lspMode: _lm, ...rest } = result as typeof result & { lspMode?: unknown };
+  void _lm;
+  return rest as CallHierarchyResult;
 }

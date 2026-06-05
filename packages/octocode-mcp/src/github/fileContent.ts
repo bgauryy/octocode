@@ -19,7 +19,6 @@ import {
   type RawContentResult,
 } from './fileContentRaw.js';
 import {
-  applyContentPagination,
   fetchFileTimestamp,
   processFileContentAPI,
 } from './fileContentProcess.js';
@@ -96,19 +95,6 @@ export async function fetchGitHubFileContentAPI(
     } catch {
       // Ignore timestamp fetch errors
     }
-  }
-
-  if (processedResult.content) {
-    const paginatedResult = applyContentPagination(
-      processedResult,
-      params.charOffset ?? 0,
-      params.charLength
-    );
-    return {
-      data: paginatedResult,
-      status: 200,
-      rawResponseChars: rawResult.rawResponseChars,
-    };
   }
 
   return {

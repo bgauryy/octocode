@@ -3,7 +3,7 @@ import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
 import { getMetadataOrNull } from './state.js';
 
 const VERBOSE_SCHEMA_DESCRIPTION =
-  'Boolean detail switch shared by every tool query. false returns efficient findings/research data; true includes extended metadata as well. If both verbose and verbosity are supplied, verbosity wins.';
+  'Boolean detail switch shared by every tool query. false returns efficient research data; true includes extended metadata.';
 
 function getBaseSchemaSource(): Record<PropertyKey, unknown> {
   const metadata = getMetadataOrNull();

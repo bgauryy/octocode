@@ -95,7 +95,7 @@ export const RipgrepMatchOnlySchema = z.object({
     lines: z.object({ text: z.string() }),
     line_number: z.number(),
     submatches: z
-      .array(z.object({ start: z.number() }).passthrough())
+      .array(z.looseObject({ start: z.number() }))
       .optional(),
   }),
 });

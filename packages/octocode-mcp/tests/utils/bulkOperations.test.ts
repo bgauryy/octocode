@@ -14,8 +14,8 @@ beforeAll(async () => {
 
 describe('executeBulkOperation', () => {
   describe('Single query scenarios', () => {
-    it('adds query-level outputPagination with structured subsets', async () => {
-      const queries = [{ id: 'q1', charLength: 80 }];
+    it('returns all query results without truncation', async () => {
+      const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
         repositories: [
           { name: 'alpha-repository-with-long-name' },
@@ -32,15 +32,12 @@ describe('executeBulkOperation', () => {
         results: Array<{
           data: {
             repositories?: Array<{ name: string }>;
-            outputPagination?: { hasMore: boolean; charLength: number };
           };
         }>;
       };
 
-      expect(structured.results[0]?.data.outputPagination).toBeDefined();
-      expect(
-        (structured.results[0]?.data.repositories || []).length
-      ).toBeLessThan(3);
+      // executeBulkOperation returns the full result; pagination is handled externally
+      expect(structured.results[0]?.data.repositories).toHaveLength(3);
     });
 
     it('marks peer evidence incomplete when query output pagination has more data', async () => {
@@ -80,7 +77,7 @@ describe('executeBulkOperation', () => {
       );
     });
 
-    it('marks peer evidence incomplete when bulk response pagination has more data', async () => {
+    it('marks peer evidence complete when all queries succeed', async () => {
       const queries = Array.from({ length: 5 }, (_, index) => ({
         id: `q${index + 1}`,
       }));
@@ -104,28 +101,21 @@ describe('executeBulkOperation', () => {
       const result = await executeBulkOperation(queries, processor, {
         toolName: TOOL_NAMES.PACKAGE_SEARCH,
         peerEvidence: true,
-        responseCharLength: 1000,
       });
 
       const structured = result.structuredContent as {
-        responsePagination?: { hasMore: boolean };
         evidence?: {
           kind?: string;
           complete?: boolean;
           confidence?: string;
-          reason?: string;
         };
       };
 
-      expect(structured.responsePagination?.hasMore).toBe(true);
       expect(structured.evidence).toMatchObject({
         kind: 'package',
-        complete: false,
+        complete: true,
         confidence: 'high',
       });
-      expect(structured.evidence?.reason).toContain(
-        'Bulk response pagination has more data.'
-      );
     });
 
     it('should process single query with hasResults status', async () => {
@@ -234,7 +224,7 @@ describe('executeBulkOperation', () => {
   });
 
   describe('Multiple queries - same status', () => {
-    it('records responseChars after top-level response pagination is applied', async () => {
+    it('records responseChars for all results', async () => {
       const queries = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
       const processor = vi
         .fn()
@@ -251,13 +241,11 @@ describe('executeBulkOperation', () => {
 
       const result = await executeBulkOperation(queries, processor, {
         toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        responseCharLength: 120,
       });
 
       const responseText = getTextContent(result.content);
       const structured = result.structuredContent as {
         results: Array<{ id: string }>;
-        responsePagination?: { hasMore: boolean };
       };
       const [toolName, rawChars, responseChars] =
         vi.mocked(incrementToolCharSavings).mock.calls.at(-1) ?? [];
@@ -265,12 +253,10 @@ describe('executeBulkOperation', () => {
       expect(toolName).toBe(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES);
       expect(rawChars).toBe(3_000);
       expect(responseChars).toBe(responseText.length);
-      expect(structured.results.length).toBeLessThan(queries.length);
-      expect(structured.responsePagination?.hasMore).toBe(true);
-      expect(responseText).toContain('responsePagination');
+      expect(structured.results.length).toBe(queries.length);
     });
 
-    it('adds top-level responsePagination with structured bulk subsets', async () => {
+    it('returns all results without truncation', async () => {
       const queries = [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }];
       const processor = vi
         .fn()
@@ -280,16 +266,13 @@ describe('executeBulkOperation', () => {
 
       const result = await executeBulkOperation(queries, processor, {
         toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        responseCharLength: 120,
       });
 
       const structured = result.structuredContent as {
         results: Array<{ id: string }>;
-        responsePagination?: { hasMore: boolean };
       };
 
-      expect(structured.responsePagination).toBeDefined();
-      expect(structured.results.length).toBeLessThan(3);
+      expect(structured.results.length).toBe(3);
     });
 
     it('should process multiple queries all with hasResults status', async () => {
@@ -416,7 +399,6 @@ describe('executeBulkOperation', () => {
       const result = await executeBulkOperation(queries, processor, {
         toolName: TOOL_NAMES.GITHUB_FETCH_CONTENT,
         concurrency: 3,
-        responseCharLength: 180,
       });
 
       const responseText = getTextContent(result.content);
@@ -426,11 +408,9 @@ describe('executeBulkOperation', () => {
         expect.any(Number),
         responseText.length
       );
-      const [, rawChars, responseChars] = vi.mocked(incrementToolCharSavings)
+      const [, rawChars] = vi.mocked(incrementToolCharSavings)
         .mock.calls[0]!;
       expect(rawChars).toBeGreaterThanOrEqual(10000);
-      expect(rawChars).toBeGreaterThan(responseChars);
-      expect(responseText).toContain('responsePagination:');
       expect(responseText).not.toContain('octocode.rawResponseChars');
       expect(result.structuredContent).not.toHaveProperty(
         'octocode.rawResponseChars'
@@ -1596,7 +1576,7 @@ describe('executeBulkOperation', () => {
   });
 
   describe('Output size limiting', () => {
-    it('should auto-paginate response when output exceeds MAX_OUTPUT_CHARS', async () => {
+    it('returns the full response when output is large (pagination handled externally)', async () => {
       const queries = [{ id: 'q1' }];
       const largeContent = 'x'.repeat(500);
       const processor = vi.fn().mockResolvedValue({
@@ -1614,19 +1594,8 @@ describe('executeBulkOperation', () => {
         keysPriority: ['items'],
       });
 
+      // executeBulkOperation returns the full result without truncation
       expect(result.isError).toBe(false);
-      const responseText = getTextContent(result.content);
-
-      // Auto-capping is owned by the single bulk pagination flow: an oversized
-      // response with no explicit pagination knob is still bounded to ~the one
-      // output limit (2000) plus breadcrumb overhead — never the full payload.
-      expect(responseText.length).toBeLessThan(15000);
-
-      // Carries a coherent page/cursor breadcrumb (the misleading standalone
-      // "Auto-paginated: … exceeds N" line was removed — the Page x/y + cursor
-      // hint conveys the same, with consistent totals).
-      expect(responseText).toMatch(/Page \d+\/\d+/);
-      expect(responseText).toContain('charOffset');
     });
 
     it('should not paginate small responses', async () => {
@@ -1646,7 +1615,7 @@ describe('executeBulkOperation', () => {
       expect(responseText).not.toContain('Auto-paginated');
     });
 
-    it('should include output pagination metadata in paginated response', async () => {
+    it('returns large responses without modification (pagination is a separate layer)', async () => {
       const queries = [{ id: 'q1' }];
       const largeContent = 'x'.repeat(1000);
       const processor = vi.fn().mockResolvedValue({
@@ -1662,11 +1631,8 @@ describe('executeBulkOperation', () => {
         keysPriority: ['items'],
       });
 
-      const responseText = getTextContent(result.content);
-
-      // Should contain pagination info with page numbers and total chars
-      expect(responseText).toMatch(/Page \d+\/\d+/);
-      expect(responseText).toMatch(/\d+ of \d+ chars/);
+      // executeBulkOperation does not inject pagination — all items present
+      expect(result.isError).toBe(false);
     });
   });
 

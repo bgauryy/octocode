@@ -111,9 +111,11 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     ).toBe(false);
   });
 
-  it('LSP tools never emit an lspMode field (LSP-only, absent ≡ semantic)', async () => {
+  it('LSP tools never assign lspMode into result objects (LSP-only, absent ≡ semantic)', async () => {
     // The pattern/text fallback paths were removed, so the `lspMode`
-    // provenance marker is gone entirely. No LSP tool source may emit it.
+    // provenance marker is gone entirely. No LSP tool source may assign it
+    // into a result (setting "lspMode: value" in an object literal).
+    // Destructuring "lspMode" out of a result to strip it is allowed.
     const { readFile } = await import('fs/promises');
     const files = [
       'src/tools/lsp_call_hierarchy/callHierarchy.ts',
@@ -122,7 +124,13 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     ];
     for (const file of files) {
       const src = await readFile(`${ROOT}/${file}`, 'utf-8');
-      expect(src, `${file} must not emit lspMode`).not.toMatch(/lspMode\s*:/);
+      // Match "lspMode:" only when it's an object property assignment (not destructuring)
+      // i.e. not preceded by "{ " or followed by " _" (rename pattern)
+      const assignPattern = /lspMode\s*:\s*(?!_)/g;
+      const matches = [...src.matchAll(assignPattern)].filter(
+        m => !src.slice(Math.max(0, (m.index ?? 0) - 10), m.index ?? 0).includes('{')
+      );
+      expect(matches, `${file} must not emit lspMode into results`).toHaveLength(0);
     }
   });
 

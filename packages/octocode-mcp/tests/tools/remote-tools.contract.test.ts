@@ -28,37 +28,33 @@ beforeAll(async () => {
 // 1. Verbosity shaping — concise compaction is format-agnostic
 // ===========================================================================
 
+// Verbosity shaping — verbose=false strips metadata (matchIndices), verbose=true keeps all.
 describe('Verbosity: githubSearchCode', () => {
-  it('keeps a one-line snippet and dedupes duplicate paths in concise mode', () => {
+  it('verbose=false strips matchIndices metadata, preserves core match data', () => {
+    const originalMatches = [
+      {
+        path: 'ReactFiberThrow.js',
+        value: 'function throwException() {',
+        matchIndices: [{ start: 0, end: 5 }],
+      },
+      { path: 'ReactFiberThrow.js', value: 'throw value;' },
+    ];
     const responseData = {
       results: [
         {
           id: 'facebook/react',
           owner: 'facebook',
           repo: 'react',
-          matches: [
-            {
-              path: 'ReactFiberThrow.js',
-              value: 'function throwException() {',
-            },
-            { path: 'ReactFiberThrow.js', value: 'throw value;' },
-            {
-              path: 'ReactFiberHooks.js',
-              value: '\n  export function useState() {\n    return null;\n  }',
-            },
-          ],
+          matches: [...originalMatches],
         },
       ],
     };
 
-    expect(
-      applyGithubSearchCodeVerbosity(responseData, [{ verbosity: 'concise' }])
-    ).toBe(true);
-
-    expect(responseData.results[0]!.matches).toEqual([
-      { path: 'ReactFiberThrow.js', value: 'function throwException() {' },
-      { path: 'ReactFiberHooks.js', value: 'export function useState() {' },
-    ]);
+    // verbose=false: matchIndices stripped (metadata)
+    applyGithubSearchCodeVerbosity(responseData, [{ verbose: false }]);
+    expect(responseData.results[0]!.matches[0]).not.toHaveProperty('matchIndices');
+    // Core data preserved
+    expect(responseData.results[0]!.matches[0]!.value).toBe(originalMatches[0]!.value);
   });
 });
 
@@ -126,7 +122,7 @@ describe('Verbosity: githubViewRepoStructure', () => {
         summary: { truncated: true },
         extraHints: [],
       },
-      { verbosity: 'basic' }
+      { verbose: false }
     );
 
     expect(shaped.extraHints).toContain(

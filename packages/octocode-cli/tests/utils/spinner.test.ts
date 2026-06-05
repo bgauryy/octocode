@@ -13,6 +13,7 @@ describe('Spinner', () => {
   let originalWrite: typeof process.stdout.write;
   let writtenOutput: string[];
   let originalMaxListeners: number;
+  let originalIsTTY: boolean;
 
   beforeAll(() => {
     originalMaxListeners = process.getMaxListeners();
@@ -28,6 +29,11 @@ describe('Spinner', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
 
+    // The spinner only animates / emits control codes on a TTY; force one so the
+    // interactive-behavior assertions below run against the TTY path.
+    originalIsTTY = process.stdout.isTTY;
+    process.stdout.isTTY = true;
+
     writtenOutput = [];
     originalWrite = process.stdout.write;
     process.stdout.write = vi.fn((chunk: string | Uint8Array) => {
@@ -39,6 +45,7 @@ describe('Spinner', () => {
   afterEach(() => {
     vi.useRealTimers();
     process.stdout.write = originalWrite;
+    process.stdout.isTTY = originalIsTTY;
   });
 
   describe('Spinner class', () => {
@@ -350,6 +357,48 @@ describe('Spinner', () => {
       );
 
       spinner.stop();
+    });
+  });
+
+  describe('when stdout is not a TTY (piped / agent capture)', () => {
+    beforeEach(() => {
+      process.stdout.isTTY = false;
+    });
+
+    it('emits no animation, cursor, or clear-line control codes', async () => {
+      const { Spinner } = await import('../../src/utils/spinner.js');
+      const spinner = new Spinner('Loading...');
+
+      spinner.start();
+      vi.advanceTimersByTime(800);
+      spinner.clear();
+
+      const all = writtenOutput.join('');
+      expect(all).not.toContain('\x1B');
+      expect(all).not.toContain('\r');
+    });
+
+    it('does not register process cleanup handlers on start', async () => {
+      const { Spinner } = await import('../../src/utils/spinner.js');
+      const before = process.listenerCount('SIGINT');
+
+      new Spinner('quiet').start();
+
+      expect(process.listenerCount('SIGINT')).toBe(before);
+    });
+
+    it('stop prints a single plain status line with no control codes', async () => {
+      const { Spinner } = await import('../../src/utils/spinner.js');
+      const spinner = new Spinner('Done');
+
+      spinner.start();
+      spinner.succeed('Done');
+
+      const all = writtenOutput.join('');
+      expect(all).toContain('✓');
+      expect(all).toContain('Done');
+      expect(all).not.toContain('\x1B');
+      expect(all).not.toContain('\r');
     });
   });
 });

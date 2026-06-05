@@ -20,19 +20,12 @@ export const hints: ToolHintGenerators = {
           ? c.keywords[0]
           : undefined;
 
-    const out: string[] = [];
-    if (name) {
-      out.push(`Package '${name}' not found on npm.`);
-    } else {
-      out.push('No packages found on npm for this query.');
-    }
-    out.push(
-      'Check spelling and remove any version suffix (e.g. search "express" not "express@4.18").'
-    );
-    out.push(
-      'If you are looking for a GitHub project rather than a registry package, use `githubSearchRepositories` with the name as a keyword.'
-    );
-    return out;
+    if (!name) return [];
+    return [
+      `Package '${name}' not found on npm.`,
+      'Check spelling and remove any version suffix (e.g. search "express" not "express@4.18").',
+      'If you are looking for a GitHub project rather than a registry package, use `githubSearchRepositories` with the name as a keyword.',
+    ];
   },
 
   error: (ctx: HintContext = {}) => {
@@ -41,11 +34,12 @@ export const hints: ToolHintGenerators = {
         `npm registry rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ' Wait before retrying.'}`,
       ];
     }
-    // Network / registry unreachable
-    return [
-      'npm registry is unreachable.',
-      'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
-      'Retry once connectivity is restored.',
-    ];
+    if (ctx.originalError) {
+      return [
+        'npm registry is unreachable.',
+        'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+      ];
+    }
+    return [];
   },
 };

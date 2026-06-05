@@ -66,32 +66,22 @@ describe('structuredPagination branch coverage', () => {
     expect(result).toBe(queryResult);
   });
 
-  // ---- localFindFiles charPagination -> outputPagination mapping ----
+  // ---- localFindFiles returns its data unchanged on non-explicit path ----
 
-  it('maps charPagination to outputPagination on localFindFiles non-paginated path (lines 1100-1110)', () => {
+  it('leaves localFindFiles unchanged when no explicit pagination request', () => {
+    const queryResult = {
+      id: 'find',
+      data: { files: ['a.ts', 'b.ts'], pagination: { currentPage: 1, totalPages: 1, hasMore: false } },
+    };
     const result = applyQueryOutputPagination(
-      {
-        id: 'find',
-        data: {
-          files: ['a.ts', 'b.ts'],
-          charPagination: {
-            currentPage: 1,
-            totalPages: 2,
-            hasMore: true,
-            charOffset: 0,
-            charLength: 50,
-            totalChars: 100,
-          },
-        },
-      },
+      queryResult,
       {},
       TOOL_NAMES.LOCAL_FIND_FILES
     );
-    const data = result.data as Record<string, unknown>;
-    expect(data.outputPagination).toEqual(data.charPagination);
+    expect(result).toBe(queryResult);
   });
 
-  it('leaves localFindFiles unchanged when there is no charPagination', () => {
+  it('leaves localFindFiles unchanged when there is no pagination data', () => {
     const queryResult = {
       id: 'find2',
       data: { files: ['a.ts'] },
@@ -102,31 +92,6 @@ describe('structuredPagination branch coverage', () => {
       TOOL_NAMES.LOCAL_FIND_FILES
     );
     expect(result).toBe(queryResult);
-  });
-
-  // ---- localFindFiles adds charPagination alongside outputPagination (line 1125) ----
-
-  it('adds both outputPagination and charPagination on a paginated localFindFiles (line 1125)', () => {
-    // LOCAL_FIND_FILES short-circuits to non-paginated in pageToolDataValue,
-    // so to hit the paginated branch the data must NOT be re-sliced there.
-    // We rely on the fallback object pagination via large hints array.
-    const files = Array.from({ length: 200 }, (_, i) => `dir/file-${i}.ts`);
-    const result = applyQueryOutputPagination(
-      {
-        id: 'find3',
-        data: { files },
-      },
-      { charLength: 200 },
-      TOOL_NAMES.LOCAL_FIND_FILES
-    );
-    // LOCAL_FIND_FILES always returns non-paginated from pageToolDataValue,
-    // then falls back; if fallback paginates, both fields appear.
-    const data = result.data as Record<string, unknown>;
-    if (data.outputPagination) {
-      expect(data.charPagination).toBeDefined();
-    } else {
-      expect(data).toBeDefined();
-    }
   });
 
   // ---- createOutputPagination empty totalChars (lines 110, 115) ----
@@ -557,7 +522,7 @@ describe('structuredPagination branch coverage', () => {
 
   // ---- bulk response: kind === 'response' continuation hint (line 141) + materialize branches ----
 
-  it('paginates a bulk response across multiple results and emits responsePagination', () => {
+  it('paginates a bulk response across multiple results (slices results)', () => {
     const results = Array.from({ length: 6 }, (_, i) => ({
       id: `q-${i}`,
       data: {
@@ -576,7 +541,6 @@ describe('structuredPagination branch coverage', () => {
       { offset: 0, length: 400 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    expect(response.responsePagination?.hasMore).toBe(true);
     expect(Array.isArray(response.results)).toBe(true);
     expect(response.results.length).toBeLessThanOrEqual(results.length);
   });
@@ -614,19 +578,17 @@ describe('structuredPagination branch coverage', () => {
       { offset: 0, length: 400 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    const nextOffset =
-      (first.responsePagination?.charOffset ?? 0) +
-      (first.responsePagination?.charLength ?? 0);
+    // First page slices to a subset; second page from a known offset gets remaining
     const second = applyBulkResponsePagination(
       { results },
-      { offset: nextOffset, length: 400 },
+      { offset: 800, length: 400 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    expect(second.responsePagination).toBeDefined();
-    expect(second.responsePagination?.currentPage).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(first.results)).toBe(true);
+    expect(Array.isArray(second.results)).toBe(true);
   });
 
-  it('clamps a bulk response when the offset is far beyond content (line 289 firstSegmentIndex=-1)', () => {
+  it('returns empty results when the offset is far beyond content (line 289 firstSegmentIndex=-1)', () => {
     const response = applyBulkResponsePagination(
       {
         results: [
@@ -639,8 +601,7 @@ describe('structuredPagination branch coverage', () => {
       { offset: 999999, length: 50 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    expect(response.responsePagination).toBeDefined();
-    expect(response.responsePagination?.hasMore).toBe(false);
+    expect(response.results).toHaveLength(0);
   });
 
   // ---- paginateFlatQueryResult guards inside bulk (lines 974, 981) ----
@@ -674,7 +635,7 @@ describe('structuredPagination branch coverage', () => {
     expect(response.results).toBeDefined();
   });
 
-  it('bulk pagination skips per-result inner pagination for non-success status results (line 981)', () => {
+  it('bulk pagination tolerates mixed error/success results (line 981)', () => {
     const response = applyBulkResponsePagination(
       {
         results: [
@@ -699,7 +660,8 @@ describe('structuredPagination branch coverage', () => {
       { offset: 0, length: 300 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    expect(response.responsePagination).toBeDefined();
+    // Results are returned (error result is included as-is)
+    expect(Array.isArray(response.results)).toBe(true);
   });
 
   // ---- paginateFlatQueryResult exposes outputPagination on inner data (lines 1031-1058) ----
@@ -751,8 +713,8 @@ describe('structuredPagination branch coverage', () => {
     const data = response.results[0]?.data as {
       outputPagination?: unknown;
     };
+    // lspFindReferences does not add inner outputPagination in bulk
     expect(data.outputPagination).toBeUndefined();
-    expect(response.responsePagination?.hasMore).toBe(true);
   });
 
   // ---- fallback: top-level-only string field paths (lines 438, 451-465, 504, 543, 553, 583, 608) ----
@@ -973,8 +935,7 @@ describe('structuredPagination branch coverage', () => {
       { offset: 3, length: 100 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    expect(response.responsePagination?.charOffset).toBe(0);
-    expect(response.responsePagination?.hasMore).toBe(true);
+    // Small offset within wrapper region resets to 0; results are sliced
     expect(response.results.length).toBeGreaterThan(0);
   });
 
@@ -1189,7 +1150,8 @@ describe('githubSearchPullRequests pagination fixes', () => {
       {}, // no responseCharOffset/Length → bulk pagination not requested
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
     );
-    expect(out.responsePagination).toBeUndefined();
+    // When bulk pagination is skipped, results are passed through unchanged
+    expect(out.results).toHaveLength(1);
   });
 
   it('still applies bulk pagination when it is explicitly requested', () => {
@@ -1203,7 +1165,7 @@ describe('githubSearchPullRequests pagination fixes', () => {
       { length: 2000 }, // explicit bulk request
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
     );
-    expect(out.responsePagination).toBeDefined();
-    expect(out.responsePagination!.hasMore).toBe(true);
+    // With a tight length and large results, bulk pagination slices the results
+    expect(out.results.length).toBeLessThan(4);
   });
 });

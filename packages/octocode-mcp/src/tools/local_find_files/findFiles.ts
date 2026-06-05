@@ -7,11 +7,6 @@ import {
 import { getHints } from '../../hints/index.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import {
-  serializeForPagination,
-  createPaginationInfo,
-} from '../../utils/pagination/core.js';
-import type { PaginationMetadata } from '../../utils/pagination/types.js';
-import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
@@ -28,21 +23,8 @@ import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import { LOCAL_OVERLAY_MAX_LIMIT } from '../../scheme/localSchemaOverlay.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
+import { isVerbose } from '../../scheme/verbosity.js';
 
-/** Advisory hints localFindFiles emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryFindFilesHint = makeAdvisoryPredicate([
-  'excludedir',
-  'raw name globs',
-  'metadata only',
-  'noisy dir',
-]);
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
 type FindFilesQuery = WithVerbosity<WithOptionalMeta<UpstreamFindFilesQuery>>;
@@ -323,11 +305,8 @@ export async function findFiles(
     const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
     const paginatedFiles = filesForOutput.slice(startIdx, endIdx);
 
-    const { finalFiles, paginationMetadata } = applyCharPagination(
-      paginatedFiles,
-      query.charOffset,
-      query.charLength
-    );
+    const finalFiles = paginatedFiles;
+    const paginationMetadata = null;
 
     const configFilePatterns =
       /\.(config|rc|env|json|ya?ml|toml|ini)$|^(\..*rc|config\.|\.env)/i;
@@ -369,9 +348,6 @@ export async function findFiles(
         totalFiles,
         hasMore: filePageNumber < totalPages,
       },
-      ...(paginationMetadata && {
-        charPagination: createPaginationInfo(paginationMetadata),
-      }),
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
       hints: buildFindFilesHints({
         query,
@@ -400,41 +376,33 @@ export async function findFiles(
 }
 
 /**
- * Concise payload is a one-line summary with a `newest:` drill-back hint
- * pointing at the first file. Omitted / `"basic"` / `"compact"` all preserve
- * `files[]` here; compact's hint-trim is a follow-up (Task #8).
+ * Verbosity shaping for localFindFiles.
  *
- * Exported for direct unit testing in `tests/scheme/verbosity_concise.test.ts`.
+ * verbose=false (default): omit `size`, `modified`, `permissions` (metadata).
+ * verbose=true: include all file fields.
+ *
+ * Files are never dropped. Hints are always returned fully.
  */
 export function applyFindFilesVerbosity(
   result: LocalFindFilesToolResult,
   query: FindFilesQuery,
-  totals: { totalFiles: number }
+  _totals: { totalFiles: number }
 ): LocalFindFilesToolResult {
-  if (isConcise(query)) {
-    // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
-    if (result.status !== undefined) return result;
-    const topFile = result.files?.[0];
-    const newest = topFile?.path ?? '';
-    const dirs = new Set(
-      (result.files ?? []).map(f => f.path.split('/').slice(0, -1).join('/'))
-    );
-    const summary =
-      `${totals.totalFiles} files in ${dirs.size} dirs` +
-      (newest ? ` (newest: ${newest})` : '');
-    return {
-      ...result,
-      files: [],
-      hints: [summary],
-    };
-  }
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryFindFilesHint, 2),
-    };
-  }
-  return result;
+  if (isVerbose(query)) return result;
+  if (!result.files?.length) return result;
+
+  return {
+    ...result,
+    files: result.files.map(f => {
+      const { size: _s, modified: _m, permissions: _p, ...rest } = f as typeof f & {
+        size?: unknown;
+        modified?: unknown;
+        permissions?: unknown;
+      };
+      void _s; void _m; void _p;
+      return rest as typeof f;
+    }),
+  };
 }
 
 function sortLocalFindFilesEntrys(
@@ -487,80 +455,6 @@ function formatForOutput(
     }
     return result;
   });
-}
-
-function applyCharPagination(
-  paginatedFiles: LocalFindFilesEntry[],
-  charOffset?: number,
-  charLength?: number
-): {
-  finalFiles: LocalFindFilesEntry[];
-  paginationMetadata: PaginationMetadata | null;
-} {
-  if (!charLength) {
-    return { finalFiles: paginatedFiles, paginationMetadata: null };
-  }
-
-  const fullJson = serializeForPagination(paginatedFiles, false);
-  const totalChars = fullJson.length;
-  const startOffset = charOffset ?? 0;
-  const targetLength = charLength;
-  const endLimit = startOffset + targetLength;
-
-  if (startOffset >= totalChars) {
-    return {
-      finalFiles: [],
-      paginationMetadata: {
-        paginatedContent: '[]',
-        byteOffset: startOffset,
-        byteLength: 0,
-        totalBytes: totalChars,
-        charOffset: startOffset,
-        charLength: 0,
-        totalChars,
-        hasMore: false,
-        estimatedTokens: 0,
-        currentPage: Math.floor(startOffset / targetLength) + 1,
-        totalPages: Math.ceil(totalChars / targetLength),
-      },
-    };
-  }
-
-  const selectedFiles: LocalFindFilesEntry[] = [];
-  let currentPos = 1;
-
-  for (let i = 0; i < paginatedFiles.length; i++) {
-    const itemLen = JSON.stringify(paginatedFiles[i]).length;
-    const itemStart = currentPos;
-    const itemEnd = itemStart + itemLen;
-
-    if (itemStart < endLimit && itemEnd > startOffset) {
-      selectedFiles.push(paginatedFiles[i]!);
-    }
-    currentPos += itemLen + 1;
-    if (currentPos >= endLimit) break;
-  }
-
-  const finalJson = serializeForPagination(selectedFiles, false);
-  const hasMore = currentPos < totalChars;
-
-  return {
-    finalFiles: selectedFiles,
-    paginationMetadata: {
-      paginatedContent: finalJson,
-      byteOffset: startOffset,
-      byteLength: finalJson.length,
-      totalBytes: totalChars,
-      charOffset: startOffset,
-      charLength: finalJson.length,
-      totalChars,
-      hasMore,
-      nextCharOffset: hasMore ? currentPos : undefined,
-      estimatedTokens: Math.ceil(finalJson.length / 4),
-      currentPage: Math.floor(startOffset / targetLength) + 1,
-      totalPages: Math.ceil(totalChars / targetLength),
-    },
-  };
 }
 
 async function getFileDetails(

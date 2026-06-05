@@ -184,6 +184,36 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ 'tools-context': true });
     });
 
+    it('should parse --agent as a top-level boolean flag', () => {
+      const result = parseArgs(['--agent']);
+
+      expect(result.command).toBeNull();
+      expect(result.options).toEqual({ agent: true });
+    });
+
+    it('should not let --agent swallow a following argument', () => {
+      const result = parseArgs(['--agent', 'somecommand']);
+
+      expect(result.options.agent).toBe(true);
+      expect(result.command).toBe('somecommand');
+    });
+
+    it('should parse new agent/output boolean flags', () => {
+      expect(parseArgs(['tools', 'x', '--compact']).options.compact).toBe(true);
+      expect(parseArgs(['--agent', '--full']).options.full).toBe(true);
+      expect(parseArgs(['tools', '--no-color']).options['no-color']).toBe(true);
+      expect(parseArgs(['token', '--reveal']).options.reveal).toBe(true);
+    });
+
+    it('should parse --format as a value option', () => {
+      expect(parseArgs(['tools', 'x', '--format', 'tool']).options.format).toBe(
+        'tool'
+      );
+      expect(parseArgs(['tools', 'x', '--format=tool']).options.format).toBe(
+        'tool'
+      );
+    });
+
     it('should parse single-dash long option -tool with = value', () => {
       const result = parseArgs(['-tool=myTool']);
       expect(result.command).toBe('tool');

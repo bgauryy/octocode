@@ -147,55 +147,50 @@ describe('package_search execution branches', () => {
     });
   });
 
-  describe('packageSearch verbosity shaping', () => {
-    it('concise keeps the top three package candidates', async () => {
+  describe('packageSearch verbose shaping', () => {
+    it('verbose:false — all packages returned unchanged (pass-through)', async () => {
       const { applyPackageSearchVerbosity } =
         await import('../../src/tools/package_search/execution.js');
 
+      const packages = [
+        {
+          path: 'one',
+          version: '1.0.0',
+          repoUrl: null,
+          mainEntry: null,
+          typeDefinitions: null,
+        },
+        {
+          path: 'two',
+          version: '2.0.0',
+          repoUrl: null,
+          mainEntry: null,
+          typeDefinitions: null,
+        },
+        {
+          path: 'three',
+          version: '3.0.0',
+          repoUrl: null,
+          mainEntry: null,
+          typeDefinitions: null,
+        },
+        {
+          path: 'four',
+          version: '4.0.0',
+          repoUrl: null,
+          mainEntry: null,
+          typeDefinitions: null,
+        },
+      ];
       const out = applyPackageSearchVerbosity(
         {
-          data: {
-            packages: [
-              {
-                path: 'one',
-                version: '1.0.0',
-                repoUrl: null,
-                mainEntry: null,
-                typeDefinitions: null,
-              },
-              {
-                path: 'two',
-                version: '2.0.0',
-                repoUrl: null,
-                mainEntry: null,
-                typeDefinitions: null,
-              },
-              {
-                path: 'three',
-                version: '3.0.0',
-                repoUrl: null,
-                mainEntry: null,
-                typeDefinitions: null,
-              },
-              {
-                path: 'four',
-                version: '4.0.0',
-                repoUrl: null,
-                mainEntry: null,
-                typeDefinitions: null,
-              },
-            ],
-            totalFound: 4,
-          },
+          data: { packages, totalFound: 4 },
           extraHints: [],
         },
-        { name: 'pkg', ecosystem: 'npm', verbosity: 'concise' } as never
+        { name: 'pkg', ecosystem: 'npm', verbose: false } as never
       );
 
-      expect(out.data.packages).toHaveLength(3);
-      expect(
-        (out.data.packages as Array<Record<string, unknown>>).map(p => p.name)
-      ).toEqual(['one', 'two', 'three']);
+      expect(out.data.packages).toHaveLength(4);
     });
   });
 });

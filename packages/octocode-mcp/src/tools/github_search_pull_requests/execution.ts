@@ -8,27 +8,8 @@ type GitHubPullRequestSearchQuery = z.infer<
 >;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
+import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-
-const CONCISE_PR_LIMIT = 3;
-
-/** Advisory hints githubSearchPullRequests emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisorySearchPRsHint = makeAdvisoryPredicate([
-  'pr archaeology',
-  'title-only',
-  'withcomments',
-  'withcommits',
-  'add tokens',
-  'start with type',
-  'merged shorthand',
-]);
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
@@ -64,7 +45,7 @@ import {
 export async function searchMultipleGitHubPullRequests(
   args: ToolExecutionArgs<PartialPRQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -72,63 +53,8 @@ export async function searchMultipleGitHubPullRequests(
     async (query: PartialPRQuery, _index: number) => {
       try {
         const currentProviderContext = getProviderContext();
-        let effectiveQuery: PartialPRQuery = { ...query };
+        const effectiveQuery: PartialPRQuery = { ...query };
         const verbosityDowngradeHints: string[] = [];
-
-        // Pre-flight verbosity caps under concise: cap page size to 3; coerce
-        // type→"metadata" unless caller passed prNumber + explicit type;
-        // drop partialContentMetadata when type is coerced. Record what
-        // fired so we can emit a verbosity-downgrade warning later.
-        const prVerbosityIsConcise = isConcise(
-          effectiveQuery as WithVerbosity<typeof effectiveQuery>
-        );
-        if (prVerbosityIsConcise) {
-          // Cap the effective per_page to the concise probe size via both knobs
-          // the resolver reads (itemsPerPage drives per_page; githubAPILimit
-          // overrides it when present).
-          const q = effectiveQuery as {
-            itemsPerPage?: number;
-            githubAPILimit?: number;
-          };
-          if (typeof q.itemsPerPage === 'number') {
-            q.itemsPerPage = Math.min(q.itemsPerPage, CONCISE_PR_LIMIT);
-          } else {
-            q.itemsPerPage = CONCISE_PR_LIMIT;
-          }
-          if (typeof q.githubAPILimit === 'number') {
-            q.githubAPILimit = Math.min(q.githubAPILimit, CONCISE_PR_LIMIT);
-          }
-          const hasExplicitType =
-            (effectiveQuery as { type?: string }).type !== undefined;
-          const hasPrNumber = effectiveQuery.prNumber !== undefined;
-          const shouldCoerceType = !(hasPrNumber && hasExplicitType);
-          if (shouldCoerceType) {
-            const currentType = (effectiveQuery as { type?: string }).type;
-            const hadPartialContentMetadata =
-              (effectiveQuery as { partialContentMetadata?: unknown })
-                .partialContentMetadata !== undefined;
-            if (currentType && currentType !== 'metadata') {
-              (effectiveQuery as { type?: string }).type = 'metadata';
-              verbosityDowngradeHints.push(
-                "type coerced to 'metadata' under concise verbosity"
-              );
-            } else if (!currentType) {
-              (effectiveQuery as { type?: string }).type = 'metadata';
-            }
-            if (hadPartialContentMetadata) {
-              const {
-                partialContentMetadata: _partialContentMetadata,
-                ...rest
-              } = effectiveQuery as PartialPRQuery & {
-                partialContentMetadata?: unknown;
-              };
-              effectiveQuery = rest as PartialPRQuery;
-              verbosityDowngradeHints.push(
-                'partialContentMetadata dropped under concise metadata mode'
-              );
-            }
-          }
-        }
 
         if (effectiveQuery.query && String(effectiveQuery.query).length > 256) {
           return createErrorResult(
@@ -251,7 +177,7 @@ export async function searchMultipleGitHubPullRequests(
           ).length;
           if (withChanges > 0) {
             fileChangeHints.push(
-              'Metadata mode: file lists include paths + counts only (no diffs). Use type="partialContent" (with partialContentMetadata) or type="fullContent" to fetch patches.'
+              'Metadata mode: file lists include paths + counts, no patches. Gradual workflow — re-call with type="partialContent" + partialContentMetadata=[{file:"src/foo.ts"},{file:"src/bar.ts"}] to fetch targeted patches. Add line filters via additions/deletions arrays. Use type="fullContent" with prNumber only for small PRs.'
             );
           }
         }
@@ -318,8 +244,6 @@ export async function searchMultipleGitHubPullRequests(
         'total_count',
         'error',
       ] satisfies Array<keyof GitHubSearchPullRequestsToolResult>,
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }
@@ -327,10 +251,13 @@ export async function searchMultipleGitHubPullRequests(
 }
 
 /**
- * Per-tool verbosity shaping for githubSearchPullRequests. Under concise,
- * projects each PR to {number, title, state, merged} (cap 3) and emits a
- * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
- * Basic / omitted: passthrough.
+ * Verbosity shaping for githubSearchPullRequests.
+ *
+ * verbose=false (default): omit metadata-only PR fields (createdAt, updatedAt,
+ *   closedAt, mergedAt, comments, reactions, labels, assignees, etc.).
+ * verbose=true: include all fields.
+ *
+ * Items are never dropped. Hints are always returned fully.
  */
 export function applyGithubSearchPullRequestsVerbosity(
   input: {
@@ -341,32 +268,25 @@ export function applyGithubSearchPullRequestsVerbosity(
   query: PartialPRQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
   const queryWithVerbosity = query as WithVerbosity<typeof query>;
-
-  if (isConcise(queryWithVerbosity)) {
-    const conciseData = {
-      ...input.data,
-      pull_requests: input.pullRequests.slice(0, 3).map(pr => ({
-        number: (pr as { number?: number }).number,
-        title: (pr as { title?: string }).title,
-        state: (pr as { state?: string }).state,
-        merged: (pr as { merged?: boolean }).merged,
-      })),
-    };
-    const summary = `${input.pullRequests.length} PRs (top: #${
-      (input.pullRequests[0] as { number?: number })?.number ?? '?'
-    })`;
-    return {
-      data: conciseData,
-      extraHints: [summary, ...input.extraHints],
-    };
+  if (isVerbose(queryWithVerbosity)) {
+    return { data: input.data, extraHints: input.extraHints };
   }
 
-  const allHints = [...input.extraHints];
-  if (isCompact(queryWithVerbosity)) {
-    return {
-      data: input.data,
-      extraHints: compactTrimHints(allHints, isAdvisorySearchPRsHint, 2) ?? [],
-    };
-  }
-  return { data: input.data, extraHints: allHints };
+  // Strip metadata-only fields from each PR entry
+  const METADATA_KEYS = new Set([
+    'createdAt', 'updatedAt', 'closedAt', 'mergedAt',
+    'comments', 'reactions', 'labels', 'assignees', 'reviewers',
+    'commits', 'additions', 'deletions', 'changedFiles',
+  ]);
+  const strippedPrs = input.pullRequests.map(pr => {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(pr)) {
+      if (!METADATA_KEYS.has(key)) result[key] = val;
+    }
+    return result;
+  });
+  return {
+    data: { ...input.data, pull_requests: strippedPrs },
+    extraHints: input.extraHints,
+  };
 }

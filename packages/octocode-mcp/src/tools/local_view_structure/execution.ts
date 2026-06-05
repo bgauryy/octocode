@@ -22,28 +22,19 @@ import {
   paginationTotal,
   records,
 } from '../evidence.js';
-import { isConcise } from '../../scheme/verbosity.js';
+
 
 // Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyViewStructureVerbosity } from './local_view_structure.js';
 
-/**
- * @param concise when true the `entries` array was dropped by concise verbosity.
- *   `answerReady` is then derived from the entry count (so a non-empty tree is
- *   not mislabelled "No directory entries matched"), and display-pagination
- *   "has more" reasons are suppressed.
- */
-export function buildViewStructureEvidence(
-  result: unknown,
-  concise: boolean
-): EvidenceMetadata {
+export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
   const data = isRecord(result) ? result : {};
   const entries = records(data.entries);
   const hasResults =
     entries.length > 0 || paginationTotal(data.pagination, 'totalEntries') > 0;
   const reasons: string[] = [];
 
-  if (!concise && hasMorePagination(data.pagination)) {
+  if (hasMorePagination(data.pagination)) {
     reasons.push('Entry pagination has more results.');
   }
   reasons.push(...incompleteHintReasons(data));
@@ -64,7 +55,7 @@ export function buildViewStructureEvidence(
 export async function executeViewStructure(
   args: ToolExecutionArgs<ViewStructureQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -84,14 +75,12 @@ export async function executeViewStructure(
           const result = await viewStructure(validation.data);
           return attachEvidence(
             result as ProcessedBulkResult,
-            buildViewStructureEvidence(result, isConcise(validation.data))
+            buildViewStructureEvidence(result)
           );
         },
       }),
     {
       toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }

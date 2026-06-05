@@ -14,23 +14,8 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
+import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-
-/** Advisory hints githubViewRepoStructure emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryViewRepoStructureHint = makeAdvisoryPredicate([
-  'tree may report',
-  'truncated at depth',
-  'monorepo',
-  'sibling config',
-  'sibling files',
-]);
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { shouldIgnoreFile, shouldIgnoreDir } from '../../utils/file/filters.js';
 import { handleCatchError, createSuccessResult } from '../utils.js';
@@ -120,7 +105,7 @@ function filterStructure(
 export async function exploreMultipleRepositoryStructures(
   args: ToolExecutionArgs<PartialRepoStructureQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -252,8 +237,6 @@ export async function exploreMultipleRepositoryStructures(
         'structure',
         'error',
       ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }
@@ -261,10 +244,9 @@ export async function exploreMultipleRepositoryStructures(
 }
 
 /**
- * Per-tool verbosity shaping for githubViewRepoStructure. Under concise, replaces
- * the full `structure` payload with `{path, summary, entryCount}` + a
- * drill-back hint. Under compact, advisory hints are trimmed to 2. Basic /
- * omitted: passthrough.
+ * Per-tool verbosity shaping for githubViewRepoStructure.
+ * verbose=false (default): strip metadata-only fields (resolvedBranch, branchFallback).
+ * verbose=true: full response passthrough.
  */
 export function applyGithubViewRepoStructureVerbosity(
   input: {
@@ -281,47 +263,21 @@ export function applyGithubViewRepoStructureVerbosity(
     input.entryCount,
     Boolean(input.summary?.truncated)
   );
-  if (isConcise(queryWithVerbosity)) {
-    // Concise = all entry names (folders first, suffixed `/`, then files)
-    // without size/date/type metadata. Agents get the full name list for
-    // routing decisions; metadata is omitted to keep token cost low.
-    const allEntries = collectAllStructureEntries(
-      (input.data as { structure?: unknown }).structure
-    );
-    const topEntries = allEntries.slice(0, CONCISE_TOP_ENTRIES);
-    const more =
-      allEntries.length > topEntries.length
-        ? ` (+${allEntries.length - topEntries.length} more)`
-        : '';
-    const topHint =
-      topEntries.length > 0 ? [`top: ${topEntries.join(', ')}${more}`] : [];
+
+  if (!isVerbose(queryWithVerbosity)) {
+    // Strip metadata-only fields (resolvedBranch, branchFallback) when verbose=false
+    const {
+      resolvedBranch: _rb,
+      branchFallback: _bf,
+      ...coreData
+    } = input.data as Record<string, unknown>;
+    void _rb; void _bf;
     return {
-      data: {
-        path: (input.data as { path?: string }).path,
-        summary: input.summary,
-        entryCount: input.entryCount,
-        // All names in one flat array — folders suffixed `/`, then files.
-        // Provides full navigation context without size/date metadata.
-        entries: allEntries,
-      },
-      extraHints: [
-        `${input.entryCount} entries${input.summary ? ` (${JSON.stringify(input.summary)})` : ''}`,
-        ...topHint,
-        ...input.extraHints,
-      ],
+      data: coreData,
+      extraHints: [...nextPathHints, ...input.extraHints],
     };
   }
-  if (isCompact(queryWithVerbosity)) {
-    return {
-      data: input.data,
-      extraHints:
-        compactTrimHints(
-          [...nextPathHints, ...input.extraHints],
-          isAdvisoryViewRepoStructureHint,
-          2
-        ) ?? [],
-    };
-  }
+
   return {
     data: input.data,
     extraHints: [...nextPathHints, ...input.extraHints],

@@ -13,22 +13,7 @@ type UpstreamLSPGotoDefinitionQuery = z.infer<
   typeof LSPGotoDefinitionQuerySchema
 >;
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
-
-/** Advisory hints lspGotoDefinition emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryGotoDefinitionHint = makeAdvisoryPredicate([
-  'multiple definitions',
-  'dynamic import',
-  'fallback',
-  'overload',
-  're-export',
-]);
+import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type LSPGotoDefinitionQuery = WithVerbosity<
@@ -55,8 +40,6 @@ import {
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import { applyOutputSizeLimit } from '../../utils/pagination/outputSizeLimit.js';
-import { serializeForPagination } from '../../utils/pagination/core.js';
 import { safeReadFile } from '../../lsp/validation.js';
 import { resolveWorkspaceRootForFile } from '../../lsp/workspaceRoot.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
@@ -75,7 +58,7 @@ export const TOOL_NAME = TOOL_NAMES.LSP_GOTO_DEFINITION;
 export async function executeGotoDefinition(
   args: ToolExecutionArgs<LSPGotoDefinitionQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -89,8 +72,6 @@ export async function executeGotoDefinition(
       }),
     {
       toolName: TOOL_NAME,
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
       minQueryTimeoutMs: 30_000,
@@ -233,10 +214,7 @@ async function gotoDefinition(
     }
 
     return attachRawResponseChars(
-      applyGotoDefinitionVerbosity(
-        applyGotoDefinitionOutputLimit(result, query),
-        query
-      ),
+      applyGotoDefinitionVerbosity(result, query),
       content.length + countSerializedChars(result)
     );
   } catch (error) {
@@ -529,79 +507,22 @@ function buildLspUnavailableResult(lspFailed = false): GotoDefinitionResult {
 }
 
 /**
- * When `verbosity:"concise"` is requested, collapse each location
- * to a `file:line:col` string (drop `content` snippets) and emit a single
- * summary hint. Omitted / `"basic"` / `"compact"` behave identically to today.
+ * Verbosity shaping for lspGotoDefinition.
  *
- * Exported for direct unit testing in `tests/scheme/verbosity_concise.test.ts`.
+ * verbose=false (default): omit `lspMode` metadata from results.
+ * verbose=true: include all fields.
+ *
+ * Locations and content snippets are never dropped. Hints are always returned fully.
  */
 export function applyGotoDefinitionVerbosity(
   result: GotoDefinitionResult,
   query: LSPGotoDefinitionQuery
 ): GotoDefinitionResult {
-  if (isConcise(query)) {
-    if (result.status !== undefined) return result;
-    const refs = (result.locations ?? []).map(loc => {
-      const line = loc.range?.start?.line ?? 0;
-      const col = loc.range?.start?.character ?? 0;
-      return `${loc.uri}:${line + 1}:${col + 1}`;
-    });
-    const top = refs[0] ?? '';
-    const summary = `${refs.length} definition(s)${top ? ` (top: ${top})` : ''}`;
-    return {
-      ...result,
-      locations: (result.locations ?? []).map(loc => ({
-        uri: loc.uri,
-        range: loc.range,
-        content: '',
-      })),
-      hints: [summary],
-    };
-  }
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryGotoDefinitionHint, 2),
-    };
-  }
-  return result;
-}
-
-/**
- * Apply output size limits with charOffset/charLength pagination.
- * Follows the same pattern used by lspCallHierarchy.
- */
-function applyGotoDefinitionOutputLimit(
-  result: GotoDefinitionResult,
-  query: LSPGotoDefinitionQuery
-): GotoDefinitionResult {
-  if (result.status !== undefined) return result;
-
-  const serialized = serializeForPagination(result, true);
-  const sizeLimitResult = applyOutputSizeLimit(serialized, {
-    charOffset: query.charOffset,
-    charLength: query.charLength,
-  });
-
-  if (!sizeLimitResult.wasLimited || !sizeLimitResult.pagination) return result;
-
-  const { pagination } = sizeLimitResult;
-  return {
-    ...result,
-    outputPagination: {
-      charOffset: pagination.charOffset!,
-      charLength: pagination.charLength!,
-      totalChars: pagination.totalChars!,
-      hasMore: pagination.hasMore,
-      currentPage: pagination.currentPage,
-      totalPages: pagination.totalPages,
-    },
-    hints: [
-      ...(result.hints || []),
-      ...sizeLimitResult.warnings,
-      ...sizeLimitResult.paginationHints,
-    ],
-  };
+  if (isVerbose(query) || result.status !== undefined) return result;
+  if (!('lspMode' in (result as object))) return result;
+  const { lspMode: _lm, ...rest } = result as typeof result & { lspMode?: unknown };
+  void _lm;
+  return rest as GotoDefinitionResult;
 }
 
 /**

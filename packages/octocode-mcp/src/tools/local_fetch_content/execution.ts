@@ -58,7 +58,7 @@ function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
 export async function executeFetchContent(
   args: ToolExecutionArgs<FetchContentQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries } = args;
 
   return executeBulkOperation(
     queries || [],
@@ -84,8 +84,6 @@ export async function executeFetchContent(
       }),
     {
       toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }

@@ -232,7 +232,7 @@ describe('findFiles sortBy branches', () => {
     );
   });
 
-  it('should return empty files when charOffset >= totalChars (line 262)', async () => {
+  it('should return empty files when page exceeds total pages', async () => {
     mockSafeExec.mockResolvedValue({
       success: true,
       code: 0,
@@ -249,14 +249,14 @@ describe('findFiles sortBy branches', () => {
       mtime: new Date(),
     } as unknown as import('fs').Stats);
 
+    // Request page 999 when there are only 2 files → should get empty or last page
     const result = await findFiles({
       path: '/test',
-      charLength: 100,
-      charOffset: 10000,
+      page: 999,
     });
 
     expect(result.status).toBeUndefined();
-    expect(result.files).toEqual([]);
-    expect(result.charPagination?.hasMore).toBe(false);
+    // Page beyond total → empty files
+    expect(result.files?.length ?? 0).toBe(0);
   });
 });

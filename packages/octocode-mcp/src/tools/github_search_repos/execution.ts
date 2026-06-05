@@ -9,25 +9,8 @@ type GitHubReposSearchSingleQuery = z.infer<
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { compareIsoDateDescending } from '../../utils/core/compare.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
+import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-
-const CONCISE_REPOS_LIMIT = 3;
-
-/** Advisory hints githubSearchRepositories emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisorySearchReposHint = makeAdvisoryPredicate([
-  'synonym',
-  'high star filter',
-  'language filtering',
-  'topics are self-reported',
-  'sparse',
-]);
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
@@ -37,10 +20,12 @@ type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
 type ReposQueryWithVerbosity = WithVerbosity<PartialReposSearchQuery>;
 
 /**
- * Per-tool verbosity shaping for githubSearchRepositories. Under concise,
- * projects each repo to {full_name, stars, language?} and caps to 3, and
- * emits a drill-back hint. Basic / compact pass through (compact-trim of
- * advisory hints is handled at the bulk-finalizer pass).
+ * Verbosity shaping for githubSearchRepositories.
+ *
+ * verbose=false (default): omit `pushed_at`, `topics`, `license` (metadata).
+ * verbose=true: include all fields.
+ *
+ * Items are never dropped. Hints are always returned fully.
  */
 export function applyGithubSearchReposVerbosity(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
@@ -49,30 +34,19 @@ export function applyGithubSearchReposVerbosity(
   data: { repositories: unknown[]; pagination?: unknown };
   extraHints: string[];
 } {
-  if (isConcise(query)) {
-    const projected = (data.repositories ?? [])
-      .slice(0, CONCISE_REPOS_LIMIT)
-      .map(r => {
-        const owner = (r as { owner?: string }).owner;
-        const repo = (r as { repo?: string }).repo;
-        const full_name =
-          (r as { full_name?: string }).full_name ??
-          (owner && repo ? `${owner}/${repo}` : undefined);
-        return {
-          full_name,
-          stars: (r as { stars?: number }).stars,
-          language: (r as { language?: string }).language,
-        };
-      });
-    const summary = `${data.repositories?.length ?? 0} repos${
-      projected[0]?.full_name ? ` (top: ${projected[0].full_name})` : ''
-    }`;
-    return {
-      data: { repositories: projected },
-      extraHints: [summary],
-    };
+  if (isVerbose(query)) {
+    return { data, extraHints: [] };
   }
-  return { data, extraHints: [] };
+  const repositories = (data.repositories ?? []).map(r => {
+    const { pushed_at: _pa, topics: _t, license: _l, ...rest } = r as typeof r & {
+      pushed_at?: unknown;
+      topics?: unknown;
+      license?: unknown;
+    };
+    void _pa; void _t; void _l;
+    return rest;
+  });
+  return { data: { ...data, repositories }, extraHints: [] };
 }
 import {
   handleCatchError,
@@ -412,7 +386,7 @@ function generateSearchSpecificHints(
 export async function searchMultipleGitHubRepos(
   args: ToolExecutionArgs<PartialReposSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -427,26 +401,6 @@ export async function searchMultipleGitHubRepos(
         }
 
         const currentProviderContext = getProviderContext();
-        // Pre-flight: cap the effective per_page under concise so the upstream
-        // fetch reflects the trimmed response. No downgrade hint is emitted —
-        // concise's cap is its documented contract and pagination.totalMatches
-        // keeps the true count visible. Cap BOTH per_page knobs.
-        const verbosityIsConcise = isConcise(
-          query as WithVerbosity<typeof query>
-        );
-        if (verbosityIsConcise) {
-          const q = query as {
-            itemsPerPage?: number;
-            githubAPILimit?: number;
-          };
-          q.itemsPerPage = Math.min(
-            q.itemsPerPage ?? CONCISE_REPOS_LIMIT,
-            CONCISE_REPOS_LIMIT
-          );
-          if (typeof q.githubAPILimit === 'number') {
-            q.githubAPILimit = Math.min(q.githubAPILimit, CONCISE_REPOS_LIMIT);
-          }
-        }
         const variants = createSearchVariants(query);
         const { successes, failures } = await executeProviderOperations(
           variants.map(variant => ({
@@ -549,8 +503,6 @@ export async function searchMultipleGitHubRepos(
           query as ReposQueryWithVerbosity
         );
 
-        // No verbosity-feature hint: concise's limit cap is its documented
-        // contract and pagination.totalMatches keeps the full count visible.
         // Escalation hints guide agents to the next research step when repos
         // are found — the top result is the most actionable anchor.
         const escalationHints: string[] = [];
@@ -570,13 +522,7 @@ export async function searchMultipleGitHubRepos(
           ...(searchHints || []),
           ...escalationHints,
         ];
-        // Compact trim: drop advisory hints (recovery prose, synonym
-        // suggestions) while keeping pagination + downgrade + drill-back.
-        const compactMode = isCompact(query as WithVerbosity<typeof query>);
-        const finalExtraHints = compactMode
-          ? (compactTrimHints(allExtraHints, isAdvisorySearchReposHint, 2) ??
-            [])
-          : allExtraHints;
+        const finalExtraHints = allExtraHints;
 
         return createSuccessResult(
           query,
@@ -611,8 +557,6 @@ export async function searchMultipleGitHubRepos(
     {
       toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }

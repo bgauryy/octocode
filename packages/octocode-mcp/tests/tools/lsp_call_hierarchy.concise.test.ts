@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import { attachLspEvidence } from '../../src/lsp/evidence.js';
 
-// #T3 / #5b: concise call hierarchy is a tiny probe, but it must not lie about
-// the graph. It keeps call arrays, strips heavy node content, and drops stale
-// char outputPagination computed before content stripping.
-describe('lspCallHierarchy concise (#T3)', () => {
+// applyCallHierarchyVerbosity is a pass-through: it returns the original
+// result unchanged. The `verbose` boolean does not strip or reshape call data.
+describe('lspCallHierarchy verbosity contract', () => {
   const fullResult = {
     item: { name: 'startServer', content: 'x'.repeat(5000) },
     direction: 'outgoing',
@@ -15,48 +14,45 @@ describe('lspCallHierarchy concise (#T3)', () => {
       { from: { name: 'a' }, to: { name: 'c' } },
     ],
     pagination: { currentPage: 1, totalPages: 3, hasMore: true },
-    outputPagination: {
-      charOffset: 0,
-      charLength: 8000,
-      totalChars: 19024,
-      hasMore: true,
-      currentPage: 1,
-      totalPages: 3,
-    },
   } as never;
 
-  it('drops stale outputPagination and preserves calls without content', () => {
+  it('verbose:false — preserves full calls[] and pagination', () => {
     const out = applyCallHierarchyVerbosity(fullResult, {
-      verbosity: 'concise',
+      verbose: false,
       direction: 'outgoing',
     } as never) as Record<string, unknown>;
 
     expect(out.calls).toHaveLength(2);
-    expect(
-      ((out.calls as Array<{ to?: { content?: string } }>)[0]?.to ?? {}).content
-    ).toBeUndefined();
-    expect(out.pagination).toEqual(fullResult.pagination);
-    expect(out.outputPagination).toBeUndefined();
-    expect(Array.isArray(out.hints)).toBe(true);
-    expect((out.hints as string[])[0]).toMatch(/edge\(s\)/);
-    // payload must stay tiny now
-    expect(JSON.stringify(out).length).toBeLessThan(2048);
+    expect(out.pagination).toEqual(
+      (fullResult as Record<string, unknown>).pagination
+    );
   });
 
-  it('is complete:true once stale outputPagination is gone', () => {
+  it('verbose:true — preserves full calls[] and pagination', () => {
     const out = applyCallHierarchyVerbosity(fullResult, {
-      verbosity: 'concise',
+      verbose: true,
+      direction: 'outgoing',
+    } as never) as Record<string, unknown>;
+
+    expect(out.calls).toHaveLength(2);
+    expect(out.pagination).toEqual(
+      (fullResult as Record<string, unknown>).pagination
+    );
+  });
+
+  it('evidence is attached when pagination.hasMore is true', () => {
+    const out = applyCallHierarchyVerbosity(fullResult, {
+      verbose: false,
       direction: 'outgoing',
     } as never);
     const evidenced = attachLspEvidence(out, {
       kind: 'calls',
-      paginationKey: 'outputPagination',
+      paginationKey: 'pagination',
     }) as { evidence?: { complete?: boolean; answerReady?: boolean } };
-    expect(evidenced.evidence?.answerReady).toBe(true);
-    expect(evidenced.evidence?.complete).toBe(true);
+    expect(evidenced.evidence).toBeDefined();
   });
 
-  it('concise renders incoming edges from incomingCalls with call-site multiplicity', () => {
+  it('preserves incomingCalls with full content', () => {
     const incomingResult = {
       item: { name: 'target', content: 'y'.repeat(100) },
       direction: 'incoming',
@@ -71,23 +67,16 @@ describe('lspCallHierarchy concise (#T3)', () => {
     } as never;
 
     const out = applyCallHierarchyVerbosity(incomingResult, {
-      verbosity: 'concise',
+      verbose: false,
       direction: 'incoming',
     } as never) as Record<string, unknown>;
 
     expect(Array.isArray(out.incomingCalls)).toBe(true);
-    const edgesHint = (out.hints as string[])[1] ?? '';
-    // caller with 2 call sites gets a ×2 suffix; single-site caller has none.
-    expect(edgesHint).toContain('callerA → target (×2)');
-    expect(edgesHint).toContain('callerB → target');
-    // heavy node content is stripped
-    const first = (
-      out.incomingCalls as Array<{ from?: { content?: string } }>
-    )[0];
-    expect(first?.from?.content).toBeUndefined();
+    const first = (out.incomingCalls as Array<{ from?: { content?: string } }>)[0];
+    expect(first?.from?.content).toBeDefined();
   });
 
-  it('concise renders outgoing edges from outgoingCalls', () => {
+  it('preserves outgoingCalls unchanged', () => {
     const outgoingResult = {
       item: { name: 'root' },
       direction: 'outgoing',
@@ -96,38 +85,40 @@ describe('lspCallHierarchy concise (#T3)', () => {
     } as never;
 
     const out = applyCallHierarchyVerbosity(outgoingResult, {
-      verbosity: 'concise',
+      verbose: false,
     } as never) as Record<string, unknown>;
 
     expect(Array.isArray(out.outgoingCalls)).toBe(true);
-    expect((out.hints as string[])[1]).toContain('root → callee');
+    expect(out.outgoingCalls).toEqual(outgoingResult.outgoingCalls);
   });
 
-  it('concise leaves empty/error results untouched', () => {
+  it('empty/error results pass through unchanged', () => {
     const emptyResult = {
       status: 'empty',
       errorCode: 'LSP_NOT_INSTALLED',
       hints: ['x'],
     } as never;
-    const out = applyCallHierarchyVerbosity(emptyResult, {
-      verbosity: 'concise',
-    } as never);
+    const out = applyCallHierarchyVerbosity(emptyResult, {} as never);
     expect(out).toBe(emptyResult);
   });
 
-  it('compact trims advisory hints; basic passes through unchanged', () => {
+  it('hints are NOT trimmed regardless of verbose flag', () => {
+    const originalHints = [
+      'Prefer depth=1 to avoid timeouts',
+      'real data hint',
+    ];
     const withHints = {
       item: { name: 'fn' },
       direction: 'incoming',
       depth: 1,
       incomingCalls: [],
-      hints: ['Prefer depth=1 to avoid timeouts', 'real data hint'],
+      hints: [...originalHints],
     } as never;
 
-    const compact = applyCallHierarchyVerbosity(withHints, {
-      verbosity: 'compact',
+    const out = applyCallHierarchyVerbosity(withHints, {
+      verbose: false,
     } as never) as Record<string, unknown>;
-    expect(Array.isArray(compact.hints)).toBe(true);
+    expect(out.hints).toEqual(originalHints);
 
     const basic = applyCallHierarchyVerbosity(withHints, {} as never);
     expect(basic).toBe(withHints);

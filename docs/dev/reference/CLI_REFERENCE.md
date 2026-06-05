@@ -6,12 +6,12 @@ Two things in one binary: **manage** Octocode configuration and **run tools** di
 
 ```bash
 # Manage Octocode (install, auth, skills, MCP marketplace, sync, cache)
-octocode-cli <command> [options]
+octocode <command> [options]
 
 # Run any Octocode tool directly (agents and humans)
-octocode-cli --tool <toolName> --queries '<json>'
-octocode-cli --tool <toolName> --help
-octocode-cli --tools-context
+octocode --tool <toolName> --queries '<json>'
+octocode --tool <toolName> --help
+octocode --agent            # agent bootstrap: protocol + tools + input fields (add --full for schemas)
 ```
 
 ## Global Flags
@@ -20,10 +20,12 @@ octocode-cli --tools-context
 |---|---|
 | `--help` / `-h` | Show help |
 | `--version` / `-v` | Show version |
-| `--tools-context` | Print MCP instructions + all tool schemas |
+| `--agent` | Agent bootstrap: protocol + tools + input fields (add `--full` for all JSON schemas; `instructions` / `--tools-context` are aliases) |
 | `--tool <name> --queries '<json>'` | Run one Octocode tool |
 | `--tool <name> --help` | Show tool name, description, input/output schema |
-| `--json` / `--output json` | Raw JSON result |
+| `--json` / `--output json` | Raw JSON result (full MCP envelope) |
+| `--compact` | Leanest tool output: minified `structuredContent` only (~60% smaller than `--json`) |
+| `--no-color` | Disable ANSI colors (also via `NO_COLOR=1`) |
 
 ## Tools
 
@@ -57,11 +59,11 @@ Output schema (all tools):
 Examples:
 
 ```bash
-octocode-cli --tool githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
-octocode-cli --tool githubGetFileContent --queries '{"owner":"facebook","repo":"react","path":"packages/react/src/React.js","matchString":"useState"}'
-octocode-cli --tool githubCloneRepo --queries '{"owner":"facebook","repo":"react"}'
-octocode-cli --tool localSearchCode --queries '{"path":".","pattern":"runCLI"}'
-octocode-cli --tool packageSearch --queries '{"name":"react","ecosystem":"npm"}'
+octocode --tool githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
+octocode --tool githubGetFileContent --queries '{"owner":"facebook","repo":"react","path":"packages/react/src/React.js","matchString":"useState"}'
+octocode --tool githubCloneRepo --queries '{"owner":"facebook","repo":"react"}'
+octocode --tool localSearchCode --queries '{"path":".","pattern":"runCLI"}'
+octocode --tool packageSearch --queries '{"name":"react","ecosystem":"npm"}'
 ```
 
 ## Commands
@@ -84,8 +86,8 @@ Manage Octocode installation, authentication, skills, marketplace, sync, and cac
 ### install
 
 ```bash
-octocode-cli install --ide <client> [--method <npx|direct>] [--force]
-octocode-cli install --ide <client> [-m <npx|direct>] [-f]
+octocode install --ide <client> [--method <npx>] [--force]
+octocode install --ide <client> [-m <npx>] [-f]
 ```
 
 Supported clients: `cursor`, `claude`/`claude-desktop`, `claude-code`, `windsurf`, `zed`, `vscode-cline`, `vscode-roo`, `vscode-continue`, `opencode`, `trae`, `antigravity`, `codex`, `gemini-cli`, `goose`, `kiro`.
@@ -95,13 +97,13 @@ Use `npx` unless you intentionally want `direct` mode to write a local binary pa
 ### auth / login / logout / status / token
 
 ```bash
-octocode-cli auth [login|logout|status|token]
-octocode-cli login [--hostname <host>] [--git-protocol <ssh|https>]
-octocode-cli login [-H <host>] [-p <ssh|https>]
-octocode-cli logout [--hostname <host>]
-octocode-cli status [--hostname <host>]
-octocode-cli token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--json]
-octocode-cli token [-t <auto|octocode|gh>] [-H <host>] [-s] [-j]
+octocode auth [login|logout|status|token]
+octocode login [--hostname <host>] [--git-protocol <ssh|https>]
+octocode login [-H <host>] [-p <ssh|https>]
+octocode logout [--hostname <host>]
+octocode status [--hostname <host>]
+octocode token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--json]
+octocode token [-t <auto|octocode|gh>] [-H <host>] [-s] [-j]
 ```
 
 `token --type auto` matches Octocode MCP token priority: environment variables first (`OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`), then encrypted Octocode credentials, then `gh auth token`.
@@ -109,23 +111,23 @@ octocode-cli token [-t <auto|octocode|gh>] [-H <host>] [-s] [-j]
 ### sync
 
 ```bash
-octocode-cli sync [--force] [--dry-run] [--status]
+octocode sync [--force] [--dry-run] [--status]
 ```
 
 ### mcp
 
 ```bash
-octocode-cli mcp list [--search <text>] [--category <name>] [--installed] [--client <client>|--config <path>]
-octocode-cli mcp install --id <mcp-id> [--client <client>] [--env KEY=VALUE] [--force]
-octocode-cli mcp remove --id <mcp-id> [--client <client>]
+octocode mcp list [--search <text>] [--category <name>] [--installed] [--client <client>|--config <path>]
+octocode mcp install --id <mcp-id> [--client <client>] [--env KEY=VALUE] [--force]
+octocode mcp remove --id <mcp-id> [--client <client>]
 ```
 
 ### skills
 
 ```bash
-octocode-cli skills list
-octocode-cli skills install [--skill <name>] [--targets <list>] [--mode <copy|symlink>] [--force]
-octocode-cli skills remove --skill <name> [--targets <list>]
+octocode skills list
+octocode skills install [--skill <name>] [--targets <list>] [--mode <copy|symlink>] [--force]
+octocode skills remove --skill <name> [--targets <list>]
 ```
 
 Supported targets: `claude-code`, `claude-desktop`, `cursor`, `codex`, `opencode`. `--mode copy` is safest everywhere; `--mode symlink` is useful for local iteration.
@@ -135,7 +137,7 @@ See [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SK
 ### cache
 
 ```bash
-octocode-cli cache [status|clean] [--repos] [--skills] [--logs] [--all] [--tools|--local|--lsp|--api]
+octocode cache [status|clean] [--repos] [--skills] [--logs] [--all] [--tools|--local|--lsp|--api]
 ```
 
 ## Environment
@@ -147,4 +149,14 @@ octocode-cli cache [status|clean] [--repos] [--skills] [--logs] [--all] [--tools
 
 ## Exit Codes
 
-`0` = success, `1` = error.
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | General error |
+| `2` | Invalid input / unsupported flags |
+| `3` | Unknown tool or command |
+| `4` | Authentication failure |
+| `5` | Tool / API execution error |
+| `7` | Rate limited |
+
+Typed codes `2`–`7` apply to the tool surface (`tools`, `--tool`) and command dispatch so agents can branch on the failure mode. Management commands use `0`/`1`.

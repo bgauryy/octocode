@@ -1,6 +1,5 @@
 import { open, readFile, stat } from 'fs/promises';
 import { getHints } from '../../hints/index.js';
-import { applyMinification } from '../../utils/minifier/applyMinification.js';
 import { extractMatchingLines } from './contentExtractor.js';
 import {
   applyPagination,
@@ -24,22 +23,7 @@ import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
-
-/** Advisory hints localGetFileContent emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryFetchContentHint = makeAdvisoryPredicate([
-  'regex is per-line',
-  'casesensitive=true is active',
-  'not found',
-  'continuation:',
-  'fuzzier matching',
-]);
+import { isVerbose } from '../../scheme/verbosity.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
 type FetchContentQuery = WithVerbosity<
@@ -168,9 +152,9 @@ function shouldFailForLargeFile(
 ): boolean {
   return (
     fileSizeKB > RESOURCE_LIMITS.LARGE_FILE_THRESHOLD_KB &&
-    !query.charLength &&
     !query.matchString &&
-    !query.startLine
+    !query.startLine &&
+    !query.fullContent
   );
 }
 
@@ -345,9 +329,7 @@ function buildMatchExtractionState(
     };
   }
 
-  // Verbatim slice. Minification is owned by the concise verbosity finalizer
-  // (applyFetchContentVerbosity) — basic/omitted reads return content as-is,
-  // per src/scheme/verbosity.ts ("content reduced ONLY in concise").
+  // Verbatim slice — content is never minified or truncated by verbosity shaping.
   const resultContent = result.lines.join('\n');
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
@@ -363,10 +345,12 @@ function buildMatchExtractionState(
     }
   }
 
-  if (!query.charLength && resultContent.length > defaultOutputCharLength) {
+  if (resultContent.length > defaultOutputCharLength) {
+    const page = (query as unknown as { page?: number }).page ?? 1;
+    const charOffset = (page - 1) * defaultOutputCharLength;
     const autoPagination = applyPagination(
       resultContent,
-      0,
+      charOffset,
       defaultOutputCharLength
     );
     return {
@@ -385,7 +369,7 @@ function buildMatchExtractionState(
           `Auto-paginated: ${result.matchCount} matches exceeded display limit`,
           ...(matchRanges && matchRanges.length > 0
             ? [
-                'matchRanges covers this page only — advance charOffset to access further match positions.',
+                'matchRanges covers this page only — use page=N to access further match positions.',
               ]
             : []),
         ],
@@ -502,8 +486,7 @@ function buildExtractionState(
 /**
  * Continuation hint for a line-range read that stopped before EOF, derived
  * from the result's STRUCTURED fields (never by parsing hint text). Pagination
- * is orthogonal to verbosity, so this is re-applied after concise shaping to
- * keep the cursor an agent needs to read the rest. Scoped to line-range reads:
+ * is orthogonal to verbosity. Scoped to line-range reads:
  * `matchRanges` present means a matchString read, whose continuation is
  * char-offset paginated — a `startLine` cursor would be wrong there.
  */
@@ -549,31 +532,18 @@ function buildSuccessResult(
   }
 
   const warnings = [...(extraction.warnings ?? [])];
-  let effectiveCharLength = query.charLength;
+  let effectiveCharLength: number | undefined;
   let autoPaginated = false;
+  let charOffset = 0;
 
-  if (
-    !query.charLength &&
-    extraction.resultContent.length > defaultOutputCharLength
-  ) {
+  if (extraction.resultContent.length > defaultOutputCharLength) {
     effectiveCharLength = defaultOutputCharLength;
     autoPaginated = true;
+    const page = (query as unknown as { page?: number }).page ?? 1;
+    charOffset = (page - 1) * defaultOutputCharLength;
     warnings.push(
       `Auto-paginated: Content (${extraction.resultContent.length} chars) exceeds ${defaultOutputCharLength} char limit`
     );
-  }
-
-  const charOffset = query.charOffset ?? 0;
-  if (charOffset > 0 && charOffset >= extraction.resultContent.length) {
-    return {
-      status: 'error',
-      error: `charOffset ${charOffset} exceeds file content length (${extraction.resultContent.length} chars). Use charOffset < ${extraction.resultContent.length} or omit charOffset to read from the beginning.`,
-      hints: [
-        `File has ${totalLines} lines and ${extraction.resultContent.length} chars total.`,
-        `Valid charOffset range: 0 – ${extraction.resultContent.length - 1}.`,
-        'Omit charOffset to read from the start, or use charLength to get the first page.',
-      ],
-    };
   }
 
   const pagination = applyPagination(
@@ -710,59 +680,27 @@ export async function fetchContent(
 /**
  * Verbosity shaping for file reads.
  *
- * - concise: MINIFY the content (strip comments/whitespace per file type) rather
- *   than blank it — a minified body is a cheap, still-useful read, not a
- *   dead-end. Heavy metadata (lastModified/By) is dropped and a raw→minified
- *   token summary is emitted. If minification can't shrink it, content is kept
- *   verbatim (never larger than basic).
- * - compact: keep content; trim advisory hints.
- * - omitted / basic: verbatim passthrough.
+ * verbose=false (default): research content only — `modified` (mtime) is omitted.
+ * verbose=true: full response including all metadata fields.
  *
  * Exported for direct unit testing in `tests/scheme/verbosity_concise.test.ts`.
+ */
+/**
+ * Verbosity shaping for localGetFileContent.
+ *
+ * verbose=false (default): omit `modified` (metadata).
+ * verbose=true: include all fields.
+ *
+ * Content is never minified or dropped. Hints are always returned fully.
  */
 export function applyFetchContentVerbosity(
   result: LocalGetFileContentToolResult,
   query: FetchContentQuery,
-  totalLines: number
+  _totalLines: number
 ): LocalGetFileContentToolResult {
-  if (isConcise(query)) {
-    // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
-    if (result.status !== undefined) return result;
-    const filePath = result.filePath ?? query.path;
-    const raw = result.content ?? '';
-    const minified = filePath ? applyMinification(raw, String(filePath)) : raw;
-    const rawTokens = Math.ceil(raw.length / 4);
-    const minTokens = Math.ceil(minified.length / 4);
-    const hints = [
-      `${filePath}: ${totalLines} lines, ~${rawTokens}→${minTokens} tokens (minified)`,
-    ];
-    // Parity with the GitHub fetch-content tool: surface the downgrade so a
-    // fullContent request that got minified under concise isn't silent.
-    if ((query as { fullContent?: boolean }).fullContent === true) {
-      hints.push('fullContent=true minified under concise');
-    }
-    // Pagination is orthogonal to verbosity: re-derive the line-range
-    // continuation from the result's structured fields so concise never drops
-    // the cursor for the rest of the file.
-    hints.push(
-      ...lineRangeContinuationHints(
-        result as Parameters<typeof lineRangeContinuationHints>[0]
-      )
-    );
-    const shaped: LocalGetFileContentToolResult = {
-      ...result,
-      content: minified,
-      hints,
-    };
-    delete (shaped as { lastModified?: string }).lastModified;
-    delete (shaped as { lastModifiedBy?: string }).lastModifiedBy;
-    return shaped;
-  }
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryFetchContentHint, 2),
-    };
-  }
-  return result;
+  if (isVerbose(query)) return result;
+
+  const shaped = { ...result };
+  delete (shaped as { modified?: string }).modified;
+  return shaped;
 }

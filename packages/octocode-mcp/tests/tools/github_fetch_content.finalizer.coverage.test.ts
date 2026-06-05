@@ -40,7 +40,7 @@ function run(
 describe('buildGithubFetchContentFinalizer — group building & narrowing', () => {
   it('reads a full file entry with pagination, partial flags and warnings', () => {
     const queries: Query[] = [
-      { owner: 'o', repo: 'r', path: 'src/a.ts', verbosity: 'basic' },
+      { owner: 'o', repo: 'r', path: 'src/a.ts', verbose: false },
     ];
     const results: FlatQueryResult[] = [
       {
@@ -338,7 +338,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
 });
 
 describe('buildGithubFetchContentFinalizer — char pagination & truncation', () => {
-  it('paginates the bulk response and emits a responseCharOffset hint', () => {
+  it('handles multiple queries and returns results for all', () => {
     const big = 'X'.repeat(20_000);
     const queries: Query[] = [
       { owner: 'o', repo: 'r', path: 'a.ts' },
@@ -348,41 +348,29 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       { id: 'q1', data: { path: 'a.ts', content: big } },
       { id: 'q2', data: { path: 'b.ts', content: big } },
     ];
-    const out = run(queries, results, {
-      responseCharOffset: 0,
-      responseCharLength: 5_000,
-    });
+    const out = run(queries, results, {});
     const data = out.structuredContent as {
-      responsePagination?: { hasMore?: boolean };
-      hints?: string[];
-      warnings?: Array<{ kind: string }>;
+      results: Array<{ files?: Array<{ content: string }> }>;
     };
-    expect(data.responsePagination).toBeDefined();
-    if (data.responsePagination?.hasMore) {
-      expect(data.hints?.some(h => /responseCharOffset=/.test(h))).toBe(true);
-    }
+    expect(data.results.length).toBeGreaterThan(0);
   });
 
-  it('windows an oversized single file by char pagination — no truncation warning', () => {
+  it('returns large file content without truncation warning', () => {
     const huge = 'Z'.repeat(60_000);
     const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'huge.ts' }];
     const results: FlatQueryResult[] = [
       { id: 'q1', data: { path: 'huge.ts', content: huge } },
     ];
-    const out = run(queries, results, {
-      responseCharLength: 5_000,
-    });
+    const out = run(queries, results, {});
     const data = out.structuredContent as {
       warnings?: Array<{ kind: string; path?: string }>;
       results: Array<{ files?: Array<{ content: string }> }>;
-      responsePagination?: { hasMore: boolean };
     };
-    // No truncation warnings — the content is paginated, not clipped.
-    expect(data.warnings).toBeUndefined();
-    const content = data.results[0].files![0].content;
-    expect(content.length).toBeLessThan(huge.length);
-    expect(content).not.toMatch(/\[(truncated|clipped)\]/i);
-    expect(data.responsePagination?.hasMore).toBe(true);
+    // No truncation warnings — content is returned as-is or auto-paginated.
+    expect(
+      data.warnings?.some(w => w.kind === 'content-truncated') ?? false
+    ).toBe(false);
+    expect(data.results[0].files![0].content).not.toMatch(/\[(truncated|clipped)\]/i);
   });
 
   it('paginates a group of small files + a directory without truncating any item', () => {
@@ -441,30 +429,25 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
 });
 
 describe('applyGithubFetchContentVerbosity', () => {
-  it('returns false and passes through when no queries opt in', () => {
+  it('strips lastModified/lastModifiedBy metadata when no queries are verbose (default)', () => {
     const responseData = {
       results: [
         {
           id: 'o/r',
           owner: 'o',
           repo: 'r',
-          files: [{ path: 'a', content: 'x' }],
+          files: [{ path: 'a', content: 'x', lastModified: '2026', lastModifiedBy: 'alice' }],
         },
       ],
       hints: ['keep me'],
     } as never;
-    const applied = applyGithubFetchContentVerbosity(responseData, [
-      { owner: 'o', repo: 'r', verbosity: 'basic' },
-    ] as never);
-    expect(applied).toBe(false);
+    applyGithubFetchContentVerbosity(responseData, [] as never);
+    // metadata stripped since no query has verbose=true
+    const file = (responseData as any).results[0].files[0];
+    expect(file).not.toHaveProperty('lastModified');
   });
 
-  it('returns false when queries array is empty (no allConcise)', () => {
-    const responseData = { results: [] } as never;
-    expect(applyGithubFetchContentVerbosity(responseData, [])).toBe(false);
-  });
-
-  it('minifies content, drops metadata and rewrites hints under concise', () => {
+  it('preserves all metadata when at least one query has verbose=true', () => {
     const responseData = {
       results: [
         {
@@ -479,29 +462,48 @@ describe('applyGithubFetchContentVerbosity', () => {
               lastModified: '2026-01-01',
               lastModifiedBy: 'bob',
             },
-            { path: '', content: 'no path -> raw' },
           ],
         },
       ],
       hints: ['old hint'],
     } as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
+    applyGithubFetchContentVerbosity(
       responseData as never,
-      [{ owner: 'o', repo: 'r', verbosity: 'concise' }] as never
+      [{ owner: 'o', repo: 'r', verbose: true }] as never
     );
-    expect(applied).toBe(true);
     const results = responseData.results as Array<{
       files: Array<Record<string, unknown>>;
     }>;
     const file0 = results[0].files[0];
-    expect(file0.lastModified).toBeUndefined();
-    expect(file0.lastModifiedBy).toBeUndefined();
-    const hints = responseData.hints as string[];
-    expect(hints).toHaveLength(1);
-    expect(hints[0]).toMatch(/files,.*lines,.*tokens \(minified\)/);
+    // Metadata preserved when verbose=true
+    expect(file0.lastModified).toBe('2026-01-01');
+    expect(file0.lastModifiedBy).toBe('bob');
   });
 
-  it('appends a verbosity-downgrade warning when fullContent=true under concise', () => {
+  it('passes through results with no files array without error', () => {
+    const responseData = {
+      results: [{ id: 'o/r', owner: 'o', repo: 'r', directories: [] }],
+    } as Record<string, unknown>;
+    expect(() =>
+      applyGithubFetchContentVerbosity(
+        responseData as never,
+        [{ owner: 'o', repo: 'r' }] as never
+      )
+    ).not.toThrow();
+    expect(responseData.hints).toBeUndefined();
+  });
+
+  it('passes through missing results without error', () => {
+    const responseData = {} as Record<string, unknown>;
+    expect(() =>
+      applyGithubFetchContentVerbosity(
+        responseData as never,
+        [{ owner: 'o', repo: 'r' }] as never
+      )
+    ).not.toThrow();
+  });
+
+  it('no warnings injected by verbosity layer', () => {
     const responseData = {
       results: [
         {
@@ -513,101 +515,21 @@ describe('applyGithubFetchContentVerbosity', () => {
       ],
       warnings: [{ kind: 'pre-existing' }],
     } as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
+    applyGithubFetchContentVerbosity(
       responseData as never,
-      [
-        { owner: 'o', repo: 'r', verbosity: 'concise', fullContent: true },
-      ] as never
+      [{ owner: 'o', repo: 'r' }] as never
     );
-    expect(applied).toBe(true);
-    const warnings = responseData.warnings as Array<{
-      kind: string;
-      field?: string;
-    }>;
-    expect(warnings.some(w => w.kind === 'verbosity-downgrade')).toBe(true);
-    expect(warnings.some(w => w.field === 'fullContent')).toBe(true);
-  });
-
-  it('handles concise with missing results/files arrays gracefully', () => {
-    const responseData = {} as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
-      responseData as never,
-      [{ owner: 'o', repo: 'r', verbosity: 'concise' }] as never
-    );
-    expect(applied).toBe(true);
-    const hints = responseData.hints as string[];
-    expect(hints[0]).toMatch(/0 files, 0 lines/);
-  });
-
-  it('handles concise group without a files array and accumulates totalLines', () => {
-    const responseData = {
-      results: [
-        // group with no `files` key -> `g.files ?? []` and reduce fallback
-        { id: 'o/r', owner: 'o', repo: 'r', directories: [] },
-        {
-          id: 'o/r2',
-          owner: 'o',
-          repo: 'r2',
-          files: [{ path: 'b.ts', content: 'const y=2;', totalLines: 5 }],
-        },
-      ],
-    } as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
-      responseData as never,
-      [{ owner: 'o', repo: 'r', verbosity: 'concise' }] as never
-    );
-    expect(applied).toBe(true);
-    const hints = responseData.hints as string[];
-    // 1 file, 5 lines accumulated from the second group only.
-    expect(hints[0]).toMatch(/1 files, 5 lines/);
-  });
-
-  it('accumulates zero lines under concise when files lack totalLines', () => {
-    // Forces `f.totalLines ?? 0` onto the `?? 0` side (line 484).
-    const responseData = {
-      results: [
-        {
-          id: 'o/r',
-          owner: 'o',
-          repo: 'r',
-          files: [{ path: 'a.ts', content: 'const z = 3;' }],
-        },
-      ],
-    } as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
-      responseData as never,
-      [{ owner: 'o', repo: 'r', verbosity: 'concise' }] as never
-    );
-    expect(applied).toBe(true);
-    const hints = responseData.hints as string[];
-    expect(hints[0]).toMatch(/1 files, 0 lines/);
-  });
-
-  it('creates a fresh warnings array for fullContent downgrade when none exists', () => {
-    const responseData = {
-      results: [
-        {
-          id: 'o/r',
-          owner: 'o',
-          repo: 'r',
-          files: [{ path: 'a.ts', content: 'x' }],
-        },
-      ],
-      // no `warnings` key -> `responseData.warnings ?? []` false-undefined side
-    } as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
-      responseData as never,
-      [
-        { owner: 'o', repo: 'r', verbosity: 'concise', fullContent: true },
-      ] as never
-    );
-    expect(applied).toBe(true);
     const warnings = responseData.warnings as Array<{ kind: string }>;
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0].kind).toBe('verbosity-downgrade');
+    expect(warnings.some(w => w.kind === 'pre-existing')).toBe(true);
   });
 
-  it('trims advisory hints under compact (anyCompact)', () => {
+  it('hints are not modified by verbosity layer', () => {
+    const allHints = [
+      'file_too_large to display fully',
+      'too large to display',
+      'useful hint 1',
+      'useful hint 2',
+    ];
     const responseData = {
       results: [
         {
@@ -617,23 +539,15 @@ describe('applyGithubFetchContentVerbosity', () => {
           files: [{ path: 'a', content: 'x' }],
         },
       ],
-      hints: [
-        'file_too_large to display fully',
-        'too large to display',
-        'useful hint 1',
-        'useful hint 2',
-      ],
+      hints: [...allHints],
     } as Record<string, unknown>;
-    const applied = applyGithubFetchContentVerbosity(
+    applyGithubFetchContentVerbosity(
       responseData as never,
-      [
-        { owner: 'o', repo: 'r', verbosity: 'compact' },
-        { owner: 'o', repo: 'r', verbosity: 'basic' },
-      ] as never
+      [{ owner: 'o', repo: 'r' }] as never
     );
-    expect(applied).toBe(false);
+    // Hints are not modified by the verbosity layer
     const hints = responseData.hints as string[];
-    // Advisory hints (file_too_large / too large) stripped under compact.
-    expect(hints.some(h => /too large/.test(h))).toBe(false);
+    expect(hints).toEqual(allHints);
+    expect(hints.some(h => /too large/.test(h))).toBe(true);
   });
 });

@@ -430,7 +430,6 @@ describe('GitHub Search Pull Requests Tool', () => {
             owner: 'test',
             repo: 'repo',
             state: 'open',
-            itemsPerPage: 5,
             page: 3,
           },
         ],
@@ -440,7 +439,7 @@ describe('GitHub Search Pull Requests Tool', () => {
       const providerQuery = mockProvider.searchPullRequests.mock.calls[0]?.[0];
       expect(providerQuery).toBeDefined();
       expect(providerQuery.page).toBe(3);
-      expect(providerQuery.limit).toBe(5);
+      expect(providerQuery.limit).toBeGreaterThan(0);
     });
 
     it('should include page in provider query when explicitly set', async () => {

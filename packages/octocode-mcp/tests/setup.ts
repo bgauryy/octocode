@@ -524,14 +524,12 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   // Stubs need `.shape.charOffset`, `.shape.queries`, etc. accessed by the
   // overlay code in src/scheme/. Include the keys that are actually read.
   const passthrough = () =>
-    z
-      .object({
-        charOffset: z.number().optional().default(0),
-      })
-      .passthrough();
+    z.looseObject({
+      charOffset: z.number().optional().default(0),
+    });
   const identityValidator = <T>(v: T) => v;
   const stubBulkSchema = () =>
-    z.object({ queries: z.array(z.unknown()) }).passthrough();
+    z.looseObject({ queries: z.array(z.unknown()) });
 
   const schemaStubs = {
     // Local tools

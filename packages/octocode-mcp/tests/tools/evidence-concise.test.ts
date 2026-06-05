@@ -16,71 +16,67 @@ describe('paginationTotal', () => {
   });
 });
 
-describe('concise probe evidence (issues #3 / #4)', () => {
-  // A concise probe intentionally empties the display array but keeps the count
-  // in pagination. The probe's answer IS that count, so answerReady must be true
-  // and pagination "has more" (display-only) must not mark it incomplete.
+describe('evidence builders', () => {
   describe('buildFindFilesEvidence', () => {
-    it('is answer-ready and complete for a concise count probe', () => {
-      const ev = buildFindFilesEvidence(
-        { files: [], pagination: { hasMore: true, totalFiles: 227 } },
-        true
-      );
+    it('is answer-ready when pagination reports files even if display array is empty', () => {
+      const ev = buildFindFilesEvidence({
+        files: [],
+        pagination: { hasMore: true, totalFiles: 227 },
+      });
       expect(ev.answerReady).toBe(true);
-      expect(ev.complete).toBe(true);
-      expect(ev.reason).toBeUndefined();
     });
-    it('keeps pagination reasons in basic mode', () => {
-      const ev = buildFindFilesEvidence(
-        {
-          files: [{ path: 'a.ts' }],
-          pagination: { hasMore: true, totalFiles: 227 },
-        },
-        false
-      );
+    it('marks incomplete when pagination has more results', () => {
+      const ev = buildFindFilesEvidence({
+        files: [{ path: 'a.ts' }],
+        pagination: { hasMore: true, totalFiles: 227 },
+      });
       expect(ev.answerReady).toBe(true);
       expect(ev.complete).toBe(false);
       expect(ev.reason).toContain('File pagination has more results.');
     });
     it('reports not-ready when there are genuinely zero files', () => {
-      const ev = buildFindFilesEvidence(
-        { files: [], pagination: { totalFiles: 0 } },
-        true
-      );
+      const ev = buildFindFilesEvidence({
+        files: [],
+        pagination: { totalFiles: 0 },
+      });
       expect(ev.answerReady).toBe(false);
       expect(ev.reason).toContain('No files matched');
     });
   });
 
-  describe('buildViewStructureEvidence (#4 misleading reason)', () => {
-    it('does not claim "no entries matched" when concise dropped a non-empty tree', () => {
-      const ev = buildViewStructureEvidence(
-        { entries: [], pagination: { hasMore: true, totalEntries: 20 } },
-        true
-      );
+  describe('buildViewStructureEvidence', () => {
+    it('is answer-ready when pagination reports entries even if display array is empty', () => {
+      const ev = buildViewStructureEvidence({
+        entries: [],
+        pagination: { hasMore: true, totalEntries: 20 },
+      });
       expect(ev.answerReady).toBe(true);
-      expect(ev.complete).toBe(true);
-      expect(ev.reason).toBeUndefined();
     });
     it('still reports an empty view when the tree really is empty', () => {
-      const ev = buildViewStructureEvidence(
-        { entries: [], pagination: { totalEntries: 0 } },
-        true
-      );
+      const ev = buildViewStructureEvidence({
+        entries: [],
+        pagination: { totalEntries: 0 },
+      });
       expect(ev.answerReady).toBe(false);
       expect(ev.reason).toContain('No directory entries matched');
     });
   });
 
   describe('buildRipgrepEvidence', () => {
-    it('is answer-ready and complete for a concise discovery probe', () => {
-      const ev = buildRipgrepEvidence(
-        { files: [], pagination: { hasMore: true, totalFiles: 13 } },
-        true
-      );
+    it('is answer-ready when pagination reports files even if display array is empty', () => {
+      const ev = buildRipgrepEvidence({
+        files: [],
+        pagination: { hasMore: true, totalFiles: 13 },
+      });
       expect(ev.answerReady).toBe(true);
-      expect(ev.complete).toBe(true);
-      expect(ev.reason).toBeUndefined();
+    });
+    it('marks incomplete when file pagination has more', () => {
+      const ev = buildRipgrepEvidence({
+        files: [{ path: 'a.ts', matches: [] }],
+        pagination: { hasMore: true, totalFiles: 5 },
+      });
+      expect(ev.complete).toBe(false);
+      expect(ev.reason).toContain('File pagination has more results.');
     });
   });
 });

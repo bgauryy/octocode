@@ -25,11 +25,21 @@ export const hints: ToolHintGenerators = {
         'Verify `lineHint` points to the exact line where the symbol is defined — use `localSearchCode` to confirm the line number first.',
       ];
     }
-    return [
-      'No references found.',
-      'Use `localSearchCode` to find textual usages of the symbol if LSP is unavailable for this language.',
-    ];
+    return [];
   },
 
-  error: () => [],
+  error: (ctx: HintContext = {}) => {
+    if (ctx.errorType === 'timeout') {
+      return [
+        'Reference lookup timed out — try scoping with `includePattern` to a single package, or use `localSearchCode` as a text fallback.',
+      ];
+    }
+    if (ctx.errorType === 'not_found') {
+      const symbolName = ctx.symbolName;
+      return [
+        `LSP could not locate the symbol${symbolName ? ` "${symbolName}"` : ''} — fall back to \`localSearchCode\` with the symbol name as a text pattern.`,
+      ];
+    }
+    return [];
+  },
 };

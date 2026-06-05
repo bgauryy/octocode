@@ -19,10 +19,7 @@ export const hints: ToolHintGenerators = {
         'Verify `lineHint` is on the function definition line — use `localSearchCode` to find the exact line first.',
       ];
     }
-    return [
-      'No call hierarchy returned.',
-      'Use `localSearchCode` to locate call sites textually when LSP is unavailable for this language.',
-    ];
+    return [];
   },
 
   error: (ctx: HintContext = {}) => {
@@ -34,7 +31,9 @@ export const hints: ToolHintGenerators = {
       ];
     }
     if (errorType === 'timeout') {
-      return [`Depth=${depth} caused timeout — reduce depth to 1 and trace one direction at a time.`];
+      return [
+        `Depth=${depth} caused timeout — reduce depth to 1 and trace one direction at a time.`,
+      ];
     }
     return [];
   },

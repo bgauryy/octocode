@@ -160,7 +160,6 @@ describe('toolCommand', () => {
             reasoning: 'Executed via octocode-cli tool command',
           }),
         ],
-        responseCharLength: 1200,
       })
     );
     expect(consoleSpy).toHaveBeenCalledWith('github output');
@@ -235,7 +234,7 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Use octocode tools')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it('rejects legacy tool-specific flags and requires one JSON payload', async () => {
@@ -255,7 +254,7 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unsupported tool flags')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it('rejects invalid JSON payloads for canonical tool usage', async () => {
@@ -273,7 +272,7 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Tool input must be valid JSON')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it('schema validation failure should show error', async () => {
@@ -297,7 +296,7 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('pattern:')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it('tool execution throwing should show error and return false', async () => {
@@ -342,7 +341,7 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Ripgrep launcher failed.')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(5);
 
     vi.mocked(publicMocks.localSearchCode).mockResolvedValue({
       content: [{ type: 'text', text: 'tool output' }],
@@ -380,11 +379,11 @@ describe('toolCommand', () => {
     expect(output).toContain('Tool input must be a JSON object');
   });
 
-  it('builds tools context from MCP instructions and tool schemas', async () => {
+  it('builds tools context from MCP instructions and tool schemas (--full)', async () => {
     const { getToolsContextString } =
       await import('../../src/cli/tool-command.js');
 
-    const context = await getToolsContextString();
+    const context = await getToolsContextString({ full: true });
 
     expect(publicMocks.loadToolContent).toHaveBeenCalledTimes(1);
     expect(context).toContain('CLI Usage:');
@@ -397,5 +396,16 @@ describe('toolCommand', () => {
     expect(context).toContain('"keywordsToSearch"');
     expect(context).toContain('"owner"');
     expect(context).toContain('"repo"');
+  });
+
+  it('builds a lean default tools context (compact field lists)', async () => {
+    const { getToolsContextString } =
+      await import('../../src/cli/tool-command.js');
+
+    const context = await getToolsContextString();
+
+    expect(context).toContain('Input fields:');
+    expect(context).not.toContain('"$schema"');
+    expect(context).toContain('1. githubSearchCode');
   });
 });

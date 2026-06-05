@@ -90,10 +90,10 @@ function cleanupStalePendingRequests(): void {
 }
 
 /**
- * Fields that MUST NOT be part of the cache key. Verbosity is a per-request
- * response-shaping lever — basic / compact / concise all share the same upstream
- * fetch and the same cached payload (shape-down happens post-fetch).
- * Including it would create N separate cache entries per semantic query and
+ * Fields that MUST NOT be part of the cache key. `verbose` is a per-request
+ * response-shaping flag — verbose=true/false both share the same upstream
+ * fetch and cached payload (shaping happens post-fetch).
+ * Including it would create duplicate cache entries per semantic query and
  * defeat the cache.
  */
 const CACHE_KEY_EXCLUDED_FIELDS: ReadonlySet<string> = new Set(['verbosity']);

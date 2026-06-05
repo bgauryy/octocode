@@ -1,25 +1,41 @@
 import { z } from 'zod';
+import { completeMetadata } from '@octocodeai/octocode-core';
 import {
   RipgrepQuerySchema as UpstreamRipgrepQuerySchema,
   FindFilesQuerySchema as UpstreamFindFilesQuerySchema,
   ViewStructureQuerySchema as UpstreamViewStructureQuerySchema,
   FetchContentQuerySchema as UpstreamFetchContentQuerySchema,
 } from '@octocodeai/octocode-core/schemas';
-import { VERBOSITY_VALUES } from '@octocodeai/octocode-core/types';
-import type { Verbosity } from '@octocodeai/octocode-core/types';
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import { validateFileContentExtractionMode } from './fileContentModeValidation.js';
-
-// Re-export the canonical enum + type so consumers in this package don't have
-// to import from @octocodeai/octocode-core directly.
-export { VERBOSITY_VALUES };
-export type { Verbosity };
 
 export function describeField<T extends z.ZodTypeAny>(
   field: T,
   description: string
 ): T {
   return field.describe(description) as T;
+}
+
+export function withCoreSchemaDescriptions<
+  T extends z.ZodObject<z.ZodRawShape>,
+>(toolName: string, schema: T): T {
+  const tool = completeMetadata.tools[toolName];
+  const descriptions = {
+    ...completeMetadata.baseSchema,
+    ...(tool?.schema ?? {}),
+  } as Record<string, unknown>;
+  const describedShape = Object.fromEntries(
+    Object.entries(schema.shape).map(([fieldName, fieldSchema]) => {
+      const description = descriptions[fieldName];
+      return [
+        fieldName,
+        typeof description === 'string'
+          ? (fieldSchema as z.ZodTypeAny).describe(description)
+          : fieldSchema,
+      ];
+    })
+  ) as z.ZodRawShape;
+  return schema.extend(describedShape) as unknown as T;
 }
 
 /**
@@ -44,33 +60,18 @@ export function clampedInt(min: number, max: number) {
 
 export const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 100_000;
 
-export const LOCAL_OVERLAY_MAX_CHAR_LENGTH = 100_000;
-
 const LOCAL_OVERLAY_MAX_CONTEXT_LINES = 100;
 
 const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = 1_000;
-
-// Caps the aggregated response char offset. Agents that want to scan deeper
-// must paginate via individual queries — there is no legitimate use case for
-// skipping more than this many characters of a single bulk response.
-export const LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET = 10_000_000;
 
 // Caps the number of entries returned by find_files / view_structure before
 // pagination. Prevents agents from driving unbounded fs walks via a single
 // `limit: 1e9` call.
 export const LOCAL_OVERLAY_MAX_LIMIT = 10_000;
 
-// Caps recursion depth for view_structure and lsp_call_hierarchy. Twenty is
-// already deeper than any realistic source tree or call graph; deeper scans
-// should paginate via pageNumber instead.
+// Caps recursion depth for view_structure and lsp_call_hierarchy.
 export const LOCAL_OVERLAY_MAX_DEPTH = 20;
 
-// Caps for line numbers, occurrence indices, filesystem walk depth, and the
-// ripgrep pre-pagination caps. These exist mainly to give the upstream
-// `z.number().int()` fields real bounds: without an explicit `.min()/.max()`,
-// zod serializes them as ±9007199254740991 (the JS safe-integer range) into
-// every published inputSchema — token bloat plus a validation gap (negatives
-// and absurd values pass). Generous but finite.
 export const LOCAL_OVERLAY_MAX_LINE = 1_000_000_000;
 export const LOCAL_OVERLAY_MAX_ORDER_HINT = 100_000;
 export const LOCAL_OVERLAY_MAX_FS_DEPTH = 100;
@@ -80,12 +81,6 @@ export const lineNumberField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
 
 /** 1-based line hint that the LSP tools require (non-optional). */
 export const requiredLineHintField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE);
-
-/** Non-negative character offset for output pagination (optional). */
-export const charOffsetField = clampedInt(
-  0,
-  LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET
-).optional();
 
 /** 0-based occurrence index on the hinted line (optional). */
 export const orderHintField = clampedInt(
@@ -97,10 +92,7 @@ export const orderHintField = clampedInt(
 const fsDepthField = clampedInt(0, LOCAL_OVERLAY_MAX_FS_DEPTH).optional();
 
 /**
- * Ripgrep pre-pagination cap (maxFiles / maxMatchesPerFile), optional. Capped
- * at 100000 — a realistic discovery ceiling aligned with the find/view `limit`
- * philosophy. The old 1e9 bound was a *soft* sentinel (no real ceiling, defeats
- * the "prevent unbounded walk" intent).
+ * Ripgrep pre-pagination cap (maxFiles / maxMatchesPerFile), optional.
  */
 const ripgrepCapField = clampedInt(1, 100_000).optional();
 
@@ -112,16 +104,7 @@ const matchContentLengthField = clampedInt(
   .default(200)
   .describe(
     'Maximum characters per individual match snippet. Default 200, max 100000. ' +
-      'Raise this when matches sit on very long lines (minified code, JSON blobs, generated SQL). ' +
-      'Total output size is still bounded by charLength / responseCharLength budgets — ' +
-      'prefer paginating via page / matchesPerFile over truncating a single match.'
-  );
-
-export const localCharLengthField = clampedInt(1, LOCAL_OVERLAY_MAX_CHAR_LENGTH)
-  .optional()
-  .describe(
-    'Character budget for output pagination of this query. Unified at 100000 across local tools. ' +
-      'Pair with charOffset for explicit pagination instead of truncating responses.'
+      'Raise this when matches sit on very long lines (minified code, JSON blobs, generated SQL).'
   );
 
 export const contextLinesField = clampedInt(0, LOCAL_OVERLAY_MAX_CONTEXT_LINES)
@@ -131,88 +114,20 @@ export const contextLinesField = clampedInt(0, LOCAL_OVERLAY_MAX_CONTEXT_LINES)
 export const relaxedPageNumberField = clampedInt(
   1,
   LOCAL_OVERLAY_MAX_PAGINATION_LIMIT
-).optional();
-
-/** Default whole-items-per-response page size shared across bulk tools. */
-export const DEFAULT_ITEMS_PER_PAGE = 20;
-
-/**
- * Display page size: how many WHOLE top-level result items (repos, PRs, code
- * matches, packages, dir entries, files, refs, calls) a response returns before
- * paginating. The item is the atomic unit — never sliced mid-item. Bounded to
- * 100; default 20. This base field is TOOL-AGNOSTIC — the GitHub-specific
- * "drives per_page" nuance is added per-tool via `githubItemsPerPageField`, so
- * non-GitHub tools (npm / filesystem / LSP) don't publish a false GitHub claim.
- */
-export const itemsPerPageField = clampedInt(1, 100)
-  .default(DEFAULT_ITEMS_PER_PAGE)
-  .describe(
-    'Whole result items returned per response page (the atomic unit — never ' +
-      'sliced mid-item). Default 20.'
-  );
-
-/**
- * GitHub-flavored `itemsPerPage` for the search tools (code/repos/PRs) whose
- * page size drives the GitHub API `per_page`. Same bound/default as the base
- * field; only the description carries the per_page coupling note.
- */
-export const githubItemsPerPageField = itemsPerPageField.describe(
-  'Whole result items returned per response page (the atomic unit — never ' +
-    'sliced mid-item). Drives GitHub per_page so fetched == shown unless ' +
-    'githubAPILimit overrides it. Default 20.'
-);
-
-/**
- * Inner page size for localSearchCode: how many matches are shown PER FILE
- * (ripgrep's secondary axis; files are the top-level `itemsPerPage`). Bounded
- * to 100; default 20.
- */
-export const matchesPerFileField = clampedInt(1, 100)
-  .default(DEFAULT_ITEMS_PER_PAGE)
-  .describe(
-    'Matches shown per file (the inner axis; files are the top-level ' +
-      'itemsPerPage). Default 20.'
-  );
-
-/**
- * Raw GitHub API page size (`per_page`) — the COST/coverage knob, distinct from
- * the display `itemsPerPage`. Renamed from the old `limit` for clear
- * separation: this is the GitHub-API dial. Optional; when omitted, `per_page`
- * falls back to `itemsPerPage`. Bounded to GitHub's 100 per_page ceiling.
- */
-export const githubApiLimitField = clampedInt(1, 100)
+)
   .optional()
-  .describe(
-    'GitHub API page size (per_page) — the raw fetch/cost knob, separate from ' +
-      'the display itemsPerPage. Omit to track itemsPerPage. Max 100; walk ' +
-      'further pages with `page` up to GitHub’s 1000-result ceiling.'
-  );
+  .default(1);
 
 /**
- * Effective GitHub `per_page`: the explicit API knob (`githubAPILimit`) wins;
- * otherwise the display page size (`itemsPerPage`) drives the fetch so
- * fetched == shown; otherwise the tool fallback.
+ * Page size constants — fixed per tool category for predictable, consistent
+ * responses. Agents use `page` to navigate; item count per page is constant.
+ *
+ * DEFAULT_PAGE_SIZE (20): search tools (code, repos, PRs, packages), LSP tools.
+ * STRUCTURE_PAGE_SIZE (100): navigation tools (view-structure, find-files)
+ *   where entries are compact path strings (~30 chars each).
  */
-export function resolveGithubPerPage(
-  query: {
-    githubAPILimit?: number | null;
-    itemsPerPage?: number | null;
-  },
-  fallback: number = DEFAULT_ITEMS_PER_PAGE
-): number {
-  if (typeof query.githubAPILimit === 'number') return query.githubAPILimit;
-  if (typeof query.itemsPerPage === 'number') return query.itemsPerPage;
-  return fallback;
-}
-
-const limitField = clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
-  .optional()
-  .describe(
-    `Hard PRE-pagination cap: the maximum entries discovered before paging — ` +
-      `distinct from itemsPerPage (the per-page window, which is ≤ limit). ` +
-      `Use limit to bound a large fs walk; use itemsPerPage to size each page. ` +
-      `Max ${LOCAL_OVERLAY_MAX_LIMIT}.`
-  );
+export const DEFAULT_PAGE_SIZE = 20;
+export const STRUCTURE_PAGE_SIZE = 100;
 
 export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
   .optional()
@@ -220,26 +135,21 @@ export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
     `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. For large trees, page the entries (page=N) or narrow the path rather than over-deepening.`
   );
 
-// Cross-tool detail controls. `verbosity` is the legacy 3-tier surface kept for
-// compatibility; `verbose` is the boolean surface agents should prefer.
-export const verbosityField = z.enum(VERBOSITY_VALUES).optional();
+/** Boolean detail switch added to every tool's per-query schema. */
 export const verboseField = z
   .boolean()
   .optional()
   .describe(
-    'Boolean detail switch. false returns efficient findings/research data; true includes extended metadata as well. If both verbose and verbosity are supplied, verbosity wins.'
+    'Boolean detail switch shared by every tool query. false returns efficient research data; true includes extended metadata.'
   );
 
 /**
- * Generic helper: adds the optional detail fields to any upstream query type.
- * Lets per-tool query types avoid redeclaring the same `verbosity` / `verbose`
- * shape.
+ * Adds the optional verbose detail field to any upstream query type.
  */
-export type WithVerbosity<T> = T & { verbosity?: Verbosity; verbose?: boolean };
+export type WithVerbosity<T> = T & { verbose?: boolean };
 
 /**
- * Cross-tool query-metadata shape. Mirrors `optionalMetaFields` so per-tool
- * query types can compose it without redeclaring every optional field.
+ * Cross-tool query-metadata shape.
  */
 export type WithQueryMeta<T> = T & {
   id?: string;
@@ -250,33 +160,24 @@ export type WithQueryMeta<T> = T & {
 
 /**
  * Composition of the two helpers above — the canonical shape that every
- * tool's query type now exposes. Replaces the hand-written intersections
- * scattered across this file.
+ * tool's query type now exposes.
  */
 export type WithLocalOverlay<T> = WithVerbosity<WithQueryMeta<T>>;
 
 /**
- * Legacy per-tool verbosity field.
+ * Returns the single verbose field. All tool schemas call this to add
+ * the detail switch without duplicating the description.
  */
-export function createVerbosityField() {
-  return z.enum(VERBOSITY_VALUES).optional();
-}
-
 export function createVerbosityFields() {
   return {
-    verbosity: createVerbosityField(),
     verbose: verboseField,
   } as const;
 }
 
-// All tools share the same Zod fields. Tool-specific guidance for detail level
-// goes into the tool's own <gotchas> in octocode-core/src/resources/tools/*.ts.
-// Call createVerbosityFields() inline at each .extend() site below.
-
 /**
- * Creates a bulk query schema that is less strict than the upstream one.
- * It keeps the shared bulk envelope consistent across local, remote, and LSP
- * overlays while enforcing the public 1-5 query contract.
+ * Creates a bulk query schema for the given tool. Each bulk call accepts
+ * 1–5 queries that run in parallel. Results are paginated at the item
+ * level via the per-query `page` field — no char-based windowing.
  */
 export function createRelaxedBulkQuerySchema(
   toolName: string,
@@ -284,7 +185,7 @@ export function createRelaxedBulkQuerySchema(
   options: { maxQueries?: number } = {}
 ) {
   const { maxQueries = 5 } = options;
-  const bulkSchema = z
+  return z
     .object({
       queries: z
         .array(querySchema)
@@ -292,22 +193,7 @@ export function createRelaxedBulkQuerySchema(
         .max(maxQueries)
         .describe(
           `Array of queries for ${toolName}. Maximum is ${maxQueries} queries per call. ` +
-            'Multiple queries run in parallel. Large results are paginated — page ' +
-            'through them with responseCharOffset/responseCharLength to fetch more.'
-        ),
-      // clampedInt (not bare .min().max()) so an out-of-range value CLAMPS
-      // rather than hard-rejecting the whole batch — consistent with the
-      // per-query charOffset/charLength fields (C1: same knob, same behavior).
-      responseCharOffset: clampedInt(0, LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET)
-        .optional()
-        .describe(
-          'Optional character offset for the aggregated response. Use for paginating very large bulk results. ' +
-            `Max ${LOCAL_OVERLAY_MAX_RESPONSE_CHAR_OFFSET} — paginate via individual queries for deeper scans.`
-        ),
-      responseCharLength: clampedInt(1, LOCAL_OVERLAY_MAX_CHAR_LENGTH)
-        .optional()
-        .describe(
-          `Optional character limit for the aggregated response. Use to control token usage. Max ${LOCAL_OVERLAY_MAX_CHAR_LENGTH}.`
+            'Multiple queries run in parallel. Use the per-query `page` field to navigate through results.'
         ),
     })
     .superRefine((data, ctx) => {
@@ -330,21 +216,10 @@ export function createRelaxedBulkQuerySchema(
         }
       });
     });
-
-  // NOTE: z.preprocess(normalizeVerboseFlagInBulk, ...) was removed.
-  // The verbose→verbosity normalization is already handled by verbosity.ts
-  // readVerbosity() which checks both `verbosity` and `verbose` fields.
-  // Removing the z.preprocess wrapper keeps bulkSchema as a plain ZodObject
-  // so the MCP SDK's normalizeObjectSchema can correctly expose its shape
-  // in tools/list — no longer returns { properties: {} }.
-  return bulkSchema;
 }
 
 /**
  * Optional research-metadata fields shared by every tool's per-query schema.
- * Includes the base detail controls so every tool can accept `verbose`.
- * Exported so LSP / remote overlays reuse the same definitions and
- * descriptions instead of duplicating them.
  */
 export const optionalMetaFields = {
   id: z.string().optional().describe('Stable query identifier.'),
@@ -363,130 +238,93 @@ export const optionalMetaFields = {
   ...createVerbosityFields(),
 } as const;
 
-// Field descriptions are upstream (localSearchCode.ts). Overlay supplies only
-// detail controls, relaxed numeric ranges, and pagination defaults.
-// The superRefine mirrors the runtime mutex checks in
-// octocode-core/src/schemas/runtime.ts at the schema layer, so conflicting
-// inputs are rejected with a structured Zod error before the executor
-// runs. The runtime check stays in place as defense in depth for callers
-// that bypass the MCP overlay.
-// Agent-facing surface reduction. The upstream ripgrep schema carries every
-// `rg` flag (~34 options); most are performance knobs, encoding/binary edge
-// cases, or diagnostics that an LLM should never tune and that only bloat the
-// tool schema. We hide them from the MCP surface so the agent sees a focused,
-// high-signal set aligned with ripgrep code-search best practices. They remain
-// fully functional upstream (CLI, direct command-builder use) — only omitted
-// from the generated MCP inputSchema. Kept: pattern/path, mode, the pattern
-// modifiers that change *what* matches (fixedString, perlRegex, wholeWord,
-// caseSensitive), scoping (type/include/exclude/excludeDir/hidden/noIgnore),
-// output modes (filesOnly/filesWithoutMatch/count/countMatches), symmetric
-// contextLines, and the caps/pagination knobs.
+const limitField = clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
+  .optional()
+  .describe(
+    `Hard PRE-pagination cap: the maximum entries discovered before paging — ` +
+      `distinct from the fixed page size (${DEFAULT_PAGE_SIZE} items/page for search tools, ` +
+      `${STRUCTURE_PAGE_SIZE} for navigation tools). Use limit to bound a large fs walk. ` +
+      `Max ${LOCAL_OVERLAY_MAX_LIMIT}.`
+  );
+
 const RIPGREP_HIDDEN_FIELDS = {
-  // Page knobs are re-declared under the cross-tool names: files are the
-  // top-level `itemsPerPage`, matches/file is `matchesPerFile`, and the file
-  // page number is the unified `page`. Omit all three upstream names so only
-  // the aligned surface is exposed.
   matchesPerPage: true,
   filesPerPage: true,
   filePageNumber: true,
-  smartCase: true, // default behavior — no need to expose; caseSensitive/caseInsensitive override
-  beforeContext: true, // asymmetric context — contextLines covers the common case
+  smartCase: true,
+  beforeContext: true,
   afterContext: true,
-  binaryFiles: true, // default (skip binaries) is right; agents don't grep binaries
-  encoding: true, // auto-detection is reliable
-  includeStats: true, // diagnostic
-  noMessages: true, // agents should SEE errors, not suppress them
-  lineRegexp: true, // niche (whole-line match) — achievable with anchored regex ^X$
-  passthru: true, // prints all lines — conflicts with structured output
-  debug: true, // diagnostic
-  showFileLastModified: true, // metadata → localFindFiles
-  noUnicode: true, // perf/encoding edge
-  threads: true, // perf knob — capped at 4 in builder for MCP parallel-query safety
-  mmap: true, // perf knob
-  followSymlinks: true, // niche
+  binaryFiles: true,
+  encoding: true,
+  includeStats: true,
+  noMessages: true,
+  lineRegexp: true,
+  passthru: true,
+  debug: true,
+  showFileLastModified: true,
+  noUnicode: true,
+  threads: true,
+  mmap: true,
+  followSymlinks: true,
 } as const;
 
-// Base (relaxed) per-query shape — NO mutex superRefine. The bulk envelope
-// wraps THIS so a single malformed query never rejects the whole batch at MCP
-// input-validation time; the executor re-validates each query against the
-// strict schema below and emits a per-query error instead. Honors the bulk
-// contract: "one errored entry must not block the others."
-const RipgrepQueryBaseSchema = UpstreamRipgrepQuerySchema.omit(
-  RIPGREP_HIDDEN_FIELDS
-).extend({
-  ...optionalMetaFields,
-  pattern: describeField(
-    UpstreamRipgrepQuerySchema.shape.pattern,
-    'Text or regex pattern to search for. Use fixedString=true for literal text and perlRegex=true only when regex features are required.'
-  ),
-  path: describeField(
-    UpstreamRipgrepQuerySchema.shape.path,
-    "File or directory to search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
-  ),
-  mode: describeField(
-    UpstreamRipgrepQuerySchema.shape.mode,
-    'Result shape (orthogonal to verbosity): "paginated"/default for normal reading, "discovery" for cheap presence checks (pairs with verbosity="concise" for the leanest probe), "detailed" for expanded snippets.'
-  ),
-  matchContentLength: matchContentLengthField,
-  ...createVerbosityFields(),
-  charLength: localCharLengthField,
-  // Files are the top-level atomic item → the cross-tool `itemsPerPage`
-  // (aligned with findFiles/viewStructure). The secondary axis — matches shown
-  // per file — is `matchesPerFile`. Page through files with the unified `page`.
-  itemsPerPage: itemsPerPageField,
-  matchesPerFile: matchesPerFileField,
-  page: relaxedPageNumberField.default(1),
-  // Pattern-behaviour modifiers restored to the MCP surface — each has clear
-  // agent use cases that the hidden-field rationale undervalued.
-  invertMatch: UpstreamRipgrepQuerySchema.shape.invertMatch.describe(
-    'Return lines/files NOT matching the pattern (-v). ' +
-      'Combine with filesOnly to list files that lack a pattern entirely.'
-  ),
-  caseInsensitive: UpstreamRipgrepQuerySchema.shape.caseInsensitive.describe(
-    'Force case-insensitive matching (-i). Overrides smartCase. ' +
-      'Use when the pattern has uppercase letters but case should be ignored ' +
-      '(e.g. pattern="TodoItem", want to match todoitem / TODOITEM too). ' +
-      'Mutually exclusive with caseSensitive.'
-  ),
-  multiline: UpstreamRipgrepQuerySchema.shape.multiline.describe(
-    'Enable cross-line matching (-U). Pattern can span multiple lines. ' +
-      'Useful for multi-line function signatures, JSDoc-above-function, ' +
-      'try/catch spans, or destructured imports. ' +
-      'Pair with perlRegex for named captures; pair with multilineDotall to let . match newlines.'
-  ),
-  multilineDotall: UpstreamRipgrepQuerySchema.shape.multilineDotall.describe(
-    'Make . match newlines in multiline mode (--multiline-dotall). ' +
-      'Requires multiline=true. Use for patterns that span arbitrary-length blocks.'
-  ),
-  // Sort by content-search results directly, avoiding a separate localFindFiles call.
-  // The builder already defaults to --sort path; exposing this lets agents override
-  // to sort by modification time in one call (e.g. "recently changed files matching X").
-  sort: z
-    .enum(['path', 'modified', 'accessed', 'created'])
-    .optional()
-    .default('path')
-    .describe(
-      'Sort results by: path (default, deterministic), modified (most recently changed first), ' +
-        'accessed, or created. Use modified to surface recently changed files matching a pattern ' +
-        'without a separate localFindFiles call. ' +
-        'Note: accessed is unreliable on Windows (NTFS disables atime by default) — prefer modified or created there.'
+const RipgrepQueryBaseSchema = withCoreSchemaDescriptions(
+  STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+  UpstreamRipgrepQuerySchema.omit(RIPGREP_HIDDEN_FIELDS).extend({
+    ...optionalMetaFields,
+    pattern: describeField(
+      UpstreamRipgrepQuerySchema.shape.pattern,
+      'Text or regex pattern to search for. Use fixedString=true for literal text and perlRegex=true only when regex features are required.'
     ),
-  sortReverse: UpstreamRipgrepQuerySchema.shape.sortReverse.describe(
-    'Reverse sort direction. Pair with sort (e.g. sort=modified + sortReverse=true for oldest first).'
-  ),
-  // Symmetric context window, clamped so one query can't request an absurd
-  // span. Asymmetric before/after is hidden — contextLines covers the need.
-  // Default 2: most agent queries benefit from a small context window without
-  // explicitly requesting one — saves a param on the majority of calls.
-  contextLines: contextLinesField.default(2),
-  // Pre-pagination hard caps — bounded so the published schema doesn't expose
-  // the ±MAX_SAFE_INTEGER range and absurd values are rejected up front.
-  maxFiles: ripgrepCapField,
-  maxMatchesPerFile: ripgrepCapField,
-});
+    path: describeField(
+      UpstreamRipgrepQuerySchema.shape.path,
+      "File or directory to search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+    ),
+    mode: describeField(
+      UpstreamRipgrepQuerySchema.shape.mode,
+      'Result shape: "paginated"/default for normal reading, "discovery" for cheap presence checks, "detailed" for expanded snippets.'
+    ),
+    matchContentLength: matchContentLengthField,
+    invertMatch: UpstreamRipgrepQuerySchema.shape.invertMatch.describe(
+      'Return lines/files NOT matching the pattern (-v). ' +
+        'Combine with filesOnly to list files that lack a pattern entirely.'
+    ),
+    caseInsensitive: UpstreamRipgrepQuerySchema.shape.caseInsensitive.describe(
+      'Force case-insensitive matching (-i). Overrides smartCase. ' +
+        'Mutually exclusive with caseSensitive.'
+    ),
+    multiline: UpstreamRipgrepQuerySchema.shape.multiline.describe(
+      'Enable cross-line matching (-U). Pattern can span multiple lines. ' +
+        'Pair with perlRegex for named captures; pair with multilineDotall to let . match newlines.'
+    ),
+    multilineDotall: UpstreamRipgrepQuerySchema.shape.multilineDotall.describe(
+      'Make . match newlines in multiline mode (--multiline-dotall). ' +
+        'Requires multiline=true.'
+    ),
+    sort: z
+      .enum(['path', 'modified', 'accessed', 'created'])
+      .optional()
+      .default('path')
+      .describe(
+        'Sort results by: path (default, deterministic), modified (most recently changed first), ' +
+          'accessed, or created.'
+      ),
+    sortReverse: UpstreamRipgrepQuerySchema.shape.sortReverse.describe(
+      'Reverse sort direction. Pair with sort (e.g. sort=modified + sortReverse=true for oldest first).'
+    ),
+    contextLines: contextLinesField.default(2),
+    maxFiles: ripgrepCapField,
+    maxMatchesPerFile: ripgrepCapField,
+    // Pagination: fixed page size (DEFAULT_PAGE_SIZE files/page for search tools).
+    // Files are the top-level atomic item; matches/file is the secondary axis.
+    page: relaxedPageNumberField
+      .default(1)
+      .describe(
+        `Result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} files. Use page=2, page=3, … to walk through results.`
+      ),
+  })
+);
 
-// Strict per-query schema (base + mutex). The executor `safeParse`s each query
-// against this and returns a per-query error on a mutex violation.
 export const RipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
   (data, ctx) => {
     const d = data as {
@@ -519,7 +357,7 @@ export const RipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          '`caseSensitive` and `caseInsensitive` are mutually exclusive. Choose ONE: caseSensitive=true for exact-case matching, OR caseInsensitive=true to ignore case entirely.',
+          '`caseSensitive` and `caseInsensitive` are mutually exclusive. Choose ONE.',
         path: ['caseInsensitive'],
       });
     }
@@ -534,13 +372,6 @@ export const RipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
   }
 );
 
-// DELIBERATE SUPERSET: inferred from the UPSTREAM schema, so this type still
-// includes the fields hidden by `RIPGREP_HIDDEN_FIELDS` (threads, multiline,
-// encoding, …). That is intentional — the MCP agent surface omits them, but the
-// command builder and CLI still accept and act on them, and inferring from
-// upstream keeps those code paths type-checking. The MCP overlay strips any
-// hidden field at validation, so the runtime never sees one from an agent; the
-// type is wider than the MCP surface on purpose.
 export type RipgrepQuery = WithLocalOverlay<
   z.infer<typeof UpstreamRipgrepQuerySchema>
 >;
@@ -551,48 +382,43 @@ export const BulkRipgrepQuerySchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-// Field descriptions are upstream (localFindFiles.ts). Overlay supplies only
-// detail controls, relaxed numeric ranges, and pagination defaults.
-export const FindFilesQuerySchema = UpstreamFindFilesQuerySchema.omit({
-  // Files are the atomic item → exposed as the cross-tool `itemsPerPage`; the
-  // page number is the unified `page`. Omit both upstream names.
-  filesPerPage: true,
-  filePageNumber: true,
-}).extend({
-  ...optionalMetaFields,
-  path: describeField(
-    UpstreamFindFilesQuerySchema.shape.path,
-    "Directory root for metadata search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
-  ),
-  name: describeField(
-    UpstreamFindFilesQuerySchema.shape.name,
-    'Case-sensitive filename glob such as "*.ts". Use iname for case-insensitive matching or names for multiple globs.'
-  ),
-  iname: describeField(
-    UpstreamFindFilesQuerySchema.shape.iname,
-    'Case-insensitive filename glob, useful for README/readme or mixed-case filenames.'
-  ),
-  names: describeField(
-    UpstreamFindFilesQuerySchema.shape.names,
-    'Multiple filename globs OR-combined in one metadata search.'
-  ),
-  pathPattern: describeField(
-    UpstreamFindFilesQuerySchema.shape.pathPattern,
-    'Glob matched against the full path, useful for monorepo package roots or nested directory slices.'
-  ),
-  charLength: localCharLengthField,
-  charOffset: charOffsetField,
-  minDepth: fsDepthField,
-  maxDepth: fsDepthField,
-  ...createVerbosityFields(),
-  // Files are find-files' atomic item → the canonical page-size knob.
-  itemsPerPage: describeField(
-    itemsPerPageField,
-    'Files returned per response page — the page window over discovered files (≤ limit). Default 20.'
-  ),
-  page: relaxedPageNumberField.default(1),
-  limit: limitField,
-});
+export const FindFilesQuerySchema = withCoreSchemaDescriptions(
+  STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
+  UpstreamFindFilesQuerySchema.omit({
+    filesPerPage: true,
+    filePageNumber: true,
+  }).extend({
+    ...optionalMetaFields,
+    path: describeField(
+      UpstreamFindFilesQuerySchema.shape.path,
+      "Directory root for metadata search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+    ),
+    name: describeField(
+      UpstreamFindFilesQuerySchema.shape.name,
+      'Case-sensitive filename glob such as "*.ts".'
+    ),
+    iname: describeField(
+      UpstreamFindFilesQuerySchema.shape.iname,
+      'Case-insensitive filename glob, useful for README/readme or mixed-case filenames.'
+    ),
+    names: describeField(
+      UpstreamFindFilesQuerySchema.shape.names,
+      'Multiple filename globs OR-combined in one metadata search.'
+    ),
+    pathPattern: describeField(
+      UpstreamFindFilesQuerySchema.shape.pathPattern,
+      'Glob matched against the full path, useful for monorepo package roots or nested directory slices.'
+    ),
+    minDepth: fsDepthField,
+    maxDepth: fsDepthField,
+    page: relaxedPageNumberField
+      .default(1)
+      .describe(
+        `Result page (1-based). Each page returns up to ${STRUCTURE_PAGE_SIZE} files. Use page=2, page=3, … to walk through results.`
+      ),
+    limit: limitField,
+  })
+);
 
 export type FindFilesQuery = WithLocalOverlay<
   z.infer<typeof UpstreamFindFilesQuerySchema>
@@ -604,44 +430,37 @@ export const BulkFindFilesSchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-// Field descriptions are upstream (localGetFileContent.ts). Overlay supplies
-// only detail controls, char-budget range, and matchStringContextLines default.
-// The superRefine enforces the same three extraction-mode mutex as
-// githubGetFileContent: fullContent, matchString, and startLine/endLine are
-// mutually exclusive ways to select content.
-// Base (relaxed) per-query shape — NO extraction-mode mutex. The bulk envelope
-// wraps THIS so a malformed query doesn't reject the whole batch; the executor
-// re-validates each query against the strict schema below (per-query error).
-const FetchContentQueryBaseSchema = UpstreamFetchContentQuerySchema.extend({
-  ...optionalMetaFields,
-  path: describeField(
-    UpstreamFetchContentQuerySchema.shape.path,
-    "File path to read. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
-  ),
-  fullContent: describeField(
-    UpstreamFetchContentQuerySchema.shape.fullContent,
-    'Read the whole file. Mutually exclusive with matchString and startLine/endLine.'
-  ),
-  matchString: describeField(
-    UpstreamFetchContentQuerySchema.shape.matchString,
-    'Anchor text or regex used to return matching slices with matchStringContextLines around each match.'
-  ),
-  startLine: describeField(
-    lineNumberField,
-    '1-based first line to include. Use with endLine; mutually exclusive with fullContent and matchString.'
-  ),
-  endLine: describeField(
-    lineNumberField,
-    '1-based last line to include. Use with startLine; mutually exclusive with fullContent and matchString.'
-  ),
-  ...createVerbosityFields(),
-  charLength: localCharLengthField,
-  charOffset: charOffsetField,
-  matchStringContextLines: contextLinesField.default(5),
-});
+const FetchContentQueryBaseSchema = withCoreSchemaDescriptions(
+  STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
+  UpstreamFetchContentQuerySchema.extend({
+    ...optionalMetaFields,
+    path: describeField(
+      UpstreamFetchContentQuerySchema.shape.path,
+      "File path to read. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+    ),
+    fullContent: describeField(
+      UpstreamFetchContentQuerySchema.shape.fullContent,
+      'Read the whole file. Mutually exclusive with matchString and startLine/endLine.'
+    ),
+    matchString: describeField(
+      UpstreamFetchContentQuerySchema.shape.matchString,
+      'Anchor text or regex used to return matching slices with matchStringContextLines around each match.'
+    ),
+    startLine: describeField(
+      lineNumberField,
+      '1-based first line to include. Use with endLine; mutually exclusive with fullContent and matchString.'
+    ),
+    endLine: describeField(
+      lineNumberField,
+      '1-based last line to include. Use with startLine; mutually exclusive with fullContent and matchString.'
+    ),
+    matchStringContextLines: contextLinesField.default(5),
+    page: relaxedPageNumberField.describe(
+      '1-based page number for char-based pagination. When a matchString or full-file read is truncated, the response includes pagination.totalPages. Re-call with page=2, page=3, etc. to read subsequent chunks. Ignored when content fits in one page.'
+    ),
+  })
+);
 
-// Strict per-query schema (base + mutex). The executor `safeParse`s against
-// this and emits a per-query error on a mutex violation.
 export const FetchContentQuerySchema = FetchContentQueryBaseSchema.superRefine(
   validateFileContentExtractionMode
 );
@@ -656,53 +475,31 @@ export const BulkFetchContentQuerySchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-// Field descriptions are upstream (localViewStructure.ts). Overlay supplies
-// only detail controls, char-budget range, and pagination defaults.
-//
-// Overlap removal — two pairs in the upstream schema do the same job two ways:
-//   • `extension` (singular) ⊂ `extensions` (array). Keep the array; hide the
-//     singular so there is one obvious way to filter by extension.
-//   • `recursive` (unbounded) vs `depth` (bounded). Keep `depth` (max 20);
-//     hide `recursive` — "deep" is `depth: 20`, and unbounded fs walks are the
-//     exact footgun the depth cap exists to prevent.
-// Both stay functional upstream; only hidden from the MCP surface.
 const VIEW_STRUCTURE_HIDDEN_FIELDS = {
   extension: true,
   recursive: true,
-  // Entries are the atomic item → exposed as the cross-tool `itemsPerPage`; the
-  // page number is the unified `page`. Omit both upstream names.
   entriesPerPage: true,
   entryPageNumber: true,
 } as const;
 
-export const ViewStructureQuerySchema = UpstreamViewStructureQuerySchema.omit(
-  VIEW_STRUCTURE_HIDDEN_FIELDS
-).extend({
-  ...optionalMetaFields,
-  path: describeField(
-    UpstreamViewStructureQuerySchema.shape.path,
-    "Directory to browse. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS). Start at the repo root with depth=1."
-  ),
-  charLength: localCharLengthField,
-  charOffset: charOffsetField,
-  ...createVerbosityFields(),
-  // Entries are view-structure's atomic item — default 100 so typical dirs
-  // fit on one page without a follow-up call.
-  itemsPerPage: clampedInt(1, 200)
-    .default(100)
-    .describe(
-      'Directory entries returned per response page (1–200). Default 100.'
+export const ViewStructureQuerySchema = withCoreSchemaDescriptions(
+  STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+  UpstreamViewStructureQuerySchema.omit(VIEW_STRUCTURE_HIDDEN_FIELDS).extend({
+    ...optionalMetaFields,
+    path: describeField(
+      UpstreamViewStructureQuerySchema.shape.path,
+      "Directory to browse. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS). Start at the repo root with depth=1."
     ),
-  page: relaxedPageNumberField.default(1),
-  limit: limitField,
-  depth: depthField,
-});
+    page: relaxedPageNumberField
+      .default(1)
+      .describe(
+        `Result page (1-based). Each page returns up to ${STRUCTURE_PAGE_SIZE} directory entries. Use page=2, page=3, … to walk through large directories.`
+      ),
+    limit: limitField,
+    depth: depthField,
+  })
+);
 
-// DELIBERATE SUPERSET (same rationale as RipgrepQuery): inferred from upstream,
-// so it still carries the fields hidden by `VIEW_STRUCTURE_HIDDEN_FIELDS`
-// (`extension`, `recursive`). The handler reads `query.recursive`/`extension`
-// for CLI/direct callers; the MCP overlay strips them so an agent can't pass
-// them. The type is intentionally wider than the MCP surface.
 export type ViewStructureQuery = WithLocalOverlay<
   z.infer<typeof UpstreamViewStructureQuerySchema>
 >;

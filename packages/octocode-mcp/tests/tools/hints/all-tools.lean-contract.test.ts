@@ -199,22 +199,23 @@ describe('localGetFileContent — empty + error', () => {
     expect(h[0]).toMatch(/~\d+KB/);
   });
 
-  it('error size_limit without isLarge stays silent', () => {
-    expect(
-      fetchContentHints.error({
-        errorType: 'size_limit',
-        fileSize: 1000,
-      } as never)
-    ).toEqual([]);
+  it('error size_limit without isLarge still emits hint with KB size', () => {
+    const h = fetchContentHints.error({
+      errorType: 'size_limit',
+      fileSize: 1000,
+    } as never);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toMatch(/read budget/);
   });
 
-  it('error size_limit with isLarge but no fileSize stays silent', () => {
-    expect(
-      fetchContentHints.error({
-        errorType: 'size_limit',
-        isLarge: true,
-      } as never)
-    ).toEqual([]);
+  it('error size_limit with isLarge but no fileSize emits hint without KB', () => {
+    const h = fetchContentHints.error({
+      errorType: 'size_limit',
+      isLarge: true,
+    } as never);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toMatch(/read budget/);
+    expect(h[0]).not.toMatch(/KB/);
   });
 });
 

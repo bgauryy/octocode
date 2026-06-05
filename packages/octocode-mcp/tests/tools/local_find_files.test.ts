@@ -101,7 +101,7 @@ describe('localFindFiles', () => {
       expect(hints).toMatch(/outside available range|page 999 is/i);
     });
 
-    it('should include metadata by default', async () => {
+    it('should include metadata when verbose=true', async () => {
       const modified = new Date('2025-01-01T00:00:00Z');
 
       mockSafeExec.mockResolvedValue({
@@ -120,7 +120,7 @@ describe('localFindFiles', () => {
         mtime: modified,
       } as unknown as import('fs').Stats);
 
-      const result = await findFiles({ path: '/test/path' });
+      const result = await findFiles({ path: '/test/path', verbose: true });
 
       expect(result.status).toBeUndefined();
 
@@ -795,6 +795,7 @@ describe('localFindFiles', () => {
         path: '/test/path',
         showFileLastModified: true,
         details: true,
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -1273,42 +1274,8 @@ describe('localFindFiles', () => {
     });
   });
 
-  describe('Character-based pagination (charOffset + charLength)', () => {
-    it('should paginate output with charOffset and charLength', async () => {
-      const files = Array.from(
-        { length: 200 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        name: '*.txt',
-        charLength: 500,
-        charOffset: 0,
-      });
-
-      expect(result.status).toBeUndefined();
-      // charPagination is only added when pagination is actually applied
-      if (result.charPagination) {
-        // We allow slightly more than requested to complete the last item
-        // or return empty if stricter logic used.
-        // Current logic is greedy overlap, so it might exceed.
-        // Each item is {"path":"/test/fileX.txt","type":"file"} approx 40 chars.
-        // 500 chars is ~12 items.
-        // If we overflow by one item, it's fine.
-        expect(result.charPagination.charLength).toBeGreaterThan(0);
-        // Loose check for reasonable size
-        expect(result.charPagination.charLength).toBeLessThan(600);
-      }
-    });
-
-    it('should return first chunk by default', async () => {
+  describe('Page-based pagination', () => {
+    it('should return first page by default', async () => {
       const files = Array.from(
         { length: 100 },
         (_, i) => `/test/file${i}.txt`
@@ -1320,103 +1287,13 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 1000,
-      });
+      const result = await findFiles({ path: '/test/path', page: 1 });
 
       expect(result.status).toBeUndefined();
-      expect(result.charPagination?.charOffset).toBe(0);
+      expect(result.pagination?.currentPage).toBe(1);
     });
 
-    it('should navigate to second chunk with charOffset', async () => {
-      const files = Array.from(
-        { length: 100 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 1000,
-        charOffset: 1000,
-      });
-
-      expect(result.status).toBeUndefined();
-      // charPagination is only added when pagination is actually applied
-      if (result.charPagination) {
-        expect(result.charPagination.charOffset).toBe(1000);
-      }
-    });
-
-    it('should handle charOffset = 0', async () => {
-      const files = '/test/file1.txt\0/test/file2.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        charOffset: 0,
-        charLength: 100,
-      });
-
-      expect(result.status).toBeUndefined();
-      expect(result.charPagination?.charOffset).toBe(0);
-    });
-
-    it('should handle charOffset beyond output length', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/file.txt\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        charOffset: 10000,
-        charLength: 100,
-      });
-
-      // When charOffset is beyond content, we still get hasResults with empty data
-      expect(result.status).toBeUndefined();
-    });
-
-    it('should handle charLength = 1', async () => {
-      const files = Array.from(
-        { length: 10 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 1,
-      });
-
-      expect(result.status).toBeUndefined();
-      // charPagination is only added when pagination is actually applied
-      if (result.charPagination) {
-        // Minimal valid JSON is "[]" (2 chars), so even if we asked for 1, we get 2
-        expect(result.charPagination.charLength).toBeGreaterThanOrEqual(2);
-      }
-    });
-
-    it('should handle charLength = 10000 (max)', async () => {
+    it('should return paged results for large file sets', async () => {
       const files = Array.from(
         { length: 500 },
         (_, i) => `/test/file${i}.txt`
@@ -1428,13 +1305,26 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 10000,
-      });
+      const result = await findFiles({ path: '/test/path', page: 1 });
 
       expect(result.status).toBeUndefined();
-      expect(result.charPagination?.charLength).toBeLessThanOrEqual(10000);
+      const filesResult = expectDefinedFiles(result);
+      expect(filesResult.length).toBeGreaterThan(0);
+    });
+
+    it('should maintain valid structure when paginating by page', async () => {
+      const files = '/test/file1.txt\0/test/file2.txt\0';
+      mockSafeExec.mockResolvedValue({
+        success: true,
+        code: 0,
+        stdout: files,
+        stderr: '',
+      });
+
+      const result = await findFiles({ path: '/test/path', page: 1 });
+
+      expect(result.status).toBeUndefined();
+      expect(result.files).toBeDefined();
     });
 
     it('should handle file paths with UTF-8 chars', async () => {
@@ -1446,10 +1336,7 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 1000,
-      });
+      const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesUtf = expectDefinedFiles(result);
@@ -1465,10 +1352,7 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 500,
-      });
+      const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesUtf2 = expectDefinedFiles(result);
@@ -1484,10 +1368,7 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 500,
-      });
+      const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesUtf3 = expectDefinedFiles(result);
@@ -1503,86 +1384,11 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 500,
-      });
+      const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesEmoji = expectDefinedFiles(result);
       expect(JSON.stringify(filesEmoji)).not.toMatch(/\uFFFD/);
-    });
-
-    it('should show character pagination hints when truncated', async () => {
-      const files = Array.from(
-        { length: 200 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 500,
-      });
-
-      expect(result.status).toBeUndefined();
-      if (result.charPagination?.hasMore) {
-        expect(result.hints).toBeDefined();
-      }
-    });
-
-    it('should include charOffset value for next chunk', async () => {
-      const files = Array.from(
-        { length: 200 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 500,
-        charOffset: 0,
-      });
-
-      expect(result.status).toBeUndefined();
-      if (result.charPagination?.hasMore) {
-        expect(result.hints).toBeDefined();
-        const hasCharOffsetHint = result.hints?.some(
-          (h: string) => h.includes('charOffset') || h.includes('next')
-        );
-        expect(hasCharOffsetHint).toBe(true);
-      }
-    });
-
-    // Failing test for JSON structure corruption
-    it('should maintain JSON validity when paginating', async () => {
-      const files = '/test/file1.txt\0/test/file2.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
-
-      // Request very small char length that splits JSON
-      const result = await findFiles({
-        path: '/test/path',
-        charLength: 10,
-      });
-
-      expect(result.status).toBeUndefined();
-      // Should have pagination info
-      expect(result.charPagination).toBeDefined();
     });
   });
 

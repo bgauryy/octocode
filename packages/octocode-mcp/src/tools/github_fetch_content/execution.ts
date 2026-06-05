@@ -38,7 +38,7 @@ export { applyGithubFetchContentVerbosity } from './finalizer.js';
 export async function fetchMultipleGitHubFileContents(
   args: ToolExecutionArgs<PartialFileContentQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -70,8 +70,6 @@ export async function fetchMultipleGitHubFileContents(
     },
     {
       toolName: TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
       finalize: buildGithubFetchContentFinalizer<PartialFileContentQuery>(),

@@ -131,13 +131,13 @@ describe('limitation hints — silence when threshold not hit', () => {
     expect(ripgrepHints.error({ errorType: 'other' as never })).toEqual([]);
   });
 
-  it('localGetFileContent without isLarge stays silent', () => {
-    expect(
-      fetchContentHints.error({
-        errorType: 'size_limit',
-        fileSize: 100,
-      } as never)
-    ).toEqual([]);
+  it('localGetFileContent size_limit always fires (isLarge no longer required)', () => {
+    const h = fetchContentHints.error({
+      errorType: 'size_limit',
+      fileSize: 100,
+    } as never);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toMatch(/read budget/);
   });
 
   it('localViewStructure without entryCount stays silent', () => {

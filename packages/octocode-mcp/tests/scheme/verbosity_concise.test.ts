@@ -1,17 +1,17 @@
 /**
  * Verbosity apply-function contract tests.
  *
- * Verbosity trimming is intentionally disabled: `isConcise` and `isCompact`
- * both return false so every tool returns the full payload regardless of the
- * requested verbosity tier. This prevents unpredictable LLM behavior caused
- * by each tool producing a different shape under "concise".
+ * The only detail switch is `verbose: boolean`.
+ *   verbose: false (default) — research data returned as-is.
+ *   verbose: true            — research data + extended metadata.
  *
  * Invariants:
- *   1. All verbosity tiers (undefined / "basic" / "compact" / "concise")
- *      preserve the full data payload.
- *   2. `groupByFile:true` on lspFindReferences is a product mode (not
- *      verbosity) and still produces a byFile rollup.
- *   3. Empty/error results pass through unchanged regardless of verbosity.
+ *   1. verbose:false (default) preserves the full data payload unchanged.
+ *   2. verbose:true also preserves the full data payload (metadata is additive).
+ *   3. `groupByFile:true` on lspFindReferences is a product mode (not
+ *      verbosity) and always produces a byFile rollup with count, firstLine,
+ *      firstCharacter present.
+ *   4. Empty/error results pass through unchanged regardless of verbose flag.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -21,16 +21,6 @@ import { applyFetchContentVerbosity } from '../../src/tools/local_fetch_content/
 import { applyGotoDefinitionVerbosity } from '../../src/tools/lsp_goto_definition/execution.js';
 import { applyFindReferencesVerbosity } from '../../src/tools/lsp_find_references/lsp_find_references.js';
 import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
-import type { Verbosity } from '../../src/scheme/localSchemaOverlay.js';
-
-// All verbosity tiers — trimming is disabled, so every tier must preserve
-// the full data payload.
-const ALL_VERBOSITIES: Array<Verbosity | undefined> = [
-  undefined,
-  'basic',
-  'compact',
-  'concise',
-];
 
 // ---------------------------------------------------------------------------
 // localSearchCode (ripgrep)
@@ -64,17 +54,28 @@ describe('applyRipgrepVerbosity', () => {
   const baseQuery = { pattern: 'foo', path: '/repo' } as never;
   const totals = { totalMatches: 4, totalFiles: 2 };
 
-  it.each(ALL_VERBOSITIES)(
-    'verbosity=%s always preserves full files[] (trimming disabled)',
-    verbosity => {
-      const out = applyRipgrepVerbosity(
-        baseResult,
-        { ...baseQuery, verbosity },
-        totals
-      );
-      expect(out.files).toEqual(baseResult.files);
-    }
-  );
+  it('verbose:false preserves full files[] (research data only)', () => {
+    const out = applyRipgrepVerbosity(
+      baseResult,
+      { ...baseQuery, verbose: false },
+      totals
+    );
+    expect(out.files).toEqual(baseResult.files);
+  });
+
+  it('verbose:true also preserves full files[] (metadata is additive)', () => {
+    const out = applyRipgrepVerbosity(
+      baseResult,
+      { ...baseQuery, verbose: true },
+      totals
+    );
+    expect(out.files).toEqual(baseResult.files);
+  });
+
+  it('omitted verbose preserves full files[]', () => {
+    const out = applyRipgrepVerbosity(baseResult, baseQuery, totals);
+    expect(out.files).toEqual(baseResult.files);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -100,17 +101,23 @@ describe('applyFindFilesVerbosity', () => {
   const baseQuery = { path: '/repo' } as never;
   const totals = { totalFiles: 3 };
 
-  it.each(ALL_VERBOSITIES)(
-    'verbosity=%s always preserves full files[] (trimming disabled)',
-    verbosity => {
-      const out = applyFindFilesVerbosity(
-        baseResult,
-        { ...baseQuery, verbosity },
-        totals
-      );
-      expect(out.files).toEqual(baseResult.files);
-    }
-  );
+  it('verbose:false preserves full files[]', () => {
+    const out = applyFindFilesVerbosity(
+      baseResult,
+      { ...baseQuery, verbose: false },
+      totals
+    );
+    expect(out.files).toEqual(baseResult.files);
+  });
+
+  it('verbose:true preserves full files[]', () => {
+    const out = applyFindFilesVerbosity(
+      baseResult,
+      { ...baseQuery, verbose: true },
+      totals
+    );
+    expect(out.files).toEqual(baseResult.files);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -125,17 +132,23 @@ describe('applyFetchContentVerbosity', () => {
   };
   const baseQuery = { path: '/repo/src/foo.ts' } as never;
 
-  it.each(ALL_VERBOSITIES)(
-    'verbosity=%s always preserves full content (trimming disabled)',
-    verbosity => {
-      const out = applyFetchContentVerbosity(
-        baseResult,
-        { ...baseQuery, verbosity },
-        420
-      );
-      expect(out.content).toBe(baseResult.content);
-    }
-  );
+  it('verbose:false preserves full content', () => {
+    const out = applyFetchContentVerbosity(
+      baseResult,
+      { ...baseQuery, verbose: false },
+      420
+    );
+    expect(out.content).toBe(baseResult.content);
+  });
+
+  it('verbose:true preserves full content', () => {
+    const out = applyFetchContentVerbosity(
+      baseResult,
+      { ...baseQuery, verbose: true },
+      420
+    );
+    expect(out.content).toBe(baseResult.content);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -172,18 +185,21 @@ describe('applyGotoDefinitionVerbosity', () => {
     lineHint: 12,
   } as never;
 
-  it.each(ALL_VERBOSITIES)(
-    'verbosity=%s always preserves locations[].content (trimming disabled)',
-    verbosity => {
-      const out = applyGotoDefinitionVerbosity(baseResult, {
-        ...baseQuery,
-        verbosity,
-      });
-      expect(out.locations?.[0]?.content).toBe(
-        baseResult.locations[0]!.content
-      );
-    }
-  );
+  it('verbose:false preserves locations[].content', () => {
+    const out = applyGotoDefinitionVerbosity(baseResult, {
+      ...baseQuery,
+      verbose: false,
+    });
+    expect(out.locations?.[0]?.content).toBe(baseResult.locations[0]!.content);
+  });
+
+  it('verbose:true preserves locations[].content', () => {
+    const out = applyGotoDefinitionVerbosity(baseResult, {
+      ...baseQuery,
+      verbose: true,
+    });
+    expect(out.locations?.[0]?.content).toBe(baseResult.locations[0]!.content);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -208,19 +224,25 @@ describe('applyFindReferencesVerbosity', () => {
     lineHint: 1,
   } as never;
 
-  it.each(ALL_VERBOSITIES)(
-    'verbosity=%s always preserves full locations[] (trimming disabled)',
-    verbosity => {
-      const result = { locations: makeRefs(10) };
-      const out = applyFindReferencesVerbosity(result, {
-        ...baseQuery,
-        verbosity,
-      });
-      expect(out.locations).toEqual(result.locations);
-    }
-  );
+  it('verbose:false preserves full locations[]', () => {
+    const result = { locations: makeRefs(10) };
+    const out = applyFindReferencesVerbosity(result, {
+      ...baseQuery,
+      verbose: false,
+    });
+    expect(out.locations).toEqual(result.locations);
+  });
 
-  it('groupByFile:true (product mode, not verbosity) — rollup regardless of verbosity', () => {
+  it('verbose:true preserves full locations[]', () => {
+    const result = { locations: makeRefs(10) };
+    const out = applyFindReferencesVerbosity(result, {
+      ...baseQuery,
+      verbose: true,
+    });
+    expect(out.locations).toEqual(result.locations);
+  });
+
+  it('groupByFile:true — rollup produces byFile with required schema fields', () => {
     const result = { locations: makeRefs(20, 3) };
     const out = applyFindReferencesVerbosity(result, {
       ...baseQuery,
@@ -229,13 +251,20 @@ describe('applyFindReferencesVerbosity', () => {
     expect(out.locations).toEqual([]);
     expect(out.byFile).toBeDefined();
     expect(out.totalReferences).toBe(20);
+    // byFile items must have count, firstLine, firstCharacter — required by
+    // the MCP output schema. Absence causes -32602 output-validation errors.
+    const firstEntry = out.byFile?.[0];
+    expect(typeof firstEntry?.count).toBe('number');
+    expect(typeof firstEntry?.firstLine).toBe('number');
+    expect(typeof firstEntry?.firstCharacter).toBe('number');
+    expect(out.byFile?.length).toBe(3);
   });
 
   it('empty results — pass-through unchanged', () => {
     const result = { locations: [] };
     const out = applyFindReferencesVerbosity(result, {
       ...baseQuery,
-      verbosity: 'concise',
+      verbose: false,
     });
     expect(out).toEqual(result);
   });
@@ -271,8 +300,14 @@ describe('applyCallHierarchyVerbosity', () => {
           },
         },
         fromRanges: [
-          { start: { line: 14, character: 4 }, end: { line: 14, character: 7 } },
-          { start: { line: 20, character: 4 }, end: { line: 20, character: 7 } },
+          {
+            start: { line: 14, character: 4 },
+            end: { line: 14, character: 7 },
+          },
+          {
+            start: { line: 20, character: 4 },
+            end: { line: 20, character: 7 },
+          },
         ],
       },
       {
@@ -299,15 +334,21 @@ describe('applyCallHierarchyVerbosity', () => {
     direction: 'incoming',
   } as never;
 
-  it.each(ALL_VERBOSITIES)(
-    'verbosity=%s always preserves full calls[] with content (trimming disabled)',
-    verbosity => {
-      const out = applyCallHierarchyVerbosity(baseResult, {
-        ...baseQuery,
-        verbosity,
-      });
-      expect(out.calls).toEqual(baseResult.calls);
-      expect(out.calls?.[0]?.from.content).toBeDefined();
-    }
-  );
+  it('verbose:false preserves full calls[] with content', () => {
+    const out = applyCallHierarchyVerbosity(baseResult, {
+      ...baseQuery,
+      verbose: false,
+    });
+    expect(out.calls).toEqual(baseResult.calls);
+    expect(out.calls?.[0]?.from.content).toBeDefined();
+  });
+
+  it('verbose:true preserves full calls[] with content', () => {
+    const out = applyCallHierarchyVerbosity(baseResult, {
+      ...baseQuery,
+      verbose: true,
+    });
+    expect(out.calls).toEqual(baseResult.calls);
+    expect(out.calls?.[0]?.from.content).toBeDefined();
+  });
 });

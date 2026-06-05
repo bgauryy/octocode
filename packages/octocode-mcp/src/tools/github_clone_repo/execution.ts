@@ -32,7 +32,7 @@ const CACHE_HIT_HINT = 'Served from 24-hour cache.';
 export async function executeCloneRepo(
   args: ToolExecutionArgs<PartialCloneRepoQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo, responseCharOffset, responseCharLength } = args;
+  const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
@@ -97,8 +97,6 @@ export async function executeCloneRepo(
     {
       toolName: TOOL_NAMES.GITHUB_CLONE_REPO,
       keysPriority: ['resolvedBranch', 'localPath', 'cached', 'error'],
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }

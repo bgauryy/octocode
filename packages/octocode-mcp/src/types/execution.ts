@@ -37,12 +37,6 @@ export interface ToolExecutionArgs<TQuery> {
   /** Array of queries to execute (1-N per call) */
   queries: TQuery[];
 
-  /** Character offset for top-level bulk response pagination across results[] */
-  responseCharOffset?: number;
-
-  /** Character length budget for top-level bulk response pagination across results[] */
-  responseCharLength?: number;
-
   /** Optional OAuth authentication info (GitHub tools) */
   authInfo?: AuthInfo;
 

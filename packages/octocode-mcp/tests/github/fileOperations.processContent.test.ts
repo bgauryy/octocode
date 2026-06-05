@@ -789,12 +789,10 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
     });
   });
 
-  describe('fetchGitHubFileContentAPI - basic verbosity is verbatim (no pre-finalizer minify)', () => {
-    // Contract (src/scheme/verbosity.ts): "Content is reduced ONLY in concise.
-    // basic and compact never drop a returned value." Minification is owned by
-    // the concise finalizer (applyGithubFetchContentVerbosity), NOT the base
-    // content processor. The base processor must return content verbatim so a
-    // basic/default fullContent read matches the bytes on disk.
+  describe('fetchGitHubFileContentAPI - content is verbatim (no pre-finalizer minify)', () => {
+    // Contract: content is never minified by the base processor.
+    // The base processor must return content verbatim so a fullContent
+    // read matches the bytes on disk (regardless of the verbose flag).
     it('does NOT minify fullContent in the base processor', async () => {
       const fileContent = '{\n  "name": "demo",\n  "version": "1.0.0"\n}';
 

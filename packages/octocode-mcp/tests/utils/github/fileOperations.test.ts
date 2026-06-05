@@ -246,8 +246,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      // Contract (src/scheme/verbosity.ts): basic/default = verbatim. The base
-      // processor must not minify; that is the concise finalizer's job.
+      // Contract: content is always verbatim from the base processor.
+      // Minification is never performed by the base layer.
       expect(mockminifyContent).not.toHaveBeenCalled();
       expect(result).toEqual({
         status: 200,

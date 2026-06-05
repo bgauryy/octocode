@@ -14,17 +14,23 @@ export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
+    if (!path) return [];
     return [
-      `File '${path ?? 'specified'}' is empty (zero bytes).`,
+      `File '${path}' is empty (zero bytes).`,
       'Verify this is the correct file — use `localFindFiles` with a `name` filter to confirm the path.',
     ];
   },
 
   error: (ctx: HintContext = {}) => {
-    if (ctx.errorType === 'size_limit' && ctx.isLarge) {
+    if (ctx.errorType === 'size_limit') {
       const c = ctx as Record<string, unknown>;
-      const kb = typeof c.fileSize === 'number' ? `~${Math.round((c.fileSize as number) / 1024)}KB` : '';
-      return [`File ${kb} exceeds the read budget — use matchString or startLine+endLine for a focused section.`];
+      const kb =
+        typeof c.fileSize === 'number'
+          ? ` (~${Math.round((c.fileSize as number) / 1024)}KB)`
+          : '';
+      return [
+        `File${kb} exceeds the read budget — use matchString or startLine+endLine for a focused section.`,
+      ];
     }
     if (ctx.errorType === 'not_found') {
       const c = ctx as Record<string, unknown>;

@@ -13,14 +13,8 @@ import type {
 } from '../../types/toolResults.js';
 import type { BulkResponseConfig, BulkToolResponse } from '../../types/bulk.js';
 import type { PromiseResult } from '../../types/promise.js';
-import {
-  applyBulkResponsePagination,
-  applyQueryOutputPagination,
-} from './structuredPagination.js';
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
 import { relativizeResultPaths, hoistSharedFields } from './pathRelativize.js';
-import { isConcise } from '../../scheme/verbosity.js';
-import type { Verbosity } from '../../scheme/localSchemaOverlay.js';
 
 /** Default concurrency for bulk operations */
 const DEFAULT_BULK_CONCURRENCY = 3;
@@ -169,56 +163,22 @@ function createBulkResponse<
     };
   }
 
-  const queryPaginatedResults = flatQueries.map((queryResult, index) =>
-    applyQueryOutputPagination(
-      queryResult,
-      (queries[index] as Record<string, unknown>) ?? {},
-      config.toolName
-    )
-  );
-
   // Lift hints out of each query's `data` so they appear once at peer level.
-  // Opt-in: some output schemas (local/lsp) are strict about top-level keys,
-  // so callers explicitly enable this with `config.peerHints` once they have
-  // widened their output schema to accept `hints` at root.
   const aggregatedHints = config.peerHints
-    ? dedupePeerHints(queryPaginatedResults)
+    ? dedupePeerHints(flatQueries)
     : [];
 
-  // When every query asked for concise, the bulk runs in probe mode: the
-  // display arrays are dropped and the per-query counts are the answer, so
-  // display-pagination "has more" must not mark the aggregate incomplete.
-  const allConcise =
-    queries.length > 0 &&
-    queries.every((q): boolean =>
-      isConcise(q as { verbosity?: Verbosity; verbose?: boolean } | undefined)
-    );
-
-  // Same idea for `evidence`: lift per-query `data.evidence` blocks into a
-  // single top-level summary (kind taken from first present; answerReady /
-  // complete combined with AND; confidence is the weakest of all).
+  // Lift per-query `data.evidence` blocks into a single top-level summary.
   const aggregatedEvidence = config.peerEvidence
-    ? aggregatePeerEvidence(queryPaginatedResults, allConcise)
+    ? aggregatePeerEvidence(flatQueries)
     : undefined;
 
-  const responseData: BulkToolResponse = applyBulkResponsePagination(
-    {
-      results: queryPaginatedResults,
-    },
-    {
-      offset: config.responseCharOffset,
-      length: config.responseCharLength,
-    },
-    config.toolName
-  );
+  const responseData: BulkToolResponse = { results: flatQueries };
 
-  // Leanness: hoist redundancy out of the canonical structuredContent (the
-  // payload the model reads). Both are lossless and reconstructable.
-  //   - `base`: common directory of absolute `path`/`uri` fields; abs =
-  //     `${base}/${path}`. No-op for repo-relative github paths.
-  //   - `shared`: scalar fields identical across every leaf object; each leaf
-  //     re-gains every `shared` key on reconstruction.
-  if (!allConcise && Array.isArray(responseData.results)) {
+  // Leanness: hoist redundancy out of the canonical structuredContent.
+  //   - `base`: common directory of absolute `path`/`uri` fields.
+  //   - `shared`: scalar fields identical across every leaf object.
+  if (Array.isArray(responseData.results)) {
     const dataBase = relativizeResultPaths(
       responseData.results as Array<{ data?: unknown }>
     );
@@ -252,10 +212,7 @@ function createBulkResponse<
 
   const finalEvidence = aggregatedEvidence
     ? dropRedundantPaginationReason(
-        withEvidenceReasons(
-          aggregatedEvidence,
-          responsePaginationReasons(responseData)
-        ),
+        withEvidenceReasons(aggregatedEvidence, []),
         mergedHints
       )
     : undefined;
@@ -327,10 +284,7 @@ function hasMorePagination(value: unknown): boolean {
 
 function queryPaginationReasons(data: Record<string, unknown>): string[] {
   const reasons: string[] = [];
-  if (
-    hasMorePagination(data.outputPagination) ||
-    hasMorePagination(data.charPagination)
-  ) {
+  if (hasMorePagination(data.outputPagination)) {
     reasons.push('One or more query-level output pages have more data.');
   }
   if (hasMorePagination(data.pagination)) {
@@ -339,11 +293,6 @@ function queryPaginationReasons(data: Record<string, unknown>): string[] {
   return reasons;
 }
 
-function responsePaginationReasons(data: BulkToolResponse): string[] {
-  return hasMorePagination(data.responsePagination)
-    ? ['Bulk response pagination has more data.']
-    : [];
-}
 
 function withEvidenceReasons(
   evidence: EvidenceMetadata,
@@ -411,8 +360,7 @@ export function dropRedundantPaginationReason(
  *   - `reason`        → joined when multiple queries supplied one.
  */
 export function aggregatePeerEvidence(
-  queries: FlatQueryResult[],
-  allConcise = false
+  queries: FlatQueryResult[]
 ): EvidenceMetadata | undefined {
   const rankConfidence: Record<
     NonNullable<EvidenceMetadata['confidence']>,
@@ -453,16 +401,10 @@ export function aggregatePeerEvidence(
     if (typeof raw.reason === 'string' && raw.reason.trim().length > 0) {
       reasons.push(raw.reason.trim());
     }
-    // In all-concise probe mode the display arrays were dropped and the counts
-    // are the answer, so display-pagination "has more" is expected and must not
-    // mark the aggregate incomplete. (The per-query builders already suppress
-    // their own pagination reasons under concise.)
-    if (!allConcise) {
-      const paginationReasons = queryPaginationReasons(data);
-      if (paginationReasons.length > 0) {
-        completeAll = false;
-        reasons.push(...paginationReasons);
-      }
+    const paginationReasons = queryPaginationReasons(data);
+    if (paginationReasons.length > 0) {
+      completeAll = false;
+      reasons.push(...paginationReasons);
     }
     if (Array.isArray(raw.missingFields)) {
       for (const f of raw.missingFields) {

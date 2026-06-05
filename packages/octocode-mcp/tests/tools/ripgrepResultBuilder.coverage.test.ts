@@ -66,7 +66,7 @@ describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', ()
     const files = [makeFile('/test/a.ts', 1), makeFile('/test/b.ts', 1)];
     const result = await buildSearchResult(
       files,
-      baseQuery({ showFileLastModified: true }),
+      baseQuery({ showFileLastModified: true, verbose: true }),
       'rg',
       []
     );
@@ -221,7 +221,8 @@ describe('buildSearchResult - warnings passthrough', () => {
   });
 });
 
-describe('applyRipgrepVerbosity - concise (lines 189, 193, 195, 198)', () => {
+// applyRipgrepVerbosity is a pass-through regardless of the verbose flag.
+describe('applyRipgrepVerbosity - pass-through contract', () => {
   const baseResult = (overrides: Record<string, unknown> = {}): any => ({
     files: [
       {
@@ -241,49 +242,57 @@ describe('applyRipgrepVerbosity - concise (lines 189, 193, 195, 198)', () => {
     ...overrides,
   });
 
-  it('concise: drops files and emits "top: path:line" summary when a match exists', () => {
+  it('verbose:false — preserves full files[] and original hints', () => {
+    const result = baseResult();
     const out = applyRipgrepVerbosity(
-      baseResult(),
-      baseQuery({ verbosity: 'concise' }),
+      result,
+      baseQuery({ verbose: false }),
       { totalMatches: 2, totalFiles: 1 }
     );
-    expect(out.files).toEqual([]);
-    expect(out.hints).toEqual(['2 matches in 1 files (top: /test/a.ts:7)']);
+    expect(out.files).toEqual(result.files);
+    expect(out.hints).toEqual(result.hints);
   });
 
-  it('concise: uses path only when top file has no matches (line 195)', () => {
+  it('verbose:false — preserves files[] when top file has no matches', () => {
+    const result = baseResult({
+      files: [{ path: '/test/a.ts', matchCount: 0, matches: [] }],
+    });
     const out = applyRipgrepVerbosity(
-      baseResult({
-        files: [{ path: '/test/a.ts', matchCount: 0, matches: [] }],
-      }),
-      baseQuery({ verbosity: 'concise' }),
+      result,
+      baseQuery({ verbose: false }),
       { totalMatches: 0, totalFiles: 1 }
     );
-    expect(out.hints).toEqual(['0 matches in 1 files (top: /test/a.ts)']);
+    expect(out.files).toEqual(result.files);
   });
 
-  it('concise: empty summary suffix when there is no top file (line 198)', () => {
+  it('verbose:false — returns result unchanged when files is empty', () => {
+    const result = baseResult({ files: [] });
     const out = applyRipgrepVerbosity(
-      baseResult({ files: [] }),
-      baseQuery({ verbosity: 'concise' }),
+      result,
+      baseQuery({ verbose: false }),
       { totalMatches: 0, totalFiles: 0 }
     );
-    expect(out.hints).toEqual(['0 matches in 0 files']);
+    expect(out.files).toEqual([]);
+    expect(out.hints).toEqual(result.hints);
   });
 
-  it('concise: returns result unchanged when status is set (line 189)', () => {
+  it('verbose:false — returns result unchanged when status is set', () => {
     const r = baseResult({ status: 'empty' });
-    const out = applyRipgrepVerbosity(r, baseQuery({ verbosity: 'concise' }), {
+    const out = applyRipgrepVerbosity(r, baseQuery({ verbose: false }), {
       totalMatches: 0,
       totalFiles: 0,
     });
     expect(out).toBe(r);
     expect(out.files?.length).toBe(1);
   });
-});
 
-describe('applyRipgrepVerbosity - compact and basic', () => {
-  it('compact: trims advisory hints', () => {
+  it('verbose:true — all hints preserved', () => {
+    const allHints = [
+      'Large result set - narrow: add type',
+      'keep me 1',
+      'keep me 2',
+      'payload is large advisory',
+    ];
     const result: any = {
       files: [],
       pagination: {
@@ -293,30 +302,22 @@ describe('applyRipgrepVerbosity - compact and basic', () => {
         totalFiles: 0,
         hasMore: false,
       },
-      hints: [
-        'Large result set - narrow: add type',
-        'keep me 1',
-        'keep me 2',
-        'payload is large advisory',
-      ],
+      hints: [...allHints],
     };
     const out = applyRipgrepVerbosity(
       result,
-      baseQuery({ verbosity: 'compact' }),
+      baseQuery({ verbose: true }),
       { totalMatches: 0, totalFiles: 0 }
     );
-    // advisory hints stripped; non-advisory retained
-    expect(out.hints).toContain('keep me 1');
-    expect(out.hints).not.toContain('payload is large advisory');
+    expect(out.hints).toEqual(allHints);
   });
 
-  it('basic: returns result untouched', () => {
+  it('omitted verbose — returns result untouched', () => {
     const result: any = { files: [], pagination: {}, hints: ['x'] };
-    const out = applyRipgrepVerbosity(
-      result,
-      baseQuery({ verbosity: 'basic' }),
-      { totalMatches: 0, totalFiles: 0 }
-    );
+    const out = applyRipgrepVerbosity(result, baseQuery({}), {
+      totalMatches: 0,
+      totalFiles: 0,
+    });
     expect(out).toBe(result);
   });
 });

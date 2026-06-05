@@ -59,6 +59,26 @@ describe('runCLI', () => {
     expect(mocks.findCommand).not.toHaveBeenCalled();
   });
 
+  it('handles --agent before command dispatch', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['--agent']);
+
+    expect(handled).toBe(true);
+    expect(mocks.printToolsContext).toHaveBeenCalledTimes(1);
+    expect(mocks.findCommand).not.toHaveBeenCalled();
+  });
+
+  it('routes the agent command to the tools context', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['agent']);
+
+    expect(handled).toBe(true);
+    expect(mocks.printToolsContext).toHaveBeenCalledTimes(1);
+    expect(mocks.findCommand).not.toHaveBeenCalled();
+  });
+
   it('routes --tool usage through the unified tool executor', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
@@ -151,7 +171,7 @@ describe('runCLI', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Use octocode --tool')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it('shows main help when --help is passed without a command', async () => {
@@ -258,7 +278,7 @@ describe('runCLI', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unknown command: nonexistent')
     );
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(3);
   });
 
   it('sets exitCode 1 when --tool execution fails', async () => {

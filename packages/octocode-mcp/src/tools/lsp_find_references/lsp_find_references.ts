@@ -17,22 +17,7 @@ type UpstreamLSPFindReferencesQuery = z.infer<
 >;
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
-
-/** Advisory hints lspFindReferences emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryFindReferencesHint = makeAdvisoryPredicate([
-  'groupbyfile',
-  'includepattern',
-  'excludepattern',
-  'fallback',
-  'impact analysis',
-]);
+import { isVerbose } from '../../scheme/verbosity.js';
 
 type LSPFindReferencesQuery = WithVerbosity<
   WithOptionalMeta<UpstreamLSPFindReferencesQuery>
@@ -71,9 +56,9 @@ import { attachLspEvidence } from '../../lsp/evidence.js';
 /**
  * Find all references to a symbol.
  *
- * Wraps the internal core logic with the verbosity transformer so that
- * `verbosity:"concise"` shrinks the payload to a flat `refs[]` array of
- * `file:line` strings (≤ 500 refs) or a `byFile` rollup (≥ 500 refs).
+ * Wraps the internal core logic with the verbosity transformer.
+ * verbose=false (default): compact result set (location strings, no snippets).
+ * verbose=true: full per-reference content included.
  */
 export async function findReferences(
   query: LSPFindReferencesQuery
@@ -276,7 +261,6 @@ function buildLspUnavailableResult(lspFailed = false): FindReferencesResult {
  * bounded regardless of fanout. Validated by `measure.mjs::demo9` (≤ 443
  * chars at 10,000 refs).
  */
-const CONCISE_REFS_FLAT_THRESHOLD = 500;
 
 function buildReferencesByFile(
   locations: readonly ReferenceLocation[]
@@ -312,9 +296,13 @@ function buildReferencesByFile(
 }
 
 /**
- * Shape the response according to `verbosity` / `groupByFile`. Omitted /
- * `"basic"` / `"compact"` preserve full results; concise is
- * lossy by design and carries an explicit drill-back hint.
+ * Verbosity shaping for lspFindReferences.
+ *
+ * groupByFile: short-circuits verbosity — returns per-file counts regardless.
+ * verbose=false (default): omit `lspMode` metadata from results.
+ * verbose=true: include all fields.
+ *
+ * Locations are never dropped. Hints are always returned fully.
  */
 export function applyFindReferencesVerbosity(
   result: FindReferencesResult,
@@ -322,8 +310,7 @@ export function applyFindReferencesVerbosity(
 ): FindReferencesResult {
   if (result.status !== undefined || !result.locations?.length) return result;
 
-  // groupByFile is a tier-orthogonal product mode — short-circuits the
-  // verbosity switch regardless of basic/compact/concise.
+  // groupByFile is a product mode — short-circuits verbosity.
   if (query.groupByFile) {
     const byFile = buildReferencesByFile(result.locations);
     const summary = `${result.locations.length} refs in ${byFile.length} files`;
@@ -337,46 +324,11 @@ export function applyFindReferencesVerbosity(
     };
   }
 
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryFindReferencesHint, 2),
-    };
-  }
-
-  if (!isConcise(query)) return result;
-
-  const refs = result.locations.map(
-    loc => `${loc.uri}:${loc.range.start.line + 1}`
-  );
-  const uniqueFiles = new Set(result.locations.map(l => l.uri));
-
-  if (refs.length < CONCISE_REFS_FLAT_THRESHOLD) {
-    const summary = `${refs.length} refs in ${uniqueFiles.size} files`;
-    return {
-      ...result,
-      locations: [],
-      hints: [summary, `refs: ${refs.join(', ')}`],
-    };
-  }
-
-  const byFile: Record<string, number> = {};
-  for (const loc of result.locations) {
-    byFile[loc.uri] = (byFile[loc.uri] ?? 0) + 1;
-  }
-  const topFiles = Object.entries(byFile)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 20);
-  const topFilesStr = topFiles.map(([f, n]) => `${f}(${n})`).join(', ');
-  const summary =
-    `${refs.length} refs in ${uniqueFiles.size} files; ` +
-    `top-20: ${topFilesStr}`;
-
-  return {
-    ...result,
-    locations: [],
-    hints: [summary],
-  };
+  if (isVerbose(query)) return result;
+  if (!('lspMode' in (result as object))) return result;
+  const { lspMode: _lm, ...rest } = result as typeof result & { lspMode?: unknown };
+  void _lm;
+  return rest as FindReferencesResult;
 }
 
 export { findReferencesWithLSP } from './lspReferencesCore.js';

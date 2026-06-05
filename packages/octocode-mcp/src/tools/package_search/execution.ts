@@ -19,24 +19,8 @@ import type {
   DeprecationInfo,
 } from '../../utils/package/common.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
+import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-
-const CONCISE_PACKAGE_SEARCH_LIMIT = 3;
-
-/** Advisory hints packageSearch emits; stripped under compact. Substring-OR,
- * case-insensitive — tolerates wording shifts and surrounding wrappers. */
-const isAdvisoryPackageSearchHint = makeAdvisoryPredicate([
-  'searchlimit',
-  'scoped package',
-  'spelling',
-  'alternative',
-]);
 import {
   handleCatchError,
   createSuccessResult,
@@ -93,32 +77,13 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 export async function searchPackages(
   args: ToolExecutionArgs<PackageSearchQuery>
 ): Promise<CallToolResult> {
-  const { queries, responseCharOffset, responseCharLength } = args;
+  const { queries } = args;
 
   return executeBulkOperation(
     queries,
     async (query: PackageSearchQuery, _index: number) => {
       try {
-        // Pre-flight verbosity caps under concise: cap searchLimit to 1 and
-        // force npmFetchMetadata=false (concise's documented lean contract).
         const queryWithVerbosity = query as WithVerbosity<typeof query>;
-        const pkgVerbosityIsConcise = isConcise(queryWithVerbosity);
-        if (pkgVerbosityIsConcise) {
-          const userItemsPerPage = (query as { itemsPerPage?: number })
-            .itemsPerPage;
-          if (
-            typeof userItemsPerPage === 'number' &&
-            userItemsPerPage > CONCISE_PACKAGE_SEARCH_LIMIT
-          ) {
-            (query as { itemsPerPage?: number }).itemsPerPage =
-              CONCISE_PACKAGE_SEARCH_LIMIT;
-          }
-          if (
-            (query as { npmFetchMetadata?: boolean }).npmFetchMetadata === true
-          ) {
-            (query as { npmFetchMetadata?: boolean }).npmFetchMetadata = false;
-          }
-        }
         if (
           queryWithVerbosity.verbose !== undefined &&
           (query as { npmFetchMetadata?: boolean }).npmFetchMetadata ===
@@ -231,8 +196,6 @@ export async function searchPackages(
     {
       toolName: TOOL_NAMES.PACKAGE_SEARCH,
       keysPriority: ['packages', 'totalFound', 'error'],
-      responseCharOffset,
-      responseCharLength,
       peerHints: true,
       peerEvidence: true,
     }
@@ -291,10 +254,9 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
 }
 
 /**
- * Per-tool verbosity shaping for packageSearch. Under concise, projects each
- * package to {name, version, repository, deprecated} (cap 3) and emits a
- * summary + drill-back hint. Under compact, advisory hints are trimmed to 2.
- * Basic / omitted: passthrough.
+ * Per-tool verbosity shaping for packageSearch.
+ * verbose=false (default): strip metadata fields (license, downloads, recentVersions, etc.).
+ * verbose=true: full package data passthrough.
  */
 export function applyPackageSearchVerbosity(
   input: {
@@ -308,31 +270,20 @@ export function applyPackageSearchVerbosity(
 } {
   const queryWithVerbosity = query as WithVerbosity<typeof query>;
 
-  if (isConcise(queryWithVerbosity)) {
-    const projected = (input.data.packages ?? [])
-      .slice(0, CONCISE_PACKAGE_SEARCH_LIMIT)
-      .map(p => ({
-        name: getPackageName(p),
-        version: (p as { version?: string }).version,
-        repository: getPackageRepo(p),
-        deprecated: (p as { deprecated?: unknown }).deprecated,
-      }));
-    const summary = `${input.data.packages?.length ?? 0} packages found`;
-    return {
-      data: { packages: projected, totalFound: input.data.totalFound },
-      extraHints: [summary, ...input.extraHints],
-    };
+  if (isVerbose(queryWithVerbosity)) {
+    return { data: input.data, extraHints: input.extraHints };
   }
 
-  const allHints = [...input.extraHints];
-  if (isCompact(queryWithVerbosity)) {
-    return {
-      data: input.data,
-      extraHints:
-        compactTrimHints(allHints, isAdvisoryPackageSearchHint, 2) ?? [],
-    };
-  }
-  return { data: input.data, extraHints: allHints };
+  // Strip metadata-only fields (license, downloads, recentVersions) when verbose=false
+  const METADATA_KEYS = new Set(['license', 'weeklyDownloads', 'recentVersions', 'publishedAt', 'maintainers']);
+  const packages = (input.data.packages ?? []).map(p => {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(p as unknown as Record<string, unknown>)) {
+      if (!METADATA_KEYS.has(key)) result[key] = val;
+    }
+    return result;
+  });
+  return { data: { ...input.data, packages }, extraHints: input.extraHints };
 }
 
 function generateNameVariations(name: string): string[] {

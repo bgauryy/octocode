@@ -1,13 +1,15 @@
 /**
- * itemsPerPage is the ONE page-size field on every tool (no aliases, no legacy
- * `limit`). githubAPILimit is the GitHub-only raw per_page override. Verifies
- * the resolver precedence + that each tool exposes `itemsPerPage` and the old
- * per-tool knob names are gone.
+ * Page-based pagination contract — every tool exposes `page` (1-based) with a
+ * fixed page size constant. No legacy `itemsPerPage`, `githubAPILimit`,
+ * `charOffset`, or `charLength` fields should appear in schemas.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  resolveGithubPerPage,
-  DEFAULT_ITEMS_PER_PAGE,
+  DEFAULT_PAGE_SIZE,
+  STRUCTURE_PAGE_SIZE,
+  BulkRipgrepQuerySchema,
+  BulkFindFilesSchema,
+  BulkViewStructureSchema,
 } from '../../src/scheme/localSchemaOverlay.js';
 import {
   GitHubReposSearchBulkQueryLocalSchema,
@@ -15,116 +17,93 @@ import {
   GitHubViewRepoStructureBulkQueryLocalSchema,
   PackageSearchBulkQueryLocalSchema,
 } from '../../src/scheme/remoteSchemaOverlay.js';
-import {
-  BulkRipgrepQuerySchema,
-  BulkFindFilesSchema,
-  BulkViewStructureSchema,
-} from '../../src/scheme/localSchemaOverlay.js';
 
-describe('resolveGithubPerPage precedence', () => {
-  it('githubAPILimit wins over itemsPerPage', () => {
-    expect(resolveGithubPerPage({ githubAPILimit: 50, itemsPerPage: 20 })).toBe(
-      50
-    );
+describe('Page size constants', () => {
+  it('DEFAULT_PAGE_SIZE is 20', () => {
+    expect(DEFAULT_PAGE_SIZE).toBe(20);
   });
-  it('itemsPerPage drives per_page when githubAPILimit is absent', () => {
-    expect(resolveGithubPerPage({ itemsPerPage: 20 })).toBe(20);
-  });
-  it('falls back to the default when nothing is set', () => {
-    expect(resolveGithubPerPage({})).toBe(DEFAULT_ITEMS_PER_PAGE);
+
+  it('STRUCTURE_PAGE_SIZE is 100', () => {
+    expect(STRUCTURE_PAGE_SIZE).toBe(100);
   });
 });
 
-describe('GitHub search: itemsPerPage default + githubAPILimit, no legacy limit', () => {
-  it('defaults itemsPerPage to 20 and exposes no `limit` key', () => {
+describe('GitHub search: page-based pagination, no legacy fields', () => {
+  it('defaults page to 1 when omitted', () => {
     const parsed = GitHubReposSearchBulkQueryLocalSchema.parse({
       queries: [{ keywordsToSearch: ['x'] }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
-    expect(q.itemsPerPage).toBe(20);
-    expect('limit' in q).toBe(false);
+    expect(q.page).toBe(1);
   });
 
-  it('accepts githubAPILimit and bounds it to 100', () => {
+  it('accepts explicit page > 1', () => {
     const parsed = GitHubReposSearchBulkQueryLocalSchema.parse({
-      queries: [{ keywordsToSearch: ['x'], githubAPILimit: 999 }],
+      queries: [{ keywordsToSearch: ['x'], page: 3 }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
-    expect(q.githubAPILimit).toBe(100);
-    expect(resolveGithubPerPage(q)).toBe(100);
+    expect(q.page).toBe(3);
   });
 
-  it('a legacy `limit` is dropped (no alias) — itemsPerPage default still applies', () => {
+  it('does not expose itemsPerPage or githubAPILimit', () => {
     const parsed = GitHubCodeSearchBulkQueryLocalSchema.parse({
-      queries: [{ keywordsToSearch: ['x'], limit: 42 }],
+      queries: [{ keywordsToSearch: ['x'] }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
-    expect('limit' in q).toBe(false);
+    expect('itemsPerPage' in q).toBe(false);
     expect('githubAPILimit' in q).toBe(false);
-    expect(q.itemsPerPage).toBe(20);
-  });
-
-  it('caps itemsPerPage at 100', () => {
-    const parsed = GitHubCodeSearchBulkQueryLocalSchema.parse({
-      queries: [{ keywordsToSearch: ['x'], itemsPerPage: 500 }],
-    });
-    const q = parsed.queries[0] as Record<string, unknown>;
-    expect(q.itemsPerPage).toBe(100);
+    expect('limit' in q).toBe(false);
   });
 });
 
-describe('itemsPerPage is the page-size field on every tool (old names gone)', () => {
+describe('Local tools: page-based pagination, legacy names gone', () => {
   const q0 = (
     schema: { parse: (v: unknown) => { queries: unknown[] } },
     query: unknown
   ) => schema.parse({ queries: [query] }).queries[0] as Record<string, unknown>;
 
-  it('ripgrep: itemsPerPage=files (top-level), matchesPerFile is the inner knob; legacy names gone', () => {
+  it('ripgrep: accepts page, no itemsPerPage, no filesPerPage', () => {
     const q = q0(BulkRipgrepQuerySchema, {
       pattern: 'x',
       path: '.',
-      itemsPerPage: 5,
-      matchesPerFile: 3,
+      page: 2,
     });
-    expect(q.itemsPerPage).toBe(5); // files = top-level atomic item
-    expect(q.matchesPerFile).toBe(3); // matches-per-file = inner axis
-    expect('matchesPerPage' in q).toBe(false);
-    expect('filesPerPage' in q).toBe(false); // replaced by itemsPerPage
-    expect('filePageNumber' in q).toBe(false); // replaced by unified `page`
-  });
-
-  it('localFindFiles: itemsPerPage present, filesPerPage gone', () => {
-    const q = q0(BulkFindFilesSchema, {
-      path: '.',
-      name: '*.ts',
-      itemsPerPage: 7,
-    });
-    expect(q.itemsPerPage).toBe(7);
+    expect(q.page).toBe(2);
+    expect('itemsPerPage' in q).toBe(false);
     expect('filesPerPage' in q).toBe(false);
+    expect('matchesPerPage' in q).toBe(false);
+    expect('filePageNumber' in q).toBe(false);
   });
 
-  it('localViewStructure: itemsPerPage present, entriesPerPage gone', () => {
-    const q = q0(BulkViewStructureSchema, { path: '.', itemsPerPage: 8 });
-    expect(q.itemsPerPage).toBe(8);
+  it('localFindFiles: accepts page, no filesPerPage', () => {
+    const q = q0(BulkFindFilesSchema, { path: '.', name: '*.ts', page: 2 });
+    expect(q.page).toBe(2);
+    expect('filesPerPage' in q).toBe(false);
+    expect('itemsPerPage' in q).toBe(false);
+  });
+
+  it('localViewStructure: accepts page, no entriesPerPage', () => {
+    const q = q0(BulkViewStructureSchema, { path: '.', page: 2 });
+    expect(q.page).toBe(2);
     expect('entriesPerPage' in q).toBe(false);
+    expect('itemsPerPage' in q).toBe(false);
   });
 
-  it('githubViewRepoStructure: itemsPerPage present, entriesPerPage gone', () => {
+  it('githubViewRepoStructure: accepts page, no entriesPerPage', () => {
     const q = q0(GitHubViewRepoStructureBulkQueryLocalSchema, {
       owner: 'o',
       repo: 'r',
-      itemsPerPage: 9,
+      page: 2,
     });
-    expect(q.itemsPerPage).toBe(9);
+    expect(q.page).toBe(2);
     expect('entriesPerPage' in q).toBe(false);
+    expect('itemsPerPage' in q).toBe(false);
   });
 
-  it('packageSearch: itemsPerPage present, searchLimit gone', () => {
-    const q = q0(PackageSearchBulkQueryLocalSchema, {
-      name: 'react',
-      itemsPerPage: 6,
-    });
-    expect(q.itemsPerPage).toBe(6);
+  it('packageSearch: accepts page, no searchLimit', () => {
+    const q = q0(PackageSearchBulkQueryLocalSchema, { name: 'react', page: 2 });
+    expect(q.page).toBe(2);
     expect('searchLimit' in q).toBe(false);
+    expect('itemsPerPage' in q).toBe(false);
   });
 });

@@ -1579,7 +1579,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     expect(text).toContain("No npm packages found for 'chart library'");
   });
 
-  it('should add outputPagination for large npm alternative lists and resume with charOffset', async () => {
+  it('should return all packages from a search result', async () => {
     const searchResults = JSON.stringify(
       Array.from({ length: 4 }, (_, index) => ({
         name: `pkg-${index}`,
@@ -1592,19 +1592,6 @@ describe('Task 2: Name Variation Suggestions', () => {
       }))
     );
 
-    for (let index = 0; index < 4; index += 1) {
-      mockNpmViewFull(`pkg-${index}`, {
-        name: `pkg-${index}`,
-        version: '1.0.0',
-        description: `Package ${index}`,
-        keywords: Array.from(
-          { length: 18 },
-          (_, keywordIndex) => `keyword-${index}-${keywordIndex}`
-        ),
-        repository: `https://github.com/octo/pkg-${index}`,
-      });
-    }
-
     mockExecuteNpmCommand.mockImplementation(
       createNpmCommandMock({
         stdout: searchResults,
@@ -1615,68 +1602,28 @@ describe('Task 2: Name Variation Suggestions', () => {
 
     await registerPackageSearchTool(mockServer.server);
 
-    const firstResult = await mockServer.callTool('packageSearch', {
+    const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
           ecosystem: 'npm',
-          name: 'pkg',
-          itemsPerPage: 4,
-          npmFetchMetadata: true,
+          name: 'pkg utility library', // space triggers search path
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
-          charLength: 350,
         },
       ],
     });
 
-    const firstStructured = firstResult.structuredContent as {
+    const structured = result.structuredContent as {
       results: Array<{
         data: {
-          packages?: Array<{ name: string; keywords?: string[] }>;
-          outputPagination?: {
-            hasMore: boolean;
-            charOffset: number;
-            charLength: number;
-          };
+          packages?: Array<{ name: string }>;
         };
       }>;
     };
-    const firstData = firstStructured.results[0]!.data;
-    const nextOffset =
-      (firstData.outputPagination?.charOffset ?? 0) +
-      (firstData.outputPagination?.charLength ?? 0);
+    const data = structured.results[0]!.data;
 
-    expect(firstData.packages?.length).toBeGreaterThan(0);
-    expect(firstData.outputPagination?.hasMore).toBe(true);
-
-    const secondResult = await mockServer.callTool('packageSearch', {
-      queries: [
-        {
-          ecosystem: 'npm',
-          name: 'pkg',
-          itemsPerPage: 4,
-          npmFetchMetadata: true,
-          mainResearchGoal: 'Test',
-          researchGoal: 'Test',
-          reasoning: 'Test',
-          charOffset: nextOffset,
-          charLength: 350,
-        },
-      ],
-    });
-
-    const secondStructured = secondResult.structuredContent as {
-      results: Array<{
-        data: {
-          packages?: Array<{ name: string; keywords?: string[] }>;
-        };
-      }>;
-    };
-
-    expect(secondStructured.results[0]!.data.packages).not.toEqual(
-      firstData.packages
-    );
+    expect(data.packages?.length).toBeGreaterThan(0);
   });
 });
 

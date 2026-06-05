@@ -711,6 +711,9 @@ export const skillsCommand: CLICommand = {
 
       console.log();
       console.log(`  ${bold(`Skill Search: "${query}"`)}`);
+      console.log(
+        `  ${dim('This is the agent search protocol. For human-readable results now, add --direct.')}`
+      );
       console.log();
       console.log(
         `  Read and follow the search protocol, then search for: ${c('cyan', bold(query))}`

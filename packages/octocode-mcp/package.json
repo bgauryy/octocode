@@ -96,7 +96,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-core": "^4.0.0",
+    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core",
     "@vscode/ripgrep": "^1.18.0",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.1.3"

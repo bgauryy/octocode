@@ -588,6 +588,7 @@ describe('Index Module', () => {
         prompts: {},
         toolNames: TOOL_NAMES,
         baseSchema: {
+          id: 'test-id',
           mainResearchGoal: '',
           researchGoal: '',
           reasoning: '',
@@ -621,6 +622,7 @@ describe('Index Module', () => {
         prompts: {},
         toolNames: TOOL_NAMES,
         baseSchema: {
+          id: 'test-id',
           mainResearchGoal: '',
           researchGoal: '',
           reasoning: '',

@@ -154,9 +154,7 @@ describe('directToolCatalog', () => {
     expect(localByName['id']).toBeUndefined();
     expect(localByName['pattern']?.required).toBe(true);
     expect(localByName['include']?.type).toBe('array<string>');
-    expect(localByName['verbosity']?.type).toBe(
-      'enum(basic, compact, concise)'
-    );
+    expect(localByName['verbose']?.type).toBe('boolean');
     expect(getDirectToolDisplayFields('missingTool')).toEqual([]);
 
     expect(
@@ -166,8 +164,6 @@ describe('directToolCatalog', () => {
         pattern: 'pattern',
         path: '.',
         matchContentLength: 1,
-        itemsPerPage: 1,
-        matchesPerFile: 1,
         page: 1,
       })
     );
@@ -227,15 +223,12 @@ describe('directToolCatalog', () => {
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
       JSON.stringify({
         queries: [query],
-        responseCharLength: 1000,
-        responseCharOffset: 25,
       }),
       { sourceLabel: 'unit-test' }
     );
     expect(bulk).toEqual(
       expect.objectContaining({
-        responseCharLength: 1000,
-        responseCharOffset: 25,
+        queries: expect.any(Array),
       })
     );
 

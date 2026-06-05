@@ -14,41 +14,37 @@ const EXTENSION_KEY_PATTERN = /^\.[a-z0-9._+-]+$/i;
 /**
  * Schema for user-defined language server configuration.
  */
-const UserLanguageServerConfigSchema = z
-  .object({
-    command: z
-      .string()
-      .min(1)
-      .max(MAX_COMMAND_LENGTH)
-      .refine(value => !/[\0\r\n]/.test(value), {
-        message: 'command contains invalid control characters',
-      }),
-    args: z
-      .array(
-        z
-          .string()
-          .max(MAX_ARG_LENGTH)
-          .refine(value => !/[\0\r\n]/.test(value), {
-            message: 'argument contains invalid control characters',
-          })
-      )
-      .max(MAX_ARGS_COUNT)
-      .optional(),
-    languageId: z.string().min(1).max(64),
-    initializationOptions: z.record(z.string(), z.unknown()).optional(),
-  })
-  .passthrough();
+const UserLanguageServerConfigSchema = z.looseObject({
+  command: z
+    .string()
+    .min(1)
+    .max(MAX_COMMAND_LENGTH)
+    .refine(value => !/[\0\r\n]/.test(value), {
+      message: 'command contains invalid control characters',
+    }),
+  args: z
+    .array(
+      z
+        .string()
+        .max(MAX_ARG_LENGTH)
+        .refine(value => !/[\0\r\n]/.test(value), {
+          message: 'argument contains invalid control characters',
+        })
+    )
+    .max(MAX_ARGS_COUNT)
+    .optional(),
+  languageId: z.string().min(1).max(64),
+  initializationOptions: z.record(z.string(), z.unknown()).optional(),
+});
 
 /**
  * Schema for the LSP config file (lsp-servers.json).
  */
-export const LSPConfigFileSchema = z
-  .object({
-    languageServers: z
-      .record(
-        z.string().regex(EXTENSION_KEY_PATTERN),
-        UserLanguageServerConfigSchema
-      )
-      .optional(),
-  })
-  .passthrough();
+export const LSPConfigFileSchema = z.looseObject({
+  languageServers: z
+    .record(
+      z.string().regex(EXTENSION_KEY_PATTERN),
+      UserLanguageServerConfigSchema
+    )
+    .optional(),
+});

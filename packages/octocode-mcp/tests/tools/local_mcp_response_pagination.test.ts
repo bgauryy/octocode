@@ -64,9 +64,10 @@ describe('local tool MCP pagination responses', () => {
     mockServer = createMockMcpServer();
   });
 
-  it('localSearchCode returns schema-valid outputPagination and resumable structured content', async () => {
+  it('localSearchCode returns schema-valid results with match data', async () => {
     registerLocalRipgrepTool(mockServer.server);
 
+    const matchValue = 'match content';
     mockSearchContentRipgrep.mockResolvedValue({
       files: [
         {
@@ -74,7 +75,7 @@ describe('local tool MCP pagination responses', () => {
           matchCount: 1,
           matches: [
             {
-              value: 'match-'.repeat(500),
+              value: matchValue,
               line: 12,
               column: 0,
             },
@@ -85,69 +86,37 @@ describe('local tool MCP pagination responses', () => {
       hints: ['search hint'],
     });
 
-    const firstResult = await mockServer.callTool(TOOL_NAMES.LOCAL_RIPGREP, {
+    const result = await mockServer.callTool(TOOL_NAMES.LOCAL_RIPGREP, {
       queries: [
         {
           id: 'local_search',
-          researchGoal: 'Find large local matches',
-          reasoning: 'Verify actual MCP output pagination for ripgrep',
+          researchGoal: 'Find local matches',
+          reasoning: 'Verify actual MCP output for ripgrep',
           pattern: 'match',
           path: '/workspace',
-          charLength: 320,
         },
       ],
     });
 
-    const firstData = expectHasResultsData(
+    const data = expectHasResultsData(
       LocalSearchCodeOutputSchema,
       LocalSearchCodeDataSchema,
-      firstResult
-    );
-    const nextOffset =
-      (firstData.outputPagination?.charOffset ?? 0) +
-      (firstData.outputPagination?.charLength ?? 0);
-
-    expect(firstData.files?.[0]?.matches?.[0]?.value.length).toBeLessThan(
-      'match-'.repeat(500).length
-    );
-    expect(firstData.outputPagination?.hasMore).toBe(true);
-
-    const secondResult = await mockServer.callTool(TOOL_NAMES.LOCAL_RIPGREP, {
-      queries: [
-        {
-          id: 'local_search',
-          researchGoal: 'Find large local matches',
-          reasoning: 'Resume paginated ripgrep result',
-          pattern: 'match',
-          path: '/workspace',
-          charOffset: nextOffset,
-          charLength: 320,
-        },
-      ],
-    });
-
-    const secondData = expectHasResultsData(
-      LocalSearchCodeOutputSchema,
-      LocalSearchCodeDataSchema,
-      secondResult
+      result
     );
 
-    expect(secondData.files?.[0]?.matches?.[0]?.value).not.toBe(
-      firstData.files?.[0]?.matches?.[0]?.value
-    );
+    expect(data.files?.[0]?.matches?.[0]?.value).toBe(matchValue);
   });
 
-  it('localViewStructure returns schema-valid outputPagination on actual callTool responses', async () => {
+  it('localViewStructure returns schema-valid structured content', async () => {
     registerLocalViewStructureTool(mockServer.server);
 
     mockViewStructure.mockResolvedValue({
-      entries: Array.from({ length: 30 }, (_, index) => ({
+      entries: Array.from({ length: 5 }, (_, index) => ({
         name: `entry-${index}`,
         type: 'file',
         depth: 0,
-        size: '1 KB',
       })),
-      summary: '30 entries',
+      summary: '5 entries',
       hints: ['view hint'],
     });
 
@@ -156,10 +125,8 @@ describe('local tool MCP pagination responses', () => {
         {
           id: 'view_tree',
           researchGoal: 'Inspect local structure',
-          reasoning:
-            'Verify actual MCP response pagination for local structure',
+          reasoning: 'Verify actual MCP response for local structure',
           path: '/workspace',
-          charLength: 280,
         },
       ],
     });
@@ -170,11 +137,10 @@ describe('local tool MCP pagination responses', () => {
       result
     );
 
-    expect(data.entries?.length).toBeLessThan(30);
-    expect(data.outputPagination?.hasMore).toBe(true);
+    expect(data.entries?.length).toBe(5);
   });
 
-  it('localFindFiles maps charPagination into schema-valid outputPagination in actual MCP responses', async () => {
+  it('localFindFiles returns schema-valid results', async () => {
     registerLocalFindFilesTool(mockServer.server);
 
     mockFindFiles.mockResolvedValue({
@@ -182,21 +148,17 @@ describe('local tool MCP pagination responses', () => {
         {
           path: '/workspace/src/a.ts',
           type: 'file',
-          size: 120,
         },
         {
           path: '/workspace/src/b.ts',
           type: 'file',
-          size: 130,
         },
       ],
-      charPagination: {
+      pagination: {
         currentPage: 1,
         totalPages: 2,
         hasMore: true,
-        charOffset: 0,
-        charLength: 100,
-        totalChars: 200,
+        totalItems: 4,
       },
       hints: ['find hint'],
     });
@@ -206,10 +168,8 @@ describe('local tool MCP pagination responses', () => {
         {
           id: 'find_files',
           researchGoal: 'Find local files',
-          reasoning:
-            'Verify MCP aliasing from charPagination to outputPagination',
+          reasoning: 'Verify MCP response for localFindFiles',
           path: '/workspace',
-          charLength: 100,
         },
       ],
     });
@@ -221,8 +181,6 @@ describe('local tool MCP pagination responses', () => {
     );
 
     expect(data.files?.length).toBe(2);
-    expect(data.charPagination).toEqual(data.outputPagination);
-    expect(data.outputPagination?.hasMore).toBe(true);
   });
 
   it('localGetFileContent preserves content pagination on actual MCP responses', async () => {
@@ -252,7 +210,6 @@ describe('local tool MCP pagination responses', () => {
           researchGoal: 'Read a local file',
           reasoning: 'Verify MCP response preserves content pagination',
           path: '/workspace/src/file.ts',
-          charLength: 24,
         },
       ],
     });
@@ -267,33 +224,31 @@ describe('local tool MCP pagination responses', () => {
     expect(data.pagination?.hasMore).toBe(true);
   });
 
-  it('actual callTool responses expose top-level responsePagination for multi-query local bulk responses', async () => {
+  it('multi-query localViewStructure returns schema-valid results for both queries', async () => {
     registerLocalViewStructureTool(mockServer.server);
 
     mockViewStructure.mockImplementation(async (query: { id: string }) => ({
-      entries: Array.from({ length: 18 }, (_, index) => ({
+      entries: Array.from({ length: 3 }, (_, index) => ({
         name: `${query.id}-entry-${index}`,
         type: 'file',
         depth: 0,
-        size: '1 KB',
       })),
       summary: `${query.id} summary`,
       hints: ['view hint'],
     }));
 
     const result = await mockServer.callTool(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, {
-      responseCharLength: 260,
       queries: [
         {
           id: 'tree_a',
           researchGoal: 'Inspect first tree',
-          reasoning: 'Verify bulk response pagination page one',
+          reasoning: 'Verify bulk response for first query',
           path: '/workspace/a',
         },
         {
           id: 'tree_b',
           researchGoal: 'Inspect second tree',
-          reasoning: 'Verify bulk response pagination page one',
+          reasoning: 'Verify bulk response for second query',
           path: '/workspace/b',
         },
       ],
@@ -303,8 +258,7 @@ describe('local tool MCP pagination responses', () => {
       result.structuredContent
     );
 
-    expect(parsed.responsePagination?.hasMore).toBe(true);
-    expect(parsed.results.length).toBeLessThan(2);
+    expect(parsed.results.length).toBe(2);
 
     const firstResult = getSingleResult(LocalViewStructureOutputSchema, {
       ...result,

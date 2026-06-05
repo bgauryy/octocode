@@ -44,7 +44,11 @@ export const hints: ToolHintGenerators = {
       const hasPhrase =
         Array.isArray(keywords) &&
         keywords.some(k => typeof k === 'string' && /\s/.test(k));
-      if (filters.includes('path')) {
+      if (filters.includes('extension') || filters.includes('filename')) {
+        out.push(
+          'extension: and filename: filters stack with AND and silently zero out results — remove them and search with keywords only, then re-add once you have hits.'
+        );
+      } else if (filters.includes('path')) {
         out.push(
           'GitHub path: matches a directory, not a file — broaden path: to a parent directory (use filename: to target one file).'
         );
@@ -72,6 +76,19 @@ export const hints: ToolHintGenerators = {
         `"${keywords[0]}" looks like a package name — try packageSearch.`
       );
     }
+
+    // Unscoped search (no owner/repo) with keywords and no hits yet — guide broadening.
+    if (!ctx.hasOwnerRepo && out.length === 0 && keywords && keywords.length > 0) {
+      out.push(
+        'No matches across GitHub — scope to owner/repo, run separate single-term queries, or add extension/path filters.'
+      );
+      if (filters.includes('path')) {
+        out.push(
+          'GitHub path: matches a directory prefix, not a full path — broaden or omit path to search the whole repo.'
+        );
+      }
+    }
+
     return out;
   },
 

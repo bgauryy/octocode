@@ -110,6 +110,11 @@ export const tokenCommand: CLICommand = {
         'Ping the GitHub API to verify the token is valid and show rate-limit info',
     },
     {
+      name: 'reveal',
+      description:
+        'Print the full token on screen (default: masked on a terminal; raw when piped, e.g. $(octocode token))',
+    },
+    {
       name: 'json',
       short: 'j',
       description:
@@ -123,6 +128,7 @@ export const tokenCommand: CLICommand = {
       'github.com';
     const showSource = Boolean(args.options['source'] || args.options['s']);
     const validateToken = Boolean(args.options['validate']);
+    const reveal = Boolean(args.options['reveal'] || args.options['raw']);
     const jsonOutput = Boolean(args.options['json'] || args.options['j']);
     const typeOpt = args.options['type'] ?? args.options['t'];
     const typeArg =
@@ -268,10 +274,12 @@ export const tokenCommand: CLICommand = {
         console.log(`  ${dim('User:')} ${c('cyan', '@' + result.username)}`);
       }
       console.log();
-      console.log(`  ${dim('Token:')} ${maskToken(result.token!)}`);
+      console.log(
+        `  ${dim('Token:')} ${reveal ? result.token! : maskToken(result.token!)}`
+      );
       console.log();
     } else {
-      console.log(safeTokenOutput(result.token!));
+      console.log(reveal ? result.token! : safeTokenOutput(result.token!));
     }
   },
 };

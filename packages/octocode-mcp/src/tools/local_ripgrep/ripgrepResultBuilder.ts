@@ -9,21 +9,7 @@ import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { compareIsoDateDescending } from '../../utils/core/compare.js';
 import { promises as fs } from 'fs';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
-
-/** Advisory hints localSearchCode emits; stripped under compact.
- * Substring-OR, case-insensitive. */
-const isAdvisoryRipgrepHint = makeAdvisoryPredicate([
-  'large result',
-  'payload is large',
-  'narrow:',
-  'timed out',
-]);
+import { isVerbose } from '../../scheme/verbosity.js';
 
 type RipgrepQuery = WithVerbosity<UpstreamRipgrepQuery>;
 
@@ -151,7 +137,7 @@ export async function buildSearchResult(
   const filesWithMoreMatches = finalFiles.filter(f => f.pagination?.hasMore);
   if (filesWithMoreMatches.length > 0) {
     paginationHints.push(
-      `Note: ${filesWithMoreMatches.length} file(s) have more matches - use matchesPerFile to see more`
+      `Note: ${filesWithMoreMatches.length} file(s) have more matches — add maxMatchesPerFile to retrieve more per file`
     );
   }
 
@@ -208,40 +194,33 @@ export async function buildSearchResult(
 }
 
 /**
- * When `verbosity:"concise"` is requested, drop `files[]` and emit a one-line
- * summary plus a path:line drill-back hint pointing at the first matching
- * file. Omitted / `"basic"` preserves `files[]`; compact trims advisory hints.
+ * Verbosity shaping for localSearchCode.
+ *
+ * verbose=false (default): omit `modified` from file entries (metadata).
+ * verbose=true: include all fields including modification timestamps.
+ *
+ * Items (files and matches) are never dropped. Hints are always returned fully.
  */
 export function applyRipgrepVerbosity(
   result: LocalSearchCodeToolResult,
   query: RipgrepQuery,
-  totals: { totalMatches: number; totalFiles: number }
+  _totals: { totalMatches: number; totalFiles: number }
 ): LocalSearchCodeToolResult {
-  if (isConcise(query)) {
-    // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
-    if (result.status !== undefined) return result;
-    const topFile = result.files?.[0];
-    const topMatch = topFile?.matches?.[0];
-    const topHint =
-      topFile && topMatch
-        ? `${topFile.path}:${topMatch.line}`
-        : (topFile?.path ?? '');
-    const summary =
-      `${totals.totalMatches} matches in ${totals.totalFiles} files` +
-      (topHint ? ` (top: ${topHint})` : '');
-    return {
-      ...result,
-      files: [],
-      hints: [summary],
-    };
-  }
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryRipgrepHint, 2),
-    };
-  }
-  return result;
+  if (isVerbose(query) || result.status !== undefined) return result;
+
+  if (!result.files?.length) return result;
+  const hasModified = result.files.some(f => 'modified' in (f as object));
+  if (!hasModified) return result;
+  return {
+    ...result,
+    files: result.files.map(f => {
+      const { modified: _m, ...rest } = f as typeof f & {
+        modified?: unknown;
+      };
+      void _m;
+      return rest as typeof f;
+    }),
+  };
 }
 
 function _getStructuredResultSizeHints(

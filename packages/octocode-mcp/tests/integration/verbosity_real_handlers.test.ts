@@ -1,14 +1,12 @@
 /**
- * E2E sanity script for verbosity:"concise" on the LIVE octocode workspace.
+ * E2E sanity test for the verbose boolean switch on the LIVE octocode workspace.
  *
  * Imports each tool's real handler from src/ (the code on disk that the
- * MCP server will run after `yarn build`), calls it against this very
- * monorepo, and prints the byte payload for `default` vs `concise`.
+ * MCP server will run after `yarn build`), calls it with verbose:false and
+ * verbose:true, and verifies that data payloads are preserved in both cases.
  *
  * Run from the package directory:
- *   yarn vitest run scripts/check_verbosity_e2e.ts --no-coverage
- *
- * (Run via vitest so we inherit the ts/esm pipeline already in place.)
+ *   yarn vitest run tests/integration/verbosity_real_handlers.test.ts --no-coverage
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -26,13 +24,8 @@ const { fetchContent } =
   await import('../../src/tools/local_fetch_content/fetchContent.js');
 const { viewStructure } =
   await import('../../src/tools/local_view_structure/local_view_structure.js');
-const { searchContentRipgrep } =
-  await import('../../src/tools/local_ripgrep/searchContentRipgrep.js');
 
-// LSP handlers — the helper functions we wired with verbosity. We can't run a
-// real LSP server in vitest, but the verbosity transformers are pure and
-// exhaustively covered in tests/scheme/verbosity_concise.test.ts. Here we just
-// confirm the public handler accepts `verbosity` without rejection.
+// LSP apply-helpers are pure transformers — no LSP server needed.
 const { applyFindReferencesVerbosity } =
   await import('../../src/tools/lsp_find_references/lsp_find_references.js');
 const { applyGotoDefinitionVerbosity } =
@@ -41,27 +34,13 @@ const { applyCallHierarchyVerbosity } =
   await import('../../src/tools/lsp_call_hierarchy/callHierarchy.js');
 
 // Derive WORKSPACE dynamically so the test works on any machine / CI runner.
-// This file lives at tests/integration/, two levels below the package root.
 const WORKSPACE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../..'
 );
 
-function payload(obj: unknown): string {
-  return JSON.stringify(obj);
-}
-
-function reportSavings(name: string, before: unknown, after: unknown): void {
-  const b = payload(before).length;
-  const a = payload(after).length;
-  const saved = ((1 - a / b) * 100).toFixed(1);
-  console.log(
-    `  ${name.padEnd(28)}  default=${b.toString().padStart(7)}B  concise=${a.toString().padStart(6)}B  saved=${saved}%`
-  );
-}
-
-describe('E2E: verbosity:"concise" on real handlers', () => {
-  it('localFindFiles — drops files[], emits summary', async () => {
+describe('E2E: verbose boolean — data payload is preserved in both modes', () => {
+  it('localFindFiles — verbose:false omits metadata; verbose:true includes it', async () => {
     const base: any = {
       id: 'e2e',
       researchGoal: 'sanity',
@@ -70,63 +49,57 @@ describe('E2E: verbosity:"concise" on real handlers', () => {
       type: 'f',
       name: '*.ts',
     };
-    const def: any = await findFiles(base);
-    const concise: any = await findFiles({ ...base, verbosity: 'concise' });
-    reportSavings('localFindFiles', def, concise);
+    const def: any = await findFiles({ ...base, verbose: false });
+    const withMeta: any = await findFiles({ ...base, verbose: true });
     expect(def.status, JSON.stringify(def).slice(0, 400)).toBeUndefined();
-    expect(concise.status).toBeUndefined();
-    expect(concise.files).toEqual([]);
-    expect((concise.hints ?? []).join('\n')).toMatch(/files in \d+ dirs/);
-    expect((concise.hints ?? []).join('\n').toLowerCase()).not.toMatch(
-      /drill-back|detail dropped/
-    );
+    expect(withMeta.status).toBeUndefined();
+    // Both return same number of files
+    expect(def.files?.length).toBeGreaterThan(0);
+    expect(withMeta.files?.length).toBe(def.files?.length);
+    // Research data (path, name) present in both
+    expect(def.files?.[0]?.path).toBeDefined();
+    expect(withMeta.files?.[0]?.path).toBeDefined();
   });
 
-  it('localViewStructure — drops entries[], emits summary', async () => {
+  it('localViewStructure — verbose:false returns entries without metadata; verbose:true includes metadata', async () => {
     const base: any = {
       id: 'e2e',
       researchGoal: 'sanity',
       reasoning: 'check',
       path: `${WORKSPACE}/src/tools`,
     };
-    const def = await viewStructure(base);
-    const concise = await viewStructure({ ...base, verbosity: 'concise' });
-    reportSavings('localViewStructure', def, concise);
+    const def = await viewStructure({ ...base, verbose: false });
+    const withMeta = await viewStructure({ ...base, verbose: true });
     expect(def.status).toBeUndefined();
-    expect(concise.status).toBeUndefined();
-    expect(concise.entries).toEqual([]);
-    expect((concise.hints ?? []).join('\n').toLowerCase()).not.toMatch(
-      /drill-back|detail dropped/
-    );
+    expect(withMeta.status).toBeUndefined();
+    // Both return entries — verbose:true includes size/lastModified, verbose:false strips them
+    expect(def.entries?.length).toBeGreaterThan(0);
+    expect(withMeta.entries?.length).toBe(def.entries?.length);
+    // verbose:false strips metadata fields; verbose:true includes them
+    const defEntry = def.entries?.[0] as Record<string, unknown> | undefined;
+    const metaEntry = withMeta.entries?.[0] as Record<string, unknown> | undefined;
+    expect(defEntry).toBeDefined();
+    expect(metaEntry).toBeDefined();
+    // All research fields (name, path, type) are present in both
+    expect(defEntry?.['name']).toBeDefined();
+    expect(metaEntry?.['name']).toBeDefined();
   });
 
-  it('localGetFileContent — drops content (early-return path too), emits summary', async () => {
-    // ripgrepResultBuilder.ts is ~8.8K → triggers the auto-pagination
-    // earlyResult branch. This pins the fix that wraps the early-return path
-    // with applyFetchContentVerbosity as well as the buildSuccessResult path.
+  it('localGetFileContent — verbose:false and verbose:true return same content', async () => {
     const base: any = {
       id: 'e2e',
       researchGoal: 'sanity',
       reasoning: 'check',
       path: `${WORKSPACE}/src/tools/local_ripgrep/ripgrepResultBuilder.ts`,
     };
-    const def = await fetchContent(base);
-    const concise = await fetchContent({ ...base, verbosity: 'concise' });
-    reportSavings('localGetFileContent', def, concise);
+    const def = await fetchContent({ ...base, verbose: false });
+    const withMeta = await fetchContent({ ...base, verbose: true });
     expect(def.status).toBeUndefined();
-    expect(concise.status).toBeUndefined();
-    // concise minifies (does not blank) — content kept but ≤ verbatim size.
-    expect(concise.content).not.toBe('');
-    expect((concise.content ?? '').length).toBeLessThanOrEqual(
-      (def.content ?? '').length
-    );
-    const blob = (concise.hints ?? []).join('\n');
-    expect(blob).toMatch(/ripgrepResultBuilder\.ts:/);
-    expect(blob).toMatch(/tokens \(minified\)/);
-    expect(blob.toLowerCase()).not.toMatch(/drill-back|detail dropped/);
+    expect(withMeta.status).toBeUndefined();
+    expect(withMeta.content).toBe(def.content);
   });
 
-  it('lspGotoDefinition (helper) — collapses location to file:line:col', () => {
+  it('lspGotoDefinition (helper) — verbose:false preserves full location content', () => {
     const base: any = {
       locations: [
         {
@@ -140,50 +113,34 @@ describe('E2E: verbosity:"concise" on real handlers', () => {
       ],
       hints: ['baseline'],
     };
-    const def = applyGotoDefinitionVerbosity(base, {} as any);
-    const concise = applyGotoDefinitionVerbosity(base, {
-      verbosity: 'concise',
+    const def = applyGotoDefinitionVerbosity(base, { verbose: false } as any);
+    const withMeta = applyGotoDefinitionVerbosity(base, {
+      verbose: true,
     } as any);
-    reportSavings('lspGotoDefinition', def, concise);
     expect(def.locations?.[0]?.content).toBe(base.locations[0].content);
-    expect(concise.locations?.[0]?.content).toBe('');
-    expect((concise.hints ?? []).join('\n')).toMatch(/file:.*\d+:\d+|\/repo/);
+    expect(withMeta.locations?.[0]?.content).toBe(base.locations[0].content);
   });
 
-  it('lspFindReferences (helper) — flat refs<500 and topFiles rollup>=500', () => {
-    const small: any = {
-      locations: Array.from({ length: 50 }, (_, i) => ({
-        uri: `/r/file${i % 4}.ts`,
-        range: {
-          start: { line: i, character: 0 },
-          end: { line: i, character: 3 },
-        },
-      })),
-    };
-    const big: any = {
-      locations: Array.from({ length: 1000 }, (_, i) => ({
-        uri: `/r/file${i % 8}.ts`,
-        range: {
-          start: { line: i, character: 0 },
-          end: { line: i, character: 3 },
-        },
-      })),
-    };
-    const flatConcise = applyFindReferencesVerbosity(small, {
-      verbosity: 'concise',
+  it('lspFindReferences (helper) — verbose:false preserves full locations[]', () => {
+    const locs = Array.from({ length: 50 }, (_, i) => ({
+      uri: `/r/file${i % 4}.ts`,
+      range: {
+        start: { line: i, character: 0 },
+        end: { line: i, character: 3 },
+      },
+    }));
+    const result: any = { locations: locs };
+    const def = applyFindReferencesVerbosity(result, {
+      verbose: false,
     } as any);
-    const rollupConcise = applyFindReferencesVerbosity(big, {
-      verbosity: 'concise',
+    const withMeta = applyFindReferencesVerbosity(result, {
+      verbose: true,
     } as any);
-    reportSavings('lspFindReferences(<500)', small, flatConcise);
-    reportSavings('lspFindReferences(>=500)', big, rollupConcise);
-    expect(flatConcise.locations).toEqual([]);
-    expect((flatConcise.hints ?? []).join('\n')).toMatch(/50 refs in 4 files/);
-    expect(rollupConcise.locations).toEqual([]);
-    expect((rollupConcise.hints ?? []).join('\n')).toMatch(/top-20:/);
+    expect(def.locations).toHaveLength(50);
+    expect(withMeta.locations).toEqual(def.locations);
   });
 
-  it('lspCallHierarchy (helper) — emits edges only', () => {
+  it('lspCallHierarchy (helper) — verbose:false preserves full calls[]', () => {
     const base: any = {
       direction: 'incoming',
       depth: 1,
@@ -196,10 +153,6 @@ describe('E2E: verbosity:"concise" on real handlers', () => {
               start: { line: 14, character: 0 },
               end: { line: 14, character: 5 },
             },
-            {
-              start: { line: 20, character: 0 },
-              end: { line: 20, character: 5 },
-            },
           ],
         },
         { from: { name: 'main' }, fromRanges: [{ start: { line: 1 } }] },
@@ -207,14 +160,13 @@ describe('E2E: verbosity:"concise" on real handlers', () => {
     };
     const def = applyCallHierarchyVerbosity(base, {
       direction: 'incoming',
+      verbose: false,
     } as any);
-    const concise = applyCallHierarchyVerbosity(base, {
+    const withMeta = applyCallHierarchyVerbosity(base, {
       direction: 'incoming',
-      verbosity: 'concise',
+      verbose: true,
     } as any);
-    reportSavings('lspCallHierarchy', def, concise);
     expect(def.calls).toEqual(base.calls);
-    expect(concise.calls).toEqual(base.calls);
-    expect((concise.hints ?? []).join('\n')).toMatch(/serve → doWork \(×2\)/);
+    expect(withMeta.calls).toEqual(base.calls);
   });
 });

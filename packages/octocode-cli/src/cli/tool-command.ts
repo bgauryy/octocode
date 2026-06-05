@@ -1,5 +1,6 @@
 import type { CLICommand, ParsedArgs } from './types.js';
 import './cjs-shim.js';
+import { EXIT, classifyToolErrorText } from './exit-codes.js';
 import { c, bold, dim } from '../utils/colors.js';
 import {
   buildDirectToolExampleQuery,
@@ -42,6 +43,10 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'list',
   'schema',
   'tools-context',
+  'compact',
+  'format',
+  'full',
+  'no-color',
 ]);
 
 const CANONICAL_TOOL_USAGE = [
@@ -265,11 +270,46 @@ export async function showMultipleToolSchemas(
   console.log();
 }
 
-export async function getToolsContextString(): Promise<string> {
+// Compact, lean rendering of a tool's input fields (name + type + required),
+// for the default --agent dump. Full JSON Schema is reserved for --full.
+function formatToolFieldsCompact(toolName: string): string {
+  const fields = getDirectToolDisplayFields(toolName);
+  if (fields.length === 0) {
+    return '  (no input fields)';
+  }
+  return fields
+    .map(field => {
+      const req = field.required ? ' [required]' : '';
+      return `  ${field.name} (${field.type})${req}`;
+    })
+    .join('\n');
+}
+
+export async function getToolsContextString(
+  options: { full?: boolean } = {}
+): Promise<string> {
+  const full = options.full === true;
   const metadata = await loadToolMetadata();
   const toolNames = sortDirectToolNames(Object.keys(metadata.tools));
 
   const sections: string[] = [
+    'Octocode CLI — Agent Protocol',
+    [
+      'You are an agent driving the octocode CLI. Follow this protocol:',
+      '  1. This output lists every tool with its name, description, and key input fields below' +
+        (full ? ' (full JSON schemas included).' : '.'),
+      '  2. REQUIRED before calling any tool: read its exact schema with `octocode tools <name>`' +
+        (full
+          ? '.'
+          : ' (or run `octocode --agent --full` for all schemas inline).'),
+      "  3. Run a tool: `octocode tools <name> --queries '<json>'`.",
+      '     Output contract: clean YAML by default (read it directly); add --json for the full',
+      '     MCP envelope (structuredContent + content + isError); add --compact for the leanest output.',
+      '     Trust evidence.answerReady / hints in each result — they signal whether the answer is complete.',
+      '  4. Exit codes: 0 ok, 2 bad input, 3 unknown tool, 4 auth, 5 tool error, 7 rate-limited.',
+      '  5. See all management commands (install, auth, skills, mcp, sync, cache): `octocode --help`.',
+    ].join('\n'),
+    '',
     'CLI Usage:',
     CANONICAL_TOOL_USAGE,
     '',
@@ -283,29 +323,47 @@ export async function getToolsContextString(): Promise<string> {
   ];
 
   toolNames.forEach((toolName, index) => {
-    const schemaText = findDirectToolDefinition(toolName)
-      ? formatDirectToolSchemaText(toolName)
-      : formatDirectToolMetadataSchemaText(metadata.tools[toolName]?.schema);
-
     const shortDesc = extractShortDescription(
       getDirectToolDescription(toolName, metadata)
     );
 
     sections.push(`${index + 1}. ${toolName}`);
     sections.push(`Description: ${shortDesc}`);
-    sections.push('Input schema:');
-    sections.push(schemaText);
+
+    if (full) {
+      const schemaText = findDirectToolDefinition(toolName)
+        ? formatDirectToolSchemaText(toolName)
+        : formatDirectToolMetadataSchemaText(metadata.tools[toolName]?.schema);
+      sections.push('Input schema:');
+      sections.push(schemaText);
+    } else if (findDirectToolDefinition(toolName)) {
+      sections.push('Input fields:');
+      sections.push(formatToolFieldsCompact(toolName));
+    } else {
+      sections.push('Input schema:');
+      sections.push(
+        formatDirectToolMetadataSchemaText(metadata.tools[toolName]?.schema)
+      );
+    }
     sections.push('');
   });
 
   return sections.join('\n').trim();
 }
 
-export async function printToolsContext(): Promise<void> {
-  console.log(await getToolsContextString());
+export async function printToolsContext(
+  options: { full?: boolean } = {}
+): Promise<void> {
+  console.log(await getToolsContextString(options));
 }
 
-function getOutputMode(args: ParsedArgs): 'text' | 'json' {
+type OutputMode = 'text' | 'json' | 'compact';
+
+function getOutputMode(args: ParsedArgs): OutputMode {
+  // --compact wins: leanest parseable form (minified structuredContent only).
+  if (args.options.compact === true) {
+    return 'compact';
+  }
   if (args.options.json === true) {
     return 'json';
   }
@@ -318,11 +376,60 @@ function getOutputMode(args: ParsedArgs): 'text' | 'json' {
   return 'text';
 }
 
-function printToolResult(
-  result: ToolResult,
-  outputMode: 'text' | 'json'
-): void {
-  console.log(formatCallToolResultForOutput(result, outputMode));
+function isCompact(args: ParsedArgs): boolean {
+  return args.options.compact === true;
+}
+
+// A1: inject verbosity:"concise" into the tool input so the tool itself returns
+// leaner data. Shape-aware: handles a single query object, a bare array, or a
+// { queries: [...] } envelope. Only sets verbosity where not already specified.
+function applyCompactToInputText(jsonText: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return jsonText; // let the normal validator surface the parse error
+  }
+
+  const setVerbosity = (obj: unknown): void => {
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      const record = obj as Record<string, unknown>;
+      if (record.verbosity === undefined) {
+        record.verbosity = 'concise';
+      }
+    }
+  };
+
+  if (Array.isArray(parsed)) {
+    parsed.forEach(setVerbosity);
+  } else if (parsed && typeof parsed === 'object') {
+    const record = parsed as Record<string, unknown>;
+    if (Array.isArray(record.queries)) {
+      record.queries.forEach(setVerbosity);
+    } else {
+      setVerbosity(parsed);
+    }
+  }
+
+  return JSON.stringify(parsed);
+}
+
+function printToolResult(result: ToolResult, outputMode: OutputMode): void {
+  if (outputMode === 'compact') {
+    // Leanest agent form: minified structuredContent only. Drops the duplicated
+    // escaped-text `content` block and `isError` (the exit code conveys errors).
+    // ~60% smaller than the full --json envelope on typical results.
+    const structured = (result as { structuredContent?: unknown })
+      .structuredContent;
+    console.log(JSON.stringify(structured ?? result));
+    return;
+  }
+  console.log(
+    formatCallToolResultForOutput(
+      result,
+      outputMode === 'json' ? 'json' : 'text'
+    )
+  );
 }
 
 function printToolError(message: string, details: string[] = []): void {
@@ -367,7 +474,28 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     printToolError(`Unknown tool: ${toolName}`, [
       `Available tools: ${TOOL_DEFINITIONS.map(item => item.name).join(', ')}`,
     ]);
+    process.exitCode = EXIT.NOT_FOUND;
     return false;
+  }
+
+  // A4: emit a register-ready tool definition for MCP / function-calling.
+  if (args.options.format === 'tool') {
+    const metadata = await getOptionalToolMetadata();
+    const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
+    console.log(
+      JSON.stringify(
+        {
+          name: tool.name,
+          description: extractShortDescription(
+            getDirectToolDescription(tool.name, metadata)
+          ),
+          inputSchema,
+        },
+        null,
+        2
+      )
+    );
+    return true;
   }
 
   if (args.options.schema === true) {
@@ -383,12 +511,17 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       error instanceof Error ? error.message : 'Failed to parse tool input.',
       getErrorDetails(error)
     );
+    process.exitCode = EXIT.USAGE;
     return false;
   }
 
   if (!inputText) {
     await showToolHelp(tool.name);
     return true;
+  }
+
+  if (isCompact(args)) {
+    inputText = applyCompactToInputText(inputText);
   }
 
   try {
@@ -402,12 +535,22 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
     const result = await executeDirectTool(tool.name, input);
     printToolResult(result, getOutputMode(args));
-    return !result.isError;
+    if (result.isError) {
+      process.exitCode = classifyToolErrorText(JSON.stringify(result));
+      return false;
+    }
+    return true;
   } catch (error) {
     printToolError(
       error instanceof Error ? error.message : 'Tool execution failed.',
       getErrorDetails(error)
     );
+    process.exitCode =
+      error instanceof DirectToolInputError
+        ? EXIT.USAGE
+        : classifyToolErrorText(
+            error instanceof Error ? error.message : String(error)
+          );
     return false;
   }
 }
@@ -446,8 +589,8 @@ export const toolCommand: CLICommand = {
   ],
   handler: async (args: ParsedArgs) => {
     const success = await executeToolCommand(args);
-    if (!success) {
-      process.exitCode = 1;
+    if (!success && !process.exitCode) {
+      process.exitCode = EXIT.GENERAL;
     }
   },
 };

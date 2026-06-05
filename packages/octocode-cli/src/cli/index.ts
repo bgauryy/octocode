@@ -1,4 +1,5 @@
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
+import { EXIT } from './exit-codes.js';
 import type { CLICommand, CLICommandSpec, ParsedArgs } from './types.js';
 
 declare const __APP_VERSION__: string;
@@ -17,7 +18,7 @@ async function loadStaticCommandHelpModule(): Promise<{
 
 async function loadToolCommandModule(): Promise<{
   executeToolCommand(args: ParsedArgs): Promise<boolean>;
-  printToolsContext(): Promise<void>;
+  printToolsContext(options?: { full?: boolean }): Promise<void>;
   showToolHelp(toolName: string): Promise<boolean>;
   showAvailableTools(): Promise<void>;
   showMultipleToolSchemas(toolNames: string[]): Promise<void>;
@@ -57,9 +58,20 @@ function showVersion(): void {
 export async function runCLI(argv?: string[]): Promise<boolean> {
   const args = parseArgs(argv);
 
-  if (args.options['tools-context'] === true) {
+  // B4: honor an explicit --no-color flag by setting NO_COLOR before any output
+  // (colors and the spinner both check NO_COLOR / isTTY lazily).
+  if (args.options['no-color'] === true) {
+    process.env.NO_COLOR = '1';
+  }
+
+  // `--agent` is the documented entry point; `--tools-context` is a legacy
+  // alias kept for backward compatibility (not advertised in --help).
+  if (
+    args.options['tools-context'] === true ||
+    args.options['agent'] === true
+  ) {
     const { printToolsContext } = await loadToolCommandModule();
-    await printToolsContext();
+    await printToolsContext({ full: args.options['full'] === true });
     return true;
   }
 
@@ -133,15 +145,15 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (args.command === 'tool') {
     if (typeof args.options.tool !== 'string') {
       printLegacyToolCommandError();
-      process.exitCode = 1;
+      process.exitCode = EXIT.USAGE;
       return true;
     }
 
     const success = await (
       await loadToolCommandModule()
     ).executeToolCommand(args);
-    if (!success) {
-      process.exitCode = 1;
+    if (!success && !process.exitCode) {
+      process.exitCode = EXIT.GENERAL;
     }
     return true;
   }
@@ -149,15 +161,15 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (args.command === 'tools') {
     const { executeToolCommand } = await loadToolCommandModule();
     const success = await executeToolCommand(args);
-    if (!success) {
-      process.exitCode = 1;
+    if (!success && !process.exitCode) {
+      process.exitCode = EXIT.GENERAL;
     }
     return true;
   }
 
-  if (args.command === 'instructions') {
+  if (args.command === 'instructions' || args.command === 'agent') {
     const { printToolsContext } = await loadToolCommandModule();
-    await printToolsContext();
+    await printToolsContext({ full: args.options['full'] === true });
     return true;
   }
 
@@ -169,7 +181,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     console.log(`  Unknown command: ${args.command}`);
     console.log(`  Run 'octocode --help' to see available commands.`);
     console.log();
-    process.exitCode = 1;
+    process.exitCode = EXIT.NOT_FOUND;
     return true;
   }
 

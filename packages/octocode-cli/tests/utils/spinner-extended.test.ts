@@ -13,6 +13,7 @@ describe('Spinner (extended)', () => {
   let originalWrite: typeof process.stdout.write;
   let writtenOutput: string[];
   let originalMaxListeners: number;
+  let originalIsTTY: boolean;
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -30,6 +31,11 @@ describe('Spinner (extended)', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
 
+    // Spinner only animates / installs handlers on a TTY; force one for these
+    // interactive-behavior assertions.
+    originalIsTTY = process.stdout.isTTY;
+    process.stdout.isTTY = true;
+
     writtenOutput = [];
     originalWrite = process.stdout.write;
     process.stdout.write = vi.fn((chunk: string | Uint8Array) => {
@@ -46,6 +52,7 @@ describe('Spinner (extended)', () => {
   afterEach(() => {
     vi.useRealTimers();
     process.stdout.write = originalWrite;
+    process.stdout.isTTY = originalIsTTY;
     exitSpy.mockRestore();
     errorSpy.mockRestore();
   });

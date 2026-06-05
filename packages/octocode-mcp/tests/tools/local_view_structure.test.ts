@@ -221,6 +221,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -247,6 +248,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -318,6 +320,7 @@ describe('localViewStructure', () => {
         path: '/test/path',
         details: true,
         humanReadable: true,
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -728,6 +731,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -750,6 +754,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -2542,8 +2547,8 @@ describe('localViewStructure', () => {
     });
   });
 
-  describe('byte/character offset separation in charPagination', () => {
-    it('should ignore char-length fields and return entry pagination only', async () => {
+  describe('entry pagination — no charPagination', () => {
+    it('should return entry pagination without charPagination', async () => {
       const manyFiles = Array.from(
         { length: 100 },
         (_, i) => `file${i}.txt`
@@ -2560,20 +2565,14 @@ describe('localViewStructure', () => {
         isSymbolicLink: () => false,
       } as Stats);
 
-      const result = await viewStructure({
-        path: '/test/path',
-        charLength: 500,
-      });
+      const result = await viewStructure({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBe(100);
-      expect(
-        (result as { charPagination?: unknown }).charPagination
-      ).toBeUndefined();
+      expect((result as Record<string, unknown>).charPagination).toBeUndefined();
     });
 
     it('should handle UTF-8 filenames correctly', async () => {
-      // Create files with emoji/unicode names
       const unicodeFiles = [
         '文件1.txt',
         '文件2.txt',
@@ -2592,16 +2591,11 @@ describe('localViewStructure', () => {
         isSymbolicLink: () => false,
       } as Stats);
 
-      const result = await viewStructure({
-        path: '/test/path',
-        charLength: 50, // Small enough to trigger pagination
-      });
+      const result = await viewStructure({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       expect(result.entries?.every(e => !e.name.includes('\uFFFD'))).toBe(true);
-      expect(
-        (result as { charPagination?: unknown }).charPagination
-      ).toBeUndefined();
+      expect((result as Record<string, unknown>).charPagination).toBeUndefined();
     });
   });
 
@@ -2708,11 +2702,10 @@ describe('localViewStructure', () => {
   });
 
   /**
-   * `verbosity:"concise"` drops `entries[]` and returns the one-line summary.
-   * Omitted ≡ `"basic"` (default) preserves entries. The concise response carries
-   * an explicit drill-back breadcrumb so the agent never lands in a dead end.
+   * verbose:false (default) returns the same full entries[] as verbose:true.
+   * The verbose flag is additive — it never drops data.
    */
-  describe('verbosity:"concise" (less tokens, more quality research)', () => {
+  describe('verbose boolean — pass-through contract', () => {
     beforeEach(() => {
       mockSafeExec.mockResolvedValue({
         success: true,
@@ -2732,41 +2725,42 @@ describe('localViewStructure', () => {
       );
     });
 
-    it('drops entries[] when verbosity:"concise" is requested', async () => {
+    it('verbose:false returns same full entries[] as default', async () => {
+      const def = await viewStructure({ path: '/test/path' });
       const result = await viewStructure({
         path: '/test/path',
-        verbosity: 'concise',
+        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toEqual([]);
-      expect(result.summary).toMatch(/entries.*files.*dirs/);
+      expect(result.entries).toEqual(def.entries);
+      expect(result.entries!.length).toBeGreaterThan(0);
     });
 
-    it('keeps pagination so the agent still sees totalEntries', async () => {
+    it('verbose:false keeps pagination so the agent still sees totalEntries', async () => {
       const result = await viewStructure({
         path: '/test/path',
-        verbosity: 'concise',
+        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBeGreaterThan(0);
     });
 
-    it('emits the data summary and NO verbosity-feature hints', async () => {
+    it('verbose:false emits same hints as default — no tier commentary', async () => {
+      const def = await viewStructure({ path: '/test/path' });
       const result = await viewStructure({
         path: '/test/path',
-        verbosity: 'concise',
+        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
       const hintsBlob = (result.hints ?? []).join('\n');
-      // Data-bearing summary kept; tier commentary is not emitted.
-      expect(hintsBlob).toMatch(/summary:/i);
+      expect(result.hints).toEqual(def.hints);
       expect(hintsBlob).not.toMatch(/drill-back|re-call|detail dropped/i);
     });
 
-    it('byte-equivalent default — omitted verbosity returns full entries', async () => {
+    it('omitted verbose returns full entries', async () => {
       const result = await viewStructure({
         path: '/test/path',
       });
@@ -2776,10 +2770,10 @@ describe('localViewStructure', () => {
       expect(result.entries!.length).toBeGreaterThan(0);
     });
 
-    it('verbosity:"compact" is also byte-equivalent to omitted (current behavior)', async () => {
+    it('verbose:true also returns full entries (metadata is additive)', async () => {
       const result = await viewStructure({
         path: '/test/path',
-        verbosity: 'compact',
+        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -2787,7 +2781,7 @@ describe('localViewStructure', () => {
       expect(result.entries!.length).toBeGreaterThan(0);
     });
 
-    it('does not transform the empty status (nothing to compress)', async () => {
+    it('does not transform the empty status', async () => {
       mockSafeExec.mockResolvedValue({
         success: true,
         code: 0,
@@ -2797,7 +2791,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        verbosity: 'concise',
+        verbose: false,
       });
 
       expect(result.status).toBe('empty');

@@ -15,7 +15,7 @@ import type {
 } from '@octocodeai/octocode-core/schemas';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../types/execution.js';
-import { resolveGithubPerPage } from '../scheme/localSchemaOverlay.js';
+import { DEFAULT_PAGE_SIZE } from '../scheme/localSchemaOverlay.js';
 import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constants.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
@@ -94,9 +94,7 @@ export function mapCodeSearchToolQuery(
     filename: query.filename,
     extension: query.extension,
     match: query.match,
-    limit: resolveGithubPerPage(
-      query as { githubAPILimit?: number; itemsPerPage?: number }
-    ),
+    limit: DEFAULT_PAGE_SIZE,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -227,9 +225,7 @@ export function mapRepoSearchToolQuery(
       | 'created'
       | 'best-match'
       | undefined,
-    limit: resolveGithubPerPage(
-      query as { githubAPILimit?: number; itemsPerPage?: number }
-    ),
+    limit: DEFAULT_PAGE_SIZE,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -325,9 +321,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     partialContentMetadata: query.partialContentMetadata,
     sort: query.sort as 'created' | 'updated' | 'best-match' | undefined,
     order: query.order as 'asc' | 'desc' | undefined,
-    limit: resolveGithubPerPage(
-      query as { githubAPILimit?: number; itemsPerPage?: number }
-    ),
+    limit: DEFAULT_PAGE_SIZE,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -505,8 +499,6 @@ export function mapFileContentToolQuery(
     matchString:
       fullContent || !query.matchString ? undefined : String(query.matchString),
     matchStringContextLines: query.matchStringContextLines ?? 5,
-    charOffset: query.charOffset ?? 0,
-    charLength: query.charLength,
     fullContent,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -558,16 +550,9 @@ export function mapRepoStructureToolQuery(
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
     depth: typeof query.depth === 'number' ? query.depth : undefined,
-    // Tool surface uses the cross-tool `itemsPerPage` (page size) + `page`
-    // (page number); the provider/structure layer still calls its params
-    // `entriesPerPage` / `entryPageNumber` internally.
-    // Default to 100 so typical monorepo roots return in a single call.
-    entriesPerPage: (() => {
-      const ipp = (query as { itemsPerPage?: number }).itemsPerPage;
-      return typeof ipp === 'number'
-        ? ipp
-        : GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
-    })(),
+    // Fixed page size (STRUCTURE_PAGE_SIZE = 100 entries/page). Agents navigate
+    // via `page`; the provider layer still uses its `entriesPerPage`/`entryPageNumber` internally.
+    entriesPerPage: GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
     entryPageNumber: (() => {
       const p = (query as { page?: number }).page;
       return typeof p === 'number' ? p : undefined;

@@ -133,8 +133,9 @@ describe('github_search_pull_requests execution — branch coverage', () => {
     vi.resetAllMocks();
   });
 
-  describe('concise verbosity pre-flight caps (lines 86,88,94,95,97,99,102)', () => {
-    it('caps limit to CONCISE_PR_LIMIT and coerces explicit non-metadata type, dropping partialContentMetadata', async () => {
+  describe('verbosity pre-flight behavior (lines 86,88,94,95,97,99,102)', () => {
+    it('verbose=false is a no-op — no limit cap, no type coercion', async () => {
+      // Verbosity trimming disabled: verbose=false no longer caps limit or coerces type.
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
@@ -142,10 +143,9 @@ describe('github_search_pull_requests execution — branch coverage', () => {
         owner: 'test',
         repo: 'repo',
         state: 'open',
-        itemsPerPage: 50,
         type: 'fullContent',
         partialContentMetadata: { foo: 'bar' },
-        verbosity: 'concise',
+        verbose: false,
       };
 
       const result = await mockServer.callTool(
@@ -155,25 +155,18 @@ describe('github_search_pull_requests execution — branch coverage', () => {
         }
       );
 
+      expect(result.isError).toBe(false);
       const text = getTextContent(result.content);
-      expect(text).toContain("type coerced to 'metadata' under concise");
-      expect(query).toEqual({
-        owner: 'test',
-        repo: 'repo',
-        state: 'open',
-        itemsPerPage: 50,
-        type: 'fullContent',
-        partialContentMetadata: { foo: 'bar' },
-        verbosity: 'concise',
-      });
+      // No type coercion hint emitted (verbose=false is a no-op for type)
+      expect(text).not.toContain("type coerced to 'metadata' under concise");
 
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);
       const q = mockProvider.searchPullRequests.mock.calls[0]?.[0];
-      // limit capped to 3
-      expect(q.limit).toBe(3);
+      // No cap: limit uses the default page size
+      expect(q.limit).toBeGreaterThan(0);
     });
 
-    it('coerces omitted type to metadata under concise (no explicit type)', async () => {
+    it('verbose:false with omitted type — succeeds without type coercion', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
@@ -186,7 +179,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
               owner: 'test',
               repo: 'repo',
               state: 'open',
-              verbosity: 'concise',
+              verbose: false,
             },
           ],
         }
@@ -196,7 +189,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);
     });
 
-    it('does NOT coerce type when prNumber + explicit type are both given under concise', async () => {
+    it('verbose:false with prNumber + explicit type — succeeds', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR({ number: 456 })])
       );
@@ -210,7 +203,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
               repo: 'repo',
               prNumber: 456,
               type: 'fullContent',
-              verbosity: 'concise',
+              verbose: false,
             },
           ],
         }
@@ -220,7 +213,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);
     });
 
-    it('does not cap when concise limit is already within CONCISE_PR_LIMIT', async () => {
+    it('does not cap when verbose=false with page=1', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
@@ -231,14 +224,14 @@ describe('github_search_pull_requests execution — branch coverage', () => {
             owner: 'test',
             repo: 'repo',
             state: 'open',
-            itemsPerPage: 2,
-            verbosity: 'concise',
+            page: 1,
+            verbose: false,
           },
         ],
       });
 
       const q = mockProvider.searchPullRequests.mock.calls[0]?.[0];
-      expect(q.limit).toBe(2);
+      expect(q.limit).toBeGreaterThan(0);
     });
   });
 
@@ -362,7 +355,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(metaFileChanges?.every(f => f.patch === undefined)).toBe(true);
       expect(prs?.[0]?.changedFilesCount).toBe(5);
       expect(getTextContent(result.content)).toContain(
-        'Metadata mode: file lists include paths + counts only'
+        'Metadata mode: file lists include paths + counts, no patches'
       );
     });
 
@@ -522,80 +515,94 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
   });
 });
 
-describe('applyGithubSearchPullRequestsVerbosity — direct (lines 313,324,333,336)', () => {
-  const baseInput = {
-    data: { pull_requests: [], total_count: 2 } as Record<string, unknown>,
-    pullRequests: [
-      { number: 101, title: 'A', state: 'open', merged: false },
-      { number: 102, title: 'B', state: 'closed', merged: true },
-    ] as Array<Record<string, unknown>>,
-    extraHints: ['some hint'],
-  };
+describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
+  const basePRs = [
+    { number: 101, title: 'A', state: 'open', merged: false, createdAt: '2024-01-01' },
+    { number: 102, title: 'B', state: 'closed', merged: true, updatedAt: '2024-01-02' },
+  ] as Array<Record<string, unknown>>;
 
-  it('concise projects PRs to identity fields and prepends a summary (313,324)', () => {
-    const out = applyGithubSearchPullRequestsVerbosity(
-      { ...baseInput, extraHints: ['h1'] },
-      { verbosity: 'concise' } as never
-    );
+  it('verbose=false (default) strips metadata fields from PRs', () => {
+    const input = {
+      data: { total_count: 2 } as Record<string, unknown>,
+      pullRequests: basePRs,
+      extraHints: ['h1'],
+    };
+    const out = applyGithubSearchPullRequestsVerbosity(input, {} as never);
+
+    // Metadata fields stripped (createdAt, updatedAt), core fields preserved
+    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
+    expect(prs).toBeDefined();
+    expect(prs[0]).not.toHaveProperty('createdAt');
+    expect(prs[0]).toHaveProperty('number');
+    expect(out.extraHints).toEqual(['h1']);
+  });
+
+  it('verbose=true passes PRs and data through unchanged with all metadata', () => {
+    const input = {
+      data: { total_count: 2 } as Record<string, unknown>,
+      pullRequests: basePRs,
+      extraHints: ['h1'],
+    };
+    const out = applyGithubSearchPullRequestsVerbosity(input, { verbose: true } as never);
+
+    // verbose=true: data passes through unchanged
+    expect(out.data).toEqual({ total_count: 2 });
+    expect(out.extraHints).toEqual(['h1']);
+  });
+
+  it('with no-number PR — strips metadata but keeps core fields', () => {
+    const input = {
+      data: {},
+      pullRequests: [{ title: 'no-number', createdAt: '2024-01-01' }],
+      extraHints: [],
+    };
+    const out = applyGithubSearchPullRequestsVerbosity(input, {} as never);
 
     const prs = out.data.pull_requests as Array<Record<string, unknown>>;
-    expect(prs).toHaveLength(2);
-    expect(Object.keys(prs[0]).sort()).toEqual(
-      ['merged', 'number', 'state', 'title'].sort()
-    );
-    expect(out.extraHints[0]).toBe('2 PRs (top: #101)');
-    expect(out.extraHints).toContain('h1');
+    expect(prs[0]).not.toHaveProperty('createdAt');
+    expect(prs[0]).toHaveProperty('title');
+    expect(out.extraHints).toEqual([]);
   });
 
-  it('concise summary uses "?" when the first PR has no number (324)', () => {
-    const out = applyGithubSearchPullRequestsVerbosity(
-      {
-        data: {},
-        pullRequests: [{ title: 'no-number' }],
-        extraHints: [],
-      },
-      { verbosity: 'concise' } as never
-    );
-
-    expect(out.extraHints[0]).toBe('1 PRs (top: #?)');
-  });
-
-  it('compact trims advisory hints and keeps data intact (333,336)', () => {
+  it('advisory hints always preserved regardless of verbosity', () => {
+    const allHints = [
+      'Page 1/2 (showing 1 of 2 PRs)',
+      'PR archaeology: use prNumber',
+      'withComments adds tokens',
+      'another data hint',
+    ];
     const out = applyGithubSearchPullRequestsVerbosity(
       {
         data: { pull_requests: [{ number: 1 }] },
         pullRequests: [{ number: 1 }],
-        extraHints: [
-          'Page 1/2 (showing 1 of 2 PRs)',
-          'PR archaeology: use prNumber',
-          'withComments adds tokens',
-          'another data hint',
-        ],
+        extraHints: [...allHints],
       },
-      { verbosity: 'compact' } as never
+      {} as never
     );
 
-    expect(out.data).toEqual({ pull_requests: [{ number: 1 }] });
-    // advisory entries (archaeology / withComments) trimmed; cap of 2 applied
-    expect(out.extraHints.length).toBeLessThanOrEqual(2);
+    // All hints preserved (never trimmed)
+    expect(out.extraHints).toEqual(allHints);
+    expect(out.extraHints.length).toBe(4);
     expect(out.extraHints).toContain('Page 1/2 (showing 1 of 2 PRs)');
     expect(
       out.extraHints.some(h => h.toLowerCase().includes('archaeology'))
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it('compact returns [] when compactTrimHints yields nothing', () => {
+  it('empty pullRequests returns empty pull_requests array', () => {
     const out = applyGithubSearchPullRequestsVerbosity(
       { data: { x: 1 }, pullRequests: [], extraHints: [] },
-      { verbosity: 'compact' } as never
+      {} as never
     );
     expect(out.extraHints).toEqual([]);
+    const prs = out.data.pull_requests as Array<unknown>;
+    expect(prs).toEqual([]);
   });
 
-  it('basic / omitted verbosity passes hints and data through unchanged', () => {
+  it('verbose=true with hints and data passes through unchanged', () => {
     const out = applyGithubSearchPullRequestsVerbosity(
       { data: { x: 1 }, pullRequests: [{ number: 1 }], extraHints: ['keep'] },
-      {} as never
+      { verbose: true } as never
     );
     expect(out.data).toEqual({ x: 1 });
     expect(out.extraHints).toEqual(['keep']);

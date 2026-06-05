@@ -23,24 +23,25 @@ const LOSS_LANGUAGE: RegExp[] = [
 
 /**
  * The per-query pagination knob(s) each tool exposes as schema properties.
- * (charOffset is the response-level cursor; per-query tools expose at least one
- * of these so the agent can always reach the rest of a large result.)
+ * All tools use `page` (1-based) with a fixed internal page size constant.
+ * Navigation tools (view-structure, find-files) expose `page`; search tools
+ * expose `page` from the upstream schema.
  */
 const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
-  githubSearchCode: ['charLength', 'page'],
-  githubGetFileContent: ['charOffset', 'charLength'],
-  githubViewRepoStructure: ['page', 'itemsPerPage'],
+  githubSearchCode: ['page'],
+  githubGetFileContent: ['startLine', 'endLine'],
+  githubViewRepoStructure: ['page'],
   githubSearchRepositories: ['page'],
-  githubSearchPullRequests: ['charOffset', 'charLength', 'page'],
-  packageSearch: ['itemsPerPage'],
-  githubCloneRepo: ['charOffset', 'charLength'],
-  localSearchCode: ['page', 'itemsPerPage', 'matchesPerFile'],
-  localViewStructure: ['page', 'itemsPerPage'],
-  localFindFiles: ['page', 'itemsPerPage'],
-  localGetFileContent: ['charOffset', 'charLength'],
-  lspGotoDefinition: ['charOffset', 'charLength'],
-  lspFindReferences: ['itemsPerPage', 'page'],
-  lspCallHierarchy: ['itemsPerPage', 'page'],
+  githubSearchPullRequests: ['page'],
+  packageSearch: ['page'],
+  githubCloneRepo: ['owner', 'repo'],
+  localSearchCode: ['page'],
+  localViewStructure: ['page'],
+  localFindFiles: ['page'],
+  localGetFileContent: ['startLine', 'endLine'],
+  lspGotoDefinition: ['uri', 'lineHint'],
+  lspFindReferences: ['page'],
+  lspCallHierarchy: ['page'],
 };
 
 describe('all-tools pagination contract', () => {
@@ -55,9 +56,8 @@ describe('all-tools pagination contract', () => {
         }
       });
 
-      it('declares detail controls (boolean verbose plus legacy verbosity)', () => {
+      it('declares the boolean verbose detail control', () => {
         expect(schemaText).toMatch(/"verbose"/);
-        expect(schemaText).toMatch(/"verbosity"/);
       });
 
       it('schema is free of silent-loss language (paginates, never truncates)', () => {

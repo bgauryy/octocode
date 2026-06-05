@@ -78,20 +78,23 @@ Call any tool directly from the terminal. Great for scripts, pipelines, and one-
 
 ```bash
 # Discover
+octocode --agent                                  # agent bootstrap: protocol + tools + input fields
+octocode --agent --full                           # …plus every tool's full JSON schema inline
 octocode tools                                    # list all tools
 octocode tools localSearchCode                    # show one tool's schema
 octocode tools localSearchCode githubSearchCode   # batch schemas
-octocode instructions                             # full MCP instructions + all schemas
+octocode instructions                             # alias of --agent (add --full for all schemas)
 
 # Run
 octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
 octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
-octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}' --json   # machine-readable
+octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}' --json     # full MCP envelope
+octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}' --compact  # leanest (structuredContent only)
 ```
 
 The shared metadata fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-filled. Provide only tool-specific fields.
 
-> **For agents:** before making any tool request — (1) `octocode tools` to list tools, (2) `octocode tools <name>` to read its input schema, (3) `octocode instructions` for the full MCP instructions + all schemas. This same checklist is printed at the top of `octocode --help`.
+> **For agents:** run `octocode --agent` once for the full bootstrap (protocol + every tool + input fields + the mandatory "read the schema before calling" rule + the exit-code table). Then `octocode tools <name>` to confirm a tool's exact schema before calling it. This checklist is also printed at the top of `octocode --help`.
 
 ---
 
@@ -105,6 +108,8 @@ For env-based setup, any of these are accepted (checked in this priority): `OCTO
 export GITHUB_TOKEN=ghp_xxx        # or OCTOCODE_TOKEN / GH_TOKEN
 octocode token --source           # show which token & source is being used
 octocode token --validate         # ping the GitHub API to verify it
+octocode token                    # masked on screen; raw when piped, e.g. export GH_TOKEN=$(octocode token)
+octocode token --reveal           # print the full token on screen
 ```
 
 ---
@@ -129,6 +134,7 @@ octocode token --validate         # ping the GitHub API to verify it
 | `token --type <auto\|octocode\|gh>` | | Force a specific token source instead of auto-resolution |
 | `token --source` | | Show which source resolved the token |
 | `token --validate` | | Ping the GitHub API to verify the token and show rate-limit |
+| `token --reveal` | | Print the full token on screen (default: masked on a terminal, raw when piped) |
 | `status` | `s` | Full health check: auth + MCP clients + cache |
 | `status --sync` | | Also include per-MCP sync analysis |
 | `sync` | `sy` | Sync MCP configs across all IDEs |
@@ -177,7 +183,10 @@ Most subcommands accept `--hostname <host>` for GitHub Enterprise.
 
 | Flag | Description |
 |------|-------------|
-| `--json`, `-j` | Raw JSON output (machine-readable) |
+| `--json`, `-j` | Raw JSON output (full MCP envelope) for tool runs |
+| `--compact` | Leanest tool output: minified `structuredContent` only (~60% smaller than `--json`) |
+| `--agent` | Print the agent bootstrap: protocol + every tool + input fields (add `--full` for all JSON schemas) |
+| `--no-color` | Disable ANSI colors (also honored via `NO_COLOR=1`) |
 | `--version`, `-v` | Print the CLI version |
 | `--help`, `-h` | Show help for the CLI or a command |
 
@@ -195,7 +204,14 @@ Most subcommands accept `--hostname <host>` for GitHub Enterprise.
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Error |
+| `1` | General error |
+| `2` | Invalid input / unsupported flags |
+| `3` | Unknown tool or command |
+| `4` | Authentication failure |
+| `5` | Tool / API execution error |
+| `7` | Rate limited |
+
+Typed codes `2`–`7` apply to the tool surface (`tools`, `--tool`) and command dispatch, so agents can branch on the failure mode without parsing output. Management commands (`install`, `auth`, `sync`, …) use `0`/`1`.
 
 ---
 

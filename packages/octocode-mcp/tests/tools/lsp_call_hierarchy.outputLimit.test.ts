@@ -457,7 +457,7 @@ describe('lspCallHierarchy output size limits', () => {
             direction: 'outgoing',
             depth: 1,
             contextLines: 0,
-            verbosity: 'concise',
+            verbose: false,
             researchGoal: 'test',
             reasoning: 'test',
             mainResearchGoal: 'test',

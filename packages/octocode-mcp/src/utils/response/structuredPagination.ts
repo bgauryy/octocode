@@ -20,26 +20,7 @@ const FALLBACK_EXCLUDED_FIELDS = new Set([
   'warnings',
   'pagination',
   'outputPagination',
-  'charPagination',
-  'responsePagination',
 ]);
-
-/**
- * localFindFiles stores its per-query char-pagination result as `charPagination`
- * (the name used by the upstream `@octocodeai/octocode-core` type). The bulk
- * engine tracks char cursors under the canonical key `outputPagination`. This
- * helper promotes the field so both names are present and evidence / hints
- * builders can use the standard path.
- *
- * If `outputPagination` is already set (e.g. from a previous promotion) the
- * data object is returned unchanged.
- */
-function promoteCharPagination(
-  data: Record<string, unknown>
-): Record<string, unknown> {
-  if (!data.charPagination || data.outputPagination) return data;
-  return { ...data, outputPagination: data.charPagination };
-}
 
 interface PaginationRequest {
   offset?: number;
@@ -206,7 +187,6 @@ function buildCollectionSegments(
 } {
   const baseObject = { ...target };
   delete baseObject.outputPagination;
-  delete baseObject.charPagination;
 
   for (const config of configs) {
     if (config.kind === 'array' && Array.isArray(baseObject[config.field])) {
@@ -568,7 +548,6 @@ function paginateObjectFieldCore(
 ): ValuePageResult<Record<string, unknown>> | null {
   const baseValue = { ...target, [field]: emptyValue };
   delete baseValue.outputPagination;
-  delete baseValue.charPagination;
 
   const wrapperChars = Math.max(serialize(baseValue).length - 2, 0);
   const innerPage = innerPaginate(target[field], {
@@ -985,26 +964,12 @@ function pageToolDataValue(
       ]);
       break;
     case TOOL_NAMES.LOCAL_FIND_FILES: {
-      // localFindFiles runs its own char-pagination inside findFiles.ts and
-      // stores the result as `charPagination` (upstream type name). Promote
-      // it to the canonical `outputPagination` key so the bulk engine can
-      // surface the cursor uniformly. No re-slicing: the tool already applied
-      // the window; here we only alias the field name.
-      const promotedData = promoteCharPagination(data);
-      const len = serialize(promotedData).length;
-      // When the file-level pagination has more pages remaining, signal it to
-      // the bulk engine by making totalChars > pageEnd. This causes
-      // createOutputPagination to return hasMore=true in responsePagination,
-      // preventing agents from thinking all data was delivered when 13 more
-      // file pages remain (the file cursor is advanced via page=N, not charOffset).
-      const filePagination = data.pagination as
-        | { hasMore?: boolean }
-        | undefined;
+      const len = serialize(data).length;
       return {
-        value: promotedData,
+        value: data,
         actualOffset: 0,
         pageEnd: len,
-        totalChars: filePagination?.hasMore ? len + 1 : len,
+        totalChars: len,
         paginated: false,
       };
     }
@@ -1165,29 +1130,12 @@ export function applyQueryOutputPagination(
   // coherent cursor (responseCharOffset) instead of two breadcrumbs reporting
   // different char totals (the per-query pre-slice total vs the bulk total).
   if (!request.explicit) {
-    // localFindFiles handles its own char-pagination inside findFiles.ts; promote
-    // charPagination → outputPagination so agents see a uniform cursor field.
-    // `promoteCharPagination` returns the same object reference when there is
-    // nothing to promote, so we preserve reference equality on the no-op path.
-    if (toolName === TOOL_NAMES.LOCAL_FIND_FILES) {
-      const promoted = promoteCharPagination(queryResult.data);
-      if (promoted === queryResult.data) return queryResult;
-      return { ...queryResult, data: promoted };
-    }
     return queryResult;
   }
 
   const page = pageToolDataValue(toolName, queryResult.data, request);
 
   if (!page.paginated) {
-    // localFindFiles: same charPagination promotion as the non-explicit path above.
-    if (toolName === TOOL_NAMES.LOCAL_FIND_FILES) {
-      const promoted = promoteCharPagination(
-        page.value as Record<string, unknown>
-      );
-      if (promoted === queryResult.data) return queryResult;
-      return { ...queryResult, data: promoted };
-    }
     return queryResult;
   }
 
@@ -1201,11 +1149,6 @@ export function applyQueryOutputPagination(
     {
       ...page.value,
       outputPagination: pagination,
-      // localFindFiles: also write `charPagination` so the upstream type
-      // contract is satisfied when the bulk engine re-slices the tool output.
-      ...(toolName === TOOL_NAMES.LOCAL_FIND_FILES && {
-        charPagination: pagination,
-      }),
     },
     pagination,
     'output',
@@ -1273,11 +1216,5 @@ export function applyBulkResponsePagination(
     results: Array.isArray(page.value.results)
       ? (page.value.results as FlatQueryResult[])
       : [],
-    responsePagination: createOutputPagination(
-      page.actualOffset,
-      Math.max(0, page.pageEnd - page.actualOffset),
-      page.totalChars,
-      resolvedRequest.length
-    ),
   };
 }

@@ -49,7 +49,7 @@ const mockSafeParse = (query: object) => ({
 });
 vi.mock('@octocodeai/octocode-core', async importOriginal => {
   const { z } = await import('zod');
-  const out = () => z.object({}).passthrough();
+  const out = () => z.looseObject({});
   return {
     ...(await importOriginal<object>()),
     FetchContentQuerySchema: { safeParse: mockSafeParse },
@@ -75,26 +75,11 @@ vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   BulkFindFilesSchema: {},
   BulkViewStructureSchema: {},
   BulkFetchContentQuerySchema: {},
-  VERBOSITY_VALUES: ['basic', 'compact', 'concise'] as const,
-  verbosityField: {},
-  isConcise: (_v: unknown) => false,
-  conciseDrillBackHint: (_s: string) => [] as string[],
 }));
 
-// Verbosity helper module — stub helpers so handlers stay on the default
-// (basic) path when tests don't pass a verbosity value.
+// Verbosity helper module — only isVerbose exists (boolean detail switch).
 vi.mock('../../src/scheme/verbosity.js', () => ({
-  isConcise: (v: unknown) => v === 'concise',
-  isCompact: (v: unknown) => v === 'compact',
-  isBasic: (v: unknown) => v === undefined || v === 'basic',
-  normalizeVerbosity: (v: unknown) => v ?? 'basic',
-  conciseDrillBackHint: (_s: string) => [] as string[],
-  compactTrimHints: (hints: string[]) => hints,
-  makeAdvisoryPredicate:
-    (_keywords: string[]) =>
-    (_hint: string): boolean =>
-      false,
-  assertConcisePayload: () => undefined,
+  isVerbose: (q: { verbose?: boolean }) => q?.verbose === true,
 }));
 
 describe('Local Tools Execution', () => {

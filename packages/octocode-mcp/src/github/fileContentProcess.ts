@@ -240,12 +240,8 @@ export async function processFileContentAPI(
     );
   }
 
-  // NOTE: Minification is intentionally NOT applied here. It is owned by the
-  // concise verbosity finalizer (applyGithubFetchContentVerbosity), which is a
-  // bulk-level decision (concise activates only when EVERY query asks for it).
-  // The base processor must return content verbatim so a basic/default read
-  // matches the bytes on disk — see src/scheme/verbosity.ts ("content reduced
-  // ONLY in concise; basic and compact never drop a returned value").
+  // Content is returned verbatim — verbosity shaping (applyGithubFetchContentVerbosity)
+  // strips metadata fields but never alters or truncates the file content itself.
   const matchLocations = Array.from(matchLocationsSet);
 
   return {

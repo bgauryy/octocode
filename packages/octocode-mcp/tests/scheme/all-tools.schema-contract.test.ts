@@ -1,7 +1,7 @@
 /**
  * ALL-TOOLS SCHEMA CONTRACT — Zod v4 compliance + MCP descriptor correctness
  *
- * Single loop over all 14 tools. Asserts the five invariants that must hold
+ * Single loop over all 14 tools. Asserts the invariants that must hold
  * after the Zod v4 migration (no zod/v4 compat shim, no z.preprocess wrapper
  * at bulk level):
  *
@@ -10,12 +10,10 @@
  *                   the MCP SDK return EMPTY_OBJECT_JSON_SCHEMA → agents see
  *                   `{ properties: {} }` in tools/list and cannot discover fields.
  *
- *   2. ENVELOPE   — bulk schema has `queries`, `responseCharOffset`,
- *                   `responseCharLength` (the shared bulk envelope contract).
+ *   2. ENVELOPE   — bulk schema has `queries` (the shared bulk envelope contract).
  *
  *   3. SHARED FIELDS — every per-query schema exposes the cross-tool fields:
- *                   id, mainResearchGoal, researchGoal, reasoning, verbose,
- *                   verbosity.
+ *                   id, mainResearchGoal, researchGoal, reasoning, verbose.
  *
  *   4. PARSE OK   — a minimal valid input for each tool parses without error.
  *
@@ -141,24 +139,12 @@ describe('all-tools schema contract', () => {
       });
 
       // -----------------------------------------------------------------------
-      // 2. ENVELOPE — queries, responseCharOffset, responseCharLength
+      // 2. ENVELOPE — queries
       // -----------------------------------------------------------------------
       it('bulk envelope declares queries field', () => {
         expect(
           bulkSchema instanceof z.ZodObject && 'queries' in bulkSchema.shape,
           `${toolName}: missing "queries" in bulk schema shape`
-        ).toBe(true);
-      });
-
-      it('bulk envelope declares responseCharOffset + responseCharLength', () => {
-        if (!(bulkSchema instanceof z.ZodObject)) return;
-        expect(
-          'responseCharOffset' in bulkSchema.shape,
-          `${toolName}: missing "responseCharOffset"`
-        ).toBe(true);
-        expect(
-          'responseCharLength' in bulkSchema.shape,
-          `${toolName}: missing "responseCharLength"`
         ).toBe(true);
       });
 
@@ -194,7 +180,6 @@ describe('all-tools schema contract', () => {
         'researchGoal',
         'reasoning',
         'verbose',
-        'verbosity',
       ] as const;
 
       it('per-query schema (tool.direct.schema) exposes all cross-tool shared fields', () => {
@@ -264,16 +249,16 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      it('accepts all three verbosity values (basic / compact / concise)', () => {
+      it('accepts verbose:true and verbose:false (boolean detail switch)', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
-        for (const verbosity of ['basic', 'compact', 'concise'] as const) {
+        for (const verbose of [true, false] as const) {
           const r = bulkSchema.safeParse({
-            queries: [{ ...minQuery, verbosity }],
+            queries: [{ ...minQuery, verbose }],
           });
           expect(
             r.success,
-            `${toolName}: rejected verbosity="${verbosity}".\n` +
+            `${toolName}: rejected verbose=${verbose}.\n` +
               `Errors: ${!r.success ? JSON.stringify(r.error.issues) : ''}`
           ).toBe(true);
         }
@@ -336,25 +321,17 @@ describe('all-tools schema contract', () => {
         }
       });
 
-      it('clamps out-of-range responseCharOffset / responseCharLength (does not reject)', () => {
+      it('parses with extra unknown envelope fields ignored (does not reject)', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
           queries: [minQuery],
-          responseCharOffset: 999_999_999_999,
-          responseCharLength: 999_999_999_999,
         });
         expect(
           r.success,
-          `${toolName}: out-of-range envelope fields should clamp, not reject.\n` +
+          `${toolName}: minimal parse should succeed.\n` +
             `Errors: ${!r.success ? JSON.stringify(r.error.issues) : ''}`
         ).toBe(true);
-        if (r.success) {
-          const MAX_OFFSET = 10_000_000;
-          const MAX_LENGTH = 100_000;
-          expect(r.data.responseCharOffset).toBeLessThanOrEqual(MAX_OFFSET);
-          expect(r.data.responseCharLength).toBeLessThanOrEqual(MAX_LENGTH);
-        }
       });
     }
   );
@@ -401,16 +378,12 @@ describe('all-tools schema contract', () => {
       ).toHaveLength(0);
     });
 
-    it('every bulk schema has a .shape with queries, responseCharOffset, responseCharLength', () => {
+    it('every bulk schema has a .shape with queries', () => {
       const missing: string[] = [];
       for (const tool of ALL_TOOLS) {
         const s = tool.direct.inputSchema as any;
         if (!(s instanceof z.ZodObject)) continue;
-        for (const field of [
-          'queries',
-          'responseCharOffset',
-          'responseCharLength',
-        ]) {
+        for (const field of ['queries']) {
           if (!(field in s.shape)) {
             missing.push(`${tool.name}.${field}`);
           }

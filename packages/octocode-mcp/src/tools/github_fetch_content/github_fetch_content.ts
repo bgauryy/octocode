@@ -17,7 +17,5 @@ export const registerFetchGitHubFileContentTool = createRemoteToolRegistration({
   inputSchema: FileContentBulkQueryLocalSchema,
   outputSchema: GitHubFetchContentOutputLocalSchema,
   executionFn: fetchMultipleGitHubFileContents,
-  describe: base => `${base}
-<directoryMode>type="directory" requires ENABLE_LOCAL=true and ENABLE_CLONE=true. If disabled, use file mode or enable clone before expecting githubCloneRepo/directory fetch to appear.</directoryMode>`,
   annotations: { readOnlyHint: false },
 });

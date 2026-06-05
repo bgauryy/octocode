@@ -17,12 +17,7 @@ import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/ext
 
 type UpstreamViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import {
-  isConcise,
-  isCompact,
-  compactTrimHints,
-  makeAdvisoryPredicate,
-} from '../../scheme/verbosity.js';
+import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 /**
@@ -334,59 +329,30 @@ async function viewStructureRecursive(
   );
 }
 
-/** How many entry names concise samples into the `top:` hint for drill-down. */
-const CONCISE_TOP_ENTRIES = 5;
-
 /**
- * Predicate identifying advisory hints this tool emits — recovery prose,
- * monorepo suggestions, large-tree warnings. Stripped under `compact`.
- * Substring-OR, case-insensitive.
- */
-const isAdvisoryViewStructureHint = makeAdvisoryPredicate([
-  'monorepo',
-  'workspace root',
-  'auto-excludes',
-  'large tree',
-  'large payload',
-  'large directory',
-]);
-
-/**
- * Shape the result for the requested verbosity.
+ * Verbosity shaping for localViewStructure.
  *
- * - concise: drop `entries[]`; keep `summary` + `pagination` so the agent still
- *   sees `totalEntries`. No verbosity-feature hints are emitted.
- * - compact: trim advisory hints via `compactTrimHints()`; `entries[]`
- *   unchanged.
- * - omitted / basic: passthrough.
+ * verbose=false (default): omit `size` and `modified` from entries (metadata).
+ * verbose=true: include all entry fields.
+ *
+ * Entries are never dropped. Hints are always returned fully.
  */
 export function applyViewStructureVerbosity(
   result: LocalViewStructureToolResult,
   query: ViewStructureQuery
 ): LocalViewStructureToolResult {
-  if (isConcise(query)) {
-    // hasResults ≡ absent status; only 'empty'/'error' carry a marker.
-    if (result.status !== undefined) return result;
-    // Drop entries[] but keep concise research-grade: emit the count summary
-    // PLUS a sample of top entry names so the agent has a concrete path to
-    // drill into. A bare count is a dead-end; names give the next move.
-    const names = (result.entries ?? [])
-      .slice(0, CONCISE_TOP_ENTRIES)
-      .map(e => e.name)
-      .filter(Boolean);
-    const total =
-      result.pagination?.totalEntries ?? result.entries?.length ?? 0;
-    const more = total > names.length ? ` (+${total - names.length} more)` : '';
-    const hints: string[] = [];
-    if (result.summary) hints.push(`summary: ${result.summary}`);
-    if (names.length > 0) hints.push(`top: ${names.join(', ')}${more}`);
-    return { ...result, entries: [], hints };
-  }
-  if (isCompact(query)) {
-    return {
-      ...result,
-      hints: compactTrimHints(result.hints, isAdvisoryViewStructureHint, 2),
-    };
-  }
-  return result;
+  if (isVerbose(query)) return result;
+  if (!result.entries?.length) return result;
+
+  return {
+    ...result,
+    entries: result.entries.map(e => {
+      const { size: _s, modified: _m, ...rest } = e as typeof e & {
+        size?: unknown;
+        modified?: unknown;
+      };
+      void _s; void _m;
+      return rest as typeof e;
+    }),
+  };
 }

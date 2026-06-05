@@ -8,7 +8,6 @@
 import type {
   EvidenceMetadata,
   FlatQueryResult,
-  PaginationInfo,
 } from './toolResults.js';
 
 /**
@@ -62,8 +61,6 @@ export interface BulkResponseConfig<
 > {
   toolName: string;
   keysPriority?: string[];
-  responseCharOffset?: number;
-  responseCharLength?: number;
   /**
    * When true, hints attached to each query's data are lifted out and
    * deduped into a single top-level `hints` array on the response.
@@ -105,7 +102,6 @@ export interface BulkResponseConfig<
 /** Bulk response format. */
 export interface BulkToolResponse {
   results: FlatQueryResult[];
-  responsePagination?: PaginationInfo;
   /** Hints aggregated to peer level (no longer nested per-query). */
   hints?: string[];
   /** Common directory the relativized `path`/`uri` cells hang off (lean output). */

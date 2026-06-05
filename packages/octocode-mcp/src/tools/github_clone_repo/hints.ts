@@ -23,21 +23,30 @@ export const hints: ToolHintGenerators = {
         'Use `githubViewRepoStructure` first to confirm the exact directory path before cloning sparse.',
       ];
     }
-    return [
-      'Clone succeeded but no files were checked out.',
-      'Inspect the returned `localPath` with `localViewStructure` to see what is present.',
-    ];
+    return [];
   },
 
   error: (ctx: HintContext = {}) => {
+    if (ctx.isRateLimited) {
+      return [
+        `GitHub API rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ' Wait before retrying.'}`,
+        'While waiting, use `githubViewRepoStructure` to inspect the tree without cloning.',
+      ];
+    }
     if (ctx.errorType === 'permission') {
-      return ['Token lacks read access — verify GITHUB_TOKEN has `repo` scope for private repos.'];
+      return [
+        'Token lacks read access — verify GITHUB_TOKEN has `repo` scope for private repos.',
+      ];
     }
     if (ctx.errorType === 'not_found') {
-      return ['Repo or branch not found — check spelling or omit `branch` to resolve the default branch.'];
+      return [
+        'Repo or branch not found — check spelling or omit `branch` to resolve the default branch.',
+      ];
     }
     if (ctx.errorType === 'timeout') {
-      return ['Clone timed out — use `sparse_path` to check out only the relevant subdirectory.'];
+      return [
+        'Clone timed out — use `sparse_path` to check out only the relevant subdirectory.',
+      ];
     }
     return [];
   },
