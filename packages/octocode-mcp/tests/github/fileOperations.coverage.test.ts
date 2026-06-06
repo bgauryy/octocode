@@ -345,6 +345,80 @@ describe('File Operations - Additional Coverage Tests', () => {
       }
     });
 
+    it('should suggest prefix-match file when name is a typo extension of real file', async () => {
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi
+              .fn()
+              .mockRejectedValueOnce(createRequestError('Not Found', 404))
+              .mockResolvedValueOnce({
+                data: [
+                  { name: 'npm.ts', path: 'src/utils/package/npm.ts', type: 'file' },
+                  { name: 'types.ts', path: 'src/utils/package/types.ts', type: 'file' },
+                ],
+              }),
+            get: vi.fn().mockResolvedValue({
+              data: { default_branch: 'main' },
+            }),
+          },
+        },
+      };
+
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+
+      const result = await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'src/utils/package/npm_typo.ts',
+      });
+
+      expect('error' in result).toBe(true);
+      if ('error' in result) {
+        expect(result.hints).toBeDefined();
+        expect(result.hints?.some(h => h.includes('Did you mean'))).toBe(true);
+        expect(result.hints?.some(h => h.includes('npm.ts'))).toBe(true);
+      }
+    });
+
+    it('should not suggest prefix matches when base name is too short (< 3 chars)', async () => {
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi
+              .fn()
+              .mockRejectedValueOnce(createRequestError('Not Found', 404))
+              .mockResolvedValueOnce({
+                data: [
+                  { name: 'io.ts', path: 'src/io.ts', type: 'file' },
+                ],
+              }),
+            get: vi.fn().mockResolvedValue({
+              data: { default_branch: 'main' },
+            }),
+          },
+        },
+      };
+
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+
+      const result = await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'src/io_x.ts',
+      });
+
+      expect('error' in result).toBe(true);
+      if ('error' in result) {
+        // "io" is < 3 chars so prefix match should NOT fire
+        expect(result.hints?.some(h => h.includes('Did you mean'))).toBeFalsy();
+      }
+    });
+
     it('should handle findPathSuggestions error gracefully', async () => {
       const mockOctokit = {
         rest: {

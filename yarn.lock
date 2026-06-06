@@ -1261,12 +1261,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^4.1.0":
-  version: 4.1.0
-  resolution: "@octocodeai/octocode-core@npm:4.1.0"
+"@octocodeai/octocode-core@npm:^4.2.0":
+  version: 4.2.0
+  resolution: "@octocodeai/octocode-core@npm:4.2.0"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/9a5131ee9da3d89323d0b97a639de9673a837e4298cf7c59fe5ab248b1efde9fff03a40ffecbd94ad5f8a8fc1fb95f3e70095e4356ef70808a9f893a2fa18772
+  checksum: 10c0/e014a82d90393a06280d523d04b49eb6918e8ceca5deef60d2010dbc8f2ac50770275b6ea3ef79bd45e7a6e10e8c38c49914191bfdfae2d6b5e27e24eea1df33
   languageName: node
   linkType: hard
 
@@ -7012,7 +7012,7 @@ __metadata:
   resolution: "octocode-mcp@workspace:packages/octocode-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-core": "npm:^4.1.0"
+    "@octocodeai/octocode-core": "npm:^4.2.0"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/openapi-types": "npm:^27.0.0"
     "@octokit/plugin-rest-endpoint-methods": "npm:^17.0.0"

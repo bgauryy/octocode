@@ -96,7 +96,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-core": "^4.1.0",
+    "@octocodeai/octocode-core": "^4.2.0",
     "@vscode/ripgrep": "^1.18.0",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.1.3"
