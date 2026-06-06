@@ -1,7 +1,3 @@
-/**
- * Tests for LsCommandBuilder
- */
-
 import { describe, it, expect, afterEach } from 'vitest';
 import { LsCommandBuilder } from '../../src/commands/LsCommandBuilder.js';
 
@@ -153,7 +149,6 @@ describe('LsCommandBuilder', () => {
         .fromQuery({ path: '/test', sortBy: 'name' })
         .build();
 
-      // Name is default, no special flag
       expect(args).not.toContain('-S');
       expect(args).not.toContain('-t');
       expect(args).not.toContain('-X');

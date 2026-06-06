@@ -49,7 +49,6 @@ describe('GitHub Client Race Conditions', () => {
     vi.clearAllMocks();
     clearOctokitInstances();
 
-    // Simulate async token retrieval without a real timer.
     mockGetGitHubToken.mockImplementation(async () => {
       await Promise.resolve();
       return 'default-token';
@@ -61,7 +60,6 @@ describe('GitHub Client Race Conditions', () => {
   });
 
   it('should handle concurrent default instance creation without race condition', async () => {
-    // Start multiple requests for the default client simultaneously
     const promise1 = getOctokit();
     const promise2 = getOctokit();
     const promise3 = getOctokit();
@@ -72,11 +70,9 @@ describe('GitHub Client Race Conditions', () => {
       promise3,
     ]);
 
-    // All should be the same instance
     expect(instance1).toBe(instance2);
     expect(instance2).toBe(instance3);
 
-    // Constructor should be called exactly ONCE despite 3 concurrent requests
     expect(mockOctokit).toHaveBeenCalledTimes(1);
   });
 
@@ -92,25 +88,20 @@ describe('GitHub Client Race Conditions', () => {
     expect(instance1).not.toBe(instance2);
     expect(mockOctokit).toHaveBeenCalledTimes(2);
 
-    // Verify correct tokens used
-
     expect((instance1 as any).options.auth).toBe('token-1');
 
     expect((instance2 as any).options.auth).toBe('token-2');
   });
 
   it('should not overwrite default instance when requesting specific auth', async () => {
-    // 1. Initialize default
     const defaultInstance = await getOctokit();
 
-    // 2. Request specific auth
     const authInstance = await getOctokit({
       token: 'specific',
       clientId: 'c',
       scopes: [],
     });
 
-    // 3. Request default again
     const defaultInstanceAgain = await getOctokit();
 
     expect(defaultInstance).toBe(defaultInstanceAgain);

@@ -1,6 +1,3 @@
-/**
- * Folder names to ignore (exact matches)
- */
 export const IGNORED_FOLDER_NAMES = [
   '.github',
   '.git',
@@ -129,9 +126,6 @@ export const IGNORED_FILE_NAMES = [
   'cgmanifest.json',
 ];
 
-/**
- * File extensions to ignore
- */
 export const IGNORED_FILE_EXTENSIONS = [
   '.lock',
   '.log',
@@ -228,18 +222,10 @@ export const IGNORED_FILE_EXTENSIONS = [
   '.paket.template',
 ];
 
-/**
- * Check if a directory should be ignored based on folder name
- */
 export function shouldIgnoreDir(folderName: string): boolean {
   return IGNORED_FOLDER_NAMES.includes(folderName);
 }
 
-/**
- * Check if a file should be ignored based on file name, extension, and path
- * Optimized order: extension (fastest) → file name → path (most expensive)
- * @param filePath - Full file path (e.g., ".yarn/x/y/z.js")
- */
 export function shouldIgnoreFile(filePath: string): boolean {
   const fileName = filePath.split('/').pop() || '';
 
@@ -263,41 +249,22 @@ export function shouldIgnoreFile(filePath: string): boolean {
   return false;
 }
 
-/**
- * Options for getExtension function
- */
 interface GetExtensionOptions {
-  /** Convert extension to lowercase (default: false) */
   lowercase?: boolean;
-  /** Fallback value when no extension found (default: '') */
+
   fallback?: string;
 }
 
-/**
- * Gets file extension from a path
- * @param filePath - The file path to extract extension from
- * @param options - Optional configuration for case handling and fallback
- * @returns The file extension without the leading dot
- *
- * @example
- * getExtension('file.TXT') // 'TXT'
- * getExtension('file.TXT', { lowercase: true }) // 'txt'
- * getExtension('noext', { fallback: 'txt' }) // 'txt'
- * getExtension('.gitignore') // '' (dotfile with no extension)
- */
 export function getExtension(
   filePath: string,
   options?: GetExtensionOptions
 ): string {
   const parts = filePath.split('.');
 
-  // Handle dotfiles like '.gitignore' - these have no extension
-  // parts.length <= 1 means no dot, or only a leading dot
   if (parts.length <= 1 || (parts.length === 2 && parts[0] === '')) {
     return options?.fallback ?? '';
   }
 
-  // parts.length > 1 guarantees parts[parts.length - 1] exists
   const ext = parts[parts.length - 1]!;
   return options?.lowercase ? ext.toLowerCase() : ext;
 }

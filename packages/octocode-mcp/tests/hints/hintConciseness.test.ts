@@ -1,12 +1,3 @@
-/**
- * TDD tests for hint conciseness improvements.
- *
- * These tests verify:
- * 1. Empty strings are filtered from hints in bulk responses and error results
- * 2. Integration block only appears in mode: "detailed" for ripgrep
- * 3. Path error hints are concise (max 2 lines, no emojis, no empty separators)
- * 4. "Good result size" filler hint is removed
- */
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { createErrorResult } from '../../src/utils/response/error.js';
@@ -36,7 +27,6 @@ describe('Hint conciseness', () => {
       const text = getTextContent(result.content);
       expect(text).toContain('Valid hint');
       expect(text).toContain('Another valid hint');
-      // No empty lines inside the hints list (YAML would render them as - "")
       expect(text).not.toMatch(/- ""\n/);
       expect(text).not.toMatch(/- " {2}"\n/);
     });

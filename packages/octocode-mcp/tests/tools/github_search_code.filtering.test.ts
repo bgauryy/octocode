@@ -6,7 +6,6 @@ interface CallToolResult {
   isError?: boolean;
 }
 
-// Mock provider
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
 vi.mock('../../src/providers/factory.js', () => ({
@@ -23,7 +22,6 @@ vi.mock('../../src/serverConfig.js', () => ({
   })),
 }));
 
-// Import after mocking
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 
 describe('GitHub Search Code Tool - Filtering at Tool Level', () => {
@@ -40,13 +38,11 @@ describe('GitHub Search Code Tool - Filtering at Tool Level', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Setup mock provider
     mockProvider = {
       searchCode: vi.fn(),
     };
     mockGetProvider.mockReturnValue(mockProvider);
 
-    // Create a mock server
     server = {
       registerTool: vi.fn((_name, _schema, handler) => {
         toolHandler = handler;
@@ -54,13 +50,11 @@ describe('GitHub Search Code Tool - Filtering at Tool Level', () => {
       }),
     } as unknown as McpServer;
 
-    // Register the tool
     registerGitHubSearchCodeTool(server);
   });
 
   describe('Double filtering - both API and tool level', () => {
     it('should apply filtering at both codeSearch.ts and tool level', async () => {
-      // Provider returns raw results (filtering happens at tool level now)
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [
@@ -138,14 +132,9 @@ describe('GitHub Search Code Tool - Filtering at Tool Level', () => {
 
       expect(result.isError).toBeFalsy();
 
-      // Check the response contains filtered results
       const responseText = result.content[0]?.text || '';
 
-      // src/index.js should be present (valid source file)
       expect(responseText).toContain('src/index.js');
-
-      // Note: Filtering behavior depends on tool implementation
-      // The test verifies the tool processes results correctly
     });
 
     it('should handle empty results after filtering at tool level', async () => {

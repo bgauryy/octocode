@@ -204,8 +204,6 @@ describe('RipgrepQuerySchema mutex checks', () => {
   });
 
   it('allows count + countMatches together (warning, not error)', () => {
-    // Per validateRipgrepQuery, count vs countMatches is a precedence
-    // warning (not a mutex). Schema must NOT reject this combination.
     const result = RipgrepQuerySchema.safeParse({
       ...baseQuery,
       count: true,
@@ -215,22 +213,8 @@ describe('RipgrepQuerySchema mutex checks', () => {
   });
 });
 
-describe('PackageSearch ecosystem allow-list', () => {
-  it('rejects pypi ecosystem at schema layer', () => {
-    const result = PackageSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ name: 'react', ecosystem: 'pypi' }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects python ecosystem alias at schema layer', () => {
-    const result = PackageSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ name: 'requests', ecosystem: 'python' }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts ecosystem omitted (defaults to npm via preprocess)', () => {
+describe('PackageSearch schema', () => {
+  it('accepts name omitted ecosystem (npm only)', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
       queries: [{ name: 'react' }],
     });
@@ -245,12 +229,5 @@ describe('PackageSearch ecosystem allow-list', () => {
     if (result.success) {
       expect(result.data.queries[0].name).toBe('zod');
     }
-  });
-
-  it('accepts explicit ecosystem=npm', () => {
-    const result = PackageSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ name: 'react', ecosystem: 'npm' }],
-    });
-    expect(result.success).toBe(true);
   });
 });

@@ -1,12 +1,3 @@
-/**
- * Comprehensive Response Structure Tests
- *
- * Tests all tools to ensure they properly handle all combinations of:
- * - hasResults: queries that returned results
- * - empty: queries that ran but found no matches
- * - error: queries that encountered errors
- */
-
 import { getTextContent } from '../utils/testHelpers.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -265,8 +256,6 @@ describe('Response Structure Tests - All Tools', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      // hasResults is now signaled by ABSENT status — emitted only for empty/error.
-      // Verify the happy path by ABSENCE of an explicit status.
       expect(responseText).not.toContain('status: "hasResults"');
       expect(responseText).not.toContain('status: "empty"');
       expect(responseText).not.toContain('status: "error"');

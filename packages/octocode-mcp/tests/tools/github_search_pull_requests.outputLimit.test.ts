@@ -1,8 +1,3 @@
-/**
- * Tests for githubSearchPullRequests output size limits.
- * Verifies that large PR responses are auto-paginated
- * and that charOffset/charLength work for manual pagination.
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createMockMcpServer,
@@ -45,7 +40,6 @@ vi.mock('../../src/serverConfig.js', () => ({
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 
-/** Create a mock PR with large content (comments, file changes) */
 function createLargePR(prNumber: number, contentSize: number) {
   return {
     id: prNumber,
@@ -140,7 +134,6 @@ describe('githubSearchPullRequests output size limits', () => {
 
   describe('auto-pagination on large output', () => {
     it('should auto-paginate when PR response is very large', async () => {
-      // Simulate large PR with lots of comments and file changes
       mockProvider.searchPullRequests.mockResolvedValue(
         createLargePRProviderResponse(1, 10000)
       );
@@ -162,7 +155,6 @@ describe('githubSearchPullRequests output size limits', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      // Should contain the PR data (possibly truncated)
       expect(responseText).toContain('Large PR');
     });
 
@@ -188,7 +180,6 @@ describe('githubSearchPullRequests output size limits', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      // When large, should have pagination info
       if (responseText.includes('outputPagination')) {
         expect(responseText).toContain('charOffset');
         expect(responseText).toContain('totalChars');
@@ -286,7 +277,6 @@ describe('githubSearchPullRequests output size limits', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      // Small output should NOT have outputPagination
       expect(responseText).not.toContain('outputPagination');
     });
   });

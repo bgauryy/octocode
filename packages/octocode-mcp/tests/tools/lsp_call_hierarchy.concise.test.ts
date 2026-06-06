@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import { attachLspEvidence } from '../../src/lsp/evidence.js';
 
-// applyCallHierarchyVerbosity keeps call structure but strips bulky node
-// content in concise mode and adds a compact summary.
 describe('lspCallHierarchy verbosity contract', () => {
   const fullResult = {
     item: { name: 'startServer', content: 'x'.repeat(5000) },

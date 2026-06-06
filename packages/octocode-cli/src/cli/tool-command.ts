@@ -270,8 +270,6 @@ export async function showMultipleToolSchemas(
   console.log();
 }
 
-// Compact, lean rendering of a tool's input fields (name + type + required),
-// for the default --agent dump. Full JSON Schema is reserved for --full.
 function formatToolFieldsCompact(toolName: string): string {
   const fields = getDirectToolDisplayFields(toolName);
   if (fields.length === 0) {
@@ -360,7 +358,6 @@ export async function printToolsContext(
 type OutputMode = 'text' | 'json' | 'compact';
 
 function getOutputMode(args: ParsedArgs): OutputMode {
-  // --compact wins: leanest parseable form (minified structuredContent only).
   if (args.options.compact === true) {
     return 'compact';
   }
@@ -380,15 +377,12 @@ function isCompact(args: ParsedArgs): boolean {
   return args.options.compact === true;
 }
 
-// A1: inject verbosity:"concise" into the tool input so the tool itself returns
-// leaner data. Shape-aware: handles a single query object, a bare array, or a
-// { queries: [...] } envelope. Only sets verbosity where not already specified.
 function applyCompactToInputText(jsonText: string): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
   } catch {
-    return jsonText; // let the normal validator surface the parse error
+    return jsonText;
   }
 
   const setVerbosity = (obj: unknown): void => {
@@ -416,9 +410,6 @@ function applyCompactToInputText(jsonText: string): string {
 
 function printToolResult(result: ToolResult, outputMode: OutputMode): void {
   if (outputMode === 'compact') {
-    // Leanest agent form: minified structuredContent only. Drops the duplicated
-    // escaped-text `content` block and `isError` (the exit code conveys errors).
-    // ~60% smaller than the full --json envelope on typical results.
     const structured = (result as { structuredContent?: unknown })
       .structuredContent;
     console.log(JSON.stringify(structured ?? result));
@@ -459,7 +450,6 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     return true;
   }
 
-  // Batch schema mode: multiple positional args, no --queries
   if (
     args.args.length > 1 &&
     typeof args.options.queries !== 'string' &&
@@ -478,7 +468,6 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     return false;
   }
 
-  // A4: emit a register-ready tool definition for MCP / function-calling.
   if (args.options.format === 'tool') {
     const metadata = await getOptionalToolMetadata();
     const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));

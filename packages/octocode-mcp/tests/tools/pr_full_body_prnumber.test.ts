@@ -1,8 +1,3 @@
-/**
- * PR bodies are never truncated. Both a plain search and a `prNumber` lookup
- * return the FULL body — response size is bounded losslessly by the
- * char-paginator (agents page for more), not by a 500-char preview.
- */
 import { describe, it, expect } from 'vitest';
 import { mapPullRequestProviderResultData } from '../../src/tools/providerMappers.js';
 

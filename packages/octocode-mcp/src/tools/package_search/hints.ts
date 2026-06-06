@@ -1,13 +1,3 @@
-/**
- * Response-state hints for packageSearch.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- * Package-specific inline hints (deprecation, exact-match variants) are
- * injected in execution.ts via extraHints.
- *
- * @module tools/package_search/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {

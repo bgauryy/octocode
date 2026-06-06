@@ -19,7 +19,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(2); // system + assistant
+      expect(result.content).toHaveLength(2);
       expect((result.content as any[])[0]?.annotations?.role).toBe('system');
       expect((result.content as any[])[0]?.text).toContain('Test instructions');
     });
@@ -37,7 +37,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(2); // system + assistant
+      expect(result.content).toHaveLength(2);
       expect((result.content as any[])[0]?.text).toContain('Page 1/5');
       expect((result.content as any[])[0]?.text).toContain('more available');
     });
@@ -120,7 +120,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(1); // Only assistant
+      expect(result.content).toHaveLength(1);
       expect((result.content as any[])[0]?.annotations?.role).toBe('assistant');
     });
   });
@@ -136,7 +136,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(2); // assistant summary + assistant data
+      expect(result.content).toHaveLength(2);
       expect((result.content as any[])[1]?.text).toContain('"key"');
       expect((result.content as any[])[1]?.text).toContain('"value"');
     });
@@ -167,7 +167,6 @@ describe('responses.branches', () => {
       });
 
       expect(result.content).toHaveLength(2);
-      // Should be YAML format (default)
       expect((result.content as any[])[1]?.text).toContain('key:');
     });
 
@@ -179,7 +178,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(1); // Only assistant summary
+      expect(result.content).toHaveLength(1);
       expect((result.content as any[])[0]?.text).toBe('Test summary');
     });
   });
@@ -195,7 +194,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(2); // assistant + user
+      expect(result.content).toHaveLength(2);
       expect((result.content as any[])[1]?.annotations?.role).toBe('user');
       expect((result.content as any[])[1]?.text).toBe('✅ Operation completed');
     });
@@ -219,7 +218,7 @@ describe('responses.branches', () => {
         data: { test: 'data' },
       });
 
-      expect(result.content).toHaveLength(1); // Only assistant
+      expect(result.content).toHaveLength(1);
     });
   });
 
@@ -253,7 +252,7 @@ describe('responses.branches', () => {
       );
 
       expect(result.isError).toBe(false);
-      expect(result.content).toHaveLength(3); // system + assistant + user
+      expect(result.content).toHaveLength(3);
       expect((result.content as any[])[0]?.annotations?.role).toBe('system');
       expect((result.content as any[])[0]?.text).toContain('Hints:');
       expect((result.content as any[])[2]?.text).toContain(StatusEmoji.success);
@@ -265,7 +264,7 @@ describe('responses.branches', () => {
       });
 
       expect(result.isError).toBe(false);
-      expect(result.content).toHaveLength(2); // assistant + user (no system)
+      expect(result.content).toHaveLength(2);
       expect((result.content as any[])[1]?.text).toContain(StatusEmoji.success);
     });
   });
@@ -278,7 +277,7 @@ describe('responses.branches', () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toHaveLength(3); // system + assistant + user
+      expect(result.content).toHaveLength(3);
       expect((result.content as any[])[0]?.text).toContain(
         'Tool execution failed. Error details provided for self-correction.'
       );
@@ -303,7 +302,7 @@ describe('responses.branches', () => {
       ]);
 
       expect(result.isError).toBe(false);
-      expect(result.content).toHaveLength(3); // system + assistant + user
+      expect(result.content).toHaveLength(3);
       expect((result.content as any[])[0]?.text).toContain('Custom hint 1');
       expect((result.content as any[])[0]?.text).toContain('Custom hint 2');
       expect((result.content as any[])[2]?.text).toContain(StatusEmoji.empty);
@@ -330,7 +329,7 @@ describe('responses.branches', () => {
       );
 
       expect(result.isError).toBe(false);
-      expect(result.content).toHaveLength(3); // system + assistant + user
+      expect(result.content).toHaveLength(3);
       expect((result.content as any[])[0]?.text).toContain('Page 2/10');
       expect((result.content as any[])[0]?.text).toContain('more available');
       expect((result.content as any[])[0]?.text).toContain(
@@ -366,7 +365,6 @@ describe('responses.branches', () => {
       expect(block.type).toBe('text');
       expect(typeof block.text).toBe('string');
       expect(block.text.length).toBeGreaterThan(0);
-      // Should contain fallback error message
       expect(block.text).toContain('serialization failed');
     });
 

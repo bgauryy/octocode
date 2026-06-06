@@ -1,8 +1,3 @@
-/**
- * LSP Go To Definition execution logic
- * @module tools/lsp_goto_definition/execution
- */
-
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { readFile } from 'fs/promises';
 
@@ -51,10 +46,6 @@ import {
 
 export const TOOL_NAME = TOOL_NAMES.LSP_GOTO_DEFINITION;
 
-/**
- * Execute bulk goto definition operation.
- * Wraps gotoDefinition with bulk operation handling for multiple queries.
- */
 export async function executeGotoDefinition(
   args: ToolExecutionArgs<LSPGotoDefinitionQuery>
 ): Promise<CallToolResult> {
@@ -79,19 +70,9 @@ export async function executeGotoDefinition(
   );
 }
 
-/**
- * Attach cross-tool evidence so the bulk runner can lift it to the response
- * envelope. Definitions are always resolved by the language server (there is
- * no text fallback), so confidence is always `high`; the goto-definition
- * response either resolves fully or not at all, so `complete` follows
- * `answerReady`.
- */
 function attachDefinitionEvidence(
   result: GotoDefinitionResult
 ): GotoDefinitionResult {
-  // Only annotate well-shaped LSP results — skip raw error envelopes so we
-  // don't add an evidence block to shapes that tests assert verbatim.
-  // Lean contract: ABSENT status ≡ success; only 'empty' / 'error' emit.
   const status = (result as { status?: string }).status;
   if (status !== undefined && status !== 'empty') return result;
   const hasResults = status === undefined;
@@ -101,15 +82,10 @@ function attachDefinitionEvidence(
     complete: hasResults,
     confidence: 'high' as const,
   };
-  // Mutate in place so any non-enumerable raw-chars symbol attached
-  // upstream (see attachRawResponseChars) survives.
   (result as Record<string, unknown>).evidence = evidence;
   return result;
 }
 
-/**
- * Execute goto definition for a single query
- */
 async function gotoDefinition(
   query: LSPGotoDefinitionQuery
 ): Promise<GotoDefinitionResult> {
@@ -156,10 +132,9 @@ async function gotoDefinition(
             searchRadius: error.searchRadius,
             hints: [
               ...getHints(TOOL_NAME, 'empty'),
-              `Symbol "${symbolName}" not found at or near line ${lineHint}`,
+              `Symbol "${symbolName}" not found at or near line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
               `Searched lines ${Math.max(1, lineHint - error.searchRadius)} to ${lineHint + error.searchRadius}`,
-              'Verify the exact symbol name (case-sensitive, no partial matches)',
-              'Adjust lineHint if the symbol moved due to code changes',
+              'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.',
               query.orderHint && query.orderHint > 0
                 ? `orderHint=${query.orderHint} targets the ${query.orderHint + 1}th code occurrence on the exact line`
                 : undefined,
@@ -183,9 +158,6 @@ async function gotoDefinition(
       workspaceRoot
     );
 
-    // No language server: we do NOT guess a definition from the symbol's own
-    // text occurrence (that just points back at the reference, not the
-    // declaration). Return a clear empty result instead.
     if (!lspAvailable) {
       return attachRawResponseChars(
         buildLspUnavailableResult(),
@@ -224,39 +196,11 @@ async function gotoDefinition(
   }
 }
 
-/**
- * Detect whether a line of code is an import or re-export statement.
- * Used to determine if a goto-definition result resolved to an import
- * rather than the actual source definition.
- *
- * Covers TypeScript/JavaScript patterns:
- * - import { Foo } from './module'
- * - import Foo from './module'
- * - import * as Foo from './module'
- * - export { Foo } from './module'
- * - export * from './module'
- * - export { default as Foo } from './module'
- *
- * @internal Exported for testing
- */
 export function isImportOrReExport(lineContent: string): boolean {
   const trimmed = lineContent.trim();
   return /^(?:import|export)\s+.*\bfrom\b\s+['"]/.test(trimmed);
 }
 
-/**
- * Detect whether a line contains a dynamic import expression (`import('...')`).
- *
- * Covers patterns:
- * - const { foo } = await import('./module')
- * - import('./module').then(...)
- * - const mod = import("./module")
- *
- * Uses a negative lookbehind to avoid matching identifiers that end with
- * "import" (e.g. `reimport`, `importModule`).
- *
- * @internal Exported for testing
- */
 export function isDynamicImport(lineContent: string): boolean {
   return /(?<![.\w])import\s*\(\s*['"]/.test(lineContent);
 }
@@ -265,11 +209,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * Resolve the best cursor character for a second-hop goto-definition call
- * on import/re-export lines. Prefers the queried symbol token position
- * before the "from" clause to avoid matching module path text.
- */
 function resolveImportSymbolCharacter(
   lineContent: string,
   symbolName: string,
@@ -287,17 +226,10 @@ function resolveImportSymbolCharacter(
   return match ? match.index : fallbackCharacter;
 }
 
-/**
- * Use LSP client to find definition, with automatic import chaining.
- * If the LSP resolves to an import/re-export in the same file,
- * performs one additional hop to follow the import to the source definition.
- */
-/** A pooled LSP client (non-null result of acquirePooledClient). */
 type PooledLspClient = NonNullable<
   Awaited<ReturnType<typeof acquirePooledClient>>
 >;
 
-/** Error result when the language server lacks definitionProvider. */
 function buildUnsupportedCapabilityResult(): GotoDefinitionResult {
   return {
     status: 'error',
@@ -313,12 +245,6 @@ function buildUnsupportedCapabilityResult(): GotoDefinitionResult {
   };
 }
 
-/**
- * When the single LSP location is itself an import/re-export in the same
- * file, follow it to the real source — first via a chained gotoDefinition,
- * then via manual module-path resolution. Returns the (possibly rewritten)
- * locations and whether an import was followed.
- */
 async function followImportToSource(
   client: PooledLspClient,
   locations: CodeSnippet[],
@@ -368,16 +294,12 @@ async function followImportToSource(
       }
     }
   } catch {
-    // Import-chain resolution failed; keep original LSP locations.
+    void 0;
   }
 
   return { locations, followedImport: false };
 }
 
-/**
- * Attach a line-numbered context snippet to a definition location. On any
- * read failure the raw location is returned unchanged.
- */
 async function enhanceLocationWithSnippet(
   loc: CodeSnippet,
   contextLines: number
@@ -410,7 +332,6 @@ async function enhanceLocationWithSnippet(
       content: numberedContent,
     };
   } catch {
-    // Snippet enhancement failed; keep raw LSP location.
     return loc;
   }
 }
@@ -422,8 +343,6 @@ async function gotoDefinitionWithLSP(
   query: LSPGotoDefinitionQuery,
   _content: string
 ): Promise<GotoDefinitionResult | null> {
-  // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it
-  // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).
   const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
@@ -480,15 +399,6 @@ async function gotoDefinitionWithLSP(
   };
 }
 
-/**
- * Build the empty result returned when no language server can resolve the
- * definition. There is no text fallback: the symbol's own occurrence is a
- * reference, not its declaration, so guessing would be misleading. Route the
- * caller to the text-search / package tools instead.
- *
- * @param lspFailed true when a language server was available but the request
- *   failed (vs. no language server installed at all).
- */
 function buildLspUnavailableResult(lspFailed = false): GotoDefinitionResult {
   return {
     status: 'empty',
@@ -507,14 +417,6 @@ function buildLspUnavailableResult(lspFailed = false): GotoDefinitionResult {
   };
 }
 
-/**
- * Verbosity shaping for lspGotoDefinition.
- *
- * verbose=false (default): omit `lspMode` metadata from results.
- * verbose=true: include all fields.
- *
- * Locations and content snippets are never dropped. Hints are always returned fully.
- */
 export function applyGotoDefinitionVerbosity(
   result: GotoDefinitionResult,
   query: LSPGotoDefinitionQuery
@@ -528,10 +430,6 @@ export function applyGotoDefinitionVerbosity(
   return rest as GotoDefinitionResult;
 }
 
-/**
- * Add line numbers to code content, highlighting the target line
- * @internal Exported for testing
- */
 export function addLineNumbers(
   content: string,
   startLine: number,

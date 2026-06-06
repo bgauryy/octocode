@@ -1,27 +1,14 @@
-/**
- * Type guard utilities for consistent runtime type checking.
- * Use these instead of inline typeof checks across routes.
- *
- * @module types/guards
- */
 
-/**
- * Check if value is an array (of any type)
- */
 export function isArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-/**
- * Check if value is a non-null object
- */
+
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * Check if object has a specific property
- */
+
 export function hasProperty<K extends string>(
   obj: unknown,
   key: K
@@ -29,9 +16,7 @@ export function hasProperty<K extends string>(
   return typeof obj === 'object' && obj !== null && key in obj;
 }
 
-/**
- * Check if object has a string property
- */
+
 export function hasStringProperty<K extends string>(
   obj: unknown,
   key: K
@@ -39,9 +24,7 @@ export function hasStringProperty<K extends string>(
   return hasProperty(obj, key) && typeof obj[key] === 'string';
 }
 
-/**
- * Check if object has a number property
- */
+
 export function hasNumberProperty<K extends string>(
   obj: unknown,
   key: K
@@ -49,9 +32,7 @@ export function hasNumberProperty<K extends string>(
   return hasProperty(obj, key) && typeof obj[key] === 'number';
 }
 
-/**
- * Check if object has a boolean property
- */
+
 export function hasBooleanProperty<K extends string>(
   obj: unknown,
   key: K
@@ -59,9 +40,7 @@ export function hasBooleanProperty<K extends string>(
   return hasProperty(obj, key) && typeof obj[key] === 'boolean';
 }
 
-/**
- * Check if object has an array property
- */
+
 export function hasArrayProperty<K extends string>(
   obj: unknown,
   key: K

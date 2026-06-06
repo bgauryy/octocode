@@ -1,19 +1,3 @@
-/**
- * Verbosity apply-function contract tests.
- *
- * The only detail switch is `verbose: boolean`.
- *   verbose: false (default) — research data returned as-is.
- *   verbose: true            — research data + extended metadata.
- *
- * Invariants:
- *   1. verbose:false (default) preserves the full data payload unchanged.
- *   2. verbose:true also preserves the full data payload (metadata is additive).
- *   3. `groupByFile:true` on lspFindReferences is a product mode (not
- *      verbosity) and always produces a byFile rollup with count, firstLine,
- *      firstCharacter present.
- *   4. Empty/error results pass through unchanged regardless of verbose flag.
- */
-
 import { describe, it, expect } from 'vitest';
 import { applyRipgrepVerbosity } from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
 import { applyFindFilesVerbosity } from '../../src/tools/local_find_files/findFiles.js';
@@ -21,10 +5,6 @@ import { applyFetchContentVerbosity } from '../../src/tools/local_fetch_content/
 import { applyGotoDefinitionVerbosity } from '../../src/tools/lsp_goto_definition/execution.js';
 import { applyFindReferencesVerbosity } from '../../src/tools/lsp_find_references/lsp_find_references.js';
 import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
-
-// ---------------------------------------------------------------------------
-// localSearchCode (ripgrep)
-// ---------------------------------------------------------------------------
 
 describe('applyRipgrepVerbosity', () => {
   const baseResult = {
@@ -77,10 +57,6 @@ describe('applyRipgrepVerbosity', () => {
     expect(out.files).toEqual(baseResult.files);
   });
 });
-
-// ---------------------------------------------------------------------------
-// localFindFiles
-// ---------------------------------------------------------------------------
 
 describe('applyFindFilesVerbosity', () => {
   const baseResult = {
@@ -146,11 +122,9 @@ describe('applyFindFilesVerbosity', () => {
       totals
     );
 
-    // modified must be preserved when sortBy=modified regardless of verbose
     for (const file of out.files ?? []) {
       expect((file as Record<string, unknown>).modified).toBeDefined();
     }
-    // size and permissions are still stripped (not sorting key)
     for (const file of out.files ?? []) {
       expect((file as Record<string, unknown>).size).toBeUndefined();
       expect((file as Record<string, unknown>).permissions).toBeUndefined();
@@ -175,16 +149,11 @@ describe('applyFindFilesVerbosity', () => {
       totals
     );
 
-    // modified should be stripped when not sorting by it
     for (const file of out.files ?? []) {
       expect((file as Record<string, unknown>).modified).toBeUndefined();
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// localGetFileContent (fetchContent)
-// ---------------------------------------------------------------------------
 
 describe('applyFetchContentVerbosity', () => {
   const baseResult = {
@@ -212,10 +181,6 @@ describe('applyFetchContentVerbosity', () => {
     expect(out.content).toBe(baseResult.content);
   });
 });
-
-// ---------------------------------------------------------------------------
-// lspGotoDefinition
-// ---------------------------------------------------------------------------
 
 describe('applyGotoDefinitionVerbosity', () => {
   const baseResult = {
@@ -264,10 +229,6 @@ describe('applyGotoDefinitionVerbosity', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// lspFindReferences
-// ---------------------------------------------------------------------------
-
 describe('applyFindReferencesVerbosity', () => {
   function makeRefs(n: number, filesCount = 4) {
     return Array.from({ length: n }).map((_, i) => ({
@@ -313,8 +274,6 @@ describe('applyFindReferencesVerbosity', () => {
     expect(out.locations).toEqual([]);
     expect(out.byFile).toBeDefined();
     expect(out.totalReferences).toBe(20);
-    // byFile items must have count, firstLine, firstCharacter — required by
-    // the MCP output schema. Absence causes -32602 output-validation errors.
     const firstEntry = out.byFile?.[0];
     expect(typeof firstEntry?.count).toBe('number');
     expect(typeof firstEntry?.firstLine).toBe('number');
@@ -331,10 +290,6 @@ describe('applyFindReferencesVerbosity', () => {
     expect(out).toEqual(result);
   });
 });
-
-// ---------------------------------------------------------------------------
-// lspCallHierarchy
-// ---------------------------------------------------------------------------
 
 describe('applyCallHierarchyVerbosity', () => {
   const baseResult = {

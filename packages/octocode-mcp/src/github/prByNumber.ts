@@ -1,7 +1,3 @@
-/**
- * Fetch a single pull request by number — public API + internal implementation.
- * Extracted from pullRequestSearch.ts.
- */
 import type {
   GitHubAPIError,
   GitHubPullRequestItem,

@@ -1,9 +1,3 @@
-/**
- * Retry utilities with exponential backoff for resilient tool calls.
- *
- * @module utils/retry
- */
-
 import {
   getErrorStatus,
   hasStatusIn,
@@ -19,13 +13,9 @@ export interface RetryConfig {
   retryOn: (error: unknown) => boolean;
 }
 
-/**
- * Pre-configured retry strategies for different tool categories
- */
+
 export const RETRY_CONFIGS = {
-  /**
-   * LSP tools - may need warm-up time
-   */
+  
   lsp: {
     maxAttempts: 3,
     initialDelayMs: 500,
@@ -35,9 +25,7 @@ export const RETRY_CONFIGS = {
       isLspNotReady(err) || isTimeout(err) || isConnectionRefused(err),
   },
 
-  /**
-   * GitHub API - rate limits and server errors
-   */
+  
   github: {
     maxAttempts: 3,
     initialDelayMs: 1000,
@@ -47,9 +35,7 @@ export const RETRY_CONFIGS = {
       isRateLimited(err) || isServerError(err) || isTimeout(err),
   },
 
-  /**
-   * Package APIs (npm/PyPI) - similar to GitHub
-   */
+  
   package: {
     maxAttempts: 3,
     initialDelayMs: 1000,
@@ -59,9 +45,7 @@ export const RETRY_CONFIGS = {
       isRateLimited(err) || isServerError(err) || isTimeout(err),
   },
 
-  /**
-   * Local file operations - quick retries
-   */
+  
   local: {
     maxAttempts: 2,
     initialDelayMs: 100,
@@ -71,32 +55,12 @@ export const RETRY_CONFIGS = {
   },
 } as const satisfies Record<string, RetryConfig>;
 
-/**
- * Context for retry logging
- */
+
 interface RetryContext {
   tool: string;
   params?: unknown;
 }
 
-/**
- * Execute an operation with retry logic and exponential backoff.
- *
- * @param operation - Async function to execute
- * @param config - Retry configuration
- * @param context - Optional context for logging
- * @returns Result of the operation
- * @throws Last error if all retries exhausted
- *
- * @example
- * ```typescript
- * const result = await withRetry(
- *   () => lspGotoDefinition({ queries }),
- *   RETRY_CONFIGS.lsp,
- *   { tool: 'lspGotoDefinition' }
- * );
- * ```
- */
 export async function withRetry<T>(
   operation: () => Promise<T>,
   config: RetryConfig,
@@ -111,12 +75,10 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error;
 
-      // Don't retry if error type doesn't match or last attempt
       if (!config.retryOn(error) || attempt === config.maxAttempts) {
         throw error;
       }
 
-      // Log retry attempt
       const toolName = context?.tool || 'operation';
       console.log(
         `⟳ Retry ${attempt}/${config.maxAttempts} for ${toolName} in ${delay}ms`
@@ -130,11 +92,7 @@ export async function withRetry<T>(
   throw lastError;
 }
 
-// =============================================================================
-// Error Type Detection
-// =============================================================================
 
-// Error codes for reliable detection (check these first)
 const RATE_LIMIT_CODES = [403, 429] as const;
 const RATE_LIMIT_PATTERNS = [/rate\s*limit/i, /too\s*many\s*requests/i] as const;
 
@@ -148,70 +106,49 @@ const FILE_BUSY_CODES = ['EBUSY', 'EAGAIN', 'ENOTEMPTY'] as const;
 
 const CONNECTION_REFUSED_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH'] as const;
 
-/**
- * Check if error indicates GitHub rate limiting
- */
+
 function isRateLimited(err: unknown): boolean {
-  // Check status codes first (more reliable)
   if (hasStatusIn(err, RATE_LIMIT_CODES)) {
     return true;
   }
 
-  // Fall back to message patterns
   return messageMatches(err, RATE_LIMIT_PATTERNS);
 }
 
-/**
- * Check if error indicates LSP server not ready
- */
+
 function isLspNotReady(err: unknown): boolean {
-  // Check error codes first (more reliable)
   if (hasCodeIn(err, LSP_ERROR_CODES)) {
     return true;
   }
 
-  // Fall back to message patterns
   return messageMatches(err, LSP_ERROR_PATTERNS);
 }
 
-/**
- * Check if error is a timeout
- */
+
 function isTimeout(err: unknown): boolean {
-  // Check error codes first (more reliable)
   if (hasCodeIn(err, TIMEOUT_CODES)) {
     return true;
   }
 
-  // Fall back to message patterns
   return messageMatches(err, TIMEOUT_PATTERNS);
 }
 
-/**
- * Check if error is a server error (5xx)
- */
+
 function isServerError(err: unknown): boolean {
   const status = getErrorStatus(err);
   return status !== undefined && status >= 500 && status < 600;
 }
 
-/**
- * Check if file is busy/locked
- */
+
 function isFileBusy(err: unknown): boolean {
   return hasCodeIn(err, FILE_BUSY_CODES);
 }
 
-/**
- * Check if connection was refused
- */
+
 function isConnectionRefused(err: unknown): boolean {
   return hasCodeIn(err, CONNECTION_REFUSED_CODES);
 }
 
-// =============================================================================
-// Utilities
-// =============================================================================
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));

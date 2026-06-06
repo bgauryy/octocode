@@ -1,22 +1,3 @@
-/**
- * COMPREHENSIVE OUTPUT SANITIZATION TEST
- * =======================================
- * TDD: Tests ALL data paths from tools → LLM for secret leakage.
- *
- * Tests verify that secrets are sanitized in:
- * 1. `text` field of responses (via createResponseFormat)
- * 2. `structuredContent` field of responses (bulk + role-based)
- * 3. Per-source sanitization in each tool family
- *
- * Gaps covered:
- * - GAP 1: structuredContent bypass (bulk.ts + responses.ts)
- * - GAP 2: Local file content missing per-source sanitization
- * - GAP 3: Ripgrep output missing content sanitization
- * - GAP 4: LSP tools missing code snippet sanitization
- * - GAP 5: PR patches missing sanitization
- * - GAP 6: PR error messages missing masking
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   createResponseFormat,
@@ -26,10 +7,6 @@ import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
 import type { ProcessedBulkResult } from '../../src/types/toolResults.js';
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Test secrets: realistic tokens that MUST be caught
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const SECRETS = {
   AWS_KEY: 'AKIAIOSFODNN7EXAMPLE',
@@ -65,10 +42,6 @@ function assertNoSecrets(obj: unknown, path = 'root'): void {
     }
   }
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 1: structuredContent in bulk responses
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('GAP-01: structuredContent sanitization in bulk responses', () => {
   it('should sanitize secrets in structuredContent from executeBulkOperation', async () => {
@@ -143,10 +116,6 @@ describe('GAP-01: structuredContent sanitization in bulk responses', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 1b: structuredContent in role-based responses
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('GAP-01b: structuredContent sanitization in role-based responses', () => {
   it('should sanitize secrets in structuredContent from createRoleBasedResult', () => {
     const result = createRoleBasedResult({
@@ -181,10 +150,6 @@ describe('GAP-01b: structuredContent sanitization in role-based responses', () =
     }
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 2: Local file content per-source sanitization
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('GAP-02: Local file content sanitization', () => {
   it('should sanitize file content in bulk result before reaching createResponseFormat', () => {
@@ -236,10 +201,6 @@ describe('GAP-02: Local file content sanitization', () => {
     assertNoSecrets(text, 'text');
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 3: Ripgrep output content sanitization
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('GAP-03: Ripgrep output sanitization', () => {
   it('should sanitize secrets in ripgrep match results', () => {
@@ -304,10 +265,6 @@ describe('GAP-03: Ripgrep output sanitization', () => {
     expect(text).toContain('deploying');
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 4: LSP tools code snippet sanitization
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('GAP-04: LSP tool output sanitization', () => {
   it('should sanitize secrets in goto definition code snippets', () => {
@@ -390,10 +347,6 @@ describe('GAP-04: LSP tool output sanitization', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 5: PR patch/diff content sanitization
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('GAP-05: PR patch content sanitization', () => {
   it('should sanitize secrets in PR file change patches', () => {
     const response = {
@@ -465,10 +418,6 @@ describe('GAP-05: PR patch content sanitization', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// GAP 6: Error message masking
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('GAP-06: Error message masking', () => {
   it('should mask secrets in error messages via createResponseFormat', () => {
     const response = {
@@ -503,10 +452,6 @@ describe('GAP-06: Error message masking', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Cross-cutting: ALL secret types through bulk pipeline
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('CROSS: Every secret type through bulk pipeline', () => {
   for (const [secretName, secretValue] of Object.entries(SECRETS)) {
     it(`should sanitize ${secretName} in both text and structuredContent`, async () => {
@@ -539,10 +484,6 @@ describe('CROSS: Every secret type through bulk pipeline', () => {
     });
   }
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Verify: Clean content is NOT corrupted
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SAFE: Clean content preserved through all paths', () => {
   it('should preserve normal code through bulk pipeline text', async () => {
@@ -607,10 +548,6 @@ describe('SAFE: Clean content preserved through all paths', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// INPUT sanitization (LLM → Tool)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('INPUT: All secret types blocked in tool input', () => {
   for (const [secretName, secretValue] of Object.entries(SECRETS)) {
     it(`should redact ${secretName} from input parameters`, () => {
@@ -654,10 +591,6 @@ describe('INPUT: All secret types blocked in tool input', () => {
     expect(result.isValid).toBe(false);
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Double-layer: ContentSanitizer + maskSensitiveData on same data
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('DOUBLE-LAYER: ContentSanitizer + maskSensitiveData combined', () => {
   for (const [secretName, secretValue] of Object.entries(SECRETS)) {

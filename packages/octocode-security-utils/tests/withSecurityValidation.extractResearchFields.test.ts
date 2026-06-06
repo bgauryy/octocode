@@ -199,7 +199,6 @@ describe('extractResearchFields', () => {
 
       const result = extractResearchFields(params);
 
-      // Sets preserve insertion order, so first occurrence wins
       expect(result).toEqual({
         mainResearchGoal: 'Goal A; Goal B',
         researchGoal: 'Task 1; Task 2',
@@ -281,9 +280,9 @@ describe('extractResearchFields', () => {
           {
             owner: 'test-owner',
             repo: 'test-repo',
-            mainResearchGoal: 123, // number instead of string
+            mainResearchGoal: 123,
             researchGoal: 'Valid goal',
-            reasoning: null, // null instead of string
+            reasoning: null,
           },
         ],
       };
@@ -327,8 +326,6 @@ describe('extractResearchFields', () => {
 
       const result = extractResearchFields(params);
 
-      // Note: Currently the implementation doesn't trim, so whitespace-only
-      // strings are treated as valid. This documents the current behavior.
       expect(result).toEqual({
         mainResearchGoal: '   ',
         researchGoal: 'Valid goal',

@@ -6,10 +6,7 @@ import { ALLOWED_EXTS } from '../types/index.js';
 
 import type { DependencyState } from '../types/index.js';
 
-/**
- * Resolves --affected: git changed files + transitive dependents.
- * Inspired by dependency-cruiser's --affected (uses watskeburt internally).
- */
+
 export function resolveAffectedFiles(
   root: string,
   revision: string,
@@ -45,9 +42,7 @@ function getGitChangedFiles(root: string, revision: string): string[] {
   }
 }
 
-/**
- * BFS: walk incoming edges to collect all transitive dependents of changed files.
- */
+
 function collectTransitiveDependents(
   seeds: Set<string>,
   state: DependencyState,

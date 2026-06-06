@@ -19,9 +19,9 @@ export type DirectToolInput = Record<string, unknown> & {
 
 export interface DirectToolDefinition {
   name: string;
-  /** Per-query schema for help text and examples. */
+
   schema: z.ZodType;
-  /** Canonical MCP bulk input schema used before direct execution. */
+
   inputSchema: z.ZodType;
 }
 
@@ -149,8 +149,6 @@ function wrapExecution(
   fn: ToolConfig['direct']['executionFn']
 ): (input: DirectToolInput) => Promise<CallToolResult> {
   return async input => {
-    // SAFETY: every catalog entry pairs this executor with the same MCP-owned
-    // bulk schema used by server registration for that tool.
     return fn(input as never);
   };
 }
@@ -383,8 +381,6 @@ export function prepareDirectToolInput(
     );
   }
 
-  // SAFETY: Direct tool input schemas are all MCP bulk schemas containing the
-  // ToolExecutionArgs envelope fields consumed by the execution functions.
   return result.data as DirectToolInput;
 }
 
@@ -614,8 +610,6 @@ function parseDirectToolInput(
     throw result.error;
   }
 
-  // SAFETY: Direct tool input schemas are all MCP bulk schemas containing the
-  // ToolExecutionArgs envelope fields consumed by the execution functions.
   return result.data as DirectToolInput;
 }
 

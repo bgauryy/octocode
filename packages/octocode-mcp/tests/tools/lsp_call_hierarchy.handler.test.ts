@@ -1,13 +1,6 @@
-/**
- * Handler tests for LSP Call Hierarchy tool
- * Tests the actual handler function with mocked dependencies
- * @module tools/lsp_call_hierarchy.handler.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 
-// Mock fs/promises before importing the module
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
@@ -39,7 +32,6 @@ vi.mock('../../src/lsp/manager.js', () => ({
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
-// Mock exec utilities
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi
     .fn()
@@ -162,8 +154,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
         results: [
           {
             id: 'call-hierarchy-incoming',
-            // status: 'hasResults' omitted — the lean contract signals
-            // the happy path by ABSENCE of status; only empty/error emit.
             data: {
               item: {
                 name: 'registerTools',
@@ -204,7 +194,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
                 hasMore: false,
                 resultsPerPage: 5,
               },
-              // lspMode omitted — absent ≡ semantic per the lean contract.
               hints: ['Found 1 caller'],
             },
           },
@@ -327,7 +316,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
             direction: 'incoming',
             researchGoal: 'test',
             reasoning: 'test',
-            // No callsPerPage or page - should use defaults
           },
         ],
       });
@@ -396,7 +384,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
             direction: 'incoming',
             researchGoal: 'test',
             reasoning: 'test',
-            // No depth - should default to 1
           },
         ],
       });
@@ -498,7 +485,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
             direction: 'incoming',
             researchGoal: 'test',
             reasoning: 'test',
-            // No contextLines - should default to 2
           },
         ],
       });
@@ -534,7 +520,6 @@ describe('LSP Call Hierarchy Handler Tests', () => {
         await import('@octocodeai/octocode-core');
 
       expect(typeof LSP_CALL_HIERARCHY_DESCRIPTION).toBe('string');
-      // Description may be empty if tool not in remote metadata (local-only tool)
     });
   });
 

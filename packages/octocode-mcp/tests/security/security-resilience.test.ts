@@ -1,22 +1,3 @@
-/**
- * TDD Security & Resilience Tests
- *
- * All tests call REAL functions and verify REAL behavior.
- * No source-code-reading or mock-only tests.
- *
- * Issue categories:
- *   [SECURITY]   spawnCheckSuccess timeout behavior
- *   [SECURITY]   spawnCollectStdout OOM protection
- *   [SECURITY]   LSP locationsToSnippets path validation
- *   [SECURITY]   convertCallHierarchyItem malformed response handling
- *   [SECURITY]   Environment variable leakage prevention
- *   [SECURITY]   Command injection via rg flags
- *   [SECURITY]   Git clone argument injection
- *   [RESILIENCE]  validateArgs edge cases
- *   [RESILIENCE]  ContentSanitizer edge cases
- *   [RESILIENCE]  Cache key generation edge cases
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -27,15 +8,6 @@ import {
   existsSync,
   symlinkSync,
 } from 'node:fs';
-
-// ═══════════════════════════════════════════════════════════════════════
-// 1. [SECURITY] spawnCheckSuccess SIGKILL escalation
-//    File: src/utils/exec/spawn.ts
-//    Verify: on timeout, SIGTERM is sent first, then SIGKILL follows
-//    Note: child_process.spawn is globally mocked in setup.ts.
-//    We configure the mock to simulate process behavior and test the
-//    real wrapper logic (timeouts, SIGKILL escalation, output limits).
-// ═══════════════════════════════════════════════════════════════════════
 
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
@@ -49,7 +21,6 @@ import {
   validateArgs,
 } from '../../src/utils/exec/spawn.js';
 
-/** Create a fake ChildProcess that emits events like a real one */
 function createMockProcess() {
   const proc = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter;
@@ -71,7 +42,6 @@ describe('[SECURITY] spawnCheckSuccess SIGKILL escalation', () => {
 
     const promise = spawnCheckSuccess('sleep', ['999'], 50);
 
-    // Wait for timeout to fire
     const result = await promise;
     expect(result).toBe(false);
     expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
@@ -82,7 +52,6 @@ describe('[SECURITY] spawnCheckSuccess SIGKILL escalation', () => {
     vi.mocked(spawn).mockReturnValueOnce(proc as any);
 
     const promise = spawnCheckSuccess('echo', ['hi'], 5000);
-    // Simulate process exit
     proc.emit('close', 0);
 
     expect(await promise).toBe(true);
@@ -108,12 +77,6 @@ describe('[SECURITY] spawnCheckSuccess SIGKILL escalation', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 2. [SECURITY] spawnCollectStdout OOM protection
-//    File: src/utils/exec/spawn.ts
-//    Verify: process is killed when output exceeds maxOutputSize
-// ═══════════════════════════════════════════════════════════════════════
-
 describe('[SECURITY] spawnCollectStdout OOM protection', () => {
   it('should return null and kill process when output exceeds maxOutputSize', async () => {
     const proc = createMockProcess();
@@ -123,7 +86,6 @@ describe('[SECURITY] spawnCollectStdout OOM protection', () => {
       maxOutputSize: 50,
     });
 
-    // Simulate large output exceeding the 50 byte limit
     proc.stdout.emit('data', Buffer.from('a'.repeat(100)));
 
     const result = await promise;
@@ -176,12 +138,6 @@ describe('[SECURITY] spawnCollectStdout OOM protection', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 3. [SECURITY] LSP locationsToSnippets path validation
-//    File: src/lsp/lspOperations.ts
-//    Verify: out-of-workspace LSP URIs are rejected by PathValidator
-// ═══════════════════════════════════════════════════════════════════════
-
 import { LSPOperations } from '../../src/lsp/lspOperations.js';
 import { LSPDocumentManager } from '../../src/lsp/lspDocumentManager.js';
 
@@ -221,14 +177,12 @@ describe('[SECURITY] LSP locationsToSnippets path validation', () => {
       workspaceRoot: testTmpDir,
     };
 
-    // Create a real file so openDocument can read it
     const testFile = join(testTmpDir, 'test.ts');
     writeFileSync(testFile, 'const x = 1;');
 
     const docManager = new LSPDocumentManager(mockConfig);
     const operations = new LSPOperations(docManager, testTmpDir);
 
-    // Mock connection that returns a location pointing to /etc/passwd
     const mockConnection = {
       sendRequest: vi.fn().mockResolvedValue({
         uri: 'file:///etc/passwd',
@@ -248,7 +202,6 @@ describe('[SECURITY] LSP locationsToSnippets path validation', () => {
       character: 0,
     });
 
-    // Should be empty — /etc/passwd is outside workspace
     expect(snippets).toHaveLength(0);
   });
 
@@ -262,7 +215,6 @@ describe('[SECURITY] LSP locationsToSnippets path validation', () => {
       workspaceRoot: process.cwd(),
     };
 
-    // Use a real file in the current workspace
     const targetFile = join(process.cwd(), 'package.json');
 
     const docManager = new LSPDocumentManager(mockConfig);
@@ -282,7 +234,6 @@ describe('[SECURITY] LSP locationsToSnippets path validation', () => {
     operations.setConnection(mockConnection as any, true);
     docManager.setConnection(mockConnection as any, true);
 
-    // Mock openDocument to avoid needing the real file format
     vi.spyOn(docManager, 'openDocument').mockResolvedValue(undefined);
     vi.spyOn(docManager, 'closeDocument').mockResolvedValue(undefined);
 
@@ -291,17 +242,10 @@ describe('[SECURITY] LSP locationsToSnippets path validation', () => {
       character: 0,
     });
 
-    // Should have 1 result — file is within workspace
     expect(snippets).toHaveLength(1);
     expect(snippets[0]!.content).toBeTruthy();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// 4. [SECURITY] convertCallHierarchyItem malformed response handling
-//    File: src/lsp/lspOperations.ts
-//    Verify: malformed LSP responses don't crash
-// ═══════════════════════════════════════════════════════════════════════
 
 describe('[SECURITY] convertCallHierarchyItem malformed response handling', () => {
   it('prepareCallHierarchy should handle null result from LSP', async () => {
@@ -349,12 +293,11 @@ describe('[SECURITY] convertCallHierarchyItem malformed response handling', () =
     const docManager = new LSPDocumentManager(mockConfig);
     const operations = new LSPOperations(docManager, process.cwd());
 
-    // Return a malformed item — range and selectionRange are undefined
     const mockConnection = {
       sendRequest: vi.fn().mockResolvedValue([
         {
           name: 'brokenFunction',
-          kind: 12, // SymbolKind.Function
+          kind: 12,
           uri: `file://${join(process.cwd(), 'package.json')}`,
           range: undefined,
           selectionRange: undefined,
@@ -369,7 +312,6 @@ describe('[SECURITY] convertCallHierarchyItem malformed response handling', () =
     vi.spyOn(docManager, 'openDocument').mockResolvedValue(undefined);
     vi.spyOn(docManager, 'closeDocument').mockResolvedValue(undefined);
 
-    // Should NOT throw — defensive handling
     const result = await operations.prepareCallHierarchy(
       join(process.cwd(), 'package.json'),
       { line: 0, character: 0 }
@@ -377,7 +319,6 @@ describe('[SECURITY] convertCallHierarchyItem malformed response handling', () =
 
     expect(result).toHaveLength(1);
     expect(result[0]!.name).toBe('brokenFunction');
-    // Range should have defaults
     expect(result[0]!.range.start.line).toBe(0);
     expect(result[0]!.range.start.character).toBe(0);
   });
@@ -395,7 +336,6 @@ describe('[SECURITY] convertCallHierarchyItem malformed response handling', () =
     const docManager = new LSPDocumentManager(mockConfig);
     const operations = new LSPOperations(docManager, process.cwd());
 
-    // Return result with null fromRanges entries
     const mockConnection = {
       sendRequest: vi.fn().mockResolvedValue([
         {
@@ -436,18 +376,11 @@ describe('[SECURITY] convertCallHierarchyItem malformed response handling', () =
       displayRange: { startLine: 1, endLine: 1 },
     };
 
-    // Should not crash on null fromRanges entries
     const result = await operations.getIncomingCalls(item);
     expect(result).toHaveLength(1);
     expect(result[0]!.from.name).toBe('caller');
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// 5. [SECURITY] Environment variable leakage prevention
-//    File: src/utils/exec/spawn.ts
-//    Tests call buildChildProcessEnv() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
 
 describe('[SECURITY] Environment variable leakage prevention', () => {
   const originalEnv = { ...process.env };
@@ -520,11 +453,6 @@ describe('[SECURITY] Environment variable leakage prevention', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 6. [SECURITY] Command injection via rg flags
-//    Tests call validateCommand() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
-
 import { validateCommand } from 'octocode-security-utils/commandValidator';
 
 describe('[SECURITY] Command injection via rg flags', () => {
@@ -583,11 +511,6 @@ describe('[SECURITY] Command injection via rg flags', () => {
     expect(result.isValid).toBe(false);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// 7. [SECURITY] Git clone argument injection
-//    Tests call validateCommand() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
 
 describe('[SECURITY] Git clone argument injection', () => {
   it('git clone with allowed flags should work', () => {
@@ -669,11 +592,6 @@ describe('[SECURITY] Git clone argument injection', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 8. [RESILIENCE] validateArgs edge cases
-//    Tests call validateArgs() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
-
 describe('[RESILIENCE] validateArgs edge cases', () => {
   it('should reject args containing null bytes', () => {
     const result = validateArgs(['normal', 'has\0null']);
@@ -703,11 +621,6 @@ describe('[RESILIENCE] validateArgs edge cases', () => {
     expect(validateArgs(['', 'normal']).valid).toBe(true);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// 9. [RESILIENCE] ContentSanitizer edge cases
-//    Tests call ContentSanitizer methods directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
 
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 
@@ -806,11 +719,6 @@ describe('[RESILIENCE] ContentSanitizer edge cases', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 10. [RESILIENCE] Cache key generation edge cases
-//     Tests call generateCacheKey() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
-
 import { generateCacheKey } from '../../src/utils/http/cache.js';
 
 describe('[RESILIENCE] Cache key generation edge cases', () => {
@@ -867,11 +775,6 @@ describe('[RESILIENCE] Cache key generation edge cases', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 12. [SECURITY] grep pattern detection regression
-//     Tests call validateCommand() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
-
 describe('[SECURITY] grep/rg pattern detection regression', () => {
   it('grep -E with pipe alternation should be valid', () => {
     expect(validateCommand('grep', ['-E', 'foo|bar', './src']).isValid).toBe(
@@ -909,12 +812,6 @@ describe('[SECURITY] grep/rg pattern detection regression', () => {
     expect(validateCommand('rg', ['pattern', '`evil`']).isValid).toBe(false);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// 13. [RESILIENCE] LSPDocumentManager state management
-//     Tests use real LSPDocumentManager with real temp files
-//     Mock is ONLY for the MessageConnection (external dependency)
-// ═══════════════════════════════════════════════════════════════════════
 
 describe('[RESILIENCE] LSPDocumentManager state management', () => {
   const testTmpDir = join(tmpdir(), `octocode-lsp-state-${Date.now()}`);
@@ -982,11 +879,6 @@ describe('[RESILIENCE] LSPDocumentManager state management', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// 14. [SECURITY] Path validator edge cases
-//     Tests use real PathValidator with real filesystem
-// ═══════════════════════════════════════════════════════════════════════
-
 import { PathValidator } from 'octocode-security-utils/pathValidator';
 
 describe('[SECURITY] PathValidator edge cases', () => {
@@ -1038,7 +930,7 @@ describe('[SECURITY] PathValidator edge cases', () => {
       symlinkSync('/etc', linkPath);
       expect(validator.validate(linkPath).isValid).toBe(false);
     } catch {
-      // Skip on systems that don't support symlinks
+      void 0;
     }
   });
 
@@ -1053,11 +945,6 @@ describe('[SECURITY] PathValidator edge cases', () => {
     ).toBe(false);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// 15. [RESILIENCE] validateCommand with edge case inputs
-//     Tests call validateCommand() directly — no mocks
-// ═══════════════════════════════════════════════════════════════════════
 
 describe('[RESILIENCE] validateCommand edge cases', () => {
   it('undefined args should return isValid=false, not throw', () => {

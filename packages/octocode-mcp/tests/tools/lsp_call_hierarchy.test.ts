@@ -1,8 +1,3 @@
-/**
- * Tests for LSP Call Hierarchy tool - focuses on helper functions and registration
- * @module tools/lsp_call_hierarchy.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 describe('LSP Call Hierarchy Tool', () => {
@@ -128,7 +123,6 @@ describe('LSP Call Hierarchy Tool', () => {
   });
 
   describe('inferSymbolKind helper logic', () => {
-    // Test the symbol kind inference logic
     const testCases = [
       { line: 'class MyClass {', expected: 'class' },
       { line: 'interface MyInterface {', expected: 'interface' },
@@ -145,7 +139,6 @@ describe('LSP Call Hierarchy Tool', () => {
 
     for (const { line, expected } of testCases) {
       it(`should infer "${expected}" from "${line}"`, () => {
-        // Replicate inferSymbolKind logic
         let kind: string;
         if (/\bclass\b/.test(line)) kind = 'class';
         else if (/\binterface\b/.test(line)) kind = 'interface';
@@ -171,7 +164,6 @@ describe('LSP Call Hierarchy Tool', () => {
   });
 
   describe('extractFunctionBody helper logic', () => {
-    // Test function body extraction logic
     it('should extract function body between braces', () => {
       const lines = ['function test() {', '  const x = 1;', '  return x;', '}'];
 
@@ -208,7 +200,7 @@ describe('LSP Call Hierarchy Tool', () => {
 
       expect(foundStart).toBe(true);
       expect(bodyStartLine).toBe(0);
-      expect(bodyLines.length).toBe(3); // Empty after {, then 2 content lines
+      expect(bodyLines.length).toBe(3);
     });
 
     it('should handle nested braces', () => {
@@ -314,7 +306,6 @@ describe('LSP Call Hierarchy Tool', () => {
   });
 
   describe('Call pattern detection', () => {
-    // Test function call pattern matching
     it('should match function calls', () => {
       const line = '  const x = helperOne() + helperTwo();';
       const callPattern = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
@@ -379,13 +370,11 @@ describe('LSP Call Hierarchy Tool', () => {
 
   describe('Description export', () => {
     it('should export tool description', async () => {
-      // Don't reset modules - use the initialized metadata from setup.ts
       const { LSP_CALL_HIERARCHY_DESCRIPTION } =
         await import('@octocodeai/octocode-core');
 
       expect(LSP_CALL_HIERARCHY_DESCRIPTION).toBeDefined();
       expect(typeof LSP_CALL_HIERARCHY_DESCRIPTION).toBe('string');
-      // Description may be empty if tool not in remote metadata (local-only tool)
     });
   });
 });

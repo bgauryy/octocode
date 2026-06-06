@@ -1,7 +1,3 @@
-/**
- * octocode-security-utils — Public API barrel export
- */
-
 export type {
   SensitiveDataPattern,
   SanitizationResult,

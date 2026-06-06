@@ -31,7 +31,6 @@ describe('PR Search - Error Propagation', () => {
       mockOctokit as unknown as ReturnType<typeof getOctokit>
     );
 
-    // Mock successful PR fetch
     getPRMock.mockResolvedValue({
       data: {
         number: 123,
@@ -46,14 +45,13 @@ describe('PR Search - Error Propagation', () => {
       },
     });
 
-    // Mock failure for file listing (sub-resource)
     listFilesMock.mockRejectedValue(new Error('API Rate Limit Exceeded'));
 
     const result = await fetchGitHubPullRequestByNumberAPI({
       owner: 'test',
       repo: 'repo',
       prNumber: 123,
-      type: 'fullContent', // Trigger file fetching
+      type: 'fullContent',
     });
 
     expect(result.pull_requests?.length).toBe(1);
@@ -61,7 +59,6 @@ describe('PR Search - Error Propagation', () => {
       | { _sanitization_warnings?: string[] }
       | undefined;
 
-    // Check that we have a warning
     expect(pr?._sanitization_warnings).toBeDefined();
     expect(
       pr?._sanitization_warnings?.some((w: string) =>

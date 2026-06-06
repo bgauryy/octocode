@@ -34,18 +34,12 @@ describe('spawnWithTimeout - no double timeout', () => {
 
     const promise = spawnWithTimeout('test-cmd', ['arg1'], { timeout: 5000 });
 
-    // Let the process exit normally
     setTimeout(() => mockProcess.emit('close', 0), 10);
     await vi.runAllTimersAsync();
     await promise;
 
     const spawnOptions = vi.mocked(spawn).mock.calls[0]?.[2];
 
-    // The spawn options should NOT include a timeout property.
-    // spawnWithTimeout manages its own timeout via setTimeout with
-    // SIGTERM -> SIGKILL escalation. Passing timeout to spawn() creates
-    // a double timeout race: Node's built-in timeout fires SIGTERM at the
-    // same instant our manual timer does, causing unpredictable behavior.
     expect(spawnOptions).not.toHaveProperty('timeout');
   });
 
@@ -55,7 +49,6 @@ describe('spawnWithTimeout - no double timeout', () => {
 
     const promise = spawnWithTimeout('slow-cmd', [], { timeout: 1000 });
 
-    // Advance past timeout
     await vi.advanceTimersByTimeAsync(1001);
 
     const result = await promise;
@@ -84,7 +77,6 @@ describe('spawnCollectStdout - OOM and timeout coverage', () => {
       maxOutputSize: 100,
     });
 
-    // Emit data larger than maxOutputSize
     setTimeout(() => {
       mockProcess.stdout.emit('data', Buffer.alloc(200, 'x'));
     }, 0);
@@ -102,7 +94,6 @@ describe('spawnCollectStdout - OOM and timeout coverage', () => {
 
     const promise = spawnCollectStdout('hanging-cmd', [], 500);
 
-    // Advance past timeout
     await vi.advanceTimersByTimeAsync(501);
 
     const result = await promise;

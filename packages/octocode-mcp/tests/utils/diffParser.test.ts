@@ -26,12 +26,12 @@ describe('filterPatch', () => {
 
   it('filters to specific addition lines', () => {
     const result = filterPatch(samplePatch, [2], undefined);
-    expect(result).toContain('+2: added line 1'); // Line 2 in new file
-    expect(result).not.toContain('added line 2'); // Line 3 in new file
+    expect(result).toContain('+2: added line 1');
+    expect(result).not.toContain('added line 2');
   });
 
   it('filters to specific deletion lines', () => {
     const result = filterPatch(samplePatch, undefined, [2]);
-    expect(result).toContain('-2: deleted line'); // Line 2 in original file
+    expect(result).toContain('-2: deleted line');
   });
 });

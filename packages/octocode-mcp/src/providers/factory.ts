@@ -1,13 +1,3 @@
-/**
- * Provider Factory
- *
- * Returns cached GitHub provider instances keyed by token+baseUrl.
- * Single-provider architecture after GitLab/Bitbucket removal — kept as a
- * function boundary so call sites do not need to import the concrete class.
- *
- * @module providers/factory
- */
-
 import type {
   ICodeHostProvider,
   ProviderType,
@@ -76,21 +66,6 @@ function getCacheKey(type: ProviderType, config?: ProviderConfig): string {
   return `${type}:${baseUrl}:${tokenHash}`;
 }
 
-/**
- * Get a GitHub provider instance for the given configuration.
- *
- * Instances are cached per baseUrl/token combination for reuse.
- *
- * @param type - Provider type (only 'github' is supported)
- * @param config - Provider configuration
- * @returns Provider instance
- * @throws Error if provider type is not 'github'
- *
- * @example
- * ```typescript
- * const github = getProvider('github');
- * ```
- */
 export function getProvider(
   type: ProviderType = 'github',
   config?: ProviderConfig
@@ -138,14 +113,6 @@ export interface ProviderDiagnostic {
   error?: string;
 }
 
-/**
- * Initialize providers and return diagnostics.
- *
- * Eagerly constructs the default GitHub provider so misconfiguration is
- * surfaced at startup rather than on the first request. Returns one
- * diagnostic per attempted provider so callers can log partial failures
- * instead of having them silently swallowed.
- */
 export async function initializeProviders(): Promise<ProviderDiagnostic[]> {
   try {
     getProvider('github');

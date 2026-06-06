@@ -1,11 +1,3 @@
-/**
- * Unified error result creation for all tools (provider API and local)
- *
- * This module provides a single source of truth for creating error results,
- * handling both provider API errors (with rate limits, scopes) and local tool
- * errors (with error codes, tool-specific hints).
- */
-
 import type { GitHubAPIError } from '../../github/githubAPI.js';
 import {
   toToolError,
@@ -20,32 +12,27 @@ type PartialBaseQuery = Partial<BaseQueryLocal>;
 
 export interface UnifiedErrorResult {
   status: 'error';
-  /** Error message or GitHubAPIError object (for GitHub tools) */
+
   error?: string | GitHubAPIError;
-  /** Error code (for local tools) */
+
   errorCode?: string;
-  /** Hints for error recovery */
+
   hints?: string[];
-  /** Additional fields from extra */
+
   [key: string]: unknown;
 }
 
 interface CreateErrorResultOptions {
-  /** Tool name for hint generation */
   toolName?: string;
-  /** Additional context for hints (local tools only) */
+
   hintContext?: Record<string, unknown>;
-  /** Additional fields to include in the result */
+
   extra?: Record<string, unknown>;
-  /** Custom hints to include (merged with auto-generated hints) */
+
   customHints?: string[];
-  /**
-   * Separate error source for hints (GitHub API pattern)
-   * When provided, hints are extracted from this error instead of the main error.
-   * The main error is still used as the error value.
-   */
+
   hintSourceError?: GitHubAPIError;
-  /** Raw source response or character count used for local savings stats */
+
   rawResponse?: unknown;
 }
 

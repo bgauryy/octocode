@@ -1,23 +1,12 @@
 import { errorLog, warnLog } from './colors.js';
 import { errorQueue } from './errorQueue.js';
-/**
- * Cross-platform logging utility for Octocode Research Server
- *
- * Logs to ~/.octocode/logs/ (or %USERPROFILE%\.octocode\logs on Windows)
- * - errors.log: All errors and warnings
- * - tools.log: Tool invocation data and results
- * 
- * PERFORMANCE: Uses async file operations to avoid blocking event loop
- */
+
 
 import fs from 'node:fs';
 import { promises as fsAsync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-// ============================================================================
-// Configuration
-// ============================================================================
 
 const HOME = os.homedir();
 const OCTOCODE_DIR = process.env.OCTOCODE_HOME || path.join(HOME, '.octocode');
@@ -25,24 +14,16 @@ const LOGS_DIR = path.join(OCTOCODE_DIR, 'logs');
 const ERROR_LOG = path.join(LOGS_DIR, 'errors.log');
 const TOOLS_LOG = path.join(LOGS_DIR, 'tools.log');
 
-// Max log file size before rotation (10MB)
 const MAX_LOG_SIZE = 10 * 1024 * 1024;
 
-// Max size for JSON.stringify to prevent memory spikes (100KB)
 const MAX_LOG_DATA_SIZE = 100 * 1024;
 
-// ============================================================================
-// Directory Initialization (async with sync fallback for startup)
-// ============================================================================
 
 let initialized = false;
 let fileLoggingEnabled = true;
 let initPromise: Promise<void> | null = null;
 
-/**
- * Ensure the logs directory exists (async).
- * Safe to call multiple times (idempotent).
- */
+
 async function ensureLogsDirAsync(): Promise<void> {
   if (initialized) return;
   if (initPromise) return initPromise;
@@ -64,9 +45,7 @@ async function ensureLogsDirAsync(): Promise<void> {
   return initPromise;
 }
 
-/**
- * Sync initialization for startup only (blocking but necessary)
- */
+
 function ensureLogsDirSync(): void {
   if (initialized) return;
 
@@ -87,13 +66,7 @@ function ensureLogsDirSync(): void {
   }
 }
 
-// ============================================================================
-// Log Rotation (async)
-// ============================================================================
 
-/**
- * Rotate log file if it exceeds max size (async).
- */
 async function rotateIfNeededAsync(logPath: string): Promise<void> {
   try {
     const stats = await fsAsync.stat(logPath).catch(() => null);
@@ -107,13 +80,11 @@ async function rotateIfNeededAsync(logPath: string): Promise<void> {
     await fsAsync.rename(logPath, rotatedPath);
     await cleanupOldLogsAsync(base, ext, 5);
   } catch {
-    // Silently fail - logging should never crash the server
+    void 0;
   }
 }
 
-/**
- * Remove old rotated log files, keeping only the most recent ones (async).
- */
+
 async function cleanupOldLogsAsync(baseName: string, ext: string, keep: number): Promise<void> {
   try {
     const files = await fsAsync.readdir(LOGS_DIR);
@@ -122,24 +93,16 @@ async function cleanupOldLogsAsync(baseName: string, ext: string, keep: number):
       .sort()
       .reverse();
 
-    // Remove files beyond the keep limit
     const toDelete = rotatedFiles.slice(keep);
     await Promise.all(
       toDelete.map((f) => fsAsync.unlink(path.join(LOGS_DIR, f)).catch(err => errorQueue.push(err, 'cleanupOldLogs')))
     );
   } catch {
-    // Silently fail
+    void 0;
   }
 }
 
-// ============================================================================
-// Log Entry Formatting
-// ============================================================================
 
-/**
- * Safely stringify data with size limit to prevent memory spikes.
- * Uses single-pass approach with size tracking to avoid double serialization.
- */
 function safeStringify(data: unknown): string {
   if (data === undefined) return '';
 
@@ -148,9 +111,7 @@ function safeStringify(data: unknown): string {
     let truncated = false;
     const seen = new WeakSet<object>();
 
-    // Custom replacer that tracks size and detects circular refs
     const replacer = (_key: string, value: unknown): unknown => {
-      // Check for circular references
       if (value !== null && typeof value === 'object') {
         if (seen.has(value)) {
           return '[Circular]';
@@ -158,11 +119,9 @@ function safeStringify(data: unknown): string {
         seen.add(value);
       }
 
-      // Estimate size contribution (rough but fast)
       const valueStr = typeof value === 'string' ? value : String(value ?? '');
-      size += valueStr.length + 10; // +10 for key, quotes, colons, etc.
+      size += valueStr.length + 10;
 
-      // If we've exceeded limit, mark as truncated and return placeholder
       if (size > MAX_LOG_DATA_SIZE && !truncated) {
         truncated = true;
       }
@@ -172,7 +131,6 @@ function safeStringify(data: unknown): string {
 
     const result = JSON.stringify(data, replacer, 2);
 
-    // If truncated during serialization, return truncation notice
     if (truncated) {
       return JSON.stringify({
         _truncated: true,
@@ -187,47 +145,30 @@ function safeStringify(data: unknown): string {
   }
 }
 
-/**
- * Format a log entry with timestamp and level.
- */
+
 function formatLogEntry(level: string, message: string, data?: unknown): string {
   const timestamp = new Date().toISOString();
   const dataStr = data !== undefined ? `\n${safeStringify(data)}` : '';
   return `[${timestamp}] [${level}] ${message}${dataStr}\n`;
 }
 
-// ============================================================================
-// Core Logging Functions (async with fire-and-forget pattern)
-// ============================================================================
 
-/**
- * Write to a log file asynchronously (fire-and-forget).
- * Never blocks the event loop.
- */
 function writeLogAsync(logPath: string, entry: string): void {
   if (!fileLoggingEnabled) return;
 
-  // Fire and forget - don't await
   (async () => {
     try {
       await ensureLogsDirAsync();
       await rotateIfNeededAsync(logPath);
       await fsAsync.appendFile(logPath, entry, { encoding: 'utf-8' });
     } catch (err) {
-      // Disable file logging on persistent failure
       fileLoggingEnabled = false;
       process.stderr.write(`[Logger] File write failed, disabling: ${err}\n`);
     }
   })();
 }
 
-// ============================================================================
-// Public API - Error Logger
-// ============================================================================
 
-/**
- * Log an error message (async, non-blocking).
- */
 export function logError(message: string, error?: Error | unknown): void {
   const errorData =
     error instanceof Error
@@ -237,27 +178,19 @@ export function logError(message: string, error?: Error | unknown): void {
   const entry = formatLogEntry('ERROR', message, errorData);
   writeLogAsync(ERROR_LOG, entry);
 
-  // Also write to console for visibility (redact stack in production)
   const consoleError = process.env.NODE_ENV === 'development'
     ? error
     : (error instanceof Error ? error.message : String(error || ''));
-  // Use %s format specifier to prevent format string injection from user-controlled message
   console.error('%s %o', errorLog('[ERROR] ' + message), consoleError);
 }
 
-/**
- * Log a warning message (async, non-blocking).
- */
+
 export function logWarn(message: string, data?: unknown): void {
   const entry = formatLogEntry('WARN', message, data);
   writeLogAsync(ERROR_LOG, entry);
-  // Use %s format specifier to prevent format string injection from user-controlled message
   console.warn('%s', warnLog('[WARN] ' + message));
 }
 
-// ============================================================================
-// Public API - Tools Logger
-// ============================================================================
 
 interface ToolLogEntry {
   tool: string;
@@ -276,35 +209,20 @@ export function logToolCall(entry: ToolLogEntry): void {
   writeLogAsync(TOOLS_LOG, logEntry);
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
 
-/**
- * Get the path to the logs directory.
- */
 export function getLogsPath(): string {
   return LOGS_DIR;
 }
 
-/**
- * Initialize logger synchronously (call at startup).
- * After startup, all operations are async.
- */
+
 export function initializeLogger(): void {
   ensureLogsDirSync();
 }
 
-// ============================================================================
-// Security Utilities
-// ============================================================================
 
 const SENSITIVE_KEYS = ['token', 'key', 'secret', 'password', 'auth', 'credential', 'api_key', 'apikey'];
 
-/**
- * Sanitize query parameters by redacting sensitive values.
- * Prevents accidental exposure of secrets in logs.
- */
+
 export function sanitizeQueryParams(query: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
 

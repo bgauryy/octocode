@@ -32,15 +32,13 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
       ];
 
       const results = await executeWithErrorIsolation(promises, {
-        concurrency: 2, // Only 2 at a time
+        concurrency: 2,
         timeout: 5000,
       });
 
-      // Verify all completed
       expect(results).toHaveLength(5);
       expect(results.every(r => r.success)).toBe(true);
 
-      // Verify concurrency was respected (max 2 at a time)
       expect(Math.max(...activeCount)).toBeLessThanOrEqual(2);
     });
 
@@ -68,7 +66,6 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
       expect(results).toHaveLength(4);
       expect(results.every(r => r.success)).toBe(true);
 
-      // Should execute in order with concurrency = 1
       expect(executionOrder).toEqual([1, 2, 3, 4]);
     });
 
@@ -76,7 +73,7 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
       const promises = [async () => 1, async () => 2, async () => 3];
 
       const results = await executeWithErrorIsolation(promises, {
-        concurrency: 10, // More than promise count
+        concurrency: 10,
         timeout: 5000,
       });
 
@@ -95,9 +92,9 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
 
       const promises = [
         createPromise(1, false),
-        createPromise(2, true), // Fails
+        createPromise(2, true),
         createPromise(3, false),
-        createPromise(4, true), // Fails
+        createPromise(4, true),
         createPromise(5, false),
       ];
 
@@ -124,7 +121,7 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
     it('should handle undefined promise functions in concurrency mode', async () => {
       const promises = [
         async () => 1,
-        undefined as unknown as () => Promise<number>, // Invalid
+        undefined as unknown as () => Promise<number>,
         async () => 3,
       ];
 
@@ -164,7 +161,6 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
       const resultP = executeWithErrorIsolation([slowPromise, fastPromise], {
         timeout: 50,
       });
-      // Advance past fastPromise (10ms) then past timeout cutoff (50ms)
       await vi.advanceTimersByTimeAsync(10);
       await vi.advanceTimersByTimeAsync(50);
       const results = await resultP;
@@ -240,18 +236,14 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         timeout: 50,
         concurrency: 2,
       });
-      // With concurrency=2: fast-1+slow-1 start at t=0, fast-1 resolves at
-      // t=10 → fast-2 starts, fast-2 resolves at t=20 → slow-2 starts.
-      // slow-1 times out at t=50, slow-2 times out at t=70 (started at t=20).
-      // Advance well past t=70 to ensure all results are collected.
       await vi.advanceTimersByTimeAsync(100);
       const results = await resultP;
 
       expect(results).toHaveLength(4);
       const successCount = results.filter(r => r.success).length;
       const timeoutCount = results.filter(r => !r.success).length;
-      expect(successCount).toBe(2); // fast-1 and fast-2
-      expect(timeoutCount).toBe(2); // slow-1 and slow-2
+      expect(successCount).toBe(2);
+      expect(timeoutCount).toBe(2);
     });
 
     it('should handle all promises timing out', async () => {
@@ -293,12 +285,10 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         onError,
       });
 
-      // Should still return error result even if onError throws
       expect(results).toHaveLength(1);
       expect(results[0]?.success).toBe(false);
       expect(results[0]?.error?.message).toBe('Original error');
 
-      // onError should have been called despite throwing
       expect(onError).toHaveBeenCalled();
     });
 
@@ -338,10 +328,10 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
 
       const promises = [
         async () => {
-          throw 'String error'; // Non-Error throw
+          throw 'String error';
         },
         async () => {
-          throw { message: 'Object error' }; // Object throw
+          throw { message: 'Object error' };
         },
       ];
 
@@ -432,8 +422,6 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
         concurrency: 10,
         timeout: 5000,
       });
-      // 100 promises / 10 concurrency = 10 batches × 1ms each = 10ms total.
-      // Advance well past that to ensure all batches complete.
       await vi.advanceTimersByTimeAsync(50);
       const results = await resultP;
 
@@ -541,10 +529,8 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
     });
 
     it('should handle Promise.allSettled rejected status (edge case)', async () => {
-      // This tests the fallback in the Promise.allSettled mapping
       const promises = [
         async () => {
-          // Force a rejection that bypasses normal isolation
           return Promise.reject(new Error('Unusual rejection'));
         },
       ];
@@ -554,7 +540,6 @@ describe('promiseUtils - Concurrency and Timeout Coverage', () => {
       });
 
       expect(results).toHaveLength(1);
-      // Should still be handled as error
       expect(results[0]?.success).toBe(false);
     });
 

@@ -1,6 +1,3 @@
-/**
- * Tests for toolHelpers.ts
- */
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   checkLargeOutputSafety,
@@ -123,7 +120,6 @@ describe('toolHelpers', () => {
       });
 
       it('should show resolved path when relative path differs from input', () => {
-        // Use a path that resolves outside home directory (truly invalid)
         const query = {
           path: '/var/log/system.log',
           id: 'test',
@@ -133,7 +129,6 @@ describe('toolHelpers', () => {
 
         const result = validateToolPath(query, 'LOCAL_VIEW_STRUCTURE');
 
-        // This should fail because /var is outside home directory
         expect(result.isValid).toBe(false);
         expect(result.errorResult?.hints).toBeDefined();
 
@@ -142,7 +137,6 @@ describe('toolHelpers', () => {
       });
 
       it('should NOT show "resolved to" hint when input equals resolved path', () => {
-        // Absolute path - input equals resolved
         const query = {
           path: '/etc/passwd',
           id: 'test',
@@ -191,8 +185,6 @@ describe('toolHelpers', () => {
       });
 
       it('should provide permission denied hints when error contains Permission denied', () => {
-        // This tests the isPermissionDenied branch in getPathErrorHints
-        // We need to mock pathValidator to return a permission denied error
         const query = {
           path: '/root/secret',
           id: 'test',
@@ -208,7 +200,6 @@ describe('toolHelpers', () => {
       });
 
       it('should provide not found hints when path does not exist', () => {
-        // Use a path that doesn't exist but is within allowed directories
         const query = {
           path: `${process.cwd()}/nonexistent_path_xyz_123`,
           id: 'test',
@@ -218,8 +209,6 @@ describe('toolHelpers', () => {
 
         const result = validateToolPath(query, 'LOCAL_FIND_FILES');
 
-        // This may be valid or invalid depending on pathValidator behavior
-        // but we're testing the hints generation
         if (!result.isValid) {
           const hints = result.errorResult?.hints as string[];
           expect(hints).toBeDefined();
@@ -228,7 +217,6 @@ describe('toolHelpers', () => {
       });
 
       it('should include helpful hints about using absolute paths', () => {
-        // Use a path that's truly outside allowed directories
         const query = {
           path: '/var/tmp/test',
           id: 'test',
@@ -337,16 +325,12 @@ describe('toolHelpers', () => {
     });
 
     it('should use singular form for count of 1 (edge case)', () => {
-      // This tests the edge case where itemCount === 1
-      // Even though 1 shouldn't exceed default threshold,
-      // we can test with threshold 0
       const result = checkLargeOutputSafety(1, false, {
         threshold: 0,
         itemType: 'item',
       });
 
       expect(result.shouldBlock).toBe(true);
-      // Should use singular 'item' not 'items'
       expect(result.hints?.some(h => h.includes('1 item -'))).toBe(true);
     });
 

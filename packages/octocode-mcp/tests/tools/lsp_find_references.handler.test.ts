@@ -1,13 +1,6 @@
-/**
- * Handler tests for LSP Find References tool
- * Tests the actual handler function with mocked dependencies
- * @module tools/lsp_find_references.handler.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 
-// Mock fs/promises before importing the module
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
   stat: vi.fn(),
@@ -109,7 +102,6 @@ describe('LSP Find References Handler Tests', () => {
         ],
       });
 
-      // Should return an error response
       expect(result).toBeDefined();
     });
   });
@@ -118,11 +110,9 @@ describe('LSP Find References Handler Tests', () => {
     it('should handle missing optional fields', async () => {
       vi.resetModules();
 
-      // Mock fs.stat to return file exists
       const mockStat = vi.mocked(fs.stat);
       mockStat.mockResolvedValue({ isFile: () => true } as any);
 
-      // Mock fs.readFile to return some content
       const mockReadFile = vi.mocked(fs.readFile);
       mockReadFile.mockResolvedValue('const test = 1;');
 
@@ -136,7 +126,6 @@ describe('LSP Find References Handler Tests', () => {
       registerLSPFindReferencesTool(mockServer as any);
       const handler = mockServer.registerTool.mock.results[0]!.value;
 
-      // Query without optional contextLines, referencesPerPage, page
       const result = await handler({
         queries: [
           {
@@ -187,7 +176,6 @@ describe('LSP Find References Handler Tests', () => {
       });
 
       expect(result).toBeDefined();
-      // Both queries should be processed
       expect(result.content).toBeDefined();
     });
   });
@@ -237,7 +225,6 @@ describe('LSP Find References Handler Tests', () => {
     it('should handle file not found', async () => {
       vi.resetModules();
 
-      // Mock fs.stat to throw ENOENT
       const mockStat = vi.mocked(fs.stat);
       mockStat.mockRejectedValue(new Error('ENOENT: no such file'));
 
@@ -269,11 +256,9 @@ describe('LSP Find References Handler Tests', () => {
     it('should handle file read errors', async () => {
       vi.resetModules();
 
-      // Mock fs.stat to succeed
       const mockStat = vi.mocked(fs.stat);
       mockStat.mockResolvedValue({ isFile: () => true } as any);
 
-      // Mock fs.readFile to fail
       const mockReadFile = vi.mocked(fs.readFile);
       mockReadFile.mockRejectedValue(new Error('Permission denied'));
 

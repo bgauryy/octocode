@@ -1,9 +1,3 @@
-/**
- * TDD: envTokens — ENV_TOKEN_VARS priority, getTokenFromEnv, getEnvTokenSource, hasEnvToken
- *
- * Fills gap: ENV_TOKEN_VARS ordering never asserted; envTokens.ts had zero direct tests.
- */
-
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   ENV_TOKEN_VARS,

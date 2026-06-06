@@ -1,10 +1,3 @@
-/**
- * Session Disk I/O
- *
- * File read/write/flush operations for session and stats storage.
- * Uses atomic writes (temp file + rename) to prevent corruption.
- */
-
 import {
   existsSync,
   readFileSync,
@@ -25,7 +18,6 @@ import type { PersistedSession, SessionStats } from './types.js';
 
 const logger = createLogger('session');
 
-// Storage constants
 export const SESSION_FILE = paths.session;
 export const STATS_FILE = paths.stats;
 
@@ -86,10 +78,6 @@ function readStatsFromDisk(fallbackStats?: SessionStats): SessionStats {
   }
 }
 
-/**
- * Write session directly to disk (internal)
- * Uses atomic write (temp file + rename) to prevent corruption on crash
- */
 export function writeSessionToDisk(session: PersistedSession): void {
   ensureOctocodeDir();
 
@@ -100,9 +88,6 @@ export function writeSessionToDisk(session: PersistedSession): void {
   writeJsonAtomic(SESSION_FILE, toSessionDiskPayload(session));
 }
 
-/**
- * Read session directly from disk (internal)
- */
 export function readSessionFromDisk(): PersistedSession | null {
   if (!existsSync(SESSION_FILE)) {
     return null;
@@ -122,14 +107,10 @@ export function readSessionFromDisk(): PersistedSession | null {
       stats: readStatsFromDisk(result.data.stats),
     };
   } catch {
-    // Invalid JSON or read error - return null to create new session
     return null;
   }
 }
 
-/**
- * Delete session file from disk
- */
 export function deleteSessionFile(): boolean {
   let deleted = false;
 

@@ -1,8 +1,3 @@
-/**
- * Tests for LSP Find References tool - focuses on helper functions and registration
- * @module tools/lsp_find_references.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 describe('LSP Find References Tool', () => {
@@ -137,18 +132,15 @@ describe('LSP Find References Tool', () => {
 
   describe('Description export', () => {
     it('should export tool description', async () => {
-      // Don't reset modules - use the initialized metadata from setup.ts
       const { LSP_FIND_REFERENCES_DESCRIPTION } =
         await import('@octocodeai/octocode-core');
 
       expect(LSP_FIND_REFERENCES_DESCRIPTION).toBeDefined();
       expect(typeof LSP_FIND_REFERENCES_DESCRIPTION).toBe('string');
-      // Description may be empty if tool not in remote metadata (local-only tool)
     });
   });
 
   describe('Reference sorting', () => {
-    // Test the reference sorting logic
     it('should sort definitions before usages', () => {
       const refs = [
         { uri: 'b.ts', isDefinition: false, range: { start: { line: 5 } } },

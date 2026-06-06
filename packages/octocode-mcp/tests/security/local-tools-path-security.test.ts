@@ -1,21 +1,3 @@
-/**
- * WHITE-HAT SECURITY PENETRATION TESTS
- * =====================================
- * Comprehensive path security testing for ALL local tools.
- *
- * Tests that no local tool can read, search, list, or find files
- * outside the workspace boundary. Covers:
- *
- * 1. PathValidator - direct traversal attacks
- * 2. validateToolPath - tool-level wrapper
- * 3. commandValidator - injection via args
- * 4. include/exclude/excludeDir - secondary path params
- * 5. Symlink-based escapes
- * 6. Encoding & Unicode tricks
- * 7. Prefix collision attacks
- * 8. Race condition considerations
- */
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   PathValidator,
@@ -27,29 +9,18 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-const WORKSPACE = process.cwd(); // packages/octocode-mcp
+const WORKSPACE = process.cwd();
 const HOME = os.homedir();
 const PARENT = path.dirname(WORKSPACE);
 const GRANDPARENT = path.dirname(PARENT);
 
-/**
- * Creates a strict validator that does NOT include the home directory.
- * This isolates tests to just the workspace root.
- */
 function strictValidator(root = WORKSPACE): PathValidator {
   return new PathValidator({ workspaceRoot: root, includeHomeDir: false });
 }
 
-/**
- * Helper: build a minimal query object for validateToolPath
- */
 function toolQuery(p: string) {
   return { path: p, researchGoal: 'test', reasoning: 'test' };
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 1: PathValidator – Direct Path Traversal Attacks
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SEC-01: PathValidator – Path Traversal Attacks', () => {
   let v: PathValidator;
@@ -83,8 +54,6 @@ describe('SEC-01: PathValidator – Path Traversal Attacks', () => {
     });
 
     it('mixed forward/backslash on Unix stays within workspace (literal backslash)', () => {
-      // On Unix, backslash is a valid filename character, not a separator
-      // So `WORKSPACE/..\..\etc` creates a literal directory name, not traversal
       const r = v.validate(`${WORKSPACE}/..\\../etc`);
       if (r.isValid) {
         expect(r.sanitizedPath?.startsWith(WORKSPACE)).toBe(true);
@@ -170,10 +139,6 @@ describe('SEC-01: PathValidator – Path Traversal Attacks', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 2: Encoding & Unicode Bypass Attempts
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-02: Encoding & Unicode Bypass Attempts', () => {
   let v: PathValidator;
 
@@ -184,7 +149,6 @@ describe('SEC-02: Encoding & Unicode Bypass Attempts', () => {
   describe('URL encoding', () => {
     it('URL-encoded %2e%2e stays within workspace (literal chars)', () => {
       const r = v.validate(`${WORKSPACE}/%2e%2e/%2e%2e/etc`);
-      // Node treats %2e as literal – stays within workspace
       if (r.isValid) {
         expect(r.sanitizedPath?.startsWith(WORKSPACE)).toBe(true);
       }
@@ -242,7 +206,6 @@ describe('SEC-02: Encoding & Unicode Bypass Attempts', () => {
 
     it('should BLOCK zero-width space injection', () => {
       const r = v.validate(`${WORKSPACE}/\u200b../\u200b../etc`);
-      // Even if treated as literal, should NOT escape workspace
       if (r.isValid) {
         expect(r.sanitizedPath?.startsWith(WORKSPACE)).toBe(true);
       }
@@ -256,10 +219,6 @@ describe('SEC-02: Encoding & Unicode Bypass Attempts', () => {
     });
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 3: Symlink-Based Escape Attacks
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SEC-03: Symlink-Based Escape Attacks', () => {
   describe('Mock-based symlink escape testing', () => {
@@ -420,21 +379,7 @@ describe('SEC-03: Symlink-Based Escape Attacks', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 4: validateToolPath – All Local Tools Entry Point
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-04: validateToolPath – Tool Entry Point Security', () => {
-  /**
-   * NOTE: validateToolPath uses the GLOBAL pathValidator singleton which
-   * includes the HOME directory by default. This means relative traversals
-   * that resolve within $HOME are allowed. This is by design - local tools
-   * need to access files across the user's home directory.
-   *
-   * For strict workspace-only isolation, use PathValidator directly with
-   * includeHomeDir: false.
-   */
-
   const TOOL_NAMES = [
     'localSearchCode',
     'localViewStructure',
@@ -443,9 +388,6 @@ describe('SEC-04: validateToolPath – Tool Entry Point Security', () => {
   ] as const;
 
   describe('Path traversal via tool path parameter', () => {
-    // Only include paths that resolve OUTSIDE the home directory
-    // Relative paths like ../../../../etc/passwd resolve within $HOME on this
-    // system, and the global pathValidator includes home dir by default
     const traversalPaths = [
       '/etc/passwd',
       '/root/.ssh/id_rsa',
@@ -515,12 +457,7 @@ describe('SEC-04: validateToolPath – Tool Entry Point Security', () => {
   });
 
   describe('Strict mode: reinitialize global validator without home dir', () => {
-    /**
-     * This tests that when the global singleton is configured in strict mode
-     * (no home directory), all the additional traversal attacks are caught.
-     */
     afterEach(() => {
-      // Restore default global validator
       reinitializePathValidator();
     });
 
@@ -567,14 +504,6 @@ describe('SEC-04: validateToolPath – Tool Entry Point Security', () => {
     });
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 5: Execution Context Validator (cwd isolation)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 6: Command Validator – Injection Prevention
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SEC-06: Command Validator – Injection Prevention', () => {
   describe('Command whitelist enforcement', () => {
@@ -715,15 +644,11 @@ describe('SEC-06: Command Validator – Injection Prevention', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 7: Sensitive File / Ignored Path Protection
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-07: Sensitive File Protection (Ignored Patterns)', () => {
   let v: PathValidator;
 
   beforeEach(() => {
-    v = new PathValidator({ workspaceRoot: WORKSPACE }); // default includes home dir
+    v = new PathValidator({ workspaceRoot: WORKSPACE });
   });
 
   describe('Environment files', () => {
@@ -809,13 +734,9 @@ describe('SEC-07: Sensitive File Protection (Ignored Patterns)', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 8: Home Directory Boundary Enforcement
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-08: Home Directory Boundary', () => {
   describe('Default mode (home dir included)', () => {
-    const v = new PathValidator({ workspaceRoot: WORKSPACE }); // includeHomeDir: true (default)
+    const v = new PathValidator({ workspaceRoot: WORKSPACE });
 
     it('should ALLOW paths within home directory', () => {
       expect(v.validate(HOME).isValid).toBe(true);
@@ -823,7 +744,6 @@ describe('SEC-08: Home Directory Boundary', () => {
 
     it('should BLOCK paths above home directory', () => {
       const parentOfHome = path.dirname(HOME);
-      // Only test if home is not root
       if (parentOfHome !== HOME) {
         expect(v.validate(parentOfHome).isValid).toBe(false);
       }
@@ -834,7 +754,6 @@ describe('SEC-08: Home Directory Boundary', () => {
     const v = strictValidator();
 
     it('should BLOCK home directory itself', () => {
-      // Only if home != workspace
       if (HOME !== WORKSPACE && !WORKSPACE.startsWith(HOME + path.sep)) {
         expect(v.validate(HOME).isValid).toBe(false);
       }
@@ -852,7 +771,6 @@ describe('SEC-08: Home Directory Boundary', () => {
     it('tilde resolves to home directory, not workspace escape', () => {
       const v = new PathValidator({ workspaceRoot: WORKSPACE });
       const r = v.validate('~/');
-      // If valid, must be within home OR workspace
       if (r.isValid) {
         const resolved = r.sanitizedPath!;
         const withinAllowed =
@@ -865,14 +783,8 @@ describe('SEC-08: Home Directory Boundary', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 9: End-to-End Attack Scenarios
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-09: End-to-End Attack Scenarios', () => {
   describe('Scenario: Read /etc/passwd via path traversal', () => {
-    // Use enough ../  to guarantee reaching filesystem root on any platform
-    // (CI workspace can be deep, e.g. /home/runner/work/org/repo/packages/pkg)
     const deepTraversal = '../'.repeat(30);
 
     it('PathValidator blocks the traversal', () => {
@@ -952,10 +864,6 @@ describe('SEC-09: End-to-End Attack Scenarios', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 10: Allowed Roots Configuration Security
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-10: Allowed Roots Configuration Security', () => {
   describe('ALLOWED_PATHS env var handling', () => {
     let originalEnv: string | undefined;
@@ -1001,8 +909,8 @@ describe('SEC-10: Allowed Roots Configuration Security', () => {
       const v = strictValidator();
       const roots1 = v.getAllowedRoots();
       const roots2 = v.getAllowedRoots();
-      expect(roots1).not.toBe(roots2); // different array instances
-      expect(roots1).toEqual(roots2); // same content
+      expect(roots1).not.toBe(roots2);
+      expect(roots1).toEqual(roots2);
     });
   });
 
@@ -1030,37 +938,21 @@ describe('SEC-10: Allowed Roots Configuration Security', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 11: Prefix Matching Security (Critical)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SEC-11: Prefix Matching Security', () => {
-  /**
-   * A naive implementation might use: path.startsWith(root)
-   * which would allow "/workspace-evil" to match "/workspace".
-   *
-   * The correct check is: path === root || path.startsWith(root + path.sep)
-   */
-
   it('should use path.sep in prefix check, not bare startsWith', () => {
     const v = strictValidator('/Users/workspace');
 
-    // "/Users/workspace-evil" starts with "/Users/workspace" but is NOT a child
     expect(v.validate('/Users/workspace-evil').isValid).toBe(false);
     expect(v.validate('/Users/workspace-evil/secret.txt').isValid).toBe(false);
 
-    // "/Users/workspace/file" IS a child
     expect(v.validate('/Users/workspace/file.txt').isValid).toBe(true);
 
-    // "/Users/workspace" itself IS allowed
     expect(v.validate('/Users/workspace').isValid).toBe(true);
   });
 
   it('should handle workspace roots ending with path.sep', () => {
     const v = strictValidator(WORKSPACE);
-    // Ensure the workspace itself is valid
     expect(v.validate(WORKSPACE).isValid).toBe(true);
-    // Ensure workspace + sep + file is valid
     expect(v.validate(WORKSPACE + '/test.txt').isValid).toBe(true);
   });
 });

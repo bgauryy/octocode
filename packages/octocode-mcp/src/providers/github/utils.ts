@@ -22,10 +22,6 @@ type GitHubProviderErrorLike = {
   retryAfter?: number;
 };
 
-/**
- * Parse a GitHub projectId string into owner/repo components.
- * @throws {Error} if projectId is provided but not in 'owner/repo' format.
- */
 export function parseGitHubProjectId(projectId?: string): {
   owner?: string;
   repo?: string;

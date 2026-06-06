@@ -1,8 +1,3 @@
-/**
- * Core security types for octocode-security-utils package.
- */
-
-/** Pattern definition for detecting sensitive data */
 export interface SensitiveDataPattern {
   name: string;
   description: string;
@@ -11,7 +6,6 @@ export interface SensitiveDataPattern {
   matchAccuracy?: 'high' | 'medium';
 }
 
-/** Result of content sanitization */
 export interface SanitizationResult {
   content: string;
   hasSecrets: boolean;
@@ -19,7 +13,6 @@ export interface SanitizationResult {
   warnings: string[];
 }
 
-/** Result of parameter validation */
 export interface ValidationResult {
   sanitizedParams: Record<string, unknown>;
   isValid: boolean;
@@ -27,34 +20,17 @@ export interface ValidationResult {
   warnings: string[];
 }
 
-/** Result of path validation */
 export interface PathValidationResult {
   isValid: boolean;
   error?: string;
   sanitizedPath?: string;
 }
 
-/**
- * Generic tool result format.
- * Compatible with MCP's CallToolResult: the `content` array may contain
- * text items (`{ type: "text", text: string }`), image items, or any
- * other framework-defined content shape.
- *
- * Using `text?: string` (optional) so that non-text content types
- * (images, audio, embedded resources) are assignable without casting.
- */
 export interface ToolResult {
   content: Array<{ type: string; text?: string }>;
   isError?: boolean;
 }
 
-/**
- * Abstract sanitizer interface (Dependency Inversion Principle).
- *
- * Allows withSecurityValidation to depend on this stable abstraction
- * rather than the concrete ContentSanitizer implementation, satisfying
- * the Stable Dependencies Principle.
- */
 export interface ISanitizer {
   sanitizeContent(content: string, filePath?: string): SanitizationResult;
   validateInputParameters(params: Record<string, unknown>): ValidationResult;

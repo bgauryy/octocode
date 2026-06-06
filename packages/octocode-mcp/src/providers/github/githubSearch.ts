@@ -1,11 +1,3 @@
-/**
- * GitHub Code Search and Repository Search
- *
- * Extracted from GitHubProvider for better modularity.
- *
- * @module providers/github/githubSearch
- */
-
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
   ProviderResponse,
@@ -45,9 +37,6 @@ import {
 } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
-/**
- * Transform GitHub code search result to unified format.
- */
 export function transformCodeSearchResult(
   data: OptimizedCodeSearchResult
 ): CodeSearchResult {
@@ -74,9 +63,6 @@ export function transformCodeSearchResult(
       totalPages: data.pagination?.totalPages || 1,
       hasMore: data.pagination?.hasMore || false,
       totalMatches: data.pagination?.totalMatches,
-      // Carry the real page size so downstream pagination + "showing X-Y"
-      // hints reflect the caller's itemsPerPage/limit instead of defaulting
-      // to 10 in buildPaginationHints (same fix as transformRepoSearchResult).
       entriesPerPage: (data.pagination as { perPage?: number } | undefined)
         ?.perPage,
     },
@@ -85,9 +71,6 @@ export function transformCodeSearchResult(
   };
 }
 
-/**
- * Transform GitHub repo search result to unified format.
- */
 export function transformRepoSearchResult(
   data: GitHubSearchRepositoriesData
 ): RepoSearchResult {
@@ -121,9 +104,6 @@ export function transformRepoSearchResult(
       totalPages: data.pagination?.totalPages || 1,
       hasMore: data.pagination?.hasMore || false,
       totalMatches: data.pagination?.totalMatches,
-      // Carry the real page size so downstream pagination + item-range hints
-      // reflect the caller's `limit` instead of defaulting to 10. PaginationInfo
-      // exposes `entriesPerPage`; the API layer reports it as `perPage`.
       entriesPerPage: (data.pagination as { perPage?: number } | undefined)
         ?.perPage,
     },
@@ -131,9 +111,6 @@ export function transformRepoSearchResult(
   };
 }
 
-/**
- * Search code on GitHub.
- */
 export async function searchCode(
   query: CodeSearchQuery,
   authInfo?: AuthInfo,
@@ -183,9 +160,6 @@ export async function searchCode(
   };
 }
 
-/**
- * Search repositories on GitHub.
- */
 export async function searchRepos(
   query: RepoSearchQuery,
   authInfo?: AuthInfo
@@ -200,8 +174,6 @@ export async function searchRepos(
     updated: query.updated,
     language: query.language,
     match: query.match,
-    // `archived` is not part of the upstream schema; it is carried through as
-    // an extra runtime property and read by the repo query builder.
     archived: query.archived,
     sort:
       query.sort === 'best-match'

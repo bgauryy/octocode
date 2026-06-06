@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for package_search/execution.ts
- * Targets: missing ecosystem/name validation, parseRepoInfo when repoUrl doesn't match
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchPackages } from '../../src/tools/package_search/execution.js';
 import * as packageCommon from '../../src/utils/package/common.js';
@@ -28,7 +23,7 @@ describe('package_search execution branches', () => {
   describe('input validation', () => {
     it('should return error when name is missing', async () => {
       const result = await searchPackages({
-        queries: [{ ...baseQuery, ecosystem: 'npm' } as never],
+        queries: [{ ...baseQuery } as never],
       });
 
       expect(result.content).toBeDefined();
@@ -43,26 +38,11 @@ describe('package_search execution branches', () => {
       expect(mockSearchPackage).not.toHaveBeenCalled();
     });
 
-    it('should reject non-npm ecosystems without searching the registry', async () => {
-      const result = await searchPackages({
-        queries: [
-          { ...baseQuery, name: 'requests', ecosystem: 'pypi' } as never,
-        ],
-      });
-
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(result.isError).toBe(true);
-      expect(text).toContain('Only ecosystem');
-      expect(text).toContain('npm');
-      expect(mockSearchPackage).not.toHaveBeenCalled();
-    });
-
     it('should return error when name is empty', async () => {
       const result = await searchPackages({
         queries: [
           {
             ...baseQuery,
-            ecosystem: 'npm',
             name: '',
           } as never,
         ],
@@ -85,7 +65,6 @@ describe('package_search execution branches', () => {
             typeDefinitions: null,
           },
         ],
-        ecosystem: 'npm',
         totalFound: 1,
       });
 
@@ -94,7 +73,6 @@ describe('package_search execution branches', () => {
           {
             ...baseQuery,
             id: 'test:1',
-            ecosystem: 'npm',
             name: 'some-pkg',
           } as never,
         ],
@@ -123,7 +101,6 @@ describe('package_search execution branches', () => {
             typeDefinitions: null,
           },
         ],
-        ecosystem: 'npm',
         totalFound: 1,
       });
       vi.mocked(packageCommon.checkNpmDeprecation).mockResolvedValue({
@@ -135,7 +112,6 @@ describe('package_search execution branches', () => {
         queries: [
           {
             ...baseQuery,
-            ecosystem: 'npm',
             name: 'deprecated-pkg',
           } as never,
         ],
@@ -190,8 +166,6 @@ describe('package_search execution branches', () => {
 
   describe('npm.ts hints propagate through execution.ts (integration boundary)', () => {
     it('passes hints from PackageSearchError through to the response', async () => {
-      // Simulate what npm.ts now returns when all registry paths fail with a
-      // network error: an error object WITH hints attached.
       mockSearchPackage.mockResolvedValue({
         error: 'NPM registry search failed: fetch failed',
         hints: [
@@ -201,19 +175,18 @@ describe('package_search execution branches', () => {
       });
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'hint:1', name: 'octocode-mcp' } as never],
+        queries: [
+          { ...baseQuery, id: 'hint:1', name: 'octocode-mcp' } as never,
+        ],
       });
 
       expect(result.isError).toBe(true);
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      // npm.ts hint must appear in the output (not swallowed by execution.ts)
       expect(text).toContain('unreachable');
       expect(text).toContain('githubSearchRepositories');
     });
 
     it('packages returned via fallback path are shaped correctly', async () => {
-      // Simulate searchPackage returning packages that came from /-/v1/search
-      // (scoped package, no path field — only name)
       mockSearchPackage.mockResolvedValue({
         packages: [
           {
@@ -225,13 +198,16 @@ describe('package_search execution branches', () => {
             typeDefinitions: null,
           },
         ],
-        ecosystem: 'npm',
         totalFound: 1,
       });
 
       const result = await searchPackages({
         queries: [
-          { ...baseQuery, id: 'fallback:1', name: '@modelcontextprotocol/sdk' } as never,
+          {
+            ...baseQuery,
+            id: 'fallback:1',
+            name: '@modelcontextprotocol/sdk',
+          } as never,
         ],
       });
 
@@ -239,8 +215,34 @@ describe('package_search execution branches', () => {
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
       expect(text).toContain('@modelcontextprotocol/sdk');
       expect(text).toContain('1.0.0');
-      // owner/repo should be extracted from repoUrl
       expect(text).toContain('modelcontextprotocol');
+    });
+  });
+
+  describe('generateSuccessHints — null repoUrl branch', () => {
+    it('emits githubSearchRepositories hint when repoUrl is null in npm manifest', async () => {
+      mockSearchPackage.mockResolvedValue({
+        packages: [
+          {
+            name: 'no-repo-pkg',
+            version: '2.0.0',
+            description: 'Package with no repository field',
+            repoUrl: null,
+            mainEntry: null,
+            typeDefinitions: null,
+          },
+        ],
+        totalFound: 1,
+      });
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, name: 'no-repo-pkg' } as never],
+      });
+
+      expect(result.isError).not.toBe(true);
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('No repository URL in npm manifest');
+      expect(text).toContain('githubSearchRepositories');
     });
   });
 
@@ -284,7 +286,7 @@ describe('package_search execution branches', () => {
           data: { packages, totalFound: 4 },
           extraHints: [],
         },
-        { name: 'pkg', ecosystem: 'npm', verbose: false } as never
+        { name: 'pkg', verbose: false } as never
       );
 
       expect(out.data.packages).toHaveLength(4);

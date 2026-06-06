@@ -1,7 +1,3 @@
-/**
- * Tests for SecurityRegistry extensibility.
- * These tests run in the security package where source imports share singletons.
- */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ContentSanitizer } from '../src/contentSanitizer.js';
 import { maskSensitiveData } from '../src/mask.js';

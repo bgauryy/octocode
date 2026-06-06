@@ -283,7 +283,7 @@ describe('resolveTelemetry', () => {
   it('should use default when LOG is empty string', () => {
     process.env.LOG = '';
     const result = resolveTelemetry(undefined);
-    expect(result.logging).toBe(true); // Falls back to default
+    expect(result.logging).toBe(true);
   });
 
   describe('env overrides file config', () => {

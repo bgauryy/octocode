@@ -1,16 +1,3 @@
-/**
- * Bulk hint envelope contract.
- *
- * Drives `executeBulkOperation` (src/utils/response/bulk.ts) with synthetic
- * per-query results to verify:
- *
- *  1. Per-query hints are preserved on each `results[i]`.
- *  2. With `peerHints: true`, hints are deduped and lifted to root.
- *  3. With `peerHints: false`, hints stay nested.
- *  4. Empty + error queries co-exist in one bulk response.
- *  5. The hint envelope tolerates a mix of empty and non-empty hint arrays.
- */
-
 import { describe, it, expect } from 'vitest';
 
 import { executeBulkOperation } from '../../../src/utils/response/bulk.js';
@@ -67,10 +54,8 @@ describe('executeBulkOperation — hint envelope', () => {
       data?: Record<string, unknown>;
     }>;
     expect(results).toHaveLength(2);
-    // hints stay nested in each query's data
     const r1Hints = (results[0]?.data as { hints?: string[] })?.hints;
     expect(r1Hints).toEqual(['hint-for-q1']);
-    // and not lifted
     expect(data.hints).toBeUndefined();
   });
 
@@ -92,7 +77,6 @@ describe('executeBulkOperation — hint envelope', () => {
     expect(hints).toContain('unique-a');
     expect(hints).toContain('unique-b');
     expect(hints).toContain('unique-c');
-    // and the per-query nested hint is removed
     const results = data.results as Array<{ data?: Record<string, unknown> }>;
     expect((results[0]?.data as { hints?: unknown })?.hints).toBeUndefined();
   });

@@ -10,7 +10,6 @@ import * as jsonrpc from 'vscode-jsonrpc/node.js';
 import { URI } from 'vscode-uri';
 import { EventEmitter } from 'events';
 
-// Mocks
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }));
@@ -23,7 +22,6 @@ vi.mock('fs', async importOriginal => {
       readFile: vi.fn(),
       access: vi.fn(),
     },
-    // Sync functions used by validateLSPServerPath
     realpathSync: vi.fn((p: string) => p),
     statSync: vi.fn(() => ({ isFile: () => true })),
   };
@@ -33,8 +31,6 @@ vi.mock('vscode-jsonrpc/node.js', () => ({
   createMessageConnection: vi.fn(),
   StreamMessageReader: vi.fn(),
   StreamMessageWriter: vi.fn(),
-  // CancellationTokenSource is required for the LSP request wrapper
-  // (T1.3 — $/cancelRequest on timeout). Stub as a constructible class.
   CancellationTokenSource: class {
     token = {
       isCancellationRequested: false,
@@ -60,9 +56,6 @@ describe('LSPClient Coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Reset user config cache to ensure clean state
-
-    // Setup mock process
     mockProcess = new EventEmitter();
     mockProcess.stdin = new EventEmitter();
     mockProcess.stdout = new EventEmitter();
@@ -71,7 +64,6 @@ describe('LSPClient Coverage', () => {
     mockProcess.pid = 12345;
     (cp.spawn as Mock).mockReturnValue(mockProcess);
 
-    // Setup mock connection
     mockConnection = {
       listen: vi.fn(),
       sendRequest: vi.fn(),
@@ -82,13 +74,11 @@ describe('LSPClient Coverage', () => {
     };
     (jsonrpc.createMessageConnection as Mock).mockReturnValue(mockConnection);
 
-    // Setup fs - mock readFile to handle different files appropriately
     (fs.promises.readFile as Mock).mockImplementation((path: string) => {
-      // Config files should throw ENOENT to simulate not existing
       if (path.includes('lsp-servers.json')) {
         return Promise.reject(new Error('ENOENT'));
       }
-      // Other files return mock content
+
       return Promise.resolve('file content\nline 2\nline 3');
     });
     (fs.promises.access as Mock).mockResolvedValue(undefined);
@@ -100,7 +90,6 @@ describe('LSPClient Coverage', () => {
 
   describe('start()', () => {
     it('should spawn process and initialize connection', async () => {
-      // Mock initialize response
       mockConnection.sendRequest.mockResolvedValueOnce({
         capabilities: {
           textDocument: { definition: { linkSupport: true } },
@@ -219,7 +208,7 @@ describe('LSPClient Coverage', () => {
     });
 
     it('should throw if process pipes are missing', async () => {
-      (cp.spawn as Mock).mockReturnValue({}); // No stdin/stdout
+      (cp.spawn as Mock).mockReturnValue({});
       await expect(client.start()).rejects.toThrow(
         'Failed to create language server process pipes'
       );
@@ -237,7 +226,6 @@ describe('LSPClient Coverage', () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
 
-      // Should not throw when process emits an error
       expect(() => {
         mockProcess.emit('error', new Error('Process failed'));
       }).not.toThrow();
@@ -247,7 +235,6 @@ describe('LSPClient Coverage', () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
 
-      // Should not throw when stderr emits data
       expect(() => {
         mockProcess.stderr.emit('data', Buffer.from('stderr output'));
       }).not.toThrow();
@@ -348,7 +335,7 @@ describe('LSPClient Coverage', () => {
           textDocument: { uri: expect.stringContaining('file:///') },
           position: { line: 1, character: 1 },
         }),
-        expect.anything() // CancellationToken (T1.3)
+        expect.anything()
       );
 
       expect(snippets).toHaveLength(1);
@@ -465,7 +452,7 @@ describe('LSPClient Coverage', () => {
         expect.objectContaining({
           context: { includeDeclaration: true },
         }),
-        expect.anything() // CancellationToken (T1.3)
+        expect.anything()
       );
       expect(snippets).toHaveLength(1);
     });
@@ -497,7 +484,7 @@ describe('LSPClient Coverage', () => {
       const items = [
         {
           name: 'func',
-          kind: 12, // Function
+          kind: 12,
           uri: URI.file('/workspace/file.ts').toString(),
           range: {
             start: { line: 0, character: 0 },
@@ -519,7 +506,7 @@ describe('LSPClient Coverage', () => {
       expect(mockConnection.sendRequest).toHaveBeenCalledWith(
         'textDocument/prepareCallHierarchy',
         expect.anything(),
-        expect.anything() // CancellationToken (T1.3)
+        expect.anything()
       );
       expect(result).toHaveLength(1);
       expect(result[0]!.name).toBe('func');
@@ -723,8 +710,6 @@ describe('LSPClient Coverage', () => {
         '/workspace/file.ts'
       );
       expect(client2).toBeDefined();
-      // Pool keeps tsserver warm across requests for the same project,
-      // so the second acquire MUST return the same client instance.
       expect(client2).toBe(client1);
     });
 
@@ -760,7 +745,7 @@ describe('LSPClient Coverage', () => {
     it('isLanguageServerAvailable should check absolute path if command is absolute', async () => {
       process.env['OCTOCODE_PYTHON_SERVER_PATH'] = '/absolute/path/to/pylsp';
 
-      (fs.promises.access as Mock).mockResolvedValueOnce(undefined); // Success
+      (fs.promises.access as Mock).mockResolvedValueOnce(undefined);
 
       const result = await isLanguageServerAvailable('/file.py');
       expect(result).toBe(true);
@@ -774,7 +759,7 @@ describe('LSPClient Coverage', () => {
     it('isLanguageServerAvailable should return false if absolute path does not exist', async () => {
       process.env['OCTOCODE_PYTHON_SERVER_PATH'] = '/absolute/path/to/pylsp';
 
-      (fs.promises.access as Mock).mockRejectedValueOnce(new Error('ENOENT')); // Fail
+      (fs.promises.access as Mock).mockRejectedValueOnce(new Error('ENOENT'));
 
       const result = await isLanguageServerAvailable('/file.py');
       expect(result).toBe(false);
@@ -786,7 +771,6 @@ describe('LSPClient Coverage', () => {
       const mockCheckProcess = new EventEmitter();
       (mockCheckProcess as any).kill = vi.fn();
 
-      // Use mockImplementation that emits 'close' after spawn is called
       (cp.spawn as Mock).mockImplementationOnce(() => {
         setImmediate(() => mockCheckProcess.emit('close', 0));
         return mockCheckProcess;
@@ -800,7 +784,6 @@ describe('LSPClient Coverage', () => {
       const mockCheckProcess = new EventEmitter();
       (mockCheckProcess as any).kill = vi.fn();
 
-      // Use mockImplementation that emits 'close' with exit code 1 (not found)
       (cp.spawn as Mock).mockImplementationOnce(() => {
         setImmediate(() => mockCheckProcess.emit('close', 1));
         return mockCheckProcess;
@@ -814,7 +797,6 @@ describe('LSPClient Coverage', () => {
       const mockCheckProcess = new EventEmitter();
       (mockCheckProcess as any).kill = vi.fn();
 
-      // Use mockImplementation that emits 'error' after spawn is called
       (cp.spawn as Mock).mockImplementationOnce(() => {
         setImmediate(() =>
           mockCheckProcess.emit('error', new Error('Spawn error'))
@@ -835,7 +817,6 @@ describe('LSPClient Coverage', () => {
 
       const resultPromise = isLanguageServerAvailable('/file.py');
 
-      // Run all timers to completion (handles both async operations and the 5s timeout)
       await vi.runAllTimersAsync();
 
       const result = await resultPromise;

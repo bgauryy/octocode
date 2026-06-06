@@ -124,8 +124,6 @@ describe('statusCommand', () => {
     expect(cmd.aliases).toContain('s');
   });
 
-  // ---- pretty (non-json) output ----
-
   it('prints full status with no MCP configs found', async () => {
     const cmd = await loadCommand();
     await cmd.handler({ command: 'status', args: [], options: {} });
@@ -167,7 +165,6 @@ describe('statusCommand', () => {
   });
 
   it('uses MCP_CLIENTS name fallback to client id when name missing', async () => {
-    // Force a client id not present in MCP_CLIENTS map name
     (MCP_CLIENTS as Record<string, { name?: string }>)['cursor'] = {};
     vi.mocked(configFileExists).mockReturnValue(true);
     vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} } as never);
@@ -178,8 +175,6 @@ describe('statusCommand', () => {
       name: 'Cursor',
     };
   });
-
-  // ---- JSON output ----
 
   it('--json outputs structured json and no exitCode when authenticated', async () => {
     const cmd = await loadCommand();
@@ -201,8 +196,6 @@ describe('statusCommand', () => {
     expect(out('"auth"')).toBe(true);
     expect(process.exitCode).toBe(1);
   });
-
-  // ---- sync analysis ----
 
   it('--sync (json) includes sync data', async () => {
     vi.mocked(analyzeSyncState).mockReturnValue({
@@ -263,8 +256,6 @@ describe('statusCommand', () => {
     expect(out('auto-synced')).toBe(false);
     expect(out('conflicts')).toBe(false);
   });
-
-  // ---- hostname / path fallbacks ----
 
   it('uses --hostname and -H alias', async () => {
     const cmd = await loadCommand();

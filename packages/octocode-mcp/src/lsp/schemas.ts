@@ -1,9 +1,3 @@
-/**
- * Zod schemas for LSP configuration file validation.
- *
- * Validates parsed JSON from lsp-servers.json config files.
- */
-
 import { z } from 'zod';
 
 const MAX_COMMAND_LENGTH = 512;
@@ -11,9 +5,6 @@ const MAX_ARG_LENGTH = 1024;
 const MAX_ARGS_COUNT = 64;
 const EXTENSION_KEY_PATTERN = /^\.[a-z0-9._+-]+$/i;
 
-/**
- * Schema for user-defined language server configuration.
- */
 const UserLanguageServerConfigSchema = z.looseObject({
   command: z
     .string()
@@ -37,9 +28,6 @@ const UserLanguageServerConfigSchema = z.looseObject({
   initializationOptions: z.record(z.string(), z.unknown()).optional(),
 });
 
-/**
- * Schema for the LSP config file (lsp-servers.json).
- */
 export const LSPConfigFileSchema = z.looseObject({
   languageServers: z
     .record(

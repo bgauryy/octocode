@@ -1,10 +1,3 @@
-/**
- * T3.3 — Bundled ripgrep resolver.
- *
- * `resolveRipgrepBinary()` MUST return the bundled @vscode/ripgrep binary.
- * It must not fall back to a host-specific PATH `rg`, because localSearchCode
- * is a bundled-ripgrep-only tool.
- */
 import { describe, expect, it } from 'vitest';
 import { resolveRipgrepBinary } from '../../src/utils/exec/ripgrepBinary.js';
 

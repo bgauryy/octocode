@@ -139,7 +139,7 @@ describe('Code Search - Pagination', () => {
 
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalPages
-      ).toBe(10); // 95/10 = 9.5, ceil = 10
+      ).toBe(10);
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalMatches
       ).toBe(95);
@@ -162,13 +162,12 @@ describe('Code Search - Pagination', () => {
         page: 1,
       });
 
-      // 5000 results, but GitHub caps at 1000, so 1000/100 = 10 pages max
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalPages
       ).toBe(10);
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalMatches
-      ).toBe(1000); // Capped at 1000
+      ).toBe(1000);
     });
 
     it('should set hasMore=true when more pages exist', async () => {
@@ -259,21 +258,18 @@ describe('Code Search - Pagination', () => {
         >
       );
 
-      // First call - page 1
       await searchGitHubCodeAPI({
         keywordsToSearch: ['test'],
         limit: 10,
         page: 1,
       });
 
-      // Second call - page 2
       await searchGitHubCodeAPI({
         keywordsToSearch: ['test'],
         limit: 10,
         page: 2,
       });
 
-      // Both pages should trigger API calls (different cache keys)
       expect(searchCodeMock).toHaveBeenCalledTimes(2);
     });
 
@@ -288,21 +284,18 @@ describe('Code Search - Pagination', () => {
         >
       );
 
-      // First call
       await searchGitHubCodeAPI({
         keywordsToSearch: ['test'],
         limit: 10,
         page: 1,
       });
 
-      // Second call with same params
       await searchGitHubCodeAPI({
         keywordsToSearch: ['test'],
         limit: 10,
         page: 1,
       });
 
-      // Should only call API once (second is cached)
       expect(searchCodeMock).toHaveBeenCalledTimes(1);
     });
   });
@@ -400,13 +393,13 @@ describe('Code Search - Pagination', () => {
 
       await searchGitHubCodeAPI({
         keywordsToSearch: ['test'],
-        limit: 150, // Request more than allowed
+        limit: 150,
         page: 1,
       });
 
       expect(searchCodeMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          per_page: 100, // Should be capped at 100
+          per_page: 100,
         })
       );
     });

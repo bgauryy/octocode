@@ -1,24 +1,3 @@
-/**
- * Security Audit Regression Tests — Issue #321 (AgentAudit Report #112)
- *
- * Each test calls REAL code. No source-code string matching.
- *
- * Mocking strategy:
- *   - fetch: stubbed globally (external HTTP, see setup.ts)
- *   - child_process: mocked globally (external OS, see setup.ts)
- *   - Everything else: REAL imports, REAL execution
- *
- * Coverage unique to this file (not duplicated elsewhere):
- *   Finding 2 — logToolCall telemetry payload (real session + mocked fetch)
- *   Finding 6 — buildChildProcessEnv value leakage (pure function)
- *
- * Full buildChildProcessEnv key/allowlist tests → security-resilience.test.ts
- *
- * Note: Finding 1 (escapeForRegex + ripgrep arg builders from the LSP
- * pattern-fallback path) was removed — the LSP tools are now LSP-only and
- * lspReferencesPatterns.ts no longer exists.
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
@@ -125,7 +104,6 @@ describe('Finding 6 — No secret values leak to child env', () => {
     for (const key of [...SENSITIVE_ENV_VARS, 'PATH']) {
       savedEnv[key] = process.env[key];
     }
-    // Set every sensitive var to a unique recognizable value
     for (const v of SENSITIVE_ENV_VARS) {
       process.env[v] = `LEAK_${v}_LEAK`;
     }

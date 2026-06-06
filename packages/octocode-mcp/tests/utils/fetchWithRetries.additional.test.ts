@@ -102,7 +102,6 @@ describe('fetchWithRetries - Additional Coverage', () => {
         initialDelayMs: 1000,
       });
 
-      // Should use exponential backoff instead of invalid Retry-After
       await vi.runAllTimersAsync();
       const result = await promise;
 
@@ -277,7 +276,6 @@ describe('fetchWithRetries - Additional Coverage', () => {
       await vi.runAllTimersAsync();
       await assertion;
 
-      // Should not retry when retryable is false
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 

@@ -101,11 +101,10 @@ export function parseRipgrepJson(
         };
       }
     } catch {
-      // Ripgrep JSON-RPC line was malformed; skip and continue streaming parse.
+      void 0;
     }
   }
 
-  // Specific before/after context takes precedence over general contextLines
   const before = query.beforeContext ?? query.contextLines ?? 0;
   const after = query.afterContext ?? query.contextLines ?? 0;
   const maxLength =
@@ -128,7 +127,6 @@ export function parseRipgrepJson(
         let value = contextLines.join('\n').replace(/\n+$/, '');
         const charArray = [...value];
         if (charArray.length > maxLength) {
-          // Slice to maxLength - 3 to leave room for '...'
           value = charArray.slice(0, maxLength - 3).join('') + '...';
         }
 

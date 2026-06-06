@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyGithubViewRepoStructureVerbosity } from '../../src/tools/github_view_repo_structure/execution.js';
 
-// applyGithubViewRepoStructureVerbosity is a pass-through for verbose:false;
-// verbose:true adds extended metadata on top of the same data.
-
 describe('githubViewRepoStructure verbose contract — data is preserved', () => {
   const input = {
     data: {

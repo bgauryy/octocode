@@ -27,7 +27,6 @@ vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
   };
 });
 
-// Mock toolConfig
 vi.mock('../../src/tools/toolConfig.js', () => {
   const mockGitHubTools = [
     { name: 'githubSearchCode', isDefault: true, isLocal: false, fn: vi.fn() },
@@ -90,15 +89,12 @@ describe('ToolsManager - Metadata Availability', () => {
 
     mockServer = {} as McpServer;
 
-    // Mock stderr to capture warnings
     process.stderr.write = vi.fn();
 
-    // Reset all tool function mocks
     ALL_TOOLS.forEach(tool => {
       vi.mocked(tool.fn).mockReset();
     });
 
-    // Default config
     mockGetServerConfig.mockReturnValue({
       version: '1.0.0',
       githubApiUrl: 'https://api.github.com',
@@ -118,7 +114,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
   describe('All Tools Available in Metadata', () => {
     it('should register all tools when all are available in metadata', async () => {
-      // All tools are available
       mockIsToolAvailableSync.mockReturnValue(true);
 
       const result = await registerTools(mockServer);
@@ -126,15 +121,12 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(result.successCount).toBe(5);
       expect(result.failedTools).toEqual([]);
 
-      // Verify all tools were called
       ALL_TOOLS.forEach(tool => {
         expect(tool.fn).toHaveBeenCalledWith(mockServer, undefined);
       });
 
-      // No stderr output for missing metadata
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // No session errors logged when all tools are available
       expect(mockLogSessionError).not.toHaveBeenCalled();
     });
   });
@@ -150,19 +142,15 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(result.successCount).toBe(4);
       expect(result.failedTools).toEqual([]);
 
-      // Verify githubSearchCode was NOT called
       expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled();
 
-      // Verify other tools were called
       expect(ALL_TOOLS[1]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[2]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[3]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[4]?.fn).toHaveBeenCalled();
 
-      // No stderr output (silent skip)
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchCode',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -188,7 +176,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubGetFileContent',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -214,7 +201,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubViewRepoStructure',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -240,7 +226,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchRepositories',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -266,7 +251,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchPullRequests',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -289,8 +273,8 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(result.successCount).toBe(3);
       expect(result.failedTools).toEqual([]);
 
-      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled(); // githubSearchCode
-      expect(ALL_TOOLS[4]?.fn).not.toHaveBeenCalled(); // githubSearchPullRequests
+      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled();
+      expect(ALL_TOOLS[4]?.fn).not.toHaveBeenCalled();
 
       expect(ALL_TOOLS[1]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[2]?.fn).toHaveBeenCalled();
@@ -298,7 +282,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session errors logged for missing tools
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchCode',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -320,7 +303,7 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(result.successCount).toBe(1);
       expect(result.failedTools).toEqual([]);
 
-      expect(ALL_TOOLS[0]?.fn).toHaveBeenCalled(); // githubSearchCode
+      expect(ALL_TOOLS[0]?.fn).toHaveBeenCalled();
 
       expect(ALL_TOOLS[1]?.fn).not.toHaveBeenCalled();
       expect(ALL_TOOLS[2]?.fn).not.toHaveBeenCalled();
@@ -329,7 +312,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session errors logged for all missing tools (4 tools)
       expect(mockLogSessionError).toHaveBeenCalledTimes(4);
     });
   });
@@ -343,14 +325,12 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(result.successCount).toBe(0);
       expect(result.failedTools).toEqual([]);
 
-      // Verify no tools were called
       ALL_TOOLS.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
 
       expect(process.stderr.write).not.toHaveBeenCalled();
 
-      // Session errors logged for all missing tools (5 tools)
       expect(mockLogSessionError).toHaveBeenCalledTimes(5);
     });
   });
@@ -370,20 +350,18 @@ describe('ToolsManager - Metadata Availability', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // githubSearchCode is not in metadata
       mockIsToolAvailableSync.mockImplementation((toolName: string) => {
         return toolName !== 'githubSearchCode';
       });
 
       const result = await registerTools(mockServer);
 
-      expect(result.successCount).toBe(1); // Only githubGetFileContent
+      expect(result.successCount).toBe(1);
       expect(result.failedTools).toEqual([]);
 
-      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled(); // githubSearchCode (not in metadata)
-      expect(ALL_TOOLS[1]?.fn).toHaveBeenCalled(); // githubGetFileContent
+      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled();
+      expect(ALL_TOOLS[1]?.fn).toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchCode',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -405,7 +383,6 @@ describe('ToolsManager - Metadata Availability', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // None of the specified tools are in metadata
       mockIsToolAvailableSync.mockReturnValue(false);
 
       const result = await registerTools(mockServer);
@@ -417,7 +394,6 @@ describe('ToolsManager - Metadata Availability', () => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
 
-      // Session errors logged for missing tools in TOOLS_TO_RUN
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchCode',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -445,24 +421,22 @@ describe('ToolsManager - Metadata Availability', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // githubSearchCode is not in metadata, githubGetFileContent is disabled
       mockIsToolAvailableSync.mockImplementation((toolName: string) => {
         return toolName !== 'githubSearchCode';
       });
 
       const result = await registerTools(mockServer);
 
-      expect(result.successCount).toBe(3); // 5 - 1 (not in metadata) - 1 (disabled)
+      expect(result.successCount).toBe(3);
       expect(result.failedTools).toEqual([]);
 
-      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled(); // githubSearchCode (not in metadata)
-      expect(ALL_TOOLS[1]?.fn).not.toHaveBeenCalled(); // githubGetFileContent (disabled)
+      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled();
+      expect(ALL_TOOLS[1]?.fn).not.toHaveBeenCalled();
 
       expect(ALL_TOOLS[2]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[3]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[4]?.fn).toHaveBeenCalled();
 
-      // Session error logged for missing tool
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'githubSearchCode',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
@@ -475,7 +449,6 @@ describe('ToolsManager - Metadata Availability', () => {
     it('should handle registration errors for available tools', async () => {
       mockIsToolAvailableSync.mockReturnValue(true);
 
-      // Make first tool throw error
       vi.mocked(ALL_TOOLS[0]!.fn).mockImplementation(() => {
         throw new Error('Registration failed');
       });
@@ -485,7 +458,6 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(result.successCount).toBe(4);
       expect(result.failedTools).toEqual(['githubSearchCode']);
 
-      // Other tools should still be called
       expect(ALL_TOOLS[1]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[2]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[3]?.fn).toHaveBeenCalled();
@@ -493,12 +465,10 @@ describe('ToolsManager - Metadata Availability', () => {
     });
 
     it('should not add missing metadata tools to failedTools', async () => {
-      // Some tools not in metadata
       mockIsToolAvailableSync.mockImplementation((toolName: string) => {
         return toolName !== 'githubSearchCode';
       });
 
-      // Make another tool throw error
       vi.mocked(ALL_TOOLS[1]!.fn).mockImplementation(() => {
         throw new Error('Registration failed');
       });
@@ -506,10 +476,9 @@ describe('ToolsManager - Metadata Availability', () => {
       const result = await registerTools(mockServer);
 
       expect(result.successCount).toBe(3);
-      // Only the tool that threw error should be in failedTools
       expect(result.failedTools).toEqual(['githubGetFileContent']);
 
-      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled(); // Not in metadata
+      expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled();
       expect(ALL_TOOLS[2]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[3]?.fn).toHaveBeenCalled();
       expect(ALL_TOOLS[4]?.fn).toHaveBeenCalled();
@@ -522,7 +491,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       const result = await registerTools(mockServer);
 
-      // Undefined should be treated as false (not available)
       expect(result.successCount).toBe(0);
       expect(result.failedTools).toEqual([]);
 
@@ -530,7 +498,6 @@ describe('ToolsManager - Metadata Availability', () => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
 
-      // Session errors logged for all tools (undefined treated as missing)
       expect(mockLogSessionError).toHaveBeenCalledTimes(5);
     });
 
@@ -541,7 +508,6 @@ describe('ToolsManager - Metadata Availability', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should treat as unavailable and skip all tools
       expect(result.successCount).toBe(0);
       expect(result.failedTools).toEqual([]);
 
@@ -549,7 +515,6 @@ describe('ToolsManager - Metadata Availability', () => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
 
-      // Session errors logged with API_RESPONSE error code for thrown errors
       expect(mockLogSessionError).toHaveBeenCalledTimes(5);
       expect(mockLogSessionError).toHaveBeenCalledWith(
         expect.any(String),

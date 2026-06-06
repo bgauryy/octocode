@@ -1,27 +1,15 @@
-/**
- * Credential Cache Management
- *
- * In-memory cache for credentials with TTL support and automatic invalidation.
- */
-
 import type { StoredCredentials } from './types.js';
 import { isTokenExpired, normalizeHostname } from './credentialUtils.js';
 
-/** Cache entry structure */
 interface CachedCredentials {
   credentials: StoredCredentials | null;
   cachedAt: number;
 }
 
-/** In-memory credentials cache (per hostname) */
 const credentialsCache = new Map<string, CachedCredentials>();
 
-/** Cache TTL in milliseconds (5 minutes - matches token expiry buffer) */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-/**
- * Check if cached credentials are still valid (not expired)
- */
 function isCacheValid(hostname: string): boolean {
   const normalizedHostname = normalizeHostname(hostname);
   const cached = credentialsCache.get(normalizedHostname);
@@ -30,19 +18,13 @@ function isCacheValid(hostname: string): boolean {
   const age = Date.now() - cached.cachedAt;
   if (age >= CACHE_TTL_MS) return false;
 
-  // Negative cache entries are valid until the TTL expires.
   if (!cached.credentials) {
     return true;
   }
 
-  // Don't serve expired tokens from cache
   return !isTokenExpired(cached.credentials);
 }
 
-/**
- * Invalidate cache for a hostname (call after credential changes)
- * @param hostname - Hostname to invalidate, or undefined to clear all
- */
 export function invalidateCredentialsCache(hostname?: string): void {
   if (hostname) {
     credentialsCache.delete(normalizeHostname(hostname));
@@ -51,10 +33,6 @@ export function invalidateCredentialsCache(hostname?: string): void {
   }
 }
 
-/**
- * Get cache statistics (for debugging/monitoring)
- * @internal
- */
 export function _getCacheStats(): {
   size: number;
   entries: Array<{ hostname: string; age: number; valid: boolean }>;
@@ -72,24 +50,10 @@ export function _getCacheStats(): {
   };
 }
 
-/**
- * Reset cache state (for testing)
- * @internal
- */
 export function _resetCredentialsCache(): void {
   credentialsCache.clear();
 }
 
-/**
- * Get cached credentials if valid.
- *
- * Returns:
- * - `StoredCredentials` — cache hit with valid credentials
- * - `null` — cache hit recording absence of credentials (negative cache)
- * - `undefined` — cache miss (caller should fetch from storage)
- *
- * @internal
- */
 export function getCachedCredentials(
   hostname: string
 ): StoredCredentials | null | undefined {
@@ -102,10 +66,6 @@ export function getCachedCredentials(
   return undefined;
 }
 
-/**
- * Set cached credentials
- * @internal
- */
 export function setCachedCredentials(
   hostname: string,
   credentials: StoredCredentials | null

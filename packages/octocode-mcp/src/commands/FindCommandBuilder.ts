@@ -21,14 +21,12 @@ export class FindCommandBuilder extends BaseCommandBuilder {
   fromQuery(
     query: Partial<FindFilesQuery> & Pick<FindFilesQuery, 'path'>
   ): this {
-    // Windows is not supported - find command doesn't exist
     if (this.isWindows) {
       throw new Error(
         'Windows is not supported for localFindFiles. Use localViewStructure or localSearchCode instead.'
       );
     }
 
-    // macOS requires -E flag BEFORE path for extended regex
     if (this.isMacOS && query.regex) {
       this.addFlag('-E');
     }
@@ -50,7 +48,7 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     const hasExcludeDir = query.excludeDir && query.excludeDir.length > 0;
     if (hasExcludeDir) {
       this.buildExcludeDirPrune(query.excludeDir!);
-      this.addArg('-o'); // Connect prune to filters with OR
+      this.addArg('-o');
     }
 
     this.addFilters(query);
@@ -59,11 +57,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     return this;
   }
 
-  /**
-   * Builds the excludeDir prune block:
-   * ( -path "*\/dir" -o -path "*\/dir/*" ) -prune
-   * Repeated for each directory
-   */
   private buildExcludeDirPrune(excludeDirs: string[]): void {
     this.addArg('(');
     excludeDirs.forEach((dir, index) => {
@@ -80,10 +73,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     this.addArg('-prune');
   }
 
-  /**
-   * Adds all filter options (type, names, size, time, etc.)
-   * These must come AFTER the prune block when excludeDir is used
-   */
   private addFilters(query: Partial<FindFilesQuery>): void {
     if (query.type) {
       this.addOption('-type', query.type);
@@ -116,12 +105,8 @@ export class FindCommandBuilder extends BaseCommandBuilder {
 
     if (query.regex) {
       if (this.isLinux && query.regexType) {
-        // GNU find uses -regextype
         this.addOption('-regextype', query.regexType);
       }
-      // macOS -E flag was added at the beginning
-      // find -regex matches against the FULL path (e.g. /Users/.../foo.test.ts),
-      // not just the filename. Prepend .* so filename-oriented patterns work as expected.
       const normalizedRegex = this.normalizeRegexForFullPath(query.regex);
       this.addOption('-regex', normalizedRegex);
     }
@@ -130,11 +115,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
       this.addFlag('-empty');
     }
 
-    // Size filters - normalize suffix for cross-platform compatibility
-    // BUG FIX: macOS BSD find only accepts lowercase 'k' for kilobytes
-    // Linux GNU find accepts both 'K' and 'k', plus 'M', 'G' etc.
-    // Before: sizeGreater="10K" → find -size +10K → FAILS on macOS
-    // After:  sizeGreater="10K" → find -size +10k → WORKS on all platforms
     if (query.sizeGreater) {
       this.addOption(
         '-size',
@@ -177,7 +157,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
       if (this.isLinux) {
         this.addFlag('-executable');
       } else {
-        // macOS: use -perm +111 (any execute bit)
         this.addOption('-perm', '+111');
       }
     }
@@ -186,7 +165,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
       if (this.isLinux) {
         this.addFlag('-readable');
       } else {
-        // macOS: use -perm +444 (any read bit)
         this.addOption('-perm', '+444');
       }
     }
@@ -195,7 +173,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
       if (this.isLinux) {
         this.addFlag('-writable');
       } else {
-        // macOS: use -perm +222 (any write bit)
         this.addOption('-perm', '+222');
       }
     }
@@ -247,18 +224,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     return this;
   }
 
-  /**
-   * Ensures regex patterns match against the full path.
-   *
-   * `find -regex` matches against the ENTIRE path (e.g. /Users/.../foo.test.ts),
-   * not just the filename. Users commonly provide filename-oriented patterns like
-   * `\.(test|spec)\.ts$` which silently return 0 results.
-   *
-   * This method prepends `.*` when the pattern doesn't already account for the
-   * full path, so `\.(test|spec)\.ts$` becomes `.*\.(test|spec)\.ts$` and works.
-   *
-   * Patterns that already start with `.*`, `/`, or `^` are left unchanged.
-   */
   private normalizeRegexForFullPath(regex: string): string {
     if (
       regex.startsWith('.*') ||
@@ -270,12 +235,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     return `.*${regex}`;
   }
 
-  /**
-   * Parses a relative time string (e.g. "7d", "2h", "1w", "3m") and returns
-   * the appropriate find flag + value.  Returns `null` for unrecognised
-   * formats (e.g. ISO timestamps) so callers can skip or warn rather than
-   * silently emitting `-mtime -0` or `-mtime +0`.
-   */
   private parseTimeString(timeStr: string): {
     value: number;
     unit: '-mtime' | '-mmin';
@@ -290,7 +249,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
 
     switch (timeUnit) {
       case 'h':
-        // Use -mmin for hours (converted to minutes)
         return { value: value * 60, unit: '-mmin' };
       case 'd':
         return { value, unit: '-mtime' };
@@ -303,10 +261,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /**
-   * Parses access time string (similar to mtime but uses -atime/-amin).
-   * Returns null for unrecognised formats so callers can skip gracefully.
-   */
   private parseTimeStringAccess(timeStr: string): {
     value: number;
     unit: '-atime' | '-amin';
@@ -321,7 +275,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
 
     switch (timeUnit) {
       case 'h':
-        // Use -amin for hours (converted to minutes)
         return { value: value * 60, unit: '-amin' };
       case 'd':
         return { value, unit: '-atime' };
@@ -334,39 +287,16 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /**
-   * Normalizes size suffix for cross-platform compatibility.
-   *
-   * PLATFORM DIFFERENCES:
-   * - macOS BSD find: Only supports 'c' (bytes) and 'k' (kilobytes) - LOWERCASE ONLY
-   * - Linux GNU find: Supports 'c', 'w', 'b', 'k', 'K', 'M', 'G' (case-sensitive)
-   *
-   * BUG FIX HISTORY:
-   * Before: Users passing "10K" would get "find: -size: +10K: illegal trailing character" on macOS
-   * After:  "10K" is normalized to "10k", works on both macOS and Linux
-   *
-   * EXAMPLES:
-   * - "10K" → "10k" (kilobytes, normalized for macOS)
-   * - "10k" → "10k" (already lowercase)
-   * - "100" → "100" (bytes, no suffix)
-   * - "1M" → "1048576c" (megabytes converted to bytes for macOS compatibility)
-   * - "1G" → "1073741824c" (gigabytes converted to bytes for macOS compatibility)
-   *
-   * @param size - Size string like "10k", "10K", "1M", "1G", or raw number
-   * @returns Normalized size string compatible with both macOS and Linux
-   */
   private normalizeSizeForPlatform(size: string): string {
-    // Match number followed by optional suffix
     const match = size.match(/^(\d+)([ckKMGmg])?$/);
     if (!match || !match[1]) {
-      return size; // Return as-is if invalid format
+      return size;
     }
 
     const value = parseInt(match[1], 10);
     const suffix = match[2];
 
     if (!suffix) {
-      // No suffix means bytes (works on all platforms)
       return size;
     }
 
@@ -374,19 +304,15 @@ export class FindCommandBuilder extends BaseCommandBuilder {
 
     switch (upperSuffix) {
       case 'C':
-        // Bytes - use lowercase for consistency
         return `${value}c`;
       case 'K':
-        // Kilobytes - macOS only accepts lowercase 'k'
         return `${value}k`;
       case 'M':
-        // Megabytes - macOS doesn't support 'M', convert to bytes
         if (this.isMacOS) {
           return `${value * 1024 * 1024}c`;
         }
         return `${value}M`;
       case 'G':
-        // Gigabytes - macOS doesn't support 'G', convert to bytes
         if (this.isMacOS) {
           return `${value * 1024 * 1024 * 1024}c`;
         }

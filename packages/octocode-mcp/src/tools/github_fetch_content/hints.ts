@@ -1,11 +1,3 @@
-/**
- * Response-state hints for githubGetFileContent.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- *
- * @module tools/github_fetch_content/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {

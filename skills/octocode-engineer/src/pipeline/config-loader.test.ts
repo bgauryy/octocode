@@ -167,9 +167,8 @@ describe('config-loader', () => {
       fs.writeFileSync(
         path.join(root, '.octocode-scan.json'),
         `{
-  // Enable graph
   "graph": true,
-  "flow": false // Not yet
+  "flow": false
 }`
       );
       const config = loadConfigFile(root, null);

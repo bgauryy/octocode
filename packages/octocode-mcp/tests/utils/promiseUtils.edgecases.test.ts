@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeWithErrorIsolation } from '../../src/utils/core/promise.js';
 
-// Mock logSessionError
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
@@ -20,10 +19,10 @@ describe('promiseUtils - Edge Cases and Coverage', () => {
     it('should handle rejected promises that are not errors', async () => {
       const promises = [
         () => Promise.resolve('success'),
-        () => Promise.reject('string rejection'), // Non-Error rejection
-        () => Promise.reject(42), // Number rejection
-        () => Promise.reject(null), // Null rejection
-        () => Promise.reject(undefined), // Undefined rejection
+        () => Promise.reject('string rejection'),
+        () => Promise.reject(42),
+        () => Promise.reject(null),
+        () => Promise.reject(undefined),
       ];
 
       const results = await executeWithErrorIsolation(promises);
@@ -36,7 +35,6 @@ describe('promiseUtils - Edge Cases and Coverage', () => {
         index: 0,
       });
 
-      // Non-Error rejections should be wrapped in Error objects
       expect(results[1]).toMatchObject({
         success: false,
         index: 1,
@@ -88,7 +86,7 @@ describe('promiseUtils - Edge Cases and Coverage', () => {
     it('should handle undefined promise function in concurrency path', async () => {
       const promises: Array<() => Promise<string>> = [
         () => Promise.resolve('first'),
-        undefined as never, // Force undefined
+        undefined as never,
         () => Promise.resolve('third'),
       ];
 
@@ -278,7 +276,6 @@ describe('promiseUtils - Edge Cases and Coverage', () => {
         concurrency: 2,
       });
 
-      // Advance time to trigger timeout for slow promise
       await vi.advanceTimersByTimeAsync(5001);
 
       const results = await resultsPromise;
@@ -286,7 +283,7 @@ describe('promiseUtils - Edge Cases and Coverage', () => {
       expect(results).toHaveLength(4);
       expect(results[0]?.success).toBe(true);
       expect(results[1]?.success).toBe(false);
-      expect(results[2]?.success).toBe(false); // Timeout
+      expect(results[2]?.success).toBe(false);
       expect(results[3]?.success).toBe(true);
 
       vi.useRealTimers();

@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-/**
- * Tests for index.ts startup flow
- * These tests cover error handling in the main server startup
- */
-
 describe('index.ts - Startup Flow', () => {
   let originalProcessExit: typeof process.exit;
   let exitCalled: boolean;
@@ -15,7 +10,6 @@ describe('index.ts - Startup Flow', () => {
     exitCalled = false;
     exitCode = undefined;
 
-    // Mock process.exit to track calls without actually exiting
     originalProcessExit = process.exit;
     process.exit = vi.fn((code?: string | number | null | undefined) => {
       exitCalled = true;
@@ -30,18 +24,15 @@ describe('index.ts - Startup Flow', () => {
   });
 
   afterEach(() => {
-    // Restore original process.exit
     process.exit = originalProcessExit;
   });
 
   describe('Error Handler Integration', () => {
     it('should handle top-level startup errors with catch block', async () => {
-      // Simulate startServer() throwing an error
       const startServer = async () => {
         throw new Error('Startup failed');
       };
 
-      // Simulate the pattern: startServer().catch(() => { process.exit(1); })
       await startServer().catch(() => {
         process.exit(1);
       });
@@ -90,9 +81,7 @@ describe('index.ts - Startup Flow', () => {
     });
 
     it('should not call exit on successful startup', async () => {
-      const startServer = async () => {
-        // Success - no error
-      };
+      const startServer = async () => {};
 
       await startServer().catch(() => {
         process.exit(1);
@@ -113,7 +102,6 @@ describe('index.ts - Startup Flow', () => {
 
       const reason = new Error('Unhandled rejection');
 
-      // Simulate the unhandled rejection handler pattern
       if (mockLogger) {
         await mockLogger.error('Unhandled rejection', {
           reason: String(reason),
@@ -173,14 +161,10 @@ describe('index.ts - Startup Flow', () => {
     it('should handle unhandled rejection when logger is null', async () => {
       const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate handler when logger is null (logger not available)
-      // The pattern in index.ts: if (logger) { await logger.error(...) }
-      // When logger is null, only logSessionError is called
       await mockLogSessionError('startup', 'UNHANDLED_REJECTION').catch(
         () => {}
       );
 
-      // Logger not called, but logSessionError should be called
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'startup',
         'UNHANDLED_REJECTION'
@@ -199,7 +183,6 @@ describe('index.ts - Startup Flow', () => {
 
       const error = new Error('Uncaught exception');
 
-      // Simulate the uncaught exception handler pattern
       if (mockLogger) {
         await mockLogger.error('Uncaught exception', {
           error: error.message,
@@ -223,14 +206,10 @@ describe('index.ts - Startup Flow', () => {
     it('should handle uncaught exception when logger is null', async () => {
       const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate handler when logger is null (logger not available)
-      // The pattern in index.ts: if (logger) { await logger.error(...) }
-      // When logger is null, only logSessionError is called
       await mockLogSessionError('startup', 'UNCAUGHT_EXCEPTION').catch(
         () => {}
       );
 
-      // Logger not called, but logSessionError should be called
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'startup',
         'UNCAUGHT_EXCEPTION'
@@ -248,7 +227,6 @@ describe('index.ts - Startup Flow', () => {
 
       const startupError = new Error('Startup failed');
 
-      // Simulate startup error handler
       if (mockLogger) {
         await mockLogger.error('Startup failed', {
           error: String(startupError),
@@ -268,12 +246,8 @@ describe('index.ts - Startup Flow', () => {
     it('should handle startup error when logger is null', async () => {
       const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate error handler when logger is null (logger not available)
-      // The pattern in index.ts: if (logger) { await logger.error(...) }
-      // When logger is null, only logSessionError is called
       await mockLogSessionError('startup', 'STARTUP_FAILED');
 
-      // Logger not called, but logSessionError should be called
       expect(mockLogSessionError).toHaveBeenCalledWith(
         'startup',
         'STARTUP_FAILED'
@@ -289,7 +263,6 @@ describe('index.ts - Startup Flow', () => {
 
       const startupError = new Error('Startup failed');
 
-      // Simulate full startup error flow
       try {
         throw startupError;
       } catch (error) {
@@ -311,7 +284,6 @@ describe('index.ts - Startup Flow', () => {
         .fn()
         .mockRejectedValue(new Error('Logging failed'));
 
-      // Should not throw
       await mockLogSessionError('startup', 'ERROR_CODE').catch(() => {});
 
       expect(mockLogSessionError).toHaveBeenCalled();
@@ -371,7 +343,6 @@ describe('index.ts - Startup Flow', () => {
     it('should call gracefulShutdown with SIGINT', async () => {
       const mockGracefulShutdown = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate SIGINT handler
       await mockGracefulShutdown('SIGINT');
 
       expect(mockGracefulShutdown).toHaveBeenCalledWith('SIGINT');
@@ -380,7 +351,6 @@ describe('index.ts - Startup Flow', () => {
     it('should call gracefulShutdown with SIGTERM', async () => {
       const mockGracefulShutdown = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate SIGTERM handler
       await mockGracefulShutdown('SIGTERM');
 
       expect(mockGracefulShutdown).toHaveBeenCalledWith('SIGTERM');
@@ -389,7 +359,6 @@ describe('index.ts - Startup Flow', () => {
     it('should call gracefulShutdown with STDIN_CLOSE', async () => {
       const mockGracefulShutdown = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate stdin close handler
       await mockGracefulShutdown('STDIN_CLOSE');
 
       expect(mockGracefulShutdown).toHaveBeenCalledWith('STDIN_CLOSE');
@@ -418,7 +387,6 @@ describe('index.ts - Startup Flow', () => {
         callOrder.push('registerTools');
       });
 
-      // Simulate startup flow
       await mockInitialize();
       await mockLoadToolContent();
       mockInitializeSession();

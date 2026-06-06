@@ -20,13 +20,8 @@ type LSPCallHierarchyQuery = WithOptionalMeta<UpstreamLSPCallHierarchyQuery> & {
 import { TOOL_NAME } from './constants.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 
-// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyCallHierarchyVerbosity } from './callHierarchy.js';
 
-/**
- * Execute bulk LSP call hierarchy operation.
- * Wraps processCallHierarchy with bulk operation handling for multiple queries.
- */
 export async function executeCallHierarchy(
   args: ToolExecutionArgs<LSPCallHierarchyQuery>
 ): Promise<CallToolResult> {

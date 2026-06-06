@@ -1,15 +1,3 @@
-/**
- * githubSearchCode finalizer.
- *
- * Tool-specific responsibilities only: read per-query code-search data, merge
- * owner/repo groups, and define code-search hint wording. Generic pagination,
- * error extraction, hint dedupe, and response formatting live in
- * utils/response/groupedFinalizer.ts so other grouped tools reuse them.
- *
- * Output is bound to the registered Zod schema via
- * `BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal>` so any shape drift is
- * caught at compile time before reaching the MCP SDK validator.
- */
 import type { BulkFinalizer } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
 import {
@@ -75,20 +63,10 @@ function rankGroupsByRelevance(
   });
 }
 
-/** Escape a string for safe embedding in a RegExp. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * Exactness tier for a match against the search keywords (higher = stronger):
- *   2 — the keyword names the file (basename, with or without extension)
- *   1 — the keyword appears as a whole token in the snippet (`createStore(`
- *       matches `createStore`, but `createStoreImpl` / `xCreateStore` do not);
- *       phrase/punctuation keywords fall back to a literal substring
- *   0 — no exact signal (GitHub's fuzzy hit stands)
- * A filename hit is a stronger signal than a body hit, so it outranks it.
- */
 function matchExactnessScore(
   match: CodeSearchGroupedMatch,
   keywords: readonly string[]
@@ -101,7 +79,7 @@ function matchExactnessScore(
     const kw = raw.trim();
     if (!kw) continue;
     const lower = kw.toLowerCase();
-    if (base === lower || baseNoExt === lower) return 2; // filename — strongest
+    if (base === lower || baseNoExt === lower) return 2;
     const bodyHit = /^[A-Za-z0-9_]+$/.test(kw)
       ? new RegExp(`\\b${escapeRegExp(kw)}\\b`, 'i').test(value)
       : value.toLowerCase().includes(lower);
@@ -110,12 +88,6 @@ function matchExactnessScore(
   return score;
 }
 
-/**
- * Exact-match re-ranking layered on top of GitHub's ordering. Within each group
- * exact hits float to the top (stable otherwise); groups are then ordered by
- * (has-exact-hit, match-count, id). Pure tiebreaker — when no keyword matches
- * anything it degrades to {@link rankGroupsByRelevance}. Exported for tests.
- */
 export function applyExactMatchRanking(
   groups: readonly CodeSearchGroupedResult[],
   keywords: readonly string[]
@@ -130,8 +102,8 @@ export function applyExactMatchRanking(
       score: matchExactnessScore(match, terms),
     }));
     scored.sort((a, b) => {
-      if (a.score !== b.score) return b.score - a.score; // higher tier first
-      return a.index - b.index; // otherwise stable
+      if (a.score !== b.score) return b.score - a.score;
+      return a.index - b.index;
     });
     return {
       group: setMatches(
@@ -210,18 +182,11 @@ export function buildGithubSearchCodeFinalizer<
       if (res.status === 'error') return;
 
       const flat = readPerQueryFlat(res);
-      // Capture zero-match queries before they get merged out of existence.
-      // Without this, callers can't distinguish "merged into another
-      // owner/repo group" from "this query produced nothing".
       const totalMatches = flat.results.reduce(
         (sum, group) => sum + group.matches.length,
         0
       );
       if (totalMatches === 0) {
-        // Per-query empty hints flow through `data.hints` from
-        // createSuccessResult(..., 'empty', { hintContext }) — pull them
-        // forward so each emptyQueries[] entry tells the agent *why* this
-        // specific query produced nothing.
         const rawHints = (res.data as { hints?: unknown }).hints;
         const perQueryHints = Array.isArray(rawHints)
           ? (rawHints as unknown[]).filter(
@@ -239,8 +204,6 @@ export function buildGithubSearchCodeFinalizer<
       }
     });
 
-    // Exact-match re-ranking: boost whole-word / exact-filename hits over
-    // GitHub's fuzzy ordering, using the keywords from every query in the bulk.
     const allKeywords = Array.from(
       new Set(
         queries.flatMap(q => {
@@ -286,7 +249,6 @@ export function buildGithubSearchCodeFinalizer<
       );
     }
 
-    // ── Verbosity shaping ───────────────────────────────────────────────
     applyGithubSearchCodeVerbosity(responseData, queries);
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
@@ -307,14 +269,6 @@ export function buildGithubSearchCodeFinalizer<
   };
 }
 
-/**
- * Verbosity shaping for githubSearchCode.
- *
- * verbose=false (default): research data only — omit `matchIndices` from matches.
- * verbose=true: include match indices and all metadata.
- *
- * Items are never dropped. Mutates `responseData` in place.
- */
 export function applyGithubSearchCodeVerbosity(
   responseData: GitHubCodeSearchOutputLocal,
   queries: readonly QueryWithPagination[]
@@ -323,7 +277,6 @@ export function applyGithubSearchCodeVerbosity(
   const anyVerbose = queriesTyped.some(q => isVerbose(q));
   if (anyVerbose) return;
 
-  // Strip matchIndices (metadata) from all matches
   responseData.results = (responseData.results ?? []).map(g => ({
     ...g,
     matches: g.matches.map(m => {

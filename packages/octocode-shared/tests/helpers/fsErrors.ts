@@ -1,13 +1,3 @@
-/**
- * File System Error Helpers
- *
- * Utilities for creating mock filesystem errors in tests.
- * These simulate real error conditions like disk full, permission denied, etc.
- */
-
-/**
- * Create a Node.js filesystem error with the proper structure
- */
 function createFsError(
   code: string,
   message: string,
@@ -24,29 +14,20 @@ function createFsError(
   return error;
 }
 
-/**
- * Common filesystem errors for testing
- */
 export const FS_ERRORS = {
-  /** Disk full / no space left on device */
   ENOSPC: (path?: string) =>
     createFsError('ENOSPC', 'no space left on device', path),
 
-  /** Disk quota exceeded */
   EDQUOT: (path?: string) =>
     createFsError('EDQUOT', 'disk quota exceeded', path),
 
-  /** Permission denied */
   EACCES: (path?: string) => createFsError('EACCES', 'permission denied', path),
 
-  /** I/O error */
   EIO: (path?: string) => createFsError('EIO', 'i/o error', path),
 
-  /** No such file or directory */
   ENOENT: (path: string) =>
     createFsError('ENOENT', `no such file or directory, open`, path),
 
-  /** Cross-device link not permitted (rename across filesystems) */
   EXDEV: (oldPath?: string, newPath?: string) =>
     createFsError(
       'EXDEV',
@@ -54,29 +35,21 @@ export const FS_ERRORS = {
       oldPath
     ),
 
-  /** Read-only file system */
   EROFS: (path?: string) =>
     createFsError('EROFS', 'read-only file system', path),
 
-  /** File is busy */
   EBUSY: (path?: string) =>
     createFsError('EBUSY', 'resource busy or locked', path),
 
-  /** Too many open files */
   EMFILE: () => createFsError('EMFILE', 'too many open files'),
 
-  /** Invalid argument */
   EINVAL: (message?: string) =>
     createFsError('EINVAL', message ?? 'invalid argument'),
 
-  /** File exists (for exclusive create operations) */
   EEXIST: (path?: string) =>
     createFsError('EEXIST', 'file already exists', path),
 };
 
-/**
- * Create a session with specific stats for testing edge cases
- */
 export function createTestSession(overrides: {
   sessionId?: string;
   version?: number;
@@ -101,9 +74,6 @@ export function createTestSession(overrides: {
   };
 }
 
-/**
- * Generate truncated JSON content at various points
- */
 export function generateTruncatedJson(
   fullJson: string,
   truncateAt: 'start' | 'middle' | 'end' | number
@@ -116,15 +86,12 @@ export function generateTruncatedJson(
     case 'middle':
       return fullJson.slice(0, Math.floor(length / 2));
     case 'end':
-      return fullJson.slice(0, length - 1); // Missing closing brace
+      return fullJson.slice(0, length - 1);
     default:
       return fullJson.slice(0, truncateAt);
   }
 }
 
-/**
- * Generate malformed JSON strings for testing
- */
 export const MALFORMED_JSON = {
   unclosedBrace: '{"unclosed": "string',
   trailingComma: '{"version": 1,}',

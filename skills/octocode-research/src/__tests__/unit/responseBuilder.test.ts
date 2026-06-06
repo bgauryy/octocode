@@ -1,13 +1,6 @@
-/**
- * Unit tests for response builder utilities.
- *
- * @module tests/unit/responseBuilder
- */
-
 import { describe, it, expect, vi } from 'vitest';
 import { ResearchResponse, detectLanguageFromPath } from '../../utils/responseBuilder.js';
 
-// Mock octocode-mcp public module
 vi.mock('octocode-mcp/public', () => ({
   createRoleBasedResult: vi.fn((opts) => ({
     content: [
@@ -169,7 +162,6 @@ describe('ResearchResponse.searchResults', () => {
   });
 
   it('handles non-string preview gracefully (no crash)', () => {
-    // preview could be a number or other non-string type from malformed data
     const result = ResearchResponse.searchResults({
       files: [
         { path: 'src/utils.ts', matches: 1, preview: 42 as unknown as string },
@@ -177,7 +169,6 @@ describe('ResearchResponse.searchResults', () => {
       totalMatches: 1,
     });
 
-    // Should not crash and should not include garbled output
     expect(result.content[0].text).toContain('src/utils.ts');
     expect(result.content[0].text).not.toContain('.slice');
   });
@@ -355,7 +346,6 @@ describe('ResearchResponse.repoStructure', () => {
       structure: { files, folders: [] },
     });
 
-    // Only first 20 files shown
     expect(result.content[0].text).not.toContain('file24.ts');
   });
 });
@@ -406,7 +396,6 @@ describe('ResearchResponse.packageSearch', () => {
       registry: 'npm',
     });
 
-    // Should use 'No description' fallback for non-string
     expect(result.content[0].text).toContain('No description');
   });
 });

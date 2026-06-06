@@ -16,7 +16,7 @@ const DEEP_MERGE_NAMES = new Set([
   'mixin',
 ]);
 
-/** Check if a computed-property-write key comes from a for..of/for..in loop over known internal iteration */
+
 function isKeyFromInternalIteration(
   node: ts.ElementAccessExpression,
   sourceFile: ts.SourceFile
@@ -49,7 +49,7 @@ function isKeyFromInternalIteration(
   return false;
 }
 
-/** Check if the containing block has a __proto__/constructor/prototype key guard */
+
 function hasProtoKeyGuard(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   const block = findParentBlock(node);
   if (!block) return false;
@@ -63,7 +63,7 @@ function hasProtoKeyGuard(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   );
 }
 
-/** Check if the target object was created with Object.create(null) or is Map/Set */
+
 function isTargetSafeObject(
   node: ts.ElementAccessExpression,
   sourceFile: ts.SourceFile

@@ -29,8 +29,6 @@ describe('Spinner', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
 
-    // The spinner only animates / emits control codes on a TTY; force one so the
-    // interactive-behavior assertions below run against the TTY path.
     originalIsTTY = process.stdout.isTTY;
     process.stdout.isTTY = true;
 

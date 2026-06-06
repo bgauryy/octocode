@@ -473,8 +473,8 @@ export async function resolveTreeSitter(): Promise<TreeSitterRuntime> {
         parserPy.setLanguage(pyLang as Parameters<Parser['setLanguage']>[0]);
       }
     } catch {
-      // tree-sitter-python not installed — Python analysis via tree-sitter disabled
-    }
+    void 0;
+  }
 
     treeSitterRuntime = {
       available: true,

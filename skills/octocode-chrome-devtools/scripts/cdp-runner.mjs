@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Run a generated `run(cdp)` script against a Chrome CDP target.
 
 import { resolve, join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
@@ -392,7 +391,6 @@ async function main() {
   console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);
   console.error(`[CDP_RUNNER] Connected - running ${scriptArg}`);
 
-  // Node PM has no scoped networking; keep generated script fetch/WebSocket on localhost.
   const _origFetch = globalThis.fetch;
   const _OrigWS    = globalThis.WebSocket;
   function isLocalhost(url) {

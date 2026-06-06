@@ -1,23 +1,8 @@
-/**
- * TDD coverage gap tests for octocode-security-utils
- *
- * Targets every uncovered line/branch identified in coverage report:
- *   - contentSanitizer.ts: lines 89, 203-249, 286 (chunked detection, error paths)
- *   - commandValidator.ts: lines 366, 480, 543, 567 (find/git edge cases)
- *   - ignoredPathFilter.ts: line 76 (shouldIgnoreFile with full path)
- *   - mask.ts: lines 60-69 (non-overlapping iteration)
- *   - pathUtils.ts: lines 15, 72 (normalizePath edge, HOME_DIR fallback)
- *   - pathValidator.ts: lines 231-232 (ENAMETOOLONG)
- *   - registry.ts: line 130 (addAllowedRoots validation)
- *   - withSecurityValidation.ts: lines 107, 115-116, 259 (abort, timeout, local tool logging)
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
 
 describe('ContentSanitizer — coverage gaps', () => {
-  // Use direct import to avoid mock interference
   let ContentSanitizer: typeof import('../src/contentSanitizer.js').ContentSanitizer;
 
   beforeEach(async () => {

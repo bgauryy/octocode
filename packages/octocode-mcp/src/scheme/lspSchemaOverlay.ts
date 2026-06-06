@@ -1,11 +1,3 @@
-/**
- * LSP Schema Overlay
- *
- * Final field descriptions are applied from @octocodeai/octocode-core metadata
- * via withCoreSchemaDescriptions. This file only changes shapes, bounds, and
- * public field names.
- */
-
 import { z } from 'zod';
 import {
   LSPGotoDefinitionQuerySchema as UpstreamGotoDefinitionQuerySchema,
@@ -26,10 +18,6 @@ import {
   withCoreSchemaDescriptions,
 } from './localSchemaOverlay.js';
 
-// Shared filePath → uri alias applied to all three LSP schemas.
-// Agents using skill docs pass `filePath`; this silently remaps it to `uri`
-// before validation. Validation still fails if neither is supplied.
-// Uses z.preprocess (not .transform) so toJSONSchema serialization works.
 function withFilePathAlias<
   T extends z.ZodObject<
     z.ZodRawShape & { uri: z.ZodTypeAny; filePath: z.ZodTypeAny }
@@ -56,10 +44,6 @@ function withFilePathAlias<
   }, withValidation);
 }
 
-// ---------------------------------------------------------------------------
-// lspGotoDefinition
-// ---------------------------------------------------------------------------
-
 export const LSPGotoDefinitionQuerySchema = withFilePathAlias(
   withCoreSchemaDescriptions(
     STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,
@@ -83,10 +67,6 @@ export const BulkLSPGotoDefinitionQuerySchema = createRelaxedBulkQuerySchema(
   LSPGotoDefinitionQuerySchema,
   { maxQueries: 5 }
 );
-
-// ---------------------------------------------------------------------------
-// lspFindReferences
-// ---------------------------------------------------------------------------
 
 export const LSPFindReferencesQuerySchema = withFilePathAlias(
   withCoreSchemaDescriptions(
@@ -119,10 +99,6 @@ export const BulkLSPFindReferencesQuerySchema = createRelaxedBulkQuerySchema(
   LSPFindReferencesQuerySchema,
   { maxQueries: 5 }
 );
-
-// ---------------------------------------------------------------------------
-// lspCallHierarchy
-// ---------------------------------------------------------------------------
 
 export const LSPCallHierarchyQuerySchema = withFilePathAlias(
   withCoreSchemaDescriptions(

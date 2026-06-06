@@ -1,17 +1,5 @@
-/**
- * HTTP-compatible Zod schemas for octocode-research routes.
- *
- * These schemas wrap the authoritative schemas from octocode-mcp/public
- * with HTTP query string preprocessing (string → number/boolean/array).
- *
- * @module validation/schemas
- */
-
 import { z } from 'zod';
 
-// =============================================================================
-// Import HTTP preprocessing utilities
-// =============================================================================
 import {
   toArray,
   safePath,
@@ -22,52 +10,37 @@ import {
   withResearchDefaults,
 } from './httpPreprocess.js';
 
-// =============================================================================
-// Local Route Schemas
-// =============================================================================
 
-/**
- * HTTP schema for localSearchCode (ripgrep)
- * Wraps RipgrepQuerySchema with HTTP preprocessing
- */
 export const localSearchSchema = z
   .object({
-    // Required
     pattern: z.string().min(1, 'Pattern is required'),
     path: safePath,
 
-    // Workflow mode preset
     mode: z.enum(['discovery', 'paginated', 'detailed']).optional(),
 
-    // Pattern interpretation
     fixedString: booleanString,
     perlRegex: booleanString,
 
-    // Case sensitivity
     smartCase: booleanString,
     caseInsensitive: booleanString,
     caseSensitive: booleanString,
 
-    // Match behavior
     wholeWord: booleanString,
     invertMatch: booleanString,
     multiline: booleanString,
     multilineDotall: booleanString,
     lineRegexp: booleanString,
 
-    // File filtering
     type: z.string().optional(),
     include: stringArray.optional(),
     exclude: stringArray.optional(),
     excludeDir: stringArray.optional(),
     binaryFiles: z.enum(['text', 'without-match', 'binary']).optional(),
 
-    // Ignore control
     noIgnore: booleanString,
     hidden: booleanString,
     followSymlinks: booleanString,
 
-    // Output control
     filesOnly: booleanString,
     filesWithoutMatch: booleanString,
     count: booleanString,
@@ -75,31 +48,26 @@ export const localSearchSchema = z
     lineNumbers: booleanString,
     column: booleanString,
 
-    // Context control
     contextLines: numericString,
     beforeContext: numericString,
     afterContext: numericString,
-    context: numericString, // deprecated alias
+    context: numericString,
     matchContentLength: numericString,
 
-    // Match limiting
     maxMatchesPerFile: numericString,
     maxFiles: numericString,
-    maxResults: numericString, // deprecated alias
+    maxResults: numericString,
 
-    // Pagination
     limit: numericString,
     filesPerPage: numericString,
     filePageNumber: numericString,
     matchesPerPage: numericString,
 
-    // Stats & output format
     includeStats: booleanString,
     includeDistribution: booleanString,
     jsonOutput: booleanString,
     vimgrepFormat: booleanString,
 
-    // Advanced options
     threads: numericString,
     mmap: booleanString,
     noUnicode: booleanString,
@@ -111,7 +79,6 @@ export const localSearchSchema = z
     debug: booleanString,
     showFileLastModified: booleanString,
 
-    // Research context (optional for HTTP)
     mainResearchGoal: z.string().optional(),
     researchGoal: z.string().optional(),
     reasoning: z.string().optional(),
@@ -127,39 +94,30 @@ export const localSearchSchema = z
     return result;
   });
 
-/**
- * HTTP schema for localGetFileContent
- * Wraps FetchContentQuerySchema with HTTP preprocessing
- */
+
 export const localContentSchema = z
   .object({
     path: safePath,
 
-    // Line-based pagination
     startLine: numericString,
     endLine: numericString,
     fullContent: booleanString,
 
-    // Pattern matching within file
     matchString: z.string().optional(),
     matchStringContextLines: numericString,
     matchStringIsRegex: booleanString,
     matchStringCaseSensitive: booleanString,
 
-    // Character-based pagination
     charOffset: numericString,
     charLength: numericString,
 
-    // Research context
     mainResearchGoal: z.string().optional(),
     researchGoal: z.string().optional(),
     reasoning: z.string().optional(),
   })
   .transform(withResearchDefaults);
 
-/**
- * Transform human-readable file type to MCP's Unix-style type codes
- */
+
 const fileTypeTransform = (val: string | undefined) => {
   if (!val) return undefined;
   const typeMap: Record<string, string | undefined> = {
@@ -182,10 +140,7 @@ const fileTypeTransform = (val: string | undefined) => {
   return typeMap[val] ?? val;
 };
 
-/**
- * HTTP schema for localFindFiles
- * Wraps FindFilesQuerySchema with HTTP preprocessing
- */
+
 export const localFindSchema = z
   .object({
     path: safePath,
@@ -239,10 +194,7 @@ export const localFindSchema = z
     return result;
   });
 
-/**
- * HTTP schema for localViewStructure
- * Wraps ViewStructureQuerySchema with HTTP preprocessing
- */
+
 export const localStructureSchema = z
   .object({
     path: safePath,
@@ -281,14 +233,7 @@ export const localStructureSchema = z
     return result;
   });
 
-// =============================================================================
-// LSP Route Schemas
-// =============================================================================
 
-/**
- * HTTP schema for lspGotoDefinition
- * Wraps LSPGotoDefinitionQuerySchema with HTTP preprocessing
- */
 export const lspDefinitionSchema = z
   .object({
     uri: safePath,
@@ -302,10 +247,7 @@ export const lspDefinitionSchema = z
   })
   .transform(withResearchDefaults);
 
-/**
- * HTTP schema for lspFindReferences
- * Wraps LSPFindReferencesQuerySchema with HTTP preprocessing
- */
+
 export const lspReferencesSchema = z
   .object({
     uri: safePath,
@@ -322,10 +264,7 @@ export const lspReferencesSchema = z
   })
   .transform(withResearchDefaults);
 
-/**
- * HTTP schema for lspCallHierarchy
- * Wraps LSPCallHierarchyQuerySchema with HTTP preprocessing
- */
+
 export const lspCallsSchema = z
   .object({
     uri: safePath,
@@ -345,14 +284,7 @@ export const lspCallsSchema = z
   })
   .transform(withResearchDefaults);
 
-// =============================================================================
-// GitHub Route Schemas
-// =============================================================================
 
-/**
- * HTTP schema for githubSearchCode
- * Wraps GitHubCodeSearchQuerySchema with HTTP preprocessing
- */
 export const githubSearchSchema = z
   .object({
     keywordsToSearch: stringArray,
@@ -370,10 +302,7 @@ export const githubSearchSchema = z
   })
   .transform(withResearchDefaults);
 
-/**
- * HTTP schema for githubGetFileContent
- * Wraps FileContentQuerySchema with HTTP preprocessing
- */
+
 export const githubContentSchema = z
   .object({
     owner: z.string().min(1, 'Owner is required'),
@@ -393,10 +322,7 @@ export const githubContentSchema = z
   })
   .transform(withResearchDefaults);
 
-/**
- * HTTP schema for githubSearchRepositories
- * Wraps GitHubReposSearchSingleQuerySchema with HTTP preprocessing
- */
+
 export const githubReposSchema = z
   .object({
     keywordsToSearch: stringArray.optional(),
@@ -425,10 +351,7 @@ export const githubReposSchema = z
   )
   .transform(withResearchDefaults);
 
-/**
- * HTTP schema for githubViewRepoStructure
- * Wraps GitHubViewRepoStructureQuerySchema with HTTP preprocessing
- */
+
 export const githubStructureSchema = z
   .object({
     owner: z.string().min(1, 'Owner is required'),
@@ -444,10 +367,7 @@ export const githubStructureSchema = z
   })
   .transform(withResearchDefaults);
 
-/**
- * HTTP schema for githubSearchPullRequests
- * Wraps GitHubPullRequestSearchQuerySchema with HTTP preprocessing
- */
+
 export const githubPRsSchema = z
   .object({
     query: z.string().optional(),
@@ -492,14 +412,7 @@ export const githubPRsSchema = z
   })
   .transform(withResearchDefaults);
 
-// =============================================================================
-// Package Route Schemas
-// =============================================================================
 
-/**
- * HTTP schema for packageSearch
- * Wraps PackageSearchQuerySchema with HTTP preprocessing
- */
 export const packageSearchSchema = z
   .object({
     name: z.string().min(1, 'Package name is required'),

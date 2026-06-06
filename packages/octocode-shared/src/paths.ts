@@ -1,7 +1,3 @@
-/**
- * Centralized .octocode path management.
- */
-
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { HOME } from './platform/index.js';

@@ -57,9 +57,7 @@ describe('fetchWithRetries - Response body cleanup', () => {
     await vi.runAllTimersAsync();
     await promise;
 
-    // First response body (error) should be cleaned up
     expect(bodyCancelFirst).toHaveBeenCalled();
-    // Second response body (success) should NOT be cleaned up — it was consumed by .json()
     expect(bodyCancelSecond).not.toHaveBeenCalled();
   });
 
@@ -74,7 +72,6 @@ describe('fetchWithRetries - Response body cleanup', () => {
 
     (globalThis as { fetch?: typeof fetch }).fetch = mockFetch;
 
-    // Should not throw due to null body
     await expect(fetchWithRetries('https://example.com/data')).rejects.toThrow(
       'Failed to fetch (404 Not Found)'
     );
@@ -91,7 +88,6 @@ describe('fetchWithRetries - Response body cleanup', () => {
 
     (globalThis as { fetch?: typeof fetch }).fetch = mockFetch;
 
-    // Should not throw due to missing cancel method
     await expect(fetchWithRetries('https://example.com/data')).rejects.toThrow(
       'Failed to fetch (404 Not Found)'
     );
@@ -111,7 +107,6 @@ describe('fetchWithRetries - Response body cleanup', () => {
 
     (globalThis as { fetch?: typeof fetch }).fetch = mockFetch;
 
-    // Should still throw the HTTP error, not the cancel error
     await expect(fetchWithRetries('https://example.com/data')).rejects.toThrow(
       'Failed to fetch (403 Forbidden)'
     );
@@ -125,7 +120,6 @@ describe('fetchWithRetries - Response body cleanup', () => {
       status: 404,
       statusText: 'Not Found',
       headers: new Headers(),
-      // body is undefined (no property at all)
     });
 
     (globalThis as { fetch?: typeof fetch }).fetch = mockFetch;

@@ -7,9 +7,6 @@ vi.mock('../../src/session.js', () => ({
 
 import { createRemoteToolRegistration } from '../../src/tools/registerRemoteTool.js';
 
-// #T4: a registrationGuard returning false used to drop a tool silently
-// (the root cause of packageSearch vanishing when npm/registry is unreachable).
-// The skip must now be surfaced via logSessionError so it's diagnosable.
 describe('createRemoteToolRegistration registrationGuard (#T4)', () => {
   beforeEach(() => mockLogSessionError.mockClear());
 

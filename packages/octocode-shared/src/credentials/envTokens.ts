@@ -1,9 +1,3 @@
-/**
- * Environment variable token lookup (zero dependencies on storage).
- *
- * Extracted to break the storage.ts ↔ tokenResolution.ts cycle.
- */
-
 import type { TokenSource } from './types.js';
 
 export const ENV_TOKEN_VARS = [
@@ -36,7 +30,6 @@ export function hasEnvToken(): boolean {
   return getTokenFromEnv() !== null;
 }
 
-/** Returns token + source in a single pass, avoiding the double scan. */
 export function resolveEnvToken(): {
   token: string;
   source: NonNullable<TokenSource>;

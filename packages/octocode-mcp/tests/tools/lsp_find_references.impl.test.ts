@@ -1,26 +1,14 @@
-/**
- * Implementation tests for LSP Find References tool
- * Exercises the actual code paths with proper dependency injection
- * @module tools/lsp_find_references.impl.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Define mock functions that will be used inside the factory
-// These need to be hoisted-safe (no dependencies on runtime values)
-
-// Mock fs/promises
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
   stat: vi.fn(),
 }));
 
-// Mock child_process for getExecAsync
 vi.mock('child_process', () => ({
   exec: vi.fn(),
 }));
 
-// Mock util for promisify
 vi.mock('util', () => ({
   promisify: (fn: Function) => fn,
 }));
@@ -57,13 +45,11 @@ vi.mock('../../src/lsp/manager.js', () => ({
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
-// Import mocked modules to access them
 import * as fs from 'fs/promises';
 import * as childProcess from 'child_process';
 import * as resolverModule from '../../src/lsp/resolver.js';
 import * as managerModule from '../../src/lsp/manager.js';
 
-// Import the module under test after mocks are set up
 import { registerLSPFindReferencesTool } from '../../src/tools/lsp_find_references/register.js';
 
 describe('LSP Find References Implementation Tests', () => {
@@ -84,19 +70,14 @@ export function anotherFunction() {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default mocks for successful path validation
     process.env.WORKSPACE_ROOT = '/workspace';
 
-    // Default: file exists and is readable
     vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
     vi.mocked(fs.readFile).mockResolvedValue(sampleTypeScriptContent);
 
-    // Default: LSP not available
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
     vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
-    // Restore SymbolResolver mock (reset by vi.resetAllMocks in afterEach)
-    // Must use regular function (not arrow) because it's called with `new`
     vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
       return {
         resolvePositionFromContent: vi.fn().mockReturnValue({
@@ -278,7 +259,6 @@ export function anotherFunction() {
     it('should handle missing optional fields', async () => {
       const handler = createHandler();
 
-      // Query without optional contextLines, referencesPerPage, page
       const result = await handler({
         queries: [
           {
@@ -423,7 +403,6 @@ export function anotherFunction() {
 
       const text = result.content?.[0]?.text ?? '';
       expect(text).toContain('status: "empty"');
-      // LSP-only: there is no text/regex fallback and no lspMode field.
       expect(text).not.toContain('lspMode');
     });
 
@@ -496,7 +475,6 @@ export function anotherFunction() {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // Note: YAML output uses quotes around string values
       expect(text).not.toContain('status: "hasResults"');
       expect(text).toContain('totalPages: 2');
     });
@@ -542,7 +520,6 @@ export function anotherFunction() {
       const text = result.content?.[0]?.text ?? '';
       expect(text).toContain('status: "empty"');
       expect(text).toContain('LSP_NOT_INSTALLED');
-      // No regex/text fallback exists anymore.
       expect(text).not.toContain('lspMode');
       expect(text).toContain('localSearchCode');
     });

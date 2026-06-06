@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Run cdp-runner.mjs with Node permissions, output isolation, and a process timeout.
 
 import { spawn }                          from 'child_process';
 import { resolve, dirname, join }         from 'path';
@@ -32,7 +31,6 @@ mkdirSync(OUTPUT_DIR, { recursive: true, mode: 0o700 });
 const SESSION_META_DIR = join(tmpdir(), '.octocode-chrome-devtools', 'session-meta', `port-${PORT}`);
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
-// Node 22 normalizes --allow-fs-* entries to realpaths; pass symlink and real forms.
 const safePath = (p) => { try { return realpathSync(p); } catch { return p; } };
 
 const TMPDIR_RAW  = tmpdir();
@@ -41,7 +39,6 @@ const RUNNER_REAL = safePath(RUNNER);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-// Stage helpers next to generated $TMPDIR scripts so relative imports work.
 const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
@@ -66,7 +63,6 @@ if (scriptArg) {
 
 const spawnArgv = argv.map(a => (a === scriptArg && scriptReal) ? scriptReal : a);
 
-// Node PM has no stable scoped --allow-net; cdp-runner restricts fetch/WebSocket to localhost.
 const readPaths  = [...new Set([RUNNER, RUNNER_REAL, TMPDIR_RAW, TMPDIR_REAL, ...allowReadExtra])];
 const writePaths = [...new Set([OUTPUT_DIR, OUTPUT_REAL, SESSION_META_DIR, SESSION_META_REAL])];
 
@@ -106,7 +102,7 @@ const scriptTimer = setTimeout(() => {
   child.kill('SIGTERM');
   setTimeout(() => child.kill('SIGKILL'), 2000).unref();
 }, SCRIPT_TIMEOUT_MS);
-scriptTimer.unref(); // don't keep the process alive on its own
+scriptTimer.unref();
 
 child.on('exit', (code, signal) => {
   clearTimeout(scriptTimer);

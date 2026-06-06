@@ -604,8 +604,6 @@ export function getSkillsCacheDir(): string {
   return getCacheDir();
 }
 
-// --- Remote skill reader ---
-
 export async function readSkillFromGitHub(
   owner: string,
   repo: string,
@@ -625,7 +623,6 @@ export async function readSkillFromGitHub(
   });
 
   if (response.status === 404) {
-    // Try common branch names as fallback
     if (branch === 'main') {
       return readSkillFromGitHub(owner, repo, skillPath, 'master');
     }
@@ -647,15 +644,12 @@ export async function readSkillFromGitHub(
   return content;
 }
 
-// --- skills.sh public registry search ---
-
 export interface SkillsShResult {
-  /** Full id: "owner/repo/skillId" */
   id: string;
   skillId: string;
   name: string;
   installs: number;
-  /** "owner/repo" */
+
   source: string;
 }
 

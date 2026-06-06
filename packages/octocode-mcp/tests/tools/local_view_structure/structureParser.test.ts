@@ -1,11 +1,3 @@
-/**
- * Tests for structureParser.ts - targeting uncovered branches
- * - Line 33: parseLsSimple lstat throws → fallback entry
- * - Line 22: parseLsLongFormat skip "total " line
- * - Line 58: parseFileSize path when size is not purely numeric (e.g. "4K")
- * - Line 82: permissions.startsWith('l') symlink detection
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseLsSimple,
@@ -45,7 +37,6 @@ describe('structureParser - parseLsSimple', () => {
     expect(entries[0]!.type).toBe('file');
     expect(entries[0]!.size).toBeDefined();
 
-    // Fallback for bad.txt when lstat throws
     expect(entries[1]!.name).toBe('bad.txt');
     expect(entries[1]!.type).toBe('file');
     expect(entries[1]!.extension).toBe('txt');
@@ -76,7 +67,6 @@ describe('structureParser - parseLsLongFormat', () => {
       expect(entries).toHaveLength(2);
       expect(entries[0]!.size).toBeDefined();
       expect(entries[1]!.size).toBeDefined();
-      // parseFileSize("4K") = 4096, formatFileSize(4096) = "4.0KB"
       expect(entries[0]!.size).toMatch(/KB|B/);
       expect(entries[1]!.size).toMatch(/MB|KB/);
     });

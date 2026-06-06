@@ -1,7 +1,3 @@
-/**
- * Tests for command validation - validates command injection prevention
- */
-
 import { describe, it, expect } from 'vitest';
 import { validateCommand } from '../src/commandValidator.js';
 
@@ -39,11 +35,6 @@ describe('commandValidator', () => {
         expect(result.error).toContain("Command 'curl' is not allowed");
       });
 
-      // Regression: bundled-ripgrep contract.
-      // resolveRipgrepBinary() returns an absolute path to the
-      // @vscode/ripgrep binary (POSIX `.../bin/rg`, Windows `...\\bin\\rg.exe`).
-      // The validator MUST allow that, otherwise localSearchCode 500s in
-      // every real MCP invocation even though unit-test mocks pass.
       it('allows an absolute POSIX path whose basename is whitelisted (rg)', () => {
         const result = validateCommand(
           '/Users/me/proj/node_modules/@vscode/ripgrep-darwin-arm64/bin/rg',
@@ -70,9 +61,6 @@ describe('commandValidator', () => {
       });
 
       it('still applies per-command flag rules to absolute paths', () => {
-        // `-x` (line-regexp) is on the rg allow-list, but a bogus flag like
-        // `--banana` must still be rejected even when the command is given
-        // as an absolute path.
         const result = validateCommand('/opt/homebrew/bin/rg', [
           '--banana',
           'pattern',
@@ -86,7 +74,6 @@ describe('commandValidator', () => {
 
     describe('ripgrep pattern detection', () => {
       it('should allow regex patterns in search position', () => {
-        // Pattern with pipe (OR) should be allowed in pattern position
         const result = validateCommand('rg', ['foo|bar', './src']);
 
         expect(result.isValid).toBe(true);
@@ -665,7 +652,6 @@ describe('commandValidator', () => {
 
     describe('dangerous pattern detection', () => {
       it('should reject shell execution patterns in non-pattern args', () => {
-        // Path argument with command substitution
         const result = validateCommand('ls', ['-la', '$(rm -rf /)']);
 
         expect(result.isValid).toBe(false);

@@ -1,7 +1,3 @@
-/**
- * Final coverage tests for TOOL_NAMES static fallback before metadata init.
- * (Runtime validation of fetched metadata was removed when metadata moved to @octocodeai/octocode-core.)
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@octocodeai/octocode-core', () => ({

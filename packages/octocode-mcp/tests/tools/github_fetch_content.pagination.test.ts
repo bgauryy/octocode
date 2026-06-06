@@ -1,9 +1,3 @@
-/**
- * Tests for githubGetFileContent's structured `content-truncated` warning.
- * Mirrors the `match-value-truncated` test on the search-code side so both
- * grouped tools share the same warning vocabulary and agents can branch on
- * `kind` instead of parsing in-band markers.
- */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createMockMcpServer,
@@ -84,8 +78,6 @@ describe('githubGetFileContent — content-truncated structured warning', () => 
   });
 
   it('returns large file content without truncation markers', async () => {
-    // Realistic code content — a uniform char run would trip the secret
-    // sanitizer (redacted to a short marker).
     const huge = Array.from(
       { length: 3_000 },
       (_, i) => `export const value${i} = ${i};`
@@ -117,8 +109,6 @@ describe('githubGetFileContent — content-truncated structured warning', () => 
 
     const first = result.structuredContent as FlatResponse;
 
-    // There are NO truncation warnings and NO marker — oversized content is
-    // returned without truncation.
     expect(first.warnings).toBeUndefined();
     const file = first.results[0]?.files?.[0];
     expect(file?.content).not.toMatch(/\[(truncated|clipped)\]/i);

@@ -38,7 +38,7 @@ describe('applyOutputSizeLimit', () => {
     });
 
     it('should truncate very large content and include pagination with hasMore=true', () => {
-      const hugeContent = 'a'.repeat(80000); // 80KB like PR #320
+      const hugeContent = 'a'.repeat(80000);
       const result = applyOutputSizeLimit(hugeContent, {});
 
       expect(result.wasLimited).toBe(true);
@@ -60,7 +60,7 @@ describe('applyOutputSizeLimit', () => {
 
       expect(result.pagination).toBeDefined();
       expect(result.pagination!.currentPage).toBe(1);
-      expect(result.pagination!.totalPages).toBe(4); // 25000 / 8000 = 3.125 → 4
+      expect(result.pagination!.totalPages).toBe(4);
       expect(result.pagination!.hasMore).toBe(true);
     });
   });
@@ -80,7 +80,7 @@ describe('applyOutputSizeLimit', () => {
     });
 
     it('should paginate with explicit charOffset and charLength', () => {
-      const content = 'abcdefghij'.repeat(1000); // 10000 chars
+      const content = 'abcdefghij'.repeat(1000);
       const result = applyOutputSizeLimit(content, {
         charOffset: 2000,
         charLength: 3000,

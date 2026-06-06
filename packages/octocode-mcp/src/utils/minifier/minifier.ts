@@ -1,11 +1,3 @@
-/**
- * Unified content minification utilities for token optimization
- *
- * Provides both sync and async minification:
- * - minifyContentSync: Fast, regex-based, no external dependencies
- * - minifyContent: Async, uses terser/clean-css/html-minifier for better quality
- */
-
 import { getExtension } from '../file/filters.js';
 import type { FileTypeMinifyConfig, MinifyResult } from './minifierTypes.js';
 import { MINIFY_CONFIG, INDENTATION_SENSITIVE_NAMES } from './minifierTypes.js';
@@ -23,7 +15,6 @@ import {
   minifyHTMLAsync,
 } from './minifierStrategies.js';
 
-/** Extension options for minifier: lowercase with 'txt' fallback */
 const MINIFIER_EXT_OPTIONS = { lowercase: true, fallback: 'txt' } as const;
 
 function getFileConfig(filePath: string): FileTypeMinifyConfig {
@@ -37,10 +28,6 @@ function getFileConfig(filePath: string): FileTypeMinifyConfig {
   return MINIFY_CONFIG.fileTypes[ext] || { strategy: 'general' };
 }
 
-/**
- * Synchronous content minification - fast, regex-based, no external dependencies.
- * Preferred for local file operations where simplicity and performance matter.
- */
 export function minifyContentSync(content: string, filePath: string): string {
   const config = getFileConfig(filePath);
   const ext = getExtension(filePath, MINIFIER_EXT_OPTIONS);
@@ -48,7 +35,6 @@ export function minifyContentSync(content: string, filePath: string): string {
   try {
     switch (config.strategy) {
       case 'terser':
-        // Sync version uses regex-based JS minification
         return minifyJavaScriptCore(content);
 
       case 'json':
@@ -78,16 +64,12 @@ export function minifyContentSync(content: string, filePath: string): string {
   } /* v8 ignore stop */
 }
 
-/**
- * Async content minification - uses terser/clean-css/html-minifier for better quality.
- * Preferred for GitHub API operations where minification quality matters.
- */
 export async function minifyContent(
   content: string,
   filePath: string
 ): Promise<MinifyResult> {
   try {
-    const MAX_SIZE = 1024 * 1024; // 1MB
+    const MAX_SIZE = 1024 * 1024;
     const contentSize = Buffer.byteLength(content, 'utf8');
 
     if (contentSize > MAX_SIZE) {

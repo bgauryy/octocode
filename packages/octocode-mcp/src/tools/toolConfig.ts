@@ -76,9 +76,8 @@ import {
 export type ToolDirectSecurity = 'basic' | 'remote';
 
 export interface ToolDirectExecutionConfig {
-  /** Per-query schema for help text and examples. */
   schema: z.ZodType;
-  /** Canonical MCP bulk input schema used before direct execution. */
+
   inputSchema: z.ZodType;
   executionFn: (input: never) => Promise<CallToolResult>;
   security: ToolDirectSecurity;
@@ -91,16 +90,10 @@ export interface ToolConfig {
   description: string;
   isDefault: boolean;
   isLocal: boolean;
-  /**
-   * When true, the tool requires ENABLE_CLONE (in addition to ENABLE_LOCAL).
-   * Used for the clone/fetch repository tool.
-   */
+
   isClone?: boolean;
   type: 'search' | 'content' | 'history' | 'debug';
-  /**
-   * When true, skip the remote metadata check during registration.
-   * Use for new tools not yet published in the metadata API.
-   */
+
   skipMetadataCheck?: boolean;
   fn: (
     server: McpServer,
@@ -109,7 +102,6 @@ export interface ToolConfig {
   direct: ToolDirectExecutionConfig;
 }
 
-/** Exported for branch coverage testing: fallback when tool not in DESCRIPTIONS */
 export const getDescription = (
   toolName: string,
   gateway: Pick<
@@ -267,9 +259,6 @@ function createToolCatalog(
     isLocal: true,
     isClone: true,
     type: 'content',
-    // Clone is gated by ENABLE_CLONE and may be absent from list_tools.
-    // Keep the metadata policy explicit until the upstream octocode-core
-    // catalog publishes clone metadata for gated action tools.
     skipMetadataCheck: true,
     fn: registerGitHubCloneRepoTool,
     direct: {

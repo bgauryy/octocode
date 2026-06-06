@@ -1,8 +1,3 @@
-/**
- * Tests for LSP client URI handling
- * Verifies proper URI encoding/decoding using vscode-uri
- */
-
 import { describe, it, expect } from 'vitest';
 import { URI } from 'vscode-uri';
 
@@ -15,7 +10,6 @@ describe('LSP URI Handling', () => {
 
     it('should handle Windows paths', () => {
       const uri = URI.file('C:\\Users\\me\\file.ts').toString();
-      // Windows drive letters are encoded
       expect(uri).toMatch(/^file:\/\/\/[cC]/);
       expect(uri).toContain('Users');
       expect(uri).toContain('file.ts');
@@ -39,7 +33,6 @@ describe('LSP URI Handling', () => {
     it('should handle Unicode characters', () => {
       const uri = URI.file('/path/файл.ts').toString();
       expect(uri).toContain('file:///path/');
-      // Unicode is URL-encoded
       expect(uri).not.toContain('файл');
     });
   });
@@ -74,7 +67,7 @@ describe('LSP URI Handling', () => {
       '/path/file%test.ts',
       '/path/with-dash/file.ts',
       '/path/with_underscore/file.ts',
-      '/path/深度/file.ts', // Chinese characters
+      '/path/深度/file.ts',
     ];
 
     for (const originalPath of testPaths) {

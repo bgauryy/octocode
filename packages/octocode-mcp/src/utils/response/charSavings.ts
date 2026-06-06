@@ -33,7 +33,7 @@ export function attachRawResponseChars<T extends object>(
       configurable: true,
     });
   } catch {
-    // Raw-size stats are best-effort and must never affect tool output.
+    void 0;
   }
 
   return result;

@@ -353,10 +353,6 @@ describe('cli/commands/shared', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// statusCommand
-// ---------------------------------------------------------------------------
-
 describe('statusCommand', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
@@ -392,14 +388,12 @@ describe('statusCommand', () => {
     });
     expect(jsonLine).toBeDefined();
     const parsed = JSON.parse(jsonLine!);
-    // status --json now wraps auth under parsed.auth
     const auth = parsed.auth ?? parsed;
     expect(typeof auth.authenticated).toBe('boolean');
     expect(typeof auth.hostname).toBe('string');
   });
 
   it('sets exitCode=1 when not authenticated in --json mode', async () => {
-    // With no credentials mocked, authenticated should be false
     const { statusCommand } =
       await import('../../../src/cli/commands/status.js');
 
@@ -409,7 +403,6 @@ describe('statusCommand', () => {
       options: { json: true },
     });
 
-    // authenticated is false → exitCode = 1
     expect(process.exitCode).toBe(1);
   });
 });

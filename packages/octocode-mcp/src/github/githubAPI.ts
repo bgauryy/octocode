@@ -1,50 +1,28 @@
 import type { components } from '@octokit/openapi-types';
 import type { RestEndpointMethodTypes } from '@octokit/plugin-rest-endpoint-methods';
 
-/**
- * Octokit REST types from OpenAPI-generated schemas.
- * @see https://github.com/octokit/openapi-types
- * @see https://github.com/github/rest-api-description
- */
-
-/** Full repository details. Schema: components['schemas']['full-repository'] */
 export type Repository = components['schemas']['full-repository'];
 
-/**
- * Content directory entry (single item from directory listing).
- * Schema: components['schemas']['content-directory'][number]
- *
- * Note: The 'content-directory' schema is an array type, so we index into it
- * to get the type of a single entry.
- */
 export type ContentDirectoryEntry =
   components['schemas']['content-directory'][number];
 
-/** Code search result item. Schema: components['schemas']['code-search-result-item'] */
 export type CodeSearchResultItem =
   components['schemas']['code-search-result-item'];
 
-/** Repository search result item. Schema: components['schemas']['repo-search-result-item'] */
 export type RepoSearchResultItem =
   components['schemas']['repo-search-result-item'];
 
-/** Issue/PR search result item. Schema: components['schemas']['issue-search-result-item'] */
 export type IssueSearchResultItem =
   components['schemas']['issue-search-result-item'];
 
-/** Diff entry for file changes. Schema: components['schemas']['diff-entry'] */
 export type DiffEntry = components['schemas']['diff-entry'];
 
-/** Full pull request details. Schema: components['schemas']['pull-request'] */
 export type PullRequestItem = components['schemas']['pull-request'];
 
-/** Simplified pull request. Schema: components['schemas']['pull-request-simple'] */
 export type PullRequestSimple = components['schemas']['pull-request-simple'];
 
-/** Issue comment. Schema: components['schemas']['issue-comment'] */
 export type IssueComment = components['schemas']['issue-comment'];
 
-/** Commit file change information (merged from CommitFileItem) */
 export interface CommitFileInfo {
   filename: string;
   status: string;
@@ -54,7 +32,6 @@ export interface CommitFileInfo {
   patch?: string;
 }
 
-/** Commit information with file changes */
 export interface CommitInfo {
   sha: string;
   message: string;
@@ -78,7 +55,7 @@ export interface GitHubAPIError {
   type: 'http' | 'graphql' | 'network' | 'unknown';
   scopesSuggestion?: string;
   rateLimitRemaining?: number;
-  /** Rate limit reset time in **milliseconds** (from `resetTime.getTime()`). */
+
   rateLimitReset?: number;
   retryAfter?: number;
   hints?: string[];
@@ -93,12 +70,6 @@ export interface GitHubAPISuccess<T> {
 
 export type GitHubAPIResponse<T> = GitHubAPISuccess<T> | GitHubAPIError;
 
-/**
- * Optimized code search result with enhanced match information.
- *
- * Derives from CodeSearchResultItem (components['schemas']['code-search-result-item'])
- * but with optimized structure for our search operations.
- */
 export type OptimizedCodeSearchResult = {
   items: Array<
     Pick<CodeSearchResultItem, 'path' | 'url'> & {
@@ -142,30 +113,10 @@ export type OptimizedCodeSearchResult = {
     totalMatches: number;
     hasMore: boolean;
   };
-  /**
-   * True when the empty result is because GitHub reported the searched
-   * owner/repo/user does NOT exist (a 422 nonexistent-entity), as opposed to a
-   * valid scope that genuinely matched nothing. Lets the caller emit a
-   * "check the scope spelling" hint instead of "no matches found".
-   */
+
   nonExistentScope?: boolean;
 };
 
-/**
- * Custom pull request item for search results.
- *
- * This type picks common fields from IssueSearchResultItem (which GitHub uses for
- * both issues and PRs in search results) and extends with PR-specific fields.
- *
- * Related Octokit types:
- * - IssueSearchResultItem: components['schemas']['issue-search-result-item']
- * - PullRequestItem: components['schemas']['pull-request'] (full PR details)
- * - DiffEntry: components['schemas']['diff-entry'] (file changes)
- */
-/**
- * Comment structure from GitHub REST API (issues.listComments).
- * Note: This uses snake_case to match REST API conventions.
- */
 export interface PRCommentItem {
   id: string;
   user: string;
@@ -233,18 +184,14 @@ export interface GitHubPullRequestsSearchParams {
   'no-milestone'?: boolean;
   'no-project'?: boolean;
   match?: ('title' | 'body' | 'comments')[];
-  /** Include PRs from archived repositories. Default false excludes them. */
+
   archived?: boolean;
   sort?: 'created' | 'updated' | 'best-match';
   order?: 'asc' | 'desc';
   limit?: number;
   withComments?: boolean;
   withCommits?: boolean;
-  /**
-   * When fetching comments, include bot authors (vercel[bot], CodeRabbit, …).
-   * Default false — bot deploy tables / base64 status blobs are stripped to
-   * keep the review signal cheap. Set true to restore the full thread.
-   */
+
   includeBots?: boolean;
   type?: 'metadata' | 'fullContent' | 'partialContent';
   partialContentMetadata?: {

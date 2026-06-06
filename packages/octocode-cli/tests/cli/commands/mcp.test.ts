@@ -36,7 +36,6 @@ const { httpRequestMock } = vi.hoisted(() => ({
   httpRequestMock: vi.fn(),
 }));
 
-// Default: HEAD request succeeds (response callback fires immediately).
 function makeReachableRequest() {
   httpRequestMock.mockImplementation(
     (_opts: unknown, cb: (res: unknown) => void) => {
@@ -699,7 +698,6 @@ describe('mcpCommand', () => {
     expect(
       parsed.results.some((r: { id: string }) => r.id === 'test-mcp')
     ).toBe(true);
-    // requiredEnvVars only present in installedOnly mode
     expect(parsed.results[0].requiredEnvVars).toBeUndefined();
   });
 

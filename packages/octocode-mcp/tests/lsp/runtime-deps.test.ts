@@ -1,15 +1,3 @@
-/**
- * Runtime-dependency regression test for the bundled LSP path.
- *
- * `typescript-language-server` is spawned as a child process via
- * `src/lsp/config.ts` → `resolveLanguageServer()` → `require.resolve(...)`.
- * It therefore MUST be listed under `dependencies` (not `devDependencies`),
- * otherwise `npx octocode-mcp@latest` installs a runtime that cannot
- * resolve the bundled server and LSP silently falls back to text search.
- *
- * @module tests/lsp/runtime-deps.test
- */
-
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';

@@ -1,17 +1,3 @@
-/**
- * Directory content fetching from GitHub via Contents API + download_url.
- *
- * Fetches all files in a directory by:
- * 1. Listing directory contents via `repos.getContent` (1 API call)
- * 2. Fetching each file via its `download_url` (parallel HTTP, not rate-limited)
- * 3. Saving files to disk under ~/.octocode/repos/{owner}/{repo}/{branch}/
- * 4. Writing cache metadata (24h TTL, same as clone tool)
- *
- * This is a lightweight alternative to cloning – no git required, just HTTP.
- *
- * @module github/directoryFetch
- */
-
 import {
   writeFileSync,
   mkdirSync,
@@ -35,22 +21,16 @@ import {
   evictExpiredClones,
 } from '../tools/github_clone_repo/cache.js';
 
-/** Maximum number of files to fetch from a directory */
 export const MAX_DIRECTORY_FILES = 50;
 
-/** Maximum total size of all files (5 MB) */
 export const MAX_TOTAL_SIZE = 5 * 1024 * 1024;
 
-/** Maximum size per individual file (300 KB, matches file fetch limit) */
 const MAX_FILE_SIZE = 300 * 1024;
 
-/** Number of concurrent download_url fetches */
 const CONCURRENCY = 5;
 
-/** Timeout for individual file fetch (10 seconds) */
 const FETCH_TIMEOUT_MS = 10_000;
 
-/** File extensions to skip (binary files) */
 const BINARY_EXTENSIONS = new Set([
   '.png',
   '.jpg',
@@ -108,17 +88,6 @@ interface DirectoryEntry {
   download_url: string | null;
 }
 
-/**
- * Fetch all files in a GitHub directory and save them to disk.
- *
- * Uses the same cache layout as the clone tool:
- *   ~/.octocode/repos/{owner}/{repo}/{branch}/{path}/
- *
- * Files are saved with 24-hour cache TTL. If the cache is still valid,
- * the saved directory is returned immediately without any API calls.
- *
- * @returns DirectoryFetchResult with localPath and file list
- */
 export async function fetchDirectoryContents(
   owner: string,
   repo: string,
@@ -130,8 +99,6 @@ export async function fetchDirectoryContents(
   const octocodeDir = getOctocodeDir();
   const cloneDir = getCloneDir(octocodeDir, owner, repo, branch);
 
-  // The actual directory on disk where files will be saved.
-  // Validate that path doesn't escape cloneDir via '..' traversal.
   const dirPath = resolve(join(cloneDir, path));
   if (!dirPath.startsWith(cloneDir + sep) && dirPath !== cloneDir) {
     throw new Error(
@@ -144,9 +111,6 @@ export async function fetchDirectoryContents(
     const isCloneCache = cacheResult.meta.source === 'clone';
 
     if (isCloneCache) {
-      // A full/sparse git clone is always a superset of what directoryFetch
-      // would produce. Use it unconditionally (even on forceRefresh) to avoid
-      // degrading clone content. To refresh a clone, use githubCloneRepo.
       if (existsSync(dirPath)) {
         const cached = scanDirectoryStats(dirPath, cloneDir);
         return {
@@ -168,7 +132,6 @@ export async function fetchDirectoryContents(
       );
     }
 
-    // directoryFetch cache — use if valid and not force-refreshing
     if (!forceRefresh && existsSync(dirPath)) {
       const cached = scanDirectoryStats(dirPath, cloneDir);
       return {
@@ -226,7 +189,6 @@ export async function fetchDirectoryContents(
     filesToSave.push({ entry, content });
   }
 
-  // Evict any globally-expired clones before writing new content.
   evictExpiredClones(octocodeDir);
   ensureCloneParentDir(cloneDir);
   if (existsSync(dirPath)) {
@@ -237,7 +199,6 @@ export async function fetchDirectoryContents(
   const savedFiles: GitHubDirectoryFileEntry[] = [];
   for (const { entry, content } of filesToSave) {
     const filePath = resolve(join(cloneDir, entry.path));
-    // Skip files whose resolved path escapes the clone directory
     if (!filePath.startsWith(cloneDir + sep)) continue;
     const fileDir = dirname(filePath);
     if (!existsSync(fileDir)) {
@@ -251,8 +212,6 @@ export async function fetchDirectoryContents(
     });
   }
 
-  // Mark as 'directoryFetch' so the clone tool knows this is NOT
-  // a full/sparse clone and will re-clone instead of trusting it.
   const meta = createCacheMeta(owner, repo, branch, 'directoryFetch');
   writeCacheMeta(cloneDir, meta);
 
@@ -270,9 +229,6 @@ export async function fetchDirectoryContents(
   };
 }
 
-/**
- * Fetch files in batches with concurrency control.
- */
 async function fetchFilesInBatches(
   entries: DirectoryEntry[],
   concurrency: number,
@@ -293,25 +249,19 @@ async function fetchFilesInBatches(
       if (result.status === 'fulfilled') {
         results.push(result.value);
       }
-      // Skip failed fetches silently — partial results are acceptable
     }
   }
 
   return results;
 }
 
-/** Allowed hostnames for download_url fetches (SSRF prevention) */
 const ALLOWED_DOWNLOAD_HOSTS = new Set([
   'raw.githubusercontent.com',
   'objects.githubusercontent.com',
   'github.com',
 ]);
 
-/**
- * Fetch raw content from a download_url (raw.githubusercontent.com).
- */
 async function fetchDownloadUrl(url: string, token?: string): Promise<string> {
-  // Validate URL hostname to prevent SSRF via crafted download_url
   try {
     const parsed = new URL(url);
     if (!ALLOWED_DOWNLOAD_HOSTS.has(parsed.hostname)) {
@@ -351,11 +301,6 @@ async function fetchDownloadUrl(url: string, token?: string): Promise<string> {
   }
 }
 
-/**
- * Recursively scan a cached directory to compute fileCount, totalSize,
- * and file entries. Used on cache hit so callers get real metadata
- * instead of stale zeros.
- */
 function scanDirectoryStats(
   dirPath: string,
   cloneDir: string
@@ -368,7 +313,6 @@ function scanDirectoryStats(
     try {
       entries = readdirSync(current);
     } catch {
-      // Directory unreadable (permissions/missing); stop this walk branch.
       return;
     }
     for (const name of entries) {
@@ -384,7 +328,7 @@ function scanDirectoryStats(
           files.push({ path: relativePath, size: st.size, type: 'file' });
         }
       } catch {
-        // stat/read failed for one entry; skip it and continue the directory walk.
+        void 0;
       }
     }
   }
@@ -393,9 +337,6 @@ function scanDirectoryStats(
   return { files, fileCount: files.length, totalSize };
 }
 
-/**
- * Get file extension (lowercase, with dot).
- */
 function getExtension(filename: string): string {
   const lastDot = filename.lastIndexOf('.');
   if (lastDot === -1) return '';

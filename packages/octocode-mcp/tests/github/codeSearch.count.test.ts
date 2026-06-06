@@ -29,7 +29,6 @@ describe('Code Search - Total Count', () => {
       mockOctokit as unknown as ReturnType<typeof getOctokit>
     );
 
-    // Mock API response with high total_count but few items
     searchCodeMock.mockResolvedValue({
       data: {
         total_count: 1234,

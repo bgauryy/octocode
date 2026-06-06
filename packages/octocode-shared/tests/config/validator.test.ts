@@ -1,7 +1,3 @@
-/**
- * Configuration Validator Tests
- */
-
 import { describe, it, expect } from 'vitest';
 import { validateConfig } from '../../src/config/validator.js';
 import {

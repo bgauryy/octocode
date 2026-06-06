@@ -5,12 +5,7 @@ import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended"
 
 export default tseslint.config(
   {
-    ignores: ["node_modules/**", "scripts/**"]
-  },
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
-  {
-    files: ["src/**/*.ts", "*.mjs"],
+    ignores: ["node_modules*.ts", "*.mjs"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

@@ -54,7 +54,6 @@ describe('Bulk Response Envelope', () => {
   });
 
   it('should include hints inside each result for present statuses with custom hints', async () => {
-    // Case 1: Only hasResults with custom hints - hints in result data
     const q1 = [{ id: '1' }];
     const p1 = vi.fn().mockResolvedValue({
       data: {},
@@ -68,7 +67,6 @@ describe('Bulk Response Envelope', () => {
     expect(t1).not.toContain('emptyStatusHints');
     expect(t1).not.toContain('errorStatusHints');
 
-    // Case 2: Only empty with custom hints - hints in result data
     const q2 = [{ id: '2' }];
     const p2 = vi.fn().mockResolvedValue({
       status: 'empty',
@@ -83,7 +81,6 @@ describe('Bulk Response Envelope', () => {
     expect(t2).not.toContain('emptyStatusHints');
     expect(t2).not.toContain('errorStatusHints');
 
-    // Case 3: Only error with custom hints - hints in result data
     const q3 = [{ id: '3' }];
     const p3 = vi.fn().mockResolvedValue({
       status: 'error',

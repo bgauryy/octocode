@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 
-// Import the actual modules without mocking
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { isLocalTool } from '../../src/tools/toolNames.js';
@@ -8,7 +7,6 @@ import { isLocalTool } from '../../src/tools/toolNames.js';
 describe('TOOL_NAMES proxy (TDD for local tools registration)', () => {
   describe('before metadata initialization', () => {
     it('should return correct value for LOCAL_RIPGREP from STATIC_TOOL_NAMES', () => {
-      // This tests the actual proxy behavior
       expect(TOOL_NAMES.LOCAL_RIPGREP).toBe('localSearchCode');
       expect(TOOL_NAMES.LOCAL_RIPGREP).toBe(STATIC_TOOL_NAMES.LOCAL_RIPGREP);
     });
@@ -50,8 +48,6 @@ describe('TOOL_NAMES proxy (TDD for local tools registration)', () => {
     });
 
     it('should not return undefined for any defined tool', () => {
-      // This is the critical test - if TOOL_NAMES returns undefined,
-      // tools will be registered with name 'undefined'
       expect(TOOL_NAMES.LOCAL_RIPGREP).not.toBeUndefined();
       expect(TOOL_NAMES.LOCAL_VIEW_STRUCTURE).not.toBeUndefined();
       expect(TOOL_NAMES.LOCAL_FIND_FILES).not.toBeUndefined();

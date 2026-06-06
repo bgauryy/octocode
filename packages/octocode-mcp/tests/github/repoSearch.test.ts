@@ -140,7 +140,7 @@ describe('GitHub Repository Search', () => {
       const result = await searchGitHubReposAPI(params);
 
       if ('data' in result) {
-        expect(result.data.repositories[0]!.description).toHaveLength(153); // 150 + '...'
+        expect(result.data.repositories[0]!.description).toHaveLength(153);
         expect(result.data.repositories[0]!.description.endsWith('...')).toBe(
           true
         );
@@ -215,7 +215,6 @@ describe('GitHub Repository Search', () => {
       const result = await searchGitHubReposAPI(params);
 
       if ('data' in result) {
-        // Should preserve API order (no client-side sorting)
         expect(result.data.repositories[0]!.stars).toBe(100);
         expect(result.data.repositories[1]!.stars).toBe(50000);
         expect(result.data.repositories[2]!.stars).toBe(1000);
@@ -253,7 +252,6 @@ describe('GitHub Repository Search', () => {
 
       const result = await searchGitHubReposAPI(params);
 
-      // Should preserve API order
       if ('data' in result) {
         expect(result.data.repositories[0]!.owner).toBe('owner1');
         expect(result.data.repositories[0]!.repo).toBe('older');

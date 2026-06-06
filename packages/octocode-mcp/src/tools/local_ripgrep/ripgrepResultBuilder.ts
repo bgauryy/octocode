@@ -13,9 +13,6 @@ import { isVerbose } from '../../scheme/verbosity.js';
 
 type RipgrepQuery = WithVerbosity<UpstreamRipgrepQuery>;
 
-/**
- * Build the final search result with pagination and metadata
- */
 export async function buildSearchResult(
   parsedFiles: LocalSearchCodeFile[],
   configuredQuery: RipgrepQuery,
@@ -54,9 +51,6 @@ export async function buildSearchResult(
     configuredQuery.filesOnly ||
     configuredQuery.count ||
     configuredQuery.countMatches;
-  // When in file-list mode (filesOnly, count, countMatches), use stats.matchCount if available.
-  // For count/countMatches modes, stats.matchCount is computed from parsed per-file counts.
-  // For filesOnly mode (-l), stats are unavailable so fall back to summing individual matchCounts.
   const summedMatches = limitedFiles.reduce(
     (sum: number, f: LocalSearchCodeFile & { modified?: string }) =>
       sum + f.matchCount,
@@ -66,9 +60,6 @@ export async function buildSearchResult(
     ? (stats?.matchCount ?? summedMatches)
     : summedMatches;
 
-  // Cross-tool aligned knobs: `itemsPerPage` = files (top-level page size),
-  // `matchesPerFile` = matches shown per file (inner axis), `page` = file page
-  // number. Internal var names keep the file/match wording for clarity.
   const aligned = configuredQuery as {
     itemsPerPage?: number;
     matchesPerFile?: number;
@@ -120,9 +111,7 @@ export async function buildSearchResult(
       ? [
           `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: page=${filePageNumber + 1}`,
         ]
-      : // Overshoot: requested a page past the last one. Say so explicitly
-        // instead of returning an empty page with no explanation.
-        totalFilePages > 0 && filePageNumber > totalFilePages
+      : totalFilePages > 0 && filePageNumber > totalFilePages
         ? [
             `Requested page ${filePageNumber} is outside available range (1-${totalFilePages}). Use page=${totalFilePages} for the last page.`,
           ]
@@ -147,8 +136,6 @@ export async function buildSearchResult(
     totalMatches
   );
 
-  // Active-filter echo-back: agents need to know which constraints were applied
-  // so they can diagnose empty results or unexpected narrowing.
   const q = configuredQuery as Record<string, unknown>;
   const activeFilters: string[] = [];
   const includeGlobs = q.include as string[] | undefined;
@@ -172,9 +159,6 @@ export async function buildSearchResult(
   }
 
   const fullResult: LocalSearchCodeToolResult = {
-    // status omitted on success (absent ≡ "hasResults"); empty/error
-    // branches set it explicitly. searchEngine also omitted — only one
-    // engine, marker carries no information.
     files: finalFiles,
     pagination: {
       currentPage: filePageNumber,
@@ -201,14 +185,6 @@ export async function buildSearchResult(
   });
 }
 
-/**
- * Verbosity shaping for localSearchCode.
- *
- * verbose=false (default): omit `modified` from file entries (metadata).
- * verbose=true: include all fields including modification timestamps.
- *
- * Items (files and matches) are never dropped. Hints are always returned fully.
- */
 export function applyRipgrepVerbosity(
   result: LocalSearchCodeToolResult,
   query: RipgrepQuery,
@@ -238,8 +214,6 @@ function _getStructuredResultSizeHints(
 ): string[] {
   const hints: string[] = [];
 
-  // Strict policy: only emit a recovery hint when the result set is
-  // genuinely too large; one concise line, no headings or empty separators.
   if (totalMatches > 100 || files.length > 20) {
     const recoveries: string[] = [];
     if (!query.type && !query.include) recoveries.push('add type or include');

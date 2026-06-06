@@ -1,10 +1,3 @@
-/**
- * Provider Factory Tests
- *
- * Covers getProvider, clearProviderCache, and initializeProviders including
- * cache hit/miss, key normalization, TTL expiry, eviction, and error paths.
- */
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { constructorSpy, MockGitHubProvider } = vi.hoisted(() => {
@@ -103,7 +96,6 @@ describe('provider factory', () => {
         type: 'github',
         authInfo: { token: 'auth-tok' } as never,
       });
-      // Same authInfo token => same cache key => cached.
       const b = getProvider('github', {
         type: 'github',
         authInfo: { token: 'auth-tok' } as never,
@@ -185,7 +177,6 @@ describe('provider factory', () => {
     it('recreates the provider after the cache entry expires', () => {
       vi.useFakeTimers();
       const first = getProvider('github', { type: 'github', token: 't' });
-      // Advance beyond the 1 hour TTL.
       vi.advanceTimersByTime(60 * 60 * 1000 + 1);
       const second = getProvider('github', { type: 'github', token: 't' });
       expect(second).not.toBe(first);
@@ -205,21 +196,16 @@ describe('provider factory', () => {
   describe('getProvider - eviction', () => {
     it('evicts expired entries when over the instance limit', () => {
       vi.useFakeTimers();
-      // Fill the cache with 20 distinct, soon-to-expire entries.
       for (let i = 0; i < 20; i++) {
         getProvider('github', { type: 'github', token: `expired-${i}` });
       }
       expect(constructorSpy).toHaveBeenCalledTimes(20);
 
-      // Expire all of them.
       vi.advanceTimersByTime(60 * 60 * 1000 + 1);
 
-      // 21st distinct token triggers eviction of expired entries first.
       const fresh = getProvider('github', { type: 'github', token: 'fresh' });
       expect(fresh).toBeInstanceOf(MockGitHubProvider);
 
-      // The previously-expired tokens should have been removed, so requesting
-      // one again constructs a new instance.
       constructorSpy.mockClear();
       getProvider('github', { type: 'github', token: 'expired-0' });
       expect(constructorSpy).toHaveBeenCalledTimes(1);
@@ -227,18 +213,13 @@ describe('provider factory', () => {
 
     it('evicts least-recently-accessed entries when all are still valid', () => {
       vi.useFakeTimers();
-      // Fill past the limit with valid entries, each with a distinct timestamp
-      // so lastAccessedAt ordering is well-defined. Eviction only trims when
-      // the cache size strictly exceeds the limit, so we seed 21 entries first.
       for (let i = 0; i < 21; i++) {
         getProvider('github', { type: 'github', token: `valid-${i}` });
         vi.advanceTimersByTime(1);
       }
-      // One more distinct token forces LRU eviction of the oldest entry.
       getProvider('github', { type: 'github', token: 'overflow' });
 
       constructorSpy.mockClear();
-      // valid-0 was the least-recently-accessed and should have been evicted.
       getProvider('github', { type: 'github', token: 'valid-0' });
       expect(constructorSpy).toHaveBeenCalledTimes(1);
     });

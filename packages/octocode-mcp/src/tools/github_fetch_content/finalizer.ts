@@ -54,10 +54,6 @@ type RepoGroup = {
   directories?: DirectoryEntry[];
 };
 
-// Structurally identical to `GitHubFetchContentOutputLocal` now that the
-// schema's pagination fields are tightened (file pagination →
-// PaginationInfoSchema; responsePagination → CharPaginationSchema).  Kept as
-// a local alias for readability; no cast needed at formatFinalizedResponse.
 type FileContentResponse = GitHubFetchContentOutputLocal;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -135,8 +131,6 @@ function buildFetchEvidence(
           `Use charOffset=${nextOffset} for ${group.id}:${file.path}.`
         );
       }
-      // startLine navigation is now emitted as a hints[] entry (buildRuntimeHints),
-      // not as an evidence reason, so agents following the hint-driven flow see it.
     }
   }
   if (errors.length > 0) {
@@ -167,15 +161,6 @@ const OPTIONAL_PAGINATION_NUMERIC_FIELDS = [
   'totalMatches',
 ] as const satisfies ReadonlyArray<keyof PaginationInfo>;
 
-/**
- * Narrow an opaque per-query data slot into a `PaginationInfo`.
- *
- * The bulk runner types `FlatQueryResult.data` as `Record<string, unknown>`
- * so each tool is free to define its own per-query payload.  We validate
- * the three required fields, then copy the optional numeric counters
- * field-by-field so the returned value is structurally typed without an
- * `as unknown as` boundary cast.
- */
 function readPagination(value: unknown): PaginationInfo | undefined {
   if (!isRecord(value)) return undefined;
   const { currentPage, totalPages, hasMore } = value;
@@ -300,7 +285,6 @@ function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
           `Use charOffset=${file.pagination.charOffset + currentLength} for ${group.id}:${file.path} to continue this file.`
         );
       }
-      // Line-range partial: navigation instruction belongs in hints[], not evidence.reason
       if (
         file.isPartial &&
         typeof file.endLine === 'number' &&
@@ -379,7 +363,6 @@ export function buildGithubFetchContentFinalizer<
       responseData.evidence = buildFetchEvidence(groups, errors ?? []);
     }
 
-    // ── Verbosity shaping ───────────────────────────────────────────────
     applyGithubFetchContentVerbosity(responseData, queries);
 
     return formatFinalizedResponse<GitHubFetchContentOutputLocal>(
@@ -406,25 +389,14 @@ export function buildGithubFetchContentFinalizer<
   };
 }
 
-/**
- * Verbosity shaping for githubGetFileContent.
- *
- * verbose=false (default): research data only — omit `lastModified` and
- *   `lastModifiedBy` from every file entry.
- * verbose=true: full response including metadata fields.
- *
- * Items are never dropped or minified. Hints are always returned fully.
- * Mutates `responseData` in place.
- */
 export function applyGithubFetchContentVerbosity(
   responseData: GitHubFetchContentOutputLocal,
   queries: readonly PartialFileContentQuery[]
 ): void {
   const queriesTyped = queries as Array<WithVerbosity<PartialFileContentQuery>>;
   const anyVerbose = queriesTyped.some(q => isVerbose(q));
-  if (anyVerbose) return; // all metadata included when at least one query is verbose
+  if (anyVerbose) return;
 
-  // Strip metadata fields for non-verbose queries
   responseData.results = (responseData.results ?? []).map(g => ({
     ...g,
     files: (g.files ?? []).map(f => {

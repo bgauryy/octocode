@@ -1,10 +1,3 @@
-/**
- * TDD: credentialUtils — normalizeHostname, isTokenExpired, isRefreshTokenExpired
- *
- * Fills gap: normalizeHostname had ZERO direct tests.
- * isTokenExpired / isRefreshTokenExpired edge cases (invalid dates, boundary) added.
- */
-
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   normalizeHostname,

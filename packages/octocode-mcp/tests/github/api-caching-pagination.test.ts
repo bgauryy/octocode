@@ -1,12 +1,3 @@
-/**
- * GitHub API Caching Tests - Pagination Focus
- *
- * These tests verify that:
- * 1. Different pages are cached separately
- * 2. Cache keys include pagination params (page, limit)
- * 3. Cache only stores actual GitHub API responses
- * 4. Context fields don't affect cache keys
- */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { clearAllCache, getCacheStats } from '../../src/utils/http/cache.js';
 import { getOctokit } from '../../src/github/client';
@@ -88,10 +79,8 @@ describe('GitHub API Caching - Pagination', () => {
         page: 2,
       });
 
-      // Both pages should call API
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(2);
 
-      // Cache should have 2 entries (1 miss for each page)
       const stats = getCacheStats();
       expect(stats.misses).toBe(2);
       expect(stats.sets).toBe(2);
@@ -118,7 +107,6 @@ describe('GitHub API Caching - Pagination', () => {
 
       const statsAfter = getCacheStats();
 
-      // API should only be called once
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(1);
       expect(statsAfter.hits).toBe(statsBefore.hits + 1);
     });
@@ -138,10 +126,8 @@ describe('GitHub API Caching - Pagination', () => {
         page: 2,
       });
 
-      // Both pages should call API
       expect(mockOctokit.rest.search.repos).toHaveBeenCalledTimes(2);
 
-      // Verify API was called with correct page params
       expect(mockOctokit.rest.search.repos).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ page: 1 })
@@ -171,7 +157,6 @@ describe('GitHub API Caching - Pagination', () => {
         reasoning: 'Different reason',
       });
 
-      // Context fields should not affect cache - only 1 API call
       expect(mockOctokit.rest.search.repos).toHaveBeenCalledTimes(1);
     });
   });
@@ -190,12 +175,10 @@ describe('GitHub API Caching - Pagination', () => {
         page: 2,
       });
 
-      // Both pages should call API
       expect(
         mockOctokit.rest.search.issuesAndPullRequests
       ).toHaveBeenCalledTimes(2);
 
-      // Verify API was called with correct page params
       expect(
         mockOctokit.rest.search.issuesAndPullRequests
       ).toHaveBeenNthCalledWith(1, expect.objectContaining({ page: 1 }));
@@ -217,7 +200,6 @@ describe('GitHub API Caching - Pagination', () => {
         page: 1,
       });
 
-      // API should only be called once
       expect(
         mockOctokit.rest.search.issuesAndPullRequests
       ).toHaveBeenCalledTimes(1);
@@ -236,7 +218,6 @@ describe('GitHub API Caching - Pagination', () => {
         page: 1,
       });
 
-      // Same params should only result in 1 API call due to caching
       expect(
         mockOctokit.rest.search.issuesAndPullRequests
       ).toHaveBeenCalledTimes(1);
@@ -254,14 +235,13 @@ describe('GitHub API Caching - Pagination', () => {
       });
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['vue'], // Different keyword
+        keywordsToSearch: ['vue'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
-        page: 1, // Same page
+        page: 1,
       });
 
-      // Both should call API - different keywords are different cache keys
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(2);
     });
 
@@ -281,7 +261,6 @@ describe('GitHub API Caching - Pagination', () => {
         page: 1,
       });
 
-      // Different API types should not share cache
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(1);
       expect(mockOctokit.rest.search.repos).toHaveBeenCalledTimes(1);
     });
@@ -291,7 +270,6 @@ describe('GitHub API Caching - Pagination', () => {
     it('should track cache hits and misses correctly', async () => {
       const initialStats = getCacheStats();
 
-      // First call - should be a miss
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         page: 1,
@@ -301,7 +279,6 @@ describe('GitHub API Caching - Pagination', () => {
       expect(afterFirstCall.misses).toBe(initialStats.misses + 1);
       expect(afterFirstCall.sets).toBe(initialStats.sets + 1);
 
-      // Second call with same params - should be a hit
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         page: 1,
@@ -309,13 +286,11 @@ describe('GitHub API Caching - Pagination', () => {
 
       const afterSecondCall = getCacheStats();
       expect(afterSecondCall.hits).toBe(afterFirstCall.hits + 1);
-      // No additional misses or sets
       expect(afterSecondCall.misses).toBe(afterFirstCall.misses);
       expect(afterSecondCall.sets).toBe(afterFirstCall.sets);
     });
 
     it('should only cache successful responses', async () => {
-      // Mock an error response
       mockOctokit.rest.search.repos.mockRejectedValueOnce(
         new Error('API Error')
       );
@@ -326,11 +301,9 @@ describe('GitHub API Caching - Pagination', () => {
           page: 1,
         });
       } catch {
-        // Expected to fail
+        void 0;
       }
 
-      // The error response should not be cached
-      // Try again and it should call the API again
       mockOctokit.rest.search.repos.mockResolvedValueOnce({
         data: {
           total_count: 0,
@@ -345,7 +318,6 @@ describe('GitHub API Caching - Pagination', () => {
         page: 1,
       });
 
-      // API should be called again since error wasn't cached
       expect(mockOctokit.rest.search.repos).toHaveBeenCalledTimes(2);
     });
   });

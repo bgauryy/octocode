@@ -20,12 +20,6 @@ import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
-/**
- * Handler-side query type: upstream input shape plus the overlay's `verbosity`
- * field. Augmenting locally (vs. importing the overlay's output type alias)
- * preserves the existing input-shape contract — callers that pass partial
- * queries continue to type-check while the handler still sees `verbosity`.
- */
 type ViewStructureQuery = WithVerbosity<
   WithOptionalMeta<UpstreamViewStructureQuery>
 >;
@@ -75,7 +69,6 @@ export async function viewStructure(
       return pathValidation.errorResult as LocalViewStructureToolResult;
     }
 
-    // For recursive mode, we use Node.js fs directly (no external command needed)
     const effectiveShowModified = query.showFileLastModified ?? true;
 
     if (query.depth || query.recursive) {
@@ -86,7 +79,6 @@ export async function viewStructure(
       );
     }
 
-    // For non-recursive mode, check if ls is available
     const lsAvailability = await checkCommandAvailability('ls');
     if (!lsAvailability.available) {
       const toolError = ToolErrors.commandNotAvailable(
@@ -225,9 +217,6 @@ async function viewStructureRecursive(
     showDetails: query.details ?? false,
   });
 
-  // Surface a clear error when the root path itself failed to open. This
-  // replaces the misleading "N entries skipped due to permission errors"
-  // warning that previously appeared for ENOENT or ENOTDIR failures.
   if (walkStats.rootError) {
     const { code } = walkStats.rootError;
     const isNotFound = code === 'ENOENT' || code === 'ENOTDIR';
@@ -254,8 +243,6 @@ async function viewStructureRecursive(
       let comparison = 0;
       switch (query.sortBy) {
         case 'size': {
-          // Use raw byte count to avoid parseFileSize round-trip loss on
-          // the formatted size string (e.g. "12.4KB" → parse → float).
           const aSize = a.sizeBytes ?? (a.size ? parseFileSize(a.size) : 0);
           const bSize = b.sizeBytes ?? (b.size ? parseFileSize(b.size) : 0);
           comparison = aSize - bSize;
@@ -265,7 +252,6 @@ async function viewStructureRecursive(
           if (showModified && a.modified && b.modified) {
             comparison = a.modified.localeCompare(b.modified);
           } else {
-            // Fallback to name when modified is not available
             comparison = a.name.localeCompare(b.name);
           }
           break;
@@ -312,8 +298,6 @@ async function viewStructureRecursive(
   return attachRawResponseChars(
     applyViewStructureVerbosity(
       {
-        // status omitted on success (absent ≡ "hasResults"); 'empty' set
-        // explicitly when totalEntries === 0.
         ...(isEmpty ? { status: 'empty' as const } : {}),
         entries: outputEntries,
         summary,
@@ -331,14 +315,6 @@ async function viewStructureRecursive(
   );
 }
 
-/**
- * Verbosity shaping for localViewStructure.
- *
- * verbose=false (default): omit `size` and `modified` from entries (metadata).
- * verbose=true: include all entry fields.
- *
- * Entries are never dropped. Hints are always returned fully.
- */
 export function applyViewStructureVerbosity(
   result: LocalViewStructureToolResult,
   query: ViewStructureQuery

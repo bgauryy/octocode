@@ -28,7 +28,6 @@ describe('safeRegex', () => {
     });
 
     it('should reject nested quantifiers (star height > 1)', () => {
-      // Classic ReDoS patterns
       expect(checkRegexSafety('(a+)+').safe).toBe(false);
       expect(checkRegexSafety('(a*)*').safe).toBe(false);
       expect(checkRegexSafety('(a+)*').safe).toBe(false);
@@ -47,7 +46,6 @@ describe('safeRegex', () => {
     });
 
     it('should accept patterns with quantifiers inside character classes', () => {
-      // + and * inside [] are literals, not quantifiers
       expect(checkRegexSafety('[+*?]+').safe).toBe(true);
     });
 

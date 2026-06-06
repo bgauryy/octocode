@@ -1,11 +1,3 @@
-/**
- * Unit tests for HTTP preprocessing utilities.
- *
- * Tests type coercion, path safety, and array handling for HTTP query strings.
- *
- * @module tests/unit/httpPreprocess
- */
-
 import { describe, it, expect } from 'vitest';
 import { toNumber, toBoolean, toArray, safePath, numericString, booleanString, stringArray } from '../../validation/httpPreprocess.js';
 
@@ -23,7 +15,7 @@ describe('toNumber', () => {
 
   it('returns non-numeric strings as-is', () => {
     expect(toNumber('abc')).toBe('abc');
-    expect(toNumber('12.5')).toBe('12.5'); // floats not supported
+    expect(toNumber('12.5')).toBe('12.5');
     expect(toNumber('12abc')).toBe('12abc');
   });
 

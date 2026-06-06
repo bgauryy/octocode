@@ -1,13 +1,7 @@
-/**
- * Tests for LSP client command detection
- * Verifies cross-platform command existence checking
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
-// Mock spawn for testing
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
   ChildProcess: vi.fn(),
@@ -35,22 +29,18 @@ describe('Cross-Platform Command Detection', () => {
 
   describe('Platform-specific command selection', () => {
     it('should use "where" on Windows', () => {
-      // Simulate Windows platform detection
       const isWindows = process.platform === 'win32';
       const checkCmd = isWindows ? 'where' : 'which';
 
-      // On macOS/Linux, 'which' should be used
       if (!isWindows) {
         expect(checkCmd).toBe('which');
       }
     });
 
     it('should use "which" on Unix-like systems', () => {
-      // This test runs on the current platform
       const isWindows = process.platform === 'win32';
       const checkCmd = isWindows ? 'where' : 'which';
 
-      // If we're on Unix, verify 'which' is selected
       if (!isWindows) {
         expect(checkCmd).toBe('which');
       }
@@ -88,7 +78,6 @@ describe('Cross-Platform Command Detection', () => {
     it('should return true when command exists (exit code 0)', async () => {
       const promise = simulatedCommandExists('node');
 
-      // Simulate successful exit
       process.nextTick(() => {
         mockProcess.emit('close', 0);
       });
@@ -101,7 +90,6 @@ describe('Cross-Platform Command Detection', () => {
     it('should return false when command does not exist (exit code 1)', async () => {
       const promise = simulatedCommandExists('nonexistent-command');
 
-      // Simulate failed exit
       process.nextTick(() => {
         mockProcess.emit('close', 1);
       });
@@ -114,7 +102,6 @@ describe('Cross-Platform Command Detection', () => {
     it('should return false on spawn error', async () => {
       const promise = simulatedCommandExists('error-command');
 
-      // Simulate error
       process.nextTick(() => {
         mockProcess.emit('error', new Error('ENOENT'));
       });
@@ -127,7 +114,6 @@ describe('Cross-Platform Command Detection', () => {
     it('should return false on timeout', async () => {
       const promise = simulatedCommandExists('slow-command');
 
-      // Don't emit any event - let it timeout
       await vi.advanceTimersByTimeAsync(5100);
 
       const result = await promise;

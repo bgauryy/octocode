@@ -8,11 +8,6 @@ import { executeFetchContent } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LocalGetFileContentOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
-/**
- * matchRanges emitted at runtime: Array<{ start: number; end: number }>.
- * The upstream core schema uses z.array(z.array(z.number())) which is wrong.
- * Override here so the MCP outputSchema accurately reflects the actual shape.
- */
 const MatchRangeSchema = z.object({ start: z.number(), end: z.number() });
 
 const LocalGetFileContentFixedOutputSchema =
@@ -25,9 +20,6 @@ const LocalGetFileContentFixedOutputSchema =
       ),
   });
 
-/**
- * Register the local fetch content tool with the MCP server.
- */
 export function registerLocalFetchContentTool(server: McpServer) {
   return server.registerTool(
     TOOL_NAMES.LOCAL_FETCH_CONTENT,

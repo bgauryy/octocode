@@ -31,8 +31,6 @@ describe('Spinner (extended)', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
 
-    // Spinner only animates / installs handlers on a TTY; force one for these
-    // interactive-behavior assertions.
     originalIsTTY = process.stdout.isTTY;
     process.stdout.isTTY = true;
 

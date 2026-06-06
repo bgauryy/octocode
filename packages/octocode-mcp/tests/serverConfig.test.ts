@@ -13,7 +13,6 @@ import {
 } from '../src/serverConfig.js';
 import type { FullTokenResolution } from 'octocode-shared';
 
-// Type for resolveTokenFull mock
 type ResolveTokenFullMock = Mock<
   (options?: {
     hostname?: string;
@@ -26,7 +25,6 @@ type ResolveTokenFullMock = Mock<
 
 let mockResolveTokenFull: ResolveTokenFullMock;
 
-// Helper to create token resolution result
 function mockTokenResult(
   token: string | null,
   source:
@@ -46,7 +44,6 @@ function mockTokenResult(
   };
 }
 
-// Helper to setup resolveTokenFull mock
 function setupTokenMocks() {
   mockResolveTokenFull = vi.fn(async () => null);
 
@@ -55,17 +52,14 @@ function setupTokenMocks() {
   });
 }
 
-// Helper function to mock CLI token success (gh-cli source)
 function mockSpawnSuccess(token: string) {
   mockResolveTokenFull.mockResolvedValue(mockTokenResult(token, 'gh-cli'));
 }
 
-// Helper function to mock CLI token failure (no token found)
 function mockSpawnFailure() {
   mockResolveTokenFull.mockResolvedValue(null);
 }
 
-// Helper function to mock token resolution via env/stored credentials
 function mockTokenResolution(
   token: string | null,
   source:
@@ -91,7 +85,6 @@ describe('ServerConfig - Simplified Version', () => {
     vi.clearAllMocks();
     cleanup();
 
-    // Reset environment variables
     process.env = { ...originalEnv };
     delete process.env.GITHUB_TOKEN;
     delete process.env.GH_TOKEN;
@@ -107,7 +100,6 @@ describe('ServerConfig - Simplified Version', () => {
     delete process.env.MAX_RETRIES;
     delete process.env.OCTOCODE_TOKEN;
 
-    // Set up injectable mock for token resolution
     setupTokenMocks();
   });
 
@@ -176,10 +168,10 @@ describe('ServerConfig - Simplified Version', () => {
       await initialize();
       const config1 = getServerConfig();
 
-      await initialize(); // Second call
+      await initialize();
       const config2 = getServerConfig();
 
-      expect(config1).toBe(config2); // Same reference
+      expect(config1).toBe(config2);
     });
 
     it('should use default GitHub API URL', async () => {
@@ -204,11 +196,9 @@ describe('ServerConfig - Simplified Version', () => {
       process.env.GITHUB_TOKEN = 'env-github-token';
       cleanup();
 
-      // Mock resolveTokenFull to return env token (simulating env var priority)
       mockTokenResolution('env-github-token', 'env:GITHUB_TOKEN');
       const token = await getGitHubToken();
 
-      // GITHUB_TOKEN takes priority even when CLI token is available
       expect(token).toBe('env-github-token');
     });
 
@@ -233,14 +223,12 @@ describe('ServerConfig - Simplified Version', () => {
     it('should resolve token fresh each time (no caching)', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // First call returns 'token-1'
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('token-1', 'gh-cli')
       );
       const token1 = await getGitHubToken();
       expect(token1).toBe('token-1');
 
-      // Second call with different mock returns 'token-2' (no caching)
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('token-2', 'gh-cli')
       );
@@ -257,7 +245,6 @@ describe('ServerConfig - Simplified Version', () => {
       const token1 = await getGitHubToken();
       expect(token1).toBe('initial-token');
 
-      // Token changes at runtime
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('new-token', 'gh-cli')
       );
@@ -270,7 +257,6 @@ describe('ServerConfig - Simplified Version', () => {
     it('should use octocode-cli token when GITHUB_TOKEN and gh CLI are unavailable', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // resolveTokenFull returns stored token
       mockTokenResolution('octocode-stored-token', 'octocode-storage');
 
       const token = await getGitHubToken();
@@ -281,7 +267,6 @@ describe('ServerConfig - Simplified Version', () => {
     it('should prioritize GITHUB_TOKEN over octocode-cli token', async () => {
       process.env.GITHUB_TOKEN = 'env-token';
 
-      // Mock resolveTokenFull to return env token (simulating priority)
       mockTokenResolution('env-token', 'env:GITHUB_TOKEN');
 
       const token = await getGitHubToken();
@@ -292,7 +277,6 @@ describe('ServerConfig - Simplified Version', () => {
     it('should prioritize gh CLI token over octocode-cli token', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // resolveTokenFull handles priority internally, returns gh-cli token
       mockSpawnSuccess('gh-cli-token');
 
       const token = await getGitHubToken();
@@ -313,7 +297,6 @@ describe('ServerConfig - Simplified Version', () => {
     it('should handle octocode-cli token with whitespace', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // Token is returned trimmed by resolveTokenFull
       mockTokenResolution('octocode-token-with-spaces', 'octocode-storage');
 
       const token = await getGitHubToken();
@@ -324,7 +307,6 @@ describe('ServerConfig - Simplified Version', () => {
     it('should skip empty octocode-cli token', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // Empty/whitespace tokens resolve to null
       mockTokenResolution(null);
 
       const token = await getGitHubToken();
@@ -428,7 +410,7 @@ describe('ServerConfig - Simplified Version', () => {
   describe('Error Handling', () => {
     it('should handle GitHub CLI errors gracefully', async () => {
       process.env.GITHUB_TOKEN = 'fallback-token';
-      // Mock resolveTokenFull to return env token
+
       mockTokenResolution('fallback-token', 'env:GITHUB_TOKEN');
 
       const token = await getGitHubToken();
@@ -439,7 +421,6 @@ describe('ServerConfig - Simplified Version', () => {
     it('should handle empty string tokens correctly', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // resolveTokenFull returns null for whitespace-only
       mockSpawnFailure();
       const token = await getGitHubToken();
       expect(token).toBeNull();
@@ -448,10 +429,9 @@ describe('ServerConfig - Simplified Version', () => {
     it('should handle whitespace-only tokens', async () => {
       delete process.env.GITHUB_TOKEN;
 
-      // resolveTokenFull returns null for whitespace-only
       mockSpawnFailure();
       const token = await getGitHubToken();
-      expect(token).toBeNull(); // Trimmed to empty
+      expect(token).toBeNull();
     });
   });
 
@@ -555,8 +535,8 @@ describe('ServerConfig - Simplified Version', () => {
       await initialize();
       const config = getServerConfig();
 
-      expect(config.timeout).toBe(30000); // Falls back to default 30000
-      expect(config.maxRetries).toBe(0); // Math.max(0, -5) = 0
+      expect(config.timeout).toBe(30000);
+      expect(config.maxRetries).toBe(0);
     });
   });
 
@@ -905,10 +885,10 @@ describe('ServerConfig - Simplified Version', () => {
     });
 
     it('should enforce minimum timeout of 5000ms', async () => {
-      process.env.REQUEST_TIMEOUT = '1000'; // Below 5s minimum
+      process.env.REQUEST_TIMEOUT = '1000';
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().timeout).toBe(5000); // Clamped to MIN_TIMEOUT
+      expect(getServerConfig().timeout).toBe(5000);
     });
 
     it('should enforce minimum timeout for very low values', async () => {
@@ -919,11 +899,10 @@ describe('ServerConfig - Simplified Version', () => {
     });
 
     it('should clamp REQUEST_TIMEOUT=0 to MIN_TIMEOUT (5000)', async () => {
-      // 0 is a valid integer, clamped to MIN_TIMEOUT by shared config resolver
       process.env.REQUEST_TIMEOUT = '0';
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().timeout).toBe(5000); // Clamped to MIN_TIMEOUT
+      expect(getServerConfig().timeout).toBe(5000);
     });
 
     it('should enforce minimum timeout for negative values', async () => {
@@ -934,10 +913,10 @@ describe('ServerConfig - Simplified Version', () => {
     });
 
     it('should enforce maximum timeout of 300000ms (5 minutes)', async () => {
-      process.env.REQUEST_TIMEOUT = '500000'; // Above MAX_TIMEOUT
+      process.env.REQUEST_TIMEOUT = '500000';
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().timeout).toBe(300000); // Clamped to MAX_TIMEOUT
+      expect(getServerConfig().timeout).toBe(300000);
     });
 
     it('should use default timeout (30000) when REQUEST_TIMEOUT is not set', async () => {
@@ -967,22 +946,21 @@ describe('ServerConfig - Simplified Version', () => {
       process.env.MAX_RETRIES = '15';
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().maxRetries).toBe(10); // Clamped to MAX_RETRIES_LIMIT
+      expect(getServerConfig().maxRetries).toBe(10);
     });
 
     it('should clamp retries to minimum of 0', async () => {
       process.env.MAX_RETRIES = '-5';
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().maxRetries).toBe(0); // Clamped to MIN_RETRIES
+      expect(getServerConfig().maxRetries).toBe(0);
     });
 
     it('should allow MAX_RETRIES=0 (valid value, no retries)', async () => {
-      // 0 is a valid integer within [MIN_RETRIES, MAX_RETRIES] range
       process.env.MAX_RETRIES = '0';
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().maxRetries).toBe(0); // Valid: no retries
+      expect(getServerConfig().maxRetries).toBe(0);
     });
 
     it('should use default retries (3) when MAX_RETRIES is not set', async () => {
@@ -1055,11 +1033,9 @@ describe('ServerConfig - Simplified Version', () => {
     });
 
     it('should handle unicode whitespace characters', async () => {
-      // Non-breaking space and other unicode whitespace
       process.env.ENABLE_LOCAL = '\u00A0true\u00A0';
       mockSpawnFailure();
       await initialize();
-      // Note: trim() handles regular whitespace, unicode may vary
       expect(getServerConfig().enableLocal).toBe(true);
     });
   });

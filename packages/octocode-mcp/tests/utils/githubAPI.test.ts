@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Use vi.hoisted to ensure mocks are available during module initialization
 const mockOctokit = vi.hoisted(() => ({
   rest: {
     search: {
@@ -44,7 +43,6 @@ const mockContentSanitizer = vi.hoisted(() => ({
 const mockminifyContent = vi.hoisted(() => vi.fn());
 const mockOptimizeTextMatch = vi.hoisted(() => vi.fn());
 
-// Mock dependencies
 vi.mock('octokit', () => ({
   Octokit: mockOctokitWithThrottling,
   RequestError: class RequestError extends Error {
@@ -97,7 +95,6 @@ vi.mock('../../src/github/client.js', () => ({
   clearOctokitInstances: vi.fn(),
 }));
 
-// Import after mocking
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
 import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
 import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
@@ -108,16 +105,12 @@ import { initialize, cleanup } from '../../src/serverConfig.js';
 
 describe('GitHub API Utils', () => {
   beforeEach(async () => {
-    // Clear all mocks
     vi.clearAllMocks();
 
-    // Initialize config
     await initialize();
 
-    // Reset Octokit mock implementation
     mockOctokitWithThrottling.mockImplementation(() => mockOctokit);
 
-    // Set up default mock behaviors
     mockGenerateCacheKey.mockReturnValue('test-cache-key');
     mockWithCache.mockImplementation(async (_key, fn) => await fn());
     mockWithDataCache.mockImplementation(async (_key, fn) => await fn());
@@ -126,7 +119,7 @@ describe('GitHub API Utils', () => {
       isError: params.isError || false,
     }));
     mockContentSanitizer.sanitizeContent.mockImplementation(content => ({
-      content: content, // Return the content as-is for most tests
+      content: content,
       warnings: [],
       hasSecrets: false,
 
@@ -139,9 +132,8 @@ describe('GitHub API Utils', () => {
     });
     mockOptimizeTextMatch.mockImplementation(text => text);
 
-    // Set up environment
     process.env.GITHUB_TOKEN = 'test-token';
-  }, 15000); // Increase timeout to 15 seconds to handle slow GitHub CLI calls
+  }, 15000);
 
   afterEach(() => {
     vi.resetAllMocks();
@@ -217,7 +209,6 @@ describe('GitHub API Utils', () => {
         },
       });
 
-      // The function should return the result directly, not call createResult
       const result = await searchGitHubCodeAPI(params);
       expect(result).toEqual(
         expect.objectContaining({
@@ -245,7 +236,6 @@ describe('GitHub API Utils', () => {
 
       const result = await searchGitHubCodeAPI(params);
 
-      // Empty queries should return an error since they don't provide meaningful search terms
       expect(result).toHaveProperty('error');
       expect((result as { error: string }).error).toBe(
         'Search query cannot be empty'
@@ -380,7 +370,6 @@ describe('GitHub API Utils', () => {
         data: { total_count: 0, items: [] },
       });
 
-      // Test owner qualifier (automatically detects user vs org)
       const userParams = {
         keywordsToSearch: ['function'],
         owner: 'octocat',
@@ -399,7 +388,6 @@ describe('GitHub API Utils', () => {
         },
       });
 
-      // Test org owner (implementation auto-detects)
       const orgParams = {
         keywordsToSearch: ['function'],
         owner: 'github',
@@ -410,7 +398,7 @@ describe('GitHub API Utils', () => {
       await searchGitHubCodeAPI(orgParams);
 
       expect(mockOctokit.rest.search.code).toHaveBeenCalledWith({
-        q: 'function repo:github/test', // Implementation uses repo: when both owner and repo are provided
+        q: 'function repo:github/test',
         per_page: 30,
         page: 1,
         headers: {
@@ -418,7 +406,6 @@ describe('GitHub API Utils', () => {
         },
       });
 
-      // Test multiple owners (array format)
       const multipleOwnersParams = {
         keywordsToSearch: ['function'],
         owner: 'octocat',
@@ -431,7 +418,7 @@ describe('GitHub API Utils', () => {
       await searchGitHubCodeAPI(multipleOwnersParams);
 
       expect(mockOctokit.rest.search.code).toHaveBeenCalledWith({
-        q: 'function repo:octocat/test', // Implementation uses repo: when repo is provided
+        q: 'function repo:octocat/test',
         per_page: 30,
         page: 1,
         headers: {
@@ -445,7 +432,6 @@ describe('GitHub API Utils', () => {
         data: { total_count: 0, items: [] },
       });
 
-      // Test basic search without quality boost
       const forkTrueParams = {
         keywordsToSearch: ['function'],
         owner: 'test',
@@ -464,7 +450,6 @@ describe('GitHub API Utils', () => {
         },
       });
 
-      // Test with specific repo (disables quality boost)
       const forkFalseParams = {
         keywordsToSearch: ['function'],
         owner: 'facebook',
@@ -483,7 +468,6 @@ describe('GitHub API Utils', () => {
         },
       });
 
-      // Test with owner and repo filters
       const ownerRepoParams = {
         keywordsToSearch: ['function'],
         owner: 'test',
@@ -508,7 +492,6 @@ describe('GitHub API Utils', () => {
         data: { total_count: 0, items: [] },
       });
 
-      // Test with quality boost enabled (adds stars and pushed filters)
       const archivedTrueParams = {
         keywordsToSearch: ['function'],
         owner: 'test',
@@ -527,7 +510,6 @@ describe('GitHub API Utils', () => {
         },
       });
 
-      // Test with specific owner (disables quality boost)
       const archivedFalseParams = {
         keywordsToSearch: ['function'],
         owner: 'microsoft',
@@ -552,7 +534,6 @@ describe('GitHub API Utils', () => {
         data: { total_count: 0, items: [] },
       });
 
-      // When both owner+repo and user/org are provided, owner+repo should take precedence
       const params = {
         keywordsToSearch: ['function'],
         owner: 'facebook',
@@ -635,7 +616,6 @@ describe('GitHub API Utils', () => {
           page: 1,
         });
 
-        // The function should return the result directly, not call createResult
         const result = await searchGitHubReposAPI(params);
         expect(result).toEqual({
           data: {
@@ -664,8 +644,6 @@ describe('GitHub API Utils', () => {
             },
           },
           status: 200,
-          // normalizeResponseHeaders() returns a clean {} when the provider
-          // omits headers (was previously `undefined` cast as a Record).
           headers: {},
           rawResponseChars: expect.any(Number),
         });
@@ -680,7 +658,6 @@ describe('GitHub API Utils', () => {
         const params = {};
         const result = await searchGitHubReposAPI(params);
 
-        // With the new implementation, empty queries work because we always add archive/fork filters
         expect(result).not.toHaveProperty('error');
       });
 

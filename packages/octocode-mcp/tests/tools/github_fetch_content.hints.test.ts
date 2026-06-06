@@ -1,8 +1,3 @@
-/**
- * Tests for githubGetFileContent tool handler hints fix
- * Verifies that pagination hints from the API result are correctly passed through
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createSuccessResult } from '../../src/tools/utils.js';
 
@@ -23,7 +18,6 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
         reasoning: 'Verify hints are passed',
       };
 
-      // Simulating API result with hints (as returned by fileOperations.ts)
       const apiResult = {
         owner: 'facebook',
         repo: 'react',
@@ -45,7 +39,6 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
         ],
       };
 
-      // Extract hints from result (simulating what the tool handler does)
       const paginationHints = Array.isArray(apiResult.hints)
         ? apiResult.hints
         : [];
@@ -94,7 +87,6 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
       );
 
       expect(result.status).toBeUndefined();
-      // Empty hints array results in no hints being added (or empty array)
       expect(result.hints === undefined || result.hints?.length === 0).toBe(
         true
       );
@@ -112,7 +104,6 @@ describe('githubGetFileContent Tool Handler - Hints Fix', () => {
         path: 'README.md',
         content: '# React',
         contentLength: 7,
-        // No hints property
       };
 
       const resultObj = apiResult as Record<string, unknown>;

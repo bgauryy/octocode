@@ -1,14 +1,9 @@
-/**
- * Investigating potential security bypasses
- */
-
 import { describe, it, expect } from 'vitest';
 import { PathValidator } from '../src/pathValidator.js';
 import path from 'path';
 import { execSync } from 'child_process';
 
 describe('🔍 Investigating Potential Bypasses', () => {
-  // Use cwd as workspace to ensure tests work in CI
   const workspaceRoot = process.cwd();
   const validator = new PathValidator({ workspaceRoot });
 
@@ -17,12 +12,10 @@ describe('🔍 Investigating Potential Bypasses', () => {
       const testPath = path.join(workspaceRoot, '%2e%2e/%2e%2e/etc');
       validator.validate(testPath);
 
-      // What does Node's path.resolve do?
       const resolved = path.resolve(testPath);
 
       const escapedWorkspace = !resolved.startsWith(workspaceRoot);
 
-      // This test should actually pass if it doesn't escape
       expect(escapedWorkspace).toBe(false);
     });
 
@@ -51,7 +44,7 @@ describe('🔍 Investigating Potential Bypasses', () => {
         execSync('ls /Users/%2e%2e 2>&1', { encoding: 'utf-8', timeout: 1000 });
         expect.fail('Shell command should have failed');
       } catch {
-        // Expected: command fails (e.g. No such file) - %2e%2e treated as literal
+        void 0;
       }
     });
   });
@@ -64,7 +57,7 @@ describe('🔍 Investigating Potential Bypasses', () => {
         await safeExec('ls', ['/Users/%2e%2e']);
         expect.fail('Command should have failed - potential bypass!');
       } catch {
-        // Expected: command fails - path is rejected
+        void 0;
       }
     });
   });

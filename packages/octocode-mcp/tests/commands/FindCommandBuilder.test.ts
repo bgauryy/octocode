@@ -1,7 +1,3 @@
-/**
- * Tests for FindCommandBuilder
- */
-
 import { describe, it, expect, afterEach } from 'vitest';
 import { FindCommandBuilder } from '../../src/commands/FindCommandBuilder.js';
 
@@ -158,7 +154,6 @@ describe('FindCommandBuilder', () => {
         .build();
 
       expect(args).toContain('-regex');
-      // Pattern should be normalized to match full path
       expect(args).toContain('.*\\.(test|spec)\\.ts$');
     });
 
@@ -193,7 +188,6 @@ describe('FindCommandBuilder', () => {
     });
 
     it('should handle regex with custom type (platform-aware)', () => {
-      // This test is platform-aware - regexType only works on Linux
       const builder = new FindCommandBuilder();
       const { args } = builder
         .fromQuery({
@@ -206,7 +200,6 @@ describe('FindCommandBuilder', () => {
       expect(args).toContain('-regex');
       expect(args).toContain('.*test.*');
 
-      // Platform-specific assertions
       if (process.platform === 'linux') {
         expect(args).toContain('-regextype');
         expect(args).toContain('posix-extended');
@@ -232,11 +225,9 @@ describe('FindCommandBuilder', () => {
         .build();
 
       expect(args).toContain('-size');
-      // Platform-aware: macOS converts M/G to bytes (c suffix), Linux keeps M/G
-      // BUG FIX: macOS BSD find only supports 'c' (bytes) and 'k' (kilobytes)
       const isMacOS = process.platform === 'darwin';
       if (isMacOS) {
-        expect(args).toContain(`+${10 * 1024 * 1024}c`); // 10M in bytes
+        expect(args).toContain(`+${10 * 1024 * 1024}c`);
       } else {
         expect(args).toContain('+10M');
       }
@@ -249,10 +240,9 @@ describe('FindCommandBuilder', () => {
         .build();
 
       expect(args).toContain('-size');
-      // Platform-aware: macOS converts M/G to bytes (c suffix), Linux keeps M/G
       const isMacOS = process.platform === 'darwin';
       if (isMacOS) {
-        expect(args).toContain(`-${1 * 1024 * 1024 * 1024}c`); // 1G in bytes
+        expect(args).toContain(`-${1 * 1024 * 1024 * 1024}c`);
       } else {
         expect(args).toContain('-1G');
       }
@@ -364,7 +354,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', executable: true })
         .build();
 
-      // Platform-specific: Linux uses -executable, macOS uses -perm
       if (process.platform === 'linux') {
         expect(args).toContain('-executable');
       } else {
@@ -419,8 +408,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', modifiedWithin: 'invalid' })
         .build();
 
-      // Invalid format → filter is silently skipped (no -mtime flag emitted)
-      // rather than producing -mtime -0 which would match nothing.
       expect(args).not.toContain('-mtime');
       expect(args).not.toContain('-0');
     });
@@ -431,8 +418,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', accessedWithin: 'invalid' })
         .build();
 
-      // Invalid format → filter is silently skipped (no -atime flag emitted)
-      // rather than producing -atime -0.
       expect(args).not.toContain('-atime');
       expect(args).not.toContain('-0');
     });
@@ -532,7 +517,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', regex: '.*\\.test\\.ts$' })
         .build();
 
-      // -E must come before path on macOS
       const eIndex = args.indexOf('-E');
       const pathIndex = args.indexOf('/test');
       expect(eIndex).toBeGreaterThanOrEqual(0);
@@ -657,7 +641,6 @@ describe('FindCommandBuilder', () => {
 
       expect(args).toContain('-regex');
       expect(args).toContain('.*\\.(test|spec)\\.ts$');
-      // Must NOT have .*.*
       expect(args).not.toContain('.*.*\\.(test|spec)\\.ts$');
     });
 
@@ -739,9 +722,7 @@ describe('FindCommandBuilder', () => {
 
       expect(pruneIndex).toBeGreaterThan(-1);
       expect(typeIndex).toBeGreaterThan(-1);
-      // -type must come AFTER -prune -o
       expect(typeIndex).toBeGreaterThan(pruneIndex);
-      // -print0 must be at the end
       expect(print0Index).toBe(args.length - 1);
     });
 
@@ -760,7 +741,6 @@ describe('FindCommandBuilder', () => {
 
       expect(pruneIndex).toBeGreaterThan(-1);
       expect(nameIndex).toBeGreaterThan(-1);
-      // -name must come AFTER the last -prune
       expect(nameIndex).toBeGreaterThan(pruneIndex);
     });
 
@@ -778,7 +758,6 @@ describe('FindCommandBuilder', () => {
       const pruneIndex = args.indexOf('-prune');
       const typeIndex = args.indexOf('-type');
 
-      // There must be an -o between prune and type
       const oBetween = args.slice(pruneIndex, typeIndex).includes('-o');
       expect(oBetween).toBe(true);
     });
@@ -795,7 +774,6 @@ describe('FindCommandBuilder', () => {
         })
         .build();
 
-      // Verify structure: path, depth, prune block, -o, filters, -print0
       const pathIndex = args.indexOf('/test');
       const maxDepthIndex = args.indexOf('-maxdepth');
       const lastPruneIndex = args.lastIndexOf('-prune');
@@ -819,9 +797,7 @@ describe('FindCommandBuilder', () => {
         .fromQuery({ path: '/test', executable: true })
         .build();
 
-      // Should NOT contain -executable (GNU-only)
       expect(args).not.toContain('-executable');
-      // Should use -perm +111 or -perm /111 as alternative
       expect(args).toContain('-perm');
     });
 
@@ -867,7 +843,6 @@ describe('FindCommandBuilder', () => {
 
       const builder = new FindCommandBuilder();
 
-      // Either throw an error or return a result indicating unsupported
       expect(() => {
         builder.fromQuery({ path: 'C:\\test' }).build();
       }).toThrow(/windows|unsupported|not supported/i);

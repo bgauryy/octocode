@@ -25,14 +25,6 @@ import {
   type ToolMetadataGateway,
 } from './toolMetadata/gateway.js';
 
-/**
- * Register all tools from ALL_TOOLS (single source of truth in toolConfig.ts).
- *
- * Flow:
- * 1. Check if tool should be enabled (config filtering)
- * 2. Check if tool exists in metadata
- * 3. Register the tool
- */
 export async function registerTools(
   server: McpServer,
   callback?: ToolInvocationCallback,
@@ -51,12 +43,10 @@ export async function registerTools(
   const metadataGateway =
     options.metadataGateway ?? DEFAULT_TOOL_METADATA_GATEWAY;
 
-  // Warn about configuration conflicts
   if (hasToolFilterConflict(filterConfig)) {
     process.stderr.write(TOOL_FILTER_CONFLICT_WARNING);
   }
 
-  // Unified output sanitization — wraps every tool callback automatically
   const secureServer = withOutputSanitization(server);
   const allTools = await loadTools(options.toolLoader);
   const enabledTools = allTools.filter(tool =>
@@ -86,7 +76,7 @@ function logSessionErrorSafe(toolName: string, errorCode: string): void {
       ignoreBestEffortFailure('tool registration session logging')
     );
   } catch {
-    // Best-effort logging should never affect tool registration.
+    void 0;
   }
 }
 

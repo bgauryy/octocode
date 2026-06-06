@@ -1,8 +1,3 @@
-/**
- * README validation tests — ensures every code example in README.md
- * is accurate and produces the documented behavior.
- */
-
 import { describe, it, expect, afterEach } from 'vitest';
 import path from 'path';
 import os from 'os';

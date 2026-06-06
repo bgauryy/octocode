@@ -1,9 +1,3 @@
-/**
- * Unit tests for query parser and validation utilities.
- *
- * @module tests/unit/queryParser
- */
-
 import { describe, it, expect } from 'vitest';
 import { validateToolCallBody, getValidationHints, MAX_QUERIES } from '../../validation/toolCallSchema.js';
 import type { z } from 'zod';

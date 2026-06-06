@@ -296,8 +296,6 @@ describe('providerMappers', () => {
             updatedAt: '2026-05-25T00:00:00Z',
             additions: 90,
             deletions: 70,
-            // changedFilesCount intentionally omitted — must be derived from
-            // the fetched file list before it is dropped.
             fileChanges: [
               {
                 path: 'a.md',
@@ -327,7 +325,6 @@ describe('providerMappers', () => {
     );
 
     const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
-    // Metadata mode omits fileChanges entirely — changedFilesCount is sufficient for triage.
     expect(pr).not.toHaveProperty('fileChanges');
     expect(pr!.changedFilesCount).toBe(2);
     expect(pr!.additions).toBe(90);

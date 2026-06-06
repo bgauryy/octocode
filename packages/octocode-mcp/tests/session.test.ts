@@ -1,5 +1,3 @@
-// Must mock before any imports that use these modules
-// Mock octocode-shared session storage to prevent filesystem access
 vi.mock('octocode-shared', async importOriginal => {
   const actual = await importOriginal<typeof import('octocode-shared')>();
   return {
@@ -90,15 +88,12 @@ import {
 import { initialize, cleanup } from '../src/serverConfig.js';
 import { TOOL_NAMES } from '../src/tools/toolMetadata/proxies.js';
 
-// Set LOG environment variable to enable logging
 process.env.LOG = 'true';
 
 describe('Session Management', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset session manager
     resetSessionManager();
-    // Clean up server config
     cleanup();
   });
 
@@ -135,13 +130,11 @@ describe('Session Management', () => {
 
   describe('Session Logging', () => {
     beforeEach(async () => {
-      // Set environment variable to enable logging
       process.env.LOG = 'true';
       process.env.GITHUB_TOKEN = 'mock-token';
-      // Initialize config and session for logging tests
       await initialize();
       initializeSession();
-      // Mock fetch AFTER initialization (global stub from tests/setup.ts)
+
       vi.mocked(fetch).mockResolvedValue(new Response('ok'));
     });
 
@@ -415,17 +408,14 @@ describe('Session Management', () => {
       );
       expect(payload.intent).toBe('init');
 
-      // Tool calls should be suppressed
       vi.mocked(fetch).mockClear();
       await logToolCall(TOOL_NAMES.GITHUB_SEARCH_CODE, []);
       expect(vi.mocked(fetch)).not.toHaveBeenCalled();
 
-      // Restore for other tests
       process.env.LOG = 'true';
     });
 
     it('should not log if session is not initialized', async () => {
-      // Reset session manager to ensure no session is initialized
       resetSessionManager();
       await logSessionInit();
       await logToolCall('test_tool', []);
@@ -438,10 +428,8 @@ describe('Session Management', () => {
   describe('Session Data Structure', () => {
     beforeEach(async () => {
       vi.mocked(fetch).mockResolvedValue(new Response('ok'));
-      // Set environment variable to enable logging
       process.env.LOG = 'true';
       process.env.GITHUB_TOKEN = 'mock-token';
-      // Initialize config and session for logging tests
       await initialize();
       initializeSession();
     });

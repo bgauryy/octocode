@@ -1,17 +1,3 @@
-/**
- * Contract + agentic-quality tests for the 6 remote GitHub/package tools.
- *
- * Verifies the response contract:
- *  - Structured YAML/JSON results[] (single source of truth)
- *  - Peer-level hints (deduped, lifted out of `data.hints`)
- *  - Dynamic-only hints: pagination, failures, empty-with-context
- *  - No upstream static-guidance strings reach responses
- *
- * Includes a final "agentic quality" scorecard that rates each tool's
- * response on concrete agentic-flow criteria: absence of static noise,
- * actionable hints, peer-level hints, pagination cursors.
- */
-
 import { describe, it, expect, beforeAll } from 'vitest';
 import { getHints } from '../../src/hints/index.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
@@ -24,11 +10,6 @@ beforeAll(async () => {
   await initializeToolMetadata();
 });
 
-// ===========================================================================
-// 1. Verbosity shaping — concise compaction is format-agnostic
-// ===========================================================================
-
-// Verbosity shaping — verbose=false strips metadata (matchIndices), verbose=true keeps all.
 describe('Verbosity: githubSearchCode', () => {
   it('verbose=false strips matchIndices metadata, preserves core match data', () => {
     const originalMatches = [
@@ -50,12 +31,10 @@ describe('Verbosity: githubSearchCode', () => {
       ],
     };
 
-    // verbose=false: matchIndices stripped (metadata)
     applyGithubSearchCodeVerbosity(responseData, [{ verbose: false }]);
     expect(responseData.results[0]!.matches[0]).not.toHaveProperty(
       'matchIndices'
     );
-    // Core data preserved
     expect(responseData.results[0]!.matches[0]!.value).toBe(
       originalMatches[0]!.value
     );
@@ -103,7 +82,6 @@ describe('Evidence: githubGetFileContent', () => {
     expect(output.structuredContent.evidence?.reason).toContain(
       'Use charOffset=200 for o/r:src/a.ts.'
     );
-    // startLine continuation hint is surfaced in hints[], not evidence.reason (Fix 7)
     const hints = output.structuredContent.hints as string[] | undefined;
     expect(hints?.some(h => h.includes('startLine=41'))).toBe(true);
   });
@@ -134,10 +112,6 @@ describe('Verbosity: githubViewRepoStructure', () => {
     );
   });
 });
-
-// ===========================================================================
-// 2. Dynamic-only hints — assert no static guidance strings leak
-// ===========================================================================
 
 const FORBIDDEN_STATIC_PHRASES = [
   "Use 'owner', 'repo'",
@@ -196,8 +170,6 @@ describe('hints contract — static guidance never reaches responses', () => {
   });
 
   it('per-tool hints fire only on empty/error — hasResults channel is type-narrowed away', () => {
-    // The HintStatus type no longer includes 'hasResults'. Pagination signals
-    // live in the response envelope (pagination/hints from executor extraHints).
     const emptyHints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'empty', {
       hasOwnerRepo: true,
       owner: 'a',
@@ -215,12 +187,6 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(hints.some(h => h.includes('src/foo.ts'))).toBe(true);
   });
 });
-
-// ===========================================================================
-// 3. Agentic quality scorecards — rate each tool's response on concrete
-//    criteria that matter for downstream agent loops. Each criterion is
-//    binary (pass=1, fail=0). A tool passes overall if it scores >= 3/4.
-// ===========================================================================
 
 type Scorecard = {
   noStaticNoise: boolean;
@@ -248,13 +214,10 @@ function buildScorecard(sample: {
   hasMore: boolean;
   paginationHint?: string;
 }): Scorecard {
-  // 1. No static guidance noise.
   const noStaticNoise = !sample.hints.some(h =>
     FORBIDDEN_STATIC_PHRASES.some(p => h.includes(p))
   );
 
-  // 2. Hints are actionable — each one names a concrete parameter, value,
-  //    error code, or page number. Pure prose like "Consider..." fails.
   const ACTIONABLE_MARKERS = [
     /\bpage=\d/,
     /\bstartLine=\d/,
@@ -266,19 +229,17 @@ function buildScorecard(sample: {
     /\bGITHUB_TOKEN\b/,
     /Partial content/,
     /entries\)/,
-    /Page \d+\/\d+/, // "Page 1/3 (...)" pagination summary
+    /Page \d+\/\d+/,
   ];
   const hintsAreActionable =
     sample.hints.length === 0 ||
     sample.hints.every(h => ACTIONABLE_MARKERS.some(re => re.test(h)));
 
-  // 3. Hints emitted at peer level (not nested inside data).
   const hintsArePeerLevel =
     !('hints' in sample.data) ||
     (Array.isArray((sample.data as Record<string, unknown>).hints) &&
       ((sample.data as { hints: unknown[] }).hints as unknown[]).length === 0);
 
-  // 4. When more results exist, a pagination cursor hint is provided.
   const paginationCursorWhenMore =
     !sample.hasMore ||
     (sample.paginationHint !== undefined && /=\d/.test(sample.paginationHint));

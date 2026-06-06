@@ -173,13 +173,13 @@ describe('computeHealthScore', () => {
   it('penalizes medium findings (weight 3)', () => {
     const findings = [makeFinding({ severity: 'medium' })];
     const score = computeHealthScore(findings, 10);
-    expect(score).toBe(97); // 100 - (3/10)*10 = 97
+    expect(score).toBe(97);
   });
 
   it('penalizes low findings (weight 1)', () => {
     const findings = [makeFinding({ severity: 'low' })];
     const score = computeHealthScore(findings, 10);
-    expect(score).toBe(99); // 100 - (1/10)*10 = 99
+    expect(score).toBe(99);
   });
 
   it('info severity has weight 0', () => {

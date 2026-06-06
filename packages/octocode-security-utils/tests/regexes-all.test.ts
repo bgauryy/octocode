@@ -1,15 +1,3 @@
-/**
- * Comprehensive regex correctness tests for all sensitive-data pattern modules.
- *
- * For every pattern we verify:
- *   1. Required fields exist (name, description, regex, matchAccuracy)
- *   2. The regex has the global "g" flag (required by maskSensitiveData)
- *   3. At least one POSITIVE sample actually matches
- *   4. At least one NEGATIVE sample does NOT match (false-positive guard)
- *
- * Patterns are reset between tests (RegExp.lastIndex) because of the "g" flag.
- */
-
 import { describe, it, expect } from 'vitest';
 
 import { aiProviderPatterns } from '../src/regexes/ai-providers.js';
@@ -38,7 +26,6 @@ import {
 import { versionControlPatterns } from '../src/regexes/vcs.js';
 import { allRegexPatterns } from '../src/regexes/index.js';
 
-/** Reset lastIndex so the same RegExp can be reused across tests. */
 function resetAndTest(re: RegExp, sample: string): boolean {
   re.lastIndex = 0;
   return re.test(sample);
@@ -46,7 +33,6 @@ function resetAndTest(re: RegExp, sample: string): boolean {
 
 type Sample = { match: string[]; noMatch: string[] };
 
-/** Map from pattern name to test samples. */
 const SAMPLES: Record<string, Sample> = {
   openaiApiKeyLegacy: {
     match: [
@@ -72,11 +58,7 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['org-tooshort', 'notorg-' + 'a'.repeat(20)],
   },
   groqApiKey: {
-    match: [
-      // gsk_ + 51-52 chars
-      'gsk_' + 'a'.repeat(51),
-      'gsk_' + 'a'.repeat(52),
-    ],
+    match: ['gsk_' + 'a'.repeat(51), 'gsk_' + 'a'.repeat(52)],
     noMatch: ['gsk_' + 'a'.repeat(10), 'notgsk_' + 'a'.repeat(52)],
   },
   cohereApiKey: {
@@ -84,7 +66,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['co-tooshort', 'notco-' + 'a'.repeat(38)],
   },
   huggingFaceToken: {
-    // exactly 34 chars after hf_
     match: ['hf_' + 'a'.repeat(34)],
     noMatch: ['hf_' + 'a'.repeat(33), 'hf_' + 'a'.repeat(35)],
   },
@@ -141,7 +122,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['xai-tooshort', 'notxai-' + 'a'.repeat(48)],
   },
   openRouterApiKey: {
-    // exactly 64 chars after sk-or-v1-
     match: ['sk-or-v1-' + 'a'.repeat(64)],
     noMatch: ['sk-or-v1-' + 'a'.repeat(63), 'sk-or-v1-' + 'a'.repeat(65)],
   },
@@ -186,7 +166,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['pcsk_tooshort', 'notpcsk_' + 'a'.repeat(50)],
   },
   wandbApiKey: {
-    // exactly 40 hex chars [a-f0-9]
     match: ['a'.repeat(40), 'abcdef0123456789abcdef0123456789abcdef01'],
     noMatch: ['a'.repeat(39), 'a'.repeat(41), 'g'.repeat(40)],
   },
@@ -217,18 +196,13 @@ const SAMPLES: Record<string, Sample> = {
       'vcr_' + 'a'.repeat(24),
       'vck_' + 'a'.repeat(30),
     ],
-    noMatch: [
-      'vercel_' + 'a'.repeat(24), // old wrong prefix
-      'vcp_tooshort',
-    ],
+    noMatch: ['vercel_' + 'a'.repeat(24), 'vcp_tooshort'],
   },
   posthogApiKey: {
-    // exactly 39 chars after phc_
     match: ['phc_' + 'a'.repeat(39)],
     noMatch: ['phc_' + 'a'.repeat(38), 'phc_' + 'a'.repeat(40)],
   },
   posthogPersonalApiKey: {
-    // exactly 39 chars after phx_
     match: ['phx_' + 'a'.repeat(39)],
     noMatch: ['phx_' + 'a'.repeat(38), 'phx_' + 'a'.repeat(40)],
   },
@@ -322,7 +296,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['Bearer abc123', 'Basic short'],
   },
   jwtSecrets: {
-    // regex ends with ['"]\b — closing quote must be followed by a word char
     match: [
       'jwt_secret: "mysupersecretjwttoken123"x',
       "jwt-secret='mysupersecretjwttoken123'x",
@@ -334,7 +307,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['kind: ConfigMap\ndata:\n  mykey: notbase64'],
   },
   dockerComposeSecrets: {
-    // regex ends with ['"]\b — closing quote must be followed by a word char
     match: [
       'MYSQL_ROOT_PASSWORD: "mysecretpassword"x',
       "POSTGRES_PASSWORD='mysecretpassword123'x",
@@ -342,7 +314,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['MYSQL_ROOT_PASSWORD: ""'],
   },
   springBootSecrets: {
-    // regex ends with ['"]\b — closing quote must be followed by a word char
     match: [
       "spring.datasource.password: 'myDbPassword123'x",
       'spring.datasource.password="myDbPassword123"x',
@@ -350,12 +321,10 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["spring.datasource.url: 'jdbc:mysql://localhost'"],
   },
   dotnetConnectionStrings: {
-    // regex ends with ['"]\b — closing quote must be followed by a word char
     match: ["ConnectionStrings: 'Server=myserver;password=mysecret123;'x"],
     noMatch: ["connectionString: 'Server=myserver;'"],
   },
   base64EncodedSecrets: {
-    // regex ends with ['"]\b — closing quote must be followed by a word char
     match: [
       "secret='" + 'A'.repeat(32) + "'x",
       'key="' + 'A'.repeat(32) + '"x',
@@ -370,7 +339,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['-----BEGIN PUBLIC KEY-----\nABC\n-----END PUBLIC KEY-----'],
   },
   pkcs8PrivateKey: {
-    // regex has \b before/after "-----" (non-word) — needs word char on both sides
     match: [
       'x-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg==\n-----END PRIVATE KEY-----x',
       'x-----BEGIN ENCRYPTED PRIVATE KEY-----\nABC\n-----END ENCRYPTED PRIVATE KEY-----x',
@@ -378,7 +346,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['-----BEGIN PUBLIC KEY-----\nABC\n-----END PUBLIC KEY-----'],
   },
   ecPrivateKey: {
-    // regex has \b before/after "-----" — needs word char on both sides
     match: [
       'x-----BEGIN EC PRIVATE KEY-----\nMHQCAQE=\n-----END EC PRIVATE KEY-----x',
     ],
@@ -387,7 +354,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   dsaPrivateKey: {
-    // regex has \b before/after "-----" — needs word char on both sides
     match: [
       'x-----BEGIN DSA PRIVATE KEY-----\nMIIBugI=\n-----END DSA PRIVATE KEY-----x',
     ],
@@ -404,7 +370,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   sshPrivateKeyEncrypted: {
-    // regex has \b before/after "-----" — needs word char on both sides
     match: [
       'x-----BEGIN SSH2 ENCRYPTED PRIVATE KEY-----\nABC\n-----END SSH2 ENCRYPTED PRIVATE KEY-----x',
     ],
@@ -413,7 +378,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   puttyPrivateKey: {
-    // regex ends with "Private-MAC:\b" — colon is non-word, needs word char after it
     match: [
       'PuTTY-User-Key-File-2: ssh-rsa\nEncryption: aes256-cbc\nPrivate-MAC:x',
       'PuTTY-User-Key-File-3: ecdsa-sha2-nistp256\nEncryption: none\nPrivate-MAC:x',
@@ -421,7 +385,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['PuTTY-Public-Key: ssh-rsa\nABC'],
   },
   pgpPrivateKey: {
-    // regex has \b before/after "-----" — needs word char on both sides
     match: [
       'x-----BEGIN PGP PRIVATE KEY BLOCK-----\nABC\n-----END PGP PRIVATE KEY BLOCK-----x',
     ],
@@ -430,7 +393,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   firebaseServiceAccountPrivateKey: {
-    // regex has \b before/after '"' — double-quote is non-word, needs word char on both sides
     match: [
       'a"private_key": "-----BEGIN PRIVATE KEY-----\\nABC123\\n-----END PRIVATE KEY-----"a',
     ],
@@ -439,7 +401,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   openvpnClientPrivateKey: {
-    // regex has \b before '<key>' and after '</key>' — angle-brackets are non-word
     match: [
       'x<key>\n-----BEGIN RSA PRIVATE KEY-----\nABC\n-----END RSA PRIVATE KEY-----\n</key>x',
     ],
@@ -448,7 +409,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   dhParameters: {
-    // regex has \b before/after "-----" — needs word char on both sides
     match: [
       'x-----BEGIN DH PARAMETERS-----\nMIGH\n-----END DH PARAMETERS-----x',
     ],
@@ -457,9 +417,7 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   ageSecretKey: {
-    // Valid chars: [QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L] — all uppercase
     match: ['AGE-SECRET-KEY-1' + 'Q'.repeat(58)],
-    // Use chars NOT in the Bech32 set (B, I, O are excluded from Bech32)
     noMatch: [
       'AGE-SECRET-KEY-2' + 'Q'.repeat(58),
       'AGE-SECRET-KEY-1' + 'B'.repeat(58),
@@ -478,7 +436,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['hvp.tooshort', 'nothvp.' + 'a'.repeat(20)],
   },
   base64PrivateKeyContent: {
-    // regex ends with ["']\b — closing quote must be followed by a word char
     match: [
       'private_key="' + 'A'.repeat(64) + '"x',
       "secret_key='" + 'a'.repeat(64) + "'x",
@@ -486,7 +443,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['public_key="' + 'A'.repeat(64) + '"'],
   },
   hexEncodedKey: {
-    // regex ends with ["']\b — closing quote must be followed by a word char
     match: [
       'key="' + 'a'.repeat(32) + '"x',
       "secret='" + 'a'.repeat(32) + "'x",
@@ -525,7 +481,6 @@ const SAMPLES: Record<string, Sample> = {
   },
 
   awsAccessKeyId: {
-    // prefix (4) + exactly 16 uppercase alphanum; ASIAIOSFODNN7EXAMPLEX has 17 chars after ASIA
     match: [
       'AKIAIOSFODNN7EXAMPLE',
       'ASIAIOSFODNN7EXAMPLE',
@@ -538,7 +493,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['ACCOUNT_ID=12345', 'OTHER_ID=123456789012'],
   },
   awsAppSyncApiKey: {
-    // da2- + exactly 26 lowercase alphanumeric
     match: ['da2-' + 'a'.repeat(26)],
     noMatch: ['da2-tooshort', 'nda2-' + 'a'.repeat(26)],
   },
@@ -562,7 +516,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['arn:aws:iam::123456789012:role/MyRole'],
   },
   alibabaAccessKeyId: {
-    // LTAI + exactly 20 alphanumeric
     match: ['LTAI' + 'a'.repeat(20), 'LTAI' + 'A'.repeat(20)],
     noMatch: ['LTAI' + 'a'.repeat(19), 'notLTAI' + 'a'.repeat(20)],
   },
@@ -598,7 +551,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   googleOAuthClientSecret: {
-    // regex has \b before/after '"' — double-quote is non-word, needs word char on both sides
     match: ['a"client_secret": "' + 'a'.repeat(24) + '"a'],
     noMatch: ['"client_id": "' + 'a'.repeat(24) + '"'],
   },
@@ -642,7 +594,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['Endpoint=sb://mynamespace.windows.net/;'],
   },
   dropboxAccessToken: {
-    // sl. + exactly 64 chars
     match: ['sl.' + 'a'.repeat(64)],
     noMatch: ['sl.' + 'a'.repeat(63), 'notsl.' + 'a'.repeat(64)],
   },
@@ -654,7 +605,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['abcdefghij.dropbox.com', 'abcdefghijklmno.dropbox.com'],
   },
   supabaseServiceKey: {
-    // sbp_ + exactly 40 hex chars
     match: ['sbp_' + 'a'.repeat(40)],
     noMatch: ['sbp_tooshort', 'notsbp_' + 'a'.repeat(40)],
   },
@@ -669,7 +619,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['pscale_tkn_tooshort', 'notpscale_tkn_' + 'a'.repeat(38)],
   },
   sendgridApiKey: {
-    // SG. + 20-22 chars . + 43 chars
     match: [
       'SG.' + 'a'.repeat(20) + '.' + 'a'.repeat(43),
       'SG.' + 'a'.repeat(22) + '.' + 'a'.repeat(43),
@@ -680,67 +629,54 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   mailgunApiKey: {
-    // key- + exactly 32 lowercase alphanumeric
     match: ['key-' + 'a'.repeat(32)],
     noMatch: ['key-tooshort', 'notkey-' + 'a'.repeat(32)],
   },
   mailchimpApiKey: {
-    // 32 hex chars + -us + 1-2 digits
     match: ['a'.repeat(32) + '-us1', 'a'.repeat(32) + '-us12'],
     noMatch: ['a'.repeat(32), 'a'.repeat(32) + '-uk1'],
   },
   telegramBotToken: {
-    // 8-10 digits : 35 chars
     match: ['123456789:' + 'A'.repeat(35), '9876543210:' + 'a'.repeat(35)],
     noMatch: ['12345:' + 'A'.repeat(35), '123456789:tooshort'],
   },
   twilioApiKey: {
-    // SK + exactly 32 lowercase alphanumeric
     match: ['SK' + 'a'.repeat(32)],
     noMatch: ['SK' + 'a'.repeat(31), 'SK' + 'A'.repeat(32)],
   },
   twilioAccountSid: {
-    // AC + exactly 32 hex chars [0-9a-fA-F]
     match: ['AC' + 'a'.repeat(32), 'AC' + 'A'.repeat(32)],
     noMatch: ['AC' + 'a'.repeat(31), 'BC' + 'a'.repeat(32)],
   },
   dockerHubToken: {
-    // dckr_pat_ + exactly 36 chars
     match: ['dckr_pat_' + 'a'.repeat(36)],
     noMatch: ['dckr_pat_tooshort', 'notdckr_pat_' + 'a'.repeat(36)],
   },
   pypiApiToken: {
-    // pypi- + exactly 84 chars
     match: ['pypi-' + 'a'.repeat(84)],
     noMatch: ['pypi-tooshort', 'notpypi-' + 'a'.repeat(84)],
   },
   figmaToken: {
-    // figd_ + exactly 43 chars
     match: ['figd_' + 'a'.repeat(43)],
     noMatch: ['figd_tooshort', 'notfigd_' + 'a'.repeat(43)],
   },
   renderToken: {
-    // rnd_ + exactly 43 chars
     match: ['rnd_' + 'a'.repeat(43)],
     noMatch: ['rnd_tooshort', 'notrnd_' + 'a'.repeat(43)],
   },
   airtablePersonalAccessToken: {
-    // pat + 14 chars . + 64 chars
     match: ['pat' + 'a'.repeat(14) + '.' + 'a'.repeat(64)],
     noMatch: ['pat' + 'a'.repeat(13) + '.' + 'a'.repeat(64)],
   },
   typeformToken: {
-    // tfp_ + exactly 43 chars
     match: ['tfp_' + 'a'.repeat(43)],
     noMatch: ['tfp_tooshort', 'nottfp_' + 'a'.repeat(43)],
   },
   intercomAccessToken: {
-    // dG9rOi + 46-48 base64 chars + optional ==
     match: ['dG9rOi' + 'a'.repeat(46), 'dG9rOi' + 'A'.repeat(48) + '=='],
     noMatch: ['dG9rOi' + 'a'.repeat(45), 'notdG9rOi' + 'a'.repeat(46)],
   },
   digitalOceanToken: {
-    // dop_v1_ + exactly 64 hex chars
     match: ['dop_v1_' + 'a'.repeat(64)],
     noMatch: ['dop_v1_' + 'a'.repeat(63), 'notdop_v1_' + 'a'.repeat(64)],
   },
@@ -757,17 +693,14 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["some_other_key: '" + 'a'.repeat(40) + "'"],
   },
   cloudflareGlobalApiKey: {
-    // value is exactly 37 hex chars [a-f0-9]
     match: ["cloudflare_api: '" + 'a'.repeat(37) + "'"],
     noMatch: ["other_key: '" + 'a'.repeat(37) + "'"],
   },
   cloudflareOriginCaKey: {
-    // v1.0- + 24 hex - + 146 hex
     match: ['v1.0-' + 'a'.repeat(24) + '-' + 'a'.repeat(146)],
     noMatch: ['v2.0-' + 'a'.repeat(24) + '-' + 'a'.repeat(146)],
   },
   flyioAccessToken: {
-    // fo1_ + exactly 43 word chars
     match: ['fo1_' + 'a'.repeat(43)],
     noMatch: ['fo1_tooshort', 'notfo1_' + 'a'.repeat(43)],
   },
@@ -776,7 +709,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['fm1_tooshort', 'notfm1_' + 'a'.repeat(100)],
   },
   dopplerApiToken: {
-    // dp.pt. + exactly 43 [a-z0-9] (i flag)
     match: ['dp.pt.' + 'a'.repeat(43)],
     noMatch: ['dp.pt.' + 'a'.repeat(42), 'notdp.pt.' + 'a'.repeat(43)],
   },
@@ -792,17 +724,14 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '" + 'a'.repeat(40) + "'"],
   },
   scalingoApiToken: {
-    // tk-us- + exactly 48 word chars
     match: ['tk-us-' + 'a'.repeat(48)],
     noMatch: ['tk-us-tooshort', 'nottkus-' + 'a'.repeat(48)],
   },
   infracostApiToken: {
-    // ico- + exactly 32 alphanumeric
     match: ['ico-' + 'a'.repeat(32)],
     noMatch: ['ico-tooshort', 'notico-' + 'a'.repeat(32)],
   },
   harnessApiKey: {
-    // pat|sat . 22 . 24 . 20
     match: [
       'pat.' + 'a'.repeat(22) + '.' + 'a'.repeat(24) + '.' + 'a'.repeat(20),
       'sat.' + 'a'.repeat(22) + '.' + 'a'.repeat(24) + '.' + 'a'.repeat(20),
@@ -814,7 +743,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['abc3R~' + 'a'.repeat(31)],
   },
   herokuApiKeyV2: {
-    // HRKU-AA + exactly 58 [0-9a-zA-Z_-]
     match: ['HRKU-AA' + 'a'.repeat(58)],
     noMatch: ['HRKU-AA' + 'a'.repeat(57), 'HRKU-AB' + 'a'.repeat(58)],
   },
@@ -831,12 +759,10 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '00" + 'a'.repeat(40) + "'"],
   },
   openshiftUserToken: {
-    // sha256~ + exactly 43 word chars
     match: ['sha256~' + 'a'.repeat(43)],
     noMatch: ['sha256~tooshort', 'sha512~' + 'a'.repeat(43)],
   },
   denoDeployToken: {
-    // ddp_ + exactly 40 alphanumeric
     match: ['ddp_' + 'a'.repeat(40)],
     noMatch: ['ddp_tooshort', 'notddp_' + 'a'.repeat(40)],
   },
@@ -931,12 +857,10 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_key: '" + 'a'.repeat(20) + "'"],
   },
   sendinblueApiToken: {
-    // xkeysib- + 64 hex - + 16 alphanumeric
     match: ['xkeysib-' + 'a'.repeat(64) + '-' + 'a'.repeat(16)],
     noMatch: ['xkeysib-tooshort', 'notxkeysib-' + 'a'.repeat(64)],
   },
   pusherAppSecret: {
-    // value is exactly 20 [a-f0-9] hex chars
     match: ['PUSHER_APP_SECRET=' + 'a'.repeat(20)],
     noMatch: ['OTHER_SECRET=' + 'a'.repeat(20)],
   },
@@ -949,7 +873,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['not-a-uuid'],
   },
   vonageApiSecret: {
-    // value is exactly 16 alphanumeric
     match: [
       "VONAGE_API_SECRET='" + 'a'.repeat(16) + "'",
       "nexmo_secret: '" + 'A'.repeat(16) + "'",
@@ -962,14 +885,10 @@ const SAMPLES: Record<string, Sample> = {
   },
 
   twitterBearerToken: {
-    // exactly 21 A's + 50+ alphanumeric
     match: ['A'.repeat(21) + 'a'.repeat(50)],
-    noMatch: [
-      'A'.repeat(20) + 'a'.repeat(50), // one A short
-    ],
+    noMatch: ['A'.repeat(20) + 'a'.repeat(50)],
   },
   facebookAccessToken: {
-    // EAA + 80-120 alphanumeric
     match: ['EAA' + 'a'.repeat(80), 'EAA' + 'a'.repeat(120)],
     noMatch: ['EAA' + 'a'.repeat(79), 'notEAA' + 'a'.repeat(80)],
   },
@@ -982,7 +901,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['IGQV' + 'a'.repeat(50), 'notIGQV' + 'a'.repeat(100)],
   },
   discordSocialBotToken: {
-    // M|N + 23 word chars . 6 word chars . 27 word chars
     match: [
       'M' + 'a'.repeat(23) + '.' + 'a'.repeat(6) + '.' + 'a'.repeat(27),
       'N' + 'A'.repeat(23) + '.' + 'B'.repeat(6) + '.' + 'C'.repeat(27),
@@ -998,7 +916,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['https://discord.com/api/v9/guilds'],
   },
   pinterestAccessToken: {
-    // pina_ + exactly 32 alphanumeric
     match: ['pina_' + 'a'.repeat(32)],
     noMatch: ['pina_tooshort', 'notpina_' + 'a'.repeat(32)],
   },
@@ -1007,7 +924,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '" + 'a'.repeat(15) + "'"],
   },
   youtubeApiKey: {
-    // AIza + exactly 35 chars
     match: ["youtube_key: 'AIza" + 'a'.repeat(35) + "'"],
     noMatch: ["other_key: 'AIza" + 'a'.repeat(35) + "'"],
   },
@@ -1017,7 +933,6 @@ const SAMPLES: Record<string, Sample> = {
   },
 
   shippoApiToken: {
-    // shippo_live|test_ + exactly 40 hex chars [a-fA-F0-9]
     match: ['shippo_live_' + 'a'.repeat(40), 'shippo_test_' + 'a'.repeat(40)],
     noMatch: [
       'shippo_staging_' + 'a'.repeat(40),
@@ -1025,7 +940,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   easypostApiToken: {
-    // EZAK + exactly 54 alphanumeric (i flag)
     match: ['EZAK' + 'a'.repeat(54)],
     noMatch: ['EZAK' + 'a'.repeat(53), 'notEZAK' + 'a'.repeat(54)],
   },
@@ -1034,12 +948,10 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['EZTK' + 'a'.repeat(53), 'notEZTK' + 'a'.repeat(54)],
   },
   duffelApiToken: {
-    // duffel_live|test_ + exactly 43 [a-z0-9_\-=] (i flag)
     match: ['duffel_live_' + 'a'.repeat(43), 'duffel_test_' + 'a'.repeat(43)],
     noMatch: ['duffel_staging_' + 'a'.repeat(43)],
   },
   frameioApiToken: {
-    // fio-u- + exactly 64 [a-z0-9\-_=] (i flag)
     match: ['fio-u-' + 'a'.repeat(64)],
     noMatch: ['fio-u-tooshort', 'notfio-u-' + 'a'.repeat(64)],
   },
@@ -1067,7 +979,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '" + 'a'.repeat(24) + "'"],
   },
   settlemintApplicationAccessToken: {
-    // sm_aat_ + exactly 16 alphanumeric
     match: ['sm_aat_' + 'a'.repeat(16)],
     noMatch: ['sm_aat_tooshort', 'notsm_aat_' + 'a'.repeat(16)],
   },
@@ -1119,7 +1030,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['redis://localhost:6379'],
   },
   redisAuthPassword: {
-    // AUTH + space + 8+ [a-zA-Z0-9_-]
     match: ['AUTH mysecretpassword', 'AUTH s3cr3tP4ssw0rd'],
     noMatch: ['AUTH short', 'AUTH '],
   },
@@ -1148,17 +1058,14 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['cassandra://localhost:9042'],
   },
   faunadbKey: {
-    // fn + exactly 40 alphanumeric
     match: ['fn' + 'a'.repeat(40)],
     noMatch: ['fn' + 'a'.repeat(39), 'notfn' + 'a'.repeat(40)],
   },
   databricksApiToken: {
-    // dapi + exactly 32 hex chars [a-f0-9]
     match: ['dapi' + 'a'.repeat(32)],
     noMatch: ['dapi' + 'a'.repeat(31), 'notdapi' + 'a'.repeat(32)],
   },
   pineconeApiKey: {
-    // pinecone...key|api|env (then [\s:=]*, not [\s\w]*) then 32 alphanum
     match: [
       'pinecone api key: ' + 'a'.repeat(32),
       'pinecone env: ' + 'a'.repeat(32),
@@ -1173,7 +1080,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['postgres://localhost/mydb'],
   },
   clickhouseCloudApiKey: {
-    // 4b1d + exactly 38 alphanumeric
     match: ['4b1d' + 'a'.repeat(38)],
     noMatch: ['4b1d' + 'a'.repeat(37), '5b1d' + 'a'.repeat(38)],
   },
@@ -1201,17 +1107,14 @@ const SAMPLES: Record<string, Sample> = {
   },
 
   npmAccessToken: {
-    // npm_ + exactly 36 alphanumeric
     match: ['npm_' + 'a'.repeat(36)],
     noMatch: ['npm_tooshort', 'notnpm_' + 'a'.repeat(36)],
   },
   nugetApiKey: {
-    // oy2 + exactly 43 [a-z0-9]
     match: ['oy2' + 'a'.repeat(43)],
     noMatch: ['oy2' + 'a'.repeat(42), 'notoy2' + 'a'.repeat(43)],
   },
   artifactoryApiKey: {
-    // AKCp + exactly 69 [A-Za-z0-9]
     match: ['AKCp' + 'a'.repeat(69)],
     noMatch: ['AKCp' + 'a'.repeat(68), 'notAKCp' + 'a'.repeat(69)],
   },
@@ -1223,37 +1126,30 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['myapp token: 12345678-1234-1234-1234-123456789012'],
   },
   terraformCloudToken: {
-    // 14 chars . 6 chars . 16 chars
     match: ['abcdefghijklmn.abcdef.abcdefghijklmnop'],
     noMatch: ['tooshort.ab.abcdefghijklmnop', 'abcdefghijklmn.abcdef.tooshort'],
   },
   pulumiAccessToken: {
-    // pul- + exactly 40 hex [a-f0-9]
     match: ['pul-' + 'a'.repeat(40)],
     noMatch: ['pul-tooshort', 'notpul-' + 'a'.repeat(40)],
   },
   atlassianApiToken: {
-    // ATATT3 + exactly 186 [A-Za-z0-9_\-=]
     match: ['ATATT3' + 'a'.repeat(186)],
     noMatch: ['ATATT3' + 'a'.repeat(10), 'notATATT3' + 'a'.repeat(186)],
   },
   sourcegraphApiKey: {
-    // sgp_ + exactly 32 alphanumeric
     match: ['sgp_' + 'a'.repeat(32)],
     noMatch: ['sgp_tooshort', 'notsgp_' + 'a'.repeat(32)],
   },
   linearApiKey: {
-    // lin_api_ + exactly 40 [0-9A-Za-z]
     match: ['lin_api_' + 'a'.repeat(40)],
     noMatch: ['lin_api_tooshort', 'notlin_api_' + 'a'.repeat(40)],
   },
   notionIntegrationToken: {
-    // ntn_ + exactly 43 [a-zA-Z0-9_-]
     match: ['ntn_' + 'a'.repeat(43)],
     noMatch: ['ntn_tooshort', 'ntn_' + 'a'.repeat(42), 'ntn_' + 'a'.repeat(44)],
   },
   notionIntegrationTokenLegacy: {
-    // secret_ + exactly 43 [a-zA-Z0-9]
     match: ['secret_' + 'a'.repeat(43)],
     noMatch: [
       'secret_tooshort',
@@ -1262,7 +1158,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   stackhawkApiKey: {
-    // hawk. + 20 [0-9A-Za-z\-_] . + 20
     match: ['hawk.' + 'a'.repeat(20) + '.' + 'a'.repeat(20)],
     noMatch: [
       'hawk.tooshort.tooshort',
@@ -1282,27 +1177,22 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['other access token: ' + 'a'.repeat(32)],
   },
   postmanApiToken: {
-    // PMAK- + 24 hex - + 34 hex
     match: ['PMAK-' + 'a'.repeat(24) + '-' + 'a'.repeat(34)],
     noMatch: ['PMAK-tooshort-tooshort'],
   },
   prefectApiToken: {
-    // pnu_ + exactly 36 alphanumeric
     match: ['pnu_' + 'a'.repeat(36)],
     noMatch: ['pnu_tooshort', 'notpnu_' + 'a'.repeat(36)],
   },
   readmeApiToken: {
-    // rdme_ + exactly 70 [a-z0-9]
     match: ['rdme_' + 'a'.repeat(70)],
     noMatch: ['rdme_tooshort', 'notrdme_' + 'a'.repeat(70)],
   },
   rubygemsApiToken: {
-    // rubygems_ + exactly 48 hex [a-f0-9]
     match: ['rubygems_' + 'a'.repeat(48)],
     noMatch: ['rubygems_tooshort', 'notrubygems_' + 'a'.repeat(48)],
   },
   clojarsApiToken: {
-    // CLOJARS_ + exactly 60 [a-z0-9] (i flag)
     match: ['CLOJARS_' + 'a'.repeat(60), 'CLOJARS_' + 'A'.repeat(60)],
     noMatch: ['CLOJARS_tooshort', 'notCLOJARS_' + 'a'.repeat(60)],
   },
@@ -1334,7 +1224,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '" + 'a'.repeat(32) + "'"],
   },
   octopusDeployApiKey: {
-    // API- + exactly 26 [A-Z0-9]
     match: ['API-' + 'A'.repeat(26)],
     noMatch: ['API-tooshort', 'notAPI-' + 'A'.repeat(26)],
   },
@@ -1343,7 +1232,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '" + 'a'.repeat(40) + "'"],
   },
   buildkiteAgentToken: {
-    // bkagent_ + exactly 40 hex [a-f0-9]
     match: ['bkagent_' + 'a'.repeat(40)],
     noMatch: ['bkagent_tooshort', 'notbkagent_' + 'a'.repeat(40)],
   },
@@ -1393,47 +1281,38 @@ const SAMPLES: Record<string, Sample> = {
   },
 
   mapboxSecretToken: {
-    // sk.eyJ + exactly 87 [a-zA-Z0-9._-]
     match: ['sk.eyJ' + 'a'.repeat(87)],
     noMatch: ['sk.eyJ' + 'a'.repeat(86), 'sk.eyJ' + 'a'.repeat(88)],
   },
   mapboxPublicToken: {
-    // pk.eyJ + 80+ [a-zA-Z0-9._-]
     match: ['pk.eyJ' + 'a'.repeat(80), 'pk.eyJ' + 'a'.repeat(100)],
     noMatch: ['pk.eyJ' + 'a'.repeat(79), 'notpk.eyJ' + 'a'.repeat(80)],
   },
   grafanaCloudApiKey: {
-    // glc_ + exactly 32 alphanumeric
     match: ['glc_' + 'a'.repeat(32)],
     noMatch: ['glc_tooshort', 'notglc_' + 'a'.repeat(32)],
   },
   newRelicApiKey: {
-    // NRAK- + exactly 27 [A-Z0-9]
     match: ['NRAK-' + 'A'.repeat(27)],
     noMatch: ['NRAK-' + 'A'.repeat(26), 'notNRAK-' + 'A'.repeat(27)],
   },
   newRelicInsightKey: {
-    // NRIK- + exactly 32 [A-Z0-9]
     match: ['NRIK-' + 'A'.repeat(32)],
     noMatch: ['NRIK-' + 'A'.repeat(31), 'notNRIK-' + 'A'.repeat(32)],
   },
   newRelicBrowserApiToken: {
-    // NRJS- + exactly 19 hex [a-f0-9]
     match: ['NRJS-' + 'a'.repeat(19)],
     noMatch: ['NRJS-' + 'a'.repeat(18), 'NRJS-' + 'a'.repeat(20)],
   },
   newRelicInsertKey: {
-    // NRII- + exactly 32 [a-z0-9-] (i flag)
     match: ['NRII-' + 'a'.repeat(32)],
     noMatch: ['NRII-' + 'a'.repeat(31), 'notNRII-' + 'a'.repeat(32)],
   },
   grafanaApiKey: {
-    // eyJrIjoi + 70-400 base64 (i flag)
     match: ['eyJrIjoi' + 'a'.repeat(70), 'eyJrIjoi' + 'A'.repeat(200)],
     noMatch: ['eyJrIjoi' + 'a'.repeat(69), 'noteyJrIjoi' + 'a'.repeat(70)],
   },
   grafanaServiceAccountToken: {
-    // glsa_ + 32 [A-Za-z0-9] _ + 8 hex [A-Fa-f0-9]
     match: ['glsa_' + 'a'.repeat(32) + '_' + 'a'.repeat(8)],
     noMatch: [
       'glsa_' + 'a'.repeat(31) + '_' + 'a'.repeat(8),
@@ -1452,7 +1331,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['sntryu_' + 'a'.repeat(64)],
   },
   sentryUserToken: {
-    // sntryu_ + exactly 64 hex [a-f0-9]
     match: ['sntryu_' + 'a'.repeat(64)],
     noMatch: ['sntryu_' + 'a'.repeat(63), 'notsntryu_' + 'a'.repeat(64)],
   },
@@ -1490,7 +1368,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['pk_staging_' + 'a'.repeat(20), 'sk_live_' + 'a'.repeat(20)],
   },
   paypalAccessToken: {
-    // A21AA + 50+ [a-zA-Z0-9_-]
     match: ['A21AA' + 'a'.repeat(50), 'A21AA' + 'a'.repeat(80)],
     noMatch: ['A21AA' + 'a'.repeat(10), 'notA21AA' + 'a'.repeat(50)],
   },
@@ -1506,37 +1383,30 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['EAAAE' + 'a'.repeat(50), 'sq0other-' + 'a'.repeat(22)],
   },
   squareOauthSecret: {
-    // sq0csp- + exactly 43 [0-9A-Za-z\-_]
     match: ['sq0csp-' + 'a'.repeat(43)],
     noMatch: ['sq0csp-tooshort'],
   },
   squareApplicationId: {
-    // sq0ids- + exactly 43 [a-zA-Z0-9_-]
     match: ['sq0ids-' + 'a'.repeat(43)],
     noMatch: ['sq0ids-tooshort'],
   },
   shopifyPrivateAppPassword: {
-    // shppa_ + exactly 32 hex [a-fA-F0-9]
     match: ['shppa_' + 'a'.repeat(32)],
     noMatch: ['shppa_tooshort', 'notshppa_' + 'a'.repeat(32)],
   },
   shopifyAccessToken: {
-    // shpat_ + exactly 32 hex [a-fA-F0-9]
     match: ['shpat_' + 'a'.repeat(32)],
     noMatch: ['shpat_tooshort'],
   },
   shopifyWebhookToken: {
-    // shpwh_ + exactly 32 hex [a-fA-F0-9]
     match: ['shpwh_' + 'a'.repeat(32)],
     noMatch: ['shpwh_tooshort'],
   },
   adyenApiKey: {
-    // AQE + 70+ alphanumeric
     match: ['AQE' + 'a'.repeat(70), 'AQE' + 'a'.repeat(100)],
     noMatch: ['AQE' + 'a'.repeat(10), 'notAQE' + 'a'.repeat(70)],
   },
   razorpayApiKey: {
-    // rzp_test|live_ + exactly 14 alphanumeric
     match: ['rzp_test_' + 'a'.repeat(14), 'rzp_live_' + 'a'.repeat(14)],
     noMatch: ['rzp_staging_' + 'a'.repeat(14), 'rzp_test_tooshort'],
   },
@@ -1552,12 +1422,10 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_token: '" + 'a'.repeat(64) + "'"],
   },
   krakenAccessToken: {
-    // value 80-90 [a-z0-9/=_+-] but \b needs word char at end; use alphanum only
     match: ["kraken_key: '" + 'a'.repeat(80) + "'"],
     noMatch: ["other_key: '" + 'a'.repeat(80) + "'"],
   },
   kucoinAccessToken: {
-    // value exactly 24 hex [a-f0-9]
     match: ["kucoin_key: '" + 'a'.repeat(24) + "'"],
     noMatch: ["other_key: '" + 'a'.repeat(24) + "'"],
   },
@@ -1578,7 +1446,6 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ["other_key: '" + 'a'.repeat(18) + "'"],
   },
   gocardlessApiToken: {
-    // live_ + exactly 40 [a-z0-9\-_=] then \b; {40} is exact so >40 fails the boundary
     match: ['live_' + 'a'.repeat(40)],
     noMatch: ['staging_' + 'a'.repeat(40), 'live_tooshort'],
   },
@@ -1609,27 +1476,22 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['staging_' + 'a'.repeat(30), 'live_tooshort'],
   },
   shopifyStorefrontAccessToken: {
-    // shpatf_ + exactly 32 hex [0-9a-f]
     match: ['shpatf_' + 'a'.repeat(32)],
     noMatch: ['shpatf_tooshort'],
   },
   woocommerceConsumerKey: {
-    // ck_ + exactly 40 hex [a-f0-9]
     match: ['ck_' + 'a'.repeat(40)],
     noMatch: ['ck_tooshort', 'notck_' + 'a'.repeat(40)],
   },
   woocommerceConsumerSecret: {
-    // cs_ + exactly 40 hex [a-f0-9]
     match: ['cs_' + 'a'.repeat(40)],
     noMatch: ['cs_tooshort', 'notcs_' + 'a'.repeat(40)],
   },
   contentfulAccessToken: {
-    // CFPAT- + exactly 20 alphanumeric
     match: ['CFPAT-' + 'a'.repeat(20)],
     noMatch: ['CFPAT-tooshort', 'notCFPAT-' + 'a'.repeat(20)],
   },
   mailchimpEcommerceApiKey: {
-    // 32 hex + - + 2-3 lowercase + 1-2 digits
     match: ['a'.repeat(32) + '-us1', 'a'.repeat(32) + '-gb2'],
     noMatch: ['a'.repeat(32), 'short-us1'],
   },
@@ -1639,27 +1501,22 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['glpat-tooshort', 'notglpat-' + 'a'.repeat(20)],
   },
   gitlabDeployToken: {
-    // gldt- + exactly 20 [A-Za-z0-9_-]
     match: ['gldt-' + 'a'.repeat(20)],
     noMatch: ['gldt-tooshort', 'notgldt-' + 'a'.repeat(20)],
   },
   gitlabRunnerToken: {
-    // glrt- + exactly 20 [A-Za-z0-9_-]
     match: ['glrt-' + 'a'.repeat(20)],
     noMatch: ['glrt-tooshort'],
   },
   gitlabCiJobToken: {
-    // glcbt- + 1-5 alphanum _ + exactly 20 [0-9a-zA-Z_-]
     match: ['glcbt-abc_' + 'a'.repeat(20), 'glcbt-12345_' + 'a'.repeat(20)],
     noMatch: ['glcbt-abcdefghij_tooshort'],
   },
   gitlabPipelineTriggerToken: {
-    // glptt- + exactly 40 hex [0-9a-f]
     match: ['glptt-' + 'a'.repeat(40)],
     noMatch: ['glptt-tooshort', 'notglptt-' + 'a'.repeat(40)],
   },
   bitbucketAppPassword: {
-    // ATBB + exactly 24 alphanumeric
     match: ['ATBB' + 'a'.repeat(24)],
     noMatch: ['ATBB' + 'a'.repeat(23), 'notATBB' + 'a'.repeat(24)],
   },
@@ -1675,47 +1532,38 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['ghx_' + 'a'.repeat(36), 'ghp_tooshort'],
   },
   githubFineGrainedToken: {
-    // github_pat_ + exactly 82 [A-Za-z0-9_]
     match: ['github_pat_' + 'a'.repeat(82)],
     noMatch: ['github_pat_' + 'a'.repeat(81), 'github_pat_' + 'a'.repeat(83)],
   },
   githubAppInstallationToken: {
-    // ghs_ + exactly 37 [0-9a-zA-Z]
     match: ['ghs_' + 'a'.repeat(37)],
     noMatch: ['ghs_' + 'a'.repeat(36), 'ghs_' + 'a'.repeat(38)],
   },
   gitlabScimToken: {
-    // glsoat- + exactly 20 [0-9a-zA-Z_-]
     match: ['glsoat-' + 'a'.repeat(20)],
     noMatch: ['glsoat-tooshort'],
   },
   gitlabFeatureFlagToken: {
-    // glffct- + exactly 20 [0-9a-zA-Z_-]
     match: ['glffct-' + 'a'.repeat(20)],
     noMatch: ['glffct-tooshort'],
   },
   gitlabFeedToken: {
-    // glft- + exactly 20 [0-9a-zA-Z_-]
     match: ['glft-' + 'a'.repeat(20)],
     noMatch: ['glft-tooshort'],
   },
   gitlabIncomingMailToken: {
-    // glimt- + exactly 25 [0-9a-zA-Z_-]
     match: ['glimt-' + 'a'.repeat(25)],
     noMatch: ['glimt-tooshort'],
   },
   gitlabK8sAgentToken: {
-    // glagent- + exactly 50 [0-9a-zA-Z_-]
     match: ['glagent-' + 'a'.repeat(50)],
     noMatch: ['glagent-tooshort'],
   },
   gitlabOAuthAppSecret: {
-    // gloas- + exactly 64 [0-9a-zA-Z_-]
     match: ['gloas-' + 'a'.repeat(64)],
     noMatch: ['gloas-tooshort'],
   },
   gitlabSessionCookie: {
-    // _gitlab_session= + exactly 32 [0-9a-z]
     match: ['_gitlab_session=' + 'a'.repeat(32)],
     noMatch: [
       '_gitlab_session=tooshort',
@@ -1723,7 +1571,6 @@ const SAMPLES: Record<string, Sample> = {
     ],
   },
   bitbucketRepoToken: {
-    // ATCTT3 + exactly 24 alphanumeric
     match: ['ATCTT3' + 'a'.repeat(24)],
     noMatch: ['ATCTT3' + 'a'.repeat(23), 'notATCTT3' + 'a'.repeat(24)],
   },
@@ -1787,7 +1634,6 @@ describe('All regex patterns — structural integrity', () => {
 
 describe('All regex patterns — match correctness', () => {
   for (const [patternName, samples] of Object.entries(SAMPLES)) {
-    // Find the pattern by name in the combined list
     const pattern = allRegexPatterns.find(p => p.name === patternName);
 
     if (!pattern) {

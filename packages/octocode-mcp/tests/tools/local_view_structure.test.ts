@@ -1,7 +1,3 @@
-/**
- * Tests for localViewStructure tool - comprehensive coverage including pagination
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { viewStructure } from '../../src/tools/local_view_structure/local_view_structure.js';
@@ -10,7 +6,6 @@ import { checkCommandAvailability } from '../../src/utils/exec/commandAvailabili
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import type { Stats } from 'fs';
 
-// Mock dependencies
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
 }));
@@ -28,16 +23,12 @@ vi.mock('octocode-security-utils/pathValidator', () => ({
   },
 }));
 
-// Create mock functions using vi.hoisted so they're available when vi.mock runs
 const { mockReaddirFn, mockLstatFn, mockLstatSyncFn } = vi.hoisted(() => ({
   mockReaddirFn: vi.fn(),
   mockLstatFn: vi.fn(),
   mockLstatSyncFn: vi.fn(),
 }));
 
-// Mock fs module - CommonJS module accessed via ESM default import
-// When importing CJS module with `import fs from 'fs'`, the module object
-// becomes the default export in vitest
 vi.mock('fs', () => {
   const mockModule = {
     lstatSync: mockLstatSyncFn,
@@ -55,13 +46,12 @@ vi.mock('fs', () => {
 describe('localViewStructure', () => {
   const mockSafeExec = vi.mocked(safeExec);
   const mockValidate = vi.mocked(pathValidator.pathValidator.validate);
-  // Use the mock functions directly
+
   const mockReaddir = mockReaddirFn;
   const mockLstat = mockLstatFn;
   const mockLstatSync = mockLstatSyncFn;
 
   beforeEach(() => {
-    // Clear all mocks but then immediately set defaults
     vi.clearAllMocks();
 
     vi.mocked(checkCommandAvailability).mockResolvedValue({
@@ -74,8 +64,6 @@ describe('localViewStructure', () => {
       sanitizedPath: '/test/path',
     });
 
-    // Set default mock implementations that will be used unless overridden
-    // These MUST return valid values to prevent undefined errors
     mockReaddir.mockResolvedValue([]);
     mockLstat.mockResolvedValue({
       isDirectory: () => false,
@@ -127,7 +115,6 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        // No depth/recursive - uses ls path
       });
 
       expect(result.status).toBe('error');
@@ -147,7 +134,6 @@ describe('localViewStructure', () => {
         stderr: '',
       });
 
-      // parseLsSimple uses fs.promises.lstat (async), not lstatSync
       mockLstat.mockImplementation(
         async (pathArg: string | Buffer | URL): Promise<Stats> =>
           ({
@@ -203,7 +189,6 @@ describe('localViewStructure', () => {
 
   describe('Structured output mode', () => {
     it('should generate structured output with file sizes', async () => {
-      // Mock readdir to always return files (for any path)
       mockReaddir.mockResolvedValue(['file1.txt', 'file2.js']);
 
       mockLstat.mockImplementation(
@@ -344,15 +329,12 @@ describe('localViewStructure', () => {
         mtime: new Date(),
       } as Stats);
 
-      // Use an invalid regex pattern that will fail to compile
-      // When regex fails, falls back to substring matching - 'test' matches files
       const result = await viewStructure({
         path: '/test/path',
-        pattern: 'test*[', // Invalid regex - unmatched bracket, but 'test' prefix should match
+        pattern: 'test*[',
         depth: 1,
       });
 
-      // The fallback uses substring match, not glob - if no match found, returns empty
       expect([undefined, 'empty']).toContain(result.status);
     });
 
@@ -530,7 +512,6 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by glob pattern, extensions, and recursive together', async () => {
-      // Simulate a nested directory structure
       mockReaddir
         .mockResolvedValueOnce(['subdir', 'root.test.ts', 'other.ts'])
         .mockResolvedValueOnce(['nested.test.ts', 'another.ts']);
@@ -594,14 +575,11 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // ? matches exactly one character, so test1.ts and test2.ts match
       expect(result.entries!.some(e => e.name.includes('test1.ts'))).toBe(true);
       expect(result.entries!.some(e => e.name.includes('test2.ts'))).toBe(true);
-      // test10.ts has two chars after 'test' before '.ts', so it doesn't match
       expect(result.entries!.some(e => e.name.includes('test10.ts'))).toBe(
         false
       );
-      // testing.ts has 'ing' after 'test' before '.ts', so it doesn't match
       expect(result.entries!.some(e => e.name.includes('testing.ts'))).toBe(
         false
       );
@@ -881,7 +859,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Entries should be sorted alphabetically
     });
 
     it('should sort by size in recursive mode', async () => {
@@ -976,11 +953,10 @@ describe('localViewStructure', () => {
         path: '/test/path',
         depth: 1,
         sortBy: 'time',
-        showFileLastModified: false, // Modified not shown, fallback to name sort
+        showFileLastModified: false,
       });
 
       expect(result.status).toBeUndefined();
-      // Fallback uses name sort: alpha, beta, zebra
       const names = result.entries!.map(e => e.name);
       expect(names[0]).toContain('alpha');
       expect(names[1]).toContain('beta');
@@ -1011,7 +987,6 @@ describe('localViewStructure', () => {
 
   describe('Pagination - CRITICAL for large results', () => {
     it('should require pagination for large directory listing (>100 entries)', async () => {
-      // Generate 150 entries
       const entries = Array.from(
         { length: 150 },
         (_, i) => `file${i}.txt`
@@ -1030,14 +1005,10 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-
-        // No charLength specified
       });
 
-      // Should either return results or error requesting pagination
       expect([undefined, 'error']).toContain(result.status);
       if (result.status === 'error') {
-        // Should have error code for pagination
         expect(result.errorCode).toBeDefined();
       }
     });
@@ -1058,10 +1029,9 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        charLength: 50000, // Use charLength for large result set
+        charLength: 50000,
       });
 
-      // Tree view should work with pagination
       expect(result.status).toBeUndefined();
     });
 
@@ -1089,7 +1059,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBe(150);
       expect(result.pagination?.hasMore).toBe(true);
-      expect(result.entries!.length).toBe(100); // Default page size is 100
+      expect(result.entries!.length).toBe(100);
     });
 
     it('should paginate tree view when requested', async () => {
@@ -1102,7 +1072,6 @@ describe('localViewStructure', () => {
         mtime: new Date(),
       } as Stats);
 
-      // Mock the tree generation to produce large output
       const result = await viewStructure({
         path: '/test/path',
         charLength: 10000,
@@ -1145,7 +1114,6 @@ describe('localViewStructure', () => {
 
       expect(result2.status).toBeUndefined();
       expect(result2.pagination?.currentPage).toBe(2);
-      // Different entries on different pages
       expect(result2.entries![0]!.name).not.toBe(result1.entries![0]!.name);
     });
   });
@@ -1172,7 +1140,6 @@ describe('localViewStructure', () => {
         recursive: true,
       });
 
-      // Tree view with recursive doesn't use mockSafeExec, so result may be empty
       expect([undefined, 'empty']).toContain(result.status);
       if (result.status === undefined && result.entries) {
         expect(result.entries.length).toBeGreaterThan(0);
@@ -1194,7 +1161,6 @@ describe('localViewStructure', () => {
         depth: 1,
       });
 
-      // Success ≡ absent status; entries carry the resolved cwd-relative path.
       expect(result.status).toBeUndefined();
       expect(result.entries?.[0]?.path).toContain('/test/path');
     });
@@ -1214,13 +1180,10 @@ describe('localViewStructure', () => {
         depth: 5,
       });
 
-      // May be empty if mocked readdir returns empty array
       expect([undefined, 'empty']).toContain(result.status);
-      // Should respect max depth of 5
     });
 
     it('should require pagination for large recursive listings', async () => {
-      // Mock large recursive result
       mockReaddir.mockImplementation(
         async (): Promise<string[]> =>
           Array.from({ length: 50 }, (_, i) => `file${i}.txt`)
@@ -1237,8 +1200,6 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         recursive: true,
-
-        // Large result without pagination
       });
 
       if (
@@ -1251,7 +1212,6 @@ describe('localViewStructure', () => {
     });
 
     it('should handle large recursive listing with auto-pagination', async () => {
-      // Mock very large recursive result (>100 entries)
       mockReaddir.mockResolvedValue(
         Array.from({ length: 150 }, (_, i) => `file${i}.txt`)
       );
@@ -1269,14 +1229,11 @@ describe('localViewStructure', () => {
         depth: 1,
       });
 
-      // Default entriesPerPage (20) auto-paginates large results
       expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
     });
 
     it('should stop at maxEntries in walkDirectory', async () => {
-      // Create a structure that would exceed maxEntries
-      // Mock 200 files which with limit=10 should stop early
       mockReaddir.mockResolvedValue(
         Array.from({ length: 200 }, (_, i) => `file${i}.txt`)
       );
@@ -1292,8 +1249,8 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        limit: 10, // This sets maxEntries to limit * 2 = 20
-        charLength: 10000, // Allow pagination to avoid OUTPUT_TOO_LARGE error
+        limit: 10,
+        charLength: 10000,
       });
 
       expect(result.status).toBeUndefined();
@@ -1307,7 +1264,6 @@ describe('localViewStructure', () => {
         depth: 1,
       });
 
-      // Root-level readdir failure → surface a clear error instead of silent empty
       expect(result.status).toBe('error');
       expect(result.error).toBeDefined();
     });
@@ -1321,13 +1277,10 @@ describe('localViewStructure', () => {
         depth: 1,
       });
 
-      // Should skip inaccessible items gracefully
       expect(result.status).toBe('empty');
     });
 
     it('should return error with clear message when root path does not exist (ENOENT)', async () => {
-      // BUG-FIX: Previously returned status "empty" with "1 entries skipped due
-      // to permission errors" — misleading because ENOENT is not a permissions error.
       const enoentErr = Object.assign(
         new Error('ENOENT: no such file or directory'),
         {
@@ -1343,12 +1296,10 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBe('error');
       expect(result.error).toMatch(/not found|ENOENT/i);
-      // Must NOT say "permission errors"
       expect(result.error).not.toMatch(/permission/i);
     });
 
     it('should return error with clear message when root path is ENOTDIR (path is a file)', async () => {
-      // BUG-FIX: Providing a file path should give a clear "not a directory" error.
       const enotdirErr = Object.assign(new Error('ENOTDIR: not a directory'), {
         code: 'ENOTDIR',
       });
@@ -1401,7 +1352,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Summary is always included with entry counts
       if (result.summary !== undefined) {
         expect(result.summary).toMatch(/\d+ entries/);
       }
@@ -1462,7 +1412,6 @@ describe('localViewStructure', () => {
         LOCAL_TOOL_ERROR_CODES.COMMAND_EXECUTION_FAILED
       );
       expect(typeof result.error).toBe('string');
-      // createErrorResult uses ToolError.message which includes the command name prefix
       expect(result.error).toContain("Command 'ls' failed");
       expect(result.error).toContain('permission denied');
     });
@@ -1474,7 +1423,6 @@ describe('localViewStructure', () => {
         path: '/test/path',
       });
 
-      // Should handle error gracefully - might return error or hasResults with error message
       expect(['error', 'empty', 'hasResults']).toContain(result.status);
     });
   });
@@ -1500,7 +1448,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Should respect limit
     });
 
     it('should apply limit in non-recursive mode with pagination', async () => {
@@ -1530,8 +1477,6 @@ describe('localViewStructure', () => {
     });
 
     it('should apply limit BEFORE pagination logic', async () => {
-      // 100 files total. Limit 5. EntriesPerPage 20.
-      // Expected: 5 items total. Pagination should reflect 5 items.
       const fileList = Array.from(
         { length: 100 },
         (_, i) => `file${i}.txt`
@@ -1555,9 +1500,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries?.length).toBe(5);
-      // Pagination should reflect filtered count (5)
       expect(result.summary).toContain('5 entries');
-      // Should NOT have multiple pages (since 5 < 20)
       expect(result.pagination?.totalPages).toBe(1);
     });
   });
@@ -1729,8 +1672,6 @@ describe('localViewStructure', () => {
     });
 
     it('should clamp overflow page to totalPages (BUG-01 fix)', async () => {
-      // 25 entries, 10 per page → totalPages = 3
-      // Requesting page 9999 must clamp to 3 (not return "Page 9999/3 showing 0")
       const fileList = Array.from(
         { length: 25 },
         (_, i) => `file${i}.txt`
@@ -1753,11 +1694,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // currentPage clamped to totalPages (3), not 9999
       expect(result.pagination?.currentPage).toBe(3);
       expect(result.pagination?.totalPages).toBe(3);
       expect(result.pagination?.hasMore).toBe(false);
-      // Last page returns the remaining 5 entries (21-25), not 0
       expect(result.entries?.length).toBe(5);
     });
   });
@@ -1950,7 +1889,6 @@ describe('localViewStructure', () => {
   });
 
   describe('Character-based pagination (charOffset + charLength)', () => {
-    // C5: Char pagination was removed; these tests verify legacy char fields are safely ignored.
     it('should paginate entries even when charOffset/charLength are provided', async () => {
       const largeOutput = Array.from(
         { length: 150 },
@@ -2103,7 +2041,6 @@ describe('localViewStructure', () => {
         charLength: 100,
       });
 
-      // When charOffset is beyond content, we still get hasResults with empty data
       expect(result.status).toBeUndefined();
     });
 
@@ -2221,7 +2158,6 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      // Should not have replacement chars from split UTF-8
       expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
     });
 
@@ -2246,7 +2182,6 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      // Should not have replacement characters indicating split UTF-8
       expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
     });
 
@@ -2271,12 +2206,10 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      // Should not split emoji
       expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
     });
 
     it('should not split multi-byte characters at boundaries', async () => {
-      // Create content where boundary might fall in middle of UTF-8 char
       const utf8Content = 'a'.repeat(95) + 'café';
       mockSafeExec.mockResolvedValue({
         success: true,
@@ -2292,7 +2225,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        charLength: 98, // Might cut in middle of 'é'
+        charLength: 98,
       });
 
       expect(result.status).toBeUndefined();
@@ -2374,10 +2307,9 @@ describe('localViewStructure', () => {
         isSymbolicLink: () => false,
       } as Stats);
 
-      // Schema validation should prevent 0, but if it gets through, should default to 1
       const result = await viewStructure({
         path: '/test/path',
-        page: 1, // Test with valid value since schema validates
+        page: 1,
         itemsPerPage: 20,
       });
 
@@ -2386,7 +2318,6 @@ describe('localViewStructure', () => {
     });
 
     it('should clamp page > total pages to the last page', async () => {
-      // 25 entries, 20 per page → totalPages = 2; requesting page 10 must clamp to 2
       const fileList = Array.from(
         { length: 25 },
         (_, i) => `file${i}.txt`
@@ -2405,12 +2336,11 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        page: 10, // Way beyond last page
+        page: 10,
         itemsPerPage: 20,
       });
 
       expect(result.status).toBeUndefined();
-      // Must be clamped to 2 (totalPages), not 10
       expect(result.pagination?.currentPage).toBe(2);
       expect(result.pagination?.totalPages).toBe(2);
       expect(result.pagination?.hasMore).toBe(false);
@@ -2605,7 +2535,6 @@ describe('localViewStructure', () => {
 
   describe('Auto-pagination for large structuredOutput', () => {
     it('should return entries with entry pagination (C5: char auto-pagination removed)', async () => {
-      // Create 20 files with long names - entry pagination applies, no char truncation
       const longNameFiles = Array.from(
         { length: 20 },
         (_, i) =>
@@ -2629,12 +2558,10 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
       expect(result.entries!.length).toBe(20);
-      // C5: No char auto-pagination - bulk response handles output limits
       expect(result.warnings).toBeUndefined();
     });
 
     it('should NOT auto-paginate when output is under MAX_OUTPUT_CHARS (2000)', async () => {
-      // Create just a few files - small output
       const fewFiles = ['a.txt', 'b.txt', 'c.txt'];
       mockReaddir.mockResolvedValue(fewFiles);
       mockLstat.mockResolvedValue({
@@ -2648,11 +2575,9 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        // No charLength specified - should NOT trigger auto-pagination (output small)
       });
 
       expect(result.status).toBeUndefined();
-      // Should NOT have auto-pagination warnings
       expect(result.warnings).toBeUndefined();
     });
 
@@ -2673,12 +2598,12 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        charLength: 500, // C5: Ignored - entry pagination used
+        charLength: 500,
       });
 
       expect(result.status).toBeUndefined();
       expect(result.warnings).toBeUndefined();
-      expect(result.entries!.length).toBeLessThanOrEqual(100); // Default entriesPerPage is 100
+      expect(result.entries!.length).toBeLessThanOrEqual(100);
     });
 
     it('should use entry pagination in non-recursive mode (C5: no char truncation)', async () => {
@@ -2701,14 +2626,10 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeLessThanOrEqual(100); // Default page size is 100
+      expect(result.entries!.length).toBeLessThanOrEqual(100);
     });
   });
 
-  /**
-   * verbose:false (default) returns the same full entries[] as verbose:true.
-   * The verbose flag is additive — it never drops data.
-   */
   describe('verbose boolean — pass-through contract', () => {
     beforeEach(() => {
       mockSafeExec.mockResolvedValue({

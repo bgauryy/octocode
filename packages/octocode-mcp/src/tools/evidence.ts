@@ -34,14 +34,6 @@ export function hasMorePagination(value: unknown): boolean {
   return isRecord(value) && value.hasMore === true;
 }
 
-/**
- * Read the first present finite-number key from a pagination/summary record.
- *
- * Concise/discovery probes intentionally empty their display array (files,
- * entries, matches) but keep the logical total in pagination. Evidence builders
- * use this to derive `answerReady` from the true count instead of the dropped
- * array — otherwise a count-only probe reports `answerReady:false`.
- */
 export function paginationTotal(value: unknown, ...keys: string[]): number {
   if (!isRecord(value)) return 0;
   for (const key of keys) {

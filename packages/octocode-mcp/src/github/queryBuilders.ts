@@ -15,26 +15,10 @@ export function getOwnerQualifier(owner: string): string {
   return `user:${owner}`;
 }
 
-// Filter values (path:, filename:, …) only need quoting when they contain
-// GitHub search separators such as `@` or `/` (e.g. path:"src/tools").
 const GITHUB_SEARCH_SPECIAL_CHARS = /[@/]/;
 
-// GitHub code search matches `path:` ONLY against a file's directory, never a
-// full `dir/file.ext` — `path:packages/x/renderer.ts` returns zero even
-// unquoted, while `filename:renderer.ts path:packages/x` works. So when a
-// caller hands us a path whose last segment is a filename (a dot followed by a
-// letter-led extension), we split it into those two qualifiers. The
-// letter-led extension guard keeps version-like directory names (`src/v1.2`)
-// from being mistaken for files.
 const FILE_PATH_TAIL = /(?:^|\/)([^/]+\.[A-Za-z][A-Za-z0-9]{0,9})$/;
 
-// A keyword is safe to send bare only if it is a single GitHub identifier
-// token: alphanumerics plus `_`/`-`. Anything else — whitespace (a phrase),
-// or syntax characters GitHub's search parser reacts to (`$ . ( ) [ ] { } @ /`
-// `: " ' * ? + ^ | \` …) — must be wrapped in double quotes so it is matched as
-// a literal phrase instead of being split into AND-ed tokens or swallowed by
-// the query grammar. Without this, `path:`+multi-word queries and punctuation
-// keywords (`$state`, `React.useState`) silently return zero results.
 const GITHUB_BARE_KEYWORD = /^[A-Za-z0-9_-]+$/;
 
 function quoteKeywordIfNeeded(keyword: string): string {
@@ -42,7 +26,6 @@ function quoteKeywordIfNeeded(keyword: string): string {
     return keyword;
   }
   if (!GITHUB_BARE_KEYWORD.test(keyword)) {
-    // Escape any embedded double quotes so the wrapper stays well-formed.
     return `"${keyword.replace(/"/g, '\\"')}"`;
   }
   return keyword;
@@ -170,14 +153,10 @@ class CodeSearchQueryBuilder extends BaseQueryBuilder {
   addSearchFilters(params: WithOptionalMeta<GitHubCodeSearchQuery>): this {
     let path = params.path;
     let filename = params.filename;
-    // Rewrite a file-pointing path into filename: + directory path: (see
-    // FILE_PATH_TAIL). Never clobber a filename the caller set explicitly.
     const fileTail =
       typeof path === 'string' && !filename ? path.match(FILE_PATH_TAIL) : null;
     if (fileTail) {
       filename = fileTail[1];
-      // Everything before the matched "/basename.ext"; '' when the path was a
-      // bare filename, in which case path: is dropped entirely.
       path = path!.slice(0, fileTail.index) || undefined;
     }
 
@@ -258,9 +237,6 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
   addQualityFilters(
     params?: WithOptionalMeta<GitHubReposSearchSingleQuery>
   ): this {
-    // Default (archived absent/false) keeps the historical `is:not-archived`
-    // exclusion. `archived: true` opts INTO archived repos, which are
-    // otherwise invisible to repo search.
     const archived = (params as { archived?: boolean } | undefined)?.archived;
     this.queryParts.push(
       archived === true ? 'archived:true' : 'is:not-archived'
@@ -332,9 +308,6 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
   }
 
   addMiscFilters(params: GitHubPullRequestsSearchParams): this {
-    // Default (archived absent/false) excludes PRs in archived repos.
-    // `archived: true` opts into them — needed for PR archaeology on
-    // deprecated/archived projects.
     this.queryParts.push(
       params.archived === true ? 'archived:true' : 'archived:false'
     );

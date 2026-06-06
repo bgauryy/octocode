@@ -108,7 +108,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
             }),
             getContent: vi
               .fn()
-              // First call - root directory
               .mockResolvedValueOnce({
                 data: [
                   {
@@ -136,7 +135,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
                   },
                 ],
               })
-              // Second call - src directory
               .mockResolvedValueOnce({
                 data: [
                   {
@@ -182,13 +180,10 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should have structure grouped by directory
         expect(Object.keys(result.structure).length).toBeGreaterThan(0);
-        // Root should have files and folders
         expect(result.structure['.']).toBeDefined();
         expect(result.structure['.']?.files).toContain('README.md');
         expect(result.structure['.']?.folders).toContain('src');
-        // Should have made API calls
         expect(mockOctokit.rest.repos.getContent).toHaveBeenCalled();
         const [rootResponse, recursiveResponse] =
           mockOctokit.rest.repos.getContent.mock.results.map(
@@ -263,7 +258,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should not infinitely recurse - verify result exists
         expect(Object.keys(result.structure).length).toBeGreaterThanOrEqual(0);
       }
     });
@@ -338,9 +332,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Root should have unique files
         expect(result.structure['.']?.files).toContain('index.ts');
-        // src should have its own files
         expect(result.structure['src']).toBeDefined();
         expect(result.structure['src']?.files).toContain('index.ts');
       }
@@ -383,9 +375,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
                   },
                 ],
               })
-              // Error for src directory
               .mockRejectedValueOnce(new Error('Access denied'))
-              // Success for docs directory
               .mockResolvedValueOnce({
                 data: [
                   {
@@ -419,7 +409,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should still return results from successful directories
         expect(result.structure['.']).toBeDefined();
         expect(result.structure['.']?.folders).toContain('src');
         expect(result.structure['.']?.folders).toContain('docs');
@@ -521,9 +510,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Files should be sorted alphabetically
         expect(result.structure['.']?.files).toEqual(['file1.ts', 'file2.ts']);
-        // Folders should be sorted alphabetically
         expect(result.structure['.']?.folders).toEqual(['docs', 'src']);
       }
     });
@@ -610,17 +597,14 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should not include node_modules or .git
         expect(result.structure['.']?.folders).not.toContain('node_modules');
         expect(result.structure['.']?.folders).not.toContain('.git');
 
-        // Should include src
         expect(result.structure['.']?.folders).toContain('src');
       }
     });
 
     it('should respect item limit based on depth', async () => {
-      // Generate many items (above the default page size of 100)
       const manyItems = Array.from({ length: 150 }, (_, i) => ({
         name: `file${i}.ts`,
         path: `file${i}.ts`,
@@ -660,7 +644,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should be limited (default page size is 100)
         expect(result.structure['.']?.files?.length).toBeLessThanOrEqual(100);
         expect(result.summary?.truncated).toBe(true);
         expect(result.summary?.originalCount).toBeGreaterThan(
@@ -711,7 +694,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
                   },
                 ],
               })
-              // Should not reach this level with depth=2
               .mockResolvedValueOnce({
                 data: [
                   {
@@ -745,7 +727,6 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // With depth=2, should have directory structure
         expect(result.structure['.']).toBeDefined();
         expect(result.structure['.']?.folders).toContain('src');
       }

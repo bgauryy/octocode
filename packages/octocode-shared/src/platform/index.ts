@@ -1,7 +1,3 @@
-/**
- * Platform Module Exports
- */
-
 export {
   isWindows,
   isMac,

@@ -5,7 +5,6 @@ import {
 } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-// Mock all dependencies before importing index
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js');
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js');
 vi.mock('../src/utils/http/cache.js');
@@ -62,7 +61,6 @@ vi.mock('../src/utils/core/logger.js', () => {
   };
 });
 
-// Import mocked functions
 import { registerGitHubSearchCodeTool } from '../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
@@ -83,7 +81,6 @@ import {
   allowUnexpectedWarningFailureForCurrentTest,
 } from './warningPolicy.js';
 
-// Mock implementations
 const mockMcpServer = {
   connect: vi.fn(function () {}),
   close: vi.fn(function () {}),
@@ -103,7 +100,6 @@ const mockGetServerConfig = vi.mocked(getServerConfig);
 const mockIsCloneEnabled = vi.mocked(isCloneEnabled);
 const mockGetActiveProvider = vi.mocked(getActiveProvider);
 
-// Mock all tool registration functions
 const mockRegisterGitHubSearchCodeTool = vi.mocked(
   registerGitHubSearchCodeTool
 );
@@ -129,22 +125,18 @@ describe('Index Module', () => {
 
   let processOnSpy: any;
 
-  // uncork spies removed — uncork calls were removed from index.ts (stdio safety)
   let originalGithubToken: string | undefined;
   let originalGhToken: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.resetModules(); // Reset module cache
+    vi.resetModules();
 
-    // Store original environment variables
     originalGithubToken = process.env.GITHUB_TOKEN;
     originalGhToken = process.env.GH_TOKEN;
 
-    // Set a test token to avoid getToken() issues
     process.env.GITHUB_TOKEN = 'test-token';
 
-    // Setup default mock implementations
     mockMcpServerConstructor.mockImplementation(function () {
       return mockMcpServer as unknown as InstanceType<typeof McpServer>;
     });
@@ -154,11 +146,9 @@ describe('Index Module', () => {
       >;
     });
 
-    // Create spies for process methods - use a safer mock that doesn't throw by default
     processExitSpy = vi.spyOn(process, 'exit').mockImplementation(function (
       _code?: string | number | null | undefined
     ) {
-      // Don't throw by default - let individual tests override if needed
       return undefined as never;
     });
     processStdinResumeSpy = vi
@@ -174,13 +164,10 @@ describe('Index Module', () => {
     processOnSpy = vi.spyOn(process, 'once').mockImplementation(function () {
       return process;
     });
-    // uncork spies removed — uncork calls were removed from index.ts (stdio safety)
 
-    // Mock server connect to resolve immediately
     mockMcpServer.connect.mockResolvedValue(undefined);
     mockMcpServer.close.mockResolvedValue(undefined);
 
-    // Mock all tool registration functions to succeed by default
     const mockRegisteredTool = {
       name: 'mock-tool',
       description: 'Mock tool',
@@ -211,7 +198,6 @@ describe('Index Module', () => {
       return mockRegisteredTool;
     });
 
-    // Mock simplified dependencies
     mockGetGitHubToken.mockResolvedValue('test-token');
     mockInitialize.mockResolvedValue(undefined);
     mockCleanup.mockImplementation(() => {});
@@ -229,18 +215,15 @@ describe('Index Module', () => {
       tokenSource: 'env:GITHUB_TOKEN',
     });
 
-    // Mock registerTools to return success count based on config
     mockRegisterTools.mockImplementation(async () => {
-      return { successCount: 4, failedTools: [] }; // Default tools count
+      return { successCount: 4, failedTools: [] };
     });
 
-    // Mock isCloneEnabled and getActiveProvider
     mockIsCloneEnabled.mockReturnValue(false);
     mockGetActiveProvider.mockReturnValue('github');
   });
 
   afterEach(() => {
-    // Restore original environment variables
     if (originalGithubToken !== undefined) {
       process.env.GITHUB_TOKEN = originalGithubToken;
     } else {
@@ -252,15 +235,12 @@ describe('Index Module', () => {
       delete process.env.GH_TOKEN;
     }
 
-    // Restore spies
     processExitSpy?.mockRestore();
     processStdinResumeSpy?.mockRestore();
     processStdinOnSpy?.mockRestore();
     processOnSpy?.mockRestore();
-    // uncork spies removed — uncork calls were removed from index.ts (stdio safety)
   });
 
-  // Helper function to wait for startup promises to settle without real timers.
   const waitForAsyncOperations = async () => {
     for (let i = 0; i < 25; i++) await Promise.resolve();
   };
@@ -344,10 +324,8 @@ describe('Index Module', () => {
       delete process.env.GITHUB_TOKEN;
       delete process.env.GH_TOKEN;
 
-      // Mock getToken to throw when no token is available
       mockGetGitHubToken.mockRejectedValue(new Error('No token available'));
 
-      // Override the mock to track the exit call without throwing
       let exitCalled = false;
       let exitCode: number | undefined;
       processExitSpy.mockImplementation(
@@ -368,7 +346,7 @@ describe('Index Module', () => {
         await waitForAsyncOperations();
         await waitForAsyncOperations();
       } catch {
-        // Ignore any errors from module loading
+        void 0;
       }
 
       expect(exitCalled).toBe(true);
@@ -381,12 +359,10 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called with server
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
     it('should continue registering tools even if some fail', async () => {
-      // Mock registerTools to return partial success
       mockRegisterTools.mockImplementation(async () => {
         return {
           successCount: 3,
@@ -397,17 +373,14 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was still called
       expect(mockRegisterTools).toHaveBeenCalled();
     });
 
     it('should exit when no tools are successfully registered', async () => {
-      // Make registerTools return no successful registrations
       mockRegisterTools.mockImplementation(async () => {
         return { successCount: 0, failedTools: ['all'] };
       });
 
-      // Track the exit call without throwing
       let exitCalled = false;
       let exitCode: number | undefined;
       processExitSpy.mockImplementation(
@@ -428,7 +401,7 @@ describe('Index Module', () => {
         await waitForAsyncOperations();
         await waitForAsyncOperations();
       } catch {
-        // Ignore any errors from module loading
+        void 0;
       }
 
       expect(exitCalled).toBe(true);
@@ -436,7 +409,6 @@ describe('Index Module', () => {
     });
 
     it('should handle tool registration errors gracefully', async () => {
-      // Mock registerTools to return partial success
       mockRegisterTools.mockImplementation(async () => {
         return {
           successCount: 2,
@@ -444,35 +416,28 @@ describe('Index Module', () => {
         };
       });
 
-      // The module should still load
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called
       expect(mockRegisterTools).toHaveBeenCalled();
     });
 
     it('should handle multiple tool registration errors', async () => {
-      // Mock registerTools to return partial success with multiple failures
       mockRegisterTools.mockImplementation(async () => {
         return { successCount: 1, failedTools: ['tool1', 'tool2'] };
       });
 
-      // The module should still load
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called
       expect(mockRegisterTools).toHaveBeenCalled();
     });
 
     it('should handle all tool registration errors', async () => {
-      // Mock registerTools to fail completely
       mockRegisterTools.mockImplementation(async () => {
         return { successCount: 0, failedTools: ['all', 'tools', 'failed'] };
       });
 
-      // Track the exit call without throwing
       let exitCalled = false;
       let exitCode: number | undefined;
       processExitSpy.mockImplementation(
@@ -493,10 +458,9 @@ describe('Index Module', () => {
         await waitForAsyncOperations();
         await waitForAsyncOperations();
       } catch {
-        // Ignore any errors from module loading
+        void 0;
       }
 
-      // Verify that the server was created but exit was called
       expect(mockMcpServerConstructor).toHaveBeenCalled();
       expect(exitCalled).toBe(true);
       expect(exitCode).toBe(1);
@@ -507,7 +471,6 @@ describe('Index Module', () => {
     it('should handle server startup errors', async () => {
       mockMcpServer.connect.mockRejectedValue(new Error('Connection failed'));
 
-      // Track the exit call without throwing
       let exitCalled = false;
       let exitCode: number | undefined;
       processExitSpy.mockImplementation(
@@ -528,7 +491,7 @@ describe('Index Module', () => {
         await waitForAsyncOperations();
         await waitForAsyncOperations();
       } catch {
-        // Ignore any errors from module loading
+        void 0;
       }
 
       expect(exitCalled).toBe(true);
@@ -549,16 +512,12 @@ describe('Index Module', () => {
         await waitForAsyncOperations();
         await waitForAsyncOperations();
       } catch {
-        // Ignore
+        void 0;
       }
 
       expect(exitCalled).toBe(true);
     });
   });
-
-  // Signal handling tests removed - they depend on complex startup mocking
-
-  // Graceful shutdown tests removed - they depend on complex startup mocking
 
   describe('Tool Names Export Consistency', () => {
     it('should have consistent tool name exports', () => {
@@ -604,7 +563,6 @@ describe('Index Module', () => {
         mockContent
       );
 
-      // Should still register tools but log warning
       expect(mockRegisterTools).toHaveBeenCalled();
       expect(stderrSpy).toHaveBeenCalledWith(
         expect.stringContaining('No GitHub token available')
@@ -649,7 +607,6 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Clone-enabled branch should be exercised
       expect(mockIsCloneEnabled).toHaveBeenCalled();
     });
 
@@ -668,13 +625,11 @@ describe('Index Module', () => {
     let originalDisableTools: string | undefined;
 
     beforeEach(() => {
-      // Store original environment variables
       originalEnableTools = process.env.ENABLE_TOOLS;
       originalDisableTools = process.env.DISABLE_TOOLS;
     });
 
     afterEach(() => {
-      // Restore original environment variables
       if (originalEnableTools !== undefined) {
         process.env.ENABLE_TOOLS = originalEnableTools;
       } else {
@@ -694,7 +649,6 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called (default tools would be registered)
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
@@ -705,7 +659,6 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
@@ -715,11 +668,7 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called with server
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
-
-      // The actual tool filtering logic is tested in the registerTools function
-      // Here we just verify the main registration flow works
     });
 
     it('should disable tools with DISABLE_TOOLS', async () => {
@@ -728,7 +677,6 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
@@ -739,7 +687,6 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
@@ -750,7 +697,6 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called (whitespace handling is done in serverConfig)
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
@@ -761,17 +707,14 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      // Verify registerTools was called (invalid tools are ignored)
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
     it('should exit when all tools are disabled', async () => {
-      // Mock registerTools to return no successful registrations
       mockRegisterTools.mockImplementation(async () => {
         return { successCount: 0, failedTools: [] };
       });
 
-      // Track the exit call without throwing
       let exitCalled = false;
       let exitCode: number | undefined;
       processExitSpy.mockImplementation(
@@ -792,10 +735,9 @@ describe('Index Module', () => {
         await waitForAsyncOperations();
         await waitForAsyncOperations();
       } catch {
-        // Ignore any errors from module loading
+        void 0;
       }
 
-      // Verify the process exits with error code
       expect(exitCalled).toBe(true);
       expect(exitCode).toBe(1);
     });

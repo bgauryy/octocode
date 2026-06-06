@@ -68,7 +68,6 @@ describe('GitHub Fetch Content Tool', () => {
 
     mockInitialize.mockResolvedValue(undefined);
 
-    // Setup mock provider
     mockProvider = {
       searchCode: vi.fn(),
       getFileContent: vi.fn(),
@@ -408,10 +407,6 @@ describe('GitHub Fetch Content Tool', () => {
     });
 
     it('signals matchString-not-found instead of silent empty content (F2)', async () => {
-      // The provider's content layer collapses a matchString miss to
-      // content:'' and surfaces a `noMatches` warning (see
-      // transformFileContentResult). The finalizer must render that warning,
-      // not present a silent empty read.
       mockProvider.getFileContent.mockResolvedValue({
         data: {
           path: 'file.js',
@@ -443,7 +438,6 @@ describe('GitHub Fetch Content Tool', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      // Must NOT silently present an empty successful read — surface the miss.
       expect(responseText).toMatch(/no matches|not found/i);
     });
 
@@ -756,7 +750,6 @@ describe('GitHub Fetch Content Tool', () => {
         { queries: [] }
       );
 
-      // Empty queries should return empty results, not error
       expect(result.isError).toBe(false);
     });
 
@@ -766,7 +759,6 @@ describe('GitHub Fetch Content Tool', () => {
         {}
       );
 
-      // Should handle gracefully
       expect(result).toBeDefined();
     });
   });

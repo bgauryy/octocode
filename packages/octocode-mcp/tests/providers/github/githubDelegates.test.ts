@@ -29,7 +29,6 @@ import type {
   PullRequestQuery,
 } from '../../../src/providers/types.js';
 
-// Mock GitHub API functions
 vi.mock('../../../src/github/fileContent.js', () => ({
   fetchGitHubFileContentAPI: vi.fn(),
 }));
@@ -671,7 +670,6 @@ describe('GitHub Provider Delegates', () => {
         };
         await searchRepos(query);
 
-        // Verify the GitHub API was called with the correct stars string
         expect(mockSearchGitHubReposAPI).toHaveBeenCalled();
         const apiCall = mockSearchGitHubReposAPI.mock.calls[0]![0];
         expect(apiCall.stars).toBe('100..500');
@@ -711,7 +709,6 @@ describe('GitHub Provider Delegates', () => {
         await searchRepos(query);
 
         const apiCall = mockSearchGitHubReposAPI.mock.calls[0]![0];
-        // Should NOT be >=50 (which loses the upper bound)
         expect(apiCall.stars).not.toBe('>=50');
         expect(apiCall.stars).toBe('50..200');
       });

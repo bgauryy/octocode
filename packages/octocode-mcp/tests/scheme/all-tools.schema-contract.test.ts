@@ -1,38 +1,8 @@
-/**
- * ALL-TOOLS SCHEMA CONTRACT — Zod v4 compliance + MCP descriptor correctness
- *
- * Single loop over all 14 tools. Asserts the invariants that must hold
- * after the Zod v4 migration (no zod/v4 compat shim, no z.preprocess wrapper
- * at bulk level):
- *
- *   1. STRUCTURE  — bulk schema is a ZodObject (not ZodPipe).
- *                   A ZodPipe at the top level makes normalizeObjectSchema in
- *                   the MCP SDK return EMPTY_OBJECT_JSON_SCHEMA → agents see
- *                   `{ properties: {} }` in tools/list and cannot discover fields.
- *
- *   2. ENVELOPE   — bulk schema has `queries` (the shared bulk envelope contract).
- *
- *   3. SHARED FIELDS — every per-query schema exposes the cross-tool fields:
- *                   id, mainResearchGoal, researchGoal, reasoning, verbose.
- *
- *   4. PARSE OK   — a minimal valid input for each tool parses without error.
- *
- *   5. PARSE FAIL — invalid inputs (empty queries, duplicate ids, wrong types)
- *                   are rejected with structured errors.
- *
- * Schema access path: tool.direct.inputSchema (bulk) / tool.direct.schema (per-query).
- */
-
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 
-// ---------------------------------------------------------------------------
-// Minimal valid per-query inputs — one per tool, keyed by canonical tool name.
-// Only required fields are supplied; optional fields are intentionally absent
-// to confirm defaults work and the schema doesn't demand extra fields.
-// ---------------------------------------------------------------------------
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { pattern: 'foo', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
@@ -81,15 +51,6 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the shape of the per-query element schema inside a bulk schema.
- * Bulk schema: z.object({ queries: z.array(querySchema), ... })
- * We extract querySchema from the array's element.
- */
 function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
   if (!(bulkSchema instanceof z.ZodObject)) return null;
   const queriesField = bulkSchema.shape['queries'];
@@ -99,21 +60,13 @@ function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Contract loop — iterates over ALL 14 tools
-// ---------------------------------------------------------------------------
-
 describe('all-tools schema contract', () => {
   describe.each(ALL_TOOLS.map(t => [t.name, t] as const))(
     'tool: %s',
     (toolName, tool) => {
-      // Schemas live on tool.direct (ToolDirectExecutionConfig)
       const bulkSchema = tool.direct.inputSchema as z.ZodTypeAny;
       const querySchema = tool.direct.schema as z.ZodTypeAny;
 
-      // -----------------------------------------------------------------------
-      // 1. STRUCTURE — bulk schema must be ZodObject, NOT ZodPipe
-      // -----------------------------------------------------------------------
       it('bulk inputSchema is a ZodObject (not ZodPipe) — MCP descriptor contract', () => {
         expect(
           bulkSchema instanceof z.ZodObject,
@@ -138,9 +91,6 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      // -----------------------------------------------------------------------
-      // 2. ENVELOPE — queries
-      // -----------------------------------------------------------------------
       it('bulk envelope declares queries field', () => {
         expect(
           bulkSchema instanceof z.ZodObject && 'queries' in bulkSchema.shape,
@@ -157,7 +107,6 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
         if (!(queriesField instanceof z.ZodArray)) return;
         const checks = (queriesField as any)._zod?.def?.checks ?? [];
-        // Zod v4: check kind stored in c._zod.def.check
         const hasMin = checks.some(
           (c: unknown) =>
             (c as any)?._zod?.def?.check === 'min_length' ||
@@ -171,9 +120,6 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      // -----------------------------------------------------------------------
-      // 3. SHARED FIELDS — per-query schema must expose cross-tool fields
-      // -----------------------------------------------------------------------
       const SHARED_FIELDS = [
         'id',
         'mainResearchGoal',
@@ -185,7 +131,6 @@ describe('all-tools schema contract', () => {
       it('per-query schema (tool.direct.schema) exposes all cross-tool shared fields', () => {
         const shape = (querySchema as any)?.shape;
         if (!shape) {
-          // querySchema isn't a ZodObject with .shape — skip gracefully
           return;
         }
         for (const field of SHARED_FIELDS) {
@@ -198,7 +143,7 @@ describe('all-tools schema contract', () => {
 
       it('bulk per-query element also exposes shared fields', () => {
         const shape = getQueryShape(bulkSchema);
-        if (!shape) return; // cannot extract — skip
+        if (!shape) return;
         for (const field of SHARED_FIELDS) {
           expect(
             field in shape,
@@ -207,9 +152,6 @@ describe('all-tools schema contract', () => {
         }
       });
 
-      // -----------------------------------------------------------------------
-      // 4. PARSE OK — minimal valid inputs succeed
-      // -----------------------------------------------------------------------
       it('parses minimal valid input without error', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         expect(
@@ -281,9 +223,6 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      // -----------------------------------------------------------------------
-      // 5. PARSE FAIL — invalid inputs are rejected
-      // -----------------------------------------------------------------------
       it('rejects empty queries array', () => {
         const r = bulkSchema.safeParse({ queries: [] });
         expect(r.success).toBe(false);
@@ -336,9 +275,6 @@ describe('all-tools schema contract', () => {
     }
   );
 
-  // -------------------------------------------------------------------------
-  // Global invariants — asserted once across the full catalog
-  // -------------------------------------------------------------------------
   describe('global invariants', () => {
     it('ALL_TOOLS contains exactly 14 tools', () => {
       expect(ALL_TOOLS).toHaveLength(14);

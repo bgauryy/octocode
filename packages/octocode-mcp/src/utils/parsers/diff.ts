@@ -92,7 +92,7 @@ export function filterPatch(
           ? `+${line.newLineNumber}`
           : line.type === 'deletion'
             ? `-${line.originalLineNumber}`
-            : ` ${line.newLineNumber}`; // Context line
+            : ` ${line.newLineNumber}`;
       return `${lineNum}: ${line.content.substring(1)}`;
     })
     .join('\n');

@@ -1,11 +1,3 @@
-/**
- * Branch coverage tests for toolConfig.ts
- *
- * This file covers line 26: `return DESCRIPTIONS[toolName] ?? '';`
- * Both branches need to be tested:
- * 1. When DESCRIPTIONS[toolName] returns a truthy value (description exists)
- * 2. When DESCRIPTIONS[toolName] returns undefined/null (fallback to '')
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/tools/toolMetadata/proxies.js', async importOriginal => {
@@ -34,7 +26,6 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
       const { DESCRIPTIONS } =
         await import('../../src/tools/toolMetadata/proxies.js');
 
-      // Access a tool that doesn't exist - should return ''
       const unknownDescription = DESCRIPTIONS['completely_unknown_tool_xyz'];
       expect(unknownDescription).toBe('');
     });
@@ -43,15 +34,12 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
       const { DESCRIPTIONS } =
         await import('../../src/tools/toolMetadata/proxies.js');
 
-      // Access with undefined-like key
       const result = DESCRIPTIONS[''];
       expect(result).toBe('');
     });
 
     it('getDescription returns empty string for unknown tool (hits ?? fallback)', async () => {
       const { getDescription } = await import('../../src/tools/toolConfig.js');
-      // DESCRIPTIONS proxy returns '' for unknown keys; getDescription's ?? ''
-      // handles the case when DESCRIPTIONS returns undefined/null
       const result = getDescription('__nonexistent_tool_for_coverage__');
       expect(result).toBe('');
     });
@@ -69,7 +57,6 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         ALL_TOOLS,
       } = await import('../../src/tools/toolConfig.js');
 
-      // Verify all configs have required properties
       const configs = [
         GITHUB_SEARCH_CODE,
         GITHUB_FETCH_CONTENT,
@@ -92,7 +79,6 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         expect(typeof config.fn).toBe('function');
       }
 
-      // ALL_TOOLS contains 6 GitHub tools + 1 Clone + 4 Local tools + 3 LSP tools = 14
       expect(ALL_TOOLS).toHaveLength(14);
     });
 
@@ -106,16 +92,13 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         PACKAGE_SEARCH,
       } = await import('../../src/tools/toolConfig.js');
 
-      // Verify search tools
       expect(GITHUB_SEARCH_CODE.type).toBe('search');
       expect(GITHUB_SEARCH_REPOSITORIES.type).toBe('search');
       expect(PACKAGE_SEARCH.type).toBe('search');
 
-      // Verify content tools
       expect(GITHUB_FETCH_CONTENT.type).toBe('content');
       expect(GITHUB_VIEW_REPO_STRUCTURE.type).toBe('content');
 
-      // Verify history tools
       expect(GITHUB_SEARCH_PULL_REQUESTS.type).toBe('history');
     });
 
@@ -140,7 +123,6 @@ describe('toolConfig - fn property', () => {
       PACKAGE_SEARCH,
     } = await import('../../src/tools/toolConfig.js');
 
-    // Verify all fn properties are functions
     expect(typeof GITHUB_SEARCH_CODE.fn).toBe('function');
     expect(typeof GITHUB_FETCH_CONTENT.fn).toBe('function');
     expect(typeof GITHUB_VIEW_REPO_STRUCTURE.fn).toBe('function');

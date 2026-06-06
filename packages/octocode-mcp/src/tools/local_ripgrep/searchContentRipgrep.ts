@@ -1,9 +1,3 @@
-/**
- * Main entry point for ripgrep search.
- *
- * Bundled `@vscode/ripgrep` is the only engine. The historical grep
- * fallback was removed in May-2026 cleanup — see `cleanup_contract.test.ts`.
- */
 import {
   checkCommandAvailability,
   getMissingCommandError,

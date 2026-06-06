@@ -1,11 +1,3 @@
-/**
- * LSP Find References Tool
- *
- * Finds all references to a symbol across the workspace using Language Server Protocol.
- *
- * @module tools/lsp_find_references
- */
-
 import { readFile, stat } from 'fs/promises';
 
 import type { z } from 'zod';
@@ -49,19 +41,9 @@ import {
 } from '../../utils/response/charSavings.js';
 import { attachLspEvidence } from '../../lsp/evidence.js';
 
-/**
- * Find all references to a symbol.
- *
- * Wraps the internal core logic with the verbosity transformer.
- * verbose=false (default): compact result set (location strings, no snippets).
- * verbose=true: full per-reference content included.
- */
 export async function findReferences(
   query: LSPFindReferencesQuery
 ): Promise<FindReferencesResult> {
-  // Surface page-size knob is the cross-tool `itemsPerPage`; the internal
-  // pipeline threads `referencesPerPage`. Bridge once here so all downstream
-  // logic (resolveReferencePagination, core/patterns builders) is unchanged.
   const bridge = query as {
     itemsPerPage?: number;
     referencesPerPage?: number;
@@ -74,9 +56,6 @@ export async function findReferences(
   }
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
-  // Row navigation is page-based (`page` / `referencesPerPage`). The generic
-  // bulk response does not expose response-level char cursors, so this tool
-  // returns the current page in full and relies on item pagination for bounds.
   const shaped = attachReferencesEvidence(
     applyFindReferencesVerbosity(result, query)
   );
@@ -153,11 +132,9 @@ async function findReferencesInternal(
             errorType: 'symbol_not_found',
             errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
             hints: [
-              `Symbol '${symbolName}' not found at or near line ${lineHint}`,
+              `Symbol '${symbolName}' not found at or near line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
               `Searched +/-${error.searchRadius} lines from line ${lineHint}`,
-              'Verify the exact symbol name (case-sensitive, no partial matches)',
-              'Use localGetFileContent to check the file content around that line',
-              'Use localSearchCode to find the correct line number first',
+              'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.',
             ],
           },
           content.length
@@ -172,10 +149,6 @@ async function findReferencesInternal(
       workspaceRoot
     );
 
-    // No language server: we do NOT fall back to regex/text matching dressed
-    // up as semantic references (it misses renamed/aliased usages and yields
-    // false positives). Return a clear empty result that routes the caller to
-    // the dedicated text-search tool instead.
     if (!lspAvailable) {
       return attachRawResponseChars(
         buildLspUnavailableResult(false, query.symbolName),
@@ -183,9 +156,6 @@ async function findReferencesInternal(
       );
     }
 
-    // groupByFile is a full-set rollup: the per-file map must aggregate the
-    // COMPLETE reference set, so fetch every reference on one page. Flat /
-    // snippet modes page normally via the caller's page/referencesPerPage.
     const lspQuery: LSPFindReferencesQuery = query.groupByFile
       ? { ...query, page: 1, referencesPerPage: Number.MAX_SAFE_INTEGER }
       : query;
@@ -220,15 +190,6 @@ async function findReferencesInternal(
   }
 }
 
-/**
- * Build the empty result returned when no language server can resolve
- * references. There is no regex/text fallback: text matching cannot
- * distinguish semantic references from incidental name collisions, so rather
- * than return misleading guesses we point the caller at the text-search tool.
- *
- * @param lspFailed true when a language server was available but the request
- *   failed or returned nothing (vs. no language server installed at all).
- */
 function buildLspUnavailableResult(
   lspFailed = false,
   symbolName?: string
@@ -248,14 +209,6 @@ function buildLspUnavailableResult(
     ],
   };
 }
-
-/**
- * Adaptive concise threshold. Below this fanout the response is a
- * flat `refs[]` of "file:line" strings (still fits one 8 KB page); at or above
- * it the response auto-degrades to a `byFile` rollup so the payload is
- * bounded regardless of fanout. Validated by `measure.mjs::demo9` (≤ 443
- * chars at 10,000 refs).
- */
 
 function buildReferencesByFile(
   locations: readonly ReferenceLocation[]
@@ -290,22 +243,12 @@ function buildReferencesByFile(
   });
 }
 
-/**
- * Verbosity shaping for lspFindReferences.
- *
- * groupByFile: short-circuits verbosity — returns per-file counts regardless.
- * verbose=false (default): omit `lspMode` metadata from results.
- * verbose=true: include all fields.
- *
- * Locations are never dropped. Hints are always returned fully.
- */
 export function applyFindReferencesVerbosity(
   result: FindReferencesResult,
   query: LSPFindReferencesQuery
 ): FindReferencesResult {
   if (result.status !== undefined || !result.locations?.length) return result;
 
-  // groupByFile is a product mode — short-circuits verbosity.
   if (query.groupByFile) {
     const byFile = buildReferencesByFile(result.locations);
     const summary = `${result.locations.length} refs in ${byFile.length} files`;

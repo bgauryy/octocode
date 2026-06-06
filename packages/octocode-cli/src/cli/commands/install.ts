@@ -317,7 +317,6 @@ export const installCommand: CLICommand = {
           parentWritable = false;
         }
       } else {
-        // Will be created by writeMCPConfig — check grandparent
         try {
           accessSync(path.dirname(parentDir), constants.W_OK);
           parentWritable = true;

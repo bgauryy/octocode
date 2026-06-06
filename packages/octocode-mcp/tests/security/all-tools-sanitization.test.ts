@@ -1,18 +1,3 @@
-/**
- * ALL-TOOLS OUTPUT SANITIZATION — End-to-End Integration Test
- * ============================================================
- * Proves the unified `withOutputSanitization` proxy sanitizes every tool's
- * `CallToolResult` (both `content[]` text and `structuredContent`) across
- * all 14 registered tools.
- *
- * Strategy:
- * 1. Uses `withOutputSanitization` to proxy a mock server
- * 2. Registers a handler per tool via the proxy's `registerTool`
- * 3. Each handler returns realistic secret-laden results matching the tool's
- *    output shape (code search, file content, PR patches, LSP locations, etc.)
- * 4. Asserts zero raw secrets in the sanitized output
- */
-
 import { describe, it, expect, vi } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -55,10 +40,6 @@ function secretPayload(prefix: string): string {
   return ALL_SECRET_VALUES.map((s, i) => `${prefix}[${i}]: ${s}`).join('\n');
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Helper: create proxy + register + invoke
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 function createProxyChain() {
   const handlers = new Map<
     string,
@@ -90,10 +71,6 @@ function createProxyChain() {
 
   return { proxy, mockServer, handlers, registerAndCall };
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Per-tool realistic result shapes
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
   // GitHub tools
@@ -489,10 +466,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 };
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Tests
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization proxy', () => {
   describe('Per-tool realistic result sanitization', () => {

@@ -231,7 +231,7 @@ describe('fileFilters', () => {
       });
 
       it('should not ignore non-blacklisted file names', () => {
-        expect(shouldIgnoreFile('yarn.lock')).toBe(true); // .lock extension
+        expect(shouldIgnoreFile('yarn.lock')).toBe(true);
         expect(shouldIgnoreFile('README.md')).toBe(false);
         expect(shouldIgnoreFile('index.ts')).toBe(false);
       });
@@ -290,7 +290,7 @@ describe('fileFilters', () => {
 
       it('should handle paths ending with slash', () => {
         expect(shouldIgnoreFile('src/')).toBe(false);
-        expect(shouldIgnoreFile('node_modules/')).toBe(true); // Path contains ignored dir
+        expect(shouldIgnoreFile('node_modules/')).toBe(true);
       });
 
       it('should be case-sensitive for extensions', () => {
@@ -312,19 +312,16 @@ describe('fileFilters', () => {
 
     describe('Performance - Optimized Check Order', () => {
       it('should check extensions before file names (fast path)', () => {
-        // Extensions are checked first (fastest)
         expect(shouldIgnoreFile('test.log')).toBe(true);
         expect(shouldIgnoreFile('data.zip')).toBe(true);
       });
 
       it('should check file names after extensions', () => {
-        // File name check comes second
         expect(shouldIgnoreFile('.DS_Store')).toBe(true);
         expect(shouldIgnoreFile('package-lock.json')).toBe(true);
       });
 
       it('should check paths last (most expensive)', () => {
-        // Path check is most expensive (split and iterate)
         expect(shouldIgnoreFile('src/node_modules/index.js')).toBe(true);
         expect(shouldIgnoreFile('deep/nested/path/dist/bundle.js')).toBe(true);
       });
@@ -487,9 +484,7 @@ describe('fileFilters', () => {
       });
 
       it('should handle paths ending with dot', () => {
-        // file. has an empty extension (empty string after the dot)
         expect(getExtension('file.')).toBe('');
-        // Empty extension is still technically an extension, so no fallback
         expect(getExtension('file.', { fallback: 'txt' })).toBe('');
       });
 

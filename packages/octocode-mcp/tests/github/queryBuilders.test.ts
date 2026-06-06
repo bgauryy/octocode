@@ -219,11 +219,7 @@ describe('Query Builders', () => {
       });
 
       const query = buildCodeSearchQuery(params);
-      // Phrase is still quoted...
       expect(query).toContain('"const patch"');
-      // ...and the file path is rewritten to the qualifiers GitHub honors.
-      // GitHub `path:` matches a file's DIRECTORY only; a full `dir/file.ext`
-      // returns zero (proven at the API, quoted or not). filename: + dir works.
       expect(query).toContain('filename:renderer.ts');
       expect(query).toContain('path:"packages/runtime-core/src"');
       expect(query).not.toContain('renderer.ts"');
@@ -239,7 +235,6 @@ describe('Query Builders', () => {
         );
         expect(query).toContain('filename:renderer.ts');
         expect(query).toContain('path:"packages/runtime-core/src"');
-        // never the broken full-file path: qualifier
         expect(query).not.toMatch(/path:"?[^"\s]*\/renderer\.ts/);
       });
 

@@ -1,13 +1,3 @@
-/**
- * Tests for npm.ts - verifying npm is spawned via process.execPath
- * to bypass shebang PATH resolution issues in GUI-launched environments.
- *
- * Bug: When Cursor (macOS GUI) launches the MCP server, PATH may not include
- * the nvm node directory. npm's shebang (#!/usr/bin/env node) fails to find
- * node via PATH, causing all npm commands to silently fail.
- *
- * Fix: Spawn npm using process.execPath directly instead of relying on shebang.
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { dirname, join } from 'path';
 import { spawn } from 'child_process';
@@ -50,7 +40,6 @@ describe('executeNpmCommand - process.execPath spawn', () => {
 
     const resultPromise = executeNpmCommand('view', ['express', '--json']);
 
-    // Emit successful close
     setTimeout(() => {
       mockProcess.stdout.emit('data', Buffer.from('{}'));
       mockProcess.emit('close', 0);
@@ -62,14 +51,10 @@ describe('executeNpmCommand - process.execPath spawn', () => {
     const spawnCall = vi.mocked(spawn).mock.calls[0]!;
     const [command, args] = spawnCall;
 
-    // The command should be process.execPath (node binary), NOT the npm script
-    // This bypasses the shebang (#!/usr/bin/env node) PATH resolution
     expect(command).toBe(process.execPath);
 
-    // The first arg should be the npm script path
     expect(args![0]).toBe(expectedNpmPath);
 
-    // Remaining args should be the npm subcommand + user args
     expect(args![1]).toBe('view');
     expect(args![2]).toBe('express');
     expect(args![3]).toBe('--json');
@@ -134,7 +119,6 @@ describe('checkNpmAvailability - process.execPath spawn', () => {
     const spawnCall = vi.mocked(spawn).mock.calls[0]!;
     const [command, args] = spawnCall;
 
-    // The command should be process.execPath, not the npm script
     expect(command).toBe(process.execPath);
     expect(args![0]).toBe(expectedNpmPath);
     expect(args![1]).toBe('--version');

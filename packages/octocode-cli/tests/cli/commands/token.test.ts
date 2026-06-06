@@ -58,10 +58,6 @@ vi.mock('../../../src/utils/spinner.js', () => ({
   Spinner: spinnerMocks.SpinnerCtor,
 }));
 
-/**
- * Build a fake https.request that simulates a GitHub API response.
- * pingResult drives the simulated server behavior.
- */
 type PingScenario =
   | { kind: 'status'; statusCode: number }
   | {
@@ -157,8 +153,6 @@ describe('tokenCommand', () => {
     expect(cmd.options?.length).toBeGreaterThan(0);
   });
 
-  // ---- token type parsing branches ----
-
   it.each([['octocode'], ['octocode-cli'], ['o']])(
     'maps type "%s" to octocode source',
     async typeArg => {
@@ -243,8 +237,6 @@ describe('tokenCommand', () => {
     expect(process.exitCode).toBe(1);
     expect(out('"type":"none"')).toBe(true);
   });
-
-  // ---- JSON output branches ----
 
   it('--json with no token prints null token and exitCode 1', async () => {
     vi.mocked(getToken).mockResolvedValue({
@@ -333,8 +325,6 @@ describe('tokenCommand', () => {
     expect(out('"valid":false')).toBe(true);
   });
 
-  // ---- no token (non-json) branches ----
-
   it('no octocode token prints octocode login hint and exitCode 1', async () => {
     vi.mocked(getToken).mockResolvedValue({
       token: null,
@@ -383,8 +373,6 @@ describe('tokenCommand', () => {
     expect(sharedMocks.printLoginHint).toHaveBeenCalled();
   });
 
-  // ---- validate (non-json) branches ----
-
   it('--validate valid token with rate limit prints success', async () => {
     vi.mocked(getToken).mockResolvedValue({
       token: 'abc123',
@@ -416,7 +404,6 @@ describe('tokenCommand', () => {
       token: 'abc123',
       source: 'octocode',
     } as never);
-    // login present so valid is true, but use rate limit zeros (no header)
     installHttpsMock({
       kind: 'json',
       body: JSON.stringify({ login: 'someone' }),
@@ -516,8 +503,6 @@ describe('tokenCommand', () => {
     expect(opts.path).toContain('/api/v3/user');
   });
 
-  // ---- source / default output branches ----
-
   it('--source prints token source and user', async () => {
     vi.mocked(getToken).mockResolvedValue({
       token: 'abc123',
@@ -548,7 +533,7 @@ describe('tokenCommand', () => {
       options: { s: true },
     });
     expect(out('Token found')).toBe(true);
-    expect(out('@')).toBe(false); // no username -> no @user line
+    expect(out('@')).toBe(false);
     expect(sharedMocks.maskToken).toHaveBeenCalledWith('abc123');
   });
 

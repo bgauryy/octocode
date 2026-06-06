@@ -1,8 +1,3 @@
-/**
- * Tests for filePath → uri alias in all three LSP tool schemas.
- * Agents using skill docs pass `filePath`; the schema must silently remap it.
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   LSPGotoDefinitionQuerySchema,

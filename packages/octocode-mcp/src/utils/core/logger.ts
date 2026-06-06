@@ -2,9 +2,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LoggingLevel } from '@modelcontextprotocol/sdk/types.js';
 import { version } from '../../../package.json';
 
-/**
- * Simple, reliable logger for Octocode MCP
- */
 export type Logger = OctocodeLogger;
 
 export class OctocodeLogger {
@@ -16,16 +13,10 @@ export class OctocodeLogger {
     this.prefix = `Octocode-${version}:${component}`;
   }
 
-  /**
-   * Log info message
-   */
   async info(message: string, data?: Record<string, unknown>): Promise<void> {
     await this.log('info', message, data);
   }
 
-  /**
-   * Log warning message
-   */
   async warning(
     message: string,
     data?: Record<string, unknown>
@@ -33,23 +24,14 @@ export class OctocodeLogger {
     await this.log('warning', message, data);
   }
 
-  /**
-   * Log error message
-   */
   async error(message: string, data?: Record<string, unknown>): Promise<void> {
     await this.log('error', message, data);
   }
 
-  /**
-   * Log debug message
-   */
   async debug(message: string, data?: Record<string, unknown>): Promise<void> {
     await this.log('debug', message, data);
   }
 
-  /**
-   * Core logging method - simple and reliable
-   */
   private async log(
     level: LoggingLevel,
     message: string,
@@ -77,7 +59,7 @@ export class OctocodeLogger {
         });
       }
     } catch {
-      // MCP logging must not break tool execution; ignore sendLoggingMessage failures.
+      void 0;
     }
   }
 }
@@ -143,9 +125,6 @@ function isLikelyLocalPath(value: string): boolean {
   return ABSOLUTE_PATH_PATTERN.test(value) || RELATIVE_PATH_PATTERN.test(value);
 }
 
-/**
- * Create a simple logger instance
- */
 export function createLogger(
   server: McpServer,
   component?: string
@@ -153,9 +132,6 @@ export function createLogger(
   return new OctocodeLogger(server, component);
 }
 
-/**
- * Simple logger factory
- */
 export class LoggerFactory {
   private static loggers = new Map<string, OctocodeLogger>();
 

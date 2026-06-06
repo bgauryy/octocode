@@ -1,10 +1,3 @@
-/**
- * Bulk execution handler for the githubCloneRepo tool.
- *
- * Orchestrates cloning / sparse-fetching of GitHub repositories and
- * returns structured results with actionable next-step hints.
- */
-
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
 import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
@@ -26,7 +19,7 @@ import {
   providerSupports,
 } from '../providerExecution.js';
 import { cloneRepo } from './cloneRepo.js';
-/** Evidence-conditional cache marker; followups are covered by the tool description. */
+
 const CACHE_HIT_HINT = 'Served from 24-hour cache.';
 
 export async function executeCloneRepo(

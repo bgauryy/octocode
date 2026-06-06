@@ -7,7 +7,6 @@ import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
 import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view_repo_structure/github_view_repo_structure.js';
 
-// Mock all API dependencies
 vi.mock('../../src/github/codeSearch.js', () => ({
   searchGitHubCodeAPI: vi.fn().mockResolvedValue({
     data: { items: [], total_count: 0, repository: { name: 'test-repo' } },
@@ -57,7 +56,6 @@ describe('Callback Error Handling', () => {
       name: 'test-server',
       version: '1.0.0',
     });
-    // Callback that always throws an error
     throwingCallback = vi.fn().mockRejectedValue(new Error('Callback failed'));
     vi.clearAllMocks();
   });
@@ -67,12 +65,10 @@ describe('Callback Error Handling', () => {
       const tool = registerGitHubSearchCodeTool(server, throwingCallback);
       expect(tool).toBeDefined();
 
-      // Verify the throwing callback was registered (not called yet)
       expect(throwingCallback).not.toHaveBeenCalled();
     });
 
     it('should not propagate callback errors to callers', async () => {
-      // The callback throws but the tool should not crash
       const errorCallback = vi.fn().mockImplementation(() => {
         throw new Error('Synchronous error');
       });
@@ -87,7 +83,6 @@ describe('Callback Error Handling', () => {
       const tool = registerSearchGitHubReposTool(server, throwingCallback);
       expect(tool).toBeDefined();
 
-      // Verify tool is registered successfully despite throwing callback
       expect(throwingCallback).not.toHaveBeenCalled();
     });
   });

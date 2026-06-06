@@ -279,7 +279,6 @@ describe('remote tool stats runtime contract', () => {
           mainResearchGoal: 'stats telemetry',
           researchGoal: 'exercise packageSearch stats',
           reasoning: 'prove runtime char savings emission',
-          ecosystem: 'npm',
           name: 'lodash',
           searchLimit: 1,
         },

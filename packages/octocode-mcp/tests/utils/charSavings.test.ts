@@ -1,11 +1,3 @@
-/**
- * Branch coverage tests for src/utils/response/charSavings.ts
- *
- * Covers:
- * - countSerializedChars: JSON.stringify returns undefined (line 7 — ?. branch)
- * - attachRawResponseChars: rawChars === undefined (line 27 — early return)
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   countSerializedChars,
@@ -25,23 +17,20 @@ describe('countSerializedChars', () => {
   });
 
   it('handles null (serializes as "null")', () => {
-    expect(countSerializedChars(null)).toBe(4); // "null".length
+    expect(countSerializedChars(null)).toBe(4);
   });
 
   it('handles numbers', () => {
-    expect(countSerializedChars(42)).toBe(2); // "42".length
+    expect(countSerializedChars(42)).toBe(2);
   });
 
   it('returns 0 when JSON.stringify returns undefined (e.g. undefined value)', () => {
-    // JSON.stringify(undefined) === undefined, so ?. gives undefined, ?? gives 0
     expect(countSerializedChars(undefined)).toBe(0);
   });
 
   it('falls back to String() when JSON.stringify throws (circular ref)', () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
-    // JSON.stringify throws TypeError for circular references
-    // fallback: String(circular) = '[object Object]'
     const result = countSerializedChars(circular);
     expect(typeof result).toBe('number');
     expect(result).toBeGreaterThan(0);
@@ -67,9 +56,8 @@ describe('attachRawResponseChars', () => {
   it('returns result unchanged when rawResponse is NaN (rawChars === undefined)', () => {
     const input = { status: 'ok' };
     const result = attachRawResponseChars(input, NaN);
-    // normalizeCharCount(NaN) returns undefined → early return at line 27
     expect(getRawResponseChars(result)).toBeUndefined();
-    expect(result).toBe(input); // same reference returned
+    expect(result).toBe(input);
   });
 
   it('returns result unchanged when rawResponse is Infinity', () => {

@@ -11,7 +11,6 @@ import { isObject, hasProperty, hasStringProperty } from '../types/guards.js';
 
 export const packageRoutes = Router();
 
-// GET /packageSearch - Search npm/pypi packages
 packageRoutes.get(
   '/packageSearch',
   async (req: Request, res: Response, next: NextFunction) => {
@@ -27,7 +26,6 @@ packageRoutes.get(
       );
       const { data, isError, hints, research } = parseToolResponse(rawResult);
 
-      // Extract packages from result
       const packages = extractPackages(data);
       const query = queries[0] as Record<string, unknown>;
       const registry = query.ecosystem === 'python' ? 'pypi' : 'npm';

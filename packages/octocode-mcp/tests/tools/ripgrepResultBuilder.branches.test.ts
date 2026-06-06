@@ -1,12 +1,3 @@
-/**
- * Branch coverage tests for ripgrepResultBuilder.ts
- * Targeting lines 171-179: _getStructuredResultSizeHints with large result set
- * - totalMatches > 100 || files.length > 20
- * - !query.type && !query.include
- * - !query.excludeDir?.length
- * - query.pattern.length < 5
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildSearchResult } from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
 import { promises as fs } from 'fs';
@@ -47,21 +38,18 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     }));
 
   it('emits a single combined large-result-set recovery line when all 3 levers are open', async () => {
-    // 25 files * 5 matches = 125 total matches > 100, files.length 25 > 20
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'ab', // length < 5
+      pattern: 'ab',
       researchGoal: 'test',
       reasoning: 'test',
-      // No type, no include, no excludeDir
     } as any;
 
     const result = await buildSearchResult(files, query, 'rg', []);
 
     expect(result.hints).toBeDefined();
     const hintsStr = result.hints!.join('\n');
-    // New strict policy: one combined line that names every available lever.
     expect(hintsStr).toContain('Large result set');
     expect(hintsStr).toContain('add type or include');
     expect(hintsStr).toContain('add excludeDir');
@@ -69,8 +57,6 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
   });
 
   it('A1: itemsPerPage pages FILES (top-level), matchesPerFile caps matches/file', async () => {
-    // 5 files, 4 matches each. itemsPerPage=2 → 2 files on page 1 (NOT 2 matches).
-    // matchesPerFile=1 → each shown file carries at most 1 match.
     const files = makeFiles(5, 4);
     const query = {
       path: '/test',
@@ -84,19 +70,16 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
 
     const result = await buildSearchResult(files, query, 'rg', []);
 
-    // itemsPerPage governs the FILE page size now (the cross-tool top-level axis).
     expect(result.files).toHaveLength(2);
     expect(result.pagination?.filesPerPage).toBe(2);
     expect(result.pagination?.totalFiles).toBe(5);
     expect(result.pagination?.hasMore).toBe(true);
-    // matchesPerFile caps the inner axis.
     expect(result.files[0]!.matches).toHaveLength(1);
-    // Cursor hint uses the unified `page`.
     expect((result.hints ?? []).join('\n')).toContain('Next: page=2');
   });
 
   it('emits an out-of-range hint when page exceeds total pages (E2)', async () => {
-    const files = makeFiles(3, 2); // 3 files → 1 page at filesPerPage=10
+    const files = makeFiles(3, 2);
     const query = {
       path: '/test',
       pattern: 'match',
@@ -144,7 +127,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'hi', // length 2 < 5
+      pattern: 'hi',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -190,7 +173,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'longer', // length 6 >= 5
+      pattern: 'longer',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;

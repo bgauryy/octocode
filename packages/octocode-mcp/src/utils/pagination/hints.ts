@@ -1,14 +1,3 @@
-/**
- * Pagination hint generation utilities.
- *
- * Strict policy: emit a hint only when it is either
- *  (a) a pagination cursor the agent can re-call with, or
- *  (b) a recovery directive for a size/over-budget condition.
- *
- * No token narration, no "Complete page" tautologies, no emoji decoration,
- * no echo of the params the caller already has.
- */
-
 import type { PaginationInfo } from '../../types/toolResults.js';
 import type {
   PaginationMetadata,
@@ -18,11 +7,6 @@ import type {
   StructurePaginationHintContext,
 } from './types.js';
 
-/**
- * Surface token-budget recovery directives only when the response is
- * actually at risk. Below 30K tokens we say nothing — the agent already
- * sees the data and doesn't need a "you're fine" reassurance.
- */
 function generateTokenWarnings(
   estimatedTokens: number,
   enableWarnings: boolean
@@ -42,10 +26,6 @@ function generateTokenWarnings(
   return [];
 }
 
-/**
- * Generic pagination navigation. Only emits a cursor when more pages
- * exist. Final-page tautologies are silent.
- */
 function generateNavigationHints(metadata: PaginationMetadata): string[] {
   if (metadata.hasMore && metadata.nextCharOffset !== undefined) {
     return [
@@ -55,9 +35,6 @@ function generateNavigationHints(metadata: PaginationMetadata): string[] {
   return [];
 }
 
-/**
- * Pagination hints based on metadata (generic, for local tools).
- */
 export function generatePaginationHints(
   metadata: PaginationMetadata,
   options: GeneratePaginationHintsOptions = {}
@@ -78,10 +55,6 @@ export function generatePaginationHints(
   return hints;
 }
 
-/**
- * GitHub file-content pagination. Only fires when more pages exist; emits
- * a single cursor line the agent can use directly.
- */
 export function generateGitHubPaginationHints(
   pagination: PaginationInfo,
   _query: GitHubFileContentHintContext
@@ -96,10 +69,6 @@ export function generateGitHubPaginationHints(
   ];
 }
 
-/**
- * Repository structure pagination. Only fires when more pages exist;
- * emits a single cursor line, no param echo or "tip" recipes.
- */
 export function generateStructurePaginationHints(
   pagination: StructurePaginationInfo,
   _context: StructurePaginationHintContext

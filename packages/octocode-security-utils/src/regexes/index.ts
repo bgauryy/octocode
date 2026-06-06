@@ -1,8 +1,3 @@
-/**
- * Sensitive data pattern detection regexes
- * Split into category modules for maintainability
- */
-
 import type { SensitiveDataPattern } from './types.js';
 
 import { aiProviderPatterns } from './ai-providers.js';
@@ -30,10 +25,6 @@ import {
   shippingLogisticsPatterns,
 } from './communications.js';
 
-/**
- * Combined array of all sensitive data patterns
- * Use this for full secret detection across all pattern categories
- */
 export const allRegexPatterns: SensitiveDataPattern[] = [
   ...aiProviderPatterns,
   ...analyticsModernPatterns,

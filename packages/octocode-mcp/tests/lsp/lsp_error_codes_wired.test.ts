@@ -1,12 +1,3 @@
-/**
- * T2.1b — Every LSP tool error path must also surface a structured
- * `errorCode` from LSP_ERROR_CODES. The legacy `errorType` stays for
- * the dynamic-hint engine; `errorCode` is the stable wire-level value
- * agents pattern-match on.
- *
- * Source-pinning test (cheap, no IO) — protects against regressions
- * where a new branch is added without the structured code.
- */
 import { readFile } from 'fs/promises';
 import { describe, expect, it } from 'vitest';
 

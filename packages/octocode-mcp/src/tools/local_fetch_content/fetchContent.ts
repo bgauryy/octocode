@@ -38,9 +38,6 @@ interface ExtractionState {
   actualStartLine?: number;
   actualEndLine?: number;
   matchRanges?: Array<{ start: number; end: number }>;
-  // Internal collection of any warnings emitted during extraction. Optional
-  // — consumers default to no warnings; non-emission keeps the response
-  // payload free of empty `warnings: []` clutter.
   warnings?: string[];
   earlyResult?: LocalGetFileContentToolResult;
 }
@@ -89,9 +86,6 @@ function validateExtractionOptions(
     return result;
   }
 
-  // Partial line-range: only one of startLine/endLine was provided.
-  // hasLineRangeRequest() requires BOTH, so providing only startLine silently
-  // falls back to charOffset reading from the beginning — a confusing no-op.
   const hasStartLine = query.startLine !== undefined;
   const hasEndLine = query.endLine !== undefined;
   if (hasStartLine && !hasEndLine) {
@@ -281,8 +275,6 @@ function createNoMatchesResult(
   query: FetchContentQuery,
   totalLines: number
 ): LocalGetFileContentToolResult {
-  // Recovery only — name the actual matchString options in play and
-  // propose one concrete switch. No "TIP:" prefix, no trailing prose.
   const hints: string[] = [
     `No matches for "${query.matchString}" in ${query.path} (${totalLines} line${totalLines === 1 ? '' : 's'} scanned).`,
   ];
@@ -310,10 +302,6 @@ function buildMatchExtractionState(
   totalLines: number,
   defaultOutputCharLength: number
 ): ExtractionState {
-  // No match cap: extract EVERY matched range. Oversized output is bounded
-  // losslessly by char-pagination (auto-paginate below, or explicit charLength/
-  // charOffset), which gives the agent a cursor to the rest — never a silent
-  // "first 50 matches" cut.
   const result = extractMatchingLines(
     lines,
     query.matchString!,
@@ -329,7 +317,6 @@ function buildMatchExtractionState(
     };
   }
 
-  // Verbatim slice — content is never minified or truncated by verbosity shaping.
   const resultContent = result.lines.join('\n');
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
@@ -403,9 +390,6 @@ function buildLineRangeExtractionState(
   const effectiveStartLine = Math.max(1, requestedStartLine);
   const effectiveEndLine = Math.min(requestedEndLine, totalLines);
 
-  // Inverted range: startLine after endLine yields an empty slice. Signal it
-  // explicitly instead of returning silent empty content (the slice would be
-  // `[]` with no explanation).
   if (requestedEndLine < requestedStartLine) {
     return {
       isPartial: false,
@@ -483,13 +467,6 @@ function buildExtractionState(
   };
 }
 
-/**
- * Continuation hint for a line-range read that stopped before EOF, derived
- * from the result's STRUCTURED fields (never by parsing hint text). Pagination
- * is orthogonal to verbosity. Scoped to line-range reads:
- * `matchRanges` present means a matchString read, whose continuation is
- * char-offset paginated — a `startLine` cursor would be wrong there.
- */
 export function lineRangeContinuationHints(r: {
   isPartial?: boolean;
   startLine?: number;
@@ -677,22 +654,6 @@ export async function fetchContent(
   }
 }
 
-/**
- * Verbosity shaping for file reads.
- *
- * verbose=false (default): research content only — `modified` (mtime) is omitted.
- * verbose=true: full response including all metadata fields.
- *
- * Exported for direct unit testing in `tests/scheme/verbosity_concise.test.ts`.
- */
-/**
- * Verbosity shaping for localGetFileContent.
- *
- * verbose=false (default): omit `modified` (metadata).
- * verbose=true: include all fields.
- *
- * Content is never minified or dropped. Hints are always returned fully.
- */
 export function applyFetchContentVerbosity(
   result: LocalGetFileContentToolResult,
   query: FetchContentQuery,

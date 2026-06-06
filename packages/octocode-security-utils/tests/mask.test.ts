@@ -3,8 +3,6 @@ import { maskSensitiveData } from '../src/mask';
 
 describe('maskSensitiveData', () => {
   beforeEach(() => {
-    // Clear any cached regex before each test
-    // Force fresh regex creation by accessing private cache
     (maskSensitiveData as unknown as { combinedRegex: null }).combinedRegex =
       null;
   });
@@ -286,10 +284,6 @@ Line 4: *e*=*a*o*h*r*e*4*6*8*"`);
   });
 
   describe('fileContext-gated patterns (no file context during masking)', () => {
-    // Regression: the `wandbApiKey` pattern is a bare 40-hex matcher
-    // (/\b[a-f0-9]{40}\b/) gated by `fileContext: /wandb/i`. Masking operates on
-    // serialized blobs with no file path, so context-gated patterns must be
-    // skipped — otherwise every git commit SHA (40 lowercase hex) is mangled.
     it('does not mask a bare 40-char git commit SHA', () => {
       const sha = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
       expect(maskSensitiveData(sha)).toBe(sha);
@@ -305,7 +299,6 @@ Line 4: *e*=*a*o*h*r*e*4*6*8*"`);
       const text =
         'sha 0ca1b2c3d4e5f60718293a4b5c6d7e8f90123456 token ghp_1234567890123456789012345678901234567890';
       const result = maskSensitiveData(text);
-      // SHA preserved, GitHub token masked.
       expect(result).toContain('0ca1b2c3d4e5f60718293a4b5c6d7e8f90123456');
       expect(result).not.toContain(
         'ghp_1234567890123456789012345678901234567890'

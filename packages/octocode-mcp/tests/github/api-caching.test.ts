@@ -1,13 +1,3 @@
-/**
- * GitHub API Caching Tests
- *
- * These tests verify that:
- * 1. Each GitHub API function caches responses correctly
- * 2. Cache keys only include GitHub API params (not context fields)
- * 3. Same API params result in cache hits
- * 4. Different API params result in cache misses
- * 5. Post-processing params (pagination, line ranges) don't affect cache key
- */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { clearAllCache, getCacheStats } from '../../src/utils/http/cache.js';
 import { getOctokit } from '../../src/github/client';
@@ -17,7 +7,6 @@ import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch'
 import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
 
-// Mock the GitHub client
 vi.mock('../../src/github/client');
 
 const mockOctokit = {
@@ -92,9 +81,7 @@ describe('GitHub API Caching', () => {
       await searchGitHubCodeAPI(params);
       const statsAfter = getCacheStats();
 
-      // Should have 1 miss (first call) and 1 hit (second call)
       expect(statsAfter.hits).toBe(statsBefore.hits + 1);
-      // API should only be called once
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(1);
     });
 
@@ -120,7 +107,6 @@ describe('GitHub API Caching', () => {
       await searchGitHubCodeAPI(params1);
       await searchGitHubCodeAPI(params2);
 
-      // API should only be called once - context params don't affect cache
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(1);
     });
 
@@ -135,7 +121,7 @@ describe('GitHub API Caching', () => {
       };
 
       const params2 = {
-        keywordsToSearch: ['useEffect'], // Different keyword
+        keywordsToSearch: ['useEffect'],
         owner: 'facebook',
         repo: 'react',
         mainResearchGoal: 'Goal',
@@ -146,7 +132,6 @@ describe('GitHub API Caching', () => {
       await searchGitHubCodeAPI(params1);
       await searchGitHubCodeAPI(params2);
 
-      // API should be called twice - different keywords
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(2);
     });
   });
@@ -192,7 +177,6 @@ describe('GitHub API Caching', () => {
       await searchGitHubReposAPI(params);
       await searchGitHubReposAPI(params);
 
-      // API should only be called once
       expect(mockOctokit.rest.search.repos).toHaveBeenCalledTimes(1);
     });
 
@@ -323,12 +307,10 @@ describe('GitHub API Caching', () => {
       await fetchGitHubFileContentAPI(params);
       await fetchGitHubFileContentAPI(params);
 
-      // API should only be called once
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
     it('should hit cache when only line range params differ', async () => {
-      // First call: lines 1-2
       const params1 = {
         owner: 'facebook',
         repo: 'react',
@@ -340,7 +322,6 @@ describe('GitHub API Caching', () => {
         reasoning: 'Testing',
       };
 
-      // Second call: lines 3-5 (same file, different lines)
       const params2 = {
         owner: 'facebook',
         repo: 'react',
@@ -355,7 +336,6 @@ describe('GitHub API Caching', () => {
       await fetchGitHubFileContentAPI(params1);
       await fetchGitHubFileContentAPI(params2);
 
-      // API should only be called once - line ranges are post-cache
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
@@ -383,7 +363,6 @@ describe('GitHub API Caching', () => {
       await fetchGitHubFileContentAPI(params1);
       await fetchGitHubFileContentAPI(params2);
 
-      // API should only be called once - matchString is post-cache
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
@@ -400,7 +379,7 @@ describe('GitHub API Caching', () => {
       const params2 = {
         owner: 'facebook',
         repo: 'react',
-        path: 'src/other.ts', // Different path
+        path: 'src/other.ts',
         mainResearchGoal: 'Read file',
         researchGoal: 'Get content',
         reasoning: 'Testing',
@@ -409,7 +388,6 @@ describe('GitHub API Caching', () => {
       await fetchGitHubFileContentAPI(params1);
       await fetchGitHubFileContentAPI(params2);
 
-      // API should be called twice - different paths
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(2);
     });
   });
@@ -448,12 +426,10 @@ describe('GitHub API Caching', () => {
       await viewGitHubRepositoryStructureAPI(params);
       await viewGitHubRepositoryStructureAPI(params);
 
-      // API should only be called once
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
     it('should hit cache when only pagination params differ', async () => {
-      // First call: page 1
       const params1 = {
         owner: 'facebook',
         repo: 'react',
@@ -467,7 +443,6 @@ describe('GitHub API Caching', () => {
         reasoning: 'Testing',
       };
 
-      // Second call: page 2 (same repo, different page)
       const params2 = {
         owner: 'facebook',
         repo: 'react',
@@ -484,7 +459,6 @@ describe('GitHub API Caching', () => {
       await viewGitHubRepositoryStructureAPI(params1);
       await viewGitHubRepositoryStructureAPI(params2);
 
-      // API should only be called once - pagination is post-cache
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
@@ -516,14 +490,11 @@ describe('GitHub API Caching', () => {
         structure?: unknown;
       };
 
-      // Cache is shared (one network fetch) ...
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
-      // ... but each request must reflect ITS page, sliced post-cache.
       expect(r1.pagination?.currentPage).toBe(1);
       expect(r2.pagination?.currentPage).toBe(2);
       expect(r1.pagination?.totalEntries).toBe(3);
       expect(r2.pagination?.totalEntries).toBe(3);
-      // Page 1 and page 2 must not be the same slice.
       expect(JSON.stringify(r1.structure)).not.toBe(
         JSON.stringify(r2.structure)
       );
@@ -545,7 +516,7 @@ describe('GitHub API Caching', () => {
         owner: 'facebook',
         repo: 'react',
         branch: 'main',
-        path: 'packages', // Different path
+        path: 'packages',
         depth: 1,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
@@ -555,14 +526,12 @@ describe('GitHub API Caching', () => {
       await viewGitHubRepositoryStructureAPI(params1);
       await viewGitHubRepositoryStructureAPI(params2);
 
-      // API should be called twice - different paths
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(2);
     });
   });
 
   describe('Cache isolation between different APIs', () => {
     it('should not share cache between different API types', async () => {
-      // Setup mocks
       mockOctokit.rest.search.code.mockResolvedValue({
         data: { total_count: 0, incomplete_results: false, items: [] },
       });
@@ -570,7 +539,6 @@ describe('GitHub API Caching', () => {
         data: { total_count: 0, incomplete_results: false, items: [] },
       });
 
-      // Call code search
       await searchGitHubCodeAPI({
         keywordsToSearch: ['test'],
         owner: 'owner',
@@ -580,7 +548,6 @@ describe('GitHub API Caching', () => {
         reasoning: 'Reason',
       });
 
-      // Call repo search with same owner/repo
       await searchGitHubReposAPI({
         keywordsToSearch: ['test'],
         owner: 'owner',
@@ -589,7 +556,6 @@ describe('GitHub API Caching', () => {
         reasoning: 'Reason',
       });
 
-      // Both APIs should be called - different cache prefixes
       expect(mockOctokit.rest.search.code).toHaveBeenCalledTimes(1);
       expect(mockOctokit.rest.search.repos).toHaveBeenCalledTimes(1);
     });

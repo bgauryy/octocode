@@ -1,9 +1,3 @@
-/**
- * GitHub routes using route factory pattern.
- * 
- * @module routes/github
- */
-
 import { Router } from 'express';
 import {
   githubSearchCode,
@@ -33,7 +27,6 @@ import { isObject, hasProperty, hasNumberProperty } from '../types/guards.js';
 
 export const githubRoutes = Router();
 
-// GET /githubSearchCode - Search code on GitHub
 githubRoutes.get(
   '/githubSearchCode',
   createRouteHandler({
@@ -68,7 +61,6 @@ githubRoutes.get(
   })
 );
 
-// GET /githubGetFileContent - Read file from GitHub
 githubRoutes.get(
   '/githubGetFileContent',
   createRouteHandler({
@@ -80,7 +72,6 @@ githubRoutes.get(
   })
 );
 
-// GET /githubSearchRepositories - Search repositories
 githubRoutes.get(
   '/githubSearchRepositories',
   createRouteHandler({
@@ -116,7 +107,6 @@ githubRoutes.get(
   })
 );
 
-// GET /githubViewRepoStructure - View repository structure
 githubRoutes.get(
   '/githubViewRepoStructure',
   createRouteHandler({
@@ -148,7 +138,6 @@ githubRoutes.get(
   })
 );
 
-// GET /githubSearchPullRequests - Search pull requests
 githubRoutes.get(
   '/githubSearchPullRequests',
   createRouteHandler({

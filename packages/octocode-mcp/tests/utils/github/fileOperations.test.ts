@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Create hoisted mocks
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockResolveDefaultBranch = vi.hoisted(() =>
   vi.fn().mockResolvedValue('main')
 );
 const mockContentSanitizer = vi.hoisted(() => ({
   sanitizeContent: vi.fn().mockImplementation((content: string) => ({
-    content: content, // Pass through content unchanged for testing
+    content: content,
     hasSecrets: false,
     warnings: [],
     secretsDetected: [],
@@ -16,7 +15,7 @@ const mockContentSanitizer = vi.hoisted(() => ({
 const mockminifyContent = vi.hoisted(() =>
   vi.fn().mockImplementation((content: string) =>
     Promise.resolve({
-      content: content, // Pass through content unchanged for testing
+      content: content,
       failed: false,
       type: 'general',
     })
@@ -26,7 +25,6 @@ const mockWithDataCache = vi.hoisted(() => vi.fn());
 const mockGenerateCacheKey = vi.hoisted(() => vi.fn());
 const mockCreateResult = vi.hoisted(() => vi.fn());
 
-// Set up mocks
 vi.mock('../../../src/github/client.js', () => ({
   getOctokit: mockGetOctokit,
   OctokitWithThrottling: class MockOctokit {},
@@ -50,10 +48,8 @@ vi.mock('../../../src/mcp/responses.js', () => ({
   createResult: mockCreateResult,
 }));
 
-// Import after mocks are set up
 import { fetchGitHubFileContentAPI } from '../../../src/github/fileContent.js';
 
-// Helper function to create properly formatted test parameters
 function createTestParams(overrides: Record<string, unknown> = {}) {
   return {
     owner: 'test',
@@ -80,7 +76,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     vi.clearAllMocks();
     mockResolveDefaultBranch.mockResolvedValue('main');
 
-    // Setup default mock Octokit instance
     mockOctokit = {
       rest: {
         repos: {
@@ -92,7 +87,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     };
     mockGetOctokit.mockReturnValue(mockOctokit);
 
-    // Setup default cache behavior - execute the operation directly
     mockWithDataCache.mockImplementation(
       async (
         _cacheKey: string,
@@ -106,7 +100,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       }
     );
 
-    // Setup default createResult behavior to return proper CallToolResult format
     mockCreateResult.mockImplementation((args: unknown) => {
       const typedArgs = args as { data?: unknown; isError?: boolean };
       return {
@@ -120,7 +113,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       };
     });
 
-    // Setup content sanitizer to return the actual content
     mockContentSanitizer.sanitizeContent.mockImplementation(
       (content: string) => ({
         content,
@@ -130,7 +122,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       })
     );
 
-    // Setup minifier to pass through content (minification is always on)
     mockminifyContent.mockImplementation((content: string) =>
       Promise.resolve({
         content: content,
@@ -147,7 +138,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
   describe('Basic file content retrieval', () => {
     beforeEach(() => {
-      // Mock successful file content response
       mockOctokit.rest.repos.getContent.mockResolvedValue({
         data: {
           type: 'file',
@@ -221,8 +211,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
     it('should explicitly handle fullContent=false as full content ', async () => {
       const params = createTestParams({
-        fullContent: false, // Explicitly set to false
-        // No other content selection parameters
+        fullContent: false,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -246,8 +235,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      // Contract: content is always verbatim from the base processor.
-      // Minification is never performed by the base layer.
       expect(mockminifyContent).not.toHaveBeenCalled();
       expect(result).toEqual({
         status: 200,
@@ -266,8 +253,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     it('should return entire file when fullContent=true', async () => {
       const params = createTestParams({
         fullContent: true,
-        startLine: 2, // Should be ignored
-        endLine: 4, // Should be ignored
+        startLine: 2,
+        endLine: 4,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -289,7 +276,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     it('should return entire file when fullContent=true and ignore matchString', async () => {
       const params = createTestParams({
         fullContent: true,
-        matchString: 'line 3', // Should be ignored
+        matchString: 'line 3',
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -308,7 +295,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
   describe('Line range selection (startLine/endLine)', () => {
     beforeEach(() => {
-      // Mock file with 10 lines
       const fileContent = Array.from(
         { length: 10 },
         (_, i) => `line ${i + 1}`
@@ -374,7 +360,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
     it('should handle invalid line ranges gracefully by returning whole file', async () => {
       const params = createTestParams({
-        startLine: 15, // Beyond file length
+        startLine: 15,
         endLine: 20,
       });
 
@@ -382,7 +368,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       if ('data' in result) {
-        // Should return the whole file when range is invalid
         expect(result.data.content).toContain('line 1');
         expect(result.data.content).toContain('line 10');
         expect(result.data.isPartial).toBeUndefined();
@@ -392,7 +377,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     it('should handle endLine beyond file bounds by adjusting to file end', async () => {
       const params = createTestParams({
         startLine: 8,
-        endLine: 15, // Beyond file length
+        endLine: 15,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -411,7 +396,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
   describe('Match string with context lines', () => {
     beforeEach(() => {
-      // Mock file with specific content for matching
       const fileContent = [
         'header line',
         'import React from "react";',
@@ -444,10 +428,9 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       if ('data' in result) {
-        // Should include 5 lines before + matching line + 5 lines after (but limited by file bounds)
         expect(result.data.content).toContain('function MyComponent()');
-        expect(result.data.content).toContain('import React from "react"'); // Context before
-        expect(result.data.content).toContain('export default MyComponent'); // Context after
+        expect(result.data.content).toContain('import React from "react"');
+        expect(result.data.content).toContain('export default MyComponent');
         expect(result.data.isPartial).toBe(true);
         expect(result.data.matchLocations).toContain(
           'Found "function MyComponent()" on line 5'
@@ -465,12 +448,10 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       if ('data' in result) {
-        // Should include 2 lines before + matching line + 2 lines after
         expect(result.data.content).toContain('function MyComponent()');
         expect(result.data.isPartial).toBe(true);
-        // With 2 context lines, should be around lines 3-7 (5±2)
-        expect(result.data.startLine).toBe(3); // Max(1, 5-2)
-        expect(result.data.endLine).toBe(7); // Min(10, 5+2)
+        expect(result.data.startLine).toBe(3);
+        expect(result.data.endLine).toBe(7);
       }
     });
 
@@ -484,18 +465,15 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       if ('data' in result) {
-        // With 0 context lines, should return only the matching line
         expect(result.data.content).toContain('function MyComponent()');
-        expect(result.data.startLine).toBe(5); // Max(1, 5-0) = 5 (exact match line)
-        expect(result.data.endLine).toBe(5); // Min(10, 5+0) = 5 (exact match line)
+        expect(result.data.startLine).toBe(5);
+        expect(result.data.endLine).toBe(5);
         expect(result.data.isPartial).toBe(true);
-        // Should contain only the matching line
         expect(result.data.content).toBe('function MyComponent() {');
       }
     });
 
     it('should return only context lines for match string (TDD bug reproduction)', async () => {
-      // Create a file that mimics the React file structure that caused the bug
       const reactLikeContent = [
         '/**',
         ' * Copyright (c) Meta Platforms, Inc. and affiliates.',
@@ -508,7 +486,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         "import type {RefObject} from 'shared/ReactTypes';",
         '',
         '// an immutable object with a single mutable value',
-        'export function createRef(): RefObject {', // Line 12 - this is our match
+        'export function createRef(): RefObject {',
         '  const refObject = {',
         '    current: null,',
         '  };',
@@ -532,7 +510,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       const params = createTestParams({
         matchString: 'export function createRef',
         matchStringContextLines: 3,
-        minified: false, // Explicitly disable minification like in real test
+        minified: false,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -541,23 +519,19 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       if ('data' in result) {
         const contentLines = result.data.content?.split('\n') || [];
 
-        // The bug: it returns ALL lines instead of just context
-        // This test should FAIL initially, proving the bug exists
-        expect(contentLines.length).toBe(7); // Should be 7 lines (3 before + match + 3 after)
+        expect(contentLines.length).toBe(7);
         expect(contentLines.length).not.toBe(
           reactLikeContent.split('\n').length
-        ); // Should NOT be the full file
+        );
 
-        expect(result.data.startLine).toBe(9); // Max(1, 12-3)
-        expect(result.data.endLine).toBe(15); // Min(21, 12+3)
+        expect(result.data.startLine).toBe(9);
+        expect(result.data.endLine).toBe(15);
         expect(result.data.isPartial).toBe(true);
 
-        // Should contain the match and context
         expect(result.data.content).toContain('export function createRef');
-        expect(result.data.content).toContain('// an immutable object'); // Context before
-        expect(result.data.content).toContain('const refObject = {'); // Context after
+        expect(result.data.content).toContain('// an immutable object');
+        expect(result.data.content).toContain('const refObject = {');
 
-        // Should NOT contain the copyright header (too far from match)
         expect(result.data.content).not.toContain(
           'Copyright (c) Meta Platforms'
         );
@@ -573,8 +547,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      // The result should be a 200 success with matchNotFound flag
-      // "Match not found" is a normal scenario, NOT an error
       expect(result.status).toBe(200);
       expect('data' in result).toBe(true);
       if ('data' in result) {
@@ -586,7 +558,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
     it('should handle matchString with multiple occurrences', async () => {
       const params = createTestParams({
-        matchString: 'import', // Appears multiple times
+        matchString: 'import',
         matchStringContextLines: 1,
       });
 
@@ -594,7 +566,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       if ('data' in result) {
-        // Should use the first match and indicate multiple matches
         expect(result.data.content).toContain('import React from "react"');
         expect(result.data.matchLocations).toContain(
           'Found "import" on line 2 (and 1 other locations)'
@@ -631,10 +602,9 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       if ('data' in result) {
-        // Should use match-based range, not manual startLine/endLine
         expect(result.data.content).toContain('line 10');
-        expect(result.data.startLine).toBe(8); // 10-2
-        expect(result.data.endLine).toBe(12); // 10+2
+        expect(result.data.startLine).toBe(8);
+        expect(result.data.endLine).toBe(12);
         expect(result.data.content).toBe(
           'line 8\nline 9\nline 10\nline 11\nline 12'
         );
@@ -684,7 +654,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         matchStringContextLines: 3,
       });
 
-      // Mock file response
       mockOctokit.rest.repos.getContent.mockResolvedValue({
         data: {
           type: 'file',
@@ -696,8 +665,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       await fetchGitHubFileContentAPI(params);
 
-      // Cache key only includes GitHub API params (owner, repo, path, branch)
-      // Processing params (startLine, endLine, matchString) are applied post-cache
       expect(mockGenerateCacheKey).toHaveBeenCalledWith(
         'gh-api-file-content',
         {
@@ -713,7 +680,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     it('should generate same cache key for same file with different line params', async () => {
       const baseParams = createTestParams();
 
-      // Mock file response
       mockOctokit.rest.repos.getContent.mockResolvedValue({
         data: {
           type: 'file',
@@ -723,18 +689,14 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // Call with base params
       await fetchGitHubFileContentAPI(baseParams);
 
-      // Call with additional params (different startLine/endLine)
       await fetchGitHubFileContentAPI({
         ...baseParams,
         startLine: 1,
         endLine: 5,
       });
 
-      // Cache key only includes GitHub API params - so SAME key for same file!
-      // Processing params are applied post-cache for efficiency
       expect(mockGenerateCacheKey).toHaveBeenCalledTimes(2);
       expect(mockGenerateCacheKey).toHaveBeenNthCalledWith(
         1,
@@ -747,7 +709,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
         undefined
       );
-      // Same cache key for second call - different processing applied post-cache
       expect(mockGenerateCacheKey).toHaveBeenNthCalledWith(
         2,
         'gh-api-file-content',
@@ -785,7 +746,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
     it('should handle file too large error', async () => {
       const params = createTestParams();
-      const largeContent = 'x'.repeat(500 * 1024); // 500KB
+      const largeContent = 'x'.repeat(500 * 1024);
 
       mockOctokit.rest.repos.getContent.mockResolvedValue({
         data: {
@@ -847,7 +808,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
     it('should detect binary files', async () => {
       const params = createTestParams();
-      const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]); // PNG header with null byte
+      const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]);
 
       mockOctokit.rest.repos.getContent.mockResolvedValue({
         data: {
@@ -898,10 +859,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // This will trigger decode error
       const result = await fetchGitHubFileContentAPI(params);
 
-      // Should handle decode error - might succeed with Buffer.from fallback or fail gracefully
       expect(result).toBeDefined();
     });
 
@@ -994,8 +953,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       mockResolveDefaultBranch.mockResolvedValue('master');
 
-      // First call fails (main branch)
-      // Second call succeeds (master branch)
       mockOctokit.rest.repos.getContent
         .mockRejectedValueOnce(notFoundError)
         .mockResolvedValueOnce({
@@ -1015,14 +972,12 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(2);
-      // First call with main
       expect(mockOctokit.rest.repos.getContent).toHaveBeenNthCalledWith(1, {
         owner: 'test',
         repo: 'repo',
         path: 'test.txt',
         ref: 'main',
       });
-      // Second call with master
       expect(mockOctokit.rest.repos.getContent).toHaveBeenNthCalledWith(2, {
         owner: 'test',
         repo: 'repo',
@@ -1046,8 +1001,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       mockResolveDefaultBranch.mockResolvedValue('main');
 
-      // First call fails (master branch)
-      // Second call succeeds (main branch)
       mockOctokit.rest.repos.getContent
         .mockRejectedValueOnce(notFoundError)
         .mockResolvedValueOnce({
@@ -1067,14 +1020,12 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       expect(result.status).toBe(200);
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(2);
-      // First call with master
       expect(mockOctokit.rest.repos.getContent).toHaveBeenNthCalledWith(1, {
         owner: 'test',
         repo: 'repo',
         path: 'test.txt',
         ref: 'master',
       });
-      // Second call with main
       expect(mockOctokit.rest.repos.getContent).toHaveBeenNthCalledWith(2, {
         owner: 'test',
         repo: 'repo',
@@ -1096,8 +1047,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // First call: main file request fails
-      // Second call: findPathSuggestions tries parent directory (may fail too)
       mockOctokit.rest.repos.getContent
         .mockRejectedValueOnce(notFoundError)
         .mockRejectedValueOnce(notFoundError);
@@ -1107,14 +1056,12 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       const result = await fetchGitHubFileContentAPI(params);
 
       expect(result.status).toBe(404);
-      // First call is the main request, second is findPathSuggestions trying parent
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledWith({
         owner: 'test',
         repo: 'repo',
         path: 'test.txt',
         ref: 'feature',
       });
-      // Check for helpful hint
       if ('scopesSuggestion' in result) {
         expect(result.scopesSuggestion).toContain('feature');
         expect(result.scopesSuggestion).toContain(
@@ -1135,7 +1082,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       mockResolveDefaultBranch.mockResolvedValue('master');
 
-      // Both calls fail
       mockOctokit.rest.repos.getContent
         .mockRejectedValueOnce(notFoundError)
         .mockRejectedValueOnce(notFoundError);
@@ -1178,14 +1124,11 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // First call: main file request fails
-      // Second call: findPathSuggestions tries parent directory (may fail too)
       mockOctokit.rest.repos.getContent
         .mockRejectedValueOnce(notFoundError)
         .mockRejectedValueOnce(notFoundError);
 
       const params = createTestParams({ minified: false });
-      // Don't set branch, so it uses default
 
       const result = await fetchGitHubFileContentAPI(params);
 
@@ -1227,7 +1170,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // Both main and master fail
       mockOctokit.rest.repos.getContent
         .mockRejectedValueOnce(notFoundError)
         .mockRejectedValueOnce(notFoundError);
@@ -1237,7 +1179,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       const result = await fetchGitHubFileContentAPI(params);
 
       expect(result.status).toBe(404);
-      // Should not have the "Ask user" hint since we tried fallback
       if ('scopesSuggestion' in result) {
         expect(result.scopesSuggestion).not.toContain('Ask user');
       }
@@ -1253,9 +1194,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // File request fails
       mockOctokit.rest.repos.getContent.mockRejectedValueOnce(notFoundError);
-      // Parent directory request succeeds with similar files
       mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
         data: [
           { name: 'test.ts', path: 'src/test.ts', type: 'file' },
@@ -1273,7 +1212,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       const result = await fetchGitHubFileContentAPI(params);
 
       expect(result.status).toBe(404);
-      // Should have hint suggesting alternative files
       if ('hints' in result && result.hints) {
         const hintText = result.hints.join(' ');
         expect(hintText).toContain('Did you mean');
@@ -1290,9 +1228,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         },
       });
 
-      // File request fails
       mockOctokit.rest.repos.getContent.mockRejectedValueOnce(notFoundError);
-      // Parent directory request succeeds with case-different file
       mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
         data: [{ name: 'index.ts', path: 'src/index.ts', type: 'file' }],
       });

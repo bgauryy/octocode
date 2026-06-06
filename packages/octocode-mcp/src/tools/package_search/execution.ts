@@ -5,9 +5,7 @@ import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 type PackageSearchQuery = Omit<
   z.infer<typeof NpmPackageQuerySchema>,
   'ecosystem'
-> & {
-  ecosystem?: 'npm';
-};
+>;
 import {
   searchPackage,
   checkNpmDeprecation,
@@ -61,13 +59,6 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
   return {};
 }
 
-// Pagination note: `itemsPerPage` is the explicit fetch cap (how many the
-// registry query returns), the cross-tool page-size knob that replaced the old
-// upstream `searchLimit`. Returned packages are emitted as the current page.
-// TODO (feature, not data loss): fetching results BEYOND itemsPerPage needs a
-// registry result-page cursor, and per-result lastPublished/weeklyDownloads
-// enrichment is currently only applied to exact-match lookups (itemsPerPage=1)
-// via fetchPackageDetailsWithError.
 export async function searchPackages(
   args: ToolExecutionArgs<PackageSearchQuery>
 ): Promise<CallToolResult> {
@@ -93,17 +84,9 @@ export async function searchPackages(
             query
           );
         }
-        if (query.ecosystem !== undefined && query.ecosystem !== 'npm') {
-          return createErrorResult(
-            'Only ecosystem="npm" is supported for package search',
-            query
-          );
-        }
         const validatedQuery = {
           ...query,
-          ecosystem: query.ecosystem ?? ('npm' as const),
         } as PackageSearchQuery & {
-          ecosystem: 'npm';
           name: string;
         };
         const apiResult = await searchPackage(validatedQuery);
@@ -112,12 +95,7 @@ export async function searchPackages(
           const errorHints = getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
             originalError: apiResult.error,
           });
-          // Prepend hints from the lower layer (e.g. npm.ts network-fallback
-          // hints) so they appear before the generic tool-level hints.
-          const mergedHints = [
-            ...(apiResult.hints ?? []),
-            ...errorHints,
-          ];
+          const mergedHints = [...(apiResult.hints ?? []), ...errorHints];
           return createErrorResult(apiResult.error, query, {
             rawResponse: apiResult,
             customHints: mergedHints,
@@ -128,9 +106,14 @@ export async function searchPackages(
           const repoUrl = getPackageRepo(pkg);
           const { owner, repo } = parseRepoInfo(repoUrl);
           const name = getPackageName(pkg);
-          // Omit internal `path` field — `name` is the canonical output field.
-          const { path: _path, ...pkgRest } = pkg as PackageResult & { path?: string };
-          return { ...pkgRest, name, ...(owner && repo ? { owner, repo } : {}) };
+          const { path: _path, ...pkgRest } = pkg as PackageResult & {
+            path?: string;
+          };
+          return {
+            ...pkgRest,
+            name,
+            ...(owner && repo ? { owner, repo } : {}),
+          };
         });
 
         const result = {
@@ -155,9 +138,6 @@ export async function searchPackages(
           { data: result, extraHints },
           query
         );
-        // `itemsPerPage` is what we asked the registry for. When totalFound is
-        // not returned by the API, assume there may be more if the result count
-        // exactly hits the requested cap (conservative partial signal).
         const itemsPerPage =
           (query as { itemsPerPage?: number }).itemsPerPage ?? 20;
         const isPartial =
@@ -229,11 +209,8 @@ function generateSuccessHints(
     hints.push(`DEPRECATED: ${name} - ${msg}`);
   }
 
-  // Exact install command using the resolved package name — an actionable
-  // next step that uses data only available after the registry search resolves.
   hints.push(`Install: npm install ${name}`);
 
-  // Escalation path: guide agents to the GitHub source for deeper research.
   const repoUrl = getPackageRepo(pkg);
   const { owner, repo } = parseRepoInfo(repoUrl);
   if (owner && repo) {
@@ -243,6 +220,10 @@ function generateSuccessHints(
   } else if (repoUrl) {
     hints.push(
       `Repository: ${repoUrl} — use githubSearchRepositories to find it on GitHub.`
+    );
+  } else {
+    hints.push(
+      `No repository URL in npm manifest for "${name}" — use githubSearchRepositories with the package name to find the source repo.`
     );
   }
 
@@ -263,11 +244,6 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
   return hints;
 }
 
-/**
- * Per-tool verbosity shaping for packageSearch.
- * verbose=false (default): strip metadata fields (license, downloads, recentVersions, etc.).
- * verbose=true: full package data passthrough.
- */
 export function applyPackageSearchVerbosity(
   input: {
     data: { packages: PackageResult[]; totalFound: number };
@@ -284,7 +260,6 @@ export function applyPackageSearchVerbosity(
     return { data: input.data, extraHints: input.extraHints };
   }
 
-  // Strip metadata-only fields (license, downloads, recentVersions) when verbose=false
   const METADATA_KEYS = new Set([
     'license',
     'weeklyDownloads',

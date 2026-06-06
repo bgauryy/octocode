@@ -21,8 +21,7 @@ vi.mock('node:fs', () => {
       stat: vi.fn(),
     },
   };
-  // Provide a default export pointing at the same fn instances so modules
-  // that use `import fs from 'node:fs'` (fs.js / mcp-io.js) see the mocks too.
+
   return { ...mod, default: mod };
 });
 
@@ -123,7 +122,7 @@ describe('cli/commands/install', () => {
         try {
           return JSON.parse(arg);
         } catch {
-          // not JSON, keep scanning
+          void 0;
         }
       }
     }
@@ -492,7 +491,6 @@ describe('cli/commands/install', () => {
     });
   });
 
-  // ---- JSON output: missing --ide ----
   it('outputs JSON error when no IDE provided and --json set', async () => {
     Object.defineProperty(process.stdout, 'isTTY', {
       configurable: true,
@@ -518,7 +516,6 @@ describe('cli/commands/install', () => {
     });
   });
 
-  // ---- JSON output: node / npm missing ----
   it('outputs JSON error when Node missing and --json set', async () => {
     const { installCommand, checkNodeInPath } = await loadDeps();
     vi.mocked(checkNodeInPath).mockReturnValueOnce({
@@ -557,7 +554,6 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ---- JSON output: invalid IDE / method ----
   it('outputs JSON error on invalid IDE with --json', async () => {
     const { installCommand } = await loadDeps();
     await installCommand.handler!({
@@ -584,7 +580,6 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ---- JSON output: already configured without --force ----
   it('outputs JSON error when already configured without --force and --json', async () => {
     const { installCommand, getInstallPreviewForClient } = await loadDeps();
     vi.mocked(getInstallPreviewForClient).mockReturnValue({
@@ -606,7 +601,6 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ---- JSON output: successful and failed install ----
   it('outputs JSON success when install succeeds with --json', async () => {
     const {
       installCommand,
@@ -628,7 +622,6 @@ describe('cli/commands/install', () => {
       args: [],
       options: { ide: 'cursor', method: 'npx', json: true },
     });
-    // spinner not created in JSON mode
     expect(vi.mocked(Spinner)).not.toHaveBeenCalled();
     expect(lastJson()).toMatchObject({
       success: true,
@@ -669,7 +662,6 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ---- Rollback paths ----
   it('rollback fails (text) when backup not found', async () => {
     const { installCommand, fs } = await loadDeps();
     vi.mocked(fs.existsSync).mockReturnValue(false);
@@ -768,14 +760,12 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  // ---- Pre-flight --check ----
   it('check (text) reports ready when parent writable and action create', async () => {
     const { installCommand, getInstallPreviewForClient, fs } = await loadDeps();
     vi.mocked(getInstallPreviewForClient).mockReturnValue({
       ...basePreview,
       action: 'create',
     });
-    // config does not exist, parent dir exists & writable
     vi.mocked(fs.existsSync).mockImplementation(
       (p: unknown) => String(p) === '/mock'
     );
@@ -816,7 +806,6 @@ describe('cli/commands/install', () => {
       ...basePreview,
       action: 'create',
     });
-    // parent dir exists
     vi.mocked(fs.existsSync).mockImplementation(
       (p: unknown) => String(p) === '/mock'
     );
@@ -840,7 +829,6 @@ describe('cli/commands/install', () => {
       ...basePreview,
       action: 'create',
     });
-    // nothing exists -> parentExists false -> check grandparent via accessSync ok
     vi.mocked(fs.existsSync).mockReturnValue(false);
     vi.mocked(fs.accessSync).mockImplementation(() => undefined);
     await installCommand.handler!({
@@ -918,7 +906,6 @@ describe('cli/commands/install', () => {
       method: 'npx',
       wouldOverwrite: true,
     });
-    // override without force => not ready
     expect(json.ready).toBe(false);
     expect(process.exitCode).toBeUndefined();
   });
@@ -929,7 +916,6 @@ describe('cli/commands/install', () => {
       ...basePreview,
       action: 'create',
     });
-    // config exists & is a file with octocode-mcp configured
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.statSync).mockReturnValue({
       isFile: () => true,

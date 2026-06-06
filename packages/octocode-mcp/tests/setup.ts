@@ -7,20 +7,13 @@ import {
   shouldSuppressUnexpectedWarningFailure,
 } from './warningPolicy.js';
 
-// Increase max listeners to avoid warnings in test environments
-// Tests may legitimately register many listeners due to module isolation
 process.setMaxListeners(50);
 
-// Session telemetry and other code paths call global fetch; tests configure via vi.mocked(fetch)
 vi.stubGlobal(
   'fetch',
   vi.fn(() => Promise.resolve(new Response('', { status: 200 })))
 );
 
-// Global mock for octocode-shared to prevent filesystem access during tests
-// This is needed because some tests use vi.resetModules() which can break file-level mocks
-
-// Generate a mock UUID v4 format (36 characters: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)
 const generateMockUUID = () => {
   const hex = '0123456789abcdef';
   let uuid = '';
@@ -28,9 +21,9 @@ const generateMockUUID = () => {
     if (i === 8 || i === 13 || i === 18 || i === 23) {
       uuid += '-';
     } else if (i === 14) {
-      uuid += '4'; // Version 4
+      uuid += '4';
     } else if (i === 19) {
-      uuid += hex[(Math.random() * 4) | 8]; // Variant
+      uuid += hex[(Math.random() * 4) | 8];
     } else {
       uuid += hex[(Math.random() * 16) | 0];
     }
@@ -43,8 +36,6 @@ const sessionMockState = {
   deleted: false,
 };
 
-// Default config mock for getConfigSync
-// Note: This mock matches the actual ResolvedConfig structure after dead code cleanup
 const mockDefaultConfig = {
   version: 1,
   github: {
@@ -80,7 +71,6 @@ const mockDefaultConfig = {
   configPath: undefined,
 };
 
-// Env var parsing helpers (mirrors octocode-shared resolverSections.ts behavior)
 function mockParseBooleanEnv(value: string | undefined): boolean | undefined {
   if (value === undefined || value === null) return undefined;
   const trimmed = value.trim().toLowerCase();
@@ -119,7 +109,6 @@ function mockParseStringArrayEnv(
     .filter(s => s.length > 0);
 }
 
-// Helper to build config dynamically (mirrors shared module's resolver behavior)
 const buildMockConfig = () => {
   const envEnableLocal = mockParseBooleanEnv(process.env.ENABLE_LOCAL);
   const envEnableClone = mockParseBooleanEnv(process.env.ENABLE_CLONE);
@@ -167,7 +156,6 @@ const buildMockConfig = () => {
 };
 
 vi.mock('octocode-shared', () => ({
-  // Global config mock - re-evaluates ENABLE_LOCAL on each call
   getConfigSync: vi.fn(() => buildMockConfig()),
   getConfig: vi.fn(async () => buildMockConfig()),
   _resetSessionState: vi.fn(() => {
@@ -236,11 +224,8 @@ vi.mock('octocode-shared', () => ({
   formatBytes: vi.fn((b: number) => `${b} B`),
 }));
 
-// Export for tests that need to access the mock state
 export { sessionMockState };
 
-// Minimal mock content for tests - metadata is fetched from API in production
-// Schema requires: instructions, prompts, toolNames, baseSchema, tools, baseHints, genericErrorHints
 const mockToolHints = {
   hasResults: ['Test hint for hasResults 1', 'Test hint for hasResults 2'],
   empty: ['Test hint for empty 1', 'Test hint for empty 2'],
@@ -253,8 +238,6 @@ const mockToolSchema = {
   hints: mockToolHints,
 };
 
-// githubGetFileContent needs specific schema fields for validation messages
-// Schema is a flat object with string values
 const githubFetchContentSchema = {
   name: 'githubGetFileContent',
   description: 'Read file content from GitHub',
@@ -275,7 +258,6 @@ const githubFetchContentSchema = {
   hints: mockToolHints,
 };
 
-// Dynamic hints mock for local tools
 const mockDynamicHints = {
   parallelTip: ['Use parallel queries for faster results'],
   multipleFiles: ['Multiple files found - use localGetFileContent to read'],
@@ -299,7 +281,6 @@ const mockDynamicHints = {
   fileTooLarge: ['File too large - use matchString or line range'],
 };
 
-// LSP tool schema with descriptions
 const lspGotoDefinitionSchema = {
   name: 'lspGotoDefinition',
   description: 'Navigate to symbol definition using Language Server Protocol',
@@ -379,7 +360,6 @@ const lspCallHierarchySchema = {
   },
 };
 
-// Enhanced local tool schemas with dynamic hints
 const localRipgrepSchema = {
   name: 'localSearchCode',
   description: 'Search code with ripgrep',
@@ -420,7 +400,6 @@ const localFindFilesSchema = {
   },
 };
 
-// Enhanced GitHub tool schemas with dynamic hints
 const githubSearchCodeSchema = {
   name: 'githubSearchCode',
   description: 'Search code across GitHub',
@@ -507,22 +486,12 @@ const mockContent = {
   },
 };
 
-// Mock @octocodeai/octocode-core for metadata loading (no HTTP fetch).
-// vi.mock factories are hoisted and run before mockContent is initialized,
-// so we use a mutable holder set via vi.hoisted + a getter for lazy access.
 const _coreMock = vi.hoisted(() => ({ ref: null as unknown }));
 vi.mock('@octocodeai/octocode-core', async importOriginal => {
   const actual =
     await importOriginal<typeof import('@octocodeai/octocode-core')>();
 
-  // The installed core@1.0.2 only exports octocodeConfig + completeMetadata,
-  // but src/ imports many additional schemas/validators/constants that exist
-  // in newer builds of the host repo. We stub them here with minimal Zod
-  // shapes so the test imports resolve. Tests that need richer behavior
-  // re-mock specific symbols locally.
   const { z } = await import('zod');
-  // Stubs need `.shape.charOffset`, `.shape.queries`, etc. accessed by the
-  // overlay code in src/scheme/. Include the keys that are actually read.
   const passthrough = () =>
     z.looseObject({
       charOffset: z.number().optional().default(0),
@@ -531,7 +500,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   const stubBulkSchema = () => z.looseObject({ queries: z.array(z.unknown()) });
 
   const schemaStubs = {
-    // Local tools
     RipgrepQuerySchema: passthrough(),
     BulkRipgrepQuerySchema: stubBulkSchema(),
     FindFilesQuerySchema: passthrough(),
@@ -544,7 +512,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     LocalFindFilesOutputSchema: passthrough(),
     LocalViewStructureOutputSchema: passthrough(),
     LocalGetFileContentOutputSchema: passthrough(),
-    // GitHub tools
     FileContentQuerySchema: passthrough(),
     FileContentBulkQuerySchema: stubBulkSchema(),
     GitHubCodeSearchQuerySchema: passthrough(),
@@ -562,11 +529,9 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     GitHubViewRepoStructureOutputSchema: passthrough(),
     BulkCloneRepoSchema: stubBulkSchema(),
     GitHubCloneRepoOutputSchema: passthrough(),
-    // Package search
     NpmPackageQuerySchema: passthrough(),
     PackageSearchBulkQuerySchema: stubBulkSchema(),
     PackageSearchOutputSchema: passthrough(),
-    // LSP
     LSPGotoDefinitionQuerySchema: passthrough(),
     BulkLSPGotoDefinitionSchema: stubBulkSchema(),
     BulkLSPGotoDefinitionQuerySchema: stubBulkSchema(),
@@ -579,14 +544,12 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     BulkLSPCallHierarchySchema: stubBulkSchema(),
     BulkLSPCallHierarchyQuerySchema: stubBulkSchema(),
     LspCallHierarchyOutputSchema: passthrough(),
-    // Base / shared
     BaseQuerySchema: passthrough(),
     BaseQuerySchemaLocal: passthrough(),
     ErrorDataSchema: passthrough(),
     BulkFetchContentSchema: stubBulkSchema(),
     BulkViewStructureSchema: stubBulkSchema(),
     BulkFindFilesSchema: stubBulkSchema(),
-    // Tool name constants (used by registration)
     GITHUB_FETCH_CONTENT: 'githubGetFileContent',
     GITHUB_SEARCH_CODE: 'githubSearchCode',
     GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
@@ -601,14 +564,12 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     LSP_GOTO_DEFINITION: 'lspGotoDefinition',
     LSP_FIND_REFERENCES: 'lspFindReferences',
     LSP_CALL_HIERARCHY: 'lspCallHierarchy',
-    // Validators (identity — runtime checks delegated to overlay schemas)
     validateRipgrepQuery: identityValidator,
     validateFindFilesQuery: identityValidator,
     validateViewStructureQuery: identityValidator,
     validateFetchContentQuery: identityValidator,
     applyWorkflowMode: identityValidator,
     createBulkQuerySchema: stubBulkSchema,
-    // Description constants
     LOCAL_RIPGREP_DESCRIPTION: 'localSearchCode',
     LOCAL_FIND_FILES_DESCRIPTION: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE_DESCRIPTION: 'localViewStructure',
@@ -617,7 +578,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     LSP_FIND_REFERENCES_DESCRIPTION: 'lspFindReferences',
     LSP_CALL_HIERARCHY_DESCRIPTION: 'lspCallHierarchy',
     GITHUB_CLONE_REPO_DESCRIPTION: 'githubCloneRepo',
-    // Additional schemas
     PackageSearchQuerySchema: passthrough(),
     LocalSearchCodeDataSchema: passthrough(),
     LocalFindFilesDataSchema: passthrough(),
@@ -647,7 +607,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   };
 });
 
-// Mock child_process for exec utilities - MUST be done before any exec imports
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }));
@@ -697,21 +656,15 @@ function captureStderrWrite(chunk: string | Uint8Array): boolean {
   return true;
 }
 
-// Wire mock content into the @octocodeai/octocode-core mock before initialization
 _coreMock.ref = mockContent;
 
-// Initialize tool metadata for all tests - using top-level await to ensure it runs before test file imports
 await initializeToolMetadata();
 
-// Mock console methods to avoid noise during tests
 beforeEach(() => {
-  // Reset session mock state with a new UUID
   sessionMockState.sessionId = generateMockUUID();
   sessionMockState.deleted = false;
   capturedWarnings = [];
   resetExpectedStderrWarnings();
-  // #T13: clear circuit-breaker state so a host that tripped in one test
-  // doesn't fail-fast unrelated tests sharing the same host.
   resetCircuitBreaker();
 
   if (enforceWarningFreeTests) {
@@ -729,7 +682,6 @@ beforeEach(() => {
     );
   }
 
-  // Only mock if not in debug mode
   if (!process.env.VITEST_DEBUG && !enforceWarningFreeTests) {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -738,7 +690,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Clean up session mock state with a new UUID for next test
   sessionMockState.sessionId = generateMockUUID();
   sessionMockState.deleted = false;
 
@@ -761,15 +712,10 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-// Global test environment setup
 process.env.NODE_ENV = 'test';
 process.env.VITEST_TEST_MODE = '1';
-// Set a default GitHub token to prevent "No GitHub token available" warnings during tests
-// Tests that need to verify "no token" behavior should explicitly delete this
 process.env.GITHUB_TOKEN = 'test-token-for-vitest';
 
-// Suppress expected unhandled errors from process.exit() mocking in index tests
-// These are expected behavior when testing process termination scenarios
 const originalUnhandledRejection = process.listeners('unhandledRejection');
 const originalUncaughtException = process.listeners('uncaughtException');
 
@@ -777,27 +723,22 @@ process.removeAllListeners('unhandledRejection');
 process.removeAllListeners('uncaughtException');
 
 process.on('unhandledRejection', (reason, promise) => {
-  // Only suppress errors that are from our process.exit mocking
   if (
     reason instanceof Error &&
     reason.message.includes('process.exit called with code')
   ) {
-    // This is expected from our index.test.ts process.exit mocking - ignore it
     return;
   }
 
-  // Suppress expected unhandled rejections from promiseUtils test mocks
   if (
     reason instanceof Error &&
     (reason.message.includes('always fails') ||
       reason.message.includes('non-retryable error') ||
       reason.message.includes('retryable error'))
   ) {
-    // These are expected from promiseUtils.test.ts retry testing - ignore them
     return;
   }
 
-  // For any other unhandled rejections, call the original handlers
   originalUnhandledRejection.forEach(handler => {
     if (typeof handler === 'function') {
       handler(reason, promise);
@@ -806,13 +747,10 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 process.on('uncaughtException', error => {
-  // Only suppress errors that are from our process.exit mocking
   if (error.message.includes('process.exit called with code')) {
-    // This is expected from our index.test.ts process.exit mocking - ignore it
     return;
   }
 
-  // For any other uncaught exceptions, call the original handlers
   originalUncaughtException.forEach(handler => {
     if (typeof handler === 'function') {
       handler(error, 'uncaughtException');

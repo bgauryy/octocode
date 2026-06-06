@@ -1,7 +1,3 @@
-/**
- * Type definitions and configuration for content minification
- */
-
 export type CommentPatternGroup =
   | 'c-style'
   | 'hash'
@@ -76,17 +72,14 @@ export const MINIFY_CONFIG: MinifyConfig = {
   },
 
   fileTypes: {
-    // JavaScript family - use terser (async) or aggressive (sync)
     js: { strategy: 'terser' },
     jsx: { strategy: 'terser' },
     mjs: { strategy: 'terser' },
     cjs: { strategy: 'terser' },
 
-    // TypeScript - aggressive with c-style comments
     ts: { strategy: 'conservative', comments: 'c-style' },
     tsx: { strategy: 'conservative', comments: 'c-style' },
 
-    // Indentation-sensitive languages - conservative
     py: { strategy: 'conservative', comments: 'hash' },
     yaml: { strategy: 'conservative', comments: 'hash' },
     yml: { strategy: 'conservative', comments: 'hash' },
@@ -97,26 +90,17 @@ export const MINIFY_CONFIG: MinifyConfig = {
     sass: { strategy: 'conservative', comments: 'c-style' },
     styl: { strategy: 'conservative', comments: 'c-style' },
 
-    // Markup languages
     html: { strategy: 'aggressive', comments: 'html' },
     htm: { strategy: 'aggressive', comments: 'html' },
     xml: { strategy: 'aggressive', comments: 'html' },
     svg: { strategy: 'aggressive', comments: 'html' },
 
-    // Stylesheets
     css: { strategy: 'aggressive', comments: 'c-style' },
     less: { strategy: 'aggressive', comments: 'c-style' },
     scss: { strategy: 'aggressive', comments: 'c-style' },
 
-    // Data formats
     json: { strategy: 'json' },
 
-    // C-style comment languages — CONSERVATIVE, not aggressive: these are real
-    // source languages where newlines carry meaning (Go's ASI) and readability.
-    // Aggressive collapsed newlines and glued tokens, garbling code-search
-    // fragments (e.g. Go `return nil}func (m *Ma`). Conservative strips comments
-    // + trailing whitespace but keeps line structure. `aggressive` stays
-    // reserved for whitespace-insignificant markup/styles (css/html/xml/svg).
     go: { strategy: 'conservative', comments: 'c-style' },
     java: { strategy: 'conservative', comments: 'c-style' },
     c: { strategy: 'conservative', comments: 'c-style' },
@@ -129,21 +113,17 @@ export const MINIFY_CONFIG: MinifyConfig = {
     scala: { strategy: 'conservative', comments: 'c-style' },
     dart: { strategy: 'conservative', comments: 'c-style' },
 
-    // Scripting languages — same rationale (newline-significant source).
     php: { strategy: 'conservative', comments: ['c-style', 'hash'] },
     rb: { strategy: 'conservative', comments: 'hash' },
     perl: { strategy: 'conservative', comments: 'hash' },
     sh: { strategy: 'conservative', comments: 'hash' },
     bash: { strategy: 'conservative', comments: 'hash' },
 
-    // Query languages
     sql: { strategy: 'aggressive', comments: 'sql' },
 
-    // Others
     lua: { strategy: 'aggressive', comments: 'lua' },
     r: { strategy: 'aggressive', comments: 'hash' },
 
-    // Template languages
     hbs: { strategy: 'aggressive', comments: 'template' },
     handlebars: { strategy: 'aggressive', comments: 'template' },
     ejs: { strategy: 'aggressive', comments: 'template' },
@@ -155,11 +135,9 @@ export const MINIFY_CONFIG: MinifyConfig = {
     jinja2: { strategy: 'aggressive', comments: 'template' },
     erb: { strategy: 'aggressive', comments: 'template' },
 
-    // Modern frontend
     vue: { strategy: 'aggressive', comments: 'html' },
     svelte: { strategy: 'aggressive', comments: 'html' },
 
-    // Data formats
     graphql: { strategy: 'aggressive', comments: 'hash' },
     gql: { strategy: 'aggressive', comments: 'hash' },
     proto: { strategy: 'aggressive', comments: 'c-style' },
@@ -171,22 +149,18 @@ export const MINIFY_CONFIG: MinifyConfig = {
     env: { strategy: 'aggressive', comments: 'hash' },
     properties: { strategy: 'aggressive', comments: 'hash' },
 
-    // Infrastructure
     tf: { strategy: 'aggressive', comments: ['hash', 'c-style'] },
     tfvars: { strategy: 'aggressive', comments: ['hash', 'c-style'] },
     pp: { strategy: 'aggressive', comments: 'hash' },
 
-    // Documentation
     md: { strategy: 'markdown' },
     markdown: { strategy: 'markdown' },
     rst: { strategy: 'conservative', comments: 'hash' },
 
-    // Build systems
     star: { strategy: 'conservative', comments: 'hash' },
     bzl: { strategy: 'conservative', comments: 'hash' },
     cmake: { strategy: 'conservative', comments: 'hash' },
 
-    // Additional languages
     pl: { strategy: 'aggressive', comments: 'hash' },
     pm: { strategy: 'aggressive', comments: 'hash' },
     fs: { strategy: 'conservative', comments: 'c-style' },
@@ -201,7 +175,6 @@ export const MINIFY_CONFIG: MinifyConfig = {
     erl: { strategy: 'aggressive', comments: 'hash' },
     hrl: { strategy: 'aggressive', comments: 'hash' },
 
-    // Plain text and misc
     txt: { strategy: 'general' },
     log: { strategy: 'general' },
     cfg: { strategy: 'aggressive', comments: 'hash' },

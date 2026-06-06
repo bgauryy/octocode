@@ -1,20 +1,7 @@
-/**
- * E2E sanity test for the verbose boolean switch on the LIVE octocode workspace.
- *
- * Imports each tool's real handler from src/ (the code on disk that the
- * MCP server will run after `yarn build`), calls it with verbose:false and
- * verbose:true, and verifies that data payloads are preserved in both cases.
- *
- * Run from the package directory:
- *   yarn vitest run tests/integration/verbosity_real_handlers.test.ts --no-coverage
- */
-
 import { describe, it, expect, vi } from 'vitest';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-// Vitest setup mocks child_process globally. For this e2e suite we need the
-// real `spawn` so `find`, `rg`, etc. actually run against this workspace.
 vi.unmock('child_process');
 vi.doUnmock('child_process');
 
@@ -25,7 +12,6 @@ const { fetchContent } =
 const { viewStructure } =
   await import('../../src/tools/local_view_structure/local_view_structure.js');
 
-// LSP apply-helpers are pure transformers — no LSP server needed.
 const { applyFindReferencesVerbosity } =
   await import('../../src/tools/lsp_find_references/lsp_find_references.js');
 const { applyGotoDefinitionVerbosity } =
@@ -33,7 +19,6 @@ const { applyGotoDefinitionVerbosity } =
 const { applyCallHierarchyVerbosity } =
   await import('../../src/tools/lsp_call_hierarchy/callHierarchy.js');
 
-// Derive WORKSPACE dynamically so the test works on any machine / CI runner.
 const WORKSPACE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../..'
@@ -53,10 +38,8 @@ describe('E2E: verbose boolean — data payload is preserved in both modes', () 
     const withMeta: any = await findFiles({ ...base, verbose: true });
     expect(def.status, JSON.stringify(def).slice(0, 400)).toBeUndefined();
     expect(withMeta.status).toBeUndefined();
-    // Both return same number of files
     expect(def.files?.length).toBeGreaterThan(0);
     expect(withMeta.files?.length).toBe(def.files?.length);
-    // Research data (path, name) present in both
     expect(def.files?.[0]?.path).toBeDefined();
     expect(withMeta.files?.[0]?.path).toBeDefined();
   });
@@ -72,17 +55,14 @@ describe('E2E: verbose boolean — data payload is preserved in both modes', () 
     const withMeta = await viewStructure({ ...base, verbose: true });
     expect(def.status).toBeUndefined();
     expect(withMeta.status).toBeUndefined();
-    // Both return entries — verbose:true includes size/lastModified, verbose:false strips them
     expect(def.entries?.length).toBeGreaterThan(0);
     expect(withMeta.entries?.length).toBe(def.entries?.length);
-    // verbose:false strips metadata fields; verbose:true includes them
     const defEntry = def.entries?.[0] as Record<string, unknown> | undefined;
     const metaEntry = withMeta.entries?.[0] as
       | Record<string, unknown>
       | undefined;
     expect(defEntry).toBeDefined();
     expect(metaEntry).toBeDefined();
-    // All research fields (name, path, type) are present in both
     expect(defEntry?.['name']).toBeDefined();
     expect(metaEntry?.['name']).toBeDefined();
   });

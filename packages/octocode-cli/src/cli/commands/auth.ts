@@ -82,7 +82,6 @@ export const loginCommand: CLICommand = {
       return;
     }
 
-    // --force: logout first, then re-login
     if (forceLogin && status.authenticated) {
       if (!jsonOutput) {
         console.log();
@@ -93,7 +92,6 @@ export const loginCommand: CLICommand = {
       await oauthLogout(hostname);
     }
 
-    // Login requires a human to open a browser — block non-TTY environments
     if (!process.stdout.isTTY) {
       if (jsonOutput) {
         console.log(
@@ -158,7 +156,6 @@ export const loginCommand: CLICommand = {
         spinner?.stop();
         verificationShown = true;
         if (jsonOutput) {
-          // In JSON mode output verification info as JSON so the caller can relay it
           console.log(
             JSON.stringify({
               step: 'verification',
@@ -269,7 +266,6 @@ export const logoutCommand: CLICommand = {
       return;
     }
 
-    // Confirm in TTY unless --yes / --json / non-TTY
     if (!skipConfirm && !jsonOutput && process.stdout.isTTY) {
       const { confirm } = await import('../../utils/prompts.js');
       const confirmed = await confirm({
@@ -474,7 +470,6 @@ export const authCommand: CLICommand = {
       return;
     }
 
-    // No subcommand: non-TTY → print status and exit; TTY → interactive
     if (!process.stdout.isTTY) {
       if (jsonOutput) {
         const data = formatAuthStatusAsJson(hostname);

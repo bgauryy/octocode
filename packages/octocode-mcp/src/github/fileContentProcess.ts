@@ -1,7 +1,3 @@
-/**
- * File content processing — line extraction, match search, sanitization, minification.
- * Extracted from fileContent.ts to isolate post-cache processing.
- */
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
@@ -21,9 +17,6 @@ interface FileTimestampInfo {
   lastModifiedBy: string;
 }
 
-/**
- * Apply pagination to content result (post-cache operation)
- */
 export function applyContentPagination(
   data: GitHubFileContentApiResult,
   charOffset: number,
@@ -57,9 +50,6 @@ export function applyContentPagination(
   };
 }
 
-/**
- * Fetch the last modification timestamp for a file via commits API
- */
 export async function fetchFileTimestamp(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
@@ -109,8 +99,6 @@ export async function processFileContentAPI(
 ): Promise<GitHubFileContentApiResult> {
   const matchLocationsSet = new Set<string>();
 
-  // IMPORTANT: Search on ORIGINAL content first, sanitize OUTPUT later
-  // This prevents false "not found" when searching for patterns that get redacted
   const originalContent = decodedContent;
   const originalLines = originalContent.split('\n');
   const totalLines = originalLines.length;
@@ -125,19 +113,13 @@ export async function processFileContentAPI(
   } else if (matchString) {
     const matchingLines: number[] = [];
 
-    // Search on ORIGINAL content (before sanitization) with case-insensitive option
     const searchLower = matchString.toLowerCase();
     for (let i = 0; i < originalLines.length; i++) {
-      // Case-insensitive search for better UX
       if (originalLines[i]?.toLowerCase().includes(searchLower)) {
         matchingLines.push(i + 1);
       }
     }
 
-    // Whitespace-tolerant fallback: an anchor copied from a minified search
-    // snippet (whitespace stripped, e.g. `foo(a,b,c)`) won't exact-match the
-    // raw line `foo(a, b, c)`. Retry once with all whitespace removed so the
-    // anchor resolves instead of returning a false "pattern not found".
     if (matchingLines.length === 0) {
       const needle = searchLower.replace(/\s+/g, '');
       if (needle.length > 0) {
@@ -178,7 +160,6 @@ export async function processFileContentAPI(
     startLine = matchStartLine;
     endLine = matchEndLine;
 
-    // Extract from ORIGINAL content (before sanitization)
     const selectedLines = originalLines.slice(matchStartLine - 1, matchEndLine);
     finalContent = selectedLines.join('\n');
 
@@ -202,7 +183,6 @@ export async function processFileContentAPI(
       const adjustedStartLine = Math.max(1, effectiveStartLine);
       const adjustedEndLine = Math.min(totalLines, effectiveEndLine);
 
-      // Extract from ORIGINAL content (before sanitization)
       const selectedLines = originalLines.slice(
         adjustedStartLine - 1,
         adjustedEndLine
@@ -222,7 +202,6 @@ export async function processFileContentAPI(
     }
   }
 
-  // NOW sanitize the OUTPUT content (after extraction, before return)
   const sanitizationResult = ContentSanitizer.sanitizeContent(
     finalContent,
     filePath
@@ -240,8 +219,6 @@ export async function processFileContentAPI(
     );
   }
 
-  // Content is returned verbatim — verbosity shaping (applyGithubFetchContentVerbosity)
-  // strips metadata fields but never alters or truncates the file content itself.
   const matchLocations = Array.from(matchLocationsSet);
 
   return {

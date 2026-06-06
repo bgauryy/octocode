@@ -1,7 +1,3 @@
-/**
- * Named sinks for intentionally non-critical async cleanup/logging failures.
- * Keeping these call sites explicit avoids silent empty catch handlers.
- */
 export function ignoreBestEffortFailure(
   reason: string
 ): (error: unknown) => void {

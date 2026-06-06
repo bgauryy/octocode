@@ -1,7 +1,3 @@
-/**
- * Platform Utilities Tests for octocode-shared
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import os from 'node:os';
 
@@ -86,7 +82,6 @@ describe('Platform Utilities', () => {
   });
 });
 
-// Test Windows-specific behavior with mocks
 describe('Platform Utilities (Windows-specific)', () => {
   const originalEnv = { ...process.env };
 

@@ -1,18 +1,5 @@
 #!/usr/bin/env node
-/**
- * build_dashboard.mjs
- *
- * Read Octocode MCP `stats.json`, pre-compute every dashboard metric, embed the
- * resulting JSON into the HTML template, write the result to disk, and
- * optionally open it in the default browser.
- *
- * Schema source of truth:
- *   packages/octocode-shared/src/session/schemas.ts
- *
- * Usage:
- *   node build_dashboard.mjs [--stats <path>] [--output <path>]
- *                            [--template <path>] [--no-open] [--allow-empty]
- */
+
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname, join, isAbsolute } from 'node:path';
@@ -23,9 +10,6 @@ import { spawn } from 'node:child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Universal heuristic used by OpenAI / Anthropic tokenizers (~4 chars per token
-// for English text and code). Actual token usage varies by model and content —
-// surfaced as an explicit disclaimer on the dashboard.
 const TOKEN_CHAR_RATIO = 4;
 const TOKEN_ESTIMATE_NOTE =
   `Token counts are estimated at ~${TOKEN_CHAR_RATIO} chars per token. ` +
@@ -136,7 +120,6 @@ function readStats(statsPath, allowEmpty) {
 }
 
 function readSessionMeta(statsPath) {
-  // session.json lives next to stats.json in OCTOCODE_HOME
   const sessionPath = join(dirname(statsPath), 'session.json');
   if (!existsSync(sessionPath)) return null;
   try {
@@ -324,7 +307,6 @@ function injectData(template, data) {
         `Confirm the template file is the one shipped with this skill.`
     );
   }
-  // JSON.stringify never produces </script>, but we still defend against it.
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   return template.replace(SENTINEL, json);
 }

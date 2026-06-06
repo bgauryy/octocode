@@ -1,10 +1,3 @@
-/**
- * Unit tests for tools/local_view_structure/structureResponse.
- *
- * Covers all three buildWalkWarnings branches, the
- * with-preview/without-preview branches of buildEntryPaginationHints, and
- * pagination edge cases (page > totalPages clamps, empty entry list).
- */
 import { describe, it, expect } from 'vitest';
 import {
   summarizeEntries,

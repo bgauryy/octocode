@@ -26,7 +26,7 @@ describe('File System Utilities', () => {
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {
-      // ignore cleanup errors
+      void 0;
     }
   });
 
@@ -440,26 +440,23 @@ describe('File System Utilities', () => {
       const subDir = path.join(srcDir, 'sub');
       fs.mkdirSync(subDir, { recursive: true });
 
-      // First readdirSync returns the subdirectory; second throws (recursive copy fails)
       let callCount = 0;
-      const readdirSyncSpy = vi
-        .spyOn(fs, 'readdirSync')
-        // Cast to `never`: readdirSync has many overloads (the buffer-encoding
-        // one expects Dirent<NonSharedBuffer>[]); the test only needs a stub
-        // that returns one Dirent then throws.
-        .mockImplementation(((_p: unknown, _opts: unknown) => {
-          callCount++;
-          if (callCount === 1) {
-            return [
-              {
-                name: 'sub',
-                isDirectory: () => true,
-                isFile: () => false,
-              } as fs.Dirent,
-            ];
-          }
-          throw new Error('Subdirectory read failed');
-        }) as never);
+      const readdirSyncSpy = vi.spyOn(fs, 'readdirSync').mockImplementation(((
+        _p: unknown,
+        _opts: unknown
+      ) => {
+        callCount++;
+        if (callCount === 1) {
+          return [
+            {
+              name: 'sub',
+              isDirectory: () => true,
+              isFile: () => false,
+            } as fs.Dirent,
+          ];
+        }
+        throw new Error('Subdirectory read failed');
+      }) as never);
 
       expect(copyDirectory(srcDir, path.join(tempDir, 'nested-dest'))).toBe(
         false

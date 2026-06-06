@@ -1,7 +1,3 @@
-/**
- * Tests for local error codes and ToolError factory functions
- */
-
 import { describe, it, expect } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import {
@@ -95,7 +91,6 @@ describe('Local Error Codes', () => {
         cause
       );
 
-      // The cause should be included in the stack trace
       expect(error.stack).toContain('Caused by:');
       expect(error.stack).toContain('Original error');
     });
@@ -235,7 +230,6 @@ describe('Local Error Codes', () => {
       expect(error.errorCode).toBe(
         LOCAL_TOOL_ERROR_CODES.PATH_VALIDATION_FAILED
       );
-      // redactPath reduces outside-workspace paths to filename
       expect(error.message).toContain('path');
     });
 
@@ -244,7 +238,6 @@ describe('Local Error Codes', () => {
       const error = ToolErrors.fileAccessFailed('/missing/file.txt', cause);
 
       expect(error.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.FILE_ACCESS_FAILED);
-      // redactPath reduces outside-workspace paths to filename
       expect(error.message).toContain('file.txt');
       expect(error.context).toEqual({
         path: '/missing/file.txt',
@@ -341,7 +334,6 @@ describe('Local Error Codes', () => {
       const error = ToolErrors.fileReadFailed('/test/file.txt', cause);
 
       expect(error.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.FILE_READ_FAILED);
-      // redactPath reduces outside-workspace paths to filename
       expect(error.message).toContain('file.txt');
       expect(error.stack).toContain('Caused by:');
     });
@@ -363,7 +355,7 @@ describe('Local Error Codes', () => {
       const error = ToolErrors.fileTooLarge('/big/file.bin', 1000.5, 500.25);
 
       expect(error.message).toContain('1000.5KB');
-      expect(error.message).toContain('500.3KB'); // Rounded to 1 decimal
+      expect(error.message).toContain('500.3KB');
     });
 
     it('should create outputTooLarge error', () => {

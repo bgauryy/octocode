@@ -1,7 +1,3 @@
-/**
- * Configuration Resolver Tests
- */
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
@@ -16,7 +12,6 @@ import {
 } from '../../src/config/resolver.js';
 import { DEFAULT_CONFIG } from '../../src/config/defaults.js';
 
-// Mock fs module
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -26,13 +21,11 @@ vi.mock('node:fs', () => ({
 }));
 
 describe('config/resolver', () => {
-  // Store original env vars
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
     _resetConfigCache();
-    // Reset ALL config-related env vars (must match resolver.ts env var checks)
     delete process.env.GITHUB_API_URL;
     delete process.env.ENABLE_LOCAL;
     delete process.env.ENABLE_CLONE;
@@ -51,7 +44,6 @@ describe('config/resolver', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    // Restore original env
     process.env = { ...originalEnv };
   });
 
@@ -210,11 +202,11 @@ describe('config/resolver', () => {
       });
 
       it('clamps timeout to valid range', () => {
-        process.env.REQUEST_TIMEOUT = '1000'; // Below minimum
+        process.env.REQUEST_TIMEOUT = '1000';
         expect(resolveConfigSync().network.timeout).toBe(5000);
 
         _resetConfigCache();
-        process.env.REQUEST_TIMEOUT = '999999'; // Above maximum
+        process.env.REQUEST_TIMEOUT = '999999';
         expect(resolveConfigSync().network.timeout).toBe(300000);
       });
 
@@ -757,7 +749,6 @@ describe('config/resolver', () => {
       process.env.ALLOWED_PATHS = '/some/path';
 
       const config = resolveConfigSync();
-      // No file → source is 'defaults' even though env overrides exist
       expect(config.source).toBe('defaults');
     });
 
@@ -790,8 +781,8 @@ describe('config/resolver', () => {
       const config2 = getConfigSync();
       const callsAfterSecond = vi.mocked(existsSync).mock.calls.length;
 
-      expect(config1).toBe(config2); // Same reference
-      expect(callsAfterSecond).toBe(callsAfterFirst); // No additional calls on second get
+      expect(config1).toBe(config2);
+      expect(callsAfterSecond).toBe(callsAfterFirst);
     });
 
     it('respects cache TTL', async () => {
@@ -805,7 +796,6 @@ describe('config/resolver', () => {
       vi.useFakeTimers();
 
       try {
-        // Initial load with local.enabled = false
         vi.mocked(existsSync).mockReturnValue(true);
         vi.mocked(readFileSync).mockReturnValue(
           JSON.stringify({ version: 1, local: { enabled: false } })
@@ -815,24 +805,19 @@ describe('config/resolver', () => {
         expect(config1.local.enabled).toBe(false);
         const callsAfterFirst = vi.mocked(existsSync).mock.calls.length;
 
-        // Within TTL - should return cached (no new fs calls)
         const config2 = getConfigSync();
-        expect(config2).toBe(config1); // Same reference
+        expect(config2).toBe(config1);
         expect(vi.mocked(existsSync).mock.calls.length).toBe(callsAfterFirst);
 
-        // Change underlying data
         vi.mocked(readFileSync).mockReturnValue(
           JSON.stringify({ version: 1, local: { enabled: true } })
         );
 
-        // Advance past 60s TTL
         vi.advanceTimersByTime(61000);
 
-        // Should reload and get new config
         const config3 = getConfigSync();
-        expect(config3).not.toBe(config1); // Different reference
+        expect(config3).not.toBe(config1);
         expect(config3.local.enabled).toBe(true);
-        // Should have made new fs calls
         expect(vi.mocked(existsSync).mock.calls.length).toBeGreaterThan(
           callsAfterFirst
         );
@@ -865,16 +850,13 @@ describe('config/resolver', () => {
       const config1 = getConfigSync();
       expect(config1.local.enabled).toBe(false);
 
-      // Change the file content
       vi.mocked(readFileSync).mockReturnValue(
         '{"version": 1, "local": {"enabled": true}}'
       );
 
-      // Without reload, still returns cached
       const config2 = getConfigSync();
       expect(config2.local.enabled).toBe(false);
 
-      // After reload, returns new value
       const config3 = await reloadConfig();
       expect(config3.local.enabled).toBe(true);
     });
@@ -926,15 +908,12 @@ describe('config/resolver', () => {
       vi.mocked(readFileSync).mockReturnValue(
         JSON.stringify({
           github: { apiUrl: 'https://custom.github.com/api/v3' },
-          // local not specified - should use defaults
         })
       );
 
       const config = resolveConfigSync();
 
-      // File value
       expect(config.github.apiUrl).toBe('https://custom.github.com/api/v3');
-      // Default value (not in file)
       expect(config.local.enabled).toBe(DEFAULT_CONFIG.local.enabled);
     });
   });
@@ -1065,7 +1044,6 @@ describe('config/resolver', () => {
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
-      // Should not throw, should return defaults
       const config = resolveConfigSync();
       expect(config.source).toBe('defaults');
       expect(config.github.apiUrl).toBe(DEFAULT_CONFIG.github.apiUrl);
@@ -1083,7 +1061,6 @@ describe('config/resolver', () => {
 
       const config = resolveConfigSync();
 
-      // Invalid config is dropped entirely — falls back to defaults
       expect(config.source).toBe('defaults');
       expect(config.github.apiUrl).toBe(DEFAULT_CONFIG.github.apiUrl);
       expect(config.local.enabled).toBe(DEFAULT_CONFIG.local.enabled);
@@ -1101,7 +1078,6 @@ describe('config/resolver', () => {
 
       const config = resolveConfigSync();
 
-      // Warnings don't prevent config from loading
       expect(config.source).toBe('file');
       expect(config.local.enabled).toBe(false);
     });
@@ -1118,7 +1094,6 @@ describe('config/resolver', () => {
 
       const config = resolveConfigSync();
 
-      // Invalid config dropped, but env override still applies
       expect(config.local.enabled).toBe(false);
       expect(config.network.timeout).toBe(DEFAULT_CONFIG.network.timeout);
     });

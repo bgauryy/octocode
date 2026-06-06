@@ -5,10 +5,6 @@ import {
   getBulkDefaultCharLength,
 } from '../../../src/utils/pagination/charLimit.js';
 
-// Char-based bulk response pagination (responsePagination) was removed in favour
-// of page-based pagination. This file tests that applyBulkResponsePagination
-// still correctly handles result slicing at the structured-item level.
-
 describe('getBulkDefaultCharLength — per-query reserve', () => {
   it('returns the single base for one query', () => {
     expect(getBulkDefaultCharLength(1)).toBe(getOutputCharLimit());
@@ -31,7 +27,7 @@ describe('getBulkDefaultCharLength — per-query reserve', () => {
 describe('applyBulkResponsePagination sibling queries', () => {
   it('keeps all modest sibling queries on page 1 (no auto-pagination)', () => {
     const base = getOutputCharLimit();
-    const per = Math.floor(base * 0.1); // small results
+    const per = Math.floor(base * 0.1);
     const results = Array.from({ length: 4 }, (_, i) => ({
       id: `q${i + 1}`,
       data: { blob: 'x'.repeat(per) },
@@ -43,7 +39,6 @@ describe('applyBulkResponsePagination sibling queries', () => {
       'someTool'
     );
 
-    // All four queries present — no pagination needed
     expect(out.results).toHaveLength(4);
     expect(out).not.toHaveProperty('responsePagination');
   });

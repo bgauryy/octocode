@@ -316,7 +316,6 @@ describe('skillsCommand', () => {
     promptsMocks.checkbox.mockReset();
     platformFlags.isWindows = false;
 
-    // Default: GitHub tool search returns empty (no auth / not needed for most tests)
     octocodePublicMocks.prepareDirectToolInputFromJsonText.mockReturnValue({});
     octocodePublicMocks.executeDirectTool.mockResolvedValue({
       isError: false,
@@ -324,7 +323,6 @@ describe('skillsCommand', () => {
       structuredContent: { results: [] },
     });
 
-    // Default: file reads return nothing
     fsReadMocks.fileExists.mockReturnValue(false);
     fsReadMocks.readFileContent.mockReturnValue(null);
     skillsFetchMocks.readSkillFromGitHub.mockResolvedValue('');
@@ -383,7 +381,6 @@ describe('skillsCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Skills on OS')
     );
-    // listSubdirectories returns ['octocode-research', 'octocode-plan'] for any dir
     expect(
       consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('octocode-research')
@@ -420,9 +417,6 @@ describe('skillsCommand', () => {
   });
 
   it('list: works without bundled source dir', async () => {
-    // Only the bundled-install path needs the packaged skills source.
-    // `list` scans installed-skill target dirs, so a missing src dir
-    // must NOT block it or set a failure exit code.
     fsUtilsMocks.dirExists.mockImplementation((path: string) =>
       path === '/fake/skills/src' ? false : true
     );
@@ -579,7 +573,6 @@ describe('skillsCommand', () => {
       options: {},
     });
 
-    // claude-desktop on Windows returns /fake/appdata/Claude Desktop/skills
     expect(
       consoleSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes('appdata')
@@ -923,8 +916,6 @@ describe('skillsCommand', () => {
     );
   });
 
-  // --- search subcommand ---
-
   it('search: errors when no query provided', async () => {
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
@@ -1030,7 +1021,6 @@ describe('skillsCommand', () => {
 
     expect(process.exitCode).toBeUndefined();
     const output = consoleSpy.mock.calls.flat().join('\n');
-    // owner-b/repo-b has more total installs → listed first
     expect(output).toContain('owner-b/repo-b');
     expect(output).toContain('owner-a/repo-a');
     expect(output).toContain('skill-one');
@@ -1110,8 +1100,6 @@ describe('skillsCommand', () => {
     expect(output).toContain('No results');
   });
 
-  // --- read subcommand ---
-
   it('read: errors when no path provided', async () => {
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
@@ -1150,7 +1138,7 @@ This is the skill content.`;
   });
 
   it('read: truncates long content and shows "use --full" hint in non-json mode', async () => {
-    const longContent = '# Skill\n' + 'x'.repeat(4000); // > 3000 chars
+    const longContent = '# Skill\n' + 'x'.repeat(4000);
 
     fsReadMocks.fileExists.mockReturnValue(true);
     fsReadMocks.readFileContent.mockReturnValue(longContent);
@@ -1332,8 +1320,6 @@ description: RAG pipelines
     expect(output).toContain('A useful skill');
   });
 
-  // --- --local flag for install/remove ---
-
   it('install --local: installs from a local path', async () => {
     fsReadMocks.fileExists.mockReturnValue(true);
     fsUtilsMocks.copyDirectory.mockReturnValue(true);
@@ -1368,7 +1354,6 @@ description: RAG pipelines
   it('install --local: non-json failure path sets exitCode', async () => {
     fsReadMocks.fileExists.mockReturnValue(true);
     fsUtilsMocks.dirExists.mockReturnValue(true);
-    // copyDirectory returns false → install fails
     fsUtilsMocks.copyDirectory.mockReturnValue(false);
 
     const skillsCommand = await loadCommand();
@@ -1396,7 +1381,6 @@ description: RAG pipelines
       options: {
         local: '/fake/custom-skills/my-skill',
         targets: 'claude-code',
-        // no json flag
       },
     });
 
@@ -1414,7 +1398,6 @@ description: RAG pipelines
       options: {
         local: '/fake/missing-skill',
         targets: 'claude-code',
-        // no json flag
       },
     });
 
@@ -1549,7 +1532,6 @@ description: RAG pipelines
   });
 
   it('remove: --json outputs structured result', async () => {
-    // removeSkillFromTargets uses removeDirectory under the hood
     fsUtilsMocks.removeDirectory.mockReturnValue(true);
 
     const skillsCommand = await loadCommand();
@@ -1601,8 +1583,6 @@ description: RAG pipelines
     });
   }
 
-  // --- read: GitHub URL + edge parsing ---
-
   it('read: parses full GitHub tree URL with path', async () => {
     const content = '# Skill\nContent.';
     skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce(content);
@@ -1642,7 +1622,6 @@ description: RAG pipelines
       '',
       'main'
     );
-    // name falls back to repo when skillPath is empty
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('repo');
   });
@@ -1709,8 +1688,6 @@ description: RAG pipelines
     );
   });
 
-  // --- search --direct --install (auto-install top result) ---
-
   function directInstallResults() {
     return {
       results: [
@@ -1738,7 +1715,6 @@ description: RAG pipelines
       directInstallResults()
     );
     skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Top skill');
-    // dest dir does not yet exist → write proceeds
     fsUtilsMocks.dirExists.mockImplementation((p: string) =>
       p === '/fake/skills/src' ? true : false
     );
@@ -1768,7 +1744,6 @@ description: RAG pipelines
       directInstallResults()
     );
     skillsFetchMocks.readSkillFromGitHub.mockResolvedValueOnce('# Top skill');
-    // dest dir for the skill already exists → skipped
     fsUtilsMocks.dirExists.mockReturnValue(true);
 
     const skillsCommand = await loadCommand();
@@ -1898,8 +1873,6 @@ description: RAG pipelines
     );
   });
 
-  // --- list --target filter ---
-
   it('list: valid --target filters to one target', async () => {
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
@@ -1960,11 +1933,8 @@ description: RAG pipelines
     expect(output).toContain('…');
   });
 
-  // --- install --dry-run ---
-
   it('install --dry-run: non-json shows plan with install/skip/overwrite', async () => {
     fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
-    // skill-a already exists in dest → "skip (exists)"
     fsUtilsMocks.dirExists.mockImplementation((p: string) => {
       if (p === '/fake/skills/src') return true;
       return p.endsWith('skill-a');
@@ -2042,8 +2012,6 @@ description: RAG pipelines
     expect(parsed.skills).toEqual([]);
     expect(Array.isArray(parsed.plan)).toBe(true);
   });
-
-  // --- sync subcommand ---
 
   it('sync: missing targets errors (non-json)', async () => {
     const skillsCommand = await loadCommand();
@@ -2156,7 +2124,7 @@ description: RAG pipelines
   it('sync: skipped existing prints warning', async () => {
     fsUtilsMocks.dirExists.mockReturnValue(true);
     fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
-    fsMocks.existsSync.mockReturnValue(true); // already exists → skipped
+    fsMocks.existsSync.mockReturnValue(true);
 
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
@@ -2173,7 +2141,7 @@ description: RAG pipelines
     fsUtilsMocks.dirExists.mockReturnValue(true);
     fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a']);
     fsMocks.existsSync.mockReturnValue(false);
-    fsUtilsMocks.copyDirectory.mockReturnValue(false); // fails
+    fsUtilsMocks.copyDirectory.mockReturnValue(false);
 
     const skillsCommand = await loadCommand();
     await skillsCommand.handler({
@@ -2228,8 +2196,8 @@ description: RAG pipelines
     fsUtilsMocks.listSubdirectories.mockReturnValue(['skill-a', 'skill-b']);
     fsUtilsMocks.dirExists.mockImplementation((p: string) => {
       if (p === '/fake/skills/src') return true;
-      if (p.includes('.cursor')) return true; // source exists
-      return p.endsWith('skill-a'); // skill-a exists in dest
+      if (p.includes('.cursor')) return true;
+      return p.endsWith('skill-a');
     });
 
     const skillsCommand = await loadCommand();
@@ -2279,8 +2247,6 @@ description: RAG pipelines
     expect(parsed.dryRun).toBe(true);
     expect(parsed.from).toBe('cursor');
   });
-
-  // --- TTY claude-only preset ---
 
   it('TTY install claude-only preset copies to claude targets', async () => {
     setStdoutTTY(true);

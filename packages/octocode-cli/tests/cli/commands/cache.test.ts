@@ -378,7 +378,6 @@ describe('cacheCommand', () => {
     vi.mocked(getDirectorySizeBytes).mockImplementation((dir: string) => {
       if (dir === '/fake/cache/skills') {
         skillsPass += 1;
-        // plan call returns 500, before-delete call returns 500, after-delete call returns 0
         return skillsPass >= 3 ? 0 : 500;
       }
       return 1024;

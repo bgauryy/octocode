@@ -42,7 +42,6 @@ describe('GitHub Search Repositories Query Splitting', () => {
     };
     mockGetProvider.mockReturnValue(mockProvider);
 
-    // Mock successful API response
     mockProvider.searchRepos.mockResolvedValue({
       data: {
         repositories: [
@@ -89,7 +88,6 @@ describe('GitHub Search Repositories Query Splitting', () => {
         queries: [originalQuery],
       });
 
-      // Should have been called twice - once for topics, once for keywords
       expect(mockProvider.searchRepos).toHaveBeenCalledTimes(2);
     });
 
@@ -132,7 +130,6 @@ describe('GitHub Search Repositories Query Splitting', () => {
 
   describe('Response Deduplication', () => {
     it('should deduplicate results from split queries', async () => {
-      // Both queries return the same repo
       mockProvider.searchRepos.mockResolvedValue({
         data: {
           repositories: [
@@ -271,13 +268,9 @@ describe('GitHub Search Repositories Query Splitting', () => {
       );
 
       const responseText = getTextContent(result.content);
-      // The combined search is now PAGINABLE — no "omitted" dead-end.
       expect(responseText).not.toContain('pagination is omitted');
-      // Structured pagination present so the agent can fetch the next page.
       expect(responseText).toContain('pagination:');
-      // hasMore = either variant; next page guidance present.
       expect(responseText).toContain('fetch page 2');
-      // totalMatches is the summed upper bound (15 + 25), disclosed as such.
       expect(responseText).toContain('upper bound');
 
       const structured = result.structuredContent as {

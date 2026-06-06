@@ -1,7 +1,3 @@
-/**
- * Repository structure pagination — applies pagination to cached structure results.
- * Extracted from repoStructure.ts.
- */
 import type { z } from 'zod';
 import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 
@@ -12,10 +8,6 @@ import type { GitHubRepositoryStructureResult } from '../tools/github_view_repo_
 import { GITHUB_STRUCTURE_DEFAULTS as STRUCTURE_DEFAULTS } from '../tools/github_view_repo_structure/constants.js';
 import { generateStructurePaginationHints } from '../utils/pagination/hints.js';
 
-/**
- * Apply pagination to cached structure result
- * Rebuilds structure from cached items based on pagination params
- */
 export function applyStructurePagination(
   cachedResult: GitHubRepositoryStructureResult,
   params: GitHubViewRepoStructureQuery
@@ -37,8 +29,6 @@ export function applyStructurePagination(
 
   const paginatedItems = cachedItems.slice(startIdx, endIdx);
 
-  // Object.create(null): keys come from GitHub paths — defense-in-depth
-  // against unexpected paths polluting Object.prototype.
   const structure: Record<string, { files: string[]; folders: string[] }> =
     Object.create(null);
   const basePath = cachedResult.path === '/' ? '' : cachedResult.path;
@@ -54,7 +44,7 @@ export function applyStructurePagination(
 
     const lastSlash = relativePath.lastIndexOf('/');
     if (lastSlash === -1) {
-      return '.'; // Root level
+      return '.';
     }
     return relativePath.slice(0, lastSlash);
   };

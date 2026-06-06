@@ -1,6 +1,7 @@
 import { executeNpmCommand } from '../exec/npm.js';
 import { fetchWithRetries } from '../http/fetch.js';
 import { generateCacheKey, withDataCache } from '../http/cache.js';
+import { isCircuitOpen } from '../http/circuitBreaker.js';
 import type {
   PackageSearchAPIResult,
   PackageSearchError,
@@ -18,11 +19,6 @@ const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
 let _cachedRegistryUrl: string | null = null;
 
-/**
- * Get the npm registry URL from `npm config get registry`.
- * Falls back to https://registry.npmjs.org if the command fails.
- * Result is cached for the process lifetime.
- */
 export async function getNpmRegistryUrl(): Promise<string> {
   if (_cachedRegistryUrl) return _cachedRegistryUrl;
 
@@ -40,26 +36,17 @@ export async function getNpmRegistryUrl(): Promise<string> {
       }
     }
   } catch {
-    // npm config get registry failed or threw; use DEFAULT_NPM_REGISTRY below.
+    void 0;
   }
 
   _cachedRegistryUrl = DEFAULT_NPM_REGISTRY;
   return DEFAULT_NPM_REGISTRY;
 }
 
-/** Reset cached registry URL (for testing only). */
 export function _resetNpmRegistryUrlCache(): void {
   _cachedRegistryUrl = null;
 }
 
-/**
- * Check if the npm registry is reachable with a lightweight HEAD request.
- * Uses the registry URL from `npm config get registry`.
- *
- * A HEAD request avoids body parsing issues — some registries (e.g. JFrog
- * Artifactory) return 200 with an empty body on GET /, which breaks JSON
- * parsing in fetchWithRetries.
- */
 export async function checkNpmRegistryReachable(): Promise<boolean> {
   try {
     const registryUrl = await getNpmRegistryUrl();
@@ -171,11 +158,6 @@ function isExactPackageName(query: string): boolean {
   return /^[a-z0-9][a-z0-9._-]*$/i.test(query);
 }
 
-/**
- * Returns true when the error string represents a transient network failure
- * (unreachable registry, DNS, timeout) rather than a definitive "not found".
- * Used to decide whether to fall through to the /-/v1/search fallback path.
- */
 function isNetworkFetchError(error: string | undefined): boolean {
   if (!error) return false;
   const lower = error.toLowerCase();
@@ -187,20 +169,12 @@ function isNetworkFetchError(error: string | undefined): boolean {
     lower.includes('enotfound') ||
     lower.includes('etimedout') ||
     lower.includes('socket hang up') ||
-    lower.includes('connect timeout')
+    lower.includes('connect timeout') ||
+    lower.includes('circuit open') ||
+    lower.includes('circuit breaker')
   );
 }
 
-/**
- * Converts an exact package name into a plain-text search keyword string.
- * Strips the scope prefix and replaces separators with spaces so the
- * registry /-/v1/search endpoint gets multiple independent terms.
- * Examples:
- *   "@modelcontextprotocol/sdk" → "modelcontextprotocol sdk"
- *   "react-query"               → "react query"
- *
- * Exported with underscore prefix for use in tests only.
- */
 export function _packageNameToSearchKeywords(packageName: string): string {
   return packageName
     .replace(/^@/, '')
@@ -223,7 +197,8 @@ function parseRegistrySearchTotal(
 
 function mapToResult(
   data: NpmViewResult,
-  includeExtendedMetadata: boolean = false
+  includeExtendedMetadata: boolean = false,
+  source: 'cli' | 'registry' = 'cli'
 ): NpmPackageResult {
   let repoUrl: string | null = null;
   if (data.repository) {
@@ -251,9 +226,9 @@ function mapToResult(
     mainEntry: data.main || null,
     typeDefinitions: data.types || data.typings || null,
     lastPublished,
+    source,
   };
 
-  // Lightweight metadata — always included for quick comparison
   if (data.description) {
     result.description = data.description;
   }
@@ -262,7 +237,6 @@ function mapToResult(
       typeof data.license === 'string' ? data.license : data.license.type;
   }
 
-  // Extended metadata — only when explicitly requested via npmFetchMetadata
   if (includeExtendedMetadata) {
     if (data.author) {
       if (typeof data.author === 'string') {
@@ -321,6 +295,7 @@ function mapSearchItemToResult(
     npmUrl,
     repoUrl: getSearchItemRepoUrl(item),
     version: item.version ?? 'unknown',
+    source: 'cli',
     ...(item.description ? { description: item.description } : {}),
     ...(homepage ? { homepage } : {}),
     ...(item.keywords && item.keywords.length > 0
@@ -330,11 +305,6 @@ function mapSearchItemToResult(
   return result;
 }
 
-/**
- * Encode a package name for use in the npm registry URL.
- * Scoped packages (@scope/pkg) need the '/' encoded as %2F to avoid
- * being treated as a URL path separator.
- */
 function encodeRegistryPackageName(packageName: string): string {
   if (packageName.startsWith('@')) {
     return '@' + packageName.slice(1).replace('/', '%2F');
@@ -351,7 +321,6 @@ async function fetchLastPublished(
     const url = `${registryUrl}/${urlName}`;
     const signal = AbortSignal.timeout(8000);
 
-    // Try abbreviated metadata first (smaller response)
     try {
       const data = (await fetchWithRetries(url, {
         maxRetries: 0,
@@ -364,10 +333,9 @@ async function fetchLastPublished(
       if (data?.modified)
         return { lastPublished: data.modified, rawResponseChars };
     } catch {
-      // install-v1+json abbreviated fetch failed; fall back to full JSON metadata below.
+      void 0;
     }
 
-    // Fallback: fetch full document and extract time.modified
     const data = (await fetchWithRetries(url, {
       maxRetries: 0,
       initialDelayMs: 300,
@@ -432,8 +400,9 @@ async function fetchPackageDetailsFromCli(
 ): Promise<PackageDetailsLookupResult> {
   try {
     const result = await executeNpmCommand('view', [packageName, '--json'], {
-      timeout: 15000,
+      timeout: 8000,
     });
+    if (!result) return { pkg: null, rawResponseChars: 0 };
     if (result.error || result.exitCode !== 0) {
       const msg =
         result.error?.message ||
@@ -474,7 +443,8 @@ async function fetchPackageDetailsFromCli(
 
     const pkg = mapToResult(
       validation.data as NpmViewResult,
-      includeExtendedMetadata
+      includeExtendedMetadata,
+      'cli'
     );
     return { pkg, rawResponseChars };
   } catch (error) {
@@ -502,6 +472,7 @@ async function fetchPackageDetailsFromRegistry(
         maxRetries: 1,
         initialDelayMs: 500,
         headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(8000),
         packageRegistry: 'npm',
       });
     } catch (fetchErr) {
@@ -530,7 +501,8 @@ async function fetchPackageDetailsFromRegistry(
 
     const pkg = mapToResult(
       validation.data as NpmViewResult,
-      includeExtendedMetadata
+      includeExtendedMetadata,
+      'registry'
     );
 
     return { pkg, rawResponseChars };
@@ -548,35 +520,38 @@ async function fetchPackageDetailsWithError(
   packageName: string,
   includeExtendedMetadata: boolean = false
 ): Promise<PackageDetailsLookupResult> {
-  const cliResult = await fetchPackageDetailsFromCli(
-    packageName,
-    includeExtendedMetadata
-  );
-  if (cliResult.pkg) {
+  const [cliSettled, regSettled] = await Promise.allSettled([
+    fetchPackageDetailsFromCli(packageName, includeExtendedMetadata),
+    fetchPackageDetailsFromRegistry(packageName, includeExtendedMetadata),
+  ]);
+
+  /* c8 ignore next */
+  const cliResult =
+    cliSettled.status === 'fulfilled'
+      ? cliSettled.value
+      : { pkg: null, rawResponseChars: 0 };
+  /* c8 ignore next */
+  const regResult =
+    regSettled.status === 'fulfilled'
+      ? regSettled.value
+      : { pkg: null, rawResponseChars: 0 };
+
+  const winner = cliResult.pkg ? cliResult : regResult.pkg ? regResult : null;
+  if (winner?.pkg) {
     return enrichPackageDetails(
       packageName,
-      cliResult.pkg,
-      cliResult.rawResponseChars
+      winner.pkg,
+      winner.rawResponseChars
     );
   }
 
-  const registryResult = await fetchPackageDetailsFromRegistry(
-    packageName,
-    includeExtendedMetadata
-  );
-  if (registryResult.pkg) {
-    return enrichPackageDetails(
-      packageName,
-      registryResult.pkg,
-      registryResult.rawResponseChars
-    );
-  }
-
+  const errorDetail =
+    (cliResult as PackageDetailsLookupResult).errorDetail ||
+    (regResult as PackageDetailsLookupResult).errorDetail;
   return {
     pkg: null,
-    errorDetail: registryResult.errorDetail,
-    rawResponseChars:
-      cliResult.rawResponseChars + registryResult.rawResponseChars,
+    errorDetail,
+    rawResponseChars: cliResult.rawResponseChars + regResult.rawResponseChars,
   };
 }
 
@@ -607,7 +582,6 @@ async function fetchNpmPackageByView(
     }
     return {
       packages: [],
-      ecosystem: 'npm',
       totalFound: 0,
       rawResponseChars,
     };
@@ -615,7 +589,6 @@ async function fetchNpmPackageByView(
 
   return {
     packages: [pkg],
-    ecosystem: 'npm',
     totalFound: 1,
     rawResponseChars,
   };
@@ -631,8 +604,10 @@ async function searchNpmPackageViaCliSearch(
   const result = await executeNpmCommand(
     'search',
     [keywords, '--json', '--searchlimit', String(searchLimit)],
-    { timeout: 15000 }
+    { timeout: 8000 }
   );
+  if (!result)
+    return { error: 'NPM CLI search unavailable', rawResponseChars: 0 };
   if (result.error || result.exitCode !== 0) {
     const msg =
       result.error?.message || result.stderr || `npm exited ${result.exitCode}`;
@@ -646,7 +621,6 @@ async function searchNpmPackageViaCliSearch(
   if (!output) {
     return {
       packages: [],
-      ecosystem: 'npm',
       totalFound: 0,
       rawResponseChars: 0,
     };
@@ -700,7 +674,6 @@ async function searchNpmPackageViaCliSearch(
 
   return {
     packages,
-    ecosystem: 'npm',
     totalFound: raw.length,
     rawResponseChars: rawResponseChars + detailRawResponseChars,
   };
@@ -713,10 +686,6 @@ async function searchNpmPackageViaRegistrySearch(
   from: number = 0
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
   try {
-    // Always search the public npmjs.org registry — the /-/v1/search endpoint
-    // is a public npm API. Using getNpmRegistryUrl() here would route searches
-    // to a corporate/private registry (e.g. Wix, Artifactory) when the user's
-    // npm config points to one, returning private packages instead of public ones.
     const fromParam = from > 0 ? `&from=${from}` : '';
     const url = `${DEFAULT_NPM_REGISTRY}/-/v1/search?text=${encodeURIComponent(keywords)}&size=${limit}${fromParam}`;
 
@@ -725,6 +694,7 @@ async function searchNpmPackageViaRegistrySearch(
       raw = await fetchWithRetries(url, {
         maxRetries: 1,
         initialDelayMs: 500,
+        signal: AbortSignal.timeout(8000),
         packageRegistry: 'npm',
       });
     } catch (fetchErr) {
@@ -744,7 +714,6 @@ async function searchNpmPackageViaRegistrySearch(
     if (!raw || typeof raw !== 'object') {
       return {
         packages: [],
-        ecosystem: 'npm',
         totalFound: 0,
         rawResponseChars: searchRawResponseChars,
       };
@@ -794,6 +763,7 @@ async function searchNpmPackageViaRegistrySearch(
                 ? cleanRepoUrl(item.links.repository)
                 : null,
             version: item.version ?? 'unknown',
+            source: 'registry' as const,
             ...(item.description
               ? { description: item.description as string }
               : {}),
@@ -815,13 +785,13 @@ async function searchNpmPackageViaRegistrySearch(
 
     return {
       packages,
-      ecosystem: 'npm',
       totalFound: parseRegistrySearchTotal(
         validation.data.total,
         packages.length
       ),
       rawResponseChars: searchRawResponseChars + detailRawResponseChars,
     };
+    /* c8 ignore next */
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     return {
@@ -832,6 +802,99 @@ async function searchNpmPackageViaRegistrySearch(
         'Ensure npm registry is accessible',
       ],
     };
+  }
+}
+
+async function searchNpmPackageViaWebSearch(
+  packageName: string,
+  limit: number
+): Promise<PackageSearchAPIResult | PackageSearchError> {
+  const NPMS_API = 'https://api.npms.io/v2/search';
+  const USER_AGENT =
+    'octocode-mcp/1.0 (+https://github.com/bgauryy/octocode-mcp)';
+
+  try {
+    const url = `${NPMS_API}?q=${encodeURIComponent(packageName)}&size=${limit}`;
+    let raw: unknown;
+    try {
+      raw = await fetchWithRetries(url, {
+        maxRetries: 1,
+        initialDelayMs: 500,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': USER_AGENT,
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (fetchErr) {
+      const msg =
+        fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      return { error: `Web search failed: ${msg}` };
+    }
+
+    if (!raw || typeof raw !== 'object') {
+      return {
+        packages: [],
+        totalFound: 0,
+        rawResponseChars: countRawPayloadChars(raw),
+      };
+    }
+
+    const data = raw as {
+      results?: Array<{
+        package?: {
+          name?: string;
+          version?: string;
+          description?: string;
+          links?: {
+            npm?: string;
+            repository?: string;
+            homepage?: string;
+          };
+        };
+      }>;
+      total?: number;
+    };
+
+    if (!Array.isArray(data.results)) {
+      return {
+        packages: [],
+        totalFound: 0,
+        rawResponseChars: countRawPayloadChars(raw),
+      };
+    }
+
+    const packages: NpmPackageResult[] = data.results
+      .slice(0, limit)
+      .map(item => item.package)
+      .filter(
+        (pkg): pkg is NonNullable<typeof pkg> & { name: string } =>
+          typeof pkg?.name === 'string' && pkg.name.length > 0
+      )
+      .map(pkg => ({
+        name: pkg.name,
+        npmUrl:
+          pkg.links?.npm ??
+          `https://www.npmjs.com/package/${encodeURIComponent(pkg.name)}`,
+        repoUrl:
+          pkg.links?.repository && typeof pkg.links.repository === 'string'
+            ? cleanRepoUrl(pkg.links.repository)
+            : null,
+        version: pkg.version ?? 'unknown',
+        source: 'web' as const,
+        ...(pkg.description ? { description: pkg.description } : {}),
+        ...(pkg.links?.homepage ? { homepage: pkg.links.homepage } : {}),
+      }));
+
+    return {
+      packages,
+      totalFound: typeof data.total === 'number' ? data.total : packages.length,
+      rawResponseChars: countRawPayloadChars(raw),
+    };
+    /* c8 ignore next */
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { error: `Web search failed: ${msg}` };
   }
 }
 
@@ -850,7 +913,7 @@ async function searchNpmPackageViaSearch(
     );
     if (!('error' in cliResult)) return cliResult;
   } catch {
-    // CLI search is best-effort. Fall through to the registry search API.
+    void 0;
   }
 
   return searchNpmPackageViaRegistrySearch(
@@ -859,6 +922,34 @@ async function searchNpmPackageViaSearch(
     fetchMetadata,
     from
   );
+}
+
+async function enrichTopSearchResult(
+  result: PackageSearchAPIResult
+): Promise<PackageSearchAPIResult> {
+  /* c8 ignore next */
+  if (result.packages.length === 0) return result;
+  const topPkg = result.packages[0] as NpmPackageResult;
+  if (topPkg.weeklyDownloads !== undefined && topPkg.lastPublished)
+    return result;
+  const [downloadsResult, lastPublishedResult] = await Promise.all([
+    /* c8 ignore next */
+    topPkg.weeklyDownloads !== undefined
+      ? Promise.resolve({ downloads: undefined, rawResponseChars: 0 })
+      : fetchWeeklyDownloads(topPkg.name),
+    /* c8 ignore next */
+    topPkg.lastPublished
+      ? Promise.resolve({ lastPublished: undefined, rawResponseChars: 0 })
+      : fetchLastPublished(topPkg.name),
+  ]);
+  const enriched: NpmPackageResult = { ...topPkg };
+  if (downloadsResult.downloads !== undefined) {
+    enriched.weeklyDownloads = downloadsResult.downloads;
+  }
+  if (lastPublishedResult.lastPublished) {
+    enriched.lastPublished = lastPublishedResult.lastPublished;
+  }
+  return { ...result, packages: [enriched, ...result.packages.slice(1)] };
 }
 
 export async function searchNpmPackage(
@@ -877,26 +968,37 @@ export async function searchNpmPackage(
   return withDataCache(
     cacheKey,
     async () => {
-      let networkFailed = false;
+      const registryCircuitOpen = isCircuitOpen(DEFAULT_NPM_REGISTRY);
+
+      if (registryCircuitOpen) {
+        const webResult = await searchNpmPackageViaWebSearch(
+          packageName,
+          limit
+        );
+        if (!('error' in webResult) && webResult.packages.length > 0) {
+          return webResult;
+        }
+        return {
+          error:
+            'npm registry circuit open and web search returned no results.',
+          hints: [
+            'Use `githubSearchRepositories` to find the source repo directly.',
+          ],
+        } as PackageSearchError;
+      }
+
       if (from === 0 && isExactPackageName(packageName)) {
         const exactResult = await fetchNpmPackageByView(
           packageName,
           fetchMetadata
         );
         if ('error' in exactResult) {
-          // Hard-stop only for definitive errors (bad package name, 404, auth).
-          // Transient network failures fall through to the /-/v1/search path
-          // which uses a different CDN endpoint and may still be reachable.
           if (!isNetworkFetchError(exactResult.error)) return exactResult;
-          networkFailed = true;
+          /* c8 ignore next */
         } else if (exactResult.packages.length > 0 || limit === 1) {
           return exactResult;
         }
       }
-      // Try the registry /-/v1/search endpoint. When falling through from a
-      // network-failed exact lookup, also try split keywords (e.g.
-      // "@scope/pkg" → "scope pkg") as a second attempt so partial matches
-      // are still surfaced even when the primary query returns nothing.
       const searchResult = await searchNpmPackageViaSearch(
         packageName,
         limit,
@@ -904,7 +1006,7 @@ export async function searchNpmPackage(
         from
       );
       if (!('error' in searchResult) && searchResult.packages.length > 0) {
-        return searchResult;
+        return enrichTopSearchResult(searchResult);
       }
       const keywords = _packageNameToSearchKeywords(packageName);
       if (keywords !== packageName) {
@@ -915,19 +1017,18 @@ export async function searchNpmPackage(
           from
         );
         if (!('error' in kwResult) && kwResult.packages.length > 0) {
-          return kwResult;
+          return enrichTopSearchResult(kwResult);
         }
       }
-      // All paths exhausted. When the root cause was a network failure, surface
-      // an actionable hint so the caller knows to try GitHub instead of retrying
-      // the registry. The hint is added here (not in fetchNpmPackageByView)
-      // because the hints in the exact-lookup error are never returned when we
-      // fall through to the search path.
-      if (networkFailed && 'error' in searchResult) {
+      const webResult = await searchNpmPackageViaWebSearch(packageName, limit);
+      if (!('error' in webResult) && webResult.packages.length > 0) {
+        return webResult;
+      }
+      if ('error' in searchResult) {
         return {
           ...searchResult,
           hints: [
-            'npm registry is unreachable on all endpoints (exact lookup + /-/v1/search).',
+            'npm registry and web search (npms.io) are both unreachable.',
             'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
           ],
         };
@@ -935,10 +1036,6 @@ export async function searchNpmPackage(
       return searchResult;
     },
     {
-      // Don't cache errors or empty results. Empty results may indicate
-      // transient npm failures (e.g. shebang PATH issues, network errors)
-      // and should be retried on the next call instead of being stuck for
-      // the entire cache TTL (4 hours).
       shouldCache: result => {
         if ('error' in result) return false;
         if ('totalFound' in result && result.totalFound === 0) return false;

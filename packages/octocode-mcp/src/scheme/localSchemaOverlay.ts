@@ -27,8 +27,6 @@ export function withCoreSchemaDescriptions<
   const describedShape = Object.fromEntries(
     Object.entries(schema.shape).map(([fieldName, fieldSchema]) => {
       const fs = fieldSchema as z.ZodTypeAny;
-      // Preserve descriptions already set by the overlay (via describeField or
-      // .describe()) — core descriptions are the fallback, not the override.
       const alreadyDescribed =
         typeof (fs as { description?: string }).description === 'string';
       if (alreadyDescribed) return [fieldName, fs];
@@ -42,16 +40,6 @@ export function withCoreSchemaDescriptions<
   return schema.extend(describedShape) as unknown as T;
 }
 
-/**
- * Integer field that CLAMPS an out-of-range value into [min, max] instead of
- * rejecting it. A hard validation reject (MCP -32602 `too_big`/`too_small`)
- * wastes a metered tool call over a trivially-correctable magnitude — e.g.
- * `matchStringContextLines: 120` should just become 100 and proceed. Clamping
- * via `preprocess` keeps the inner `.min()/.max()`, so the published JSON
- * schema still advertises the bounds (no ±9e15 bloat). Non-integers and
- * non-numbers still reject downstream — those are genuine type errors, not
- * magnitudes.
- */
 export function clampedInt(min: number, max: number) {
   return z.preprocess(
     v =>
@@ -62,42 +50,31 @@ export function clampedInt(min: number, max: number) {
   );
 }
 
-export const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 100_000;
+const LOCAL_OVERLAY_MAX_MATCH_CONTENT_LENGTH = 100_000;
 
 const LOCAL_OVERLAY_MAX_CONTEXT_LINES = 100;
 
 const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = 1_000;
 
-// Caps the number of entries returned by find_files / view_structure before
-// pagination. Prevents agents from driving unbounded fs walks via a single
-// `limit: 1e9` call.
 export const LOCAL_OVERLAY_MAX_LIMIT = 10_000;
 
-// Caps recursion depth for view_structure and lsp_call_hierarchy.
 export const LOCAL_OVERLAY_MAX_DEPTH = 20;
 
-export const LOCAL_OVERLAY_MAX_LINE = 1_000_000_000;
-export const LOCAL_OVERLAY_MAX_ORDER_HINT = 100_000;
-export const LOCAL_OVERLAY_MAX_FS_DEPTH = 100;
+const LOCAL_OVERLAY_MAX_LINE = 1_000_000_000;
+const LOCAL_OVERLAY_MAX_ORDER_HINT = 100_000;
+const LOCAL_OVERLAY_MAX_FS_DEPTH = 100;
 
-/** 1-based line number / line hint (optional). */
 export const lineNumberField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
 
-/** 1-based line hint that the LSP tools require (non-optional). */
 export const requiredLineHintField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE);
 
-/** 0-based occurrence index on the hinted line (optional). */
 export const orderHintField = clampedInt(
   0,
   LOCAL_OVERLAY_MAX_ORDER_HINT
 ).optional();
 
-/** Filesystem walk depth bound for localFindFiles min/maxDepth (optional). */
 const fsDepthField = clampedInt(0, LOCAL_OVERLAY_MAX_FS_DEPTH).optional();
 
-/**
- * Ripgrep pre-pagination cap (maxFiles / maxMatchesPerFile), optional.
- */
 const ripgrepCapField = clampedInt(1, 100_000).optional();
 
 const matchContentLengthField = clampedInt(
@@ -122,14 +99,6 @@ export const relaxedPageNumberField = clampedInt(
   .optional()
   .default(1);
 
-/**
- * Page size constants — fixed per tool category for predictable, consistent
- * responses. Agents use `page` to navigate; item count per page is constant.
- *
- * DEFAULT_PAGE_SIZE (20): search tools (code, repos, PRs, packages), LSP tools.
- * STRUCTURE_PAGE_SIZE (100): navigation tools (view-structure, find-files)
- *   where entries are compact path strings (~30 chars each).
- */
 export const DEFAULT_PAGE_SIZE = 20;
 export const STRUCTURE_PAGE_SIZE = 100;
 
@@ -139,22 +108,15 @@ export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
     `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. For large trees, page the entries (page=N) or narrow the path rather than over-deepening.`
   );
 
-/** Boolean detail switch added to every tool's per-query schema. */
-export const verboseField = z
+const verboseField = z
   .boolean()
   .optional()
   .describe(
     'Boolean detail switch shared by every tool query. false returns efficient research data; true includes extended metadata.'
   );
 
-/**
- * Adds the optional verbose detail field to any upstream query type.
- */
 export type WithVerbosity<T> = T & { verbose?: boolean };
 
-/**
- * Cross-tool query-metadata shape.
- */
 export type WithQueryMeta<T> = T & {
   id?: string;
   mainResearchGoal?: string;
@@ -162,27 +124,14 @@ export type WithQueryMeta<T> = T & {
   reasoning?: string;
 };
 
-/**
- * Composition of the two helpers above — the canonical shape that every
- * tool's query type now exposes.
- */
 export type WithLocalOverlay<T> = WithVerbosity<WithQueryMeta<T>>;
 
-/**
- * Returns the single verbose field. All tool schemas call this to add
- * the detail switch without duplicating the description.
- */
 export function createVerbosityFields() {
   return {
     verbose: verboseField,
   } as const;
 }
 
-/**
- * Creates a bulk query schema for the given tool. Each bulk call accepts
- * 1–5 queries that run in parallel. Results are paginated at the item
- * level via the per-query `page` field — no char-based windowing.
- */
 export function createRelaxedBulkQuerySchema(
   toolName: string,
   querySchema: z.ZodTypeAny,
@@ -222,9 +171,6 @@ export function createRelaxedBulkQuerySchema(
     });
 }
 
-/**
- * Optional research-metadata fields shared by every tool's per-query schema.
- */
 export const optionalMetaFields = {
   id: z.string().optional().describe('Stable query identifier.'),
   mainResearchGoal: z
@@ -319,8 +265,6 @@ const RipgrepQueryBaseSchema = withCoreSchemaDescriptions(
     contextLines: contextLinesField.default(2),
     maxFiles: ripgrepCapField,
     maxMatchesPerFile: ripgrepCapField,
-    // Pagination: fixed page size (DEFAULT_PAGE_SIZE files/page for search tools).
-    // Files are the top-level atomic item; matches/file is the secondary axis.
     page: relaxedPageNumberField
       .default(1)
       .describe(

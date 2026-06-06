@@ -1,10 +1,3 @@
-/**
- * Compare two ISO-8601 date strings for a descending sort (newest first).
- *
- * Ordering rules (stable, NaN/empty-safe): missing values sort last; an
- * unparseable date also sorts last; otherwise newer timestamps come first.
- * Shared by repo search (by `updatedAt`) and local file search (by `modified`).
- */
 export function compareIsoDateDescending(
   left?: string,
   right?: string

@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for toolHelpers.ts getPathErrorHints
- * Targets uncovered branches: Permission denied, Symlink, ENOENT/not found
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('octocode-security-utils/pathValidator', () => ({

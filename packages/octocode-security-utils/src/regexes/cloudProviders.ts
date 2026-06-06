@@ -1,7 +1,6 @@
 import type { SensitiveDataPattern } from './types.js';
 
 export const cloudProviderPatterns: SensitiveDataPattern[] = [
-  // Google Cloud Platform / Google AI (consolidated - covers GCP, Gemini, YouTube, Maps, etc.)
   {
     name: 'googleApiKey',
     description: 'Google API key (GCP, Gemini, Maps, YouTube, etc.)',
@@ -64,7 +63,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Dropbox
   {
     name: 'dropboxAccessToken',
     description: 'Dropbox access token',
@@ -78,7 +76,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Database Services
   {
     name: 'supabaseServiceKey',
     description: 'Supabase service role key',
@@ -99,7 +96,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Email Services
   {
     name: 'sendgridApiKey',
     description: 'SendGrid API key',
@@ -119,8 +115,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Communication Platforms
-  // NOTE: Discord bot token & webhook URL patterns are in communications.ts (discordSocialBotToken, discordSocialWebhookUrl)
   {
     name: 'telegramBotToken',
     description: 'Telegram bot token',
@@ -140,7 +134,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Package Managers & Registries
   {
     name: 'dockerHubToken',
     description: 'Docker Hub personal access token',
@@ -154,7 +147,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Version Control & Development Tools
   {
     name: 'figmaToken',
     description: 'Figma personal access token',
@@ -167,7 +159,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     regex: /\brnd_[a-zA-Z0-9_-]{43}\b/g,
     matchAccuracy: 'high',
   },
-  // Business & Productivity Tools
   {
     name: 'airtablePersonalAccessToken',
     description: 'Airtable personal access token',
@@ -192,21 +183,18 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     regex: /\bdop_v1_[a-f0-9]{64}\b/g,
     matchAccuracy: 'high',
   },
-  // DigitalOcean OAuth
   {
     name: 'digitalOceanOAuthToken',
     description: 'DigitalOcean OAuth access token',
     regex: /\bdoo_v1_[a-f0-9]{64}\b/g,
     matchAccuracy: 'high',
   },
-  // DigitalOcean Refresh Token
   {
     name: 'digitalOceanRefreshToken',
     description: 'DigitalOcean OAuth refresh token',
     regex: /\bdor_v1_[a-f0-9]{64}\b/g,
     matchAccuracy: 'high',
   },
-  // Cloudflare API Key
   {
     name: 'cloudflareApiKey',
     description: 'Cloudflare API key',
@@ -214,7 +202,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:cloudflare)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9_-]{40}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Cloudflare Global API Key
   {
     name: 'cloudflareGlobalApiKey',
     description: 'Cloudflare Global API key',
@@ -222,42 +209,36 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:cloudflare)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-f0-9]{37}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Cloudflare Origin CA Key
   {
     name: 'cloudflareOriginCaKey',
     description: 'Cloudflare Origin CA key',
     regex: /\bv1\.0-[a-f0-9]{24}-[a-f0-9]{146}\b/g,
     matchAccuracy: 'high',
   },
-  // Fly.io Access Token
   {
     name: 'flyioAccessToken',
     description: 'Fly.io API access token',
     regex: /\bfo1_[\w-]{43}\b/g,
     matchAccuracy: 'high',
   },
-  // Fly.io Machine Token
   {
     name: 'flyioMachineToken',
     description: 'Fly.io machine token',
     regex: /\bfm[12][ar]?_[a-zA-Z0-9+/]{100,}={0,3}\b/g,
     matchAccuracy: 'high',
   },
-  // Doppler API Token
   {
     name: 'dopplerApiToken',
     description: 'Doppler API token',
     regex: /\bdp\.pt\.[a-z0-9]{43}\b/gi,
     matchAccuracy: 'high',
   },
-  // Dynatrace API Token
   {
     name: 'dynatraceApiToken',
     description: 'Dynatrace API token',
     regex: /\bdt0c01\.[a-z0-9]{24}\.[a-z0-9]{64}\b/gi,
     matchAccuracy: 'high',
   },
-  // Netlify Access Token
   {
     name: 'netlifyAccessToken',
     description: 'Netlify access token',
@@ -265,21 +246,18 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:netlify)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9=_-]{40,46}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Scalingo API Token
   {
     name: 'scalingoApiToken',
     description: 'Scalingo API token',
     regex: /\btk-us-[\w-]{48}\b/g,
     matchAccuracy: 'high',
   },
-  // Infracost API Token
   {
     name: 'infracostApiToken',
     description: 'Infracost API token',
     regex: /\bico-[a-zA-Z0-9]{32}\b/g,
     matchAccuracy: 'high',
   },
-  // Harness API Key
   {
     name: 'harnessApiKey',
     description: 'Harness Access Token (PAT or SAT)',
@@ -287,7 +265,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{20}\b/g,
     matchAccuracy: 'high',
   },
-  // Azure AD Client Secret
   {
     name: 'azureAdClientSecret',
     description: 'Azure AD client secret',
@@ -295,14 +272,12 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /(?:^|[\\'"` \s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.-]{31,34})(?:$|[\\'"` \s<),])/g,
     matchAccuracy: 'high',
   },
-  // Heroku API Key v2
   {
     name: 'herokuApiKeyV2',
     description: 'Heroku API key (new format)',
     regex: /\bHRKU-AA[0-9a-zA-Z_-]{58}\b/g,
     matchAccuracy: 'high',
   },
-  // Microsoft Teams Webhook
   {
     name: 'microsoftTeamsWebhook',
     description: 'Microsoft Teams incoming webhook URL',
@@ -310,7 +285,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /https:\/\/[a-z0-9]+\.webhook\.office\.com\/webhookb2\/[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}\/IncomingWebhook\/[a-z0-9]{32}\/[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}/gi,
     matchAccuracy: 'high',
   },
-  // Okta Access Token
   {
     name: 'oktaAccessToken',
     description: 'Okta access token',
@@ -318,7 +292,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:okta)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?00[\w=-]{40}['"]?\b/gi,
     matchAccuracy: 'high',
   },
-  // OpenShift User Token
   {
     name: 'openshiftUserToken',
     description: 'OpenShift user token',
@@ -326,23 +299,18 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // --- New Cloud Provider Patterns ---
-
-  // Deno Deploy Access Token
   {
     name: 'denoDeployToken',
     description: 'Deno Deploy access token',
     regex: /\bddp_[a-zA-Z0-9]{40}\b/g,
     matchAccuracy: 'high',
   },
-  // Resend API Key
   {
     name: 'resendApiKey',
     description: 'Resend email API key',
     regex: /\bre_[a-zA-Z0-9]{30,}\b/g,
     matchAccuracy: 'high',
   },
-  // Azure OpenAI API Key
   {
     name: 'azureOpenaiApiKey',
     description: 'Azure OpenAI API key',
@@ -350,7 +318,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:AZURE_OPENAI|azure_openai)_?(?:API|api)?_?(?:KEY|key)['"]?\s*(?::|=>|=)\s*['"]?[a-f0-9]{32}['"]?\b/gi,
     matchAccuracy: 'high',
   },
-  // Railway API Token
   {
     name: 'railwayApiToken',
     description: 'Railway API token',
@@ -358,14 +325,12 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:RAILWAY|railway)_?(?:API|api)?_?(?:TOKEN|token)['"]?\s*(?::|=>|=)\s*['"]?[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}['"]?\b/gi,
     matchAccuracy: 'high',
   },
-  // Convex Deploy Key
   {
     name: 'convexDeployKey',
     description: 'Convex deployment key',
     regex: /\b(?:prod|dev):[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]{40,}\b/g,
     matchAccuracy: 'medium',
   },
-  // Upstash Kafka
   {
     name: 'upstashKafkaCredentials',
     description: 'Upstash Kafka REST credentials',
@@ -373,7 +338,6 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:UPSTASH_KAFKA)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9=_-]{40,}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Cloudflare Workers API Token (distinct prefix format)
   {
     name: 'cloudflareApiTokenPrefixed',
     description: 'Cloudflare Access team domain (not API token)',

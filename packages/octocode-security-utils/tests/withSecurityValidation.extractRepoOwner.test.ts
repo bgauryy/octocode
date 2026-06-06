@@ -102,9 +102,9 @@ describe('extractRepoOwnerFromParams', () => {
       it('should extract owner when repo is non-string', () => {
         const params = {
           queries: [
-            { owner: 123, repo: 'react' }, // Both invalid - skipped
-            { owner: 'facebook', repo: true }, // Owner valid, repo invalid - extracts owner
-            { owner: 'microsoft', repo: 'vscode' }, // Both valid
+            { owner: 123, repo: 'react' },
+            { owner: 'facebook', repo: true },
+            { owner: 'microsoft', repo: 'vscode' },
           ],
         };
 
@@ -249,9 +249,9 @@ describe('extractRepoOwnerFromParams', () => {
       it('should handle queries with empty strings', () => {
         const params = {
           queries: [
-            { owner: '', repo: 'react' }, // Empty owner - skipped
-            { owner: 'facebook', repo: '' }, // Empty repo - extracts owner only
-            { owner: 'microsoft', repo: 'vscode' }, // Both valid
+            { owner: '', repo: 'react' },
+            { owner: 'facebook', repo: '' },
+            { owner: 'microsoft', repo: 'vscode' },
           ],
         };
 

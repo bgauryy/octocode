@@ -1,7 +1,3 @@
-/**
- * Tests for localFindFiles tool
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
@@ -10,7 +6,6 @@ import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 
-// Mock dependencies
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
 }));
@@ -28,7 +23,6 @@ vi.mock('octocode-security-utils/pathValidator', () => ({
   },
 }));
 
-// Mock fs for file details
 vi.mock('fs', () => {
   const lstat = vi.fn();
   return {
@@ -126,8 +120,6 @@ describe('localFindFiles', () => {
 
       const files = expectDefinedFiles(result);
 
-      // Raw `size` field dropped to remove redundancy with `sizeFormatted`
-      // (human-readable). 123 bytes → "123.0B".
       expect(files[0]).toMatchObject({
         path: '/test/path/file1.js',
         type: 'file',
@@ -173,8 +165,6 @@ describe('localFindFiles', () => {
     });
 
     it('does NOT implicitly cap at 1000 — all discovered files stay paginable', async () => {
-      // 1002 files, no explicit limit: every file must be reachable via
-      // page (the old silent 1000 cap dropped 2 files unrecoverably).
       const paths = Array.from(
         { length: 1002 },
         (_, index) => `/test/path/file-${index}.ts`
@@ -190,7 +180,6 @@ describe('localFindFiles', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalFiles).toBe(1002);
-      // No cap hint — nothing was dropped.
       expect(result.hints?.some(h => /capped at/i.test(h))).toBeFalsy();
     });
 
@@ -313,8 +302,6 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Platform-aware: macOS converts M/G to bytes (c suffix), Linux keeps M/G
-      // BUG FIX: macOS BSD find only supports 'c' (bytes) and 'k' (kilobytes)
       const isMacOS = process.platform === 'darwin';
       const expectedSize = isMacOS ? `+${1 * 1024 * 1024}c` : '+1M';
       expect(mockSafeExec).toHaveBeenCalledWith(
@@ -359,7 +346,6 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Platform-specific: Linux uses -executable, macOS uses -perm +111
       if (process.platform === 'linux') {
         expect(mockSafeExec).toHaveBeenCalledWith(
           'find',
@@ -451,8 +437,6 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // The implementation uses a more complex pattern for excluding directories:
-      // ( -path */node_modules -o -path */node_modules/* ) -prune -o
       expect(mockSafeExec).toHaveBeenCalledWith(
         'find',
         expect.arrayContaining(['-path', '*/node_modules', '-prune'])
@@ -471,8 +455,6 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
 
       const args = mockSafeExec.mock.calls[0]![1] as string[];
-      // Regression: localFindFiles was returning .octocode/scan/* artifacts
-      // because DEFAULT_EXCLUDE_DIRS only listed node_modules/dist/.git/coverage/build/.next.
       for (const dir of [
         '.octocode',
         '.cursor',
@@ -493,9 +475,6 @@ describe('localFindFiles', () => {
     });
 
     it('should NOT prune directories that appear in the search path itself', async () => {
-      // BUG-FIX: Searching inside e.g. /work/.context/sub used to return empty
-      // because the default excludeDir included ".context", which generated the
-      // prune pattern `*/.context/*` that matched EVERY file under that path.
       mockValidate.mockReturnValue({
         isValid: true,
         sanitizedPath: '/work/.context/sub',
@@ -515,7 +494,6 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
 
       const args = mockSafeExec.mock.calls[0]![1] as string[];
-      // .context must NOT be in the prune list when the search path contains it
       const idx = args.indexOf('*/.context');
       expect(idx).toBe(-1);
     });
@@ -559,9 +537,7 @@ describe('localFindFiles', () => {
       await findFiles({ path: '/project/src', name: '*.ts' });
 
       const args = mockSafeExec.mock.calls[0]![1] as string[];
-      // node_modules is NOT in '/project/src' → still pruned
       expect(args).toContain('*/node_modules');
-      // .context is NOT in '/project/src' → still pruned
       expect(args).toContain('*/.context');
     });
   });
@@ -603,13 +579,10 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        // No charLength specified
       });
 
-      // Should either return results or error requesting pagination
       expect([undefined, 'error']).toContain(result.status);
       if (result.status === 'error') {
-        // Should have error code for pagination
         expect(result.errorCode).toBeDefined();
       }
     });
@@ -617,7 +590,6 @@ describe('localFindFiles', () => {
 
   describe('Concurrency behavior', () => {
     it('should cap concurrent lstat calls to 24', async () => {
-      // Generate 100 file paths from find output
       const files =
         Array.from({ length: 100 }, (_, i) => `/test/file${i}.txt`).join('\0') +
         '\0';
@@ -630,7 +602,7 @@ describe('localFindFiles', () => {
 
       let inFlight = 0;
       let maxInFlight = 0;
-      // Mock lstat with small delay to expose concurrency
+
       vi.mocked(mockFs.promises.lstat).mockImplementation(async () => {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
@@ -649,7 +621,6 @@ describe('localFindFiles', () => {
       const result = await findFiles({ path: '/test/path', details: true });
 
       expect(result.status).toBeUndefined();
-      // Bounded concurrency should never exceed 24
       expect(maxInFlight).toBeLessThanOrEqual(24);
     });
   });
@@ -801,7 +772,6 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files.length).toBe(3);
-      // Should be sorted by modification time (most recent first)
       expect(files[0]!.path).toBe('/test/new.txt');
       expect(files[0]!.modified).toBeDefined();
     });
@@ -832,7 +802,6 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files.length).toBe(3);
-      // Should be sorted by path
       expect(files[0]!.path).toBe('/test/a.txt');
       expect(files[1]!.path).toBe('/test/b.txt');
       expect(files[2]!.path).toBe('/test/c.txt');
@@ -848,12 +817,10 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      // First lstat call returns incomplete data
       let callCount = 0;
       vi.mocked(mockFs.promises.lstat).mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
-          // First call - return incomplete stats (missing size)
           return {
             isDirectory: () => false,
             isSymbolicLink: () => false,
@@ -863,7 +830,6 @@ describe('localFindFiles', () => {
             mtime: new Date('2024-01-01'),
           } as unknown as import('fs').Stats;
         }
-        // Second call - return complete stats
         return {
           isDirectory: () => false,
           isSymbolicLink: () => false,
@@ -891,7 +857,6 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      // First call succeeds with incomplete data, second call fails
       let callCount = 0;
       vi.mocked(mockFs.promises.lstat).mockImplementation(async () => {
         callCount++;
@@ -914,7 +879,6 @@ describe('localFindFiles', () => {
         showFileLastModified: true,
       });
 
-      // Should still succeed, just with missing data
       expect(result.status).toBeUndefined();
     });
   });
@@ -947,7 +911,6 @@ describe('localFindFiles', () => {
         itemsPerPage: 10,
       });
 
-      // Should paginate large result sets
       expect(result.status).toBeUndefined();
       const files2 = expectDefinedFiles(result);
       expect(files2.length).toBeLessThanOrEqual(10);
@@ -972,10 +935,9 @@ describe('localFindFiles', () => {
         details: true,
       });
 
-      // Should succeed with partial data
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
-      expect(files[0]!.type).toBe('file'); // Default type
+      expect(files[0]!.type).toBe('file');
     });
 
     it('should detect symlinks in getFileDetails', async () => {
@@ -1405,7 +1367,6 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      // Schema should validate, but test with valid value
       const result = await findFiles({
         path: '/test/path',
         page: 1,

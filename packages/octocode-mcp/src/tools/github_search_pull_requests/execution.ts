@@ -15,7 +15,6 @@ import type {
   WithOptionalMeta,
 } from '../../types/execution.js';
 
-/** Fields that have ZodDefault values and can be omitted by callers */
 type PRDefaultKeys =
   | 'order'
   | 'limit'
@@ -92,10 +91,6 @@ export async function searchMultipleGitHubPullRequests(
           return providerResult.result;
         }
 
-        // A prNumber lookup targets one PR — return its full body, not the
-        // 500-char search preview (and make the truncation hint truthful).
-        // type="metadata" (the triage default) drops the per-PR file list to
-        // keep the payload lean; counts (changedFilesCount) are retained.
         const prType = (effectiveQuery as { type?: string }).type;
         const includeFileChanges =
           prType === 'fullContent' || prType === 'partialContent';
@@ -107,9 +102,6 @@ export async function searchMultipleGitHubPullRequests(
           includeFileChanges,
         });
 
-        // A direct prNumber lookup resolves a single PR — the search-style
-        // pagination block (totalMatches:0, totalPages:1, hasMore:false) is
-        // meaningless noise, so drop it from both the hints and the payload.
         const pagination =
           effectiveQuery.prNumber !== undefined ? undefined : rawPagination;
         if (effectiveQuery.prNumber !== undefined) {
@@ -130,10 +122,6 @@ export async function searchMultipleGitHubPullRequests(
               'PRs'
             )
           : [];
-
-        // PR pagination is item/page-based here. The old char-window path was
-        // removed from the public bulk envelope, so resultData is passed
-        // through as-is and completeness is carried by page metadata/evidence.
 
         const resultHints: string[] = hasContent
           ? [
@@ -183,8 +171,6 @@ export async function searchMultipleGitHubPullRequests(
           }
         }
 
-        // Result-page completeness is reflected by pagination hints and
-        // evidence reasons.
         const hasMore = Boolean(pagination?.hasMore);
 
         const shaped = applyGithubSearchPullRequestsVerbosity(
@@ -207,9 +193,6 @@ export async function searchMultipleGitHubPullRequests(
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
           {
-            // Pass query-shape fields so the per-tool empty branch can
-            // name the actual filters that produced zero results
-            // (state, author, prNumber, query) instead of generic prose.
             hintContext: {
               matchCount: pullRequests.length,
               state: effectiveQuery.state,
@@ -252,15 +235,6 @@ export async function searchMultipleGitHubPullRequests(
   );
 }
 
-/**
- * Verbosity shaping for githubSearchPullRequests.
- *
- * verbose=false (default): omit metadata-only PR fields (createdAt, updatedAt,
- *   closedAt, mergedAt, comments, reactions, labels, assignees, etc.).
- * verbose=true: include all fields.
- *
- * Items are never dropped. Hints are always returned fully.
- */
 export function applyGithubSearchPullRequestsVerbosity(
   input: {
     data: Record<string, unknown>;
@@ -274,7 +248,6 @@ export function applyGithubSearchPullRequestsVerbosity(
     return { data: input.data, extraHints: input.extraHints };
   }
 
-  // Strip metadata-only fields from each PR entry
   const METADATA_KEYS = new Set([
     'createdAt',
     'updatedAt',

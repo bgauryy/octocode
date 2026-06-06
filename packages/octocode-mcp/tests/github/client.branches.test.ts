@@ -1,8 +1,3 @@
-/**
- * GitHub Client Branch Coverage Tests
- * Targets uncovered branches in github/client.ts
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getOctokit, clearOctokitInstances } from '../../src/github/client.js';
 
@@ -136,16 +131,12 @@ describe('GitHub Client Branch Coverage', () => {
         scopes: [] as string[],
       };
 
-      // First call creates instance
       const instance1 = await getOctokit(authInfo);
 
-      // Second call with same token should reuse
       const instance2 = await getOctokit(authInfo);
 
-      // Should be the exact same instance
       expect(instance1).toBe(instance2);
 
-      // Constructor should only be called once
       expect(mockOctokit).toHaveBeenCalledTimes(1);
     });
 
@@ -175,17 +166,14 @@ describe('GitHub Client Branch Coverage', () => {
         scopes: [] as string[],
       };
 
-      // Create auth instance
       const authInstance1 = await getOctokit(authInfo);
 
-      // Create default instance
       await getOctokit();
 
-      // Reuse auth instance
       const authInstance2 = await getOctokit(authInfo);
 
       expect(authInstance1).toBe(authInstance2);
-      expect(mockOctokit).toHaveBeenCalledTimes(2); // One for auth, one for default
+      expect(mockOctokit).toHaveBeenCalledTimes(2);
     });
 
     it('should hash tokens and cache by hash', async () => {
@@ -198,7 +186,6 @@ describe('GitHub Client Branch Coverage', () => {
       const instance1 = await getOctokit(authInfo);
       const instance2 = await getOctokit(authInfo);
 
-      // Both calls should return the same instance (proving hash-based caching works)
       expect(instance1).toBe(instance2);
       expect(mockOctokit).toHaveBeenCalledTimes(1);
     });
@@ -212,20 +199,16 @@ describe('GitHub Client Branch Coverage', () => {
         scopes: [] as string[],
       };
 
-      // Control Date.now for both creation and expiry check
       const originalNow = Date.now;
       let fakeTime = 1_000_000;
       Date.now = () => fakeTime;
 
       try {
-        // First call creates instance (createdAt = 1_000_000)
         await getOctokit(authInfo);
         expect(mockOctokit).toHaveBeenCalledTimes(1);
 
-        // Advance past TTL (5 minutes = 300_000ms)
         fakeTime += 5 * 60 * 1000 + 1;
 
-        // Second call should create new instance (expired)
         await getOctokit(authInfo);
         expect(mockOctokit).toHaveBeenCalledTimes(2);
       } finally {
@@ -252,7 +235,6 @@ describe('GitHub Client Branch Coverage', () => {
     });
 
     it('should not include auth in options when token is empty string', async () => {
-      // This tests the `...(token && { auth: token })` spread
       vi.mocked(
         await import('../../src/serverConfig.js')
       ).getGitHubToken.mockResolvedValue('');
@@ -271,7 +253,6 @@ describe('GitHub Client Branch Coverage', () => {
       Date.now = () => fakeTime;
 
       try {
-        // Create 51 distinct auth instances to exceed MAX_INSTANCES (50)
         for (let i = 0; i < 51; i++) {
           await getOctokit({
             token: `capacity-token-${i}`,
@@ -281,9 +262,6 @@ describe('GitHub Client Branch Coverage', () => {
           fakeTime += 10;
         }
 
-        // The 51st call should have triggered purgeExpiredInstances
-        // which should evict oldest non-DEFAULT entries
-        // Verify the system still works after eviction
         const instance = await getOctokit({
           token: 'post-eviction-token',
           clientId: 'post-eviction',
@@ -302,7 +280,6 @@ describe('GitHub Client Branch Coverage', () => {
       Date.now = () => fakeTime;
 
       try {
-        // Create 30 instances that will expire
         for (let i = 0; i < 30; i++) {
           await getOctokit({
             token: `expire-capacity-${i}`,
@@ -312,10 +289,8 @@ describe('GitHub Client Branch Coverage', () => {
           fakeTime += 10;
         }
 
-        // Advance past TTL (5 min)
         fakeTime += 5 * 60 * 1000 + 1;
 
-        // Create 20 more fresh instances
         for (let i = 0; i < 20; i++) {
           await getOctokit({
             token: `fresh-capacity-${i}`,
@@ -325,7 +300,6 @@ describe('GitHub Client Branch Coverage', () => {
           fakeTime += 10;
         }
 
-        // This should trigger purge of expired entries
         const instance = await getOctokit({
           token: 'final-capacity-token',
           clientId: 'final',

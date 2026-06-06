@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
-// Mock dependencies - using ALL_TOOLS (unified tool array, single source of truth)
 vi.mock('../../src/tools/toolConfig.js', () => {
   const mockGitHubTools = [
     { name: 'githubSearchCode', isDefault: true, isLocal: false, fn: vi.fn() },
@@ -128,18 +127,14 @@ describe('ToolsManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock server
     mockServer = {} as McpServer;
 
-    // Mock stderr to capture warnings
     process.stderr.write = vi.fn();
 
-    // Reset mocks to default state
     mockIsToolAvailableSync.mockReturnValue(true);
-    mockIsLocalEnabled.mockReturnValue(false); // Default: local tools disabled
-    mockIsCloneEnabled.mockReturnValue(false); // Default: clone tools disabled
+    mockIsLocalEnabled.mockReturnValue(false);
+    mockIsCloneEnabled.mockReturnValue(false);
 
-    // Reset all tool function mocks
     ALL_TOOLS.forEach(tool => {
       vi.mocked(tool.fn).mockReset();
     });
@@ -166,13 +161,11 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register default GitHub tools (5 tools)
       expect(result.successCount).toBeGreaterThan(0);
       expect(typeof result.successCount).toBe('number');
       expect(result.failedTools).toBeDefined();
       expect(Array.isArray(result.failedTools)).toBe(true);
 
-      // Verify default GitHub tools were called
       const defaultGithubTools = ALL_TOOLS.filter(
         t => !t.isLocal && t.isDefault
       );
@@ -180,13 +173,11 @@ describe('ToolsManager', () => {
         expect(tool.fn).toHaveBeenCalled();
       });
 
-      // Verify local tools were NOT called
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
       localTools.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
 
-      // Verify non-default tools were NOT called
       const nonDefaultTool = ALL_TOOLS.find(t => !t.isDefault && !t.isLocal);
       expect(nonDefaultTool!.fn).not.toHaveBeenCalled();
     });
@@ -282,7 +273,6 @@ describe('ToolsManager', () => {
       expect(result.successCount).toBe(0);
       expect(Array.isArray(result.failedTools)).toBe(true);
 
-      // Verify no tools were called
       ALL_TOOLS.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
@@ -625,11 +615,9 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register all default GitHub tools
       expect(result.successCount).toBeGreaterThanOrEqual(0);
       expect(Array.isArray(result.failedTools)).toBe(true);
 
-      // Verify all default GitHub tools were called
       const defaultGithubTools = ALL_TOOLS.filter(
         t => !t.isLocal && t.isDefault
       );
@@ -657,7 +645,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register some tools (default minus disabled)
       expect(typeof result.successCount).toBe('number');
       expect(result.successCount).toBeGreaterThanOrEqual(0);
       expect(result.failedTools).toBeDefined();
@@ -681,7 +668,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register some tools (default minus disabled)
       expect(typeof result.successCount).toBe('number');
       expect(result.successCount).toBeGreaterThanOrEqual(0);
       expect(result.failedTools).toBeDefined();
@@ -693,7 +679,7 @@ describe('ToolsManager', () => {
         version: '1.0.0',
         githubApiUrl: 'https://api.github.com',
         enableTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS],
-        disableTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS], // Same tool in both lists
+        disableTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS],
         timeout: 30000,
         maxRetries: 3,
         loggingEnabled: true,
@@ -705,7 +691,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register some tools (default minus disabled)
       expect(typeof result.successCount).toBe('number');
       expect(result.successCount).toBeGreaterThanOrEqual(0);
       expect(result.failedTools).toBeDefined();
@@ -727,7 +712,6 @@ describe('ToolsManager', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // Make first GitHub tool throw error
       const githubTools = ALL_TOOLS.filter(t => !t.isLocal);
       vi.mocked(githubTools[0]!.fn).mockImplementation(() => {
         throw new Error('Registration failed');
@@ -735,7 +719,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register some tools, with failures tracked
       expect(typeof result.successCount).toBe('number');
       expect(result.successCount).toBeGreaterThanOrEqual(0);
       expect(result.failedTools).toBeDefined();
@@ -756,7 +739,6 @@ describe('ToolsManager', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // Make multiple GitHub tools throw errors
       const githubTools = ALL_TOOLS.filter(t => !t.isLocal);
       vi.mocked(githubTools[0]!.fn).mockImplementation(() => {
         throw new Error('Registration failed');
@@ -767,7 +749,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register some tools, with failures tracked
       expect(typeof result.successCount).toBe('number');
       expect(result.successCount).toBeGreaterThanOrEqual(0);
       expect(result.failedTools).toBeDefined();
@@ -793,19 +774,16 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should register default GitHub + local tools (clone excluded: ENABLE_CLONE=false)
       const expectedCount = ALL_TOOLS.filter(
         t => t.isDefault && !t.isClone
       ).length;
       expect(result.successCount).toBe(expectedCount);
 
-      // Verify non-clone local tools were called
       const localTools = ALL_TOOLS.filter(t => t.isLocal && !t.isClone);
       localTools.forEach(tool => {
         expect(tool.fn).toHaveBeenCalled();
       });
 
-      // Clone tool should NOT be called (ENABLE_CLONE=false)
       const cloneTool = ALL_TOOLS.find(t => t.isClone);
       expect(cloneTool!.fn).not.toHaveBeenCalled();
     });
@@ -826,10 +804,8 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should only register GitHub tools, not local tools
       expect(result.successCount).toBeGreaterThanOrEqual(0);
 
-      // Verify local tools were NOT called
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
       localTools.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
@@ -850,7 +826,6 @@ describe('ToolsManager', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // Make all local tools throw errors
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
       localTools.forEach(tool => {
         vi.mocked(tool.fn).mockImplementation(() => {
@@ -860,7 +835,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Should track the failures
       expect(result.failedTools.length).toBeGreaterThan(0);
     });
   });
@@ -882,10 +856,8 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // GitHub tools should not be registered when unavailable in metadata
       expect(result.successCount).toBe(0);
 
-      // Verify no GitHub tools were called
       const githubTools = ALL_TOOLS.filter(t => !t.isLocal);
       githubTools.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
@@ -909,16 +881,13 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // All tools should be skipped when not in metadata (includes local tools)
       expect(result.successCount).toBe(0);
 
-      // Verify no tools were called (local tools now also check metadata)
       ALL_TOOLS.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
 
-      // Session errors logged for all tools
-      expect(mockLogSessionError).toHaveBeenCalledTimes(9); // 5 GitHub + 4 Local
+      expect(mockLogSessionError).toHaveBeenCalledTimes(9);
     });
   });
 
@@ -937,24 +906,19 @@ describe('ToolsManager', () => {
         tokenSource: 'env:GITHUB_TOKEN',
       });
 
-      // Make first GitHub tool return null (tool unavailable)
       const githubTools = ALL_TOOLS.filter(t => !t.isLocal);
       vi.mocked(githubTools[0]!.fn).mockResolvedValue(null);
 
       const result = await registerTools(mockServer);
 
-      // Tool returning null should not count as success but also not as failure
-      // (it's a valid "not available" response)
       expect(result.failedTools).not.toContain(githubTools[0]?.name);
     });
   });
 
   describe('Non-default tool handling', () => {
     it('should not register non-default tools without enableTools', async () => {
-      // Temporarily modify ALL_TOOLS to have a non-default tool
       const originalTools = [...ALL_TOOLS];
 
-      // Clear and add a non-default tool
       ALL_TOOLS.length = 0;
       ALL_TOOLS.push({
         name: 'nonDefaultTool',
@@ -980,11 +944,9 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Non-default tool should not be registered (fn not called)
       expect(ALL_TOOLS[0]?.fn).not.toHaveBeenCalled();
       expect(result.successCount).toBe(0);
 
-      // Restore original tools
       ALL_TOOLS.length = 0;
       originalTools.forEach(t => ALL_TOOLS.push(t));
     });
@@ -996,11 +958,8 @@ describe('ToolsManager', () => {
         throw new Error('Server config not initialized');
       });
 
-      // Should NOT crash — uses safe defaults
       const result = await registerTools(mockServer);
 
-      // With safe defaults (empty toolsToRun/enableTools/disableTools),
-      // all default tools should be attempted
       expect(typeof result.successCount).toBe('number');
       expect(Array.isArray(result.failedTools)).toBe(true);
     });
@@ -1013,8 +972,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Default tools should still be attempted since safe defaults
-      // return empty arrays (all defaults enabled)
       expect(result.successCount).toBeGreaterThanOrEqual(0);
     });
   });
@@ -1037,7 +994,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Clone tool blocked (ENABLE_CLONE=false), non-default tool skipped
       const expectedCount = ALL_TOOLS.filter(
         t => t.isDefault && !t.isClone
       ).length;
@@ -1070,7 +1026,6 @@ describe('ToolsManager', () => {
 
       const result = await registerTools(mockServer);
 
-      // Only default non-local tools registered
       const defaultGithubCount = ALL_TOOLS.filter(
         t => !t.isLocal && t.isDefault
       ).length;

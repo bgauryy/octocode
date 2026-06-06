@@ -14,10 +14,6 @@ interface ExecutionGuardOptions<TQuery extends GuardableQuery> {
   contextMessage?: string;
 }
 
-/**
- * Standardized error boundary for tool execution callbacks.
- * Ensures thrown errors become structured tool error results.
- */
 export async function executeWithToolBoundary<TQuery extends GuardableQuery>({
   toolName,
   query,

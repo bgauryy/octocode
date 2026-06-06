@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchGitHubPullRequestsAPI } from '../src/github/pullRequestSearch';
 import * as client from '../src/github/client';
 
-// Mock the client module
 vi.mock('../src/github/client', () => ({
   getOctokit: vi.fn(),
   OctokitWithThrottling: class {},

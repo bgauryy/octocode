@@ -1,10 +1,3 @@
-/**
- * Tests for pagination and hints fixes
- * - Fix 1: githubSearchPullRequests pagination object and hints
- * - Fix 2: githubGetFileContent pagination hints passthrough
- * - Fix 3: githubSearchCode repositoryContext branch
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
 import { getOctokit } from '../../src/github/client.js';
@@ -130,7 +123,6 @@ describe('Pagination and Hints Fixes', () => {
               full_name: 'facebook/react',
               url: 'https://github.com/facebook/react',
               owner: { login: 'facebook' },
-              // No default_branch provided
             },
             url: 'file_url',
             html_url: 'html_url',
@@ -214,7 +206,6 @@ describe('Pagination and Hints Fixes', () => {
       expect(isGitHubAPISuccess(result)).toBe(true);
       if (!isGitHubAPISuccess(result)) return;
 
-      // When files are from multiple repos, repositoryContext should be undefined
       expect(result.data._researchContext?.repositoryContext).toBeUndefined();
     });
   });

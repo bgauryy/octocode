@@ -1,13 +1,3 @@
-/**
- * Ensures native and pure-JS dependencies required at runtime are installed.
- *
- * The skill's bundle cannot inline native addons (@ast-grep/napi, tree-sitter
- * variants) — they must exist in the skill's node_modules at runtime. When the
- * skill ships standalone (outside the monorepo's hoisted node_modules), the
- * first run needs to install them. This module detects the user's package
- * manager from lockfiles, runs install against the skill directory, and exits
- * with an actionable message if install fails.
- */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -75,7 +65,6 @@ function planInstall(skillDir: string): InstallPlan {
 }
 
 function findSkillDir(entryUrl: string): string {
-  // Walk up from the entry file until we find a package.json — that's the skill root.
   let dir = dirname(fileURLToPath(entryUrl));
   for (let i = 0; i < MAX_SKILL_DIR_HOPS; i++) {
     if (existsSync(join(dir, 'package.json'))) return dir;
@@ -83,7 +72,6 @@ function findSkillDir(entryUrl: string): string {
     if (parent === dir) break;
     dir = parent;
   }
-  // Fallback: assume scripts/<file>.js → skill root is one level up.
   return dirname(dirname(fileURLToPath(entryUrl)));
 }
 
@@ -102,18 +90,13 @@ function missingPackagesFrom(skillDir: string, entryUrl: string): string[] {
 }
 
 export interface EnsureDepsOptions {
-  /** If false, print instructions and exit; do not run the installer. */
+  
   autoInstall?: boolean;
-  /** Log prefix for user-facing messages. */
+  
   tag?: string;
 }
 
-/**
- * Verify the skill's runtime dependencies are resolvable. If not:
- *   - Detect the user's package manager from the skill directory's lockfile.
- *   - If autoInstall is true (default), run the installer in the skill dir.
- *   - Otherwise, print the exact command for the user and exit 1.
- */
+
 export function ensureNativeDependencies(
   entryUrl: string,
   options: EnsureDepsOptions = {},

@@ -1,21 +1,3 @@
-/**
- * Unit tests for finalizer optimizations:
- *
- *  1. githubGetFileContent no longer pushes the
- *     "Partial content for ... ends at line N. Use startLine=N+1 to continue."
- *     hint to the top-level `hints[]` — that info is already on each file
- *     entry via isPartial/endLine/totalLines.
- *
- *  2. githubGetFileContent error hints fire on a GitHubAPIError-shaped failure
- *     even when the `.error` string was the generic "Provider error" — the
- *     finalizer must look at `status` (e.g. 404) too.
- *
- *  3. githubSearchCode emits a per-query "this query returned nothing" signal
- *     (`emptyQueries:[{id}]`) so callers can disambiguate a zero-match query
- *     from one that merged into another owner/repo group.
- *
- *  4. Truncator recovery string uses a straight apostrophe (not a curly one).
- */
 import { describe, it, expect } from 'vitest';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import { buildGithubSearchCodeFinalizer } from '../../src/tools/github_search_code/finalizer.js';
@@ -73,8 +55,6 @@ describe('githubGetFileContent finalizer — optimization fixes', () => {
         path: 'this_file_does_not_exist.md',
       },
     ];
-    // Mirrors what handleProviderError places into FlatQueryResult.data when
-    // upstream omits a textual reason but does carry HTTP status (e.g. 404).
     const results: FlatQueryResult[] = [
       {
         id: 'q1',
@@ -220,9 +200,6 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
 
 describe('Truncator recovery strings — apostrophe consistency', () => {
   it('FIX #4: fetch_content truncator recovery uses a straight apostrophe', async () => {
-    // Read the source file and ensure no curly apostrophe appears in the
-    // truncator's recovery message. (We don't need to invoke the truncator —
-    // the contract is a string-literal style guarantee.)
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
     const file = path.resolve(
@@ -230,6 +207,6 @@ describe('Truncator recovery strings — apostrophe consistency', () => {
       '../../src/tools/github_fetch_content/finalizer.ts'
     );
     const src = await fs.readFile(file, 'utf8');
-    expect(src.includes('’')).toBe(false); // U+2019 RIGHT SINGLE QUOTATION MARK
+    expect(src.includes('’')).toBe(false);
   });
 });

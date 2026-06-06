@@ -1,12 +1,3 @@
-/**
- * Comprehensive tests to verify sessionId and authInfo propagation
- * from Tools → Provider layer for ALL tools
- *
- * This test suite ensures that:
- * 1. All tools correctly use the provider layer
- * 2. All tools properly call provider methods
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createMockMcpServer,
@@ -63,7 +54,6 @@ describe('Provider Integration - ALL TOOLS', () => {
     };
     mockGetProvider.mockReturnValue(mockProvider);
 
-    // Setup default mock responses
     mockProvider.searchCode.mockResolvedValue({
       data: {
         items: [],

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock the GitHub client
 const mockOctokit = vi.hoisted(() => ({
   rest: {
     search: {
@@ -13,22 +12,18 @@ vi.mock('../../src/github/client.js', () => ({
   getOctokit: vi.fn(() => mockOctokit),
 }));
 
-// Mock the cache to prevent interference
 vi.mock('../../src/utils/http/cache.js', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
   withDataCache: vi.fn(async (_key: string, fn: () => unknown) => {
-    // Always execute the function, don't use cache
     return await fn();
   }),
 }));
 
-// Mock serverConfig
 vi.mock('../../src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(() => Promise.resolve('test-token')),
   isLoggingEnabled: vi.fn(() => false),
 }));
 
-// Import after mocking
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
 
 describe('Quality Boosting and Research Goals', () => {
@@ -91,7 +86,6 @@ describe('Quality Boosting and Research Goals', () => {
     const callArgs = mockOctokit.rest.search.code.mock.calls[0]?.[0];
     expect(callArgs.q).toBe('useMemo React repo:test/repo');
     expect(callArgs.q).not.toMatch(/stars:>10/);
-    // Note: order parameter was deprecated by GitHub in April 2023
   });
 
   it('should apply analysis research goal correctly', async () => {

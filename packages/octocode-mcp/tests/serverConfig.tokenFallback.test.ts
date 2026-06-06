@@ -1,25 +1,3 @@
-/**
- * Token Fallback Chain Tests
- *
- * Tests the fallback behavior when token sources fail or become unavailable.
- * Unlike tokenResolution tests (which mock resolveTokenFull at the top),
- * these tests verify the actual fallback transitions and edge cases:
- *
- * - Source transitions at runtime (env → storage → gh-cli → none)
- * - Refresh error propagation through the fallback chain
- * - Empty/null token handling at each fallback level
- * - Error recovery when a previously-failed source becomes available
- * - Concurrent fallback resolution
- * - mapSharedSourceToInternal edge cases
- *
- * The full priority chain:
- *   1. OCTOCODE_TOKEN env var
- *   2. GH_TOKEN env var
- *   3. GITHUB_TOKEN env var
- *   4. Encrypted storage (~/.octocode/credentials.json) with auto-refresh
- *   5. gh auth token (GitHub CLI) — fallback via callback
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import {
   initialize,

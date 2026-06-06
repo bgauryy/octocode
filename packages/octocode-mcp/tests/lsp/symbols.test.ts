@@ -1,7 +1,3 @@
-/**
- * Tests for LSP symbol kind conversion utilities
- * Covers both convertSymbolKind and toLSPSymbolKind functions
- */
 import { describe, it, expect } from 'vitest';
 import { SymbolKind as LSPSymbolKind } from 'vscode-languageserver-protocol';
 import { convertSymbolKind, toLSPSymbolKind } from '../../src/lsp/symbols.js';
@@ -131,7 +127,6 @@ describe('LSP Symbol Kind Conversion', () => {
     });
 
     it('should return Function as default for unrecognized strings', () => {
-      // Test with a type assertion to simulate an invalid input
       expect(toLSPSymbolKind('invalid' as any)).toBe(LSPSymbolKind.Function);
     });
   });

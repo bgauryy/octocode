@@ -1,24 +1,6 @@
-/**
- * Server Init Script — Detached Daemon Launcher
- *
- * 1. Checks if server is already running (health check)
- * 2. If running → prints "ok" and exits
- * 3. If not → starts server as **detached** process, waits for health, prints "ok", exits
- *
- * Lifecycle: The server runs as an independent daemon (detached, unref'd).
- * No client owns the server — it self-terminates after 30 minutes of idle.
- * Every invocation of this script exits after confirming the server is healthy.
- *
- * Usage: npm run server-init
- * Exit codes: 0 = success, 1 = error
- */
-
 import { spawn } from 'child_process';
 import { join } from 'path';
 
-// =============================================================================
-// Configuration (Environment Variables)
-// =============================================================================
 
 const PORT = parseInt(process.env.OCTOCODE_RESEARCH_PORT || process.env.OCTOCODE_PORT || '1987', 10);
 const HOST = process.env.OCTOCODE_RESEARCH_HOST || 'localhost';
@@ -30,9 +12,6 @@ interface HealthResponse {
   status: 'ok' | 'initializing' | string;
 }
 
-// =============================================================================
-// Health Check
-// =============================================================================
 
 async function checkHealth(): Promise<HealthResponse | null> {
   try {
@@ -53,9 +32,6 @@ async function checkHealth(): Promise<HealthResponse | null> {
   }
 }
 
-// =============================================================================
-// Server Start — detached daemon (survives parent exit)
-// =============================================================================
 
 function startServer(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -82,9 +58,6 @@ function startServer(): Promise<void> {
   });
 }
 
-// =============================================================================
-// Wait for Ready (with exponential backoff)
-// =============================================================================
 
 async function waitForReady(): Promise<boolean> {
   const startTime = Date.now();
@@ -108,12 +81,8 @@ async function waitForReady(): Promise<boolean> {
   return false;
 }
 
-// =============================================================================
-// Main
-// =============================================================================
 
 async function main(): Promise<void> {
-  // Fast path: server already running → exit immediately
   const initialHealth = await checkHealth();
 
   if (initialHealth?.status === 'ok') {
@@ -133,7 +102,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // Server not running — start it (detached)
   console.log('[server-init] Server not running, starting detached daemon...');
 
   try {

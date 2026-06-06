@@ -1,7 +1,3 @@
-/**
- * Tests for ignoredPathFilter security
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   shouldIgnorePath,
@@ -44,7 +40,6 @@ describe('ignoredPathFilter', () => {
     });
 
     it('should handle backslash paths (Windows-style converted to forward slash)', () => {
-      // The function normalizes backslashes to forward slashes
       expect(shouldIgnorePath('project/.ssh')).toBe(true);
     });
   });
@@ -85,19 +80,16 @@ describe('ignoredPathFilter', () => {
       expect(shouldIgnoreFile('.ssh/id_rsa')).toBe(true);
     });
 
-    // Backup files are NOW ALLOWED for code exploration
     it('should return false for backup files (allowed for diff analysis)', () => {
       expect(shouldIgnoreFile('config.bak')).toBe(false);
       expect(shouldIgnoreFile('settings.old')).toBe(false);
     });
 
-    // Log files are NOW ALLOWED for code exploration
     it('should return false for log files (allowed for debugging)', () => {
       expect(shouldIgnoreFile('app.log')).toBe(false);
       expect(shouldIgnoreFile('error.log')).toBe(false);
     });
 
-    // Database files are NOW ALLOWED for code exploration (content sanitized)
     it('should return false for database files (allowed, content sanitized)', () => {
       expect(shouldIgnoreFile('data.db')).toBe(false);
       expect(shouldIgnoreFile('users.sqlite')).toBe(false);
@@ -116,7 +108,6 @@ describe('ignoredPathFilter', () => {
       expect(shouldIgnore('server.key')).toBe(true);
     });
 
-    // Log files are NOW ALLOWED
     it('should return false for log files (allowed for debugging)', () => {
       expect(shouldIgnore('/project/config/app.log')).toBe(false);
     });
@@ -278,8 +269,6 @@ describe('ignoredPathFilter', () => {
     });
 
     it('does NOT block a "core" source directory/file (common, not a dump)', () => {
-      // The bare /^core$/ pattern was removed — it false-matched the ubiquitous
-      // `core` source directory (tested per path segment). See filePatterns.ts.
       expect(shouldIgnoreFile('core')).toBe(false);
       expect(shouldIgnoreFile('src/utils/core')).toBe(false);
     });

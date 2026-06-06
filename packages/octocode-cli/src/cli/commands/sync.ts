@@ -128,7 +128,6 @@ export const syncCommand: CLICommand = {
       return;
     }
 
-    // --dry-run / plan subcommand: structured per-MCP diff, no writes
     if (dryRun) {
       const planSpinner = jsonOutput
         ? null

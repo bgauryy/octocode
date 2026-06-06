@@ -1,7 +1,3 @@
-/**
- * Tests for command availability checking utilities
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   checkCommandAvailability,
@@ -46,20 +42,18 @@ describe('commandAvailability', () => {
       const result1 = await checkCommandAvailability('ls');
       const result2 = await checkCommandAvailability('ls');
 
-      expect(result1).toBe(result2); // Same object reference
+      expect(result1).toBe(result2);
     });
 
     it('should bypass cache with forceCheck', async () => {
       const result1 = await checkCommandAvailability('ls');
       const result2 = await checkCommandAvailability('ls', true);
 
-      // Results should have same values but could be different objects
       expect(result2.command).toBe(result1.command);
       expect(result2.available).toBe(result1.available);
     });
 
     it('should return error message when command is not available', async () => {
-      // Mock spawnCheckSuccess to return false
       const spawnModule = await import('../../src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
@@ -76,7 +70,6 @@ describe('commandAvailability', () => {
     });
 
     it('should handle spawn errors gracefully', async () => {
-      // Mock spawnCheckSuccess to throw an error
       const spawnModule = await import('../../src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
@@ -93,7 +86,6 @@ describe('commandAvailability', () => {
     });
 
     it('should handle non-Error spawn failures', async () => {
-      // Mock spawnCheckSuccess to throw a non-Error
       const spawnModule = await import('../../src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
@@ -118,7 +110,6 @@ describe('commandAvailability', () => {
       expect(results.has('find')).toBe(true);
       expect(results.has('ls')).toBe(true);
 
-      // Verify all results have the expected structure
       for (const [command, result] of results) {
         expect(result.command).toBe(command);
         expect(typeof result.available).toBe('boolean');
@@ -146,7 +137,6 @@ describe('commandAvailability', () => {
       const error = getMissingCommandError('find');
 
       expect(error).toContain('find');
-      // Cross-platform message: PATH on Unix, Git Bash / WSL on Windows.
       expect(error).toMatch(/PATH|Git Bash|WSL|Unix/);
     });
 
@@ -160,18 +150,14 @@ describe('commandAvailability', () => {
 
   describe('clearAvailabilityCache', () => {
     it('should allow clearing the cache', () => {
-      // Just verify the function exists and doesn't throw
       expect(() => clearAvailabilityCache()).not.toThrow();
     });
 
     it('should clear cached results', async () => {
-      // First check creates cache entry
       await checkCommandAvailability('ls');
 
-      // Clear the cache
       clearAvailabilityCache();
 
-      // Force check should work even after clearing
       const result = await checkCommandAvailability('ls', true);
       expect(result.command).toBe('ls');
     });

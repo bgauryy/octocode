@@ -423,13 +423,7 @@ describe('External MCP Flow - Environment Variable Validation', () => {
   });
 
   describe('Invalid Environment Variable Names', () => {
-    const invalidNames = [
-      '123VAR', // starts with digit
-      'VAR-NAME', // contains hyphen
-      'VAR.NAME', // contains period
-      '', // empty
-      'VAR NAME', // contains space
-    ];
+    const invalidNames = ['123VAR', 'VAR-NAME', 'VAR.NAME', '', 'VAR NAME'];
 
     const validNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -461,8 +455,8 @@ describe('External MCP Flow - Environment Variable Validation', () => {
         'https://api.example.com',
         '/path/to/file.txt',
         'value with spaces',
-        'value\twith\ttabs', // tabs are OK
-        'value\nwith\nnewlines', // newlines are OK (x0A is not in the pattern)
+        'value\twith\ttabs',
+        'value\nwith\nnewlines',
       ];
 
       const controlCharPattern = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;

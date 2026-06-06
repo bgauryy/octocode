@@ -1,12 +1,6 @@
-/**
- * Promise Utils Branch Coverage Tests
- * Targets uncovered branches in promise.ts
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeWithErrorIsolation } from '../../src/utils/core/promise.js';
 
-// Mock logSessionError
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
@@ -22,18 +16,7 @@ describe('promiseUtils - Branch Coverage', () => {
   });
 
   describe('Promise.allSettled rejected mapping (line 71)', () => {
-    /**
-     * The Promise.allSettled branch for rejected promises (lines 70-79)
-     * is normally unreachable because createIsolatedPromise always catches errors
-     * and returns a PromiseResult. However, we can test the logic by verifying
-     * that non-Error rejections are properly wrapped.
-     *
-     * The path through createIsolatedPromise's catch block (line 120) already
-     * converts non-Errors, so we need to test scenarios where this conversion
-     * happens correctly.
-     */
     it('should handle non-Error reason in catch and return wrapped Error', async () => {
-      // This tests the catch block conversion at line 120
       const promises = [
         () => Promise.reject('just a string'),
         () => Promise.reject(42),
@@ -46,7 +29,6 @@ describe('promiseUtils - Branch Coverage', () => {
 
       expect(results).toHaveLength(5);
 
-      // All should have Error objects with stringified messages
       expect(results[0]!.success).toBe(false);
       expect(results[0]!.error).toBeInstanceOf(Error);
       expect(results[0]!.error!.message).toBe('just a string');
@@ -69,7 +51,6 @@ describe('promiseUtils - Branch Coverage', () => {
     });
 
     it('should handle synchronous throw of non-Error in promise function', async () => {
-      // When promise function throws synchronously (not rejecting)
       const promises = [
         () => {
           throw 'synchronous string throw';
@@ -102,11 +83,6 @@ describe('promiseUtils - Branch Coverage', () => {
   });
 
   describe('executeWithConcurrencyLimit catch block (line 174)', () => {
-    /**
-     * The catch block at lines 173-179 handles errors from createIsolatedPromise.
-     * Since createIsolatedPromise catches all errors internally, this catch block
-     * is defensive. We test the error conversion logic indirectly.
-     */
     it('should handle non-Error thrown in concurrency-limited execution', async () => {
       const promises = [
         () => {
@@ -163,7 +139,6 @@ describe('promiseUtils - Branch Coverage', () => {
         expect(result.error).toBeInstanceOf(Error);
       });
 
-      // Verify messages are properly converted
       expect(results[0]!.error!.message).toBe('false');
       expect(results[1]!.error!.message).toBe('12345');
       expect(results[2]!.error!.message).toContain('Symbol');
@@ -256,12 +231,10 @@ describe('promiseUtils - Branch Coverage', () => {
 
   describe('Concurrency with sparse arrays', () => {
     it('should handle sparse array elements in concurrency path', async () => {
-      // Create a sparse array with undefined slots
       const promises = new Array<() => Promise<number>>(5);
       promises[0] = () => Promise.resolve(0);
       promises[2] = () => Promise.resolve(2);
       promises[4] = () => Promise.resolve(4);
-      // indices 1 and 3 are empty (undefined)
 
       const results = await executeWithErrorIsolation(promises, {
         concurrency: 2,
@@ -269,9 +242,9 @@ describe('promiseUtils - Branch Coverage', () => {
 
       expect(results).toHaveLength(5);
       expect(results[0]!.success).toBe(true);
-      expect(results[1]!.success).toBe(false); // undefined function
+      expect(results[1]!.success).toBe(false);
       expect(results[2]!.success).toBe(true);
-      expect(results[3]!.success).toBe(false); // undefined function
+      expect(results[3]!.success).toBe(false);
       expect(results[4]!.success).toBe(true);
     });
   });
@@ -298,7 +271,6 @@ describe('promiseUtils - Branch Coverage', () => {
       const results = await resultPromise;
 
       expect(results).toHaveLength(2);
-      // First should timeout (the promise's own rejection won't happen)
       expect(results[0]!.success).toBe(false);
       expect(results[0]!.error!.message).toContain('timed out');
 
@@ -309,13 +281,6 @@ describe('promiseUtils - Branch Coverage', () => {
   });
 
   describe('Promise.allSettled rejected branch coverage (lines 71-79)', () => {
-    /**
-     * The else branch in the allSettled mapping (lines 70-79) handles the case where
-     * a promise in the allSettled results is rejected. This is defensive code since
-     * createIsolatedPromise always catches errors and returns a PromiseResult.
-     *
-     * To test this branch, we mock Promise.allSettled to return a rejected result.
-     */
     it('should handle rejected status from allSettled with Error reason', async () => {
       const mockAllSettled = vi
         .spyOn(Promise, 'allSettled')
@@ -368,7 +333,6 @@ describe('promiseUtils - Branch Coverage', () => {
 
       expect(results).toHaveLength(3);
 
-      // Line 71-76: non-Error reason should be wrapped in Error
       expect(results[0]!.success).toBe(false);
       expect(results[0]!.error).toBeInstanceOf(Error);
       expect(results[0]!.error!.message).toBe('string rejection');
@@ -386,15 +350,7 @@ describe('promiseUtils - Branch Coverage', () => {
   });
 
   describe('executeWithConcurrencyLimit catch block (lines 173-179)', () => {
-    /**
-     * The catch block in executeWithConcurrencyLimit (lines 173-179) is defensive
-     * since createIsolatedPromise catches all errors internally. To test it, we need
-     * to make createIsolatedPromise throw, which requires module mocking.
-     *
-     * We simulate this by testing error conversion behavior which is the same logic.
-     */
     it('should handle catch block with Error', async () => {
-      // This tests the error instanceof Error branch at line 176
       const promises = [
         () => {
           throw new Error('Direct throw');
@@ -412,10 +368,9 @@ describe('promiseUtils - Branch Coverage', () => {
     });
 
     it('should handle catch block with non-Error (line 176 else branch)', async () => {
-      // The else branch at line 176 converts non-Error to Error
       const promises = [
         () => {
-          throw 'string throw'; // Non-Error
+          throw 'string throw';
         },
       ];
 
@@ -431,14 +386,7 @@ describe('promiseUtils - Branch Coverage', () => {
   });
 
   describe('Catch block coverage via await rejection', () => {
-    /**
-     * Line 174 is in the catch block of executeWithConcurrencyLimit.
-     * Since createIsolatedPromise never throws (it catches all errors),
-     * this catch block is defensive. However, we can verify the error
-     * conversion logic is correct through other paths.
-     */
     it('should convert various non-Error types to Error in error handling', async () => {
-      // Test multiple non-Error types to ensure conversion is correct
       const testCases = [
         { input: 0, expected: '0' },
         { input: -1, expected: '-1' },

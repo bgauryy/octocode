@@ -7,7 +7,6 @@ import {
   checkNpmAvailability,
 } from '../../src/utils/exec/npm.js';
 
-// Mock process for testing
 class MockChildProcess extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
@@ -19,14 +18,12 @@ class MockChildProcess extends EventEmitter {
   kill(signal?: string) {
     this.killed = true;
     this.signalCode = signal || 'SIGTERM';
-    // Simulate async kill
     setTimeout(() => {
       this.emit('close', null, signal);
     }, 10);
     return true;
   }
 
-  // Simulate successful execution
   simulateSuccess(stdout = '', stderr = '') {
     setTimeout(() => {
       if (stdout) this.stdout.emit('data', stdout);
@@ -36,7 +33,6 @@ class MockChildProcess extends EventEmitter {
     }, 10);
   }
 
-  // Simulate failure
   simulateFailure(exitCode = 1, stderr = '', stdout = '') {
     setTimeout(() => {
       if (stdout) this.stdout.emit('data', stdout);
@@ -46,16 +42,13 @@ class MockChildProcess extends EventEmitter {
     }, 10);
   }
 
-  // Simulate error during spawn
   simulateError(error: Error) {
     setTimeout(() => {
       this.emit('error', error);
     }, 10);
   }
 
-  // Simulate timeout (no close event)
   simulateTimeout() {
-    // Just emit data but never close
     setTimeout(() => {
       this.stdout.emit('data', 'some output');
     }, 10);
@@ -174,7 +167,6 @@ describe('exec utilities', () => {
         mockProcess.simulateSuccess('result');
         await promise;
 
-        // Verify spawn was called (no early error return)
         expect(vi.mocked(spawn)).toHaveBeenCalled();
         vi.clearAllMocks();
         mockProcess = new MockChildProcess();
@@ -193,7 +185,6 @@ describe('exec utilities', () => {
       const spawnCall = vi.mocked(spawn).mock.calls[0];
       const args = spawnCall?.[1];
 
-      // Verify dollar sign is NOT escaped
       expect(args).toContain('package$name');
     });
 
@@ -242,7 +233,6 @@ describe('exec utilities', () => {
       const result = await promise;
 
       expect(result).toBe(true);
-      // npm is now spawned via process.execPath to bypass shebang PATH issues
       expect(vi.mocked(spawn)).toHaveBeenCalledWith(
         process.execPath,
         [expect.stringMatching(/npm(\.cmd)?$/), '--version'],
@@ -292,7 +282,6 @@ describe('exec utilities', () => {
 
       await promise;
 
-      // npm is now spawned via process.execPath to bypass shebang PATH issues
       expect(vi.mocked(spawn)).toHaveBeenCalledWith(
         process.execPath,
         [expect.stringMatching(/npm(\.cmd)?$/), '--version'],
@@ -308,7 +297,6 @@ describe('exec utilities', () => {
 
       await promise;
 
-      // npm is now spawned via process.execPath to bypass shebang PATH issues
       expect(vi.mocked(spawn)).toHaveBeenCalledWith(
         process.execPath,
         [expect.stringMatching(/npm(\.cmd)?$/), '--version'],

@@ -8,7 +8,6 @@ import type {
   RepoStructureQuery,
 } from '../../../src/providers/types.js';
 
-// Mock all GitHub API functions
 vi.mock('../../../src/github/codeSearch.js', () => ({
   searchGitHubCodeAPI: vi.fn(),
 }));
@@ -613,7 +612,6 @@ describe('GitHubProvider', () => {
 
     describe('error cases', () => {
       it('should return error when projectId is undefined', async () => {
-        // Cast to bypass TypeScript type checking for this edge case test
         const result = await provider.getFileContent({
           path: 'test.ts',
         } as FileContentQuery);
@@ -680,7 +678,6 @@ describe('GitHubProvider', () => {
         mockFetchGitHubFileContentAPI.mockResolvedValue({
           error: 'File content error without status',
           type: 'http',
-          // No status provided
         });
 
         const result = await provider.getFileContent({
@@ -911,7 +908,7 @@ describe('GitHubProvider', () => {
           hasMore: false,
           totalMatches: undefined,
         });
-        expect(result.data?.totalCount).toBe(1); // Falls back to repositories.length
+        expect(result.data?.totalCount).toBe(1);
       });
 
       it('should handle minStars=0 (no stars filter)', async () => {
@@ -1470,7 +1467,6 @@ describe('GitHubProvider', () => {
 
       it('should handle response with undefined pull_requests array', async () => {
         mockSearchGitHubPullRequestsAPI.mockResolvedValue({
-          // pull_requests is undefined
           total_count: 0,
         });
 
@@ -1812,7 +1808,6 @@ describe('GitHubProvider', () => {
       it('should default to status 500 when API error has no status', async () => {
         mockViewGitHubRepositoryStructureAPI.mockResolvedValue({
           error: 'Error without status',
-          // No status provided
         });
 
         const result = await provider.getRepoStructure({
@@ -1971,7 +1966,6 @@ describe('GitHubProvider', () => {
   describe('provider type', () => {
     it('should have readonly type property set to github', () => {
       expect(provider.type).toBe('github');
-      // TypeScript ensures this is readonly, but we verify the value
     });
   });
 

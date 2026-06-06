@@ -105,12 +105,9 @@ describe('Tool Registration - Failed Tools Reporting', () => {
       { capabilities: { tools: { listChanged: false } } }
     );
 
-    // Register once normally
     const firstResult = await registerTestTools(server);
     expect(firstResult.successCount).toBeGreaterThan(0);
 
-    // Register a deterministic failure so the failedTools contract is covered
-    // without importing the full production tool catalog.
     const secondResult = await registerTestTools(server, [
       createTestTool('duplicateTool'),
       createThrowingTool('failingTool'),
@@ -118,7 +115,6 @@ describe('Tool Registration - Failed Tools Reporting', () => {
 
     expect(secondResult.failedTools).toContain('failingTool');
 
-    // The key contract: failedTools contains string names, never undefined.
     for (const name of secondResult.failedTools) {
       expect(typeof name).toBe('string');
       expect(name.length).toBeGreaterThan(0);
@@ -134,7 +130,6 @@ describe('Tool Registration - Failed Tools Reporting', () => {
 
       const { successCount, failedTools } = await registerTestTools(server);
 
-      // At least the counts should be non-negative integers
       expect(Number.isInteger(successCount)).toBe(true);
       expect(successCount).toBeGreaterThanOrEqual(0);
       expect(failedTools.length).toBeGreaterThanOrEqual(0);

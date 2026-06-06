@@ -1,8 +1,3 @@
-/**
- * Path validation: resolves symlinks for security checks; tool traversal may
- * disable symlink following separately (see SECURITY_DEFAULTS).
- */
-
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -11,40 +6,24 @@ import { shouldIgnore } from './ignoredPathFilter.js';
 import { redactPath } from './pathUtils.js';
 import { securityRegistry } from './registry.js';
 
-/**
- * PathValidator configuration options
- */
 interface PathValidatorOptions {
-  /**
-   * Optional explicit allowed root directory. No implicit default — when
-   * omitted, access is bounded only by the home directory (unless
-   * `includeHomeDir: false`), `ALLOWED_PATHS`, and registered roots.
-   */
   workspaceRoot?: string;
-  /** Additional allowed root directories */
+
   additionalRoots?: string[];
-  /** Include home directory as allowed root (default: true for local tools) */
+
   includeHomeDir?: boolean;
 }
 
-/**
- * PathValidator class for validating and sanitizing file system paths
- */
 export class PathValidator {
   private allowedRoots: string[];
 
   constructor(options?: PathValidatorOptions) {
     const opts = options || {};
 
-    // No implicit workspace/CWD root: the old WORKSPACE_ROOT sandbox was
-    // removed. A path is bounded only by the home directory (default),
-    // ALLOWED_PATHS, registered roots, and an explicit `workspaceRoot` a caller
-    // still chooses to pass.
     this.allowedRoots = opts.workspaceRoot
       ? [path.resolve(this.expandTilde(opts.workspaceRoot))]
       : [];
 
-    // Add home directory by default (can be disabled with includeHomeDir: false)
     if (opts.includeHomeDir !== false) {
       const homeDir = os.homedir();
       if (homeDir && !this.allowedRoots.includes(homeDir)) {
@@ -52,14 +31,12 @@ export class PathValidator {
       }
     }
 
-    // Add additional roots from options
     if (opts.additionalRoots) {
       for (const additionalRoot of opts.additionalRoots) {
         this.addAllowedRoot(additionalRoot);
       }
     }
 
-    // Add roots from ALLOWED_PATHS environment variable (comma-separated)
     const envPaths = process.env.ALLOWED_PATHS;
     if (envPaths) {
       const paths = envPaths
@@ -71,15 +48,11 @@ export class PathValidator {
       }
     }
 
-    // Add user-registered additional roots from SecurityRegistry
     for (const root of securityRegistry.extraAllowedRoots) {
       this.addAllowedRoot(root);
     }
   }
 
-  /**
-   * Expands ~ to home directory
-   */
   private expandTilde(inputPath: string): string {
     if (inputPath.startsWith('~')) {
       return path.join(os.homedir(), inputPath.slice(1));
@@ -87,16 +60,6 @@ export class PathValidator {
     return inputPath;
   }
 
-  /**
-   * Adds an allowed root directory.
-   *
-   * @example
-   * ```ts
-   * validator.addAllowedRoot('/tmp/builds');
-   * validator.validate('/tmp/builds/output.js');
-   * // → { isValid: true, sanitizedPath: '/tmp/builds/output.js' }
-   * ```
-   */
   addAllowedRoot(root: string): void {
     const expandedRoot = this.expandTilde(root);
     const resolvedRoot = path.resolve(expandedRoot);
@@ -105,23 +68,6 @@ export class PathValidator {
     }
   }
 
-  /**
-   * Validates a path to ensure it's within allowed directories.
-   *
-   * SECURITY NOTE: This method ALWAYS resolves symlinks to their real paths
-   * before validation. This prevents symlink-based path traversal attacks.
-   * This behavior cannot be disabled as it's a core security requirement.
-   *
-   * @param inputPath - The path to validate
-   * @example
-   * ```ts
-   * const v = new PathValidator({ workspaceRoot: '/app' });
-   * v.validate('/app/src/index.ts');
-   * // → { isValid: true, sanitizedPath: '/app/src/index.ts' }
-   * v.validate('../../etc/passwd');
-   * // → { isValid: false, error: "Path '../../etc/passwd' is outside allowed directories" }
-   * ```
-   */
   validate(inputPath: string): PathValidationResult {
     if (!inputPath || inputPath.trim() === '') {
       return {
@@ -218,15 +164,6 @@ export class PathValidator {
     }
   }
 
-  /**
-   * Checks if a path exists and is accessible.
-   *
-   * @example
-   * ```ts
-   * await validator.exists('/app/src/index.ts'); // true
-   * await validator.exists('/etc/shadow');         // false (outside root)
-   * ```
-   */
   async exists(inputPath: string): Promise<boolean> {
     const validation = this.validate(inputPath);
     if (!validation.isValid || !validation.sanitizedPath) {
@@ -241,16 +178,6 @@ export class PathValidator {
     }
   }
 
-  /**
-   * Gets the type of a path (file, directory, symlink).
-   *
-   * @example
-   * ```ts
-   * await validator.getType('/app/src');          // 'directory'
-   * await validator.getType('/app/src/index.ts'); // 'file'
-   * await validator.getType('/etc/passwd');        // null (outside root)
-   * ```
-   */
   async getType(
     inputPath: string
   ): Promise<'file' | 'directory' | 'symlink' | null> {
@@ -270,29 +197,17 @@ export class PathValidator {
     }
   }
 
-  /**
-   * Gets the list of currently allowed root directories (for debugging)
-   */
   getAllowedRoots(): readonly string[] {
     return [...this.allowedRoots];
   }
 
-  /** @internal Replace all allowed roots. Used by reinitializePathValidator. */
   replaceAllowedRoots(roots: readonly string[]): void {
     this.allowedRoots = [...roots];
   }
 }
 
-/**
- * Global path validator instance.
- * Includes home directory by default for convenient local tool access.
- */
 export const pathValidator = new PathValidator();
 
-/**
- * Reinitialize the global path validator with custom options.
- * Useful for testing or runtime reconfiguration.
- */
 export function reinitializePathValidator(
   options?: PathValidatorOptions
 ): PathValidator {

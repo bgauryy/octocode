@@ -1,12 +1,3 @@
-/**
- * GitHub Provider Adapter
- *
- * Implements the ICodeHostProvider interface by wrapping existing GitHub API functions.
- * This adapter transforms unified query/result types to/from GitHub-specific formats.
- *
- * @module providers/github/GitHubProvider
- */
-
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
   ICodeHostProvider,
@@ -34,20 +25,12 @@ import { resolveDefaultBranch as resolveGitHubDefaultBranch } from '../../github
 import { PROVIDER_CAPABILITIES } from '../capabilities.js';
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 
-/**
- * GitHub Provider implementation.
- *
- * Wraps existing GitHub API functions to conform to the unified ICodeHostProvider interface.
- */
 export class GitHubProvider implements ICodeHostProvider {
   readonly type = 'github' as const;
   readonly capabilities = PROVIDER_CAPABILITIES.github;
   private authInfo?: AuthInfo;
 
   constructor(config?: ProviderConfig) {
-    // Use AuthInfo if provided, otherwise construct from token
-    // The type assertion is safe because we only use the 'token' field from AuthInfo
-    // (see src/github/client.ts getOctokit function which accesses authInfo?.token)
     if (config?.authInfo) {
       this.authInfo = config.authInfo;
     } else if (config?.token) {
@@ -131,11 +114,6 @@ export class GitHubProvider implements ICodeHostProvider {
     return resolveGitHubDefaultBranch(owner, repo, this.authInfo);
   }
 
-  /**
-   * Handle errors and convert to ProviderResponse.
-   * Uses the sophisticated error handler from github/errors.ts to extract
-   * rate limit information and proper status codes.
-   */
   private handleError(error: unknown): ProviderResponse<never> {
     const apiError = handleGitHubAPIError(error);
     return createGitHubProviderError(apiError);

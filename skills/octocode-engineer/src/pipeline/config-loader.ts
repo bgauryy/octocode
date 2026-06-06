@@ -7,11 +7,6 @@ type ConfigOverrides = Partial<Omit<AnalysisOptions, 'root' | 'packageRoot' | 'c
 
 const CONFIG_NAMES = ['.octocode-scan.json', '.octocode-scan.jsonc'];
 
-/**
- * Loads config from file, auto-discovered config, or package.json#octocode.
- * CLI flags always win over config file values.
- * Inspired by knip's .knip.json and eslint's flat config.
- */
 export function loadConfigFile(
   root: string,
   explicitPath: string | null
@@ -75,10 +70,6 @@ function normalizeConfig(obj: Record<string, unknown>): ConfigOverrides {
   return result as ConfigOverrides;
 }
 
-/**
- * Merges config file overrides into defaults, then CLI overrides on top.
- * CLI args that differ from defaults always win.
- */
 export function mergeConfigIntoDefaults(
   defaults: AnalysisOptions,
   config: ConfigOverrides,

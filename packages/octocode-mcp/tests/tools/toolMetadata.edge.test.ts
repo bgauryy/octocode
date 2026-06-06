@@ -1,6 +1,3 @@
-/**
- * Edge case tests for final branch coverage
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const hoisted = vi.hoisted(() => {

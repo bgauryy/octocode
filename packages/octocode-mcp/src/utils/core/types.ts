@@ -1,8 +1,3 @@
-/**
- * Core type definitions for local-explorer-mcp MCP server
- * Local/internal types only — all core types imported directly from @octocodeai/octocode-core
- */
-
 export interface ExecResult {
   code: number | null;
   stdout: string;
@@ -18,10 +13,6 @@ export interface ExecOptions {
   toolName?: string;
 }
 
-/**
- * Pagination information for all tools
- * Supports both character-based and entity-based pagination
- */
 export interface PaginationInfo {
   currentPage: number;
   totalPages: number;

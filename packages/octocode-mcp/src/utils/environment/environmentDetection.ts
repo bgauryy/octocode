@@ -16,7 +16,6 @@ export function shouldUseMCPLsp(): boolean {
   try {
     return getConfigSync().local.enabled;
   } catch {
-    // getConfigSync failed; treat local tools as disabled until config is readable.
     return false;
   }
 }
@@ -27,7 +26,7 @@ export function getLspEnvironmentHint(): string | null {
       return 'Local tools are disabled (ENABLE_LOCAL=false). MCP LSP tools are unavailable.';
     }
   } catch {
-    // getConfigSync failed; omit LSP hint rather than guess enablement.
+    void 0;
   }
   return null;
 }

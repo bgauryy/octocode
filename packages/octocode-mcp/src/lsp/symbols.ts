@@ -1,23 +1,6 @@
-/**
- * Symbol kind conversion utilities for LSP
- * Maps LSP SymbolKind to internal representation
- * @module lsp/symbols
- */
-
 import { SymbolKind as LSPSymbolKind } from 'vscode-languageserver-protocol';
 import type { SymbolKind } from './types.js';
 
-/**
- * Convert LSP SymbolKind enum to our internal SymbolKind string type.
- *
- * @param kind - LSP SymbolKind enum value
- * @returns Internal SymbolKind string
- *
- * @example
- * convertSymbolKind(LSPSymbolKind.Function) // 'function'
- * convertSymbolKind(LSPSymbolKind.Class)    // 'class'
- * convertSymbolKind(99)                     // 'unknown'
- */
 export function convertSymbolKind(kind: LSPSymbolKind): SymbolKind {
   switch (kind) {
     case LSPSymbolKind.Function:
@@ -56,13 +39,6 @@ export function convertSymbolKind(kind: LSPSymbolKind): SymbolKind {
   }
 }
 
-/**
- * Reverse mapping: convert internal SymbolKind to LSP SymbolKind.
- * Useful when sending data back to the language server.
- *
- * @param kind - Internal SymbolKind string
- * @returns LSP SymbolKind enum value (defaults to Function)
- */
 export function toLSPSymbolKind(kind: SymbolKind): LSPSymbolKind {
   switch (kind) {
     case 'function':

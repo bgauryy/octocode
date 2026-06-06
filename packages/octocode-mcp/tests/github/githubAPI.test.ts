@@ -27,7 +27,7 @@ describe('GitHub API Types', () => {
       expect(githubAPI.isGitHubAPIError(error)).toBe(true);
       expect(githubAPI.isGitHubAPIError({})).toBe(false);
       expect(githubAPI.isGitHubAPIError(null)).toBe(false);
-      expect(githubAPI.isGitHubAPIError({ error: 'test' })).toBe(false); // missing 'type'
+      expect(githubAPI.isGitHubAPIError({ error: 'test' })).toBe(false);
     });
 
     it('isGitHubAPISuccess should correctly identify success objects', () => {
@@ -39,7 +39,7 @@ describe('GitHub API Types', () => {
       expect(githubAPI.isGitHubAPISuccess(success)).toBe(true);
       expect(githubAPI.isGitHubAPISuccess({})).toBe(false);
       expect(githubAPI.isGitHubAPISuccess(null)).toBe(false);
-      expect(githubAPI.isGitHubAPISuccess({ data: 'test' })).toBe(false); // missing 'status'
+      expect(githubAPI.isGitHubAPISuccess({ data: 'test' })).toBe(false);
     });
 
     it('isRepository should correctly identify repository objects', () => {
@@ -53,7 +53,7 @@ describe('GitHub API Types', () => {
       expect(githubAPI.isRepository(repo)).toBe(true);
       expect(githubAPI.isRepository({})).toBe(false);
       expect(githubAPI.isRepository(null)).toBe(false);
-      expect(githubAPI.isRepository({ id: 123 })).toBe(false); // missing required fields
+      expect(githubAPI.isRepository({ id: 123 })).toBe(false);
     });
   });
 });

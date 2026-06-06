@@ -1,11 +1,3 @@
-/**
- * Pagination-cursor contract for every tool (remote + local + LSP).
- *
- * Pagination cursors are emitted by ONE generator per dimension and always
- * read as `Page N/M ... Next: <param>=N+1` — never as a multi-line ceremony,
- * never on the final page.
- */
-
 import { describe, it, expect } from 'vitest';
 import { buildPaginationHints } from '../../src/tools/providerMappers.js';
 import {
@@ -13,14 +5,6 @@ import {
   generatePaginationHints,
   generateStructurePaginationHints,
 } from '../../src/utils/pagination/hints.js';
-
-// ===========================================================================
-// Pagination cursor uniformity across generators
-//
-//    Every generator must satisfy:
-//      hasMore=true  → exactly one line of the form "Page N/M ... Next: <p>=N+1"
-//      hasMore=false → []  (no "Final page" / "Complete" tautology)
-// ===========================================================================
 
 describe('pagination cursor uniformity', () => {
   const buildPagination = (hasMore: boolean) =>

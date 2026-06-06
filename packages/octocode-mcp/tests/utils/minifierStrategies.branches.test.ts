@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for minifierStrategies.ts
- * Targeting uncovered branches: lines 27, 79, 238, 274-303
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   removeComments,
@@ -18,13 +13,11 @@ import type {
   FileTypeMinifyConfig,
 } from '../../src/utils/minifier/minifierTypes.js';
 
-// Mock terser
 const mockMinify = vi.hoisted(() => vi.fn());
 vi.mock('terser', () => ({
   minify: mockMinify,
 }));
 
-// Mock clean-css
 const mockCleanCSSMinify = vi.hoisted(() => vi.fn());
 const mockCleanCSSConstructor = vi.hoisted(() => vi.fn());
 vi.mock('clean-css', () => {
@@ -40,7 +33,6 @@ vi.mock('clean-css', () => {
   };
 });
 
-// Mock html-minifier-terser
 const mockHtmlMinify = vi.hoisted(() => vi.fn());
 vi.mock('html-minifier-terser', () => ({
   minify: mockHtmlMinify,
@@ -53,16 +45,12 @@ describe('minifierStrategies - Branch Coverage', () => {
 
   describe('removeComments - Line 27: undefined comment pattern type', () => {
     it('should handle undefined comment pattern type gracefully', () => {
-      // Test when MINIFY_CONFIG.commentPatterns[type] is undefined
-      // This happens when an invalid comment type is passed
       const content = 'some code /* comment */';
 
-      // Cast to any to bypass TypeScript and test runtime behavior
       const invalidType = 'nonexistent-type' as any as CommentPatternGroup;
 
       const result = removeComments(content, invalidType);
 
-      // Should return original content when pattern type doesn't exist
       expect(result).toBe(content);
     });
 
@@ -75,7 +63,6 @@ describe('minifierStrategies - Branch Coverage', () => {
 
       const result = removeComments(content, invalidTypes as any);
 
-      // Should process valid types and skip invalid ones
       expect(result).not.toContain('/* comment */');
     });
   });
@@ -85,14 +72,12 @@ describe('minifierStrategies - Branch Coverage', () => {
       const content = '  function test() { return true; }  ';
       const config: FileTypeMinifyConfig = {
         strategy: 'aggressive',
-        // comments is undefined
       };
 
       const result = minifyAggressiveCore(content, config);
 
-      // Should still minify whitespace even without comments config
       expect(result).toBe('function test(){return true;}');
-      expect(result).not.toContain('  '); // Whitespace collapsed
+      expect(result).not.toContain('  ');
     });
 
     it('should handle config with comments set to undefined explicitly', () => {
@@ -104,7 +89,6 @@ describe('minifierStrategies - Branch Coverage', () => {
 
       const result = minifyAggressiveCore(content, config);
 
-      // Should still minify whitespace
       expect(result).toBe('function test(){return true;}');
     });
   });
@@ -119,19 +103,17 @@ describe('minifierStrategies - Branch Coverage', () => {
       const result = await minifyWithTerser(content);
 
       expect(result.failed).toBe(false);
-      expect(result.content).toBe(content); // Should use original content
+      expect(result.content).toBe(content);
     });
 
     it('should fallback to original content when result.code is undefined', async () => {
       const content = 'function test() { return true; }';
-      mockMinify.mockResolvedValue({
-        // code property is missing
-      });
+      mockMinify.mockResolvedValue({});
 
       const result = await minifyWithTerser(content);
 
       expect(result.failed).toBe(false);
-      expect(result.content).toBe(content); // Should use original content
+      expect(result.content).toBe(content);
     });
 
     it('should fallback to original content when result.code is empty string', async () => {
@@ -143,7 +125,7 @@ describe('minifierStrategies - Branch Coverage', () => {
       const result = await minifyWithTerser(content);
 
       expect(result.failed).toBe(false);
-      expect(result.content).toBe(content); // Should use original content
+      expect(result.content).toBe(content);
     });
 
     it('should use result.code when it is a non-empty string', async () => {
@@ -162,7 +144,6 @@ describe('minifierStrategies - Branch Coverage', () => {
 
   describe('minifyCSSAsync - Lines 274-303: error fallback path', () => {
     beforeEach(() => {
-      // Mock minifyCSSCore to verify it's called in fallback
       const mockObj = { minifyCSSCore };
       vi.spyOn(mockObj, 'minifyCSSCore' as any).mockImplementation(((
         content: string
@@ -184,7 +165,6 @@ describe('minifierStrategies - Branch Coverage', () => {
       expect(result.failed).toBe(false);
       expect(result.reason).toContain('CleanCSS fallback');
       expect(result.reason).toContain('CleanCSS parse error');
-      // Should use regex-based minification
       expect(result.content).toBe(minifyCSSCore(content));
     });
 
@@ -250,7 +230,6 @@ describe('minifierStrategies - Branch Coverage', () => {
       expect(result.failed).toBe(false);
       expect(result.reason).toContain('html-minifier fallback');
       expect(result.reason).toContain('HTML parse error');
-      // Should use regex-based minification
       expect(result.content).toBe(minifyHTMLCore(content));
     });
 

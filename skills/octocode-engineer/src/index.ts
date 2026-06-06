@@ -433,17 +433,7 @@ export function assignFindingIds(
   return { findings, byFile };
 }
 
-/**
- * Programmatic scan API — the equivalent of dependency-cruiser's `cruise()`
- * or madge's constructor. Runs the full analysis pipeline without CLI I/O.
- *
- * Usage:
- * ```ts
- * import { scan, DEFAULT_OPTS } from './index.js';
- * const result = await scan({ root: '/path/to/project', graph: true });
- * console.log(result.exitCode); // 0=clean, 1=findings, 2=error
- * ```
- */
+
 export async function scan(
   overrides: Partial<AnalysisOptions> = {}
 ): Promise<ScanResult> {

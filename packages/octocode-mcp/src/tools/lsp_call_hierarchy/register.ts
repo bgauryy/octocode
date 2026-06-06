@@ -7,9 +7,6 @@ import { executeCallHierarchy } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
 
-/**
- * Register the LSP call hierarchy tool with the MCP server.
- */
 export function registerLSPCallHierarchyTool(server: McpServer) {
   return server.registerTool(
     TOOL_NAMES.LSP_CALL_HIERARCHY,

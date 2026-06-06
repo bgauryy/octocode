@@ -1,7 +1,3 @@
-/**
- * Tests for ripgrep parsers
- */
-
 import { describe, it, expect } from 'vitest';
 import { parseRipgrepJson } from '../../../src/utils/parsers/ripgrep.js';
 import {
@@ -11,7 +7,6 @@ import {
 } from '../../../src/tools/local_ripgrep/ripgrepParser.js';
 import type { RipgrepQuery } from '@octocodeai/octocode-core';
 
-// Minimal query for testing - only includes fields used by parser functions
 const baseQuery = {
   pattern: 'test',
   path: '/test/path',
@@ -241,7 +236,6 @@ describe('parseRipgrepJson', () => {
 
     const { files } = parseRipgrepJson(jsonOutput, baseQuery);
 
-    // Should only have the valid match
     expect(files).toHaveLength(1);
   });
 
@@ -273,7 +267,6 @@ describe('parseRipgrepJson', () => {
   });
 
   it('should skip valid JSON that fails schema validation (line 46 branch)', () => {
-    // Valid JSON but type is not known to RipgrepJsonMessageSchema → validation fails
     const jsonOutput = [
       JSON.stringify({ type: 'unknown_ripgrep_event', data: { path: {} } }),
       JSON.stringify({
@@ -290,7 +283,6 @@ describe('parseRipgrepJson', () => {
 
     const { files } = parseRipgrepJson(jsonOutput, baseQuery);
 
-    // The invalid schema line should be skipped, only the valid match parsed
     expect(files).toHaveLength(1);
   });
 
@@ -328,7 +320,7 @@ describe('parseRipgrepJson', () => {
 
     const { files } = parseRipgrepJson(jsonOutput, {
       ...baseQuery,
-      contextLines: 2, // General context applies to both before and after
+      contextLines: 2,
     });
 
     expect(files[0]!.matches[0]!.value).toContain('context before');
@@ -430,7 +422,6 @@ describe('parseCountOutput', () => {
   });
 
   it('should handle paths with colons (Windows-like or special chars)', () => {
-    // The count is always the LAST colon-separated segment
     const stdout = 'C:/Users/project/file.ts:3\n';
 
     const files = parseCountOutput(stdout);

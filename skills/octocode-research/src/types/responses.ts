@@ -1,14 +1,5 @@
-/**
- * Response types for MCP tool results.
- *
- * @module types/responses
- */
-
 import { hasProperty, hasArrayProperty } from './guards.js';
 
-// =============================================================================
-// File and Search Types
-// =============================================================================
 
 export interface FileMatch {
   path: string;
@@ -37,9 +28,6 @@ export interface PaginationInfo {
   nextCursor?: string;
 }
 
-// =============================================================================
-// Internal helpers
-// =============================================================================
 
 function isFileMatch(obj: unknown): obj is FileMatch {
   return (
@@ -56,9 +44,6 @@ function hasValidPagination(obj: unknown): obj is { pagination: PaginationInfo }
   return typeof p === 'object' && p !== null;
 }
 
-// =============================================================================
-// Public extractors
-// =============================================================================
 
 export function extractFiles(data: unknown): FileMatch[] {
   if (!hasArrayProperty(data, 'files')) return [];

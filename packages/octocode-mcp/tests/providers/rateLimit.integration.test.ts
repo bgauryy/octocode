@@ -1,21 +1,7 @@
-/**
- * Rate Limit Integration Tests
- *
- * These tests verify that the provider error handling properly extracts
- * rate limit information from API errors and propagates it to consumers.
- *
- * These tests address the issues documented in RATE_LIMIT_IMPROVEMENT_PLAN.md:
- * - RL-001: handleError methods now use proper error handlers
- * - RL-002: rateLimit info is now propagated to ProviderResponse
- * - RL-003: Existing error handlers are now utilized
- * - RL-004: Tests verify REAL implementation (not mocked responses)
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GitHubProvider } from '../../src/providers/github/GitHubProvider.js';
 import { RequestError } from 'octokit';
 
-// Mock the API functions to throw rate limit errors
 vi.mock('../../src/github/codeSearch.js', () => ({
   searchGitHubCodeAPI: vi.fn(),
 }));
@@ -43,7 +29,6 @@ describe('Rate Limit Integration Tests', () => {
     it('should extract rate limit info from primary rate limit error (403 with x-ratelimit headers)', async () => {
       const resetTimestamp = Math.floor(Date.now() / 1000) + 3600;
 
-      // Create a realistic RequestError like GitHub API would return
       const rateLimitError = new RequestError('API rate limit exceeded', 403, {
         response: {
           url: 'https://api.github.com/search/code',
@@ -72,12 +57,10 @@ describe('Rate Limit Integration Tests', () => {
         projectId: 'owner/repo',
       });
 
-      // Verify the error is properly extracted
       expect(result.error).toBeDefined();
       expect(result.status).toBe(403);
       expect(result.provider).toBe('github');
 
-      // Verify rate limit info is properly extracted
       expect(result.rateLimit).toBeDefined();
       expect(result.rateLimit?.remaining).toBe(0);
       expect(result.rateLimit?.reset).toBeDefined();
@@ -120,7 +103,6 @@ describe('Rate Limit Integration Tests', () => {
       expect(result.error).toBeDefined();
       expect(result.status).toBe(403);
 
-      // Verify rate limit info
       expect(result.rateLimit).toBeDefined();
       expect(result.rateLimit?.remaining).toBe(0);
       expect(result.rateLimit?.retryAfter).toBe(60);
@@ -184,7 +166,7 @@ describe('Rate Limit Integration Tests', () => {
           url: 'https://api.github.com/search/code',
           status: 403,
           headers: {
-            'x-ratelimit-remaining': '100', // Not a rate limit issue
+            'x-ratelimit-remaining': '100',
           },
           data: { message: 'Resource not accessible by integration' },
           retryCount: 0,
@@ -203,7 +185,6 @@ describe('Rate Limit Integration Tests', () => {
         projectId: 'owner/repo',
       });
 
-      // Should return 403, NOT 500 like the old broken implementation
       expect(result.status).toBe(403);
     });
   });

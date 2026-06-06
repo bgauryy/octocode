@@ -1,10 +1,5 @@
-/**
- * Extract matching lines from content based on pattern
- * Supports both regex and literal string matching with context lines
- */
 import { createSafeRegExp } from '../../utils/core/safeRegex.js';
 
-/** Remove all whitespace so anchors survive minification/reflow differences. */
 function stripWhitespace(s: string): string {
   return s.replace(/\s+/g, '');
 }
@@ -23,7 +18,6 @@ export function extractMatchingLines(
 } {
   const matchingLineNumbers: number[] = [];
 
-  // Compile regex once if needed — with ReDoS protection
   let regex: RegExp | null = null;
   if (isRegex) {
     try {
@@ -51,11 +45,6 @@ export function extractMatchingLines(
     }
   });
 
-  // Whitespace-tolerant fallback (literal anchors only): an anchor copied from
-  // a minified search snippet has its whitespace stripped (e.g.
-  // `foo(a,b,c)`), so an exact `includes` against the raw line `foo(a, b, c)`
-  // misses. Retry once comparing both sides with all whitespace removed so the
-  // anchor still resolves instead of returning a false "not found".
   if (!isRegex && matchingLineNumbers.length === 0) {
     const needle = stripWhitespace(caseSensitive ? pattern : literalPattern);
     if (needle.length > 0) {
@@ -80,7 +69,6 @@ export function extractMatchingLines(
     ? matchingLineNumbers.slice(0, maxMatches)
     : matchingLineNumbers;
 
-  // Group consecutive matches to avoid duplicating context
   const ranges: Array<{ start: number; end: number }> = [];
   const firstMatchLine = matchesToProcess[0];
   if (firstMatchLine === undefined) {

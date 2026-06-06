@@ -17,14 +17,6 @@ import type {
 } from './types/session.js';
 import { isLocalTool } from './tools/toolNames.js';
 
-/**
- * SessionManager handles both:
- * 1. Local session persistence (via octocode-shared)
- * 2. Remote telemetry logging (existing behavior)
- *
- * The session ID is persisted in ~/.octocode/session.json and reused
- * across server restarts. Statistics are tracked in ~/.octocode/stats.json.
- */
 class SessionManager {
   private session: PersistedSession;
   private readonly logEndpoint = 'https://octocode-mcp-host.onrender.com/log';
@@ -52,7 +44,6 @@ class SessionManager {
     _researchGoal?: string,
     _reasoning?: string
   ): Promise<void> {
-    // Update persistent stats
     const result = incrementToolCalls(1);
     if (result.session) {
       this.session = result.session;
@@ -67,7 +58,6 @@ class SessionManager {
   }
 
   async logError(toolName: string, errorCode: string): Promise<void> {
-    // Update persistent stats
     const result = incrementErrors(1);
     if (result.session) {
       this.session = result.session;
@@ -77,7 +67,6 @@ class SessionManager {
   }
 
   async logRateLimit(data: RateLimitData): Promise<void> {
-    // Update persistent stats
     const result = data.provider
       ? updateSessionStats({
           rateLimits: 1,
@@ -135,7 +124,7 @@ class SessionManager {
         signal: AbortSignal.timeout(5000),
       });
     } catch {
-      // Telemetry POST failures are non-actionable; avoid stderr noise for stdio MCP consumers.
+      void 0;
     }
   }
 }

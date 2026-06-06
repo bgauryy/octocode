@@ -1,20 +1,3 @@
-/**
- * Runtime contract test: local + LSP tools forward both raw and final
- * (after) char counts to the session stats sink.
- *
- * Pairs with `remote_stats_runtime_contract.test.ts` (GitHub + package
- * tools) and the source-level `stats_emission_contract.test.ts` to cover
- * all 14 registered tools end-to-end:
- *   - source evidence: every tool calls attachRawResponseChars / passes
- *     rawResponse through createSuccessResult.
- *   - bulk unit (bulkOperations.test.ts): given a processor that calls
- *     attachRawResponseChars, the bulk pipeline forwards the raw count
- *     verbatim into incrementToolCharSavings.
- *   - this test: each local + LSP tool, when its inner core function is
- *     mocked to return an attachRawResponseChars(result, K) value, drives
- *     a single incrementToolCharSavings call with rawChars === K and
- *     responseChars > 0.
- */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { incrementToolCharSavings } from 'octocode-shared';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';

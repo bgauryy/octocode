@@ -1,9 +1,3 @@
-/**
- * Integration tests for route validation and response handling.
- *
- * @module tests/integration/routes
- */
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -14,7 +8,6 @@ import { githubRoutes } from '../../routes/github.js';
 import { lspRoutes } from '../../routes/lsp.js';
 import { packageRoutes } from '../../routes/package.js';
 
-// Mock the MCP cache
 vi.mock('../../mcpCache.js', () => ({
   getMcpContent: vi.fn().mockReturnValue({
     tools: {},
@@ -27,7 +20,6 @@ vi.mock('../../mcpCache.js', () => ({
   isMcpInitialized: vi.fn().mockReturnValue(true),
 }));
 
-// Mock the MCP tools
 vi.mock('../../index.js', () => ({
   localSearchCode: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      files: []\n      totalMatches: 0' }],
@@ -70,11 +62,9 @@ vi.mock('../../index.js', () => ({
   }),
 }));
 
-// Create app factory with routes (matching actual server.ts configuration)
 function createApp(): any {
   const app = express();
   app.use(express.json());
-  // Routes are mounted at root, matching server.ts
   app.use('/', localRoutes);
   app.use('/', githubRoutes);
   app.use('/', lspRoutes);

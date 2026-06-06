@@ -1234,7 +1234,7 @@ describe('diversifyFindings', () => {
 
   it('returns all findings when limit >= length', () => {
     const input = [makeDraft('high', 'a', 1), makeDraft('high', 'b', 1)];
-    expect(diversifyFindings(input, 10)).toBe(input); // same reference
+    expect(diversifyFindings(input, 10)).toBe(input);
     expect(diversifyFindings(input, 2)).toBe(input);
   });
 

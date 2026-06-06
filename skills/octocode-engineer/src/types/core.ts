@@ -123,7 +123,6 @@ export interface ControlMapEntry extends FlowEntry {
 }
 
 export interface Thresholds {
-  // Architecture
   couplingThreshold: number;
   fanInThreshold: number;
   fanOutThreshold: number;
@@ -134,7 +133,6 @@ export interface Thresholds {
   sdpMaxSourceInstability: number;
   layerOrder: string[];
 
-  // Code quality
   minFunctionStatements: number;
   minFlowStatements: number;
   criticalComplexityThreshold: number;
@@ -152,15 +150,12 @@ export interface Thresholds {
   magicStringMinOccurrences: number;
   booleanParamThreshold: number;
 
-  // Semantic
   overrideChainThreshold: number;
   shotgunThreshold: number;
 
-  // Security
   secretEntropyThreshold: number;
   secretMinLength: number;
 
-  // Test quality
   mockThreshold: number;
 }
 

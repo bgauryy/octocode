@@ -390,7 +390,6 @@ describe('Provider Types', () => {
         provider: 'github',
       };
 
-      // When both are present, isProviderError takes precedence
       expect(isProviderSuccess(response)).toBe(false);
       expect(isProviderError(response)).toBe(true);
     });
@@ -401,7 +400,6 @@ describe('Provider Types', () => {
         provider: 'github',
       };
 
-      // No data means not success, no error means not error
       expect(isProviderSuccess(response)).toBe(false);
       expect(isProviderError(response)).toBe(false);
     });
@@ -625,7 +623,6 @@ describe('Provider Types', () => {
       };
 
       if (isProviderSuccess(response)) {
-        // TypeScript should know that data is defined here
         const data: string = response.data;
         expect(data).toBe('test data');
       }
@@ -639,7 +636,6 @@ describe('Provider Types', () => {
       };
 
       if (isProviderError(response)) {
-        // TypeScript should know that error is string here
         const error: string = response.error;
         expect(error).toBe('test error');
       }

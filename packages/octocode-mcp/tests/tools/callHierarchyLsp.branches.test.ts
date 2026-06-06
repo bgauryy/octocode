@@ -1,9 +1,3 @@
-/**
- * Branch coverage tests for LSP Call Hierarchy tool
- * Targets uncovered branches in callHierarchyLsp.ts
- * @module tools/callHierarchyLsp.branches.test
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LSPCallHierarchyQuery } from '@octocodeai/octocode-core';
 import {
@@ -13,18 +7,15 @@ import {
 } from '../../src/tools/lsp_call_hierarchy/callHierarchyLsp.js';
 import { createCallItemKey } from '../../src/tools/lsp_call_hierarchy/callHierarchyHelpers.js';
 
-// Mock fs/promises for readFile in auto-follow
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('export function testFunction() {}'),
 }));
 
-// Mock LSP client creation
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
   acquirePooledClient: vi.fn(),
 }));
 
-// Mock helper functions
 vi.mock('../../src/tools/lsp_call_hierarchy/callHierarchyHelpers.js', () => ({
   createCallItemKey: vi.fn(
     item => `${item.uri}:${item.range.start.line}:${item.name}`
@@ -51,7 +42,6 @@ vi.mock('../../src/tools/lsp_call_hierarchy/callHierarchyHelpers.js', () => ({
   })),
 }));
 
-// Import mocked modules
 import * as lspModule from '../../src/lsp/manager.js';
 
 describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
@@ -96,7 +86,6 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
     vi.clearAllMocks();
     process.env.WORKSPACE_ROOT = '/workspace';
 
-    // Default: client available
     vi.mocked(lspModule.acquirePooledClient).mockResolvedValue(
       mockClient as any
     );
@@ -121,9 +110,6 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         'export function testFunction() {}'
       );
 
-      // lspMode='semantic' removed — absent ≡ semantic. Capability-unsupported
-      // errors are still emitted by the LSP path, so the result.lspMode field
-      // does NOT appear (it's part of the lean output).
       expect(result).toMatchObject({
         status: 'error',
         errorCode: 'LSP_CAPABILITY_UNSUPPORTED',
@@ -294,7 +280,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
 
       const visited = new Set<string>();
       const key = createCallItemKey(incomingCall.from);
-      visited.add(key); // Mark as visited before recursive call
+      visited.add(key);
 
       const result = await gatherIncomingCallsRecursive(
         mockClient as any,
@@ -304,8 +290,8 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         2
       );
 
-      expect(result).toHaveLength(1); // Only the direct call, no nested calls
-      expect(mockClient.getIncomingCalls).toHaveBeenCalledTimes(1); // Only called once, not recursively
+      expect(result).toHaveLength(1);
+      expect(mockClient.getIncomingCalls).toHaveBeenCalledTimes(1);
     });
 
     it('should recursively gather calls when depth > 1', async () => {
@@ -345,10 +331,9 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         ],
       };
 
-      // First call returns caller1, second call (recursive) returns caller2
       vi.mocked(mockClient.getIncomingCalls)
-        .mockResolvedValueOnce([incomingCall1]) // Direct call
-        .mockResolvedValueOnce([incomingCall2]); // Recursive call
+        .mockResolvedValueOnce([incomingCall1])
+        .mockResolvedValueOnce([incomingCall2]);
 
       const visited = new Set<string>();
       const result = await gatherIncomingCallsRecursive(
@@ -359,8 +344,8 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         2
       );
 
-      expect(result).toHaveLength(2); // Both direct and nested calls
-      expect(mockClient.getIncomingCalls).toHaveBeenCalledTimes(2); // Called recursively
+      expect(result).toHaveLength(2);
+      expect(mockClient.getIncomingCalls).toHaveBeenCalledTimes(2);
     });
 
     it('should skip enhancement when contextLines is 0', async () => {
@@ -390,7 +375,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         mockCallHierarchyItem,
         1,
         new Set(),
-        0 // contextLines = 0
+        0
       );
 
       expect(result).toHaveLength(1);
@@ -472,7 +457,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
 
       const visited = new Set<string>();
       const key = createCallItemKey(outgoingCall.to);
-      visited.add(key); // Mark as visited before recursive call
+      visited.add(key);
 
       const result = await gatherOutgoingCallsRecursive(
         mockClient as any,
@@ -482,8 +467,8 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         2
       );
 
-      expect(result).toHaveLength(1); // Only the direct call, no nested calls
-      expect(mockClient.getOutgoingCalls).toHaveBeenCalledTimes(1); // Only called once, not recursively
+      expect(result).toHaveLength(1);
+      expect(mockClient.getOutgoingCalls).toHaveBeenCalledTimes(1);
     });
 
     it('should recursively gather calls when depth > 1', async () => {
@@ -520,10 +505,9 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         ],
       };
 
-      // First call returns callee1, second call (recursive) returns callee2
       vi.mocked(mockClient.getOutgoingCalls)
-        .mockResolvedValueOnce([outgoingCall1]) // Direct call
-        .mockResolvedValueOnce([outgoingCall2]); // Recursive call
+        .mockResolvedValueOnce([outgoingCall1])
+        .mockResolvedValueOnce([outgoingCall2]);
 
       const visited = new Set<string>();
       const result = await gatherOutgoingCallsRecursive(
@@ -534,8 +518,8 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         2
       );
 
-      expect(result).toHaveLength(2); // Both direct and nested calls
-      expect(mockClient.getOutgoingCalls).toHaveBeenCalledTimes(2); // Called recursively
+      expect(result).toHaveLength(2);
+      expect(mockClient.getOutgoingCalls).toHaveBeenCalledTimes(2);
     });
 
     it('should skip enhancement when contextLines is 0', async () => {
@@ -562,7 +546,7 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
         mockCallHierarchyItem,
         1,
         new Set(),
-        0 // contextLines = 0
+        0
       );
 
       expect(result).toHaveLength(1);
@@ -586,12 +570,10 @@ describe('LSP Call Hierarchy - Branch Coverage Tests', () => {
     };
 
     it('should auto-follow to definition when prepareCallHierarchy returns empty', async () => {
-      // First prepareCallHierarchy returns empty (import line)
       vi.mocked(mockClient.prepareCallHierarchy)
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([definitionItem]);
 
-      // gotoDefinition returns the definition location
       vi.mocked(mockClient.gotoDefinition).mockResolvedValue([
         {
           uri: '/workspace/src/definitions.ts',

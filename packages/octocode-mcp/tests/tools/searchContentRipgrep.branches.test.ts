@@ -1,12 +1,3 @@
-/**
- * Unit tests for searchContentRipgrep error-handling branches.
- *
- * Covers:
- *  - rg command unavailable → command-not-available error result
- *  - executor throws "Output size limit exceeded" → OUTPUT_TOO_LARGE result with workflow hints
- *  - executor throws any other error → generic createErrorResult fallback (line 60)
- *  - executor succeeds → result is returned unchanged
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { RipgrepQuery } from '@octocodeai/octocode-core';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
@@ -28,11 +19,6 @@ vi.mock('../../src/tools/local_ripgrep/ripgrepExecutor.js', () => ({
 const { searchContentRipgrep } =
   await import('../../src/tools/local_ripgrep/searchContentRipgrep.js');
 
-/**
- * Build a fully-populated RipgrepQuery so the function signature accepts it
- * without any `as` cast. Defaults mirror the schema (`smartCase`, `binaryFiles`,
- * `sort`, etc.) so the runtime path is also realistic.
- */
 function makeRipgrepQuery(overrides: Partial<RipgrepQuery> = {}): RipgrepQuery {
   return {
     id: 'q-test',

@@ -1,17 +1,9 @@
-// Base run(cdp) template. Save task copies in $TMPDIR and run with cdp-sandbox.mjs.
 
 export async function run(cdp) {
-  // Optional: source maps must be registered before navigation.
-  // const { createSourceMapResolver } = await import(new URL('./sourcemap-resolver.mjs', import.meta.url).href);
-  // const resolver = await createSourceMapResolver(cdp);
 
   await cdp.send('Runtime.enable', {});
   await cdp.send('Network.enable', {});
   await cdp.send('Log.enable', {});
-  // await cdp.send('Page.enable', {});
-  // await cdp.send('DOM.enable', {});
-  // await cdp.send('CSS.enable', {});
-  // await cdp.send('Performance.enable', {});
 
   console.log(`[METRIC] Inspecting: ${cdp.targetInfo.url}`);
   cdp.addReasoningStep?.({
@@ -64,9 +56,8 @@ export async function run(cdp) {
       console.log(`[LOG:${entry.level.toUpperCase()}] [${entry.source}] ${entry.text}${entry.url ? ` @ ${entry.url}:${entry.lineNumber}` : ''}`);
   });
 
-  // Add task-specific cdp.send() calls here. See SCRIPT_PATTERNS.md.
 
-  const MONITOR_MS = 10000; // 3s static, 10s dynamic, 30s long network check
+  const MONITOR_MS = 10000;
   console.log(`[METRIC] Monitoring for ${MONITOR_MS / 1000}s...`);
   await new Promise(r => setTimeout(r, MONITOR_MS));
 

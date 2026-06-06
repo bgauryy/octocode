@@ -1,11 +1,3 @@
-/**
- * Response-state hints for localViewStructure.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- *
- * @module tools/local_view_structure/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {

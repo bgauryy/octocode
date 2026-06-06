@@ -1,15 +1,3 @@
-/**
- * Cache management for cloned repositories.
- *
- * Layout:
- *   ~/.octocode/repos/{owner}/{repo}/{branch}/              ← full clone
- *   ~/.octocode/repos/{owner}/{repo}/{branch}__sp_{hash}/   ← sparse checkout
- *
- * Each clone directory contains a `.octocode-clone-meta.json` file that
- * tracks when the clone was created, when it expires (24 h TTL), and
- * which sparse_path (if any) was fetched.
- */
-
 import {
   existsSync,
   readFileSync,
@@ -24,37 +12,22 @@ import { createHash } from 'node:crypto';
 import type { CloneCacheMeta, CacheSource } from './types.js';
 import { getDirectorySizeBytes } from 'octocode-shared';
 
-/** Default cache TTL: 24 hours in milliseconds */
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** GC sweep interval: 10 minutes in milliseconds */
 const GC_INTERVAL_MS = 10 * 60 * 1000;
 
-/** Default maximum on-disk clone cache size: 2 GB */
 const DEFAULT_MAX_CACHE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
-/** Default maximum number of cached clones */
 const DEFAULT_MAX_CLONE_COUNT = 50;
 
-/** Metadata file stored inside each clone directory */
 const META_FILE_NAME = '.octocode-clone-meta.json';
 
-/** Handle for the periodic GC interval (null when not running) */
 let gcInterval: ReturnType<typeof setInterval> | null = null;
 
-/**
- * Base directory that holds all cloned repos.
- */
 export function getReposBaseDir(octocodeDir: string): string {
   return join(octocodeDir, 'repos');
 }
 
-/**
- * Derive a short, filesystem-safe suffix for a sparse path.
- * Returns an empty string for full clones.
- *
- * Example: "packages/core/src" → "__sp_a3f8c1"
- */
 function sparseSuffix(sparsePath?: string): string {
   if (!sparsePath) return '';
   const hash = createHash('sha256')
@@ -64,12 +37,6 @@ function sparseSuffix(sparsePath?: string): string {
   return `__sp_${hash}`;
 }
 
-/**
- * Resolve the on-disk directory for a specific clone.
- *
- * Full clones:   …/{owner}/{repo}/{branch}/
- * Sparse clones: …/{owner}/{repo}/{branch}__sp_{hash}/
- */
 export function getCloneDir(
   octocodeDir: string,
   owner: string,
@@ -106,7 +73,6 @@ function parseCacheMeta(raw: unknown): CloneCacheMeta | null {
   return meta;
 }
 
-/** Read cache metadata. Returns null if absent, corrupt, or missing required fields. */
 export function readCacheMeta(cloneDir: string): CloneCacheMeta | null {
   const metaPath = join(cloneDir, META_FILE_NAME);
   if (!existsSync(metaPath)) return null;
@@ -117,10 +83,6 @@ export function readCacheMeta(cloneDir: string): CloneCacheMeta | null {
   }
 }
 
-/**
- * Persist cache metadata to disk.
- * Non-throwing: failures are silently ignored (clone is still usable without meta).
- */
 export function writeCacheMeta(cloneDir: string, meta: CloneCacheMeta): void {
   try {
     writeFileSync(
@@ -129,22 +91,14 @@ export function writeCacheMeta(cloneDir: string, meta: CloneCacheMeta): void {
       'utf-8'
     );
   } catch {
-    // Persisting meta is best-effort; clone remains usable without the sidecar file.
+    void 0;
   }
 }
 
-/**
- * Returns true if the cached clone has not expired.
- */
 export function isCacheValid(meta: CloneCacheMeta): boolean {
   return Date.now() < new Date(meta.expiresAt).getTime();
 }
 
-/**
- * Full cache hit check: meta exists, is not expired, and directory exists on disk.
- * Combining these checks in a single function makes the edge case
- * (valid meta + missing directory) directly testable.
- */
 export function isCacheHit(
   cloneDir: string
 ): { hit: true; meta: CloneCacheMeta } | { hit: false } {
@@ -155,10 +109,6 @@ export function isCacheHit(
   return { hit: true, meta };
 }
 
-/**
- * Resolve the cache TTL from the environment or fall back to 24 hours.
- * Accepts `OCTOCODE_CACHE_TTL_MS` (positive integer, milliseconds).
- */
 export function getCacheTTL(): number {
   const raw = process.env.OCTOCODE_CACHE_TTL_MS;
   if (raw != null) {
@@ -168,10 +118,6 @@ export function getCacheTTL(): number {
   return DEFAULT_CACHE_TTL_MS;
 }
 
-/**
- * Resolve max cache size from env (bytes).
- * Accepts OCTOCODE_MAX_CACHE_SIZE as a positive integer.
- */
 export function getMaxCacheSizeBytes(): number {
   const raw = process.env.OCTOCODE_MAX_CACHE_SIZE;
   if (raw != null) {
@@ -181,10 +127,6 @@ export function getMaxCacheSizeBytes(): number {
   return DEFAULT_MAX_CACHE_SIZE_BYTES;
 }
 
-/**
- * Resolve max clone count from env.
- * Accepts OCTOCODE_MAX_CLONES as a positive integer.
- */
 export function getMaxCloneCount(): number {
   const raw = process.env.OCTOCODE_MAX_CLONES;
   if (raw != null) {
@@ -194,9 +136,6 @@ export function getMaxCloneCount(): number {
   return DEFAULT_MAX_CLONE_COUNT;
 }
 
-/**
- * Build a fresh metadata object with a configurable TTL (default 24 h).
- */
 export function createCacheMeta(
   owner: string,
   repo: string,
@@ -218,10 +157,6 @@ export function createCacheMeta(
   };
 }
 
-/**
- * Ensure the parent directory tree exists.
- * Throws on failure (e.g. permission denied) — caller should handle.
- */
 export function ensureCloneParentDir(cloneDir: string): void {
   const parent = join(cloneDir, '..');
   try {
@@ -235,18 +170,13 @@ export function ensureCloneParentDir(cloneDir: string): void {
   }
 }
 
-/**
- * Remove an existing clone directory (stale cache / re-clone).
- * Non-throwing: best-effort removal. If it fails, the subsequent
- * git clone may still succeed or produce a clear error.
- */
 export function removeCloneDir(cloneDir: string): void {
   try {
     if (existsSync(cloneDir)) {
       rmSync(cloneDir, { recursive: true, force: true });
     }
   } catch {
-    // Best-effort removal before re-clone; a leftover dir may still be overwritten or reported later.
+    void 0;
   }
 }
 
@@ -372,13 +302,6 @@ function evictByCapacity(
   return evicted;
 }
 
-/**
- * Scan all cached clone directories and remove any whose TTL has expired,
- * then enforce capacity limits (max size, max count) via LRU eviction.
- *
- * Non-throwing: best-effort cleanup. Failures for individual entries
- * are silently skipped so one bad directory doesn't block the rest.
- */
 export function evictExpiredClones(octocodeDir: string): number {
   const reposBase = getReposBaseDir(octocodeDir);
   if (!existsSync(reposBase)) return 0;
@@ -404,13 +327,6 @@ export function evictExpiredClones(octocodeDir: string): number {
   return evicted;
 }
 
-/**
- * Start a periodic sweep that evicts expired clones every 10 minutes.
- * Runs one immediate eviction on start, then schedules the interval.
- * The timer is unref'd so it won't keep the process alive.
- *
- * Safe to call multiple times — subsequent calls are no-ops.
- */
 export function startCacheGC(octocodeDir: string): void {
   if (gcInterval) return;
 
@@ -423,9 +339,6 @@ export function startCacheGC(octocodeDir: string): void {
   gcInterval.unref();
 }
 
-/**
- * Stop the periodic GC sweep. Safe to call even if GC was never started.
- */
 export function stopCacheGC(): void {
   if (gcInterval) {
     clearInterval(gcInterval);

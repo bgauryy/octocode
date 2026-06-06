@@ -1,9 +1,3 @@
-/**
- * Extended coverage tests for LSP Find References tool
- * Tests internal functions, error handling, and pure-logic helpers
- * @module tools/lsp_find_references.coverage.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 
@@ -27,7 +21,7 @@ describe('LSP Find References Coverage Tests', () => {
 
     expect(source).not.toContain('TIP: Use localSearchCode');
     expect(source).toContain(
-      'Use localSearchCode to find the correct line number first'
+      'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.'
     );
   });
 
@@ -131,9 +125,9 @@ describe('LSP Find References Coverage Tests', () => {
 
       const totalPages = Math.ceil(totalReferences / referencesPerPage);
 
-      expect(1 < totalPages).toBe(true); // page 1 hasMore
-      expect(2 < totalPages).toBe(true); // page 2 hasMore
-      expect(3 < totalPages).toBe(false); // page 3 no more
+      expect(1 < totalPages).toBe(true);
+      expect(2 < totalPages).toBe(true);
+      expect(3 < totalPages).toBe(false);
     });
   });
 
@@ -148,14 +142,14 @@ describe('LSP Find References Coverage Tests', () => {
         'line6',
         'line7',
       ];
-      const targetLine = 4; // 0-indexed = line4
+      const targetLine = 4;
       const contextLines = 2;
 
       const startLine = Math.max(0, targetLine - contextLines);
       const endLine = Math.min(lines.length - 1, targetLine + contextLines);
 
-      expect(startLine).toBe(2); // line3
-      expect(endLine).toBe(6); // line7
+      expect(startLine).toBe(2);
+      expect(endLine).toBe(6);
 
       const context = lines.slice(startLine, endLine + 1);
       expect(context.length).toBe(5);
@@ -251,7 +245,6 @@ describe('LSP Find References Coverage Tests', () => {
 
   describe('Reference sorting edge cases', () => {
     it('should handle all sorting comparisons in searchReferencesWithLSP', () => {
-      // Test the complete comparison function used in sorting
       const sortFn = (a: any, b: any) => {
         if (a.isDefinition && !b.isDefinition) return -1;
         if (!a.isDefinition && b.isDefinition) return 1;
@@ -259,7 +252,6 @@ describe('LSP Find References Coverage Tests', () => {
         return a.range.start.line - b.range.start.line;
       };
 
-      // Test case: both are definitions in different files
       const defA = {
         uri: 'alpha.ts',
         isDefinition: true,
@@ -270,9 +262,8 @@ describe('LSP Find References Coverage Tests', () => {
         isDefinition: true,
         range: { start: { line: 3 } },
       };
-      expect(sortFn(defA, defB)).toBeLessThan(0); // alpha < beta
+      expect(sortFn(defA, defB)).toBeLessThan(0);
 
-      // Test case: same file, same definition status, different lines
       const refA = {
         uri: 'same.ts',
         isDefinition: false,
@@ -283,10 +274,9 @@ describe('LSP Find References Coverage Tests', () => {
         isDefinition: false,
         range: { start: { line: 10 } },
       };
-      expect(sortFn(refA, refB)).toBeGreaterThan(0); // 20 > 10
-      expect(sortFn(refB, refA)).toBeLessThan(0); // 10 < 20
+      expect(sortFn(refA, refB)).toBeGreaterThan(0);
+      expect(sortFn(refB, refA)).toBeLessThan(0);
 
-      // Test case: different files, neither is definition
       const fileA = {
         uri: 'aaa.ts',
         isDefinition: false,

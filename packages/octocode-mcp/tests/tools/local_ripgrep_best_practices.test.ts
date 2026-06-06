@@ -1,9 +1,3 @@
-/**
- * Ripgrep Best-Practices Compliance Tests
- *
- * RED → GREEN suite for the audit recommendations on `localSearchCode`.
- * Each describe block maps to one audit item.
- */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   preflightValidateRipgrepPattern,
@@ -118,7 +112,6 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
       path: '/tmp/repo',
     } as Parameters<typeof searchContentRipgrep>[0]);
 
-    // The audit-fix's whole point: no pre-flight directory scan.
     expect(readdirSpy).not.toHaveBeenCalled();
     expect(statSpy).not.toHaveBeenCalled();
   });

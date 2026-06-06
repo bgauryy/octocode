@@ -1,9 +1,3 @@
-/**
- * Unit tests for circuit breaker utilities.
- *
- * @module tests/unit/circuitBreaker
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   withCircuitBreaker,
@@ -16,7 +10,6 @@ import {
 
 describe('withCircuitBreaker', () => {
   beforeEach(() => {
-    // Reset test circuit before each test
     resetCircuit('test');
     vi.useFakeTimers();
   });
@@ -39,7 +32,6 @@ describe('withCircuitBreaker', () => {
     configureCircuit('test', { failureThreshold: 3 });
     const operation = vi.fn().mockRejectedValue(new Error('fail'));
 
-    // First 3 failures should open the circuit
     for (let i = 0; i < 3; i++) {
       await expect(withCircuitBreaker('test', operation)).rejects.toThrow('fail');
     }
@@ -52,10 +44,8 @@ describe('withCircuitBreaker', () => {
     const operation = vi.fn().mockRejectedValue(new Error('fail'));
     const fallback = vi.fn().mockReturnValue('fallback');
 
-    // Open the circuit
     await expect(withCircuitBreaker('test', operation)).rejects.toThrow();
 
-    // Should use fallback
     const result = await withCircuitBreaker('test', operation, fallback);
 
     expect(result).toBe('fallback');
@@ -66,10 +56,8 @@ describe('withCircuitBreaker', () => {
     configureCircuit('test', { failureThreshold: 1, resetTimeoutMs: 10000 });
     const operation = vi.fn().mockRejectedValue(new Error('fail'));
 
-    // Open the circuit
     await expect(withCircuitBreaker('test', operation)).rejects.toThrow();
 
-    // Should throw CircuitOpenError
     await expect(withCircuitBreaker('test', operation)).rejects.toBeInstanceOf(
       CircuitOpenError
     );
@@ -82,14 +70,11 @@ describe('withCircuitBreaker', () => {
       .mockRejectedValueOnce(new Error('fail'))
       .mockResolvedValue('success');
 
-    // Open the circuit
     await expect(withCircuitBreaker('test', operation)).rejects.toThrow();
     expect(getCircuitState('test').state).toBe('open');
 
-    // Advance time past reset timeout
     vi.advanceTimersByTime(1001);
 
-    // Next attempt should try (half-open)
     const result = await withCircuitBreaker('test', operation);
     expect(result).toBe('success');
   });
@@ -104,17 +89,13 @@ describe('withCircuitBreaker', () => {
     const failOp = vi.fn().mockRejectedValue(new Error('fail'));
     const successOp = vi.fn().mockResolvedValue('success');
 
-    // Open the circuit
     await expect(withCircuitBreaker('test', failOp)).rejects.toThrow();
 
-    // Advance time to half-open
     vi.advanceTimersByTime(1001);
 
-    // First success - still half-open
     await withCircuitBreaker('test', successOp);
     expect(getCircuitState('test').state).toBe('half-open');
 
-    // Second success - should close
     await withCircuitBreaker('test', successOp);
     expect(getCircuitState('test').state).toBe('closed');
   });
@@ -124,13 +105,10 @@ describe('withCircuitBreaker', () => {
 
     const operation = vi.fn().mockRejectedValue(new Error('fail'));
 
-    // Open the circuit
     await expect(withCircuitBreaker('test', operation)).rejects.toThrow();
 
-    // Advance time to half-open
     vi.advanceTimersByTime(1001);
 
-    // Fail in half-open - should go back to open
     await expect(withCircuitBreaker('test', operation)).rejects.toThrow();
     expect(getCircuitState('test').state).toBe('open');
   });
@@ -141,16 +119,13 @@ describe('withCircuitBreaker', () => {
     const failOp = vi.fn().mockRejectedValue(new Error('fail'));
     const successOp = vi.fn().mockResolvedValue('success');
 
-    // 2 failures
     await expect(withCircuitBreaker('test', failOp)).rejects.toThrow();
     await expect(withCircuitBreaker('test', failOp)).rejects.toThrow();
     expect(getCircuitState('test').failures).toBe(2);
 
-    // 1 success resets failures
     await withCircuitBreaker('test', successOp);
     expect(getCircuitState('test').failures).toBe(0);
 
-    // Still closed
     expect(getCircuitState('test').state).toBe('closed');
   });
 });
@@ -195,11 +170,9 @@ describe('resetCircuit', () => {
     configureCircuit('test', { failureThreshold: 1 });
     const operation = vi.fn().mockRejectedValue(new Error('fail'));
 
-    // Open the circuit
     await expect(withCircuitBreaker('test', operation)).rejects.toThrow();
     expect(getCircuitState('test').state).toBe('open');
 
-    // Reset
     resetCircuit('test');
 
     expect(getCircuitState('test').state).toBe('closed');
@@ -218,10 +191,8 @@ describe('getAllCircuitStates', () => {
     const failOp = vi.fn().mockRejectedValue(new Error('fail'));
     const successOp = vi.fn().mockResolvedValue('success');
 
-    // Open circuit-a
     await expect(withCircuitBreaker('circuit-a', failOp)).rejects.toThrow();
 
-    // Keep circuit-b closed
     await withCircuitBreaker('circuit-b', successOp);
 
     const states = getAllCircuitStates();

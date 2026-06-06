@@ -21,11 +21,6 @@ import {
   BulkLSPCallHierarchyQuerySchema,
 } from '../../src/scheme/lspSchemaOverlay.js';
 
-/**
- * Every bulk-envelope schema must validate and clamp its `page` parameter.
- * The char-based responseCharOffset/responseCharLength envelope fields have been
- * removed in favour of page-based pagination with fixed page sizes.
- */
 const ALL_BULK_SCHEMAS = [
   ['BulkRipgrepQuerySchema', BulkRipgrepQuerySchema],
   ['BulkFindFilesSchema', BulkFindFilesSchema],
@@ -61,10 +56,6 @@ describe('bulk envelope numeric bounds', () => {
 
     it('parses with minimal queries (envelope accepted, per-query errors ok)', () => {
       const result = schema.safeParse({ queries: baseQueries });
-      // Some schemas may fail on missing required per-query fields, but
-      // the envelope itself (array length, max-queries) must not be the failure.
-      // If parsing fails, errors must come from inside queries[n].field, not
-      // from the queries array itself (e.g. too many/few items).
       if (!result.success) {
         const envelopeErrors = result.error.issues.filter(
           i => i.path.length === 1 && i.path[0] === 'queries'

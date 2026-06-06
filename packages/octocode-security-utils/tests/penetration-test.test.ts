@@ -1,8 +1,3 @@
-/**
- * SECURITY PENETRATION TEST
- * Comprehensive attack testing for pathValidator
- */
-
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PathValidator } from '../src/pathValidator.js';
 
@@ -42,13 +37,9 @@ describe('🔴 SECURITY PENETRATION TEST - PathValidator', () => {
 
   describe('ATTACK 2: Encoding Attacks', () => {
     it('URL encoded dots (%2e%2e) - SAFE (Node treats as literal)', () => {
-      // Node.js path.resolve() treats %2e as literal characters, not encoded dots
-      // This creates a directory named "%2e%2e" (literal), not ".."
       const result = validator.validate('/Users/octopus/%2e%2e/%2e%2e/etc');
-      // This is ALLOWED because it stays within workspace
       expect(result.isValid).toBe(true);
       expect(result.sanitizedPath).toContain('%2e%2e');
-      // Verify it doesn't escape workspace
       expect(result.sanitizedPath?.startsWith('/Users/octopus')).toBe(true);
     });
 
@@ -63,7 +54,6 @@ describe('🔴 SECURITY PENETRATION TEST - PathValidator', () => {
     });
 
     it('Double URL encoding (%252e) - SAFE (Node treats as literal)', () => {
-      // Same as above - literal %252e characters, not double-encoded dots
       const result = validator.validate('/Users/octopus/%252e%252e/etc');
       expect(result.isValid).toBe(true);
       expect(result.sanitizedPath?.startsWith('/Users/octopus')).toBe(true);
@@ -183,13 +173,9 @@ describe('🔴 SECURITY PENETRATION TEST - PathValidator', () => {
     });
 
     it('Full-width dots (．．) - SAFE (not normalized to ASCII dots)', () => {
-      // Unicode full-width dots are NOT normalized to ASCII dots by Node.js
-      // They are kept as literal Unicode characters, creating a directory named "．．"
       const result = validator.validate('/Users/octopus/．．/etc');
-      // This is ALLOWED because it stays within workspace
       expect(result.isValid).toBe(true);
       expect(result.sanitizedPath).toContain('．');
-      // Verify it doesn't escape workspace
       expect(result.sanitizedPath?.startsWith('/Users/octopus')).toBe(true);
     });
 

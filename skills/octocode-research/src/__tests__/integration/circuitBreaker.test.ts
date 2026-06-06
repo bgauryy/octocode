@@ -1,9 +1,3 @@
-/**
- * Integration tests for circuit breaker functionality.
- *
- * @module tests/integration/circuitBreaker
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   withCircuitBreaker,
@@ -15,7 +9,6 @@ import {
 
 describe('Circuit Breaker', () => {
   beforeEach(() => {
-    // Reset all circuits before each test
     resetCircuit('test');
     resetCircuit('lsp');
     resetCircuit('github');
@@ -45,7 +38,6 @@ describe('Circuit Breaker', () => {
 
   describe('State Transitions', () => {
     it('opens after reaching failure threshold', async () => {
-      // Configure test circuit with low threshold
       configureCircuit('test', {
         failureThreshold: 2,
         successThreshold: 1,
@@ -54,17 +46,14 @@ describe('Circuit Breaker', () => {
 
       const failingFn = () => Promise.reject(new Error('fail'));
 
-      // First failure
       await withCircuitBreaker('test', failingFn).catch(() => {});
       expect(getCircuitState('test').state).toBe('closed');
 
-      // Second failure - should open circuit
       await withCircuitBreaker('test', failingFn).catch(() => {});
       expect(getCircuitState('test').state).toBe('open');
     });
 
     it('rejects immediately when circuit is open', async () => {
-      // Force circuit open
       configureCircuit('test', {
         failureThreshold: 1,
         successThreshold: 1,
@@ -73,7 +62,6 @@ describe('Circuit Breaker', () => {
 
       await withCircuitBreaker('test', () => Promise.reject(new Error('fail'))).catch(() => {});
 
-      // Next call should be rejected immediately
       await expect(
         withCircuitBreaker('test', () => Promise.resolve('ok'))
       ).rejects.toThrow(CircuitOpenError);
@@ -88,14 +76,11 @@ describe('Circuit Breaker', () => {
         resetTimeoutMs: 1000,
       });
 
-      // Open the circuit
       await withCircuitBreaker('test', () => Promise.reject(new Error())).catch(() => {});
       expect(getCircuitState('test').state).toBe('open');
 
-      // Advance time past reset timeout
       vi.advanceTimersByTime(1100);
 
-      // Next call should be allowed (half-open state)
       const result = await withCircuitBreaker('test', () => Promise.resolve('recovered'));
       expect(result).toBe('recovered');
       expect(getCircuitState('test').state).toBe('closed');
@@ -112,13 +97,10 @@ describe('Circuit Breaker', () => {
         resetTimeoutMs: 100,
       });
 
-      // Open circuit
       await withCircuitBreaker('test', () => Promise.reject(new Error())).catch(() => {});
       
-      // Wait for reset
       vi.advanceTimersByTime(150);
 
-      // Successful call should close circuit
       await withCircuitBreaker('test', () => Promise.resolve('ok'));
       expect(getCircuitState('test').state).toBe('closed');
 
@@ -134,13 +116,10 @@ describe('Circuit Breaker', () => {
         resetTimeoutMs: 100,
       });
 
-      // Open circuit
       await withCircuitBreaker('test', () => Promise.reject(new Error())).catch(() => {});
       
-      // Wait for reset
       vi.advanceTimersByTime(150);
 
-      // Another failure should reopen circuit
       await withCircuitBreaker('test', () => Promise.reject(new Error())).catch(() => {});
       expect(getCircuitState('test').state).toBe('open');
 
@@ -189,15 +168,12 @@ describe('Circuit Breaker', () => {
         resetTimeoutMs: 10000,
       });
 
-      // Open circuit
       await withCircuitBreaker('test', () => Promise.reject(new Error())).catch(() => {});
       expect(getCircuitState('test').state).toBe('open');
 
-      // Reset
       resetCircuit('test');
       expect(getCircuitState('test').state).toBe('closed');
 
-      // Should allow requests again
       const result = await withCircuitBreaker('test', () => Promise.resolve('ok'));
       expect(result).toBe('ok');
     });

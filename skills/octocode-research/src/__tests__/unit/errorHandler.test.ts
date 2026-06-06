@@ -1,28 +1,19 @@
-/**
- * Unit tests for error handler middleware.
- *
- * @module tests/unit/errorHandler
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import { errorHandler, type ApiError } from '../../middleware/errorHandler.js';
 import type { z } from 'zod';
 import { fireAndForgetWithTimeout } from '../../utils/asyncTimeout.js';
 
-// Mock the logger
 vi.mock('../../utils/logger.js', () => ({
   logError: vi.fn(),
   logWarn: vi.fn(),
   sanitizeQueryParams: vi.fn((q) => q),
 }));
 
-// Mock the session error logging
 vi.mock('../../index.js', () => ({
   logSessionError: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock the async timeout
 vi.mock('../../utils/asyncTimeout.js', () => ({
   fireAndForgetWithTimeout: vi.fn(),
 }));
@@ -166,7 +157,6 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
 
-      // Verify fireAndForgetWithTimeout was called (tool name is passed to logSessionError)
       expect(fireAndForgetWithTimeout).toHaveBeenCalled();
     });
 
@@ -176,7 +166,6 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
 
-      // Tool name should be 'unknown' for non-tool paths
       expect(fireAndForgetWithTimeout).toHaveBeenCalled();
     });
   });

@@ -161,7 +161,7 @@ describe('Pull Request Search - Pagination', () => {
           page: 1,
         });
 
-        expect(result.pagination?.totalPages).toBe(10); // 95/10 = 9.5, ceil = 10
+        expect(result.pagination?.totalPages).toBe(10);
         expect(result.pagination?.totalMatches).toBe(95);
       });
 
@@ -182,9 +182,8 @@ describe('Pull Request Search - Pagination', () => {
           page: 1,
         });
 
-        // 5000 results, but GitHub caps at 1000, so 1000/100 = 10 pages max
         expect(result.pagination?.totalPages).toBe(10);
-        expect(result.pagination?.totalMatches).toBe(1000); // Capped at 1000
+        expect(result.pagination?.totalMatches).toBe(1000);
       });
 
       it('should set hasMore=true when more pages exist', async () => {
@@ -283,7 +282,7 @@ describe('Pull Request Search - Pagination', () => {
     it('should estimate hasMore based on results length', async () => {
       const pullsListMock = vi
         .fn()
-        .mockResolvedValue(createMockRESTResponse(5)); // Full page
+        .mockResolvedValue(createMockRESTResponse(5));
 
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
@@ -299,14 +298,14 @@ describe('Pull Request Search - Pagination', () => {
         page: 1,
       });
 
-      expect(result.pagination?.hasMore).toBe(true); // Got full page, might be more
+      expect(result.pagination?.hasMore).toBe(true);
       expect(result.pagination?.currentPage).toBe(1);
     });
 
     it('should set hasMore=false when results are less than limit', async () => {
       const pullsListMock = vi
         .fn()
-        .mockResolvedValue(createMockRESTResponse(3)); // Less than limit
+        .mockResolvedValue(createMockRESTResponse(3));
 
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
@@ -322,7 +321,7 @@ describe('Pull Request Search - Pagination', () => {
         page: 1,
       });
 
-      expect(result.pagination?.hasMore).toBe(false); // Got less than limit, no more
+      expect(result.pagination?.hasMore).toBe(false);
     });
   });
 
@@ -338,21 +337,18 @@ describe('Pull Request Search - Pagination', () => {
         }) as unknown as ReturnType<typeof getOctokit>
       );
 
-      // First call - page 1
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
         limit: 5,
         page: 1,
       });
 
-      // Second call - page 2
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
         limit: 5,
         page: 2,
       });
 
-      // Both pages should trigger API calls (different cache keys)
       expect(searchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -367,21 +363,18 @@ describe('Pull Request Search - Pagination', () => {
         }) as unknown as ReturnType<typeof getOctokit>
       );
 
-      // First call
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
         limit: 5,
         page: 1,
       });
 
-      // Second call with same params
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
         limit: 5,
         page: 1,
       });
 
-      // Should only call API once (second is cached)
       expect(searchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -396,21 +389,18 @@ describe('Pull Request Search - Pagination', () => {
         }) as unknown as ReturnType<typeof getOctokit>
       );
 
-      // First call
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
         limit: 5,
         page: 1,
       });
 
-      // Second call with same params
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
         limit: 5,
         page: 1,
       });
 
-      // Should only call API once due to caching
       expect(searchMock).toHaveBeenCalledTimes(1);
     });
   });
@@ -496,13 +486,13 @@ describe('Pull Request Search - Pagination', () => {
 
       await searchGitHubPullRequestsAPI({
         query: 'fix bug',
-        limit: 150, // Request more than allowed
+        limit: 150,
         page: 1,
       });
 
       expect(searchMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          per_page: 100, // Should be capped at 100
+          per_page: 100,
         })
       );
     });

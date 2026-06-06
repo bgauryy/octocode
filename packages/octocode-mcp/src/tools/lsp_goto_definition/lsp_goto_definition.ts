@@ -1,9 +1,3 @@
-/**
- * LSP Go To Definition tool
- * Navigates to the definition of a symbol using Language Server Protocol
- * @module tools/lsp_goto_definition
- */
-
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
@@ -14,9 +8,6 @@ import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LspGotoDefinitionOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 import { DESCRIPTIONS } from '../toolMetadata/proxies.js';
 
-/**
- * Register the LSP Go To Definition tool with the MCP server.
- */
 export function registerLSPGotoDefinitionTool(server: McpServer) {
   return server.registerTool(
     TOOL_NAME,

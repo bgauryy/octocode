@@ -1,8 +1,3 @@
-/**
- * Tests for LSP Symbol Resolver
- * @module lsp/resolver.test
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   SymbolResolver,

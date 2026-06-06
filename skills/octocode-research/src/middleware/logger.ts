@@ -4,10 +4,7 @@ import { logToolCall, sanitizeQueryParams } from '../utils/logger.js';
 import { resultLog, errorLog } from '../utils/colors.js';
 import { extractToolName } from '../utils/url.js';
 
-/**
- * Generate or retrieve request ID for log correlation.
- * Uses X-Request-ID header if provided, otherwise generates a new UUID.
- */
+
 function getRequestId(req: Request): string {
   const existingId = req.headers['x-request-id'];
   if (typeof existingId === 'string' && existingId.length > 0) {
@@ -24,7 +21,6 @@ export function requestLogger(
   const start = Date.now();
   const requestId = getRequestId(req);
 
-  // Set request ID on response header for correlation
   res.setHeader('x-request-id', requestId);
 
   res.on('finish', () => {
@@ -33,7 +29,6 @@ export function requestLogger(
     const statusIcon = status >= 400 ? '❌' : '✅';
     const success = status < 400;
 
-    // Results output in BLUE for success, RED for error
     const resultMessage = `${statusIcon} ${req.method} ${req.path} ${status} ${duration}ms`;
 
     if (success) {

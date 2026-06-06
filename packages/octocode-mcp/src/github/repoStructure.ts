@@ -1,10 +1,3 @@
-/**
- * GitHub Repository Structure Operations
- * Orchestrates viewing and navigating repository directory structures.
- * Split into focused modules:
- *   - repoStructurePagination.ts: post-cache pagination application
- *   - repoStructureRecursive.ts: recursive directory content fetching
- */
 import { RequestError } from 'octokit';
 import type { z } from 'zod';
 import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
@@ -53,11 +46,6 @@ interface ContentResolution {
   repoDefaultBranch?: string;
 }
 
-/**
- * Resolve repository content on the requested/default branch only.
- * Explicit branch requests are strict: a missing branch/path returns an error
- * instead of substituting content from another branch.
- */
 async function resolveContentWithBranchFallback(
   octokit: Octokit,
   owner: string,
@@ -139,8 +127,6 @@ function buildStructureTree(
   items: GitHubApiFileItem[],
   basePath: string
 ): Record<string, { files: string[]; folders: string[] }> {
-  // Object.create(null): keys come from GitHub paths — defense against any
-  // pathological path that would otherwise pollute Object.prototype.
   const structure: Record<string, { files: string[]; folders: string[] }> =
     Object.create(null);
 
@@ -222,11 +208,6 @@ export async function viewGitHubRepositoryStructureAPI(
   >(
     cacheKey,
     async () => {
-      // The cached fetch returns the full subtree; per-page slicing
-      // happens at the call site (applyStructurePagination). The inner
-      // API type requires entriesPerPage/entryPageNumber, but they have
-      // no effect on the network call — pass placeholder values and let
-      // the post-processing apply the real pagination.
       return await viewGitHubRepositoryStructureAPIInternal(
         {
           ...params,
@@ -362,10 +343,6 @@ async function viewGitHubRepositoryStructureAPIInternal(
       pagination: paginationInfo,
       hints,
       rawResponseChars,
-      // Always carry the full filtered list so the post-cache
-      // `applyStructurePagination` can slice ANY requested page from one cached
-      // tree. The cache key intentionally omits entryPageNumber/entriesPerPage;
-      // without this, a cached page would be served for every page request.
       _cachedItems: filteredItems.map(item => ({
         path: item.path,
         type: item.type as 'file' | 'dir',

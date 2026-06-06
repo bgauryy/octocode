@@ -1,13 +1,3 @@
-/**
- * LSP Best-Practices Compliance Tests
- *
- * RED → GREEN suite that enforces the LSP-hardening fixes from the
- * research audit (see /Users/guybary/Documents/octocode-mcp/.context/git
- * and the agent transcript on this work).
- *
- * Each describe block maps 1:1 to one audit item so that a regression in
- * any single fix is attributable to its source recommendation.
- */
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -144,8 +134,6 @@ describe('T1.5 — fromUri hardening (defence against malicious LSP responses)',
 
   it('throws UnsafeUriError when a strict variant is needed', () => {
     expect(() =>
-      // strict path: throw on invalid input
-
       (fromUriSafe as any)('http://evil.com/x', { throwOnInvalid: true })
     ).toThrow(UnsafeUriError);
   });

@@ -23,7 +23,6 @@ vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 
-// Import after mocking
 import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
 import { SEARCH_ERRORS } from '../../src/errors/domainErrors.js';
 
@@ -69,7 +68,6 @@ describe('Code Search - Empty Query Validation', () => {
   });
 
   it('should return error when built query is empty after trimming', async () => {
-    // Mock buildCodeSearchQuery to return empty string
     const result = await searchGitHubCodeAPI({
       keywordsToSearch: ['   '],
       owner: 'test',
@@ -243,7 +241,6 @@ describe('Code Search - Minification', () => {
             },
             text_matches: [
               {
-                // Invalid JS that might cause minification to fail
                 fragment: 'function broken() { if ( }',
                 matches: [{ indices: [0, 8] }],
               },

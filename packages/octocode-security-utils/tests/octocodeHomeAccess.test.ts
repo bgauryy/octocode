@@ -1,12 +1,3 @@
-/**
- * Tests for extra allowed roots via SecurityRegistry.
- *
- * Verifies that PathValidator respects roots registered through
- * securityRegistry.addAllowedRoots(), which is how octocode-mcp (and any
- * other consumer) grants access to app-specific directories like
- * ~/.octocode/repos/.
- */
-
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import os from 'os';

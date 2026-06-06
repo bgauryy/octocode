@@ -1,7 +1,3 @@
-/**
- * Language-specific minification strategies
- */
-
 import { minify } from 'terser';
 import CleanCSS from 'clean-css';
 import { minify as htmlMinifierTerser } from 'html-minifier-terser';
@@ -11,9 +7,6 @@ import type {
 } from './minifierTypes.js';
 import { MINIFY_CONFIG } from './minifierTypes.js';
 
-/**
- * Remove comments from content based on comment pattern groups.
- */
 export function removeComments(
   content: string,
   commentTypes: CommentPatternGroup | CommentPatternGroup[]
@@ -40,9 +33,6 @@ export function removeComments(
   } /* v8 ignore stop */
 }
 
-/**
- * Conservative minification - preserves structure, removes comments and trailing whitespace.
- */
 export function minifyConservativeCore(
   content: string,
   config: FileTypeMinifyConfig
@@ -58,17 +48,14 @@ export function minifyConservativeCore(
     }
 
     return result
-      .replace(/[ \t]+$/gm, '') // Remove trailing whitespace
-      .replace(/\n\s*\n\s*\n+/g, '\n\n') // Collapse 3+ empty lines to 2
+      .replace(/[ \t]+$/gm, '')
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
       .trim();
   } /* v8 ignore start */ catch {
     return content;
   } /* v8 ignore stop */
 }
 
-/**
- * Aggressive minification - collapses whitespace, removes comments.
- */
 export function minifyAggressiveCore(
   content: string,
   config: FileTypeMinifyConfig
@@ -84,18 +71,15 @@ export function minifyAggressiveCore(
     }
 
     return result
-      .replace(/\s+/g, ' ') // Collapse all whitespace
-      .replace(/\s*([{}:;,])\s*/g, '$1') // Remove spaces around syntax
-      .replace(/>\s+</g, '><') // Remove whitespace between tags
+      .replace(/\s+/g, ' ')
+      .replace(/\s*([{}:;,])\s*/g, '$1')
+      .replace(/>\s+</g, '><')
       .trim();
   } /* v8 ignore start */ catch {
     return content;
   } /* v8 ignore stop */
 }
 
-/**
- * JSON minification - validates and stringifies JSON.
- */
 export function minifyJsonCore(content: string): {
   content: string;
   failed: boolean;
@@ -105,7 +89,6 @@ export function minifyJsonCore(content: string): {
     return { content: JSON.stringify(JSON.parse(content)), failed: false };
   } catch {
     try {
-      // Try JSONC (JSON with comments)
       const cleaned = removeComments(content, 'c-style');
       return { content: JSON.stringify(JSON.parse(cleaned)), failed: false };
     } catch {
@@ -114,36 +97,30 @@ export function minifyJsonCore(content: string): {
   }
 }
 
-/**
- * General minification - basic whitespace cleanup.
- */
 export function minifyGeneralCore(content: string): string {
   try {
     return content
-      .replace(/[ \t]+$/gm, '') // Remove trailing whitespace
-      .replace(/\r\n/g, '\n') // Normalize line endings
-      .replace(/\n\s*\n\s*\n+/g, '\n\n') // Collapse 3+ empty lines
-      .replace(/[ \t]{3,}/g, ' ') // Collapse excessive inline whitespace
+      .replace(/[ \t]+$/gm, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
+      .replace(/[ \t]{3,}/g, ' ')
       .trim();
   } /* v8 ignore start */ catch {
     return content;
   } /* v8 ignore stop */
 }
 
-/**
- * Markdown minification - preserves structure, removes comments and normalizes whitespace.
- */
 export function minifyMarkdownCore(content: string): string {
   try {
     return content
-      .replace(/<!--[\s\S]*?-->/g, '') // Remove HTML comments
-      .replace(/[ \t]+$/gm, '') // Remove trailing whitespace
-      .replace(/\r\n/g, '\n') // Normalize line endings
-      .replace(/\n\s*\n\s*\n+/g, '\n\n') // Collapse empty lines
-      .replace(/([^\n])[ \t]{5,}([^\n])/g, '$1 $2') // Collapse inline spaces
-      .replace(/\s*\|\s*/g, ' | ') // Normalize table pipes
-      .replace(/^(#{1,6})[ \t]+/gm, '$1 ') // Normalize headings
-      .replace(/^(\s*)([-*+]|\d+\.)[ \t]+/gm, '$1$2 ') // Normalize lists
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/[ \t]+$/gm, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
+      .replace(/([^\n])[ \t]{5,}([^\n])/g, '$1 $2')
+      .replace(/\s*\|\s*/g, ' | ')
+      .replace(/^(#{1,6})[ \t]+/gm, '$1 ')
+      .replace(/^(\s*)([-*+]|\d+\.)[ \t]+/gm, '$1$2 ')
       .replace(/\n{3,}(```)/g, '\n\n$1') // Normalize before code blocks
       .replace(/(```)\n{3,}/g, '$1\n\n') // Normalize after code blocks
       .trim();
@@ -152,9 +129,6 @@ export function minifyMarkdownCore(content: string): string {
   } /* v8 ignore stop */
 }
 
-/**
- * CSS minification - removes comments and collapses whitespace.
- */
 export function minifyCSSCore(content: string): string {
   try {
     return removeComments(content, 'c-style')
@@ -166,9 +140,6 @@ export function minifyCSSCore(content: string): string {
   } /* v8 ignore stop */
 }
 
-/**
- * HTML minification - removes comments and collapses whitespace.
- */
 export function minifyHTMLCore(content: string): string {
   try {
     return removeComments(content, 'html')
@@ -180,9 +151,6 @@ export function minifyHTMLCore(content: string): string {
   } /* v8 ignore stop */
 }
 
-/**
- * JavaScript minification - removes comments and collapses whitespace.
- */
 export function minifyJavaScriptCore(content: string): string {
   try {
     return removeComments(content, 'c-style')
@@ -197,9 +165,6 @@ export function minifyJavaScriptCore(content: string): string {
   } /* v8 ignore stop */
 }
 
-/**
- * Async JavaScript minification using Terser.
- */
 export async function minifyWithTerser(
   content: string
 ): Promise<{ content: string; failed: boolean; reason?: string }> {
@@ -241,9 +206,6 @@ export async function minifyWithTerser(
   }
 }
 
-/**
- * Async CSS minification using CleanCSS.
- */
 export async function minifyCSSAsync(
   content: string
 ): Promise<{ content: string; failed: boolean; reason?: string }> {
@@ -263,7 +225,6 @@ export async function minifyCSSAsync(
 
     return { content: result.styles, failed: false };
   } catch (error: unknown) {
-    // Gracefully fallback to regex minification
     return {
       content: minifyCSSCore(content),
       failed: false,
@@ -272,9 +233,6 @@ export async function minifyCSSAsync(
   }
 }
 
-/**
- * Async HTML minification using html-minifier-terser.
- */
 export async function minifyHTMLAsync(
   content: string
 ): Promise<{ content: string; failed: boolean; reason?: string }> {
@@ -292,7 +250,6 @@ export async function minifyHTMLAsync(
 
     return { content: result, failed: false };
   } catch (error: unknown) {
-    // Gracefully fallback to regex minification
     return {
       content: minifyHTMLCore(content),
       failed: false,

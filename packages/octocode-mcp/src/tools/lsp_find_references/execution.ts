@@ -17,20 +17,12 @@ type LSPFindReferencesQuery =
 import { TOOL_NAME } from './constants.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 
-// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyFindReferencesVerbosity } from './lsp_find_references.js';
 
-/**
- * Execute bulk find references operation.
- * Wraps findReferences with bulk operation handling for multiple queries.
- */
 export async function executeFindReferences(
   args: ToolExecutionArgs<LSPFindReferencesQuery>
 ): Promise<CallToolResult> {
   const { queries } = args;
-  // LSP reference results must always be returned in full — char-based
-  // pagination forces agents to make multiple calls to reconstruct a complete
-  // reference list, breaking research flow. Bypass the env-var default.
 
   return executeBulkOperation(
     queries || [],

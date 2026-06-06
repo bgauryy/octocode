@@ -11,8 +11,6 @@ beforeAll(async () => {
 });
 
 describe('structuredPagination branch coverage', () => {
-  // ---- applyQueryOutputPagination guard branches ----
-
   it('returns the result unchanged when data is not a plain object (line 1070)', () => {
     const queryResult = {
       id: 'q-nondata',
@@ -66,8 +64,6 @@ describe('structuredPagination branch coverage', () => {
     expect(result).toBe(queryResult);
   });
 
-  // ---- localFindFiles returns its data unchanged on non-explicit path ----
-
   it('leaves localFindFiles unchanged when no explicit pagination request', () => {
     const queryResult = {
       id: 'find',
@@ -97,11 +93,7 @@ describe('structuredPagination branch coverage', () => {
     expect(result).toBe(queryResult);
   });
 
-  // ---- createOutputPagination empty totalChars (lines 110, 115) ----
-
   it('produces currentPage=1 and totalPages=1 for empty content via empty fallback object', () => {
-    // Force pagination of an essentially empty object by requesting an offset
-    // far beyond content with explicit request.
     const result = applyQueryOutputPagination(
       {
         id: 'q-empty-content',
@@ -116,8 +108,6 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.currentPage).toBeGreaterThanOrEqual(1);
     expect(data.outputPagination?.totalPages).toBeGreaterThanOrEqual(1);
   });
-
-  // ---- request.offset >= totalChars beyond-content branches (lines 396-404, 438, 553, 1013) ----
 
   it('returns an empty page when offset is beyond total content (string field, line 438/553)', () => {
     const result = applyQueryOutputPagination(
@@ -136,7 +126,6 @@ describe('structuredPagination branch coverage', () => {
     };
     expect(data.outputPagination).toBeDefined();
     expect(data.outputPagination?.hasMore).toBe(false);
-    // beyond content -> empty content
     expect(data.locations?.[0]?.content ?? '').toBe('');
   });
 
@@ -159,8 +148,6 @@ describe('structuredPagination branch coverage', () => {
     };
     expect(data.outputPagination?.hasMore).toBe(false);
   });
-
-  // ---- paginateStringValue: large string at offset 0, hasMore true (lines 428, 485, 495) ----
 
   it('paginates a very large content string with budget that fits one chunk (lines 485/495)', () => {
     const big = 'a'.repeat(50000);
@@ -199,7 +186,6 @@ describe('structuredPagination branch coverage', () => {
   });
 
   it('handles multi-byte / escaped characters in a paginated string (encoded lengths > 1)', () => {
-    // Newlines and quotes encode to multiple JSON chars, exercising encoded length math.
     const big = '"\n\t\\'.repeat(8000);
     const result = applyQueryOutputPagination(
       {
@@ -232,8 +218,6 @@ describe('structuredPagination branch coverage', () => {
     };
     expect(data.locations?.[0]?.content?.length).toBeGreaterThan(0);
   });
-
-  // ---- itemPaginator null returns for non-string / non-object items ----
 
   it('returns null itemPaginator path for githubSearchCode non-string/non-object text_matches (line 689/696)', () => {
     const result = applyQueryOutputPagination(
@@ -313,7 +297,7 @@ describe('structuredPagination branch coverage', () => {
           },
         },
       },
-      { charOffset: 0, charLength: 60 }, // tight → not all nodes fit
+      { charOffset: 0, charLength: 60 },
       TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
     );
     const data = result.data as {
@@ -321,7 +305,6 @@ describe('structuredPagination branch coverage', () => {
       outputPagination?: { hasMore: boolean };
     };
     expect(data.outputPagination?.hasMore).toBe(true);
-    // Every emitted node keeps its FULL files[] — never a partial slice.
     for (const node of Object.values(data.structure ?? {})) {
       expect(node.files?.length).toBe(3);
     }
@@ -347,8 +330,6 @@ describe('structuredPagination branch coverage', () => {
     const data = result.data as { outputPagination?: { hasMore: boolean } };
     expect(data.outputPagination?.hasMore).toBe(true);
   });
-
-  // ---- paginators given a non-object value return null (lines 677, 706, 726, 758, 786, 797, 814) ----
 
   it('handles localSearchCode files where items are not plain objects (line 786/797)', () => {
     const result = applyQueryOutputPagination(
@@ -414,8 +395,6 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  // ---- githubSearchPullRequests outputPagination already present short-circuit (lines ~918-927) ----
-
   it('short-circuits githubSearchPullRequests when outputPagination already present', () => {
     const queryResult = {
       id: 'q-pr-already',
@@ -439,12 +418,8 @@ describe('structuredPagination branch coverage', () => {
       { charLength: 200 },
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
     );
-    // falls through to fallback object pagination which may paginate, but the
-    // tool-specific branch returns non-paginated; ensure it does not throw.
     expect(result.data).toBeDefined();
   });
-
-  // ---- default tool path (unknown tool) hits fallback (lines 955-963 + fallback) ----
 
   it('uses the fallback object pagination for an unknown tool name', () => {
     const result = applyQueryOutputPagination(
@@ -504,8 +479,6 @@ describe('structuredPagination branch coverage', () => {
     expect(data.summary?.length).toBeLessThan(20000);
   });
 
-  // ---- withPaginationHints: existing hints already include the page summary (line 155) ----
-
   it('does not duplicate the page-summary hint when re-paginating identical content', () => {
     const payload = {
       id: 'q-dup-hints',
@@ -522,8 +495,6 @@ describe('structuredPagination branch coverage', () => {
     const summaryHints = (data.hints ?? []).filter(h => h.startsWith('Page '));
     expect(summaryHints.length).toBe(1);
   });
-
-  // ---- bulk response: kind === 'response' continuation hint (line 141) + materialize branches ----
 
   it('paginates a bulk response across multiple results (slices results)', () => {
     const results = Array.from({ length: 6 }, (_, i) => ({
@@ -581,7 +552,6 @@ describe('structuredPagination branch coverage', () => {
       { offset: 0, length: 400 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    // First page slices to a subset; second page from a known offset gets remaining
     const second = applyBulkResponsePagination(
       { results },
       { offset: 800, length: 400 },
@@ -606,8 +576,6 @@ describe('structuredPagination branch coverage', () => {
     );
     expect(response.results).toHaveLength(0);
   });
-
-  // ---- paginateFlatQueryResult guards inside bulk (lines 974, 981) ----
 
   it('bulk pagination tolerates results whose data is not an object (line 974)', () => {
     const response = applyBulkResponsePagination(
@@ -663,11 +631,8 @@ describe('structuredPagination branch coverage', () => {
       { offset: 0, length: 300 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    // Results are returned (error result is included as-is)
     expect(Array.isArray(response.results)).toBe(true);
   });
-
-  // ---- paginateFlatQueryResult exposes outputPagination on inner data (lines 1031-1058) ----
 
   it('exposes inner outputPagination on a paginated bulk result data object (lines 1031-1058)', () => {
     const results = [
@@ -716,11 +681,8 @@ describe('structuredPagination branch coverage', () => {
     const data = response.results[0]?.data as {
       outputPagination?: unknown;
     };
-    // lspFindReferences does not add inner outputPagination in bulk
     expect(data.outputPagination).toBeUndefined();
   });
-
-  // ---- fallback: top-level-only string field paths (lines 438, 451-465, 504, 543, 553, 583, 608) ----
 
   it('paginates a sole top-level string field at offset 0 (fallback string branch)', () => {
     const result = applyQueryOutputPagination(
@@ -789,8 +751,6 @@ describe('structuredPagination branch coverage', () => {
     expect(data.summary?.length).toBeGreaterThanOrEqual(0);
   });
 
-  // ---- fallback: sole nested object field (lines 594, 595, 543) ----
-
   it('paginates a sole nested object field via the nested-object fallback (line 594)', () => {
     const result = applyQueryOutputPagination(
       { id: 'q-nested-only', data: { meta: { desc: 'd'.repeat(20000) } } },
@@ -804,8 +764,6 @@ describe('structuredPagination branch coverage', () => {
     expect(data.meta?.desc?.length).toBeLessThan(20000);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
-
-  // ---- fallback: excluded fields are skipped (lines 622, 644, 648, 654, 658) ----
 
   it('skips excluded fields (warnings) and paginates the dominant string instead (line 622)', () => {
     const result = applyQueryOutputPagination(
@@ -829,14 +787,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  // ---- auto-pagination hint (lines 144-152, 147, 148) ----
-
   it('does NOT per-query paginate an oversized result without an explicit charOffset/charLength (bulk owns auto-capping)', () => {
-    // Per-query char-pagination is explicit-only now: without charOffset/
-    // charLength on the query, applyQueryOutputPagination leaves the result
-    // untouched so the response carries a single coherent cursor
-    // (responseCharOffset, emitted by applyBulkResponsePagination) instead of
-    // two breadcrumbs with different char totals.
     const repositories = Array.from({ length: 60 }, (_, i) => ({
       owner: 'o',
       repo: `r-${i}`,
@@ -856,8 +807,6 @@ describe('structuredPagination branch coverage', () => {
     expect((data.hints ?? []).some(h => h.startsWith('Auto-paginated:'))).toBe(
       false
     );
-    // The full payload is preserved (untouched) — bulk pagination, not this
-    // per-query pass, is what bounds the aggregate.
     expect((data as { repositories?: unknown[] }).repositories).toHaveLength(
       60
     );
@@ -885,8 +834,6 @@ describe('structuredPagination branch coverage', () => {
       true
     );
   });
-
-  // ---- bulk inner data continuation hint uses 'output' kind, but response kind tested via responsePagination shape ----
 
   it('produces an oversized bulk response whose inner result also carries outputPagination + hints (lines 1032-1058)', () => {
     const results = [
@@ -917,8 +864,6 @@ describe('structuredPagination branch coverage', () => {
     expect((data.hints ?? []).some(h => h.startsWith('Page '))).toBe(true);
   });
 
-  // ---- bulk small offset: request.offset inside the base-object region (lines 313, 344, 353) ----
-
   it('paginates a bulk response with an offset inside the wrapper region (actualOffset resets to 0)', () => {
     const results = Array.from({ length: 4 }, (_, i) => ({
       id: `q-${i}`,
@@ -938,16 +883,10 @@ describe('structuredPagination branch coverage', () => {
       { offset: 3, length: 100 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
-    // Small offset within wrapper region resets to 0; results are sliced
     expect(response.results.length).toBeGreaterThan(0);
   });
 
-  // ---- materializeSegments record reuse: multi-key records on the same field (lines 255, 263) ----
-
   it('paginates a record across multiple keys, reusing the materialized record object (structure branch)', () => {
-    // The record-materialize branch is exercised by githubViewRepoStructure,
-    // whose `structure` field is a Record<path, entry> (packageSearch repos are
-    // now atomic and no longer sub-paginate their record fields).
     const result = applyQueryOutputPagination(
       {
         id: 'q-struct-records',
@@ -967,14 +906,11 @@ describe('structuredPagination branch coverage', () => {
       structure?: Record<string, unknown>;
       outputPagination?: { hasMore: boolean };
     };
-    // At least one key materialized into the structure record; more remain.
     expect(Object.keys(data.structure ?? {}).length).toBeGreaterThanOrEqual(1);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
   it('paginates multi-item arrays of the same field, reusing the materialized array (line 255)', () => {
-    // Code-search files[] still array-paginates (each match is atomic but the
-    // file LIST is sliced), exercising the array-materialize branch.
     const result = applyQueryOutputPagination(
       {
         id: 'q-multi-array',
@@ -996,11 +932,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  // ---- query offset past the base-object region: actualOffset uses segment.start (false side of lines 313, 344) ----
-
   it('paginates a query at an offset past the wrapper so a whole segment anchors actualOffset (line 313 false side)', () => {
-    // Code-search files still sub-paginate (text_matches[].value), so they
-    // exercise the segment-offset branches; repos/packages are now atomic.
     const files = Array.from({ length: 8 }, (_, i) => ({
       path: `f${i}.ts`,
       text_matches: [{ value: 'v'.repeat(120) }],
@@ -1013,7 +945,6 @@ describe('structuredPagination branch coverage', () => {
     const data = result.data as {
       outputPagination?: { charOffset: number; hasMore: boolean };
     };
-    // Offset is past the wrapper, so actualOffset anchors at/after it (not 0).
     expect(data.outputPagination?.charOffset).toBeGreaterThan(0);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
@@ -1036,8 +967,6 @@ describe('structuredPagination branch coverage', () => {
       files?: unknown[];
       outputPagination?: { charOffset: number; hasMore: boolean };
     };
-    // Landed inside the oversized item → a partial slice is returned and the
-    // cursor reports more data.
     expect(data.outputPagination?.charOffset).toBeGreaterThan(0);
     expect(data.outputPagination?.hasMore).toBe(true);
     expect(data.files?.length ?? 0).toBeGreaterThan(0);
@@ -1046,7 +975,6 @@ describe('structuredPagination branch coverage', () => {
   it('anchors actualOffset to a whole segment start when the offset lands exactly on a segment boundary (line 313 false side)', () => {
     const pkg = (i: number) => ({ name: `pkg-${i}`, keywords: ['k'] });
     const packages = Array.from({ length: 10 }, (_, i) => pkg(i));
-    // baseChars = len('{"packages":[]}') = 15; first item has no leading comma.
     const baseChars = JSON.stringify({ packages: [] }).length;
     const secondSegmentStart = baseChars + JSON.stringify(pkg(0)).length;
     const result = applyQueryOutputPagination(
@@ -1063,8 +991,6 @@ describe('structuredPagination branch coverage', () => {
 });
 
 describe('githubSearchPullRequests pagination fixes', () => {
-  // #1 — escape valve: an oversized single PR (huge fileChanges[].patch under
-  // fullContent) must be sub-sliced rather than emitted whole.
   it('sub-slices an oversized single PR by paginating fileChanges[].patch', () => {
     const bigPatch = 'P'.repeat(20000);
     const result = applyQueryOutputPagination(
@@ -1090,24 +1016,17 @@ describe('githubSearchPullRequests pagination fixes', () => {
       pull_requests?: Array<{ fileChanges?: Array<{ patch?: string }> }>;
       outputPagination?: { hasMore: boolean; charLength: number };
     };
-    // Page 1 is bounded near the budget — NOT the full ~40K of patches.
     const emitted = JSON.stringify(data.pull_requests).length;
     expect(emitted).toBeLessThan(8000);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  // #2 — totalPages is exact on the last page even when an atomic item ate
-  // more than one page-size worth of chars (no more "1/2" for a single page).
   it('reports totalPages === currentPage when the final page fits everything', () => {
-    // One PR whose serialized size exceeds the requested page size, but there
-    // is nothing after it → it is the one and only (last) page.
     const result = applyQueryOutputPagination(
       {
         id: 'pr-one',
         data: {
-          pull_requests: [
-            { number: 1, title: 'x'.repeat(3000) }, // > 2000 page size
-          ],
+          pull_requests: [{ number: 1, title: 'x'.repeat(3000) }],
         },
       },
       { charLength: 2000, charOffset: 0 },
@@ -1122,14 +1041,10 @@ describe('githubSearchPullRequests pagination fixes', () => {
     };
     const pg = data.outputPagination;
     if (pg) {
-      // The single oversized item is the last page; the count must not overcount.
       if (!pg.hasMore) expect(pg.totalPages).toBe(pg.currentPage);
     }
   });
 
-  // #3 — when every result already carries a per-query cursor and bulk
-  // pagination was NOT requested, the bulk pass is skipped (no second,
-  // contradictory responsePagination breadcrumb).
   it('skips bulk pagination when results are already per-query paginated', () => {
     const out = applyBulkResponsePagination(
       {
@@ -1150,10 +1065,9 @@ describe('githubSearchPullRequests pagination fixes', () => {
           },
         ],
       } as never,
-      {}, // no responseCharOffset/Length → bulk pagination not requested
+      {},
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
     );
-    // When bulk pagination is skipped, results are passed through unchanged
     expect(out.results).toHaveLength(1);
   });
 
@@ -1165,10 +1079,9 @@ describe('githubSearchPullRequests pagination fixes', () => {
           data: { pull_requests: [{ number: i, body: 'b'.repeat(1500) }] },
         })),
       } as never,
-      { length: 2000 }, // explicit bulk request
+      { length: 2000 },
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
     );
-    // With a tight length and large results, bulk pagination slices the results
     expect(out.results.length).toBeLessThan(4);
   });
 });

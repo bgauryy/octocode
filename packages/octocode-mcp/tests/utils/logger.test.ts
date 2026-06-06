@@ -258,8 +258,6 @@ describe('Logger', () => {
 
   describe('LoggerFactory', () => {
     beforeEach(() => {
-      // Clear the factory cache between tests
-
       (LoggerFactory as any).loggers.clear();
     });
 
@@ -273,7 +271,7 @@ describe('Logger', () => {
         'component1'
       );
 
-      expect(logger1).toBe(logger2); // Same instance
+      expect(logger1).toBe(logger2);
     });
 
     it('should create different loggers for different components', () => {
@@ -315,7 +313,6 @@ describe('Logger', () => {
       const logger2 = LoggerFactory.getLogger(mockServer as McpServer, 'comp2');
       const logger3 = LoggerFactory.getLogger(mockServer as McpServer, 'comp3');
 
-      // Retrieve again
       const logger1Again = LoggerFactory.getLogger(
         mockServer as McpServer,
         'comp1'

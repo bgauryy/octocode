@@ -1,11 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-/**
- * Tests for logic patterns used in index.ts
- * These tests verify the behavior of patterns used in gracefulShutdown
- * without needing to test the actual signal handlers
- */
-
 describe('index.ts - Shutdown Logic Patterns', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -24,14 +18,11 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         shutdownInProgress = true;
         shutdownCount++;
 
-        // Simulate async shutdown work without a real timer.
         await Promise.resolve();
       };
 
-      // Call shutdown twice in parallel
       await Promise.all([mockGracefulShutdown(), mockGracefulShutdown()]);
 
-      // Should only execute once
       expect(shutdownCount).toBe(1);
       expect(shutdownInProgress).toBe(true);
     });
@@ -48,20 +39,16 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         return true;
       };
 
-      // First call
       expect(mockShutdownCheck()).toBe(true);
       expect(callCount).toBe(1);
 
-      // Second call (before flag is set)
       expect(mockShutdownCheck()).toBe(true);
       expect(callCount).toBe(2);
 
-      // Set flag
       shutdownInProgress = true;
 
-      // Third call (after flag is set)
       expect(mockShutdownCheck()).toBe(false);
-      expect(callCount).toBe(2); // Not incremented
+      expect(callCount).toBe(2);
     });
   });
 
@@ -70,21 +57,17 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       let shutdownTimeout: ReturnType<typeof setTimeout> | null = null;
       let forcedExitCalled = false;
 
-      // Simulate setting timeout for forced exit
       shutdownTimeout = setTimeout(() => {
         forcedExitCalled = true;
       }, 5000);
 
-      // Verify timeout was set
       expect(shutdownTimeout).not.toBeNull();
 
-      // Simulate clearing timeout on successful shutdown
       if (shutdownTimeout) {
         clearTimeout(shutdownTimeout);
         shutdownTimeout = null;
       }
 
-      // Verify timeout was cleared
       expect(shutdownTimeout).toBeNull();
 
       expect(forcedExitCalled).toBe(false);
@@ -93,13 +76,9 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     it('should handle timeout in both try and catch blocks', () => {
       let shutdownTimeout: ReturnType<typeof setTimeout> | null = null;
 
-      // Try block
       try {
-        shutdownTimeout = setTimeout(() => {
-          // Force exit
-        }, 5000);
+        shutdownTimeout = setTimeout(() => {}, 5000);
 
-        // Cleanup in try block
         if (shutdownTimeout) {
           clearTimeout(shutdownTimeout);
           shutdownTimeout = null;
@@ -107,7 +86,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
         expect(shutdownTimeout).toBeNull();
       } catch {
-        // Cleanup in catch block
         if (shutdownTimeout) {
           clearTimeout(shutdownTimeout);
           shutdownTimeout = null;
@@ -120,7 +98,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     it('should handle multiple timeout checks', () => {
       let shutdownTimeout: ReturnType<typeof setTimeout> | null = null;
 
-      // First check - set timeout
       if (shutdownTimeout) {
         clearTimeout(shutdownTimeout);
       }
@@ -128,7 +105,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
       expect(shutdownTimeout).not.toBeNull();
 
-      // Second check - clear existing and set new
       if (shutdownTimeout) {
         clearTimeout(shutdownTimeout);
         shutdownTimeout = null;
@@ -137,7 +113,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
       expect(shutdownTimeout).not.toBeNull();
 
-      // Final cleanup
       if (shutdownTimeout) {
         clearTimeout(shutdownTimeout);
         shutdownTimeout = null;
@@ -156,15 +131,12 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         try {
           await mockClose();
         } catch {
-          // Inner catch ignores error (like server.close())
           errorCaught = true;
         }
 
-        // Should continue after inner catch
         expect(errorCaught).toBe(true);
         expect(mockClose).toHaveBeenCalled();
       } catch {
-        // Outer catch shouldn't be reached
         throw new Error('Should not reach outer catch');
       }
     });
@@ -197,20 +169,14 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       type LoggerType = typeof mockLogger;
       let logger: LoggerType | null = mockLogger;
 
-      // Logger exists
       if (logger) {
         await logger.info('test');
       }
 
       expect(mockLogger.info).toHaveBeenCalledWith('test');
 
-      // Logger is null - should not call logger methods
       logger = null;
       mockLogger.info.mockClear();
-
-      // Since logger is null, the conditional check prevents the call
-      // This demonstrates the pattern: if (logger) { await logger.info(...) }
-      // When logger is null, nothing happens
 
       expect(mockLogger.info).not.toHaveBeenCalled();
     });
@@ -242,7 +208,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         }
       };
 
-      // Simulate signal handlers
       await mockGracefulShutdown('SIGINT');
       await mockGracefulShutdown('SIGTERM');
       await mockGracefulShutdown('STDIN_CLOSE');
@@ -259,11 +224,9 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         errorLogs.push({ type, message });
       };
 
-      // Simulate uncaughtException
       const testError = new Error('Test exception');
       mockErrorHandler('uncaughtException', testError);
 
-      // Simulate unhandledRejection
       mockErrorHandler('unhandledRejection', 'Test rejection');
 
       expect(errorLogs).toHaveLength(2);
@@ -334,7 +297,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
       const startupError = new Error('Startup failed');
 
-      // Test with logger present
       try {
         throw startupError;
       } catch {
@@ -345,15 +307,12 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
       expect(mockErrorFn).toHaveBeenCalledWith('Startup failed', {});
 
-      // Test with logger null
       logger = null;
       let errorHandled = false;
 
       try {
         throw startupError;
       } catch {
-        // Logger is null, so we handle the error without logging
-        // This demonstrates the pattern: if (logger) { ... } else { ... }
         if (!logger) {
           errorHandled = true;
         }
@@ -367,12 +326,10 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     it('should call logSessionError with correct parameters', async () => {
       const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 
-      // Simulate uncaught exception logging
       await mockLogSessionError('startup', 'UNCAUGHT_EXCEPTION').catch(
         () => {}
       );
 
-      // Simulate unhandled rejection logging
       await mockLogSessionError('startup', 'UNHANDLED_REJECTION').catch(
         () => {}
       );
@@ -394,7 +351,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         .fn()
         .mockRejectedValue(new Error('Logging failed'));
 
-      // Should not throw even if logging fails
       await mockLogSessionError('startup', 'ERROR_CODE').catch(() => {});
 
       expect(mockLogSessionError).toHaveBeenCalled();
@@ -403,12 +359,9 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
   describe('Process Stream Control', () => {
     it('should not call uncork on stdout (stdio MCP safety)', () => {
-      // uncork/cork calls were removed to prevent potential stdout
-      // corruption in stdio MCP transport
       const mockStdout = {
         uncork: vi.fn(),
       };
-      // Verify the pattern is NOT used
       expect(mockStdout.uncork).not.toHaveBeenCalled();
     });
   });
@@ -464,7 +417,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       const logger: typeof mockLogger | null = mockLogger;
       const reason = 'Test unhandled rejection';
 
-      // Simulate the pattern in index.ts
       if (logger) {
         await logger.error('Unhandled rejection', { reason: String(reason) });
       }
@@ -508,10 +460,7 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         .fn()
         .mockRejectedValue(new Error('Startup failed'));
 
-      // Simulate: startServer().catch(() => { process.exit(1); })
-      await mockStartServer().catch(() => {
-        // Catch block executed
-      });
+      await mockStartServer().catch(() => {});
 
       expect(mockStartServer).toHaveBeenCalled();
     });
@@ -529,9 +478,7 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       for (const error of errors) {
         const mockFn = vi.fn().mockRejectedValue(error);
 
-        await mockFn().catch(() => {
-          // Suppress error
-        });
+        await mockFn().catch(() => {});
 
         expect(mockFn).toHaveBeenCalled();
         mockFn.mockClear();
@@ -548,7 +495,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
       const logger: typeof mockLogger | null = mockLogger;
 
-      // Simulate error handling chain from index.ts
       const reason = 'Test error';
 
       if (logger) {
@@ -566,7 +512,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         .fn()
         .mockRejectedValue(new Error('Logging failed'));
 
-      // Should not throw even when logging fails
       await mockLogSessionError('startup', 'ERROR_CODE').catch(() => {});
 
       expect(mockLogSessionError).toHaveBeenCalled();
@@ -604,7 +549,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       const mockCleanup = vi.fn();
       const mockClearAllCache = vi.fn();
 
-      // Simulate shutdown cleanup
       mockClearAllCache();
       mockCleanup();
 
@@ -627,7 +571,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
         .fn()
         .mockRejectedValue(new Error('Logging failed'));
 
-      // Should not throw
       await mockLogSessionInit().catch(() => {});
 
       expect(mockLogSessionInit).toHaveBeenCalled();

@@ -5,12 +5,10 @@ import {
   allowUnexpectedWarningFailureForCurrentTest,
 } from './warningPolicy.js';
 
-// Mock process.exit to prevent tests from actually exiting
-const mockProcessExit = vi.spyOn(process, 'exit').mockImplementation((() => {
-  // Do nothing instead of exiting
-}) as never);
+const mockProcessExit = vi
+  .spyOn(process, 'exit')
+  .mockImplementation((() => {}) as never);
 
-// Must mock before importing
 const mockServer = {
   setRequestHandler: vi.fn(),
   close: vi.fn().mockResolvedValue(undefined),
@@ -94,27 +92,20 @@ vi.mock('../src/utils/core/logger.js', () => ({
   },
 }));
 
-// Import after mocks are set up - do NOT trigger module initialization
-// Only import the specific function we want to test
 let registerAllTools: (server: never, content: never) => Promise<void>;
 
 describe('index.ts - Server Lifecycle', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
 
-    // Reset process.exit mock but keep it from actually exiting
     mockProcessExit.mockClear();
-    mockProcessExit.mockImplementation((() => {
-      // Do nothing
-    }) as never);
+    mockProcessExit.mockImplementation((() => {}) as never);
 
-    // Dynamically import only the function we need
     const indexModule = await import('../src/index.js');
     registerAllTools = indexModule.registerAllTools;
   });
 
   afterAll(() => {
-    // Restore process.exit after all tests
     mockProcessExit.mockRestore();
   });
 
@@ -333,7 +324,6 @@ describe('Graceful Shutdown Logic', () => {
   });
 
   it('should handle module-level error scenarios', async () => {
-    // Test the pattern: async function().catch(() => { process.exit(1); })
     const mockAsyncFunction = vi.fn().mockRejectedValue(new Error('Failed'));
 
     let exitCalled = false;
@@ -381,7 +371,6 @@ describe('Error Handler Coverage', () => {
     const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
     const mockGracefulShutdown = vi.fn();
 
-    // Simulate unhandled rejection handler logic
     const reason = new Error('Test rejection');
 
     await mockLogger.error('Unhandled rejection', {
@@ -408,7 +397,6 @@ describe('Error Handler Coverage', () => {
     const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
     const mockGracefulShutdown = vi.fn();
 
-    // Simulate uncaught exception handler logic
     const error = new Error('Test exception');
 
     await mockLogger.error('Uncaught exception', {
@@ -437,7 +425,6 @@ describe('Error Handler Coverage', () => {
       throw new Error('Startup failed');
     };
 
-    // Simulate: startServer().catch(() => { process.exit(1); })
     await mockStartServer().catch(() => {
       mockExit(1);
     });

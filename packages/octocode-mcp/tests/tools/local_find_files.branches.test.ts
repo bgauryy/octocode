@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for local_find_files/findFiles.ts
- * Targets: sortBy 'size' and 'name' branches (lines 134-139)
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
@@ -80,9 +75,6 @@ describe('findFiles sortBy branches', () => {
 
     expect(result.status).toBeUndefined();
     const files = result.files!;
-    // sortBy='size' still sorts by underlying size, but the response field
-    // is `sizeFormatted` (human-readable) — raw `size` was dropped to remove
-    // redundancy. Verify ordering via sizeFormatted.
     expect(files[0]!.sizeFormatted).toBe('4.9KB');
     expect(files[1]!.sizeFormatted).toBe('2.0KB');
     expect(files[2]!.sizeFormatted).toBe('100.0B');
@@ -249,14 +241,12 @@ describe('findFiles sortBy branches', () => {
       mtime: new Date(),
     } as unknown as import('fs').Stats);
 
-    // Request page 999 when there are only 2 files → should get empty or last page
     const result = await findFiles({
       path: '/test',
       page: 999,
     });
 
     expect(result.status).toBeUndefined();
-    // Page beyond total → empty files
     expect(result.files?.length ?? 0).toBe(0);
   });
 });

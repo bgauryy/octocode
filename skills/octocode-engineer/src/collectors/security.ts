@@ -50,9 +50,9 @@ const SECRET_PATTERNS = [
 const SQL_KEYWORDS =
   /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\b/i;
 
-/** Strings that look like placeholders, not real secrets */
+
 const PLACEHOLDER_PATTERN = /^(YOUR_|REPLACE_ME|<[a-z_-]+>|\$\{|{{)/i;
-/** UUID pattern: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx */
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -74,7 +74,7 @@ function isPlaceholderOrUuid(value: string): boolean {
   return PLACEHOLDER_PATTERN.test(value) || UUID_PATTERN.test(value);
 }
 
-/** Skip strings inside finding metadata fields (suggestedFix, reason, impact, etc.) */
+
 const METADATA_PROP_NAMES = new Set([
   'suggestedFix',
   'strategy',

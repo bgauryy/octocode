@@ -1,20 +1,3 @@
-/**
- * Token Storage Utility
- *
- * Stores OAuth tokens securely using encrypted file storage (~/.octocode/credentials.json).
- * Uses AES-256-GCM encryption with a random key stored in ~/.octocode/.key.
- *
- * This provides a pure JavaScript solution that works across all environments
- * (CI, containers, SSH, desktop) without native dependencies.
- *
- * This file orchestrates credential management by delegating to focused modules:
- * - credentialCache.ts: In-memory cache management
- * - credentialEncryption.ts: Encryption/decryption and file I/O
- * - tokenRefresh.ts: OAuth token refresh logic
- * - tokenResolution.ts: Token resolution with priority chain
- * - credentialUtils.ts: Shared utility functions
- */
-
 import type { StoredCredentials, StoreResult, DeleteResult } from './types.js';
 import { createLogger } from '../logger/index.js';
 
@@ -67,14 +50,8 @@ import {
 
 const logger = createLogger('token-storage');
 
-// Re-export env functions from envTokens.ts (backward compat)
 export { getTokenFromEnv, getEnvTokenSource, hasEnvToken, ENV_TOKEN_VARS };
 
-/**
- * Store credentials using encrypted file storage
- *
- * @returns StoreResult with success status
- */
 export async function storeCredentials(
   credentials: StoredCredentials
 ): Promise<StoreResult> {
@@ -90,7 +67,6 @@ export async function storeCredentials(
     store.credentials[hostname] = normalizedCredentials;
     writeCredentialsStore(store);
 
-    // Invalidate cache for this hostname
     invalidateCredentialsCache(hostname);
 
     return { success: true };
@@ -109,33 +85,16 @@ export async function storeCredentials(
   }
 }
 
-/**
- * Options for getCredentials
- */
 export interface GetCredentialsOptions {
-  /** Bypass cache and fetch fresh credentials from storage */
   bypassCache?: boolean;
 }
 
-/**
- * Get credentials from encrypted file storage
- *
- * Flow:
- * 1. Check in-memory cache (unless bypassed)
- * 2. Read from file storage
- * 3. Cache result for future calls
- *
- * @param hostname - GitHub hostname (default: 'github.com')
- * @param options - Optional settings (e.g., bypassCache)
- * @returns Stored credentials or null if not found
- */
 export async function getCredentials(
   hostname: string = 'github.com',
   options?: GetCredentialsOptions
 ): Promise<StoredCredentials | null> {
   const normalizedHostname = normalizeHostname(hostname);
 
-  // 1. Check cache first (unless bypassed)
   if (!options?.bypassCache) {
     const cached = getCachedCredentials(normalizedHostname);
     if (cached !== undefined) {
@@ -143,22 +102,14 @@ export async function getCredentials(
     }
   }
 
-  // 2. Fetch from file storage
   const store = readCredentialsStore();
   const credentials = store.credentials[normalizedHostname] || null;
 
-  // 3. Update cache, including misses, to avoid repeated disk reads
   setCachedCredentials(normalizedHostname, credentials);
 
   return credentials;
 }
 
-/**
- * Get credentials synchronously (file storage only)
- *
- * @param hostname - GitHub hostname (default: 'github.com')
- * @returns Stored credentials from file or null if not found
- */
 export function getCredentialsSync(
   hostname: string = 'github.com'
 ): StoredCredentials | null {
@@ -167,23 +118,16 @@ export function getCredentialsSync(
   return store.credentials[normalizedHostname] || null;
 }
 
-/**
- * Delete credentials from file storage
- *
- * @returns DeleteResult with details about what was deleted
- */
 export async function deleteCredentials(
   hostname: string = 'github.com'
 ): Promise<DeleteResult> {
   const normalizedHostname = normalizeHostname(hostname);
   let deletedFromFile = false;
 
-  // Delete from file storage
   const store = readCredentialsStore();
   if (store.credentials[normalizedHostname]) {
     delete store.credentials[normalizedHostname];
 
-    // Clean up files if no more credentials remain
     if (Object.keys(store.credentials).length === 0) {
       cleanupKeyFile();
     } else {
@@ -192,7 +136,6 @@ export async function deleteCredentials(
     deletedFromFile = true;
   }
 
-  // Invalidate cache for this hostname
   invalidateCredentialsCache(normalizedHostname);
 
   return {
@@ -201,41 +144,26 @@ export async function deleteCredentials(
   };
 }
 
-/**
- * List all stored hostnames from file storage
- */
 export async function listStoredHosts(): Promise<string[]> {
   const store = readCredentialsStore();
   return Object.keys(store.credentials);
 }
 
-/**
- * List stored hosts synchronously (file storage only)
- */
 export function listStoredHostsSync(): string[] {
   const store = readCredentialsStore();
   return Object.keys(store.credentials);
 }
 
-/**
- * Check if credentials exist for a hostname
- */
 export async function hasCredentials(
   hostname: string = 'github.com'
 ): Promise<boolean> {
   return (await getCredentials(hostname)) !== null;
 }
 
-/**
- * Check if credentials exist synchronously (file storage only)
- */
 export function hasCredentialsSync(hostname: string = 'github.com'): boolean {
   return getCredentialsSync(hostname) !== null;
 }
 
-/**
- * Update token for a hostname (used for refresh)
- */
 export async function updateToken(
   hostname: string,
   token: StoredCredentials['token']
@@ -253,25 +181,10 @@ export async function updateToken(
   return true;
 }
 
-/**
- * Get the credentials storage location (for display purposes)
- */
 export function getCredentialsFilePath(): string {
   return CREDENTIALS_FILE;
 }
 
-/**
- * Get token from stored credentials (file only)
- *
- * Convenience function that retrieves credentials and returns just the token string.
- * Checks for token expiration before returning.
- *
- * NOTE: This does NOT check environment variables. Use resolveToken() for full resolution.
- * NOTE: This does NOT refresh expired tokens. Use getTokenWithRefresh() for auto-refresh.
- *
- * @param hostname - GitHub hostname (default: 'github.com')
- * @returns Token string or null if not found/expired
- */
 export async function getToken(
   hostname: string = 'github.com'
 ): Promise<string | null> {
@@ -281,20 +194,13 @@ export async function getToken(
     return null;
   }
 
-  // Check if token is expired
   if (isTokenExpired(credentials)) {
-    return null; // Let caller handle re-auth or use getTokenWithRefresh()
+    return null;
   }
 
   return credentials.token.token;
 }
 
-/**
- * Get token synchronously (file storage only)
- *
- * @param hostname - GitHub hostname (default: 'github.com')
- * @returns Token string or null if not found/expired
- */
 export function getTokenSync(hostname: string = 'github.com'): string | null {
   const credentials = getCredentialsSync(hostname);
 
@@ -302,7 +208,6 @@ export function getTokenSync(hostname: string = 'github.com'): string | null {
     return null;
   }
 
-  // Check if token is expired
   if (isTokenExpired(credentials)) {
     return null;
   }
@@ -310,10 +215,8 @@ export function getTokenSync(hostname: string = 'github.com'): string | null {
   return credentials.token.token;
 }
 
-// Cache management
 export { invalidateCredentialsCache, _getCacheStats, _resetCredentialsCache };
 
-// Encryption and file I/O
 export {
   encrypt,
   decrypt,
@@ -325,9 +228,6 @@ export {
   KEY_FILE,
 };
 
-// Token refresh — bound wrappers that inject storage dependencies,
-// breaking the circular import between tokenRefresh.ts and storage.ts.
-/** @see _refreshAuthTokenCore for implementation details */
 export async function refreshAuthToken(
   hostname?: string,
   clientId?: string
@@ -339,7 +239,6 @@ export async function refreshAuthToken(
   );
 }
 
-/** @see _getTokenWithRefreshCore for implementation details */
 export async function getTokenWithRefresh(
   hostname?: string,
   clientId?: string
@@ -353,11 +252,8 @@ export async function getTokenWithRefresh(
 
 export type { RefreshResult, TokenWithRefreshResult };
 
-// Inject storage deps into tokenResolution (breaks the cycle).
-// Only getTokenWithRefresh is needed — all resolution paths use it.
 initTokenResolution({ getTokenWithRefresh });
 
-// Token resolution
 export {
   resolveToken,
   resolveTokenWithRefresh,
@@ -369,5 +265,4 @@ export {
   type GhCliTokenGetter,
 };
 
-// Utility functions
 export { isTokenExpired, isRefreshTokenExpired };

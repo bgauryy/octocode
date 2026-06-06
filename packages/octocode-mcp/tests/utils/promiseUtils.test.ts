@@ -7,7 +7,6 @@ import {
 } from '../../src/errors/domainErrors.js';
 import { logSessionError } from '../../src/session';
 
-// Mock logSessionError
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
@@ -97,9 +96,9 @@ describe('promiseUtils', () => {
     it('should handle non-Error rejection reasons', async () => {
       const promises = [
         () => Promise.resolve('success'),
-        () => Promise.reject('string error'), // Non-Error rejection
-        () => Promise.reject(123), // Number rejection
-        () => Promise.reject({ custom: 'object' }), // Object rejection
+        () => Promise.reject('string error'),
+        () => Promise.reject(123),
+        () => Promise.reject({ custom: 'object' }),
       ];
 
       const results = await executeWithErrorIsolation(promises);
@@ -107,17 +106,14 @@ describe('promiseUtils', () => {
       expect(results).toHaveLength(4);
       expect(results[0]?.success).toBe(true);
 
-      // String rejection should be converted to Error
       expect(results[1]?.success).toBe(false);
       expect(results[1]?.error).toBeInstanceOf(Error);
       expect(results[1]?.error?.message).toBe('string error');
 
-      // Number rejection should be converted to Error
       expect(results[2]?.success).toBe(false);
       expect(results[2]?.error).toBeInstanceOf(Error);
       expect(results[2]?.error?.message).toBe('123');
 
-      // Object rejection should be converted to Error
       expect(results[3]?.success).toBe(false);
       expect(results[3]?.error).toBeInstanceOf(Error);
       expect(results[3]?.error?.message).toContain('object');
@@ -135,11 +131,9 @@ describe('promiseUtils', () => {
         const options: PromiseExecutionOptions = { timeout: 1000 };
         const resultPromise = executeWithErrorIsolation(promises, options);
 
-        // Advance time to complete first promise but not second
         vi.advanceTimersByTime(500);
         await vi.runAllTimersAsync();
 
-        // Advance time past timeout
         vi.advanceTimersByTime(600);
         await vi.runAllTimersAsync();
 
@@ -359,31 +353,9 @@ describe('promiseUtils', () => {
       });
 
       it('should handle undefined promise function in executeWithConcurrencyLimit', async () => {
-        // This simulates a sparse array or undefined item passed to executeWithConcurrencyLimit
-        // Although executeWithErrorIsolation filters/wraps them, we can mock executeWithErrorIsolation's internals
-        // or construct a case where validPromises has holes if that was possible,
-        // but actually executeWithErrorIsolation maps them to wrappers.
-        // However, the executeWithConcurrencyLimit function checks for undefined promiseFn.
-
-        // To test lines 152-162 in executeWithConcurrencyLimit, we need to pass an array with holes
-        // or undefined values directly to it, but it's not exported.
-        // However, we can trigger the wrapping logic in executeWithErrorIsolation which handles non-functions.
-        // But wait, executeWithErrorIsolation replaces non-functions with a rejection wrapper (lines 38-50).
-        // So executeWithConcurrencyLimit (called on line 53) receives valid wrappers.
-
-        // If we want to hit the check inside executeWithConcurrencyLimit (lines 152-162),
-        // we would need validPromises to contain undefined.
-        // But the map on line 38 ensures it returns a function.
-        // So that code might be unreachable via executeWithErrorIsolation public API unless the array is sparse?
-
-        // Let's try a sparse array.
         const promises = new Array(3);
         promises[0] = () => Promise.resolve(1);
-        // index 1 is empty
         promises[2] = () => Promise.resolve(3);
-
-        // When map is called on a sparse array, it skips empty slots!
-        // validPromises will also be sparse.
 
         const results = await executeWithErrorIsolation(promises, {
           concurrency: 2,
@@ -391,14 +363,6 @@ describe('promiseUtils', () => {
 
         expect(results).toHaveLength(3);
         expect(results[0]?.success).toBe(true);
-
-        // Index 1 should be handled by the "undefined" check in executeWithConcurrencyLimit
-        // OR if it's sparse, map might preserve sparsity.
-        // Let's see.
-
-        // If executeWithConcurrencyLimit iterates with index < promiseFns.length, it accesses index 1.
-        // If validPromises is sparse, validPromises[1] is undefined.
-        // So the check inside executeWithConcurrencyLimit (if (!promiseFn)) should trigger.
 
         expect(results[1]?.success).toBe(false);
         expect(results[1]?.error?.message).toContain(
@@ -432,7 +396,6 @@ describe('promiseUtils', () => {
           const results = await resultPromise;
 
           expect(results).toHaveLength(5);
-          // First few should succeed, later ones should timeout
           expect(results[0]?.success).toBe(true);
           expect(results[4]?.success).toBe(false);
         } finally {
@@ -473,13 +436,10 @@ describe('promiseUtils', () => {
     });
 
     it('should handle Promise.allSettled rejected status with non-Error reason', async () => {
-      // Test to ensure the mapping of rejected results is correct
-      // This tests line 71 where allSettled returns rejected status
       const promises = [
         () => Promise.resolve('success'),
         () => {
-          // Use a plain throw to ensure we hit the else branch
-          throw 42; // Non-Error thrown value
+          throw 42;
         },
       ];
 
@@ -492,10 +452,8 @@ describe('promiseUtils', () => {
     });
 
     it('should handle createIsolatedPromise catch block with non-Error', async () => {
-      // Test the catch block in createIsolatedPromise
       const promises = [
         () => {
-          // Throw a non-Error to test the error conversion
           throw { custom: 'error object' };
         },
       ];

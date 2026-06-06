@@ -76,7 +76,6 @@ describe('pullRequestSearch coverage', () => {
   it('should handle REST API search error', async () => {
     mockOctokit.rest.pulls.list.mockRejectedValue(new Error('API Error'));
 
-    // Force shouldUseSearchForPRs to false to trigger REST path
     vi.spyOn(queryBuilders, 'shouldUseSearchForPRs').mockReturnValue(false);
 
     const result = await searchGitHubPullRequestsAPI({
@@ -89,12 +88,10 @@ describe('pullRequestSearch coverage', () => {
   });
 
   it('should handle error when fetching PR comments', async () => {
-    // Mock query builder to ensure we get to the search call
     vi.spyOn(queryBuilders, 'buildPullRequestSearchQuery').mockReturnValue(
       'test query'
     );
 
-    // Setup a PR result that triggers comment fetching
     mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
       data: {
         items: [
@@ -124,7 +121,7 @@ describe('pullRequestSearch coverage', () => {
 
     expect(result.pull_requests).toBeDefined();
     expect(result.pull_requests).toHaveLength(1);
-    expect(result.pull_requests?.[0]?.comments).toBe(0); // Should default to empty/0 on error
+    expect(result.pull_requests?.[0]?.comments).toBe(0);
   });
 
   it('should handle error when fetching file changes', async () => {
@@ -182,9 +179,7 @@ describe('pullRequestSearch coverage', () => {
   it('should return error if search query build fails', async () => {
     vi.spyOn(queryBuilders, 'buildPullRequestSearchQuery').mockReturnValue('');
 
-    const result = await searchGitHubPullRequestsAPI({
-      // Empty params that result in empty query
-    });
+    const result = await searchGitHubPullRequestsAPI({});
 
     expect(result.error).toBeDefined();
   });
@@ -419,8 +414,8 @@ describe('pullRequestSearch coverage', () => {
     });
 
     expect(result.pull_requests).toBeDefined();
-    expect(result.pull_requests?.[0]?.additions).toBe(30); // 10 + 20
-    expect(result.pull_requests?.[0]?.deletions).toBe(7); // 5 + 2
+    expect(result.pull_requests?.[0]?.additions).toBe(30);
+    expect(result.pull_requests?.[0]?.deletions).toBe(7);
     expect(result.pull_requests?.[0]?.changed_files).toBe(2);
   });
 
@@ -429,7 +424,6 @@ describe('pullRequestSearch coverage', () => {
       'test'
     );
 
-    // Use a URL that would trigger sanitization (email address)
     mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
       data: {
         items: [
@@ -470,8 +464,6 @@ describe('pullRequestSearch coverage', () => {
     });
 
     expect(result.pull_requests).toBeDefined();
-    // Sanitization warnings may or may not be present depending on the content
-    // The test verifies that the result is properly returned
     expect(result.pull_requests).toHaveLength(1);
   });
 
@@ -480,8 +472,6 @@ describe('pullRequestSearch coverage', () => {
       'test'
     );
 
-    // Use PR title with a fake GitHub token pattern that triggers sanitization
-    // This exercises the sanitizationWarnings.size > 0 branch in createBasePRTransformation
     const fakeGitHubToken =
       'ghp_abcdefghijklmnopqrstuvwxyz12345678901234567890';
 
@@ -520,7 +510,6 @@ describe('pullRequestSearch coverage', () => {
 
     expect(result.pull_requests).toBeDefined();
     expect(result.pull_requests).toHaveLength(1);
-    // The token should be redacted in the title
     expect(result.pull_requests?.[0]?.title).toContain('[REDACTED-');
   });
 
@@ -529,8 +518,6 @@ describe('pullRequestSearch coverage', () => {
       'test'
     );
 
-    // AWS Access Key ID pattern: AKIA followed by exactly 16 uppercase alphanumeric characters
-    // Total 20 chars: 4 (AKIA) + 16 = 20
     const fakeAwsKey = 'AKIAIOSFODNN7EXAMPLE';
 
     mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
@@ -570,7 +557,6 @@ describe('pullRequestSearch coverage', () => {
 
     expect(result.pull_requests).toBeDefined();
     expect(result.pull_requests).toHaveLength(1);
-    // The AWS key should be redacted in the body (AKIAIOSFODNN7EXAMPLE -> [REDACTED-AWSACCESSKEYID])
     expect(result.pull_requests?.[0]?.body).toContain(
       '[REDACTED-AWSACCESSKEYID]'
     );
@@ -618,7 +604,6 @@ describe('pullRequestSearch coverage', () => {
 
     expect(result.pull_requests).toBeDefined();
     expect(result.pull_requests).toHaveLength(1);
-    // Clean content should not contain redaction markers
     expect(result.pull_requests?.[0]?.title).not.toContain('[REDACTED-');
     expect(result.pull_requests?.[0]?.body).not.toContain('[REDACTED-');
   });

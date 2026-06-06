@@ -1,40 +1,5 @@
-/**
- * SecurityRegistry — Central extensibility point for all security APIs.
- *
- * Users can add custom:
- *   - Secret detection patterns (regex)
- *   - Allowed commands
- *   - Ignored path/file patterns
- *
- * All security APIs read from the registry at call time, so extensions
- * take effect immediately after registration.
- *
- * @example
- * ```ts
- * import { securityRegistry } from 'octocode-security-utils';
- *
- * // Add a custom secret pattern
- * securityRegistry.addSecretPatterns([{
- *   name: 'myInternalToken',
- *   description: 'Internal service token',
- *   regex: /\bMYCORP_[A-Z0-9]{32}\b/g,
- *   matchAccuracy: 'high',
- * }]);
- *
- * // Add a custom allowed command
- * securityRegistry.addAllowedCommands(['jq', 'yq']);
- *
- * // Add a custom ignored path
- * securityRegistry.addIgnoredPathPatterns([/^\.vault$/]);
- *
- * // Add a custom ignored file
- * securityRegistry.addIgnoredFilePatterns([/^internal[-_]secrets\.ya?ml$/]);
- * ```
- */
-
 import type { SensitiveDataPattern } from './types.js';
 
-/** Abstraction for the security registry (Dependency Inversion). */
 export interface ISecurityRegistry {
   readonly extraSecretPatterns: readonly SensitiveDataPattern[];
   readonly extraAllowedCommands: readonly string[];
@@ -80,7 +45,6 @@ export class SecurityRegistry implements ISecurityRegistry {
   private _frozenIgnoredPathPatterns: readonly RegExp[] | null = null;
   private _frozenIgnoredFilePatterns: readonly RegExp[] | null = null;
 
-  /** Whether the registry is locked against further mutations. */
   get frozen(): boolean {
     return this._frozen;
   }
@@ -101,50 +65,40 @@ export class SecurityRegistry implements ISecurityRegistry {
     this._frozenIgnoredFilePatterns = null;
   }
 
-  /** Monotonic counter incremented on every mutation. Used for cache invalidation. */
   get version(): number {
     return this._version;
   }
 
-  /** User-registered secret detection patterns (frozen, cached between mutations). */
   get extraSecretPatterns(): readonly SensitiveDataPattern[] {
     return (this._frozenSecretPatterns ??= Object.freeze([
       ...this._extraSecretPatterns,
     ]));
   }
 
-  /** User-registered allowed commands (frozen, cached between mutations). */
   get extraAllowedCommands(): readonly string[] {
     return (this._frozenAllowedCommands ??= Object.freeze([
       ...this._extraAllowedCommands,
     ]));
   }
 
-  /** User-registered additional root directories (frozen, cached between mutations). */
   get extraAllowedRoots(): readonly string[] {
     return (this._frozenAllowedRoots ??= Object.freeze([
       ...this._extraAllowedRoots,
     ]));
   }
 
-  /** User-registered ignored path patterns (frozen, cached between mutations). */
   get extraIgnoredPathPatterns(): readonly RegExp[] {
     return (this._frozenIgnoredPathPatterns ??= Object.freeze([
       ...this._extraIgnoredPathPatterns,
     ]));
   }
 
-  /** User-registered ignored file patterns (frozen, cached between mutations). */
   get extraIgnoredFilePatterns(): readonly RegExp[] {
     return (this._frozenIgnoredFilePatterns ??= Object.freeze([
       ...this._extraIgnoredFilePatterns,
     ]));
   }
 
-  /**
-   * Register additional secret detection patterns.
-   * Deduplicates by pattern name — duplicate names are silently skipped.
-   */
   addSecretPatterns(patterns: SensitiveDataPattern[]): void {
     this._assertMutable();
     for (const p of patterns) {
@@ -164,10 +118,6 @@ export class SecurityRegistry implements ISecurityRegistry {
     this._version++;
   }
 
-  /**
-   * Register additional allowed commands for the command validator.
-   * These are merged with the built-in allowed commands at call time.
-   */
   addAllowedCommands(commands: string[]): void {
     this._assertMutable();
     for (const cmd of commands) {
@@ -182,10 +132,6 @@ export class SecurityRegistry implements ISecurityRegistry {
     this._version++;
   }
 
-  /**
-   * Register additional root directories for path and execution context validation.
-   * Use this to allow access to app-specific directories (e.g. cloned repos folder).
-   */
   addAllowedRoots(roots: string[]): void {
     this._assertMutable();
     for (const root of roots) {
@@ -200,10 +146,6 @@ export class SecurityRegistry implements ISecurityRegistry {
     this._version++;
   }
 
-  /**
-   * Register additional ignored path patterns.
-   * Deduplicates by regex source — duplicate sources are silently skipped.
-   */
   addIgnoredPathPatterns(patterns: RegExp[]): void {
     this._assertMutable();
     for (const p of patterns) {
@@ -218,10 +160,6 @@ export class SecurityRegistry implements ISecurityRegistry {
     this._version++;
   }
 
-  /**
-   * Register additional ignored file patterns.
-   * Deduplicates by regex source — duplicate sources are silently skipped.
-   */
   addIgnoredFilePatterns(patterns: RegExp[]): void {
     this._assertMutable();
     for (const p of patterns) {
@@ -236,23 +174,10 @@ export class SecurityRegistry implements ISecurityRegistry {
     this._version++;
   }
 
-  /**
-   * Lock the registry, preventing further mutations.
-   * Call after all startup configuration is complete to harden at runtime.
-   * Use `reset()` to unfreeze and clear all extensions.
-   *
-   * @example
-   * ```ts
-   * securityRegistry.addAllowedCommands(['jq']);
-   * securityRegistry.freeze();
-   * // All further add* calls will throw
-   * ```
-   */
   freeze(): void {
     this._frozen = true;
   }
 
-  /** Remove all user-registered extensions and unfreeze. Useful for testing. */
   reset(): void {
     this._frozen = false;
     this._extraSecretPatterns = [];
@@ -267,10 +192,6 @@ export class SecurityRegistry implements ISecurityRegistry {
 
 const GLOBAL_KEY = '__octocode_security_registry__';
 
-/**
- * Global singleton registry. Uses globalThis to survive module duplication
- * (e.g. vitest transforms, dual ESM/CJS loading, or bundler code-splitting).
- */
 export const securityRegistry: SecurityRegistry =
   ((globalThis as Record<string, unknown>)[GLOBAL_KEY] as SecurityRegistry) ??
   ((globalThis as Record<string, unknown>)[GLOBAL_KEY] =

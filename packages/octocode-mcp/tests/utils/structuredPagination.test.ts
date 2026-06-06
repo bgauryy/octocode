@@ -169,14 +169,10 @@ describe('tool-owned structured pagination', () => {
       }>;
     };
 
-    // Per-query pagination (outputPagination) handles oversized results
     expect(structured.results).toHaveLength(1);
   });
 
   it('bulk window slices BETWEEN repos, never inside one — topics[] stays whole (live-bug regression)', () => {
-    // The live bug: a default responseCharLength windowed mid-repo and returned
-    // a fragmented topics array like ["dx","f"]. Repos are atomic now, so any
-    // repo that appears carries its complete topics[].
     const topics = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
     const mkRepo = (n: string) => ({
       owner: 'octo',
@@ -215,10 +211,6 @@ describe('tool-owned structured pagination', () => {
   });
 
   it('githubViewRepoStructure: a directory node is item-atomic — files[] never sliced mid-list', () => {
-    // Unify structure onto the item-atomic model (like repos/packages): the
-    // char backstop must emit a directory node whole or defer it — never a
-    // partial files[] list. (The entry cursor already bounds page size; this is
-    // the consistency guarantee for the rare overflow case.)
     const allFiles = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts'];
     const response = applyBulkResponsePagination(
       {
@@ -229,7 +221,7 @@ describe('tool-owned structured pagination', () => {
           },
         ],
       },
-      { offset: 0, length: 60 }, // tight — the old paginateStructureEntry sliced files[]
+      { offset: 0, length: 60 },
       TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
     );
     const structure = (
@@ -238,8 +230,6 @@ describe('tool-owned structured pagination', () => {
       }
     ).structure;
     const files = structure?.src?.files;
-    // Atomic: the node is emitted whole (forward progress) with its FULL list,
-    // never a truncated slice.
     if (files) expect(files).toEqual(allFiles);
   });
 
@@ -267,14 +257,10 @@ describe('tool-owned structured pagination', () => {
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
 
-    // When offset is beyond the content, results are empty (nothing to show)
     expect(response.results).toHaveLength(0);
   });
 
   it('advances past a mid-segment resume into later queries instead of stalling', () => {
-    // Multi-query repo bulk. A responseCharOffset that resumes MID query-1
-    // must, when budget remains, pack the FOLLOWING queries too — not return
-    // only query-1's tail and stall (the cursor-stall bug).
     const mkRepo = (owner: string, repo: string) => ({
       owner,
       repo,
@@ -293,22 +279,16 @@ describe('tool-owned structured pagination', () => {
           { id: 'repo_q3', data: { repositories: [mkRepo('c', 'three')] } },
         ],
       },
-      // Offset well inside query-1's segment; ample length to span all three.
       { offset: 120, length: 100_000 },
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
     );
 
     const ids = (response.results as Array<{ id: string }>).map(r => r.id);
-    // The page must reach query-3, proving the cursor advanced past the
-    // mid-segment resume rather than stopping at query-1's tail.
     expect(ids).toContain('repo_q3');
     expect(ids.length).toBeGreaterThan(1);
   });
 
   it('paginates githubSearchRepositories at the WHOLE-REPO level — topics never sliced', () => {
-    // Repos are atomic: char windowing slices BETWEEN repos, never inside one.
-    // Two repos with full topics[]; a small budget pages them one at a time,
-    // and each repo on the page keeps its complete topics array.
     const mkRepo = (n: string) => ({
       owner: 'octo',
       repo: n,
@@ -333,7 +313,6 @@ describe('tool-owned structured pagination', () => {
       outputPagination?: { hasMore: boolean };
     };
 
-    // First repo present with its FULL topics array (no mid-array truncation).
     expect(data.repositories?.[0]?.repo).toBe('one');
     expect(data.repositories?.[0]?.topics).toEqual([
       'alpha',
@@ -341,7 +320,6 @@ describe('tool-owned structured pagination', () => {
       'gamma',
       'delta',
     ]);
-    // The second repo didn't fit → paginated to the next page (per-item).
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
@@ -359,7 +337,7 @@ describe('tool-owned structured pagination', () => {
           },
         },
       },
-      { charLength: 90 }, // tight → not all nodes fit
+      { charLength: 90 },
       TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
     );
 
@@ -368,7 +346,6 @@ describe('tool-owned structured pagination', () => {
       outputPagination?: { hasMore: boolean };
     };
 
-    // Nodes paginate as whole units; each emitted node keeps its FULL files[].
     expect(data.outputPagination?.hasMore).toBe(true);
     const nodes = Object.values(data.structure ?? {});
     expect(nodes.length).toBeGreaterThan(0);
@@ -616,9 +593,7 @@ describe('tool-owned structured pagination', () => {
       outputPagination?: unknown;
       pagination?: unknown;
     };
-    // Domain pagination (from the tool itself) is preserved
     expect(data.pagination).toBeDefined();
-    // No extra outputPagination injected by bulk layer for lspFindReferences
     expect(data.outputPagination).toBeUndefined();
   });
 

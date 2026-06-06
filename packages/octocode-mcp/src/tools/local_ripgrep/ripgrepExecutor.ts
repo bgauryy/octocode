@@ -1,6 +1,3 @@
-/**
- * Ripgrep executor — the only search engine the MCP runs.
- */
 import { RipgrepCommandBuilder } from '../../commands/RipgrepCommandBuilder.js';
 import { safeExec } from '../../utils/exec/safe.js';
 import type { z } from 'zod';
@@ -22,9 +19,6 @@ import { buildSearchResult } from './ripgrepResultBuilder.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
-/**
- * Execute search using ripgrep (rg) - the only engine.
- */
 export async function executeRipgrepSearchInternal(
   configuredQuery: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
@@ -64,8 +58,6 @@ export async function executeRipgrepSearchInternal(
     path: pathValidation.sanitizedPath!,
   };
 
-  // Pre-launch pattern validation: cheap fail-fast before we burn a
-  // process spawning ripgrep with a pattern it'll reject.
   const patternCheck = preflightValidateRipgrepPattern({
     pattern: queryForExec.pattern,
     fixedString: queryForExec.fixedString,
@@ -117,9 +109,6 @@ export async function executeRipgrepSearchInternal(
         status: 'empty',
         searchEngine: 'rg',
         warnings: [...validation.warnings, ...chunkingWarnings],
-        // Pass full query shape so the per-tool empty branch can name the
-        // actual filters in play (type/include/excludeDir/path/case) and
-        // suggest a concrete next move.
         hints: getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty', {
           pattern: configuredQuery.pattern,
           path: configuredQuery.path,
@@ -147,8 +136,6 @@ export async function executeRipgrepSearchInternal(
 
   const parsed = parseRipgrepOutput(result.stdout, configuredQuery);
 
-  // Post-flight large-result evidence — single conditional warning carrying
-  // the actual payload size. Recovery moves are described in the tool spec.
   if (
     !queryForExec.filesOnly &&
     result.stdout.length > RESOURCE_LIMITS.LARGE_RESULT_BYTES_HINT

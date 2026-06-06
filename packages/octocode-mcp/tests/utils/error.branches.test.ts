@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for utils/response/error.ts
- * Targets: isGitHubApiError variants, unknown error, extra.hints, hintSourceError
- */
-
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../src/hints/index.js', () => ({

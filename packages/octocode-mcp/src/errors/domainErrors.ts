@@ -1,8 +1,3 @@
-/**
- * Domain-specific error constants for all tools.
- * Organized by domain: CONFIG, VALIDATION, FETCH, etc.
- */
-
 export const CONFIG_ERRORS = {
   NOT_INITIALIZED: {
     code: 'CONFIG_NOT_INITIALIZED',

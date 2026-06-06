@@ -57,7 +57,6 @@ describe('GitHub View Repository Structure Tool', () => {
     mockProvider.resolveDefaultBranch.mockResolvedValue('main');
     registerViewGitHubRepoStructureTool(mockServer.server);
 
-    // Default mock response - uses structure format
     mockProvider.getRepoStructure.mockResolvedValue({
       data: {
         projectPath: 'test/repo',
@@ -282,7 +281,6 @@ describe('GitHub View Repository Structure Tool', () => {
     };
     const firstData = firstStructured.results[0]!.data;
 
-    // Node-atomic: every directory node returned has its FULL files[] (never truncated).
     const firstNodes = Object.keys(firstData.structure ?? {});
     expect(firstNodes.length).toBeGreaterThan(0);
     for (const node of Object.values(firstData.structure ?? {})) {
@@ -566,13 +564,10 @@ describe('GitHub View Repository Structure Tool', () => {
 
   describe('Invalid branch handling (TC-9, TC-17)', () => {
     it('should return error when branch does not exist instead of silent fallback', async () => {
-      // Provider returns branch "main" even though we asked for "nonexistent-branch"
-      // This simulates the silent fallback behavior - the provider should instead
-      // return an error or include a warning
       mockProvider.getRepoStructure.mockResolvedValue({
         data: {
           projectPath: 'facebook/react',
-          branch: 'main', // silently fell back from 'nonexistent-branch'
+          branch: 'main',
           path: '',
           structure: {
             '.': {
@@ -604,8 +599,6 @@ describe('GitHub View Repository Structure Tool', () => {
       );
 
       const responseText = getTextContent(result.content);
-      // When branch doesn't match what was requested, user should be informed
-      // Either via error OR via a warning in the response
       const branchMismatchDetected =
         responseText.includes('nonexistent-branch') ||
         (responseText.includes('branch') &&

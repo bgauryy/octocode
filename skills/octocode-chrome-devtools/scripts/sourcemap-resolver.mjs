@@ -1,4 +1,3 @@
-// Minimal source-map resolver for CDP scripts; strips sourcesContent.
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const B64_MAP = new Uint8Array(256).fill(255);
@@ -20,7 +19,6 @@ function decodeVLQList(str) {
 }
 
 function parseMap(mapJson) {
-  // Never retain original source bodies.
   delete mapJson.sourcesContent;
 
   const sources = mapJson.sources ?? [];
@@ -63,7 +61,6 @@ function originalPositionFor(parsed, genLine, genCol) {
   const { segments, sources, names } = parsed;
   if (!segments.length) return null;
 
-  // Same-line lookup only; previous-line matches look plausible but are wrong.
   let lo = 0, hi = segments.length - 1, best = -1;
 
   while (lo <= hi) {
@@ -141,7 +138,7 @@ export async function createSourceMapResolver(cdp) {
         }
 
         const mapJson = JSON.parse(mapText);
-        const parsed  = parseMap(mapJson); // strips sourcesContent internally
+        const parsed  = parseMap(mapJson);
         parsedMaps.set(scriptId, parsed);
         stats.loaded++;
       } catch {

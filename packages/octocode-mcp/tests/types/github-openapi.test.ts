@@ -8,7 +8,6 @@ import {
   type Repository,
 } from '../../src/github/githubAPI';
 
-// Helper function to create minimal user objects for repository owners
 function createUser(login: string, id: number) {
   return {
     login,
@@ -32,7 +31,6 @@ function createUser(login: string, id: number) {
   };
 }
 
-// Helper function to create minimal repository objects
 function createMinimalRepository(
   id: number,
   name: string,
@@ -178,8 +176,8 @@ describe('GitHub OpenAPI Type Guards', () => {
 
     it('should return false for non-success objects', () => {
       expect(isGitHubAPISuccess({ error: 'test' })).toBe(false);
-      expect(isGitHubAPISuccess({ data: 'test' })).toBe(false); // missing status
-      expect(isGitHubAPISuccess({ status: 200 })).toBe(false); // missing data
+      expect(isGitHubAPISuccess({ data: 'test' })).toBe(false);
+      expect(isGitHubAPISuccess({ status: 200 })).toBe(false);
       expect(isGitHubAPISuccess(null)).toBe(false);
       expect(isGitHubAPISuccess(undefined)).toBe(false);
       expect(isGitHubAPISuccess('string')).toBe(false);

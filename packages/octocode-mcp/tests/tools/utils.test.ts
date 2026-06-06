@@ -1,8 +1,3 @@
-/**
- * Tests for tool utility functions
- * Validates hint propagation, error handling, and result creation
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   createSuccessResult,
@@ -15,7 +10,6 @@ import type { GitHubAPIError } from '../../src/github/githubAPI.js';
 import type { ToolInvocationCallback } from '../../src/types/toolResults.js';
 import { logSessionError } from '../../src/session.js';
 
-// Mock session logging
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn().mockResolvedValue(undefined),
 }));
@@ -250,9 +244,9 @@ describe('Tools Utils', () => {
       const extraHints = [
         'Duplicate hint',
         'Unique hint',
-        'Duplicate hint', // duplicate
+        'Duplicate hint',
         'Another unique',
-        'Duplicate hint', // duplicate again
+        'Duplicate hint',
       ];
 
       const result = createSuccessResult(query, data, true, 'localSearchCode', {
@@ -260,7 +254,6 @@ describe('Tools Utils', () => {
       });
 
       expect(result.hints).toBeDefined();
-      // Count occurrences of "Duplicate hint"
       const duplicateCount = result.hints!.filter(
         h => h === 'Duplicate hint'
       ).length;
@@ -314,7 +307,6 @@ describe('Tools Utils', () => {
         extraHints,
       });
 
-      // When all extraHints are empty and no static hints, hints may be undefined
       if (result.hints) {
         expect(result.hints.every(h => h.trim().length > 0)).toBe(true);
       }
@@ -323,7 +315,6 @@ describe('Tools Utils', () => {
     it('should filter out non-string hints without crashing', () => {
       const query = { researchGoal: 'Test', reasoning: 'Testing' };
       const data = { files: ['file1.ts'] };
-      // Simulate non-string hints from malformed metadata/API
       const extraHints = [
         'Valid hint',
         42 as unknown as string,
@@ -340,7 +331,6 @@ describe('Tools Utils', () => {
       expect(result.hints).toBeDefined();
       expect(result.hints).toContain('Valid hint');
       expect(result.hints).toContain('Another valid');
-      // Non-string values should be filtered out
       result.hints!.forEach(h => {
         expect(typeof h).toBe('string');
         expect(h.trim().length).toBeGreaterThan(0);
@@ -356,7 +346,6 @@ describe('Tools Utils', () => {
       };
       const error = 'API error occurred';
 
-      // Uses unified signature: createErrorResult(error, query, options?)
       const result = createErrorResult(error, query);
 
       expect(result.status).toBe('error');
@@ -378,7 +367,6 @@ describe('Tools Utils', () => {
         rateLimitReset: Date.now() + 3600000,
       };
 
-      // Uses unified signature with hintSourceError option
       const result = createErrorResult('Rate limit error', query, {
         hintSourceError: apiError,
       });
@@ -402,7 +390,6 @@ describe('Tools Utils', () => {
         retryAfter: 60,
       };
 
-      // Uses unified signature with hintSourceError option
       const result = createErrorResult('Too many requests', query, {
         hintSourceError: apiError,
       });
@@ -424,7 +411,6 @@ describe('Tools Utils', () => {
         scopesSuggestion: 'Required scopes: repo, read:org',
       };
 
-      // Uses unified signature with hintSourceError option
       const result = createErrorResult('Permission denied', query, {
         hintSourceError: apiError,
       });
@@ -452,7 +438,6 @@ describe('Tools Utils', () => {
       const result = handleProviderError(apiResult, query);
 
       expect(result.status).toBe('error');
-      // The error property is a GitHubAPIError object
       expect(result.error).toEqual(
         expect.objectContaining({
           error: 'API error',
@@ -747,7 +732,6 @@ describe('Tools Utils', () => {
         }
       );
 
-      // Extra hints are included in the result (may be merged with static hints)
       expect(result.hints).toContain('Hint 1');
       expect(result.hints).toContain('Hint 2');
     });
@@ -822,7 +806,6 @@ describe('Tools Utils', () => {
         .fn()
         .mockRejectedValue(new Error('Should not propagate'));
 
-      // This should NOT throw
       await invokeCallbackSafely(
         mockCallback,
         'GITHUB_VIEW_REPO_STRUCTURE',

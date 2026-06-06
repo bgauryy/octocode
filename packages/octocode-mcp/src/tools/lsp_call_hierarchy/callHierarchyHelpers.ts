@@ -1,7 +1,3 @@
-/**
- * Helper functions for call hierarchy operations
- */
-
 import { safeReadFile } from '../../lsp/validation.js';
 import type {
   CallHierarchyItem,
@@ -10,17 +6,10 @@ import type {
   LSPPaginationInfo,
 } from '../../lsp/types.js';
 
-/**
- * Create a unique key for a call hierarchy item to detect cycles.
- * Uses file path and line number as the key.
- */
 export function createCallItemKey(item: CallHierarchyItem): string {
   return `${item.uri}:${item.range.start.line}:${item.name}`;
 }
 
-/**
- * Enhance a CallHierarchyItem with content snippet
- */
 export async function enhanceCallHierarchyItem(
   item: CallHierarchyItem,
   content: string,
@@ -54,9 +43,6 @@ export async function enhanceCallHierarchyItem(
   };
 }
 
-/**
- * Enhance incoming calls with content snippets
- */
 export async function enhanceIncomingCalls(
   calls: IncomingCall[],
   contextLines: number
@@ -72,9 +58,6 @@ export async function enhanceIncomingCalls(
   );
 }
 
-/**
- * Enhance outgoing calls with content snippets
- */
 export async function enhanceOutgoingCalls(
   calls: OutgoingCall[],
   contextLines: number
@@ -111,16 +94,12 @@ async function enhanceCalls<T>(
         );
         return applyEnhancedItem(call, enhancedItem);
       } catch {
-        // Call enhancement failed; keep unmodified item.
         return call;
       }
     })
   );
 }
 
-/**
- * Paginate results
- */
 export function paginateResults<T>(
   items: T[],
   perPage: number,

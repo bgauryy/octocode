@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RequestError } from 'octokit';
 
-// errors.js is intentionally NOT mocked so the real isNoResultsSearchError
-// classification runs.
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockBuildRepoSearchQuery = vi.hoisted(() => vi.fn());
 const mockGenerateCacheKey = vi.hoisted(() => vi.fn());

@@ -1,10 +1,3 @@
-/**
- * Base command builder class for constructing safe shell commands
- */
-
-/**
- * Abstract base class for building command strings safely
- */
 export abstract class BaseCommandBuilder {
   protected command: string;
   protected args: string[] = [];
@@ -13,34 +6,21 @@ export abstract class BaseCommandBuilder {
     this.command = command;
   }
 
-  /**
-   * Adds a flag (e.g., -r, -i)
-   */
   addFlag(flag: string): this {
     this.args.push(flag);
     return this;
   }
 
-  /**
-   * Adds an option with a value (e.g., -A 3)
-   */
   protected addOption(option: string, value: string | number): this {
     this.args.push(option, String(value));
     return this;
   }
 
-  /**
-   * Adds a raw argument (will be validated but not escaped)
-   * Note: escaping is not needed when using spawn() which passes args directly
-   */
   protected addArg(arg: string): this {
     this.args.push(arg);
     return this;
   }
 
-  /**
-   * Builds the final command arguments array
-   */
   build(): { command: string; args: string[] } {
     return {
       command: this.command,
@@ -48,17 +28,11 @@ export abstract class BaseCommandBuilder {
     };
   }
 
-  /**
-   * Resets the builder to initial state
-   */
   reset(): this {
     this.args = [];
     return this;
   }
 
-  /**
-   * Gets the current args (for debugging)
-   */
   getArgs(): string[] {
     return [...this.args];
   }

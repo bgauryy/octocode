@@ -5,27 +5,13 @@ import {
   extractRepoOwnerFromParams,
 } from './paramExtractors.js';
 
-/** Error code for security validation failures */
 const SECURITY_VALIDATION_FAILED_CODE = 'TOOL_SECURITY_VALIDATION_FAILED';
 
-/**
- * Default timeout for tool execution (1 minute).
- *
- * Timeout interaction: This is the OUTER timeout — it applies to the entire tool
- * invocation. Bulk tools also use a per-query timeout. For multi-query operations,
- * the outer timeout dominates: e.g. 3 queries at 55s each would exceed 60s total,
- * so the outer timeout fires before all complete.
- */
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 
-/**
- * Dependency injection interface for octocode-security-utils.
- * Call configureSecurity() once at application startup to inject these deps.
- */
 export interface SecurityDepsConfig {
-  /** Custom sanitizer implementation (defaults to ContentSanitizer). */
   sanitizer?: ISanitizer;
-  /** Default timeout for all tool invocations in ms (default: 60000). */
+
   defaultTimeoutMs?: number;
   logToolCall?: (
     toolName: string,
@@ -49,32 +35,14 @@ function getTimeoutMs(override?: number): number {
   return override ?? _deps.defaultTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
 }
 
-/**
- * Configure security module dependencies.
- * Call once at application startup to inject logging and tool-name resolution.
- *
- * @example
- * ```ts
- * configureSecurity({
- *   logToolCall: async (name, repos) => console.log(`[${name}] ${repos}`),
- *   isLoggingEnabled: () => true,
- *   isLocalTool: (name) => name.startsWith('local'),
- * });
- * ```
- */
 export function configureSecurity(deps: SecurityDepsConfig): void {
   _deps = { ..._deps, ...deps };
 }
 
-/** Creates a simple error result for security failures */
 function createErrorResult(text: string): ToolResult {
   return { content: [{ type: 'text', text }], isError: true };
 }
 
-/**
- * Wraps a promise with a timeout that respects an optional AbortSignal.
- * Returns an error result instead of throwing on timeout.
- */
 function withToolTimeout(
   toolName: string,
   promise: Promise<ToolResult>,
@@ -125,32 +93,6 @@ function withToolTimeout(
   });
 }
 
-/**
- * Security wrapper for tools that require authentication.
- *
- * Use this wrapper for tools that:
- * - Need `authInfo` or `sessionId` passed to the handler
- * - Should log queries to session telemetry via `handleBulk`
- * - Access remote APIs (GitHub, GitLab, NPM, etc.)
- *
- * Provides: input sanitization, 60s timeout, auth passthrough, session logging.
- *
- * `TAuth` is the auth-info type from your framework (e.g. MCP's `AuthInfo`).
- * It defaults to `unknown` so no framework dependency is required.
- *
- * @see withBasicSecurityValidation for local tools that don't need auth
- *
- * @example
- * ```ts
- * const searchCode = withSecurityValidation<{ query: string }>(
- *   'github_search_code',
- *   async (args, authInfo) => {
- *     const results = await api.search(args.query);
- *     return { content: [{ type: 'text', text: JSON.stringify(results) }] };
- *   }
- * );
- * ```
- */
 export function withSecurityValidation<
   T extends Record<string, unknown>,
   TAuth = unknown,
@@ -211,30 +153,6 @@ export function withSecurityValidation<
   };
 }
 
-/**
- * Lightweight security wrapper for local filesystem and LSP tools.
- *
- * Use this wrapper for tools that:
- * - Operate on local files only (no remote API access)
- * - Don't need `authInfo` or `sessionId`
- * - Don't need session telemetry logging
- *
- * Provides: input sanitization, 60s timeout.
- * Does NOT provide: auth passthrough, session logging.
- *
- * @see withSecurityValidation for remote tools that need auth + logging
- *
- * @example
- * ```ts
- * const readFile = withBasicSecurityValidation<{ path: string }>(
- *   async (args) => {
- *     const content = await fs.promises.readFile(args.path, 'utf-8');
- *     return { content: [{ type: 'text', text: content }] };
- *   },
- *   'local_read_file'
- * );
- * ```
- */
 export function withBasicSecurityValidation<T extends object>(
   toolHandler: (sanitizedArgs: T) => Promise<ToolResult>,
   toolName?: string,

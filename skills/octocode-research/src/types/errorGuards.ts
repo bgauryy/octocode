@@ -1,15 +1,3 @@
-/**
- * Type guards for safe error handling.
- *
- * Replaces unsafe type coercion (err as { status?: number }) with
- * proper runtime type checking for better type safety.
- *
- * @module types/errorGuards
- */
-
-// =============================================================================
-// Internal Interfaces & Guards
-// =============================================================================
 
 interface ErrorWithStatus {
   status: number;
@@ -48,9 +36,6 @@ function hasMessage(err: unknown): err is { message: string } {
   );
 }
 
-// =============================================================================
-// Public API
-// =============================================================================
 
 export function getErrorStatus(err: unknown): number | undefined {
   return isErrorWithStatus(err) ? err.status : undefined;

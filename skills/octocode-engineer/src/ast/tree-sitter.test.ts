@@ -405,10 +405,10 @@ function f() {
 
     it('computes cognitiveComplexity > 0 for nested control flow', () => {
       const code = `function complexFn(x: number, y: boolean) {
-  if (x > 0) {           // +1
-    if (y) {              // +2 (1 + nesting=1)
-      for (let i = 0; i < x; i++) {  // +3 (1 + nesting=2)
-        if (i % 2 === 0) {           // +4 (1 + nesting=3)
+  if (x > 0) {
+    if (y) {
+      for (let i = 0; i < x; i++) {
+        if (i % 2 === 0) {
           console.log(i);
         }
       }

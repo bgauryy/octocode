@@ -373,7 +373,7 @@ category: LocalCat
 
     it('should return error when writeFileContent fails for flat-md skill', async () => {
       vi.mocked(dirExists).mockReturnValue(false);
-      vi.mocked(writeFileContent).mockReturnValue(false); // simulate write failure
+      vi.mocked(writeFileContent).mockReturnValue(false);
 
       vi.mocked(global.fetch)
         .mockResolvedValueOnce({
@@ -392,7 +392,6 @@ category: LocalCat
     });
 
     it('cleans up existing skill dir before reinstalling (prepareSkillDestination rmSync)', async () => {
-      // dir already exists → rmSync should be called
       vi.mocked(dirExists).mockReturnValueOnce(true).mockReturnValue(false);
       vi.mocked(writeFileContent).mockReturnValue(true);
 
@@ -407,7 +406,6 @@ category: LocalCat
         } as Response);
 
       const result = await installMarketplaceSkill(mockSkill, '/dest');
-      // Whether success or failure, the rmSync path was exercised
       expect(typeof result.success).toBe('boolean');
     });
   });
@@ -867,7 +865,7 @@ category: LocalCat
       };
 
       vi.mocked(dirExists).mockReturnValue(false);
-      vi.mocked(writeFileContent).mockReturnValue(false); // write failure
+      vi.mocked(writeFileContent).mockReturnValue(false);
 
       vi.mocked(global.fetch)
         .mockResolvedValueOnce({
@@ -1529,10 +1527,6 @@ category: utilities
   });
 });
 
-// ---------------------------------------------------------------------------
-// readSkillFromGitHub
-// ---------------------------------------------------------------------------
-
 describe('readSkillFromGitHub', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -1667,10 +1661,6 @@ describe('readSkillFromGitHub', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// fetchSkillsShSearch
-// ---------------------------------------------------------------------------
-
 describe('fetchSkillsShSearch', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -1703,7 +1693,7 @@ describe('fetchSkillsShSearch', () => {
 
     const result = await fetchSkillsShSearch('langchain');
     expect(result.count).toBe(2);
-    expect(result.results[0].name).toBe('Skill Two'); // sorted by installs desc
+    expect(result.results[0].name).toBe('Skill Two');
   });
 
   it('includes query and limit in the URL', async () => {

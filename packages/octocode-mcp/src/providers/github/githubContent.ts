@@ -1,11 +1,3 @@
-/**
- * GitHub File Content Fetching
- *
- * Extracted from GitHubProvider for better modularity.
- *
- * @module providers/github/githubContent
- */
-
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
   ProviderResponse,
@@ -26,9 +18,6 @@ import { countSerializedChars } from '../../utils/response/charSavings.js';
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
-/**
- * Transform GitHub file content result to unified format.
- */
 export function transformFileContentResult(
   data: GitHubFileContentApiData,
   query: FileContentQuery
@@ -50,12 +39,6 @@ export function transformFileContentResult(
   };
 }
 
-/**
- * A matchString miss collapses `content` to '' upstream (`matchNotFound:true`).
- * Surface it as a warning — mirroring localGetFileContent's `noMatches` signal —
- * so an empty read is never silently indistinguishable from an empty file.
- * Otherwise pass through any existing warnings / match-location notes.
- */
 function buildContentWarnings(
   data: GitHubFileContentApiData,
   query: FileContentQuery
@@ -73,9 +56,6 @@ function buildContentWarnings(
   return data.warnings ?? data.matchLocations;
 }
 
-/**
- * Get file content from GitHub.
- */
 export async function getFileContent(
   query: FileContentQuery,
   authInfo?: AuthInfo,
@@ -113,7 +93,6 @@ export async function getFileContent(
 
   const result = await fetchGitHubFileContentAPI(githubQuery, authInfo);
 
-  // Check for error using type guard
   if (isGitHubAPIError(result)) {
     return createGitHubProviderError(result);
   }

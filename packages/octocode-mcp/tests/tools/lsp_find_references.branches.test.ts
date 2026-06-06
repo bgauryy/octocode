@@ -1,12 +1,6 @@
-/**
- * Branch coverage tests for LSP Find References tool
- * Targets uncovered branches in lsp_find_references.ts and lspReferencesCore.ts
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
 
-// Mock fs/promises
 vi.mock('fs/promises', () => ({
   stat: vi.fn(),
   readFile: vi.fn(),
@@ -43,12 +37,10 @@ vi.mock('../../src/lsp/manager.js', () => ({
   acquirePooledClient: vi.fn().mockResolvedValue(null),
 }));
 
-// Mock lspReferencesCore
 vi.mock('../../src/tools/lsp_find_references/lspReferencesCore.js', () => ({
   findReferencesWithLSP: vi.fn().mockResolvedValue(null),
 }));
 
-// Mock toolHelpers
 vi.mock('../../src/utils/file/toolHelpers.js', () => ({
   validateToolPath: vi.fn().mockReturnValue({
     isValid: true,
@@ -72,7 +64,6 @@ vi.mock('../../src/errors/errorFactories.js', () => ({
   },
 }));
 
-// Import after mocks
 import * as fs from 'fs/promises';
 import * as resolverModule from '../../src/lsp/resolver.js';
 import * as managerModule from '../../src/lsp/manager.js';
@@ -106,7 +97,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
     vi.clearAllMocks();
     process.env.WORKSPACE_ROOT = '/workspace';
 
-    // Re-setup all mocks after clearAllMocks
     vi.mocked(validateToolPath).mockReturnValue({
       isValid: true,
       sanitizedPath: '/workspace/src/file.ts',
@@ -126,7 +116,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
     vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
-    // Must use regular function (not arrow) because it's called with `new`
     vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
       return {
         resolvePositionFromContent: vi.fn().mockReturnValue({
@@ -244,16 +233,12 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       const bEntry = grouped.byFile?.[0];
       expect(bEntry?.lines).toBeDefined();
       expect(bEntry?.lines).toHaveLength(3);
-      expect(bEntry?.lines).toContain(5); // line 4 (0-indexed) + 1 = 5
-      expect(bEntry?.lines).toContain(9); // line 8 + 1
-      expect(bEntry?.lines).toContain(10); // line 9 + 1
+      expect(bEntry?.lines).toContain(5);
+      expect(bEntry?.lines).toContain(9);
+      expect(bEntry?.lines).toContain(10);
     });
 
     it('rolls up ALL references in groupByFile, not just the current page', async () => {
-      // Blast-radius regression (F1): groupByFile must aggregate the full
-      // reference set, never the paginated page slice. 25 refs across 3 files
-      // with referencesPerPage=10 → page 1 holds only 10, but the rollup must
-      // still report 25 across 3 files.
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
         true
       );
@@ -317,7 +302,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
     });
 
     it('should handle SymbolResolutionError (line 120)', async () => {
-      // Override SymbolResolver to throw SymbolResolutionError
       const { SymbolResolutionError } = resolverModule;
       vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
         return {
@@ -349,7 +333,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         };
       });
 
-      // The outer catch wraps it via createErrorResult
       const result = await findReferences(baseQuery);
       expect(result.status).toBe('error');
     });
@@ -364,7 +347,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
       expect(result.status).toBe('empty');
       expect(result.errorCode).toBe('LSP_NOT_INSTALLED');
       expect(result.locations).toBeUndefined();
-      // LSP-only: no text/regex fallback was attempted.
       expect(coreModule.findReferencesWithLSP).not.toHaveBeenCalled();
       expect(result.hints?.some(h => h.includes('localSearchCode'))).toBe(true);
     });
@@ -436,8 +418,6 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         isDefinition: false,
       });
 
-      // The core builder owns pagination; emulate a paged response: page 2 of 4
-      // with 1 result per page over 4 total references.
       vi.mocked(coreModule.findReferencesWithLSP).mockResolvedValue({
         locations: [makeLocation('src/lspB.ts', 2)],
         pagination: {

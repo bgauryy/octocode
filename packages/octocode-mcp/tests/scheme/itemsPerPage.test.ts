@@ -1,8 +1,3 @@
-/**
- * Page-based pagination contract — every tool exposes `page` (1-based) with a
- * fixed page size constant. No legacy `itemsPerPage`, `githubAPILimit`,
- * `charOffset`, or `charLength` fields should appear in schemas.
- */
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_PAGE_SIZE,

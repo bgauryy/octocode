@@ -1,19 +1,9 @@
-/**
- * Response-state hints for githubSearchRepositories.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- *
- * @module tools/github_search_repos/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
     const query = typeof c.query === 'string' ? c.query : undefined;
-    // Support both field names — ctx uses the actual query param name which
-    // may be `keywords` or `keywordsToSearch` depending on the schema version.
     const keywords = Array.isArray(c.keywords)
       ? c.keywords
       : Array.isArray(c.keywordsToSearch)

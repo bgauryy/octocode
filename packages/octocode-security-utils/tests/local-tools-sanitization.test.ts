@@ -1,44 +1,13 @@
-/**
- * WHITE-HAT SECURITY TESTS: Content Sanitization Pipeline
- * ========================================================
- * Tests the complete INPUT → TOOL → OUTPUT sanitization for all local tools.
- *
- * The architecture has these layers:
- *
- *   INPUT  (LLM → tool):
- *     - GitHub tools:  withSecurityValidation → ContentSanitizer.validateInputParameters
- *     - Local tools:   withBasicSecurityValidation → ContentSanitizer.validateInputParameters
- *
- *   OUTPUT (tool → LLM):
- *     - All tools → executeBulkOperation → sanitizeText
- *       where sanitizeText = ContentSanitizer.sanitizeContent + maskSensitiveData
- *
- * These tests verify:
- * 1. Output redaction: secrets in file content ARE redacted before reaching the LLM
- * 2. Input validation: how local tools handle secret-laden input parameters
- * 3. Masking accuracy: every 2nd char masked for detected secrets
- * 4. Path redaction: file paths in output don't leak sensitive info
- * 5. Fail-closed: errors in detection → content fully redacted
- */
-
 import { describe, it, expect } from 'vitest';
 import { ContentSanitizer } from '../src/contentSanitizer.js';
 import { maskSensitiveData } from '../src/mask.js';
 import { withBasicSecurityValidation } from '../src/withSecurityValidation.js';
 
-/**
- * Local stub for createResponseFormat - applies ContentSanitizer + maskSensitiveData
- * to a response object (mirrors the security-layer behavior from octocode-mcp).
- */
 function createResponseFormat(response: { data: unknown }): string {
   const text = JSON.stringify(response);
   const step1 = ContentSanitizer.sanitizeContent(text);
   return maskSensitiveData(step1.content);
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 1: OUTPUT Sanitization – Response Format Pipeline
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SAN-01: createResponseFormat – Output Sanitization', () => {
   describe('Secrets in tool output are redacted', () => {
@@ -141,10 +110,6 @@ describe('SAN-01: createResponseFormat – Output Sanitization', () => {
     });
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 2: ContentSanitizer – Direct Secret Redaction
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SAN-02: ContentSanitizer – Secret Detection & Redaction', () => {
   describe('Payment provider secrets', () => {
@@ -261,10 +226,6 @@ describe('SAN-02: ContentSanitizer – Secret Detection & Redaction', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 3: maskSensitiveData – Character-Level Masking
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SAN-03: maskSensitiveData – Character-Level Masking', () => {
   describe('Masking behavior', () => {
     it('should mask every 2nd character of detected secrets', () => {
@@ -310,10 +271,6 @@ describe('SAN-03: maskSensitiveData – Character-Level Masking', () => {
     });
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 4: INPUT Validation – ContentSanitizer.validateInputParameters
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SAN-04: Input Validation – validateInputParameters', () => {
   describe('Prototype pollution prevention', () => {
@@ -411,10 +368,6 @@ describe('SAN-04: Input Validation – validateInputParameters', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 5: Double-layer protection verification
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SAN-05: Double-Layer Protection', () => {
   describe('Double-layer protection verification', () => {
     it('ContentSanitizer replaces with [REDACTED-*]', () => {
@@ -438,10 +391,6 @@ describe('SAN-05: Double-Layer Protection', () => {
     });
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 6: Simulated Local Tool Output Scenarios
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SAN-06: Simulated Local Tool Output Scenarios', () => {
   describe('localSearchCode: ripgrep match containing secrets', () => {
@@ -526,10 +475,6 @@ describe('SAN-06: Simulated Local Tool Output Scenarios', () => {
   });
 });
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 7: Edge Cases & Bypass Attempts
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 describe('SAN-07: Edge Cases & Bypass Attempts', () => {
   describe('Secrets in nested data structures', () => {
     it('should redact secrets in deeply nested objects', () => {
@@ -571,10 +516,6 @@ describe('SAN-07: Edge Cases & Bypass Attempts', () => {
     });
   });
 });
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 8: withBasicSecurityValidation Integration
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe('SAN-08: withBasicSecurityValidation – Local Tool Integration', () => {
   function getTextContent(result: {

@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RequestError } from 'octokit';
 
-// errors.js is intentionally NOT mocked so the real isNoResultsSearchError
-// classification runs.
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockBuildCodeSearchQuery = vi.hoisted(() => vi.fn());
 const mockGenerateCacheKey = vi.hoisted(() => vi.fn());
@@ -94,7 +92,6 @@ describe('code search — nonexistent scope degrades to empty + flag', () => {
     if ('data' in result) {
       expect(result.data.total_count).toBe(0);
       expect(result.data.items).toEqual([]);
-      // The new signal: empty here means "scope does not exist", not "no match".
       expect(result.data.nonExistentScope).toBe(true);
     }
   });

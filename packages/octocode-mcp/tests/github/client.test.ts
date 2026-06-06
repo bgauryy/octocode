@@ -205,7 +205,6 @@ describe('GitHub Client', () => {
     it('should clear cached Octokit instance', async () => {
       mockGetGitHubToken.mockResolvedValue('test-token');
 
-      // Mock to return different objects for each call
       const mockInstance1 = {
         rest: { repos: { get: vi.fn(function () {}) } },
       };
@@ -220,13 +219,10 @@ describe('GitHub Client', () => {
           return mockInstance2;
         });
 
-      // Create instance
       const instance1 = await getOctokit();
 
-      // Clear cache
       clearOctokitInstances();
 
-      // Create new instance
       const instance2 = await getOctokit();
 
       expect(instance1).not.toBe(instance2);
@@ -334,7 +330,6 @@ describe('GitHub Client', () => {
 
       await resolveDefaultBranch('org', 'repo', authInfo);
 
-      // Verify Octokit was created with the auth token
       expect(mockOctokit).toHaveBeenCalledWith(
         expect.objectContaining({ auth: 'oauth-token' })
       );
@@ -375,7 +370,6 @@ describe('GitHub Client', () => {
       const callArgs = mockOctokit.mock.calls[0][0];
       const { onRateLimit } = callArgs.throttle;
 
-      // Should always return false to prevent retries
       expect(onRateLimit(3600, {}, {}, 0)).toBe(false);
       expect(onRateLimit(3600, {}, {}, 1)).toBe(false);
       expect(onRateLimit(3600, {}, {}, 5)).toBe(false);
@@ -389,7 +383,6 @@ describe('GitHub Client', () => {
       const callArgs = mockOctokit.mock.calls[0][0];
       const { onSecondaryRateLimit } = callArgs.throttle;
 
-      // Should always return false to prevent retries
       expect(onSecondaryRateLimit(60, {}, {}, 0)).toBe(false);
       expect(onSecondaryRateLimit(60, {}, {}, 1)).toBe(false);
       expect(onSecondaryRateLimit(60, {}, {}, 5)).toBe(false);

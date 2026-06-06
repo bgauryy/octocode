@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for callHierarchyHelpers.ts
- * Targets: enhanceIncomingCalls/enhanceOutgoingCalls null file, createCallHierarchyItemFromSite patterns
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/lsp/validation.js', () => ({

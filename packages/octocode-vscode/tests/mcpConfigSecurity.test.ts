@@ -1,13 +1,3 @@
-/**
- * TDD: MCP Config Token Security
- *
- * Tests the security contract for how GITHUB_TOKEN is written to/removed from
- * MCP JSON config files. Validates the behavior that extension.ts implements
- * in updateMcpConfigToken without needing the vscode API.
- *
- * Fills gap: zero tests for token sync, write, or removal in MCP configs.
- */
-
 import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -52,10 +42,6 @@ async function writeConfig(filePath: string, config: McpConfig): Promise<void> {
   );
 }
 
-/**
- * Replicates the core logic of extension.ts updateMcpConfigToken
- * so we can test the security contract without vscode dependency.
- */
 async function updateMcpConfigToken(
   configPath: string,
   token: string | undefined

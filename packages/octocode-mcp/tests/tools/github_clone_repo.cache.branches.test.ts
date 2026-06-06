@@ -1,9 +1,3 @@
-/**
- * Branch coverage tests for github_clone_repo/cache.ts
- * Targets: ensureCloneParentDir non-Error throw, removeCloneDir catch,
- * evictExpiredClones early return, startCacheGC idempotent second call
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';

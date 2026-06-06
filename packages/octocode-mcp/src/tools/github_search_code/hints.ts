@@ -1,12 +1,3 @@
-/**
- * Response-state hints for githubSearchCode.
- * Fires only on empty/error. Pagination + non-canonical-path signals live in
- * the structured response (pagination / matches array); usage guidance lives
- * in the tool description.
- *
- * @module tools/github_search_code/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
@@ -21,8 +12,6 @@ export const hints: ToolHintGenerators = {
     if (typeof c.filename === 'string') filters.push('filename');
     if (typeof c.path === 'string') filters.push('path');
 
-    // Nonexistent scope (GitHub 422): empty means the scope doesn't exist, not
-    // "no matches". Lead with this so the agent fixes the scope, not the query.
     if (c.nonExistentScope === true) {
       const scope = owner && repo ? `${owner}/${repo}` : owner || 'target';
       out.push(
@@ -35,12 +24,6 @@ export const hints: ToolHintGenerators = {
       const filterList = filters.length > 0 ? ` (${filters.join('+')})` : '';
       out.push(`No matches in ${owner}/${repo}${filterList}.`);
 
-      // Recovery for the most common silent-zero causes. NOTE: the builder
-      // already auto-splits a file-pointing path (dir/file.ext) into
-      // filename: + directory path:, so a path that survives to here is a
-      // directory. GitHub matches path: against a file's DIRECTORY only — so
-      // the lever is broadening the directory, not dropping the phrase (a
-      // single token + a file-pointing path returns zero just the same).
       const hasPhrase =
         Array.isArray(keywords) &&
         keywords.some(k => typeof k === 'string' && /\s/.test(k));
@@ -57,14 +40,11 @@ export const hints: ToolHintGenerators = {
           'A multi-word phrase is matched literally — broaden with fewer/looser keyword terms.'
         );
       }
-      // (2) archived repos are under-indexed by GitHub code search, so a
-      // zero result is NOT proof of absence. Verify before concluding.
       out.push(
         'For archived repos a zero isn\'t proof — code search is unindexed; confirm via githubGetFileContent before "not found".'
       );
     }
 
-    // Cross-tool pivot: scoped/dotted single keyword → likely a package.
     if (
       !ctx.hasOwnerRepo &&
       keywords &&
@@ -77,7 +57,6 @@ export const hints: ToolHintGenerators = {
       );
     }
 
-    // Unscoped search (no owner/repo) with keywords and no hits yet — guide broadening.
     if (
       !ctx.hasOwnerRepo &&
       out.length === 0 &&

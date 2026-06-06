@@ -1,13 +1,3 @@
-/**
- * Response-state hints for githubSearchPullRequests.
- *
- * Empty-result branch is query-shape aware: it inspects which filters were
- * applied (state, author, label, prNumber, query string) and proposes the
- * single most likely-helpful next move.
- *
- * @module tools/github_search_pull_requests/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
@@ -34,8 +24,6 @@ export const hints: ToolHintGenerators = {
     if (query) filters.push(`query="${query}"`);
 
     if (filters.length === 0) {
-      // Unscoped search with a query but no owner/repo and no other filters —
-      // GitHub PR search needs at least one qualifier beyond a free-text query.
       if (!scope && query) {
         return [
           'Searching PRs across all of GitHub requires at least one qualifier — add owner/repo, state, or author alongside the query keyword.',
@@ -51,6 +39,7 @@ export const hints: ToolHintGenerators = {
       query
         ? 'For approximate title matching, use `matchScope=["title"]` with `sort="best-match"` to surface the closest PR.'
         : 'Add a `query` with keywords from the PR title or body to narrow the search.',
+      'Tip: the `query` field supports GitHub search qualifiers — e.g. `label:bug`, `created:>2024-01-01`, `merged:>2024-06-01`, `involves:<user>` — to filter by date, label, or involvement.',
     ];
   },
 

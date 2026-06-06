@@ -480,17 +480,12 @@ describe('MCP Paths Utilities', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// detectCurrentClient — env-based detection paths
-// ---------------------------------------------------------------------------
-
 describe('detectCurrentClient — env paths', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
     vi.resetModules();
     originalEnv = { ...process.env };
-    // Clear all detection env vars
     for (const key of [
       'CURSOR_AGENT',
       'CURSOR_TRACE_ID',

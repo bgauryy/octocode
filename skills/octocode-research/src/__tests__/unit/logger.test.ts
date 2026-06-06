@@ -1,9 +1,3 @@
-/**
- * Unit tests for logger utilities.
- *
- * @module tests/unit/logger
- */
-
 import { describe, it, expect } from 'vitest';
 import { sanitizeQueryParams } from '../../utils/logger.js';
 
@@ -125,7 +119,6 @@ describe('sanitizeQueryParams', () => {
     };
     const result = sanitizeQueryParams(query);
 
-    // Only top-level keys are checked
     expect(result.config).toEqual({ token: 'nested' });
     expect(result.path).toBe('/src');
   });

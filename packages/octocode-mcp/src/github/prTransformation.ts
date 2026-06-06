@@ -1,7 +1,3 @@
-/**
- * PR transformation and formatting — converts raw GitHub API data to unified output format.
- * Extracted from pullRequestSearch.ts.
- */
 import {
   GitHubPullRequestsSearchParams,
   GitHubPullRequestItem,
@@ -11,10 +7,6 @@ import {
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { filterPatch } from '../utils/parsers/diff.js';
 
-/**
- * Common interface for raw PR data from either Search API or REST API.
- * This enables a unified transformation function that handles both sources.
- */
 interface RawPRData {
   number: number;
   title?: string | null;
@@ -28,15 +20,10 @@ interface RawPRData {
   html_url: string;
   draft?: boolean | null;
   merged_at?: string | null;
-  // REST-specific fields (optional - not present in Search API)
   head?: { ref?: string; sha?: string };
   base?: { ref?: string; sha?: string };
 }
 
-/**
- * Unified PR transformation function that handles both Search API and REST API responses.
- * The head/base refs will be undefined for Search API items (fetched separately from PR details).
- */
 export function createBasePRTransformation(item: RawPRData): {
   prData: GitHubPullRequestItem;
   sanitizationWarnings: Set<string>;
@@ -51,7 +38,6 @@ export function createBasePRTransformation(item: RawPRData): {
     ...bodySanitized.warnings,
   ]);
 
-  // GitHub PRs can only be 'open' or 'closed'. Default to 'open' if undefined.
   const normalizedState = item.state?.toLowerCase();
   const validState: 'open' | 'closed' =
     normalizedState === 'closed' ? 'closed' : 'open';
@@ -71,7 +57,6 @@ export function createBasePRTransformation(item: RawPRData): {
     comments: [],
     reactions: 0,
     draft: item.draft ?? false,
-    // Include head/base if available (REST API), undefined otherwise (Search API)
     head: item.head?.ref,
     head_sha: item.head?.sha,
     base: item.base?.ref,
@@ -82,10 +67,6 @@ export function createBasePRTransformation(item: RawPRData): {
   return { prData, sanitizationWarnings };
 }
 
-/**
- * Format a transformed PR item for API response output.
- * Standardizes the output format across all PR search/fetch methods.
- */
 export function formatPRForResponse(pr: GitHubPullRequestItem) {
   return {
     number: pr.number,

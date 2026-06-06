@@ -111,7 +111,6 @@ describe('cli/commands/auth', () => {
     return { ...oauth, ...prompts, ...auth };
   }
 
-  // Collect every console.log argument that parses as JSON.
   function jsonLines(): Array<Record<string, unknown>> {
     const out: Array<Record<string, unknown>> = [];
     for (const line of consoleSpy.mock.calls.flat()) {
@@ -125,7 +124,6 @@ describe('cli/commands/auth', () => {
     return out;
   }
 
-  // Return the (single) JSON line logged; fails if none found.
   function findJsonLine(): Record<string, unknown> {
     const lines = jsonLines();
     expect(lines.length).toBeGreaterThan(0);
@@ -504,7 +502,7 @@ describe('cli/commands/auth', () => {
       await logoutCommand.handler!({
         command: 'logout',
         args: [],
-        options: { yes: true }, // skip TTY confirm in tests
+        options: { yes: true },
       });
 
       expect(logout).toHaveBeenCalledWith('github.com');
@@ -528,7 +526,7 @@ describe('cli/commands/auth', () => {
       await logoutCommand.handler!({
         command: 'logout',
         args: [],
-        options: { yes: true }, // skip TTY confirm in tests
+        options: { yes: true },
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
@@ -682,7 +680,7 @@ describe('cli/commands/auth', () => {
       await authCommand.handler!({
         command: 'auth',
         args: ['logout'],
-        options: { yes: true }, // skip TTY confirm in tests
+        options: { yes: true },
       });
 
       expect(logout).toHaveBeenCalledWith('github.com');
@@ -752,7 +750,6 @@ describe('cli/commands/auth', () => {
         tokenSource: undefined,
       });
 
-      // Simulate non-TTY
       const originalIsTTY = process.stdout.isTTY;
       Object.defineProperty(process.stdout, 'isTTY', {
         value: false,

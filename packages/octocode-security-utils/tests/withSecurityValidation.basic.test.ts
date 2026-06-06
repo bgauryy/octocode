@@ -5,10 +5,8 @@ import {
   configureSecurity,
 } from '../src/withSecurityValidation.js';
 import { ContentSanitizer } from '../src/contentSanitizer.js';
-// Mock dependencies
 vi.mock('../src/contentSanitizer.js');
 
-// Mock sanitizeContent to always return proper structure
 vi.mock('../src/contentSanitizer.js', () => ({
   ContentSanitizer: {
     validateInputParameters: vi.fn(),
@@ -21,13 +19,11 @@ vi.mock('../src/contentSanitizer.js', () => ({
   },
 }));
 
-// Mock injectable deps
 const mockLogToolCall = vi.fn().mockResolvedValue(undefined);
 const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 const mockIsLoggingEnabled = vi.fn().mockReturnValue(false);
 const mockIsLocalTool = vi.fn().mockReturnValue(false);
 
-// Tool name constants (mirrors octocode-mcp TOOL_NAMES)
 const GITHUB_SEARCH_CODE = 'githubSearchCode';
 const GITHUB_SEARCH_REPOSITORIES = 'githubSearchRepositories';
 
@@ -43,7 +39,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
     });
   });
 
-  // Q3: reset global configureSecurity state so it doesn't bleed into other suites
   afterEach(() => {
     configureSecurity({
       logToolCall: undefined,
@@ -135,7 +130,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
 
       const wrappedHandler = withBasicSecurityValidation(mockHandler);
 
-      // Handler errors are caught by the timeout wrapper and returned as error results
       const result = await wrappedHandler(
         { query: 'test' },
         { signal: new AbortController().signal }
@@ -183,7 +177,7 @@ describe('withSecurityValidation - Additional Coverage', () => {
 
       vi.mocked(ContentSanitizer.validateInputParameters).mockImplementation(
         () => {
-          throw 'String error'; // Non-Error object
+          throw 'String error';
         }
       );
 
@@ -239,7 +233,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'test-session', signal: new AbortController().signal }
       );
 
-      // Bulk operations now log each query individually
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         1,
@@ -354,7 +347,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
         mockHandler
       );
 
-      // Should not throw despite logging error
       const result = await wrappedHandler(
         { queries: [{ owner: 'facebook', repo: 'react' }] },
         { sessionId: 'test-session', signal: new AbortController().signal }
@@ -501,7 +493,7 @@ describe('withSecurityValidation - Additional Coverage', () => {
 
       vi.mocked(ContentSanitizer.validateInputParameters).mockImplementation(
         () => {
-          throw { message: 'Object error' }; // Non-Error object
+          throw { message: 'Object error' };
         }
       );
 
@@ -589,7 +581,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'test', signal: new AbortController().signal }
       );
 
-      // Bulk operations now log each query individually
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         1,
@@ -639,7 +630,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'test', signal: new AbortController().signal }
       );
 
-      // Bulk operations now log each query individually
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         1,

@@ -89,9 +89,6 @@ const registeredTools = [
   {
     name: 'lspGotoDefinition',
     executionFiles: ['src/tools/lsp_goto_definition/execution.ts'],
-    // LSP-only (no text fallback): raw metrics are attached on the single
-    // resolved-result path; the LSP-unavailable empty path attaches
-    // content.length only.
     rawEvidence: [
       /attachRawResponseChars\([\s\S]*content\.length\s*\+\s*countSerializedChars\(result\)/,
     ],

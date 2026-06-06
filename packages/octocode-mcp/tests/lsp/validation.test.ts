@@ -1,13 +1,8 @@
-/**
- * Tests for LSP server path validation
- * Covers security validation for binary paths
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateLSPServerPath } from '../../src/lsp/validation.js';
 
-// Mock fs module
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof fs>('fs');
   return {
@@ -63,7 +58,6 @@ describe('validateLSPServerPath', () => {
     it('should reject paths that escape base directory via traversal', () => {
       const binPath = '../../../etc/passwd';
       const baseDir = '/usr/local/lib';
-      // The normalized path would be /etc/passwd which doesn't start with baseDir
 
       const result = validateLSPServerPath(binPath, baseDir);
 
@@ -76,7 +70,6 @@ describe('validateLSPServerPath', () => {
       const baseDir = '/usr/local/lib';
       const normalizedPath = path.resolve(baseDir, binPath);
 
-      // Only mock if the path stays within baseDir
       mockRealpathSync.mockReturnValue(normalizedPath);
       mockStatSync.mockReturnValue({ isFile: () => true } as fs.Stats);
 
@@ -185,7 +178,6 @@ describe('validateLSPServerPath', () => {
 
       const result = validateLSPServerPath(binPath, baseDir);
 
-      // Absolute paths skip the base directory containment check
       expect(result.isValid).toBe(true);
     });
   });

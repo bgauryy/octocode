@@ -19,14 +19,6 @@ import type {
 type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
 type ReposQueryWithVerbosity = WithVerbosity<PartialReposSearchQuery>;
 
-/**
- * Verbosity shaping for githubSearchRepositories.
- *
- * verbose=false (default): omit `pushed_at`, `topics`, `license` (metadata).
- * verbose=true: include all fields.
- *
- * Items are never dropped. Hints are always returned fully.
- */
 export function applyGithubSearchReposVerbosity(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
   query: ReposQueryWithVerbosity
@@ -289,13 +281,6 @@ type EffectivePagination = {
   totalMatches?: number;
 };
 
-/**
- * Merge the per-variant pagination of a topics+keywords combined search into a
- * single paginable signal. Both variants share the requested `page`, so the
- * merged set is still paginable: `hasMore` if EITHER variant has more, and
- * `totalMatches` is the SUM — an upper bound, since a repo matching both topics
- * AND keywords is counted in each variant's total.
- */
 function buildMergedPagination(
   variants: SuccessfulRepoSearchVariant[]
 ): EffectivePagination | undefined {
@@ -313,11 +298,6 @@ function buildMergedPagination(
   };
 }
 
-/**
- * Pagination hint for a merged combined search. Unlike the single-variant hint,
- * we don't claim a precise "showing X–Y" range (a merged page can return up to
- * 2× perPage rows); we give the actionable next-page + the upper-bound total.
- */
 function buildMergedPaginationHints(pagination: EffectivePagination): string[] {
   if (!pagination.hasMore) return [];
   return [
@@ -356,9 +336,14 @@ function generateSearchSpecificHints(
   query: PartialReposSearchQuery,
   hasResults: boolean
 ): string[] | undefined {
-  // Local recovery hints only — name the actual filters in play so the
-  // agent can drop them one by one. No upstream static guidance.
-  if (hasResults) return undefined;
+  if (hasResults) {
+    if (!query.owner && !query.language && !query.stars) {
+      return [
+        'Large result set with no owner/language/stars filter — add owner="<org>" to scope to a specific org, language="<lang>" to restrict by language, or stars=">100" to surface established repos.',
+      ];
+    }
+    return undefined;
+  }
   const hasTopics = hasValidTopics(query);
   const hasKeywords = hasValidKeywords(query);
   const stars = typeof query.stars === 'string' ? query.stars : undefined;
@@ -456,9 +441,6 @@ export async function searchMultipleGitHubRepos(
           query
         );
 
-        // GitHub reported the searched owner/user does not exist (422), as
-        // opposed to a valid scope that matched nothing. Lead recovery with the
-        // scope rather than filter-widening when this is the cause.
         const nonExistentScope = successfulVariants.some(
           variant =>
             (variant.response.data as { nonExistentScope?: boolean })
@@ -477,9 +459,6 @@ export async function searchMultipleGitHubRepos(
         const onlySuccessfulVariant =
           successfulVariants.length === 1 ? successfulVariants[0] : undefined;
         const isMergedResult = successfulVariants.length > 1;
-        // Combined topics+keywords searches are now paginable: merge the
-        // per-variant pagination into a single upper-bound signal instead of
-        // dropping it.
         const effectivePagination: EffectivePagination | undefined =
           isMergedResult
             ? buildMergedPagination(successfulVariants)
@@ -510,8 +489,6 @@ export async function searchMultipleGitHubRepos(
           query as ReposQueryWithVerbosity
         );
 
-        // Escalation hints guide agents to the next research step when repos
-        // are found — the top result is the most actionable anchor.
         const escalationHints: string[] = [];
         if (hasContent) {
           const top = repositories[0];

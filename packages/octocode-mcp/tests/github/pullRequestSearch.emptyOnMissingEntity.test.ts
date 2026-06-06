@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RequestError } from 'octokit';
 
-// Hoisted mocks — NOTE: errors.js is intentionally NOT mocked so the real
-// `isNoResultsSearchError` + `handleGitHubAPIError` classification runs.
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockBuildPullRequestSearchQuery = vi.hoisted(() => vi.fn());
 const mockShouldUseSearchForPRs = vi.hoisted(() => vi.fn());
@@ -67,8 +65,6 @@ describe('PR search — nonexistent entity degrades to empty, not error', () => 
     mockWithDataCache.mockImplementation(
       async (_k: string, op: () => Promise<unknown>) => op()
     );
-    // Force the search path (issuesAndPullRequests), which is what 422s on a
-    // nonexistent author/user qualifier.
     mockShouldUseSearchForPRs.mockReturnValue(true);
     mockBuildPullRequestSearchQuery.mockReturnValue(
       'repo:facebook/react is:pr state:open author:zzzz_nonexistent_user_xyz999'
@@ -98,7 +94,6 @@ describe('PR search — nonexistent entity degrades to empty, not error', () => 
       state: 'open',
     });
 
-    // The reported bug: this used to come back as an error. It must now be empty.
     expect(result.error).toBeUndefined();
     expect(result.pull_requests).toEqual([]);
     expect(result.total_count).toBe(0);

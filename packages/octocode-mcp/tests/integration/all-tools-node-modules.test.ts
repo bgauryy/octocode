@@ -1,8 +1,3 @@
-/**
- * Integration tests for all local explorer MCP tools
- * Tests all 4 tools on actual node_modules to verify they return smart research data
- */
-
 import { describe, it, expect } from 'vitest';
 import { searchContentRipgrep } from '../../src/tools/local_ripgrep/searchContentRipgrep.js';
 import { viewStructure } from '../../src/tools/local_view_structure/local_view_structure.js';
@@ -236,7 +231,6 @@ describe('Integration Tests: All Tools on node_modules', () => {
         testFile =
           typeof firstFile === 'string' ? firstFile : (firstFile?.path ?? null);
       } else {
-        // Fallback: try to find any JavaScript file
         const jsFileResult = await findFiles({
           path: NODE_MODULES_PATH,
           names: ['*.js'],
@@ -262,7 +256,6 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
     it('should read full file content', async () => {
       if (!testFile) {
-        // Skip if no test file found
         return;
       }
 

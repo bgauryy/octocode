@@ -51,7 +51,6 @@ describe('Prompts Utilities', () => {
   describe('selectWithCancel', () => {
     it('is a function that accepts a config object', () => {
       expect(typeof selectWithCancel).toBe('function');
-      // Verify it accepts the same shape as select
       const config = {
         message: 'Pick one',
         choices: [
@@ -59,10 +58,8 @@ describe('Prompts Utilities', () => {
           { name: 'Option B', value: 'b' },
         ],
       };
-      // selectWithCancel just calls through — we only verify it returns a Promise
       const result = selectWithCancel(config);
       expect(result).toBeInstanceOf(Promise);
-      // Cancel the pending prompt to avoid test hang
       result.catch(() => {});
     });
   });

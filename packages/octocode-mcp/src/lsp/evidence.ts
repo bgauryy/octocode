@@ -1,16 +1,3 @@
-/**
- * Shared LSP evidence attacher.
- *
- * `lsp_call_hierarchy` and `lsp_find_references` both annotate their results
- * with a `kind` / `answerReady` / `complete` / `confidence` block so the bulk
- * runner can lift it to the response envelope. The shapes diverge in two
- * details only:
- *   - the `kind` discriminator (e.g. 'calls' vs 'references')
- *   - the pagination key name ('outputPagination' vs 'pagination')
- *
- * Results are always derived from a real language server (there is no text
- * fallback), so confidence is always `high`.
- */
 export function attachLspEvidence<T>(
   result: T,
   opts: {
@@ -18,9 +5,6 @@ export function attachLspEvidence<T>(
     paginationKey: 'pagination' | 'outputPagination';
   }
 ): T {
-  // Only annotate well-shaped LSP results. Raw error envelopes
-  // (`{ isError, message }`) lack `status` and are returned as-is. The
-  // lean contract: ABSENT status ≡ success; only 'empty' / 'error' emit.
   const status = (result as { status?: string }).status;
   if (status !== undefined && status !== 'empty') return result;
 
@@ -54,8 +38,6 @@ export function attachLspEvidence<T>(
     ...(reasons.length > 0 ? { reason: reasons.join(' ') } : {}),
   };
 
-  // Mutate in place so any non-enumerable raw-chars symbol attached upstream
-  // (see attachRawResponseChars) survives.
   (result as Record<string, unknown>).evidence = evidence;
   return result;
 }

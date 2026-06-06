@@ -1,19 +1,11 @@
-/**
- * Handler tests for LSP Client
- * Tests exported functions with mocked child_process
- * @module lsp/client.handler.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import * as cp from 'child_process';
 
-// Mock child_process
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }));
 
-// Mock fs/promises
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('const test = 1;'),
   access: vi.fn().mockRejectedValue(new Error('ENOENT')),
@@ -22,14 +14,13 @@ vi.mock('fs/promises', () => ({
 describe('LSP Client Handler Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Setup default spawn mock
+
     vi.mocked(cp.spawn).mockReturnValue({
       stdin: { write: vi.fn() },
       stdout: { on: vi.fn(), setEncoding: vi.fn() },
       stderr: { on: vi.fn(), setEncoding: vi.fn() } as any,
       on: vi.fn((event, cb) => {
         if (event === 'close') {
-          // Simulate command not found (exit code 1)
           setTimeout(() => cb(1), 10);
         }
         return { stdin: {}, stdout: {}, stderr: {}, on: vi.fn() };
@@ -325,7 +316,6 @@ describe('LSP Client Handler Tests', () => {
 
       process.env[envVar] = '/custom/path/server';
 
-      // Simulate resolveLanguageServer logic
       const config = {
         command: 'default-server',
         args: ['--stdio'],
@@ -338,7 +328,6 @@ describe('LSP Client Handler Tests', () => {
 
       expect(resolved.command).toBe('/custom/path/server');
 
-      // Cleanup
       if (originalValue === undefined) {
         delete process.env[envVar];
       } else {

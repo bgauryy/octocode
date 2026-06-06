@@ -1,16 +1,5 @@
-/**
- * Zod schemas for npm CLI output validation.
- *
- * Validates parsed JSON from npm view/search/deprecation commands
- * before type-asserting to internal interfaces.
- */
-
 import { z } from 'zod';
 
-/**
- * Schema for `npm view <pkg> --json` output.
- * Permissive: requires name+version, rest is optional.
- */
 export const NpmViewResultSchema = z.looseObject({
   name: z.string(),
   version: z.string(),
@@ -51,17 +40,6 @@ export const NpmViewResultSchema = z.looseObject({
   time: z.record(z.string(), z.string().optional()).optional(),
 });
 
-/**
- * Schema for a single result item from the npm registry search API
- * `GET https://registry.npmjs.org/-/v1/search?text=<query>&size=<n>`
- *
- * Uses z.looseObject() so extra fields (score, searchScore, date, keywords,
- * publisher, maintainers, etc.) are silently passed through rather than
- * causing a parse failure.
- * All string fields use .nullish() because real registry responses can return
- * null for name/version/description on unpublished or deprecated packages.
- * Items with null names are filtered out in npm.ts after validation.
- */
 const NpmRegistrySearchItemSchema = z.looseObject({
   package: z.looseObject({
     name: z.string().nullish(),
@@ -77,19 +55,11 @@ const NpmRegistrySearchItemSchema = z.looseObject({
   }),
 });
 
-/**
- * Schema for the full response from the npm registry search API.
- * total may be a number or a string depending on registry implementation.
- */
 export const NpmRegistrySearchSchema = z.looseObject({
   objects: z.array(NpmRegistrySearchItemSchema),
   total: z.union([z.number(), z.string()]).optional(),
 });
 
-/**
- * Schema for `npm view <pkg> deprecated --json` output.
- * Can be a string message or other JSON value.
- */
 export const NpmDeprecationOutputSchema = z.union([
   z.string(),
   z.boolean(),

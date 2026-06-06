@@ -1,15 +1,3 @@
-/**
- * MCP-typed bridge for octocode-security-utils withSecurityValidation.
- *
- * octocode-security-utils returns the framework-agnostic `ToolResult` type.
- * The MCP SDK's server.tool() expects `CallToolResult`.  These two types
- * are structurally equivalent at runtime but TypeScript cannot infer the
- * relationship because MCP uses string-literal discriminants.
- *
- * This file wraps the agnostic helpers with correct MCP return types so
- * the rest of octocode-mcp doesn't need any `as unknown as` casts.
- */
-
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import {

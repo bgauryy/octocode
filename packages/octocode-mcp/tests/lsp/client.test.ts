@@ -1,8 +1,3 @@
-/**
- * Tests for LSP Client - focuses on exports and internal logic
- * @module lsp/client.test
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 describe('LSP Client Module', () => {
@@ -102,7 +97,6 @@ describe('LSP Client Module', () => {
   });
 
   describe('Language server command mapping', () => {
-    // Test that supported extensions are mapped correctly
     const supportedExtensions = [
       { ext: '.ts', languageId: 'typescript' },
       { ext: '.tsx', languageId: 'typescriptreact' },
@@ -115,25 +109,16 @@ describe('LSP Client Module', () => {
 
     for (const { ext, languageId } of supportedExtensions) {
       it(`should recognize ${ext} as ${languageId}`, async () => {
-        // The language server configuration is internal, but we can verify
-        // that supported extensions don't return null immediately
-        // Import to verify the module loads correctly
         await import('../../src/lsp/manager.js');
 
-        // This will check if the extension is recognized
-        // (actual availability depends on installed servers)
         const filePath = `/test/file${ext}`;
 
-        // The function should recognize the extension even if server isn't installed
-        // It returns false only if extension isn't mapped at all
-        // We can't directly test the mapping, but we can verify behavior
         expect(filePath.endsWith(ext)).toBe(true);
       });
     }
   });
 
   describe('URI conversion logic', () => {
-    // Test URI conversion behavior indirectly
     it('should handle Unix paths', () => {
       const { URI } = require('vscode-uri');
 
@@ -167,25 +152,23 @@ describe('LSP Client Module', () => {
   });
 
   describe('Symbol kind conversion', () => {
-    // Test the symbol kind mapping logic
     const symbolKindMap: Record<number, string> = {
-      12: 'function', // Function
-      6: 'method', // Method
-      5: 'class', // Class
-      11: 'interface', // Interface
-      13: 'variable', // Variable
-      14: 'constant', // Constant
-      7: 'property', // Property
-      10: 'enum', // Enum
-      2: 'module', // Module
-      3: 'namespace', // Namespace
+      12: 'function',
+      6: 'method',
+      5: 'class',
+      11: 'interface',
+      13: 'variable',
+      14: 'constant',
+      7: 'property',
+      10: 'enum',
+      2: 'module',
+      3: 'namespace',
     };
 
     for (const [lspKind, expected] of Object.entries(symbolKindMap)) {
       it(`should map LSP SymbolKind ${lspKind} to "${expected}"`, () => {
         const kind = parseInt(lspKind, 10);
 
-        // Replicate convertSymbolKind logic
         let result: string;
         switch (kind) {
           case 12:
@@ -227,8 +210,7 @@ describe('LSP Client Module', () => {
     }
 
     it('should return "unknown" for unmapped kinds', () => {
-      // kind = 999 would be unmapped
-      const result = 'unknown'; // Default
+      const result = 'unknown';
 
       expect(result).toBe('unknown');
     });
@@ -243,14 +225,12 @@ describe('LSP Client Module', () => {
         workspaceRoot: '/workspace',
       });
 
-      // Before initialization, hasCapability should return false
       expect(client.hasCapability('definitionProvider')).toBe(false);
     });
   });
 
   describe('Environment variable handling', () => {
     it('should check for TS server path env var', () => {
-      // The OCTOCODE_TS_SERVER_PATH env var can override default command
       const envVar = 'OCTOCODE_TS_SERVER_PATH';
       expect(typeof envVar).toBe('string');
     });
@@ -272,7 +252,6 @@ describe('LSP Client Module', () => {
   });
 
   describe('Language ID detection', () => {
-    // Test language ID detection logic
     const testCases = [
       { path: '/file.ts', expected: 'typescript' },
       { path: '/file.tsx', expected: 'typescriptreact' },
@@ -289,7 +268,6 @@ describe('LSP Client Module', () => {
       it(`should detect "${expected}" for ${path}`, () => {
         const ext = require('path').extname(path).toLowerCase();
 
-        // Replicate detectLanguageId logic
         const langMap: Record<string, string> = {
           '.ts': 'typescript',
           '.tsx': 'typescriptreact',

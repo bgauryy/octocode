@@ -29,8 +29,6 @@ import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
 type FindFilesQuery = WithVerbosity<WithOptionalMeta<UpstreamFindFilesQuery>>;
 
-// Directories pruned by default so a find never walks build output / VCS
-// metadata. Overridable per-query via `excludeDir`.
 const DEFAULT_FIND_EXCLUDE_DIRS = [
   'node_modules',
   'dist',
@@ -53,13 +51,6 @@ const DEFAULT_FIND_EXCLUDE_DIRS = [
   '.context',
 ];
 
-/**
- * Resolve the exclude-dir prune list for a search.
- *
- * Drops any excludeDir entry that appears as a component of the search path
- * itself — otherwise a search inside e.g. `.context/` would have every result
- * pruned by the `.context` glob prune because each result path contains it.
- */
 function computeEffectiveExcludeDirs(
   searchPath: string,
   excludeDir: string[] | undefined
@@ -69,11 +60,6 @@ function computeEffectiveExcludeDirs(
   return rawExcludeDirs.filter(dir => !searchPathParts.has(dir));
 }
 
-/**
- * Backfill size / permissions / mtime for entries the fast path left partial,
- * via a per-file lstat. Failures leave that file's metadata partial (best
- * effort — one unreadable file must not fail the whole listing).
- */
 async function enrichFileDetails(
   files: LocalFindFilesEntry[],
   showLastModified: boolean
@@ -95,14 +81,13 @@ async function enrichFileDetails(
             file.modified = stats.mtime.toISOString();
           }
         } catch {
-          // lstat failed for one file; leave metadata partial.
+          void 0;
         }
       }
     })
   );
 }
 
-/** Assemble the response hints (pagination, cap notice, empty guidance). */
 function buildFindFilesHints(ctx: {
   query: FindFilesQuery;
   filePageNumber: number;
@@ -133,8 +118,6 @@ function buildFindFilesHints(ctx: {
     paginationMetadata,
   } = ctx;
 
-  // Build active-filter summary so agents know exactly which constraints
-  // were applied — silent filters are the #1 source of "why no results" confusion.
   const q = query as Record<string, unknown>;
   const activeFilters: string[] = [];
   const namePattern =
@@ -168,8 +151,6 @@ function buildFindFilesHints(ctx: {
           `Page ${filePageNumber}/${totalPages} (showing ${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
         ]
       : []),
-    // Overshoot: a page past the last one returns empty — signal it explicitly
-    // rather than letting an empty result look like "no matches".
     ...(totalPages > 0 && filePageNumber > totalPages
       ? [
           `Requested page ${filePageNumber} is outside available range (1-${totalPages}). Use page=${totalPages} for the last page.`,
@@ -191,7 +172,7 @@ function buildFindFilesHints(ctx: {
           sizeLess: query.sizeLess,
         } as Record<string, unknown>)
       : [
-          `Found ${totalFiles} file${totalFiles === 1 ? '' : 's'} — use localSearchCode(path=<file>) to search within them, or localGetFileContent to read specific files.`,
+          `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} (files and directories) — pass type="f" for files only, type="d" for directories only. Use localSearchCode to search within files, or localGetFileContent to read them.`,
         ]),
     ...(paginationMetadata
       ? generatePaginationHints(paginationMetadata, {
@@ -266,13 +247,6 @@ export async function findFiles(
       .filter(line => line.trim())
       .map(line => line.trim());
 
-    // `limit` is an EXPLICIT user cap. When omitted, the discovery cap matches
-    // the documented `limit` maximum (10000, the schema bound) so EVERY
-    // discovered file is reachable by paging (page/itemsPerPage) —
-    // not silently truncated at an implicit 1000 that pagination can't escape.
-    // The cap remains a perf guard (it bounds the stat fan-out); when it bites,
-    // the hint below tells the agent to narrow filters. Defaulting to the
-    // schema's `limit` max keeps the cap and the documented bound in lock-step.
     const maxFiles = query.limit ?? LOCAL_OVERLAY_MAX_LIMIT;
     const discoveredFileCount = filePaths.length;
     const wasFileCapped = discoveredFileCount > maxFiles;
@@ -316,9 +290,6 @@ export async function findFiles(
       configFilePatterns.test(f.path.split('/').pop() || '')
     );
 
-    // Surface find stderr (e.g. permission-denied sub-directory warnings).
-    // find exits 0 even when individual paths are inaccessible, so these
-    // warnings would otherwise be silently swallowed.
     const findStderrWarnings: string[] = [];
     if (result.stderr?.trim()) {
       const stderrLines = result.stderr
@@ -339,8 +310,6 @@ export async function findFiles(
     const allWarnings = [...timeFormatWarnings, ...findStderrWarnings];
 
     const fullResult: LocalFindFilesToolResult = {
-      // status omitted on success (absent ≡ "hasResults"); 'empty' is set
-      // explicitly below when totalFiles === 0.
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
       files: finalFiles,
       pagination: {
@@ -377,14 +346,6 @@ export async function findFiles(
   }
 }
 
-/**
- * Verbosity shaping for localFindFiles.
- *
- * verbose=false (default): omit `size`, `modified`, `permissions` (metadata).
- * verbose=true: include all file fields.
- *
- * Files are never dropped. Hints are always returned fully.
- */
 export function applyFindFilesVerbosity(
   result: LocalFindFilesToolResult,
   query: FindFilesQuery,
@@ -393,8 +354,6 @@ export function applyFindFilesVerbosity(
   if (isVerbose(query)) return result;
   if (!result.files?.length) return result;
 
-  // When sorted by modification time, `modified` is the sort key — strip it
-  // and the ordering becomes meaningless. Always preserve it in that case.
   const sortByModified =
     (query as Record<string, unknown>).sortBy === 'modified';
 
@@ -456,10 +415,6 @@ function formatForOutput(
   return files.map(f => {
     const result: LocalFindFilesEntry = { path: f.path, type: f.type };
     if (details) {
-      // Emit both raw bytes (for tooling) and human-readable form (for the
-      // agent). The dual emission costs ~20 bytes per file but lets
-      // downstream consumers parse the raw number without re-parsing
-      // "12.4KB" strings.
       if (f.size !== undefined) {
         result.size = f.size;
         result.sizeFormatted = formatFileSize(f.size);
@@ -531,13 +486,6 @@ async function getFileDetails(
 
 const VALID_TIME_STRING_RE = /^\d+[hdwm]$/;
 
-/**
- * Validate time-filter fields that are passed to `find -mtime / -mmin`.
- * Only relative durations like "7d", "2h", "1w", "3m" are supported.
- * ISO timestamps (e.g. "2026-06-01T00:00:00Z") are NOT supported and
- * would silently produce -mtime -0 / +0 (match nothing / match everything).
- * This function surfaces an explicit warning for each invalid field.
- */
 function validateTimeFilterFormats(query: FindFilesQuery): string[] {
   const warnings: string[] = [];
   const fields: Array<{ key: string; value: string | undefined }> = [

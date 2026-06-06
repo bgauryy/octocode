@@ -1,18 +1,3 @@
-/**
- * Remote Schema Overlay
- *
- * Local extensions to schemas shipped in `@octocodeai/octocode-core` for the
- * remote (GitHub, package registry) tools. Follows the same pattern as
- * `localSchemaOverlay.ts` and `lspSchemaOverlay.ts`.
- *
- * Pagination: every tool exposes a single `page` field (1-based). Items per
- * page are fixed by DEFAULT_PAGE_SIZE (20) — never adjustable per query.
- * This guarantees consistent, non-truncated item sets across all pages.
- *
- * Verbosity: single boolean `verbose` field. false (default) = research data
- * only; true = research data + extended metadata.
- */
-
 import { z } from 'zod';
 import {
   GitHubPullRequestSearchQuerySchema,
@@ -40,10 +25,6 @@ import {
 } from './localSchemaOverlay.js';
 import { validateFileContentExtractionMode } from './fileContentModeValidation.js';
 
-// ---------------------------------------------------------------------------
-// githubCloneRepo
-// ---------------------------------------------------------------------------
-
 const CloneRepoElementSchema = (
   UpstreamBulkCloneRepoSchema.shape.queries as z.ZodArray<z.ZodTypeAny>
 ).element as unknown as z.ZodObject<z.ZodRawShape>;
@@ -61,11 +42,6 @@ export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
   CloneRepoQueryLocalSchema
 );
 
-// ---------------------------------------------------------------------------
-// githubGetFileContent
-// ---------------------------------------------------------------------------
-
-// Base (relaxed) per-query shape — NO extraction-mode mutex.
 export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
   STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
   UpstreamFileContentQuerySchema.extend({
@@ -77,7 +53,6 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
   })
 );
 
-// Strict per-query schema (base + mutex).
 export const FileContentQueryLocalSchema =
   FileContentQueryBaseLocalSchema.superRefine(
     validateFileContentExtractionMode
@@ -88,9 +63,6 @@ export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   FileContentQueryBaseLocalSchema
 );
 
-/**
- * Strict mirror of the runtime `PaginationInfo` interface.
- */
 const PaginationInfoSchema = z.object({
   currentPage: z.number(),
   totalPages: z.number(),
@@ -172,10 +144,6 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
 export type GitHubFetchContentOutputLocal = z.infer<
   typeof GitHubFetchContentOutputLocalSchema
 >;
-
-// ---------------------------------------------------------------------------
-// githubSearchCode
-// ---------------------------------------------------------------------------
 
 export const GitHubCodeSearchQueryLocalSchema = withCoreSchemaDescriptions(
   STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
@@ -265,10 +233,6 @@ export type GitHubCodeSearchOutputLocal = z.infer<
   typeof GitHubCodeSearchOutputLocalSchema
 >;
 
-// ---------------------------------------------------------------------------
-// githubViewRepoStructure
-// ---------------------------------------------------------------------------
-
 export const GitHubViewRepoStructureQueryLocalSchema =
   withCoreSchemaDescriptions(
     STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
@@ -307,10 +271,6 @@ export const GitHubViewRepoStructureBulkQueryLocalSchema =
     STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
     GitHubViewRepoStructureQueryLocalSchema
   );
-
-// ---------------------------------------------------------------------------
-// githubSearchRepositories
-// ---------------------------------------------------------------------------
 
 export const GitHubReposSearchSingleQueryLocalSchema =
   withCoreSchemaDescriptions(
@@ -360,10 +320,6 @@ export const GitHubReposSearchBulkQueryLocalSchema =
     STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
     GitHubReposSearchSingleQueryLocalSchema
   );
-
-// ---------------------------------------------------------------------------
-// githubSearchPullRequests
-// ---------------------------------------------------------------------------
 
 export const GitHubPullRequestSearchQueryLocalSchema =
   withCoreSchemaDescriptions(
@@ -452,10 +408,6 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
     GitHubPullRequestSearchQueryLocalSchema
   );
 
-// ---------------------------------------------------------------------------
-// packageSearch
-// ---------------------------------------------------------------------------
-
 const npmPackageQueryWithLimit = withCoreSchemaDescriptions(
   STATIC_TOOL_NAMES.PACKAGE_SEARCH,
   NpmPackageQuerySchema.omit({
@@ -465,14 +417,8 @@ const npmPackageQueryWithLimit = withCoreSchemaDescriptions(
     ...optionalMetaFields,
     name: describeField(
       NpmPackageQuerySchema.shape.name,
-      'Package name to resolve through the registry before using GitHub tools.'
+      'Package name to resolve through the npm registry before using GitHub tools.'
     ),
-    ecosystem: z
-      .literal('npm')
-      .optional()
-      .describe(
-        'Registry ecosystem. Only "npm" is supported (PyPI not yet available). Omit to use the default.'
-      ),
     page: relaxedPageNumberField.describe(
       `Result page (1-based). Exact package-name lookups return one canonical package; keyword searches use page to walk registry results (up to ${DEFAULT_PAGE_SIZE} per page).`
     ),
@@ -491,9 +437,6 @@ const packageQueryWithEcosystemDefault = z.preprocess(val => {
     ) {
       next.name = next.packageName;
     }
-    if (!Object.prototype.hasOwnProperty.call(next, 'ecosystem')) {
-      next.ecosystem = 'npm';
-    }
     return next;
   }
   return val;
@@ -505,9 +448,6 @@ export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-// ---------------------------------------------------------------------------
-// Output schema extensions
-// ---------------------------------------------------------------------------
 import {
   GitHubSearchRepositoriesOutputSchema as UpstreamReposOutput,
   GitHubSearchPullRequestsOutputSchema as UpstreamPRsOutput,

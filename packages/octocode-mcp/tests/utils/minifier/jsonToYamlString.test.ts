@@ -105,7 +105,6 @@ describe('jsonToYamlString', () => {
       expect(yaml).toContain('outer:');
       expect(yaml).toContain('  apple: 2');
       expect(yaml).toContain('  zebra: 1');
-      // apple should come before zebra
       const appleIndex = yaml.indexOf('apple');
       const zebraIndex = yaml.indexOf('zebra');
       expect(appleIndex).toBeLessThan(zebraIndex);
@@ -117,7 +116,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // Original order preserved
       expect(lines[0]).toBe('zebra: 1');
       expect(lines[1]).toBe('apple: 2');
       expect(lines[2]).toBe('mango: 3');
@@ -147,7 +145,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // Should preserve original order
       expect(lines[0]).toBe('name: "Test"');
       expect(lines[1]).toBe('id: "abc"');
     });
@@ -162,7 +159,6 @@ describe('jsonToYamlString', () => {
         .split('\n')
         .filter(line => line.trim() && !line.startsWith(' '));
 
-      // Only existing priority key appears first
       expect(lines[0]).toBe('id: "abc"');
       expect(lines[1]).toBe('name: "Test"');
     });
@@ -177,7 +173,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
 
       expect(yaml).toContain('user:');
-      // In nested object, id should come before name, name before age
       const lines = yaml.split('\n');
       const idLine = lines.findIndex(l => l.includes('id: "u1"'));
       const nameLine = lines.findIndex(l => l.includes('name: "Alice"'));
@@ -195,7 +190,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // Both priority keys exist, so they should be in priority order
       expect(lines[0]).toBe('b: 2');
       expect(lines[1]).toBe('a: 1');
       expect(lines[2]).toBe('c: 3');
@@ -209,7 +203,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // y has priority, x doesn't
       expect(lines[0]).toBe('y: 2');
       expect(lines[1]).toBe('x: 1');
     });
@@ -225,7 +218,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // id first (priority), then remaining sorted alphabetically
       expect(lines[0]).toBe('id: "x"');
       expect(lines[1]).toBe('apple: 2');
       expect(lines[2]).toBe('mango: 3');
@@ -241,7 +233,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // id first (priority), then remaining in original order
       expect(lines[0]).toBe('id: "x"');
       expect(lines[1]).toBe('zebra: 1');
       expect(lines[2]).toBe('apple: 2');
@@ -257,7 +248,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // c, a first (priority order), then b, d (alphabetical)
       expect(lines[0]).toBe('c: 3');
       expect(lines[1]).toBe('a: 1');
       expect(lines[2]).toBe('b: 2');
@@ -275,7 +265,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // Original order preserved
       expect(lines[0]).toBe('b: 2');
       expect(lines[1]).toBe('a: 1');
     });
@@ -289,7 +278,6 @@ describe('jsonToYamlString', () => {
       const yaml = jsonToYamlString(input, config);
       const lines = yaml.split('\n').filter(line => line.trim());
 
-      // All keys sorted alphabetically
       expect(lines[0]).toBe('a: 1');
       expect(lines[1]).toBe('b: 2');
       expect(lines[2]).toBe('c: 3');
@@ -360,7 +348,6 @@ describe('jsonToYamlString', () => {
       const input = { simple: 'hello', withSpace: 'hello world' };
       const yaml = jsonToYamlString(input);
 
-      // forceQuotes: true should quote all strings
       expect(yaml).toContain('simple: "hello"');
       expect(yaml).toContain('withSpace: "hello world"');
     });
@@ -369,7 +356,6 @@ describe('jsonToYamlString', () => {
       const input = { special: 'line1\nline2', tabs: 'a\tb' };
       const yaml = jsonToYamlString(input);
 
-      // Should handle escape sequences
       expect(yaml).toContain('special:');
       expect(yaml).toContain('tabs:');
     });

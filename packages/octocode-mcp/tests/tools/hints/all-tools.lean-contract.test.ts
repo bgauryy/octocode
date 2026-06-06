@@ -1,17 +1,3 @@
-/**
- * Lean hint contract — one source of truth for all 14 tools.
- *
- * Enforces:
- *  1. Per-tool `hints.ts` only declares `empty` + `error` (no `hasResults`).
- *  2. Empty hints are dynamic, conditional on context, and name the actual
- *     filter / value from the query when one is in play.
- *  3. Error hints classify by `errorType` and emit a one-line evidence string.
- *  4. Pagination hints only fire when `hasMore=true`.
- *  5. Bulk envelope dedupes peer-lifted hints and preserves per-query hints.
- *
- * No assertions on workflow / followup text — that lives in tool descriptions.
- */
-
 import { describe, it, expect } from 'vitest';
 
 import { hints as ripgrepHints } from '../../../src/tools/local_ripgrep/hints.js';
@@ -53,9 +39,6 @@ const ALL_HINTS = {
   lspCallHierarchy: callHints,
 };
 
-// ---------------------------------------------------------------------------
-// 1. Structural invariant — per-tool generators have only empty + error
-// ---------------------------------------------------------------------------
 describe('per-tool hints — structural contract', () => {
   for (const [tool, gen] of Object.entries(ALL_HINTS)) {
     it(`${tool}: declares empty + error, never hasResults`, () => {
@@ -68,9 +51,6 @@ describe('per-tool hints — structural contract', () => {
       const out = gen
         .empty({})
         .filter((s): s is string => typeof s === 'string');
-      // Tools that have no useful "you got nothing" message must stay silent.
-      // Tools with conditional empty messaging only fire when context names a
-      // concrete filter — empty context ⇒ empty array.
       expect(out).toEqual([]);
     });
 
@@ -83,9 +63,6 @@ describe('per-tool hints — structural contract', () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 2. localSearchCode — empty: filter-aware
-// ---------------------------------------------------------------------------
 describe('localSearchCode (ripgrep) — empty permutations', () => {
   it('emits filter list when type is set', () => {
     const h = ripgrepHints.empty({ type: 'ts', path: 'src' } as never);
@@ -126,9 +103,6 @@ describe('localSearchCode (ripgrep) — error permutations', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. localFindFiles
-// ---------------------------------------------------------------------------
 describe('localFindFiles — empty permutations', () => {
   it('quotes name filter', () => {
     const h = findFilesHints.empty({ name: '*.ts', path: '/tmp' } as never);
@@ -150,9 +124,6 @@ describe('localFindFiles — empty permutations', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4. localViewStructure
-// ---------------------------------------------------------------------------
 describe('localViewStructure — empty + error', () => {
   it('empty with extension filter', () => {
     const h = viewStructureHints.empty({
@@ -182,9 +153,6 @@ describe('localViewStructure — empty + error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 5. localGetFileContent
-// ---------------------------------------------------------------------------
 describe('localGetFileContent — empty + error', () => {
   it('empty returns []', () => {
     expect(fetchContentHints.empty({} as never)).toEqual([]);
@@ -219,9 +187,6 @@ describe('localGetFileContent — empty + error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 6. githubSearchCode
-// ---------------------------------------------------------------------------
 describe('githubSearchCode — empty + error', () => {
   it('empty + owner/repo names the scope', () => {
     const h = ghCodeHints.empty({
@@ -274,11 +239,9 @@ describe('githubSearchCode — empty + error', () => {
       nonExistentScope: true,
       keywords: ['foo'],
     } as never);
-    // Single, terse hint — the agent should not also get archived/path prose.
     expect(h).toHaveLength(1);
     expect(h[0]).toMatch(/exist|searchable/i);
     expect(h.some(s => s?.includes('archived'))).toBe(false);
-    // Concise: keep it under a tight character budget.
     expect(h[0]!.length).toBeLessThan(120);
   });
 
@@ -290,8 +253,6 @@ describe('githubSearchCode — empty + error', () => {
       path: 'src',
       keywords: ['foo'],
     } as never);
-    // path: is matched against a directory, so the lever is broadening the
-    // directory / using filename: — NOT dropping the phrase.
     expect(h.some(s => s?.includes('directory'))).toBe(true);
     expect(h.some(s => s?.includes('filename:'))).toBe(true);
     expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
@@ -344,9 +305,6 @@ describe('githubSearchCode — empty + error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 7. githubGetFileContent
-// ---------------------------------------------------------------------------
 describe('githubGetFileContent — error', () => {
   it('size_limit with KB', () => {
     const h = ghFetchHints.error({
@@ -375,9 +333,6 @@ describe('githubGetFileContent — error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 8. githubSearchPullRequests
-// ---------------------------------------------------------------------------
 describe('githubSearchPullRequests — empty permutations', () => {
   it('prNumber not found', () => {
     const h = ghPrHints.empty({
@@ -407,22 +362,55 @@ describe('githubSearchPullRequests — empty permutations', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 9. githubSearchRepositories
-// ---------------------------------------------------------------------------
-describe('githubSearchRepositories — silent by design', () => {
-  it('empty returns []', () => {
+describe('githubSearchRepositories — hints coverage', () => {
+  it('empty returns [] when no query and no filters', () => {
     expect(ghReposHints.empty({} as never)).toEqual([]);
   });
 
-  it('error returns []', () => {
+  it('empty includes query-driven guidance', () => {
+    const h = ghReposHints.empty({ query: 'react' } as never);
+    expect(h[0]).toContain('No repositories found for "react"');
+    expect(h[1]).toContain('fewer/simpler keywords');
+  });
+
+  it('empty includes filter-widening guidance', () => {
+    const h = ghReposHints.empty({
+      keywordsToSearch: ['router'],
+      language: 'TypeScript',
+      owner: 'wix-private',
+    } as never);
+    expect(h[0]).toContain('router');
+    expect(h[1]).toContain('Remove filters one at a time');
+  });
+
+  it('empty suggests packageSearch for package-like terms', () => {
+    const h = ghReposHints.empty({ query: '@babel/core' } as never);
+    expect(h.some(s => (s ?? '').includes('use `packageSearch`'))).toBe(true);
+  });
+
+  it('error rate-limited with retryAfter', () => {
+    const h = ghReposHints.error({
+      isRateLimited: true,
+      retryAfter: 42,
+    } as never);
+    expect(h[0]).toContain('Retry after 42s');
+  });
+
+  it('error 401 token issue', () => {
+    const h = ghReposHints.error({ status: 401 } as never);
+    expect(h[0]).toContain('missing or expired');
+  });
+
+  it('error 403 scope issue', () => {
+    const h = ghReposHints.error({ status: 403 } as never);
+    expect(h[0]).toContain('public_repo');
+  });
+
+  it('error returns [] for unknown status', () => {
     expect(ghReposHints.error({} as never)).toEqual([]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// 10. githubViewRepoStructure
-// ---------------------------------------------------------------------------
 describe('githubViewRepoStructure — empty', () => {
   it('cites path + branch when both set', () => {
     const h = ghViewHints.empty({ path: 'src', branch: 'dev' } as never);
@@ -441,9 +429,6 @@ describe('githubViewRepoStructure — empty', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 11. githubCloneRepo
-// ---------------------------------------------------------------------------
 describe('githubCloneRepo — error', () => {
   it('permission', () => {
     expect(cloneHints.error({ errorType: 'permission' } as never)[0]).toContain(
@@ -468,22 +453,40 @@ describe('githubCloneRepo — error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 12. packageSearch
-// ---------------------------------------------------------------------------
-describe('packageSearch — silent (inline emission in execution.ts)', () => {
-  it('empty returns []', () => {
+describe('packageSearch — hints coverage', () => {
+  it('empty returns [] when no name context', () => {
     expect(pkgHints.empty({} as never)).toEqual([]);
   });
 
-  it('error returns []', () => {
+  it('empty returns package guidance when query exists', () => {
+    const h = pkgHints.empty({ query: 'left-pad' } as never);
+    expect(h[0]).toContain("Package 'left-pad' not found on npm.");
+    expect(h[1]).toContain('remove any version suffix');
+  });
+
+  it('empty resolves name from keywords array', () => {
+    const h = pkgHints.empty({ keywords: ['lodash'] } as never);
+    expect(h[0]).toContain("Package 'lodash' not found on npm.");
+  });
+
+  it('error rate-limited includes retryAfter when present', () => {
+    const h = pkgHints.error({
+      isRateLimited: true,
+      retryAfter: 11,
+    } as never);
+    expect(h[0]).toContain('Retry after 11s');
+  });
+
+  it('error rate-limited without retryAfter still guides waiting', () => {
+    const h = pkgHints.error({ isRateLimited: true } as never);
+    expect(h[0]).toContain('Wait before retrying');
+  });
+
+  it('error returns [] when no known error context', () => {
     expect(pkgHints.error({} as never)).toEqual([]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// 13. lspGotoDefinition
-// ---------------------------------------------------------------------------
 describe('lspGotoDefinition — empty + error', () => {
   it('empty with searchRadius + lineHint', () => {
     const h = gotoHints.empty({
@@ -522,9 +525,6 @@ describe('lspGotoDefinition — empty + error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 14. lspFindReferences
-// ---------------------------------------------------------------------------
 describe('lspFindReferences — empty', () => {
   it('filteredAll → broaden include/exclude', () => {
     const h = refsHints.empty({ filteredAll: true } as never);
@@ -536,9 +536,6 @@ describe('lspFindReferences — empty', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 15. lspCallHierarchy
-// ---------------------------------------------------------------------------
 describe('lspCallHierarchy — error', () => {
   it('not_a_function', () => {
     const h = callHints.error({
@@ -556,9 +553,6 @@ describe('lspCallHierarchy — error', () => {
   });
 });
 
-// ===========================================================================
-// 16. Pagination — every helper emits only when hasMore=true
-// ===========================================================================
 describe('pagination hints — fire only on hasMore=true', () => {
   describe('buildPaginationHints (GitHub search-style)', () => {
     it('emits a Next: page=N+1 cursor when hasMore', () => {

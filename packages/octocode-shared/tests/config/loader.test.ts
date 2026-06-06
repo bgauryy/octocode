@@ -1,7 +1,3 @@
-/**
- * Configuration Loader Tests
- */
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
@@ -13,7 +9,6 @@ import {
   CONFIG_FILE_PATH,
 } from '../../src/config/loader.js';
 
-// Mock fs module
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -98,7 +93,6 @@ describe('config/loader', () => {
     it('parses JSON5 with single-line comments', () => {
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readFileSync).mockReturnValue(`{
-        // This is a comment
         "version": 1
       }`);
 

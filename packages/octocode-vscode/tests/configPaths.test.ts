@@ -1,7 +1,11 @@
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { createMcpClients, detectEditorInfo, getPlatformConfigBase } from '../src/configPaths';
+import {
+  createMcpClients,
+  detectEditorInfo,
+  getPlatformConfigBase,
+} from '../src/configPaths';
 
 describe('getPlatformConfigBase', () => {
   it('returns Application Support on macOS', () => {
@@ -68,7 +72,8 @@ describe('detectEditorInfo', () => {
     expect(detectEditorInfo('Code - Insiders', baseOptions)).toEqual({
       name: 'VS Code',
       scheme: 'vscode',
-      mcpConfigPath: '/Users/tester/Library/Application Support/Claude/claude_desktop_config.json',
+      mcpConfigPath:
+        '/Users/tester/Library/Application Support/Claude/claude_desktop_config.json',
     });
   });
 });

@@ -57,7 +57,6 @@ describe('github_clone_repo cache', () => {
         'packages/core'
       );
       expect(dir).toContain('/home/.octocode/repos/facebook/react/main__sp_');
-      // Different paths should produce different suffixes
       const dir2 = getCloneDir(
         '/home/.octocode',
         'facebook',
@@ -187,7 +186,6 @@ describe('github_clone_repo cache', () => {
       mkdirSync(dir, { recursive: true });
       const meta = createCacheMeta('fb', 'react', 'main', 'clone');
       writeCacheMeta(dir, meta);
-      // Delete the directory (meta goes with it)
       rmSync(dir, { recursive: true, force: true });
 
       const result = isCacheHit(dir);
@@ -258,7 +256,6 @@ describe('github_clone_repo cache', () => {
     it('does nothing when parent already exists', () => {
       const dir = join(testBaseDir, 'already-exists', 'clone');
       mkdirSync(join(testBaseDir, 'already-exists'), { recursive: true });
-      // Should not throw
       ensureCloneParentDir(dir);
       expect(existsSync(join(testBaseDir, 'already-exists'))).toBe(true);
     });
@@ -434,7 +431,7 @@ describe('github_clone_repo cache', () => {
     });
 
     it('uses custom TTL from env var', () => {
-      process.env.OCTOCODE_CACHE_TTL_MS = '60000'; // 1 minute
+      process.env.OCTOCODE_CACHE_TTL_MS = '60000';
       const meta = createCacheMeta('fb', 'react', 'main', 'clone');
       const clonedAt = new Date(meta.clonedAt).getTime();
       const expiresAt = new Date(meta.expiresAt).getTime();
@@ -517,7 +514,6 @@ vi.mock('../../src/utils/exec/spawn.js', async importOriginal => {
   };
 });
 
-// resolveDefaultBranch delegates to mockGetOctokit so existing tests work unchanged
 const mockResolveDefaultBranch = vi.hoisted(() => vi.fn());
 
 vi.mock('../../src/github/client.js', () => ({
@@ -546,13 +542,9 @@ describe('cloneRepo', () => {
     );
     mockGetOctocodeDir.mockReturnValue(testDir);
 
-    // Default: git commands succeed AND create the target directory
-    // (simulating what real git clone would do)
     mockSpawnWithTimeout.mockImplementation(
       async (_cmd: string, args: string[]) => {
-        // For 'clone' commands, create the target directory
         if (args.includes('clone')) {
-          // Target dir is the last argument
           const targetDir = args[args.length - 1]!;
           if (targetDir && !existsSync(targetDir)) {
             mkdirSync(targetDir, { recursive: true });
@@ -562,10 +554,8 @@ describe('cloneRepo', () => {
       }
     );
 
-    // Default: resolveDefaultBranch returns 'main'
     mockResolveDefaultBranch.mockResolvedValue('main');
 
-    // Default: API returns 'main' as default branch (for other Octokit uses)
     mockGetOctokit.mockResolvedValue({
       rest: {
         repos: {
@@ -600,7 +590,6 @@ describe('cloneRepo', () => {
     expect(result.localPath).toContain('facebook/react/main');
     expect(result.sparse_path).toBeUndefined();
 
-    // Verify git was called with clone args
     const cloneCall = mockSpawnWithTimeout.mock.calls.find(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -628,10 +617,8 @@ describe('cloneRepo', () => {
     expect(result.sparse_path).toBe('packages/core');
     expect(result.localPath).toContain('__sp_');
 
-    // Should have 3 calls: git --version, git clone --sparse, git sparse-checkout set
     expect(mockSpawnWithTimeout).toHaveBeenCalledTimes(3);
 
-    // Verify sparse-checkout uses '--' before path
     const sparseCall = mockSpawnWithTimeout.mock.calls.find(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -661,7 +648,6 @@ describe('cloneRepo', () => {
       'ghp_secret_token_123'
     );
 
-    // sparse-checkout call should NOT contain auth header
     const sparseCall = mockSpawnWithTimeout.mock.calls.find(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -690,7 +676,6 @@ describe('cloneRepo', () => {
       'ghp_mytoken'
     );
 
-    // Clone call should have auth
     const cloneCall = mockSpawnWithTimeout.mock.calls.find(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -701,7 +686,6 @@ describe('cloneRepo', () => {
     const cloneArgStr = (cloneCall![1] as string[]).join(' ');
     expect(cloneArgStr).toContain('Bearer ghp_mytoken');
 
-    // sparse-checkout call should NOT have auth
     const sparseCall = mockSpawnWithTimeout.mock.calls.find(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -715,7 +699,6 @@ describe('cloneRepo', () => {
   });
 
   it('returns cached result when cache is valid', async () => {
-    // First clone
     await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -726,7 +709,6 @@ describe('cloneRepo', () => {
     });
 
     mockSpawnWithTimeout.mockClear();
-    // Re-setup for git --version check only
     mockSpawnWithTimeout.mockResolvedValue({
       success: true,
       stdout: 'git version 2.40.0',
@@ -734,7 +716,6 @@ describe('cloneRepo', () => {
       exitCode: 0,
     });
 
-    // Second call should hit cache
     const result = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -745,7 +726,6 @@ describe('cloneRepo', () => {
     });
 
     expect(result.cached).toBe(true);
-    // Only git --version should be called (no clone)
     const cloneCalls = mockSpawnWithTimeout.mock.calls.filter(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -756,7 +736,6 @@ describe('cloneRepo', () => {
   });
 
   it('forceRefresh: true bypasses valid cache and re-clones', async () => {
-    // First clone
     await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -779,7 +758,6 @@ describe('cloneRepo', () => {
       }
     );
 
-    // Second call with forceRefresh - should NOT hit cache
     const result = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -801,7 +779,6 @@ describe('cloneRepo', () => {
   });
 
   it('rejects directoryFetch cache and re-clones', async () => {
-    // Simulate a directoryFetch having written metadata to the same cloneDir
     const cloneDir = getCloneDir(testDir, 'facebook', 'react', 'main');
     mkdirSync(cloneDir, { recursive: true });
     const dirFetchMeta = createCacheMeta(
@@ -812,7 +789,6 @@ describe('cloneRepo', () => {
     );
     writeCacheMeta(cloneDir, dirFetchMeta);
 
-    // Clone should NOT trust the directoryFetch metadata
     const result = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -823,7 +799,6 @@ describe('cloneRepo', () => {
     });
 
     expect(result.cached).toBe(false);
-    // Should have invoked git clone (not returned cached)
     const cloneCalls = mockSpawnWithTimeout.mock.calls.filter(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -850,7 +825,6 @@ describe('cloneRepo', () => {
   });
 
   it('re-clones when cache meta exists but is expired', async () => {
-    // First clone creates cache
     const first = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -862,7 +836,6 @@ describe('cloneRepo', () => {
     expect(first.cached).toBe(false);
     expect(existsSync(first.localPath)).toBe(true);
 
-    // Manually expire the cache by rewriting the meta file
     const expiredMeta = createCacheMeta('facebook', 'react', 'main', 'clone');
     expiredMeta.expiresAt = new Date(Date.now() - 1000).toISOString();
     writeCacheMeta(first.localPath, expiredMeta);
@@ -880,7 +853,6 @@ describe('cloneRepo', () => {
       }
     );
 
-    // Should detect expired cache and re-clone
     const second = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -900,7 +872,6 @@ describe('cloneRepo', () => {
   });
 
   it('re-clones when directory was externally deleted despite valid cache meta', async () => {
-    // First clone creates cache
     const first = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -911,9 +882,6 @@ describe('cloneRepo', () => {
     });
     expect(first.cached).toBe(false);
 
-    // Delete the clone directory externally — simulates user or OS cleanup.
-    // Since the meta lives inside the clone dir, it's gone too.
-    // cloneRepo should detect the missing directory and re-clone.
     rmSync(first.localPath, { recursive: true, force: true });
     mockSpawnWithTimeout.mockClear();
     mockSpawnWithTimeout.mockImplementation(
@@ -937,7 +905,6 @@ describe('cloneRepo', () => {
       branch: 'main',
     });
     expect(second.cached).toBe(false);
-    // Should have performed a git clone
     const cloneCalls = mockSpawnWithTimeout.mock.calls.filter(
       (call: unknown[]) => {
         const a = call[1] as string[];
@@ -967,8 +934,6 @@ describe('cloneRepo', () => {
   });
 
   it('uses branch from resolveDefaultBranch when query.branch is omitted', async () => {
-    // resolveDefaultBranch handles the API call + fallback internally
-    // (tested in client.test.ts). Here we verify cloneRepo uses its result.
     mockResolveDefaultBranch.mockResolvedValue('main');
 
     const result = await cloneRepo({
@@ -1008,7 +973,6 @@ describe('cloneRepo', () => {
   });
 
   it('throws on clone failure with scrubbed error', async () => {
-    // git --version succeeds
     mockSpawnWithTimeout
       .mockResolvedValueOnce({
         success: true,
@@ -1016,7 +980,6 @@ describe('cloneRepo', () => {
         stderr: '',
         exitCode: 0,
       })
-      // git clone fails with token in stderr
       .mockResolvedValueOnce({
         success: false,
         stdout: '',
@@ -1092,14 +1055,12 @@ describe('cloneRepo', () => {
     expect(cloneCall).toBeDefined();
     const args = cloneCall![1] as string[];
 
-    // Check critical flags
     expect(args).toContain('--depth');
     expect(args[args.indexOf('--depth') + 1]).toBe('1');
     expect(args).toContain('--single-branch');
     expect(args).toContain('--branch');
     expect(args).toContain('--');
 
-    // URL should be after '--'
     const dashDashIdx = args.indexOf('--');
     expect(args[dashDashIdx + 1]).toContain('github.com/fb/react.git');
   });
@@ -1180,7 +1141,6 @@ describe('cloneRepo', () => {
   });
 
   it('returns cached result with sparse_path when cache is valid', async () => {
-    // First sparse clone
     await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -1199,7 +1159,6 @@ describe('cloneRepo', () => {
       exitCode: 0,
     });
 
-    // Second call should hit cache, including sparse_path
     const result = await cloneRepo({
       mainResearchGoal: 'test',
       researchGoal: 'test',
@@ -1298,7 +1257,6 @@ describe('cloneRepo', () => {
       branch: 'main',
     });
 
-    // Every git call should have GIT_TERMINAL_PROMPT=0 in env
     for (const call of mockSpawnWithTimeout.mock.calls) {
       const opts = call[2] as { env?: Record<string, string> };
       expect(opts.env?.GIT_TERMINAL_PROMPT).toBe('0');
@@ -1383,7 +1341,6 @@ describe('registerGitHubCloneRepoTool', () => {
     const mockServer = createMockMcpServer();
     registerGitHubCloneRepoTool(mockServer.server);
 
-    // Invoke the handler via the mock server
     const result = await mockServer.callTool('githubCloneRepo', {
       queries: [
         {
@@ -1403,15 +1360,10 @@ describe('registerGitHubCloneRepoTool', () => {
       .join('\n');
     expect(text).toContain('localPath');
 
-    // Cleanup
     if (existsSync(execTestDir)) {
       rmSync(execTestDir, { recursive: true, force: true });
     }
   });
-
-  // Skipped: workflow-paragraph hints have been removed, so a clone response no
-  // longer exceeds small charLength budgets. Pagination on small responses
-  // is exercised by the bulk envelope contract suite.
 });
 
 describe('executeCloneRepo', () => {
@@ -1490,7 +1442,6 @@ describe('executeCloneRepo', () => {
           reasoning: 'test',
           owner: 'fb',
           repo: 'react',
-          // no branch - will resolve to 'develop' from API
         },
       ],
     });
@@ -1560,7 +1511,6 @@ describe('executeCloneRepo', () => {
   });
 
   it('handles clone failure gracefully', async () => {
-    // git --version succeeds
     mockSpawnWithTimeout
       .mockResolvedValueOnce({
         success: true,
@@ -1568,7 +1518,6 @@ describe('executeCloneRepo', () => {
         stderr: '',
         exitCode: 0,
       })
-      // git clone fails
       .mockResolvedValueOnce({
         success: false,
         stdout: '',

@@ -1,28 +1,19 @@
-/**
- * Branch coverage tests for tool execution functions
- * Targets uncovered branches in execution.ts files and lspReferencesCore.ts
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
 
-// Mock fs/promises for lspReferencesCore
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
-// Mock LSP client creation
 vi.mock('../../src/lsp/manager.js', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
   acquirePooledClient: vi.fn(),
 }));
 
-// Mock hints
 vi.mock('../../src/hints/index.js', () => ({
   getHints: vi.fn(() => []),
 }));
 
-// Mock executeBulkOperation for execution files
 vi.mock('../../src/utils/response/bulk.js', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
@@ -30,19 +21,16 @@ vi.mock('../../src/utils/response/bulk.js', () => ({
   }),
 }));
 
-// Mock withSecurityValidation to pass through handler
 vi.mock('octocode-security-utils/withSecurityValidation', () => ({
   withSecurityValidation: vi.fn((_toolName, handler) => handler),
   withBasicSecurityValidation: vi.fn(handler => handler),
 }));
 
-// Mock invokeCallbackSafely - preserve handleCatchError for executeWithToolBoundary
 vi.mock('../../src/tools/utils.js', async importOriginal => ({
   ...(await importOriginal<object>()),
   invokeCallbackSafely: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock searchMultipleGitHubCode, searchMultipleGitHubRepos, exploreMultipleRepositoryStructures
 vi.mock('../../src/tools/github_search_code/execution.js', () => ({
   searchMultipleGitHubCode: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
@@ -64,12 +52,10 @@ vi.mock('../../src/tools/github_view_repo_structure/execution.js', () => ({
   }),
 }));
 
-// Mock lsp_find_references inner function for boundary tests
 vi.mock('../../src/tools/lsp_find_references/lsp_find_references.js', () => ({
   findReferences: vi.fn().mockResolvedValue({ status: 'hasResults' }),
 }));
 
-// Mock lsp_goto_definition inner function for boundary tests
 vi.mock(
   '../../src/tools/lsp_goto_definition/execution.js',
   async importOriginal => {
@@ -78,7 +64,6 @@ vi.mock(
   }
 );
 
-// Import after mocks
 import * as fs from 'fs/promises';
 import { acquirePooledClient } from '../../src/lsp/manager.js';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
@@ -122,7 +107,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
         query
       );
 
-      // lspMode='semantic' removed — absent ≡ semantic per the lean contract.
       expect(result).toMatchObject({
         status: 'error',
         errorCode: 'LSP_CAPABILITY_UNSUPPORTED',
@@ -386,8 +370,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       const callback = vi.mocked(executeBulkOperation).mock.calls[0]![1];
 
-      // gotoDefinition has internal try/catch but the boundary provides defense-in-depth;
-      // verify the callback resolves (not rejects) regardless
       const result = await callback(query, 0);
       expect(result).toBeDefined();
       expect(typeof result).toBe('object');
@@ -404,7 +386,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       expect(mockServer.registerTool).toHaveBeenCalled();
 
-      // Get the handler function (it's wrapped by withSecurityValidation which we mocked to pass through)
       const registerCall = vi.mocked(mockServer.registerTool).mock.calls[0]!;
       const handler = registerCall[2] as any;
 
@@ -413,7 +394,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       await handler({ queries: undefined }, mockAuthInfo, mockSessionId);
 
-      // Verify the handler was called and searchMultipleGitHubCode received empty array
       expect(searchMultipleGitHubCode).toHaveBeenCalledWith(
         expect.objectContaining({ queries: [] })
       );
@@ -430,7 +410,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       expect(mockServer.registerTool).toHaveBeenCalled();
 
-      // Get the handler function
       const registerCall = vi.mocked(mockServer.registerTool).mock.calls[0]!;
       const handler = registerCall[2] as any;
 
@@ -439,7 +418,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       await handler({ queries: undefined }, mockAuthInfo, mockSessionId);
 
-      // Verify searchMultipleGitHubRepos received empty array
       expect(searchMultipleGitHubRepos).toHaveBeenCalledWith(
         expect.objectContaining({ queries: [] })
       );
@@ -456,7 +434,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       expect(mockServer.registerTool).toHaveBeenCalled();
 
-      // Get the handler function
       const registerCall = vi.mocked(mockServer.registerTool).mock.calls[0]!;
       const handler = registerCall[2] as any;
 
@@ -465,7 +442,6 @@ describe('Tool Execution Branch Coverage Tests', () => {
 
       await handler({ queries: undefined }, mockAuthInfo, mockSessionId);
 
-      // Verify exploreMultipleRepositoryStructures received empty array
       expect(exploreMultipleRepositoryStructures).toHaveBeenCalledWith(
         expect.objectContaining({ queries: [] })
       );

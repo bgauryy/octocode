@@ -1,15 +1,3 @@
-/**
- * T1.3 — LSP requests must send $/cancelRequest on per-request timeout.
- *
- * Why: without cancellation the language server keeps doing the work
- * (and holding memory / locks) even after our client gave up. This is
- * particularly bad for tsserver, where the same agent typically issues
- * many requests in a row.
- *
- * We test by spying on `MessageConnection.sendRequest` and asserting
- * the `CancellationToken` passed as the 3rd argument is `cancelled`
- * after the timeout fires.
- */
 import { describe, expect, it, vi } from 'vitest';
 import type {
   CancellationToken,
@@ -29,7 +17,6 @@ function makeFakeConnection(): {
     sendRequest: vi.fn(
       (_method: string, _params: unknown, token?: CancellationToken): any => {
         capturedToken.value = token;
-        // Return a promise that NEVER resolves — forces the timeout path.
         return new Promise(() => {});
       }
     ),
@@ -41,18 +28,15 @@ function makeFakeConnection(): {
 describe('T1.3 — sendRequestWithCancellationOnTimeout', () => {
   it('passes a CancellationToken to sendRequest', async () => {
     const { connection, capturedToken } = makeFakeConnection();
-    // Fire and don't await; we only want to verify the call signature.
     const p = sendRequestWithCancellationOnTimeout(
       connection,
       'textDocument/definition',
       {},
       10
     );
-    // Allow the microtask that calls sendRequest to run.
     await Promise.resolve();
     expect(capturedToken.value).toBeDefined();
     expect(capturedToken.value!.isCancellationRequested).toBe(false);
-    // Drain the rejected timeout so vitest doesn't warn about unhandled.
     await expect(p).rejects.toThrow(/timed out/);
   });
 

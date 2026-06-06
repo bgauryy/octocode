@@ -20,11 +20,6 @@ export const registerPackageSearchTool =
     inputSchema: PackageSearchBulkQueryLocalSchema,
     outputSchema: PackageSearchOutputLocalSchema,
     executionFn: searchPackages,
-    // No registrationGuard: packageSearch is ALWAYS registered. npm/registry
-    // reachability is a per-CALL concern, handled gracefully by searchPackages
-    // (try/catch → structured error result). A startup probe would otherwise
-    // make the tool silently vanish on a transient blip / offline startup and
-    // add npm-probe latency to every server init. (#T4 — guard removed)
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,

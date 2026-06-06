@@ -23,7 +23,6 @@ import {
   records,
 } from '../evidence.js';
 
-// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyViewStructureVerbosity } from './local_view_structure.js';
 
 export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
@@ -46,11 +45,6 @@ export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
   });
 }
 
-/**
- * Execute bulk view structure operation.
- * Wraps viewStructure with bulk operation handling for multiple queries.
- * Validates each query individually so one invalid query doesn't block the batch.
- */
 export async function executeViewStructure(
   args: ToolExecutionArgs<ViewStructureQuery>
 ): Promise<CallToolResult> {

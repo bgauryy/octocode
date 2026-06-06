@@ -1,13 +1,3 @@
-/**
- * Tests for structureFilters.ts - targeting uncovered branches (lines 51-57, 80, 126, 135, 162)
- * - checkRegexSafety returns safe: false → literal includes fallback
- * - RegExp constructor throws → catch fallback
- * - Line 80: e.name.includes('/') in recursive mode (name has path separator)
- * - Line 126: query.extension filter
- * - Line 135: query.directoriesOnly filter
- * - Line 162: formatEntryString file+size vs else branch
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   applyEntryFilters,
@@ -49,7 +39,6 @@ describe('structureFilters - applyEntryFilters', () => {
         pattern: 'foo*',
       });
 
-      // Literal fallback: filename.includes('foo*'). 'foo*bar.txt'.includes('foo*') = true
       expect(filtered).toHaveLength(1);
       expect(filtered[0]!.name).toBe('foo*bar.txt');
     });
@@ -73,7 +62,6 @@ describe('structureFilters - applyEntryFilters', () => {
 
       RegExpSpy.mockRestore();
 
-      // Catch fallback: filename.includes('needle*'). 'needle*.txt'.includes('needle*') = true
       expect(filtered).toHaveLength(1);
       expect(filtered[0]!.name).toBe('needle*.txt');
     });
@@ -94,7 +82,6 @@ describe('structureFilters - applyEntryFilters', () => {
         pattern: 'file',
       });
 
-      // 'file.ts' and 'nested/file.ts' match when filename is extracted
       expect(filtered).toHaveLength(1);
       expect(filtered[0]!.name).toBe('subdir/nested/file.ts');
     });
@@ -113,7 +100,7 @@ describe('structureFilters - applyEntryFilters', () => {
         extension: 'ts',
       });
 
-      expect(filtered).toHaveLength(2); // foo.ts + dir (directories always pass)
+      expect(filtered).toHaveLength(2);
       expect(filtered.map(e => e.name)).toContain('foo.ts');
       expect(filtered.map(e => e.name)).toContain('dir');
       expect(filtered.map(e => e.name)).not.toContain('bar.js');

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const ANALYSIS_SCHEMA_VERSION = '1.1.0'; // Keep in sync with REPORT_SCHEMA_VERSION in index.ts
+export const ANALYSIS_SCHEMA_VERSION = '1.1.0';
 
 interface CacheEntry {
   mtimeMs: number;
@@ -18,7 +18,7 @@ interface AnalysisCache {
 }
 
 const CACHE_VERSION = 1;
-const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function loadCache(root: string): AnalysisCache | null {
   const cachePath = path.join(

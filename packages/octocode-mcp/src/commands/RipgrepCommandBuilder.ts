@@ -8,19 +8,13 @@ import { resolveRipgrepBinary } from '../utils/exec/ripgrepBinary.js';
 
 export class RipgrepCommandBuilder extends BaseCommandBuilder {
   constructor() {
-    // T3.3 — prefer the bundled @vscode/ripgrep binary so the tool
-    // works out-of-the-box without a system-wide ripgrep install.
-    // Falls back to 'rg' (PATH lookup) when bundling failed.
     super(resolveRipgrepBinary());
   }
 
-  /**
-   * Simple convenience method to set pattern and path with default flags
-   */
   simple(pattern: string, path: string): this {
     this.addFlag('-n');
     this.addFlag('--column');
-    this.addFlag('-S'); // smart case by default
+    this.addFlag('-S');
     this.addOption('--color', 'never');
     this.addOption('--sort', 'path');
     this.addArg('--');
@@ -29,93 +23,56 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     return this;
   }
 
-  /**
-   * Enable smart case sensitivity
-   */
   smartCase(): this {
     this.addFlag('-S');
     return this;
   }
 
-  /**
-   * Only show filenames with matches
-   */
   filesOnly(): this {
     this.addFlag('-l');
     return this;
   }
 
-  /**
-   * Show context lines around matches
-   */
   context(lines: number): this {
     this.addOption('-C', lines);
     return this;
   }
 
-  /**
-   * Include only files matching glob pattern
-   */
   include(pattern: string): this {
     this.addOption('-g', pattern);
     return this;
   }
 
-  /**
-   * Exclude files matching glob pattern
-   */
   exclude(pattern: string): this {
     this.addOption('-g', `!${pattern}`);
     return this;
   }
 
-  /**
-   * Exclude directory from search
-   */
   excludeDir(dir: string): this {
     this.addOption('-g', `!${dir}/`);
     return this;
   }
 
-  /**
-   * Filter by file type
-   */
   type(fileType: string): this {
     this.addOption('-t', fileType);
     return this;
   }
 
-  /**
-   * Treat pattern as fixed string (not regex)
-   */
   fixedString(): this {
     this.addFlag('-F');
     return this;
   }
 
-  /**
-   * Use Perl-compatible regex
-   */
   perlRegex(): this {
     this.addFlag('-P');
     return this;
   }
 
-  /**
-   * Limit max matches per file
-   */
   maxMatches(count: number): this {
     this.addOption('-m', count);
     return this;
   }
 
-  /**
-   * Translate a validated query into the `rg` argument vector.
-   *
-   * The body is split into ordered helpers; the call order below IS the
-   * emitted-argument order, so helpers must not be reordered. See
-   * tests/commands/RipgrepCommandBuilder.test.ts for the pinned vectors.
-   */
   fromQuery(query: RipgrepQuery): this {
     this._applyMatchFlags(query);
     this._applyContextFlags(query);
@@ -126,9 +83,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     this._applyOutputModeFlags(query);
     this._applyFilterFlags(query);
 
-    // Only add --json when NOT in plain text output modes
-    // -l (filesOnly), --files-without-match, -c (count), and --count-matches
-    // all output plain text (one item per line) — incompatible with or unnecessary for --json
     const isPlainTextOutput = this._isPlainTextOutput(query);
     if (!isPlainTextOutput) {
       this.addFlag('--json');
@@ -138,7 +92,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     this._applySortFlags(query);
     this._applyDiagnosticFlags(query);
 
-    // End option parsing so user-provided pattern/path cannot be interpreted as flags.
     this.addArg('--');
     this.addArg(query.pattern);
     this.addArg(query.path);
@@ -155,7 +108,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     );
   }
 
-  /** Pattern-type, case, encoding and per-match modifier flags. */
   private _applyMatchFlags(query: RipgrepQuery): void {
     if (query.fixedString) {
       this.addFlag('-F');
@@ -200,7 +152,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /** Context window: -C takes precedence over -B/-A. */
   private _applyContextFlags(query: RipgrepQuery): void {
     if (query.contextLines !== undefined && query.contextLines > 0) {
       this.addOption('-C', query.contextLines);
@@ -214,7 +165,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /** Output-mode selector flags plus the per-file match cap. */
   private _applyOutputModeFlags(query: RipgrepQuery): void {
     if (query.filesOnly) {
       this.addFlag('-l');
@@ -238,7 +188,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /** File-type, glob include/exclude and traversal flags. */
   private _applyFilterFlags(query: RipgrepQuery): void {
     if (query.type) {
       this.addOption('-t', query.type);
@@ -281,15 +230,10 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /** Thread count, mmap toggle and stats (stats requires JSON output). */
   private _applyExecutionFlags(
     query: RipgrepQuery,
     isPlainTextOutput: boolean
   ): void {
-    // Cap at 4 threads for MCP mode: up to 5 bulk queries run in parallel,
-    // each spawning rg. Without a cap, rg auto-selects CPU count threads —
-    // on an 8-core host that's 40 threads from a single bulk call. 4 threads
-    // is enough for fast ripgrep performance while leaving headroom for sibling queries.
     const MAX_MCP_THREADS = 4;
     if (query.threads !== undefined) {
       this.addOption('-j', Math.min(query.threads, MAX_MCP_THREADS));
@@ -306,7 +250,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /** Sort order: --sortr when reversed, --sort otherwise. */
   private _applySortFlags(query: RipgrepQuery): void {
     const sortOption = query.sort || 'path';
 
@@ -319,7 +262,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /** Color and diagnostic toggles. */
   private _applyDiagnosticFlags(query: RipgrepQuery): void {
     this.addOption('--color', 'never');
 
@@ -368,10 +310,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     return result;
   }
 
-  /**
-   * Removes --sort option and its value if present
-   * Used when switching to --sortr
-   */
   private clearSortOption(): void {
     const sortIndex = this.args.indexOf('--sort');
     if (sortIndex !== -1 && sortIndex < this.args.length - 1) {
@@ -379,10 +317,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  /**
-   * Removes --sortr option and its value if present
-   * Used when switching to --sort
-   */
   private clearSortrOption(): void {
     const sortrIndex = this.args.indexOf('--sortr');
     if (sortrIndex !== -1 && sortrIndex < this.args.length - 1) {

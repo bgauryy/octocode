@@ -50,27 +50,7 @@ export function createResult(options: {
   };
 }
 
-// Response patterns:
-// - **Bulk tools** (githubSearchCode, localSearchCode, etc.): Use createResponseFormat
-//   via bulk.ts → createBulkResponse. Single YAML block with instructions + results[].
-// - **Role-based** (createRoleBasedResult, ContentBuilder, QuickResult): For single-result
-//   or non-bulk tools that need structured role separation (system/assistant/user).
-//   Currently exported for future use; bulk tools do not use this pattern.
-
-/**
- * Content block builder for role-based responses.
- * Creates content blocks with appropriate annotations for each role type.
- *
- * Roles:
- * - system: Instructions, hints, pagination (agent-only, high priority)
- * - assistant: Formatted data, summaries (shown to both agent and user)
- * - user: Human-friendly messages (primarily for user display)
- */
 export const ContentBuilder = {
-  /**
-   * System content: Instructions for the agent (hidden from user)
-   * High priority (1.0) - processed first by the agent
-   */
   system(text: string, priority = 1.0): RoleContentBlock {
     return {
       type: 'text',
@@ -83,10 +63,6 @@ export const ContentBuilder = {
     };
   },
 
-  /**
-   * Assistant content: Formatted response for agent reasoning
-   * Medium-high priority (0.8) - main content for the agent
-   */
   assistant(text: string, priority = 0.8): RoleContentBlock {
     return {
       type: 'text',
@@ -99,10 +75,6 @@ export const ContentBuilder = {
     };
   },
 
-  /**
-   * User content: Human-friendly summary
-   * Medium priority (0.6) - shown to user in UI
-   */
   user(text: string, priority = 0.6): RoleContentBlock {
     return {
       type: 'text',
@@ -115,10 +87,6 @@ export const ContentBuilder = {
     };
   },
 
-  /**
-   * Data content: Serialized data block
-   * Low priority (0.3) - detailed data for agent reference
-   */
   data(data: unknown, format?: 'yaml' | 'json'): RoleContentBlock {
     const resolvedFormat = format ?? getOutputFormat();
     let text: string;
@@ -142,9 +110,6 @@ export const ContentBuilder = {
   },
 };
 
-/**
- * Status emoji constants for consistent visual feedback
- */
 export const StatusEmoji = {
   success: '✅',
   empty: '📭',
@@ -161,31 +126,12 @@ export const StatusEmoji = {
   call: '📞',
 } as const;
 
-/**
- * Create a role-based tool result with proper content separation.
- *
- * This produces MCP-compliant responses with:
- * - Multiple content blocks with role annotations
- * - structuredContent for machine-readable data
- * - Proper isError flag for error handling
- *
- * @example
- * ```typescript
- * createRoleBasedResult({
- *   system: { hints: ['Use lineHint for LSP tools'] },
- *   assistant: { summary: 'Found 3 files matching pattern' },
- *   user: { message: 'Search complete', emoji: '✅' },
- *   data: { files: [...], totalMatches: 3 }
- * });
- * ```
- */
 export function createRoleBasedResult(
   options: RoleBasedResultOptions
 ): CallToolResult {
   const content: RoleContentBlock[] = [];
   const { system, assistant, user, data, isError } = options;
 
-  // 1. System block (highest priority) - instructions for agent
   if (system) {
     const systemParts: string[] = [];
 
@@ -215,7 +161,6 @@ export function createRoleBasedResult(
     }
   }
 
-  // 2. Assistant block (formatted data for agent reasoning)
   content.push(ContentBuilder.assistant(assistant.summary));
 
   if (assistant.details) {
@@ -226,7 +171,6 @@ export function createRoleBasedResult(
     content.push(ContentBuilder.data(assistant.details, dataFormat));
   }
 
-  // 3. User block (human-friendly summary)
   if (user) {
     const userMessage = user.emoji
       ? `${user.emoji} ${user.message}`
@@ -241,13 +185,7 @@ export function createRoleBasedResult(
   };
 }
 
-/**
- * Quick result helpers for common response patterns
- */
 export const QuickResult = {
-  /**
-   * Success result with data and optional hints
-   */
   success(summary: string, data: unknown, hints?: string[]): CallToolResult {
     return createRoleBasedResult({
       system: hints ? { hints } : undefined,
@@ -257,9 +195,6 @@ export const QuickResult = {
     });
   },
 
-  /**
-   * Empty result with suggestions
-   */
   empty(message: string, hints?: string[]): CallToolResult {
     return createRoleBasedResult({
       system: {
@@ -271,9 +206,6 @@ export const QuickResult = {
     });
   },
 
-  /**
-   * Error result with details for self-correction
-   */
   error(error: string, details?: unknown): CallToolResult {
     return createRoleBasedResult({
       system: {
@@ -287,9 +219,6 @@ export const QuickResult = {
     });
   },
 
-  /**
-   * Paginated result with navigation info
-   */
   paginated(
     summary: string,
     data: unknown,
@@ -315,9 +244,6 @@ export const QuickResult = {
   },
 };
 
-/**
- * Clean data and prepare for structuredContent
- */
 function cleanAndStructure(data: unknown): Record<string, unknown> | undefined {
   if (data === null || data === undefined) {
     return undefined;
@@ -332,24 +258,16 @@ function cleanAndStructure(data: unknown): Record<string, unknown> | undefined {
       cleaned as Record<string, unknown>
     ) as Record<string, unknown>;
   }
-  // Wrap non-object data
   const wrapped = { data: cleaned };
   return sanitizeStructuredContent(wrapped) as Record<string, unknown>;
 }
 
-/**
- * Sanitize text content (mask secrets, sanitize content)
- */
 function sanitizeText(text: string): string {
   if (text == null || typeof text !== 'string') return '';
   const sanitizationResult = ContentSanitizer.sanitizeContent(text);
   return maskSensitiveData(sanitizationResult.content);
 }
 
-/**
- * Deep-walk an object and sanitize all string values.
- * Applied to structuredContent so secrets never leak via the machine-readable channel.
- */
 export function sanitizeStructuredContent(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
 
@@ -460,7 +378,6 @@ function cleanJsonObject(
     const cleaned = obj
       .map(item => cleanJsonObject(item, { inFilesObject, depth: depth + 1 }))
       .filter(item => item !== undefined);
-    // Preserve empty arrays for code search path results (files > repo > path level)
     const isCodeSearchPathMatch = inFilesObject && depth >= 2;
     return cleaned.length > 0 || isCodeSearchPathMatch ? cleaned : undefined;
   }

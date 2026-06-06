@@ -1,14 +1,3 @@
-/**
- * Direct unit tests for `applyStructurePagination`.
- *
- * The pagination helper is only invoked for cached structure results,
- * so the existing wrapper test (`fileOperations.repoStructurePagination.test.ts`)
- * does not reach most of its branches. These tests exercise it directly with
- * synthetic `_cachedItems`, covering: empty cache, root-vs-nested basePath,
- * file/dir mix across multiple parent dirs, sort ordering with `'.'` first,
- * default page params, mid pages, last-page slicing, beyond-last-page, and
- * the `depth` passthrough into hints.
- */
 import { describe, it, expect } from 'vitest';
 import { applyStructurePagination } from '../../src/github/repoStructurePagination.js';
 import type { GitHubRepositoryStructureResult } from '../../src/tools/github_view_repo_structure/types.js';

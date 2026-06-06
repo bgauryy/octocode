@@ -1,12 +1,3 @@
-/**
- * Response-state hints for localSearchCode (ripgrep).
- *
- * Empty branch is query-shape aware: inspects the pattern, active filters
- * (type/include/excludeDir), and path to propose the most actionable next move.
- *
- * @module tools/local_ripgrep/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
@@ -20,7 +11,6 @@ export const hints: ToolHintGenerators = {
       : [];
     const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
 
-    // Stay silent when there is nothing meaningful to guide the agent.
     if (
       !pattern &&
       !path &&
@@ -46,7 +36,6 @@ export const hints: ToolHintGenerators = {
         'Remove filters one at a time (type → include → excludeDir) to widen the search.'
       );
     } else {
-      // No active filters — pattern + path only
       out.push(`No matches for "${pattern}" in ${path ?? 'this scope'}.`);
       out.push(
         'Broaden: (1) use fixedString=true for a literal match; (2) drop regex meta-chars; ' +

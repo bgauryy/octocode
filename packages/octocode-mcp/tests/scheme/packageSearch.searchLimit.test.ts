@@ -1,7 +1,3 @@
-/**
- * packageSearch uses `page` (1-based) for pagination with fixed DEFAULT_PAGE_SIZE.
- * The legacy `limit`/`searchLimit`/`itemsPerPage` names were removed.
- */
 import { describe, it, expect } from 'vitest';
 import { PackageSearchBulkQueryLocalSchema } from '../../src/scheme/remoteSchemaOverlay.js';
 

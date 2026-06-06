@@ -1,11 +1,3 @@
-/**
- * Tests for file pattern filtering and lazy enhancement in lspFindReferences.
- *
- * Covers:
- * - matchesFilePatterns utility (picomatch-based glob matching)
- * - Lazy enhancement in LSP path
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LSPFindReferencesQuery } from '@octocodeai/octocode-core';
 
@@ -120,9 +112,7 @@ describe('File Pattern Filtering - Unit Tests', () => {
 
     describe('edge cases', () => {
       it('should handle simple filename patterns (non-recursive)', () => {
-        // *.ts only matches files without directory prefix (picomatch default)
         expect(matchesFilePatterns('index.ts', ['*.ts'])).toBe(true);
-        // For nested files, use **/*.ts
         expect(matchesFilePatterns('src/index.ts', ['**/*.ts'])).toBe(true);
         expect(matchesFilePatterns('src/index.ts', ['*.ts'])).toBe(false);
       });
@@ -193,7 +183,6 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
     stop: vi.fn(),
   };
 
-  /** Helper to build a complete query with required defaults */
   function makeQuery(
     overrides: Partial<LSPFindReferencesQuery> &
       Pick<LSPFindReferencesQuery, 'uri' | 'symbolName' | 'lineHint'>
@@ -417,7 +406,6 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
 
     expect(result).not.toBeNull();
     expect(result!.locations).toHaveLength(2);
-    // readFile called only for the 2 paginated items, not all 5
     expect(readCount).toBe(2);
   });
 
@@ -515,10 +503,6 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
   });
 
   it('must NOT stop the pooled client when the LSP call throws', async () => {
-    // Regression: the pre-pool implementation stopped the client in a finally
-    // block. With the shared pool, the caller MUST NOT touch lifecycle —
-    // idle eviction handles teardown. Stopping here would kill warm
-    // tsserver state for every other caller of the same project.
     mockClient.findReferences.mockRejectedValue(new Error('LSP error'));
 
     try {
@@ -533,8 +517,7 @@ describe('LSP Find References - Filtering and Lazy Enhancement', () => {
         })
       );
     } catch {
-      // findReferencesWithLSP currently rethrows when the LSP call errors;
-      // accept that — the contract under test is the no-stop guarantee.
+      void 0;
     }
 
     expect(mockClient.stop).not.toHaveBeenCalled();

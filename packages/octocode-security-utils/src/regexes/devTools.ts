@@ -93,42 +93,36 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
     regex: /\brollbar[\s\w]*(?:access|token)[\s:=]*["']?[a-f0-9]{32}["']?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Postman API Token
   {
     name: 'postmanApiToken',
     description: 'Postman API token',
     regex: /\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b/gi,
     matchAccuracy: 'high',
   },
-  // Prefect API Token
   {
     name: 'prefectApiToken',
     description: 'Prefect API token',
     regex: /\bpnu_[a-zA-Z0-9]{36}\b/g,
     matchAccuracy: 'high',
   },
-  // Readme API Token
   {
     name: 'readmeApiToken',
     description: 'Readme API token',
     regex: /\brdme_[a-z0-9]{70}\b/g,
     matchAccuracy: 'high',
   },
-  // RubyGems API Token
   {
     name: 'rubygemsApiToken',
     description: 'RubyGems API token',
     regex: /\brubygems_[a-f0-9]{48}\b/g,
     matchAccuracy: 'high',
   },
-  // Clojars API Token
   {
     name: 'clojarsApiToken',
     description: 'Clojars API token',
     regex: /\bCLOJARS_[a-z0-9]{60}\b/gi,
     matchAccuracy: 'high',
   },
-  // Snyk API Token
   {
     name: 'snykApiToken',
     description: 'Snyk API token',
@@ -136,14 +130,12 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token))['"]?\s*(?::|=>|=)\s*['"]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"]?\b/gi,
     matchAccuracy: 'high',
   },
-  // SonarQube Token
   {
     name: 'sonarqubeToken',
     description: 'SonarQube/SonarCloud token',
     regex: /\b(?:squ_|sqp_|sqa_)[a-z0-9=_-]{40}\b/gi,
     matchAccuracy: 'high',
   },
-  // TravisCI Access Token
   {
     name: 'travisciAccessToken',
     description: 'Travis CI access token',
@@ -151,7 +143,6 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:travis)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9]{22}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Codecov Access Token
   {
     name: 'codecovAccessToken',
     description: 'Codecov access token',
@@ -159,7 +150,6 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:codecov)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9]{32}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // DroneCI Access Token
   {
     name: 'droneCiAccessToken',
     description: 'DroneCI access token',
@@ -167,14 +157,12 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:droneci|drone)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9]{32}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Octopus Deploy API Key
   {
     name: 'octopusDeployApiKey',
     description: 'Octopus Deploy API key',
     regex: /\bAPI-[A-Z0-9]{26}\b/g,
     matchAccuracy: 'high',
   },
-  // CircleCI Token
   {
     name: 'circleciToken',
     description: 'CircleCI personal API token',
@@ -182,14 +170,12 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:circleci|circle)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-f0-9]{40}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Buildkite Agent Token
   {
     name: 'buildkiteAgentToken',
     description: 'Buildkite agent token',
     regex: /\bbkagent_[a-f0-9]{40}\b/g,
     matchAccuracy: 'high',
   },
-  // LaunchDarkly Access Token
   {
     name: 'launchdarklyAccessToken',
     description: 'LaunchDarkly access token',
@@ -197,7 +183,6 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:launchdarkly)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9=_-]{40}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Algolia API Key
   {
     name: 'algoliaApiKey',
     description: 'Algolia API key',
@@ -206,23 +191,18 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'medium',
   },
 
-  // --- New Developer Tools Patterns ---
-
-  // Clerk Secret Key
   {
     name: 'clerkSecretKey',
     description: 'Clerk secret key',
     regex: /\bsk_(?:live|test)_[a-zA-Z0-9]{24,}\b/g,
     matchAccuracy: 'high',
   },
-  // Clerk Publishable Key
   {
     name: 'clerkPublishableKey',
     description: 'Clerk publishable key',
     regex: /\bpk_(?:live|test)_[a-zA-Z0-9]{24,}\b/g,
     matchAccuracy: 'medium',
   },
-  // LaunchDarkly SDK Key
   {
     name: 'launchdarklySdkKey',
     description: 'LaunchDarkly SDK key',
@@ -230,7 +210,6 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\bsdk-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/g,
     matchAccuracy: 'high',
   },
-  // Vercel OIDC Token
   {
     name: 'vercelOidcToken',
     description: 'Vercel OIDC token',
@@ -238,8 +217,6 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:VERCEL_OIDC_TOKEN)['"]?\s*(?::|=>|=)\s*['"]?eyJ[a-zA-Z0-9_-]{100,}['"]?\b/g,
     matchAccuracy: 'high',
   },
-  // NOTE: Turso database token pattern is in cloud-infrastructure.ts (tursoDatabaseToken) - covers both libsql and turso prefixes
-  // Novu API Key
   {
     name: 'novuApiKey',
     description: 'Novu API key',
@@ -247,14 +224,12 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:NOVU|novu)_?(?:API|api)?_?(?:KEY|key)['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9]{32,}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Trigger.dev API Key
   {
     name: 'triggerDevApiKey',
     description: 'Trigger.dev API key',
     regex: /\btr_(?:dev|prod)_[a-zA-Z0-9]{20,}\b/g,
     matchAccuracy: 'high',
   },
-  // Nx Cloud Access Token
   {
     name: 'nxCloudAccessToken',
     description: 'Nx Cloud access token',
@@ -262,14 +237,12 @@ export const developerToolsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:NX_CLOUD_ACCESS_TOKEN|nxCloudAccessToken)['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9]{36,}['"]?\b/g,
     matchAccuracy: 'medium',
   },
-  // Depot API Token
   {
     name: 'depotToken',
     description: 'Depot.dev build token',
     regex: /\bdpt_[a-zA-Z0-9]{40,}\b/g,
     matchAccuracy: 'high',
   },
-  // Grafbase API Key
   {
     name: 'grafbaseApiKey',
     description: 'Grafbase API key',

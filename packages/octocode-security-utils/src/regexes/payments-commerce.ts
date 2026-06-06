@@ -19,7 +19,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
     regex: /\bpk_(?:live|test)_[a-zA-Z0-9]{20,247}\b/g,
     matchAccuracy: 'medium',
   },
-  // PayPal
   {
     name: 'paypalAccessToken',
     description: 'PayPal access token',
@@ -34,7 +33,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Square (consolidated - all formats)
   {
     name: 'squareAccessToken',
     description: 'Square access token (all formats)',
@@ -55,7 +53,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Shopify
   {
     name: 'shopifyPrivateAppPassword',
     description: 'Shopify private app password',
@@ -75,7 +72,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Other Payment Providers
   {
     name: 'adyenApiKey',
     description: 'Adyen API key',
@@ -95,8 +91,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Cryptocurrency Exchanges
-  // Coinbase
   {
     name: 'coinbaseAccessToken',
     description: 'Coinbase access token',
@@ -104,7 +98,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:coinbase)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9_-]{64}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Kraken
   {
     name: 'krakenAccessToken',
     description: 'Kraken access token',
@@ -112,7 +105,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:kraken)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9/=_+-]{80,90}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Kucoin
   {
     name: 'kucoinAccessToken',
     description: 'Kucoin access token',
@@ -127,7 +119,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:kucoin)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Bittrex
   {
     name: 'bittrexAccessKey',
     description: 'Bittrex access key',
@@ -135,7 +126,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:bittrex)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[a-z0-9]{32}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Binance
   {
     name: 'binanceApiKey',
     description: 'Binance API key',
@@ -143,7 +133,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:binance)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[A-Za-z0-9]{64}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Bybit
   {
     name: 'bybitApiKey',
     description: 'Bybit API key',
@@ -151,14 +140,12 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:bybit)(?:[\s\w.-]{0,20})['"]?\s*(?::|=>|=)\s*['"]?[A-Za-z0-9]{18,24}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // GoCardless
   {
     name: 'gocardlessApiToken',
     description: 'GoCardless API token',
     regex: /\blive_[a-z0-9\-_=]{40}\b/gi,
     matchAccuracy: 'high',
   },
-  // Plaid
   {
     name: 'plaidApiToken',
     description: 'Plaid API token',
@@ -166,7 +153,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\baccess-(?:sandbox|development|production)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g,
     matchAccuracy: 'high',
   },
-  // Plaid Client ID
   {
     name: 'plaidClientId',
     description: 'Plaid client ID',
@@ -174,7 +160,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:PLAID|plaid)_?(?:CLIENT|client)_?(?:ID|id)['"]?\s*(?::|=>|=)\s*['"]?[a-f0-9]{24}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Lemon Squeezy API Key
   {
     name: 'lemonSqueezyApiKey',
     description: 'Lemon Squeezy API key',
@@ -182,7 +167,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:LEMONSQUEEZY|LEMON_SQUEEZY|lemonsqueezy)_?(?:API|api)?_?(?:KEY|key)['"]?\s*(?::|=>|=)\s*['"]?eyJ[a-zA-Z0-9_-]{100,}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Paddle API Key
   {
     name: 'paddleApiKey',
     description: 'Paddle API key',
@@ -190,7 +174,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:PADDLE|paddle)_?(?:API|api)?_?(?:KEY|key)['"]?\s*(?::|=>|=)\s*['"]?pdl_(?:live|sdbx)_[a-zA-Z0-9]{40,}['"]?\b/gi,
     matchAccuracy: 'high',
   },
-  // Mollie API Key
   {
     name: 'mollieApiKey',
     description: 'Mollie API key',
@@ -201,7 +184,6 @@ export const paymentProviderPatterns: SensitiveDataPattern[] = [
 ];
 
 export const ecommerceContentPatterns: SensitiveDataPattern[] = [
-  // E-commerce Platforms
   {
     name: 'shopifyStorefrontAccessToken',
     description: 'Shopify storefront API access token',
@@ -221,7 +203,6 @@ export const ecommerceContentPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Content Management & CRM
   {
     name: 'contentfulAccessToken',
     description: 'Contentful access token',
@@ -229,7 +210,6 @@ export const ecommerceContentPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Email Marketing
   {
     name: 'mailchimpEcommerceApiKey',
     description: 'MailChimp E-commerce API key',

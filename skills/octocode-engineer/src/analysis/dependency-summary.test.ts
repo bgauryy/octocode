@@ -117,7 +117,7 @@ describe('buildDependencySummary', () => {
   it('detects test-only modules (no production imports, only test imports)', () => {
     const state = makeDependencyState();
     addEdges(state, [
-      ['src/foo.test.ts', 'src/helper.ts', true], // test imports helper
+      ['src/foo.test.ts', 'src/helper.ts', true],
     ]);
     const criticality = new Map<string, FileCriticality>();
     const summary = buildDependencySummary(state, criticality, DEFAULT_OPTS);
@@ -129,7 +129,7 @@ describe('buildDependencySummary', () => {
   it('excludes test files from test-only modules list', () => {
     const state = makeDependencyState();
     addEdges(state, [
-      ['src/foo.test.ts', 'src/bar.test.ts', true], // test imports test
+      ['src/foo.test.ts', 'src/bar.test.ts', true],
     ]);
     const criticality = new Map<string, FileCriticality>();
     const summary = buildDependencySummary(state, criticality, DEFAULT_OPTS);

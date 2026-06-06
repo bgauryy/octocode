@@ -28,14 +28,8 @@ import {
   executeProviderOperation,
 } from '../providerExecution.js';
 
-/** How many entry names concise samples into the `top:` hint for drill-down. */
 const CONCISE_TOP_ENTRIES = 5;
 
-/**
- * Collect ALL entry names from a structure map — folders first (suffixed `/`),
- * then files. Used in concise mode to return a lightweight flat name list
- * without size/date metadata.
- */
 function collectAllStructureEntries(structure: unknown): string[] {
   if (!structure || typeof structure !== 'object') return [];
   const folders: string[] = [];
@@ -51,11 +45,6 @@ function collectAllStructureEntries(structure: unknown): string[] {
   return [...folders, ...files];
 }
 
-/**
- * Sample top entry names from a structure map for the `top:` hint.
- * Folders first (suffixed `/`), then files — folders are the more useful
- * drill targets during recon.
- */
 function collectTopStructureEntries(
   structure: unknown,
   limit: number
@@ -197,12 +186,6 @@ export async function exploreMultipleRepositoryStructures(
           hasContent,
           TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
           {
-            // Pass path/depth/branch so empty-listing hints can name the
-            // exact location that came back empty and suggest a concrete
-            // probe (parent dir, depth=2, different branch).
-            // flagFiles lets hints.hasResults surface feature-flag /
-            // *Mode/*Config files that gate the implementation a direct
-            // search would miss.
             hintContext: {
               entryCount,
               path: query.path,
@@ -249,11 +232,6 @@ export async function exploreMultipleRepositoryStructures(
   );
 }
 
-/**
- * Per-tool verbosity shaping for githubViewRepoStructure.
- * verbose=false (default): strip metadata-only fields (resolvedBranch, branchFallback).
- * verbose=true: full response passthrough.
- */
 export function applyGithubViewRepoStructureVerbosity(
   input: {
     data: Record<string, unknown>;
@@ -271,7 +249,6 @@ export function applyGithubViewRepoStructureVerbosity(
   );
 
   if (!isVerbose(queryWithVerbosity)) {
-    // Strip metadata-only fields (resolvedBranch, branchFallback) when verbose=false
     const {
       resolvedBranch: _rb,
       branchFallback: _bf,

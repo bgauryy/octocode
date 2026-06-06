@@ -1,17 +1,14 @@
-/// <reference types="vitest/globals" />
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   minifyContent,
   MINIFY_CONFIG,
 } from '../../../src/utils/minifier/minifier.js';
 
-// Mock terser
 const mockMinify = vi.hoisted(() => vi.fn());
 vi.mock('terser', () => ({
   minify: mockMinify,
 }));
 
-// Mock clean-css - use a class with minify method
 const mockCleanCSSMinify = vi.hoisted(() => vi.fn());
 vi.mock('clean-css', () => {
   return {
@@ -23,7 +20,6 @@ vi.mock('clean-css', () => {
   };
 });
 
-// Mock html-minifier-terser
 const mockHtmlMinify = vi.hoisted(() => vi.fn());
 vi.mock('html-minifier-terser', () => ({
   minify: mockHtmlMinify,
@@ -35,15 +31,14 @@ describe('MinifierV2', () => {
     mockCleanCSSMinify.mockReset();
     mockHtmlMinify.mockReset();
 
-    // Default successful mocks
     mockCleanCSSMinify.mockReturnValue({ styles: '', errors: [] });
     mockHtmlMinify.mockResolvedValue('');
   });
 
   describe('Configuration', () => {
     it('should have proper comment patterns defined', () => {
-      expect(MINIFY_CONFIG.commentPatterns['c-style']).toHaveLength(3); // Block, line, and inline comments
-      expect(MINIFY_CONFIG.commentPatterns.hash).toHaveLength(2); // Start of line and inline hash comments
+      expect(MINIFY_CONFIG.commentPatterns['c-style']).toHaveLength(3);
+      expect(MINIFY_CONFIG.commentPatterns.hash).toHaveLength(2);
       expect(MINIFY_CONFIG.commentPatterns.html).toHaveLength(1);
     });
 
@@ -78,7 +73,7 @@ describe('MinifierV2', () => {
 
       expect(result.type).toBe('failed');
       expect(result.failed).toBe(true);
-      expect(result.content).toBe(jsCode); // Returns original content
+      expect(result.content).toBe(jsCode);
     });
   });
 
@@ -98,21 +93,17 @@ function greet(user: User): string {
 
       const result = await minifyContent(tsCode, 'test.ts');
 
-      // Should use conservative strategy, not terser — preserves readability
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove comments
       expect(result.content).not.toContain('// Single line comment');
       expect(result.content).not.toContain('/* Multi-line comment');
       expect(result.content).not.toContain('describing the function */');
 
-      // Should preserve TypeScript syntax with indentation (conservative keeps structure)
       expect(result.content).toContain('interface User');
       expect(result.content).toContain('name: string');
       expect(result.content).toContain('function greet(user: User): string');
 
-      // Terser should NOT be called for .ts files
       expect(mockMinify).not.toHaveBeenCalled();
     });
 
@@ -134,16 +125,13 @@ export const Header: React.FC<Props> = ({ title }) => {
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove comments
       expect(result.content).not.toContain('// Component comment');
       expect(result.content).not.toContain('/* Main component */');
 
-      // Should preserve TSX/TypeScript syntax with indentation (conservative)
       expect(result.content).toContain('interface Props');
       expect(result.content).toContain('title: string');
       expect(result.content).toContain('React.FC<Props>');
 
-      // Terser should NOT be called for .tsx files
       expect(mockMinify).not.toHaveBeenCalled();
     });
 
@@ -162,7 +150,6 @@ async function fetchData<T extends object>(
   return response.json() as T;
 }
 
-// Enum definition
 enum Status {
   Pending = 'pending',
   Active = 'active',
@@ -174,12 +161,10 @@ enum Status {
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove all comments
       expect(result.content).not.toContain('// Utility types');
       expect(result.content).not.toContain('/* Generic function */');
       expect(result.content).not.toContain('// Enum definition');
 
-      // Should preserve complex TypeScript syntax
       expect(result.content).toContain('type Partial<T>');
       expect(result.content).toContain('keyof T');
       expect(result.content).toContain(
@@ -190,7 +175,6 @@ enum Status {
     });
 
     it('should never fail on TypeScript files (conservative is safe)', async () => {
-      // TypeScript code that would cause terser to fail
       const tsCode = `
 interface ComplexType<T extends Record<string, unknown>> {
   data: T;
@@ -207,11 +191,9 @@ const handler: <T>(input: T) => T = (input) => input;
 
       const result = await minifyContent(tsCode, 'complex.ts');
 
-      // Should ALWAYS succeed with conservative strategy
       expect(result.failed).toBe(false);
       expect(result.type).toBe('conservative');
 
-      // Content should be minified (smaller)
       expect(result.content.length).toBeLessThan(tsCode.length);
     });
   });
@@ -235,12 +217,10 @@ class MyClass:
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove comments but preserve indentation and line structure
       expect(result.content).not.toContain('# This is a comment');
       expect(result.content).not.toContain('# Another comment');
       expect(result.content).not.toContain('# Top level comment');
 
-      // Should preserve indentation
       expect(result.content).toContain('def hello():');
       expect(result.content).toContain('    if True:');
       expect(result.content).toContain('        print("Hello")');
@@ -266,12 +246,10 @@ services:
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove comments but preserve YAML structure
       expect(result.content).not.toContain('# YAML configuration');
       expect(result.content).not.toContain('# Web service config');
       expect(result.content).not.toContain('# Database service');
 
-      // Should preserve YAML indentation
       expect(result.content).toContain("version: '3.8'");
       expect(result.content).toContain('services:');
       expect(result.content).toContain('  web:');
@@ -303,7 +281,6 @@ services:
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
 
-      // Should remove comments and excessive whitespace
       expect(result.content).not.toContain('<!-- This is a comment -->');
       expect(result.content).toBe(expectedMinified);
     });
@@ -336,12 +313,10 @@ services:
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
 
-      // Should remove comments and excessive whitespace
       expect(result.content).not.toContain('/* Main styles */');
       expect(result.content).not.toContain('/* Container styles */');
       expect(result.content).not.toContain('/* Button styles */');
 
-      // clean-css produces superior minification
       expect(result.content).toContain(
         '.container{padding:20px;margin:0 auto;max-width:1200px}'
       );
@@ -355,30 +330,24 @@ services:
 
 import "fmt"
 
-// Main function
 func main() {
     /*
      * Print hello world
      */
     fmt.Println("Hello, World!")
 
-    // Another comment
     var x = 42
 }`;
 
       const result = await minifyContent(goCode, 'main.go');
 
-      // C-family code is conservative now (was aggressive) — newlines carry
-      // meaning/readability; aggressive garbled code-search fragments.
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Comments still removed
       expect(result.content).not.toContain('// Main function');
       expect(result.content).not.toContain('Print hello world');
       expect(result.content).not.toContain('// Another comment');
 
-      // Line structure preserved (NOT flattened onto one line)
       expect(result.content).toContain('\n');
       expect(result.content).toContain('func main() {');
       expect(result.content).not.toMatch(/import "fmt" func main/);
@@ -407,7 +376,6 @@ func main() {
     it('should handle JSON with comments (JSONC)', async () => {
       const jsonWithComments = `{
   "name": "test",
-  // This comment makes it invalid JSON
   "version": "1.0.0"
 }`;
 
@@ -415,7 +383,6 @@ func main() {
 
       expect(result.type).toBe('json');
       expect(result.failed).toBe(false);
-      // Should successfully parse and minify JSONC
       expect(result.content).toBe('{"name":"test","version":"1.0.0"}');
     });
 
@@ -430,7 +397,6 @@ func main() {
 
       expect(result.type).toBe('json');
       expect(result.failed).toBe(false);
-      // Should return original content (trimmed)
       expect(result.content).toContain('"name": "test",');
       expect(result.content).toContain('"missing_comma": true');
     });
@@ -438,14 +404,12 @@ func main() {
     it('should preserve spaces within strings when parsing JSONC', async () => {
       const jsonWithSpaces = `{
   "key": "value   with   multiple   spaces",
-  // Comment causing invalid JSON
   "other": "data"
 }`;
       const result = await minifyContent(jsonWithSpaces, 'config.json');
 
       expect(result.type).toBe('json');
       expect(result.failed).toBe(false);
-      // Should preserve the multiple spaces inside the string
       expect(result.content).toContain('"value   with   multiple   spaces"');
     });
   });
@@ -453,21 +417,18 @@ func main() {
   describe('Multi-language Comment Support', () => {
     it('should handle PHP with multiple comment types', async () => {
       const phpCode = `<?php
-// Single line comment
 /* Multi-line comment */
 # Hash comment
 function test() {
-    return true; // Inline comment
+    return true;
 }
 ?>`;
 
       const result = await minifyContent(phpCode, 'test.php');
 
-      // PHP is conservative now (newline-preserving); comments still stripped.
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
-      // Should remove all comment types
       expect(result.content).not.toContain('// Single line comment');
       expect(result.content).not.toContain('/* Multi-line comment */');
       expect(result.content).not.toContain('# Hash comment');
@@ -487,12 +448,10 @@ WHERE active = 1;
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
 
-      // Should remove both types of SQL comments
       expect(result.content).not.toContain('-- This is a SQL comment');
       expect(result.content).not.toContain('/* Multi-line SQL comment');
       expect(result.content).not.toContain('-- Another comment');
 
-      // Should preserve SQL structure
       expect(result.content).toContain('SELECT * FROM users WHERE active = 1;');
     });
   });
@@ -516,7 +475,6 @@ Another paragraph with *italic* text.
 
       expect(result.type).toBe('markdown');
       expect(result.failed).toBe(false);
-      // Should preserve markdown structure but reduce whitespace
       expect(result.content).toContain('# Title');
       expect(result.content).toContain('**bold**');
     });
@@ -546,14 +504,12 @@ setting3=value3    `;
       expect(result.type).toBe('general');
       expect(result.failed).toBe(false);
 
-      // Should clean up general whitespace issues
       expect(result.content).toContain('setting1=value1');
       expect(result.content).toContain('setting2=value2');
       expect(result.content).toContain('setting3=value3');
 
-      // Should remove excessive whitespace
-      expect(result.content).not.toMatch(/[ \t]+$/m); // No trailing whitespace
-      expect(result.content).not.toMatch(/\n\n\n+/); // No triple newlines
+      expect(result.content).not.toMatch(/[ \t]+$/m);
+      expect(result.content).not.toMatch(/\n\n\n+/);
     });
 
     it('should treat indentation-sensitive filenames conservatively (no extension)', async () => {
@@ -568,7 +524,6 @@ test:
 
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
-      // Tabs should be preserved for Makefile recipes
       expect(result.content).toContain('\t@echo "Building"');
       expect(result.content).toContain('\t@echo "Testing"');
     });
@@ -599,7 +554,6 @@ test:
 
   describe('Size Limit Tests', () => {
     it('should reject content larger than 1MB', async () => {
-      // Create content just over 1MB (1MB + 100 bytes)
       const oneMB = 1024 * 1024;
       const largeContent = 'x'.repeat(oneMB + 100);
 
@@ -607,25 +561,23 @@ test:
 
       expect(result.failed).toBe(true);
       expect(result.type).toBe('failed');
-      expect(result.content).toBe(largeContent); // Should return original content
+      expect(result.content).toBe(largeContent);
     });
 
     it('should accept content exactly at 1MB limit', async () => {
-      // Create content exactly 1MB
       const oneMB = 1024 * 1024;
       const limitContent = 'a'.repeat(oneMB);
 
       const result = await minifyContent(limitContent, 'limit.txt');
 
       expect(result.failed).toBe(false);
-      expect(result.type).toBe('general'); // txt files use general strategy
+      expect(result.type).toBe('general');
       expect(result.content.length).toBeLessThanOrEqual(limitContent.length);
     });
   });
 
   describe('Error Handling', () => {
     it('should handle non-string content gracefully', async () => {
-      // Force an error by passing invalid content type
       const result = await minifyContent(null as unknown as string, 'test.txt');
 
       expect(result.failed).toBe(true);
@@ -645,7 +597,6 @@ test:
     });
 
     it('should return original content when an unexpected error occurs', async () => {
-      // Create an object that throws when accessed
       const problematicContent = {
         toString() {
           throw new Error('Cannot convert to string');
@@ -662,7 +613,6 @@ test:
     });
 
     it('should handle non-Error exceptions in terser failure', async () => {
-      // Mock terser to throw a non-Error
       mockMinify.mockRejectedValue('String error');
 
       const result = await minifyContent('const x = 1;', 'test.js');
@@ -697,13 +647,10 @@ test:
 
       const result = await minifyContent(cssCode, 'test.css');
 
-      // Should succeed using regex fallback
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
-      // Should include reason explaining the fallback
       expect(result.reason).toContain('CleanCSS fallback');
       expect(result.reason).toContain('CleanCSS internal error');
-      // Should still remove comments and minify via regex fallback
       expect(result.content).not.toContain('/* comment */');
     });
 
@@ -716,7 +663,6 @@ test:
 
       const result = await minifyContent(cssCode, 'test.css');
 
-      // Should succeed using regex fallback (error thrown triggers catch)
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
     });
@@ -801,13 +747,10 @@ test:
 
       const result = await minifyContent(htmlCode, 'test.html');
 
-      // Should succeed using regex fallback
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
-      // Should include reason explaining the fallback
       expect(result.reason).toContain('html-minifier fallback');
       expect(result.reason).toContain('html-minifier parse error');
-      // Should still remove comments via regex fallback
       expect(result.content).not.toContain('<!-- comment -->');
     });
 
@@ -829,9 +772,7 @@ test:
 
   describe('Comment Pattern Error Recovery', () => {
     it('should continue processing when a pattern fails', async () => {
-      // Test PHP with multiple comment types
       const phpCode = `<?php
-// comment
 /* block */
 echo "test";
 ?>`;
@@ -847,16 +788,13 @@ echo "test";
   describe('Default Fallback Strategy', () => {
     it('should use default fallback for file with no extension', async () => {
       const content = 'content for extensionless file    \n\n';
-      // A file with no extension that doesn't match Makefile or Dockerfile patterns
       const result = await minifyContent(content, 'SOMEFILE');
 
-      // Should fall back to general or conservative strategy
       expect(result.failed).toBe(false);
     });
 
     it('should use general minification for completely unknown formats', async () => {
       const content = 'data: value\nmore: stuff\n\n\n';
-      // Test with a bizarre extension that won't match any known type
       const result = await minifyContent(content, 'file.zzzzzzz');
 
       expect(result.type).toBe('general');
@@ -866,12 +804,9 @@ echo "test";
 
   describe('Switch Default Branch Coverage', () => {
     it('should handle file types that fall through to default case via getFileConfig returning unknown strategy', async () => {
-      // Testing files that might trigger edge cases
-      // A file with a completely novel extension that doesn't exist in config
       const content = 'some test content with    spaces and\n\n\nlines';
       const result = await minifyContent(content, 'test.xyzabc123');
 
-      // Should use general strategy as default fallback
       expect(result.type).toBe('general');
       expect(result.failed).toBe(false);
     });
@@ -879,20 +814,16 @@ echo "test";
 
   describe('Catch Block Coverage', () => {
     it('should catch errors in minifyGeneral and return original content', async () => {
-      // The minifyGeneral function has a try-catch that returns content on error
-      // We can't easily trigger this without mocking, but we verify the function handles edge cases
       const complexContent =
         'Valid content \r\n with\t\t  mixed  \n\n\n\n whitespace';
       const result = await minifyContent(complexContent, 'test.unknownext');
 
       expect(result.type).toBe('general');
       expect(result.failed).toBe(false);
-      // Should have normalized line endings
       expect(result.content).not.toContain('\r\n');
     });
 
     it('should catch errors in minifyMarkdown and return original content', async () => {
-      // Test markdown with potential edge cases
       const markdownContent =
         '# Test\n\n```\ncode block\n```\n\n- item\n  - nested';
       const result = await minifyContent(markdownContent, 'test.md');
@@ -915,15 +846,12 @@ Content here.
 
       expect(result.type).toBe('markdown');
       expect(result.failed).toBe(false);
-      // Comments should be removed
       expect(result.content).not.toContain('Hidden comment');
     });
   });
 
   describe('Additional File Type Coverage', () => {
     it('should handle CSV files with conservative strategy (no comments config)', async () => {
-      // CSV has conservative strategy but NO comments defined in config
-      // This tests the branch where config.comments is undefined
       const csvContent = `name,age,city
 John,30,NYC
 # This is NOT a comment because CSV has no comment config
@@ -934,9 +862,7 @@ Bob,35,Chicago`;
 
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
-      // The # line should be preserved since CSV has no comments config
       expect(result.content).toContain('# This is NOT a comment');
-      // Should still reduce blank lines and trim trailing whitespace
       expect(result.content).not.toMatch(/ +$/m);
     });
 
@@ -980,7 +906,6 @@ COPY . .`;
 
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
-      // Should preserve indentation
       expect(result.content).toContain('FROM node:18');
     });
 
@@ -1020,7 +945,6 @@ end`;
 build:
 	echo "building"`;
 
-      // Test multiple indentation-sensitive file names
       const filenames = ['Rakefile', 'Gemfile', 'Podfile', 'Fastfile'];
 
       for (const filename of filenames) {
@@ -1043,7 +967,6 @@ main = putStrLn "Hello"`;
 
       expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
-      // Should remove comments
       expect(result.content).not.toContain('-- Haskell comment');
       expect(result.content).not.toContain('Block comment');
     });

@@ -5,6 +5,7 @@ import {
   recordCircuitSuccess,
   resetCircuitBreaker,
   configureCircuitBreaker,
+  isCircuitOpen,
   CircuitOpenError,
   DEFAULT_CIRCUIT_FAILURE_THRESHOLD,
 } from '../../../src/utils/http/circuitBreaker.js';
@@ -43,19 +44,18 @@ describe('circuit breaker (#T13)', () => {
     configureCircuitBreaker({ failureThreshold: 2, cooldownMs: 5000 });
     recordCircuitFailure(URL_A, 0);
     recordCircuitFailure(URL_A, 0);
-    expect(() => assertCircuitAvailable(URL_A, 1000)).toThrow(); // still open
-    // after cooldown: half-open trial allowed
+    expect(() => assertCircuitAvailable(URL_A, 1000)).toThrow();
     expect(() => assertCircuitAvailable(URL_A, 6000)).not.toThrow();
     recordCircuitSuccess(URL_A);
-    expect(() => assertCircuitAvailable(URL_A, 7000)).not.toThrow(); // closed
+    expect(() => assertCircuitAvailable(URL_A, 7000)).not.toThrow();
   });
 
   it('re-opens if the half-open trial fails', () => {
     configureCircuitBreaker({ failureThreshold: 2, cooldownMs: 5000 });
     recordCircuitFailure(URL_A, 0);
     recordCircuitFailure(URL_A, 0);
-    assertCircuitAvailable(URL_A, 6000); // → half-open
-    recordCircuitFailure(URL_A, 6000); // trial fails → re-open
+    assertCircuitAvailable(URL_A, 6000);
+    recordCircuitFailure(URL_A, 6000);
     expect(() => assertCircuitAvailable(URL_A, 6500)).toThrow();
   });
 
@@ -67,5 +67,62 @@ describe('circuit breaker (#T13)', () => {
       recordCircuitFailure(URL_A, 0);
     }
     expect(() => assertCircuitAvailable(URL_A, 0)).not.toThrow();
+  });
+
+  it('isCircuitOpen returns false when no circuit exists', () => {
+    expect(isCircuitOpen(URL_A)).toBe(false);
+  });
+
+  it('handles non-URL strings in hostKey (isCircuitOpen with raw string)', () => {
+    expect(isCircuitOpen('not-a-valid-url')).toBe(false);
+  });
+
+  it('hostKey falls back to raw url when host is empty (mailto: scheme)', () => {
+    expect(isCircuitOpen('mailto:x@example.com')).toBe(false);
+  });
+
+  it('assertCircuitAvailable returns early when circuit exists but is closed', () => {
+    for (let i = 0; i < DEFAULT_CIRCUIT_FAILURE_THRESHOLD - 1; i++) {
+      recordCircuitFailure(URL_A, 0);
+    }
+    expect(() => assertCircuitAvailable(URL_A, 0)).not.toThrow();
+  });
+
+  it('configureCircuitBreaker ignores non-numeric / absent options (false branches)', () => {
+    configureCircuitBreaker({});
+    for (let i = 0; i < DEFAULT_CIRCUIT_FAILURE_THRESHOLD; i++) {
+      recordCircuitFailure(URL_A, 0);
+    }
+    expect(() => assertCircuitAvailable(URL_A, 0)).toThrow(CircuitOpenError);
+  });
+
+  it('isCircuitOpen returns true when circuit is open within cooldown', () => {
+    configureCircuitBreaker({ failureThreshold: 2, cooldownMs: 5000 });
+    recordCircuitFailure(URL_A, 0);
+    recordCircuitFailure(URL_A, 0);
+    expect(isCircuitOpen(URL_A, 1000)).toBe(true);
+  });
+
+  it('isCircuitOpen returns false when circuit is in half-open state', () => {
+    configureCircuitBreaker({ failureThreshold: 2, cooldownMs: 5000 });
+    recordCircuitFailure(URL_A, 0);
+    recordCircuitFailure(URL_A, 0);
+    assertCircuitAvailable(URL_A, 6000);
+    expect(isCircuitOpen(URL_A, 6000)).toBe(false);
+  });
+
+  it('assertCircuitAvailable no-ops when circuit is already half-open', () => {
+    configureCircuitBreaker({ failureThreshold: 2, cooldownMs: 5000 });
+    recordCircuitFailure(URL_A, 0);
+    recordCircuitFailure(URL_A, 0);
+    expect(() => assertCircuitAvailable(URL_A, 6000)).not.toThrow();
+    expect(() => assertCircuitAvailable(URL_A, 6001)).not.toThrow();
+  });
+
+  it('isCircuitOpen returns false when circuit is open but cooldown has elapsed', () => {
+    configureCircuitBreaker({ failureThreshold: 2, cooldownMs: 5000 });
+    recordCircuitFailure(URL_A, 0);
+    recordCircuitFailure(URL_A, 0);
+    expect(isCircuitOpen(URL_A, 10000)).toBe(false);
   });
 });

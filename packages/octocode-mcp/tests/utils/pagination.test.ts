@@ -1,7 +1,3 @@
-/**
- * Tests for pagination utility functions
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   applyPagination,
@@ -14,7 +10,6 @@ import {
   generateStructurePaginationHints,
 } from '../../src/utils/pagination/hints.js';
 import type { PaginationMetadata } from '../../src/utils/pagination/types.js';
-// Internal function imported directly for testing
 import { sliceByCharRespectLines } from '../../src/utils/pagination/core.js';
 
 describe('pagination utility', () => {
@@ -58,8 +53,8 @@ describe('pagination utility', () => {
       const content = 'a'.repeat(100);
       const result = applyPagination(content, 50, 25);
 
-      expect(result.currentPage).toBe(3); // 50/25 + 1 = 3
-      expect(result.totalPages).toBe(4); // ceil(100/25) = 4
+      expect(result.currentPage).toBe(3);
+      expect(result.totalPages).toBe(4);
     });
 
     it('should handle charOffset beyond content length', () => {
@@ -67,7 +62,7 @@ describe('pagination utility', () => {
       const result = applyPagination(content, 100, 10);
 
       expect(result.paginatedContent).toBe('');
-      expect(result.charOffset).toBe(5); // capped to content length
+      expect(result.charOffset).toBe(5);
       expect(result.hasMore).toBe(false);
     });
 
@@ -75,28 +70,19 @@ describe('pagination utility', () => {
       const content = 'Hello World Test Content';
       const result = applyPagination(content, 5, 10, { actualOffset: 10 });
 
-      expect(result.currentPage).toBe(2); // 10/10 + 1 = 2
+      expect(result.currentPage).toBe(2);
     });
 
-    // NEW TEST CASE FOR UTF-8 BYTE OFFSETS
     it('should handle UTF-8 byte offsets correctly (failing case)', () => {
-      const content = 'a🚀b'; // 'a' (1 byte), '🚀' (4 bytes), 'b' (1 byte)
-      // We want to skip 'a' (1 byte) and take next 4 bytes (🚀)
+      const content = 'a🚀b';
       const result = applyPagination(content, 1, 4, { mode: 'bytes' });
 
-      // If we use byte offsets:
-      // Byte 0: 'a'
-      // Byte 1-4: '🚀'
-      // Byte 5: 'b'
-      // Offset 1, Length 4 -> Bytes 1,2,3,4 -> "🚀"
-
       expect(result.paginatedContent).toBe('🚀');
-      expect(result.byteLength).toBe(4); // Bytes, not chars
+      expect(result.byteLength).toBe(4);
     });
 
     it('should handle bytes mode reaching end of content (hasMore=false)', () => {
-      const content = 'Hello'; // 5 bytes ASCII
-      // Start at byte 3, take 10 bytes (will hit end)
+      const content = 'Hello';
       const result = applyPagination(content, 3, 10, { mode: 'bytes' });
 
       expect(result.paginatedContent).toBe('lo');
@@ -105,7 +91,7 @@ describe('pagination utility', () => {
     });
 
     it('should handle bytes mode with multi-byte UTF-8 at exact boundary', () => {
-      const content = '你好世界'; // 4 Chinese chars, 12 bytes total (3 bytes each)
+      const content = '你好世界';
       const result = applyPagination(content, 0, 6, { mode: 'bytes' });
 
       expect(result.paginatedContent).toBe('你好');
@@ -115,7 +101,7 @@ describe('pagination utility', () => {
     });
 
     it('should handle bytes mode with exact fit content', () => {
-      const content = 'abc'; // 3 bytes
+      const content = 'abc';
       const result = applyPagination(content, 0, 3, { mode: 'bytes' });
 
       expect(result.paginatedContent).toBe('abc');
@@ -125,10 +111,10 @@ describe('pagination utility', () => {
     });
 
     it('should return estimated tokens correctly', () => {
-      const content = 'a'.repeat(400); // 400 chars = ~100 tokens
+      const content = 'a'.repeat(400);
       const result = applyPagination(content, 0, 200);
 
-      expect(result.estimatedTokens).toBe(50); // 200/4 = 50
+      expect(result.estimatedTokens).toBe(50);
     });
 
     it('should handle zero charOffset explicitly', () => {
@@ -147,60 +133,55 @@ describe('pagination utility', () => {
       expect(result.nextCharOffset).toBeUndefined();
     });
 
-    // Tests for byte/character offset separation (fixing bytes vs chars confusion)
     describe('byte/character offset separation', () => {
       it('should return correct byte and char offsets for emoji content', () => {
-        // "Hello 👋 World" = 6 ASCII chars + 1 emoji (4 bytes, 2 chars in JS) + 6 ASCII chars
-        // Total: 14 chars, 16 bytes
         const content = 'Hello 👋 World';
         const result = applyPagination(content, 0, 10, { mode: 'bytes' });
 
-        // Byte mode with 10 bytes: "Hello " (6 bytes) + part of emoji (4 bytes) = 10 bytes
         expect(result.paginatedContent).toBe('Hello 👋');
         expect(result.byteOffset).toBe(0);
-        expect(result.byteLength).toBe(10); // Actual bytes
-        expect(result.totalBytes).toBe(16); // Total bytes
+        expect(result.byteLength).toBe(10);
+        expect(result.totalBytes).toBe(16);
         expect(result.charOffset).toBe(0);
-        expect(result.charLength).toBe(8); // "Hello " (6) + emoji (2 JS chars)
-        expect(result.totalChars).toBe(14); // Total characters
+        expect(result.charLength).toBe(8);
+        expect(result.totalChars).toBe(14);
         expect(result.nextByteOffset).toBe(10);
         expect(result.nextCharOffset).toBe(8);
       });
 
       it('should return correct offsets for CJK content in bytes mode', () => {
-        const content = '你好世界'; // Each CJK char is 3 bytes, 1 JS char
+        const content = '你好世界';
         const result = applyPagination(content, 0, 6, { mode: 'bytes' });
 
         expect(result.paginatedContent).toBe('你好');
         expect(result.byteOffset).toBe(0);
-        expect(result.byteLength).toBe(6); // 2 CJK chars * 3 bytes
-        expect(result.totalBytes).toBe(12); // 4 CJK chars * 3 bytes
+        expect(result.byteLength).toBe(6);
+        expect(result.totalBytes).toBe(12);
         expect(result.charOffset).toBe(0);
-        expect(result.charLength).toBe(2); // 2 CJK chars
-        expect(result.totalChars).toBe(4); // 4 CJK chars
+        expect(result.charLength).toBe(2);
+        expect(result.totalChars).toBe(4);
       });
 
       it('should return correct offsets for CJK content in character mode', () => {
-        const content = '你好世界'; // Each CJK char is 3 bytes, 1 JS char
-        const result = applyPagination(content, 0, 2); // Character mode (default)
+        const content = '你好世界';
+        const result = applyPagination(content, 0, 2);
 
         expect(result.paginatedContent).toBe('你好');
         expect(result.charOffset).toBe(0);
         expect(result.charLength).toBe(2);
         expect(result.totalChars).toBe(4);
         expect(result.byteOffset).toBe(0);
-        expect(result.byteLength).toBe(6); // 2 chars * 3 bytes
+        expect(result.byteLength).toBe(6);
         expect(result.totalBytes).toBe(12);
       });
 
       it('should allow using nextCharOffset with substring correctly', () => {
         const content = 'Hello 👋 World';
-        const page1 = applyPagination(content, 0, 8); // First 8 chars
+        const page1 = applyPagination(content, 0, 8);
 
-        expect(page1.paginatedContent).toBe('Hello 👋'); // 6 + 2 chars
+        expect(page1.paginatedContent).toBe('Hello 👋');
         expect(page1.nextCharOffset).toBe(8);
 
-        // Verify using nextCharOffset with substring works
         const remainingContent = content.substring(page1.nextCharOffset!);
         expect(remainingContent).toBe(' World');
       });
@@ -212,7 +193,6 @@ describe('pagination utility', () => {
         expect(page1.paginatedContent).toBe('Hello 👋');
         expect(page1.nextByteOffset).toBe(10);
 
-        // Verify using nextByteOffset with Buffer works
         const buffer = Buffer.from(content, 'utf-8');
         const remainingContent = buffer
           .subarray(page1.nextByteOffset!)
@@ -222,7 +202,7 @@ describe('pagination utility', () => {
 
       it('should return undefined for fullContent without pagination', () => {
         const content = 'Hello 👋 World';
-        const result = applyPagination(content); // No pagination
+        const result = applyPagination(content);
 
         expect(result.byteOffset).toBe(0);
         expect(result.byteLength).toBe(16);
@@ -238,7 +218,6 @@ describe('pagination utility', () => {
   });
 
   describe('generatePaginationHints', () => {
-    // Helper to add required byte fields for PaginationMetadata
     const withByteFields = (
       meta: Omit<
         PaginationMetadata,
@@ -433,9 +412,7 @@ describe('pagination utility', () => {
 
       const hints = generatePaginationHints(metadata);
 
-      // Still emits a pagination cursor.
       expect(hints.some(h => h.includes('charOffset=5'))).toBe(true);
-      // No token warning since estimatedTokens is undefined.
       expect(hints.some(h => h.includes('tokens'))).toBe(false);
     });
 
@@ -446,14 +423,12 @@ describe('pagination utility', () => {
         charLength: 5,
         totalChars: 10,
         hasMore: true,
-        // nextCharOffset is intentionally missing
         currentPage: 1,
         totalPages: 2,
       });
 
       const hints = generatePaginationHints(metadata);
 
-      // Should NOT show "Next page: Use charOffset=" if nextCharOffset is missing
       expect(hints.some(h => h.includes('charOffset='))).toBe(false);
     });
 
@@ -528,7 +503,6 @@ describe('pagination utility', () => {
       const text = 'line1\nline2\nline3\n';
       const result = sliceByCharRespectLines(text, 0, 10);
 
-      // Should include complete lines up to ~10 chars
       expect(result.sliced).toBe('line1\nline2\n');
       expect(result.actualOffset).toBe(0);
       expect(result.hasMore).toBe(true);
@@ -537,20 +511,16 @@ describe('pagination utility', () => {
 
     it('should adjust offset to line boundary when mid-line', () => {
       const text = 'line1\nline2\nline3\n';
-      // Start at position 8 (middle of "line2")
       const result = sliceByCharRespectLines(text, 8, 10);
 
-      // Should adjust to start of line2 (position 6)
       expect(result.actualOffset).toBe(6);
       expect(result.sliced.startsWith('line2')).toBe(true);
     });
 
     it('should extend to complete the line at end', () => {
       const text = 'line1\nline2\nline3\n';
-      // Request ends mid-line
       const result = sliceByCharRespectLines(text, 0, 8);
 
-      // Should extend to include full "line2\n"
       expect(result.sliced).toBe('line1\nline2\n');
       expect(result.actualLength).toBe(12);
     });
@@ -561,14 +531,13 @@ describe('pagination utility', () => {
 
       expect(result.sliced).toBe('line1\nline2');
       expect(result.hasMore).toBe(false);
-      expect(result.lineCount).toBe(1); // Only one newline
+      expect(result.lineCount).toBe(1);
     });
 
     it('should handle single line text', () => {
       const text = 'This is a single line without newline';
       const result = sliceByCharRespectLines(text, 0, 20);
 
-      // Should return entire line since no newline boundary
       expect(result.sliced).toBe(text);
       expect(result.hasMore).toBe(false);
     });
@@ -586,7 +555,6 @@ describe('pagination utility', () => {
       const text = 'a'.repeat(100);
       const result = sliceByCharRespectLines(text, 0, 50);
 
-      // No newlines, so should return entire content
       expect(result.sliced).toBe(text);
       expect(result.hasMore).toBe(false);
     });
@@ -600,7 +568,6 @@ describe('pagination utility', () => {
 
     it('should handle offset at exact line boundary', () => {
       const text = 'line1\nline2\nline3\n';
-      // Offset at start of line2
       const result = sliceByCharRespectLines(text, 6, 6);
 
       expect(result.actualOffset).toBe(6);
@@ -613,7 +580,6 @@ describe('pagination utility', () => {
 
       expect(result.sliced).toBe('line2\n');
       expect(result.hasMore).toBe(false);
-      // nextOffset is undefined when hasMore is false
       expect(result.nextOffset).toBeUndefined();
     });
 
@@ -635,7 +601,6 @@ describe('pagination utility', () => {
   });
 
   describe('createPaginationInfo', () => {
-    // Helper to add required byte fields for PaginationMetadata in this describe block
     const withByteFieldsInfo = (
       meta: Omit<
         PaginationMetadata,
@@ -732,7 +697,6 @@ describe('pagination utility', () => {
       expect(hints).toHaveLength(1);
       expect(hints[0]).toContain('Page 1/3');
       expect(hints[0]).toContain('charOffset=20000');
-      // No param-echo for owner/repo/path/branch — caller already has them.
       expect(hints[0]).not.toContain('owner=');
       expect(hints[0]).not.toContain('TO GET NEXT PAGE');
     });
@@ -803,8 +767,6 @@ describe('pagination utility', () => {
       expect(hints).toHaveLength(1);
       expect(hints[0]).toContain('Page 1/3');
       expect(hints[0]).toContain('entryPageNumber=2');
-      // No param-echo: owner/repo/branch/path/depth/entriesPerPage all live on
-      // the caller's query — the hint must not duplicate them.
       expect(hints[0]).not.toContain('owner=');
       expect(hints[0]).not.toContain('TO GET NEXT PAGE');
     });

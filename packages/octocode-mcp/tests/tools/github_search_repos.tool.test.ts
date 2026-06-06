@@ -136,7 +136,6 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const responseText = getTextContent(result.content);
 
       expect(result.isError).toBe(false);
-      // hasResults is now signaled by ABSENT status — emitted only for empty/error.
       expect(responseText).not.toContain('status: "hasResults"');
       expect(responseText).toContain('facebook/react');
       expect(responseText).toContain('vercel/next.js');
@@ -513,8 +512,6 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
     });
 
     it('returns repositories with complete topics[] — never truncates mid-item', async () => {
-      // A repository is the atomic pagination unit: every returned repo carries
-      // its full topics[] regardless of how many repos are on the page.
       const topics = Array.from({ length: 5 }, (_, index) => `topic-${index}`);
       mockProvider.searchRepos.mockResolvedValue({
         data: {
@@ -555,8 +552,6 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       };
       const firstData = firstStructured.results[0]!.data;
 
-      // Item-atomic: every repo on the page carries its FULL topics[] (never a
-      // truncated fragment).
       expect(firstData.repositories?.length ?? 0).toBeGreaterThan(0);
       for (const r of firstData.repositories ?? []) {
         expect(r.topics).toEqual(topics);
@@ -646,16 +641,12 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         ],
       });
 
-      // The provider should receive the raw stars string, not a parsed minStars
       expect(mockProvider.searchRepos).toHaveBeenCalled();
       const providerCall = mockProvider.searchRepos.mock.calls[0]![0] as Record<
         string,
         unknown
       >;
-      // stars should be preserved in some form that doesn't lose the range
-      // After fix: stars field should pass through as-is
       expect(providerCall.stars || providerCall.minStars).toBeDefined();
-      // The key test: if minStars is used, it should NOT discard the upper bound
       if (providerCall.stars) {
         expect(providerCall.stars).toBe('100..500');
       }

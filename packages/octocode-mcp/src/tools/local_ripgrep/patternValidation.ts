@@ -1,17 +1,3 @@
-/**
- * Pre-launch validation for ripgrep query patterns.
- *
- * The goal is to fail fast (and cheaply) on patterns that ripgrep will
- * reject anyway, and to nudge agents toward `fixedString: true` when
- * their input looks literal — saving server cycles and regex
- * backtracking risk.
- *
- * This module is intentionally side-effect free so it can be tested
- * without a filesystem or process boundary.
- *
- * @module tools/local_ripgrep/patternValidation
- */
-
 interface RipgrepPatternInput {
   pattern: string;
   fixedString?: boolean;
@@ -24,14 +10,6 @@ export interface RipgrepPatternValidation {
   warnings: string[];
 }
 
-/**
- * Run a cheap syntactic sanity check on a ripgrep pattern.
- *
- * Important: this is **not** a full ripgrep grammar parser. It only
- * catches obvious failure modes (empty pattern, unmatched parens,
- * dangling escapes, lookaround without -P) so we can short-circuit
- * before spawning rg and burning a process.
- */
 export function preflightValidateRipgrepPattern(
   input: RipgrepPatternInput
 ): RipgrepPatternValidation {
@@ -66,12 +44,6 @@ export function preflightValidateRipgrepPattern(
   return { isValid: errors.length === 0, errors, warnings };
 }
 
-/**
- * Attempt to compile `pattern` with the JS engine. JS regex syntax is a
- * permissive superset of rust-regex (rg's engine) so a JS error here is
- * a strong signal rg will reject the pattern too. Lookaround / named
- * groups specific to PCRE are surfaced separately.
- */
 function detectRegexError(pattern: string): string | null {
   try {
     new RegExp(pattern);
@@ -81,18 +53,10 @@ function detectRegexError(pattern: string): string | null {
   }
 }
 
-/**
- * Heuristic: does `pattern` look like a literal search the agent
- * accidentally fed to a regex engine? Used purely to issue a friendly
- * warning — never an error.
- */
 function looksLikeLiteralSearch(pattern: string): boolean {
-  // Patterns with explicit regex metacharacters are clearly intentional.
   if (/[\\^$|()[\]{}+*?]/.test(pattern)) {
     return false;
   }
-  // Patterns containing `.` (dot) where the rest is identifier-like are
-  // a classic agent-foot-gun: `console.log` matches `console-log` too.
   if (pattern.includes('.') && /^[\w.\-/:]+$/.test(pattern)) {
     return true;
   }

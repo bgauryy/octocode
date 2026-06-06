@@ -53,7 +53,6 @@ const defaultStats = () => ({
   totalUsage: zeroTotalUsageStats(),
 });
 
-// Mock node:fs to prevent tests from touching real filesystem
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -63,7 +62,6 @@ vi.mock('node:fs', () => ({
   renameSync: vi.fn(),
 }));
 
-// Mock ensureOctocodeDir to prevent creating real directories
 vi.mock('../../src/credentials/storage.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../src/credentials/storage.js')>();
@@ -74,20 +72,16 @@ vi.mock('../../src/credentials/storage.js', async importOriginal => {
 });
 
 describe('Session Storage', () => {
-  // In-memory store for mocked filesystem
   let mockFileStore: Map<string, string>;
 
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
 
-    // Reset internal state (cache, timer, etc.)
     _resetSessionState();
 
-    // Initialize mock file store
     mockFileStore = new Map();
 
-    // Setup fs mocks to use in-memory store
     vi.mocked(fs.existsSync).mockImplementation((path: unknown) => {
       return mockFileStore.has(String(path));
     });
@@ -128,7 +122,6 @@ describe('Session Storage', () => {
   });
 
   afterEach(() => {
-    // Reset internal state
     _resetSessionState();
     vi.resetAllMocks();
   });
@@ -169,7 +162,6 @@ describe('Session Storage', () => {
       const session1 = getOrCreateSession();
       const firstActiveAt = session1.lastActiveAt;
 
-      // Wait a bit to ensure timestamp changes
       await new Promise(resolve => setTimeout(resolve, 10));
 
       const session2 = getOrCreateSession();
@@ -256,10 +248,8 @@ describe('Session Storage', () => {
     });
 
     it('should return null for invalid JSON on disk', () => {
-      // Write invalid JSON directly to mock store
       mockFileStore.set(SESSION_FILE, 'invalid json {{{');
 
-      // Reset state to clear any cache
       _resetSessionState();
 
       const session = readSession();
@@ -267,7 +257,6 @@ describe('Session Storage', () => {
     });
 
     it('should return null for session with wrong version', () => {
-      // Write session with wrong version to mock store
       mockFileStore.set(
         SESSION_FILE,
         JSON.stringify({
@@ -277,7 +266,6 @@ describe('Session Storage', () => {
         })
       );
 
-      // Reset state to clear any cache
       _resetSessionState();
 
       const session = readSession();
@@ -285,7 +273,6 @@ describe('Session Storage', () => {
     });
 
     it('should return null for malformed session data (missing fields)', () => {
-      // Write session missing required fields (stats, lastActiveAt)
       mockFileStore.set(
         SESSION_FILE,
         JSON.stringify({
@@ -301,7 +288,6 @@ describe('Session Storage', () => {
     });
 
     it('should return null for session with wrong field types', () => {
-      // Write session with stats as a string instead of object
       mockFileStore.set(
         SESSION_FILE,
         JSON.stringify({
@@ -538,7 +524,7 @@ describe('Session Storage', () => {
   describe('deleteSession', () => {
     it('should delete the session file and clear cache', () => {
       getOrCreateSession();
-      flushSession(); // Ensure it's written to mock store
+      flushSession();
 
       const deleted = deleteSession();
 
@@ -559,7 +545,6 @@ describe('Session Storage', () => {
       const session = getOrCreateSession();
       incrementToolCalls(5);
 
-      // Read should return cached value
       const cached = readSession();
       expect(cached?.stats.toolCalls).toBe(5);
     });
@@ -567,7 +552,6 @@ describe('Session Storage', () => {
     it('should batch updates in memory', () => {
       getOrCreateSession();
 
-      // Multiple updates should be fast (in-memory)
       for (let i = 0; i < 100; i++) {
         incrementToolCalls(1);
       }
@@ -581,10 +565,8 @@ describe('Session Storage', () => {
       incrementToolCalls(5);
       incrementErrors(2);
 
-      // Flush to disk
       flushSession();
 
-      // Read from mock file store (bypass cache)
       const persistedContent = mockFileStore.get(SESSION_FILE);
       const persistedStatsContent = mockFileStore.get(STATS_FILE);
       expect(persistedContent).toBeDefined();
@@ -607,7 +589,6 @@ describe('Session Storage', () => {
       expect(content).toBeDefined();
       expect(statsContent).toBeDefined();
 
-      // Should contain newlines (formatted JSON)
       expect(content).toContain('\n');
       expect(content).toContain('  ');
       expect(statsContent).toContain('\n');
@@ -617,7 +598,6 @@ describe('Session Storage', () => {
 
   describe('flushSession', () => {
     it('should be safe to call when no session exists', () => {
-      // Should not throw
       expect(() => flushSession()).not.toThrow();
     });
 

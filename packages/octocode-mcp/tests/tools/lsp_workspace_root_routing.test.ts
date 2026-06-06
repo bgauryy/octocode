@@ -70,8 +70,6 @@ describe('LSP workspace root routing', () => {
     vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
       true
     );
-    // Pooled client unavailable: findReferencesWithLSP returns null and the
-    // tool emits an LSP-empty result. We only assert root routing here.
     vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
 
     const { findReferences } =
@@ -101,8 +99,6 @@ describe('LSP workspace root routing', () => {
     vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
       true
     );
-    // Pooled client unavailable: callHierarchyWithLSP returns null and the
-    // tool emits an LSP-empty result. We only assert root routing here.
     vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
 
     const { processCallHierarchy } =

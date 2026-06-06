@@ -1,10 +1,3 @@
-/**
- * Response utilities for route handlers.
- * Provides type-safe extractors and helpers for processing MCP responses.
- *
- * @module utils/responseFactory
- */
-
 import { isObject, hasProperty, isArray, hasStringProperty, hasNumberProperty } from '../types/guards.js';
 
 export function safeString(obj: unknown, key: string, fallback = ''): string {

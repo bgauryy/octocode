@@ -154,7 +154,6 @@ describe('tool-command coverage', () => {
     expect(output).toContain('octocode --help');
     expect(output).toContain('CLI Usage:');
     expect(output).toContain('Server instructions.');
-    // A5: output-contract + typed-exit-code docs
     expect(output).toContain('Exit codes:');
     expect(output).toContain('evidence.answerReady');
   });
@@ -166,13 +165,10 @@ describe('tool-command coverage', () => {
     const compact = await getToolsContextString();
     const full = await getToolsContextString({ full: true });
 
-    // Default: lean field lists for direct tools, no full JSON Schema blocks.
     expect(compact).toContain('Input fields:');
     expect(compact).not.toContain('"$schema"');
-    // Full: every tool's JSON schema inline.
     expect(full).toContain('Input schema:');
     expect(full).toContain('"$schema"');
-    // Default is materially smaller than full.
     expect(compact.length).toBeLessThan(full.length);
   });
 
@@ -203,7 +199,6 @@ describe('tool-command coverage', () => {
       results: [{ id: 'x' }],
       evidence: { answerReady: true },
     });
-    // No envelope keys (content / isError) and no pretty-print whitespace.
     expect(output).not.toContain('"content"');
     expect(output).not.toContain('"isError"');
   });
@@ -390,8 +385,6 @@ describe('tool-command coverage', () => {
         queries: [expect.objectContaining({ path: '.', pattern: 'foo' })],
       })
     );
-    // Char-offset pagination was removed from the MCP schema; the legacy
-    // top-level field must not leak through to the tool.
     expect(callArg).not.toHaveProperty('responseCharOffset');
   });
 
@@ -683,9 +676,6 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"name"');
     expect(output).toContain('react');
-    // `page` is the canonical pagination knob. The legacy `limit` alias is no
-    // longer advertised (it was a duplicate field), though it is still tolerated
-    // at runtime via the schema preprocess.
     expect(output).toContain('"page"');
     expect(output).not.toContain('"limit"');
   });

@@ -26,8 +26,6 @@ describe('transformRepoSearchResult — pagination page size', () => {
 
     const result = transformRepoSearchResult(data);
 
-    // Was always 10 before — the page size from the API layer (`perPage`) must
-    // survive as `entriesPerPage` so downstream item-range hints are correct.
     expect(result.pagination.entriesPerPage).toBe(50);
     expect(result.pagination.totalMatches).toBe(213);
     expect(result.pagination.hasMore).toBe(true);

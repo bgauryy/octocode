@@ -1,9 +1,3 @@
-/**
- * Code-search exact-match re-ranking: GitHub's ranking is taken verbatim, with
- * no client-side notion of "this match is an exact hit on the term". This boost
- * floats whole-word / exact-filename matches above fuzzy substring hits — within
- * a group, and groups that contain an exact hit above fuzzy-only groups.
- */
 import { describe, it, expect } from 'vitest';
 import { applyExactMatchRanking } from '../../src/tools/github_search_code/finalizer.js';
 
@@ -18,8 +12,8 @@ describe('applyExactMatchRanking', () => {
   it('floats a whole-word match above a fuzzy substring match within a group', () => {
     const groups = [
       g('o/r', [
-        { path: 'src/util.ts', value: 'const x = createStoreImpl()' }, // fuzzy (no boundary)
-        { path: 'src/store.ts', value: 'export function createStore() {}' }, // exact whole-word
+        { path: 'src/util.ts', value: 'const x = createStoreImpl()' },
+        { path: 'src/store.ts', value: 'export function createStore() {}' },
       ]),
     ];
     const ranked = applyExactMatchRanking(groups, ['createStore']);
@@ -30,7 +24,7 @@ describe('applyExactMatchRanking', () => {
     const groups = [
       g('o/r', [
         { path: 'src/helpers.ts', value: 'import { useStore }' },
-        { path: 'src/useStore.ts', value: 'whatever' }, // basename === keyword
+        { path: 'src/useStore.ts', value: 'whatever' },
       ]),
     ];
     const ranked = applyExactMatchRanking(groups, ['useStore']);
@@ -55,7 +49,7 @@ describe('applyExactMatchRanking', () => {
       { path: 'c.ts', value: 'zzz' },
     ]);
     const ranked = applyExactMatchRanking([few, many], ['nomatch']);
-    expect(ranked[0]!.id).toBe('b/many'); // more matches first
+    expect(ranked[0]!.id).toBe('b/many');
   });
 
   it('is a no-op-safe when keywords is empty', () => {

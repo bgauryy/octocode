@@ -1,16 +1,3 @@
-/**
- * WHITE-HAT PENETRATION TEST: octocode-security-utils
- *
- * Attacker model: A malicious LLM or prompt-injection attack tries to:
- *   1. Exfiltrate secrets from tool outputs
- *   2. Inject commands via tool inputs
- *   3. Traverse paths to read sensitive files
- *   4. Bypass regex detection with encoding tricks
- *   5. Exploit prototype pollution or type confusion
- *   6. Leak info through error messages
- *   7. Exploit edge cases in sanitization
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
@@ -147,7 +134,6 @@ config:
 
   it('should catch secrets embedded in code comments', () => {
     const code = `
-// TODO: remove before prod
 const key = "${SECRETS.AWS_KEY}";
 /* debug: ${SECRETS.STRIPE_KEY} */
 # token: ${SECRETS.GITHUB_TOKEN}
@@ -332,8 +318,6 @@ describe('ATTACK-02: Command Injection', () => {
   });
 
   it('should block null byte injection in arguments (semicolon caught by DANGEROUS_PATTERNS)', () => {
-    // The null byte itself isn't caught by validateCommand, but the semicolon after it IS
-    // validateArgs in spawn.ts provides second-layer null byte detection
     const result = validateCommand('rg', [
       'pattern\x00; rm -rf /',
       '/workspace',
@@ -400,9 +384,6 @@ describe('ATTACK-03: Path Traversal', () => {
   });
 
   it('should handle URL-encoded paths (OS does not decode %2e as .)', () => {
-    // URL encoding is NOT interpreted by the filesystem, so %2e%2e stays literal
-    // This means /workspace/project/%2e%2e/ is a literal directory name, not traversal
-    // The path is within workspace so it's allowed (the directory just doesn't exist)
     const result = validator.validate(
       '/workspace/project/%2e%2e/%2e%2e/etc/passwd'
     );
@@ -410,7 +391,6 @@ describe('ATTACK-03: Path Traversal', () => {
   });
 
   it('should handle paths with dots that resolve within workspace', () => {
-    // ....// is not ../  so path.resolve treats it as a literal directory name
     const result = validator.validate(
       '/workspace/project/....//....//etc/passwd'
     );
@@ -489,7 +469,6 @@ describe('ATTACK-03: Path Traversal', () => {
 
 describe('ATTACK-05: Prototype Pollution', () => {
   it('should block __proto__ key from JSON-parsed input', () => {
-    // Real attack vector: JSON.parse creates __proto__ as own property
     const malicious = JSON.parse('{"__proto__": {"isAdmin": true}}');
     const result = ContentSanitizer.validateInputParameters(malicious);
     expect(result.isValid).toBe(false);
@@ -604,19 +583,13 @@ describe('ATTACK-07: Output Channel Bypass', () => {
       { toolName: 'test', keysPriority: ['results'] }
     );
 
-    // Check text output
     const text = result.content.find(c => c.type === 'text')?.text || '';
     assertAllSecretsAbsent(text);
 
-    // Check structured output
     assertObjectSecretsAbsent(result.structuredContent);
   });
 
   it('DESIGN-NOTE: createRoleBasedResult text blocks are NOT sanitized (wrapper catches them)', () => {
-    // createRoleBasedResult does NOT sanitize assistant.summary, system, or user text.
-    // Sanitization of text blocks happens in withSecurityValidation → sanitizeToolResult().
-    // This is BY DESIGN: the response layer sanitizes structuredContent + data blocks,
-    // and the security wrapper sanitizes all text blocks.
     const result = createRoleBasedResult({
       assistant: {
         summary: `Error: Failed to connect with token ${SECRETS.GITHUB_TOKEN}`,
@@ -625,16 +598,13 @@ describe('ATTACK-07: Output Channel Bypass', () => {
       isError: true,
     });
 
-    // Text blocks are NOT sanitized by createRoleBasedResult directly
     const text = result.content
       .map(c => (c as { text?: string }).text)
       .join(' ');
     expect(text).toContain(SECRETS.GITHUB_TOKEN);
 
-    // But structuredContent IS sanitized
     assertObjectSecretsAbsent(result.structuredContent);
 
-    // Data block (via ContentBuilder.data → sanitizeText) IS sanitized
     const dataBlock = result.content.find(
       c =>
         (c as { annotations?: { priority?: number } }).annotations?.priority ===
@@ -739,20 +709,15 @@ describe('ATTACK-09: Double-Layer Sanitization', () => {
     it(`should catch ${name} through both sanitization layers`, () => {
       const input = `Data: ${secret}`;
 
-      // Layer 1: ContentSanitizer
       const layer1 = ContentSanitizer.sanitizeContent(input);
 
-      // Layer 2: maskSensitiveData
       const layer2 = maskSensitiveData(input);
 
-      // Combined (as used in production)
       const combined = maskSensitiveData(layer1.content);
 
-      // At least one layer should catch it
       const caught = layer1.hasSecrets || layer2 !== input;
       expect(caught).toBe(true);
 
-      // The combined result should not contain the raw secret
       expect(combined).not.toContain(secret);
     });
   }
@@ -820,7 +785,6 @@ describe('ATTACK-11: Mask Quality', () => {
   it('should not leak the first half of a secret via masking', () => {
     const masked = maskSensitiveData(SECRETS.AWS_KEY);
     if (masked !== SECRETS.AWS_KEY) {
-      // Masking was applied - verify no contiguous run of original chars > 3
       let maxRun = 0;
       let currentRun = 0;
       for (let i = 0; i < masked.length && i < SECRETS.AWS_KEY.length; i++) {
@@ -863,14 +827,10 @@ describe('ATTACK-12: Environment Variable Attacks', () => {
 
   it('should not allow ALLOWED_PATHS to grant access to /etc', () => {
     process.env.ALLOWED_PATHS = '/etc';
-    // Construct validator to exercise constructor path; assertions below
-    // hit the module-level shouldIgnoreFile/shouldIgnorePath helpers.
     new PathValidator({
       workspaceRoot: '/workspace',
       includeHomeDir: false,
     });
-    // ALLOWED_PATHS adds /etc as a root — this is by design (user controls env)
-    // But shouldIgnore should still block sensitive files
     expect(shouldIgnoreFile('.env')).toBe(true);
     expect(shouldIgnorePath('.ssh')).toBe(true);
   });
@@ -1031,7 +991,7 @@ export default calculateTotal;
   });
 
   it('should preserve base64 encoded content that is not a secret', () => {
-    const b64 = 'SGVsbG8gV29ybGQ='; // "Hello World"
+    const b64 = 'SGVsbG8gV29ybGQ=';
     const result = ContentSanitizer.sanitizeContent(b64);
     expect(result.content).toBe(b64);
   });

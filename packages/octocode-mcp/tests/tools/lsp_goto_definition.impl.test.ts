@@ -1,12 +1,5 @@
-/**
- * Implementation tests for LSP Goto Definition tool
- * Exercises the actual code paths with proper dependency injection
- * @module tools/lsp_goto_definition.impl.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock fs/promises
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
@@ -43,12 +36,10 @@ vi.mock('../../src/lsp/manager.js', () => ({
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
-// Import mocked modules to access them
 import * as fs from 'fs/promises';
 import * as resolverModule from '../../src/lsp/resolver.js';
 import * as managerModule from '../../src/lsp/manager.js';
 
-// Import the module under test after mocks are set up
 import { registerLSPGotoDefinitionTool } from '../../src/tools/lsp_goto_definition/lsp_goto_definition.js';
 import { isImportOrReExport } from '../../src/tools/lsp_goto_definition/execution.js';
 
@@ -70,18 +61,13 @@ export interface Config {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default mocks for successful path validation
     process.env.WORKSPACE_ROOT = '/workspace';
 
-    // Default: file is readable
     vi.mocked(fs.readFile).mockResolvedValue(sampleTypeScriptContent);
 
-    // Default: LSP not available
     vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(false);
     vi.mocked(managerModule.acquirePooledClient).mockResolvedValue(null);
 
-    // Restore SymbolResolver mock (reset by vi.resetAllMocks in afterEach)
-    // Must use regular function (not arrow) because it's called with `new`
     vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
       return {
         resolvePositionFromContent: vi.fn().mockReturnValue({
@@ -191,7 +177,6 @@ export interface Config {
         'Symbol not found',
         2
       );
-      // Must use regular function (not arrow) because it's called with `new`
       vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
         return {
           resolvePositionFromContent: vi.fn(() => {
@@ -215,7 +200,6 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // Note: YAML output uses quotes around string values
       expect(text).toContain('status: "empty"');
       expect(text).toContain('errorType: "symbol_not_found"');
     });
@@ -461,7 +445,6 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // Note: YAML output uses quotes around string values
       expect(text).not.toContain('status: "hasResults"');
       expect(text).toContain('>   2| beta');
     });
@@ -577,7 +560,6 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // LSP-only: no text fallback. A thrown LSP yields a clean empty result.
       expect(text).toContain('status: "empty"');
       expect(text).toContain('errorCode: "LSP_EMPTY"');
       expect(text).not.toContain('lspMode');
@@ -645,7 +627,6 @@ export interface Config {
       const testPath = `${process.cwd()}/src/test.ts`;
       const modulePath = `${process.cwd()}/src/toolsManager.ts`;
 
-      // Override resolver to return position on the dynamic import line (line 3, 0-indexed)
       vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
         return {
           resolvePositionFromContent: vi.fn().mockReturnValue({
@@ -661,7 +642,6 @@ export interface Config {
       });
 
       const mockGotoDefinition = vi.fn();
-      // First call: resolves to dynamic import line in same file (line 3)
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: testPath,
@@ -673,7 +653,6 @@ export interface Config {
             "const { registerTools } = await import('./toolsManager.js')",
         },
       ]);
-      // Second call (chain): LSP resolves to the source definition in another file
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: modulePath,
@@ -728,7 +707,6 @@ export interface Config {
       const testPath = `${process.cwd()}/src/test.ts`;
       const modulePath = `${process.cwd()}/src/toolsManager.ts`;
 
-      // Override resolver to return position on line 0 (the dynamic import line)
       vi.mocked(resolverModule.SymbolResolver).mockImplementation(function () {
         return {
           resolvePositionFromContent: vi.fn().mockReturnValue({
@@ -777,8 +755,6 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // The manual .js->.ts module-path resolution fallback was removed.
-      // LSP returned empty, so the result is empty — not chained to the module.
       expect(text).toContain('status: "empty"');
       expect(text).not.toContain('Followed import chain');
     });
@@ -853,7 +829,6 @@ export interface Config {
       const sourcePath = `${process.cwd()}/src/source.ts`;
 
       const mockGotoDefinition = vi.fn();
-      // First call: resolves to import line in same file
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: testPath,
@@ -864,7 +839,6 @@ export interface Config {
           content: "import { Foo } from './source'",
         },
       ]);
-      // Second call (chain): resolves to source definition in different file
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: sourcePath,
@@ -910,14 +884,12 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // Should resolve to source file, not the import
       expect(text).toContain(sourcePath);
       expect(text).toContain('Followed import chain to source definition');
-      // gotoDefinition should be called twice (original + chain)
       expect(mockGotoDefinition).toHaveBeenCalledTimes(2);
       expect(mockGotoDefinition).toHaveBeenNthCalledWith(2, testPath, {
         line: 0,
-        character: 9, // "Foo" in: import { Foo } from './source'
+        character: 9,
       });
     });
 
@@ -928,7 +900,7 @@ export interface Config {
 
       const mockGotoDefinition = vi.fn().mockResolvedValue([
         {
-          uri: defsPath, // Different file — no chaining needed
+          uri: defsPath,
           range: {
             start: { line: 5, character: 0 },
             end: { line: 5, character: 20 },
@@ -970,7 +942,6 @@ export interface Config {
       const text = result.content?.[0]?.text ?? '';
       expect(text).toContain(defsPath);
       expect(text).not.toContain('Followed import chain');
-      // Only one call — no chaining
       expect(mockGotoDefinition).toHaveBeenCalledTimes(1);
     });
 
@@ -980,7 +951,7 @@ export interface Config {
 
       const mockGotoDefinition = vi.fn().mockResolvedValue([
         {
-          uri: testPath, // Same file but NOT an import line
+          uri: testPath,
           range: {
             start: { line: 2, character: 0 },
             end: { line: 2, character: 30 },
@@ -1017,7 +988,6 @@ export interface Config {
 
       const text = result.content?.[0]?.text ?? '';
       expect(text).not.toContain('Followed import chain');
-      // Only one call — no chaining
       expect(mockGotoDefinition).toHaveBeenCalledTimes(1);
     });
 
@@ -1026,7 +996,6 @@ export interface Config {
       const testPath = `${process.cwd()}/src/test.ts`;
 
       const mockGotoDefinition = vi.fn();
-      // First: resolves to import in same file
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: testPath,
@@ -1037,7 +1006,6 @@ export interface Config {
           content: "import { Bar } from './bar'",
         },
       ]);
-      // Second (chain): returns empty
       mockGotoDefinition.mockResolvedValueOnce([]);
 
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
@@ -1067,10 +1035,8 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // Should still return original result (the import line)
       expect(text).not.toContain('status: "hasResults"');
       expect(text).not.toContain('Followed import chain');
-      // Two calls made: original + chain attempt
       expect(mockGotoDefinition).toHaveBeenCalledTimes(2);
     });
 
@@ -1079,7 +1045,6 @@ export interface Config {
       const testPath = `${process.cwd()}/src/test.ts`;
 
       const mockGotoDefinition = vi.fn();
-      // First: resolves to import in same file, with non-zero character offset
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: testPath,
@@ -1090,7 +1055,6 @@ export interface Config {
           content: "import { Bar } from './bar'",
         },
       ]);
-      // Second hop returns empty; we only verify call args here
       mockGotoDefinition.mockResolvedValueOnce([]);
 
       vi.mocked(managerModule.isLanguageServerAvailable).mockResolvedValue(
@@ -1131,7 +1095,6 @@ export interface Config {
       const testPath = `${process.cwd()}/src/test.ts`;
 
       const mockGotoDefinition = vi.fn();
-      // First: resolves to import in same file
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: testPath,
@@ -1142,7 +1105,6 @@ export interface Config {
           content: "import { Baz } from './baz'",
         },
       ]);
-      // Second (chain): resolves BACK to same file (loop prevention)
       mockGotoDefinition.mockResolvedValueOnce([
         {
           uri: testPath,
@@ -1181,7 +1143,6 @@ export interface Config {
       });
 
       const text = result.content?.[0]?.text ?? '';
-      // Should NOT follow the import chain (would loop)
       expect(text).not.toContain('Followed import chain');
       expect(mockGotoDefinition).toHaveBeenCalledTimes(2);
     });

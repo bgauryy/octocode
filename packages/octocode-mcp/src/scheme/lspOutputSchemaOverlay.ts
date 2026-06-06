@@ -93,13 +93,6 @@ const LspCallHierarchyDataLocalSchema = z.looseObject({
   searchRadius: z.number().optional(),
 });
 
-/**
- * Local output schema for lspFindReferences.
- *
- * `groupByFile:true` intentionally compacts `locations[]` and exposes the
- * ranked per-file rollup as structured `byFile[]` instead of burying it in
- * hints. The upstream schema does not know about that local product mode.
- */
 export const LspFindReferencesOutputLocalSchema = z.object({
   base: z.string().optional(),
   shared: z
@@ -126,15 +119,6 @@ export const LspFindReferencesOutputLocalSchema = z.object({
   ),
 });
 
-/**
- * Local output schema for lspCallHierarchy.
- *
- * The runtime returns rich call-hierarchy context for both `hasResults` and
- * `empty` responses (target item, direction, depth, call edges, pagination,
- * hints). The upstream bulk envelope can be stricter than this package's
- * runtime shape, so this overlay makes the advertised MCP output contract
- * match the actual local result contract.
- */
 export const LspCallHierarchyOutputLocalSchema = z.object({
   base: z.string().optional(),
   shared: z

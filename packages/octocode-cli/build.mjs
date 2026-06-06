@@ -10,9 +10,6 @@ const nodeExternals = [
   ...builtinModules.map((m) => `node:${m}`),
 ];
 
-// CJS-in-ESM shim: bundled CJS deps (e.g. mute-stream) use require()
-// for Node builtins, which doesn't exist in ESM output. Provide the
-// CJS globals so esbuild's __require wrapper resolves correctly.
 const shimBanner = [
   '#!/usr/bin/env node',
   "import { createRequire as __createRequire } from 'module';",

@@ -32,7 +32,6 @@ vi.mock('octocode-shared', async importOriginal => {
   };
 });
 
-// Mock global fetch for download_url
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
@@ -75,7 +74,6 @@ function mockDirectoryListing(
 
 function mockFetchResponses(contents: Record<string, string>) {
   mockFetch.mockImplementation(async (url: string) => {
-    // Extract path from URL
     for (const [path, content] of Object.entries(contents)) {
       if (url.includes(path)) {
         return {
@@ -101,7 +99,7 @@ describe('directoryFetch', () => {
         rmSync(testDir, { recursive: true, force: true });
       }
     } catch {
-      // best-effort cleanup
+      void 0;
     }
   });
 
@@ -131,8 +129,6 @@ describe('directoryFetch', () => {
       expect(result.directoryPath).toBe('src');
       expect(result.localPath).toContain('src');
 
-      // Verify files are saved to disk
-      // The files are saved relative to cloneDir, which is repos/owner/repo/main
       const cloneDir = join(testDir, 'repos', 'owner', 'repo', 'main');
       expect(existsSync(join(cloneDir, 'src', 'index.ts'))).toBe(true);
       expect(existsSync(join(cloneDir, 'src', 'utils.ts'))).toBe(true);
@@ -145,7 +141,6 @@ describe('directoryFetch', () => {
     });
 
     it('should return cache hit if directory exists and cache is valid', async () => {
-      // First call: populate cache
       mockDirectoryListing([
         { name: 'file.ts', path: 'src/file.ts', size: 50 },
       ]);
@@ -159,7 +154,6 @@ describe('directoryFetch', () => {
       );
       expect(result1.cached).toBe(false);
 
-      // Second call: should be cache hit
       const result2 = await fetchDirectoryContents(
         'owner',
         'repo',
@@ -189,7 +183,6 @@ describe('directoryFetch', () => {
         'main'
       );
 
-      // Only .ts and .css should be fetched (not .png or .zip)
       expect(result.fileCount).toBe(2);
       expect(result.files.map(f => f.path)).toEqual(
         expect.arrayContaining(['src/code.ts', 'src/style.css'])
@@ -199,7 +192,7 @@ describe('directoryFetch', () => {
     it('should skip files larger than MAX_FILE_SIZE', async () => {
       mockDirectoryListing([
         { name: 'small.ts', path: 'src/small.ts', size: 100 },
-        { name: 'huge.ts', path: 'src/huge.ts', size: 400 * 1024 }, // 400KB > 300KB limit
+        { name: 'huge.ts', path: 'src/huge.ts', size: 400 * 1024 },
       ]);
       mockFetchResponses({
         'src/small.ts': 'small content',
@@ -217,7 +210,6 @@ describe('directoryFetch', () => {
     });
 
     it('should throw when path is not a directory', async () => {
-      // Return a single file object (not an array) = not a directory
       mockGetOctokit.mockResolvedValue({
         rest: {
           repos: {
@@ -263,8 +255,7 @@ describe('directoryFetch', () => {
     });
 
     it('should enforce total size limit', async () => {
-      // Create files that in total exceed MAX_TOTAL_SIZE
-      const largeContent = 'x'.repeat(2 * 1024 * 1024); // 2MB per file
+      const largeContent = 'x'.repeat(2 * 1024 * 1024);
       mockDirectoryListing([
         { name: 'a.ts', path: 'src/a.ts', size: 100 },
         { name: 'b.ts', path: 'src/b.ts', size: 100 },
@@ -347,7 +338,6 @@ describe('directoryFetch', () => {
         'main'
       );
 
-      // Should still return the successful file
       expect(result.fileCount).toBe(1);
       expect(result.files[0]!.path).toBe('src/good.ts');
     });
@@ -412,7 +402,6 @@ describe('directoryFetch', () => {
         'main'
       );
 
-      // Cache path should be: {octocodeDir}/repos/{owner}/{repo}/{branch}/{path}
       expect(result.localPath).toBe(
         join(testDir, 'repos', 'owner', 'repo', 'main', 'src')
       );
@@ -442,14 +431,13 @@ describe('directoryFetch', () => {
       const cloneDir = join(testDir, 'repos', 'owner', 'repo', 'main');
       const dirPath = join(cloneDir, 'src');
 
-      // Simulate stale cache: create old files + expired metadata
       mkdirSync(dirPath, { recursive: true });
       writeFileSync(join(dirPath, 'old_stale.ts'), 'stale content');
       writeFileSync(
         join(cloneDir, '.octocode-clone-meta.json'),
         JSON.stringify({
           clonedAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-          expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // expired 24h ago
+          expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
           owner: 'owner',
           repo: 'repo',
           branch: 'main',
@@ -457,10 +445,8 @@ describe('directoryFetch', () => {
         })
       );
 
-      // Verify stale file exists
       expect(existsSync(join(dirPath, 'old_stale.ts'))).toBe(true);
 
-      // Now re-fetch — repo only has new_file.ts (old_stale.ts was deleted)
       mockDirectoryListing([
         { name: 'new_file.ts', path: 'src/new_file.ts', size: 50 },
       ]);
@@ -476,9 +462,7 @@ describe('directoryFetch', () => {
       expect(result.cached).toBe(false);
       expect(result.fileCount).toBe(1);
 
-      // Stale file must be gone
       expect(existsSync(join(dirPath, 'old_stale.ts'))).toBe(false);
-      // Fresh file must exist
       expect(existsSync(join(dirPath, 'new_file.ts'))).toBe(true);
       expect(readFileSync(join(dirPath, 'new_file.ts'), 'utf-8')).toBe(
         'fresh content'
@@ -486,7 +470,6 @@ describe('directoryFetch', () => {
     });
 
     it('should bypass cache when forceRefresh is true', async () => {
-      // First call: populate cache
       mockDirectoryListing([
         { name: 'file.ts', path: 'src/file.ts', size: 50 },
       ]);
@@ -500,7 +483,6 @@ describe('directoryFetch', () => {
       );
       expect(result1.cached).toBe(false);
 
-      // Second call with forceRefresh: should NOT hit cache
       mockDirectoryListing([
         { name: 'file.ts', path: 'src/file.ts', size: 60 },
       ]);
@@ -512,7 +494,7 @@ describe('directoryFetch', () => {
         'src',
         'main',
         undefined,
-        true // forceRefresh
+        true
       );
       expect(result2.cached).toBe(false);
 
@@ -523,7 +505,6 @@ describe('directoryFetch', () => {
     });
 
     it('should evict expired clones on cache miss', async () => {
-      // Create an expired clone entry for a different repo
       const expiredDir = join(
         testDir,
         'repos',
@@ -546,7 +527,6 @@ describe('directoryFetch', () => {
 
       expect(existsSync(expiredDir)).toBe(true);
 
-      // Fetch a different directory — this triggers eviction
       mockDirectoryListing([
         { name: 'file.ts', path: 'src/file.ts', size: 50 },
       ]);
@@ -554,7 +534,6 @@ describe('directoryFetch', () => {
 
       await fetchDirectoryContents('owner', 'repo', 'src', 'main');
 
-      // The expired entry should have been evicted
       expect(existsSync(expiredDir)).toBe(false);
     });
 
@@ -562,7 +541,6 @@ describe('directoryFetch', () => {
       const cloneDir = join(testDir, 'repos', 'owner', 'repo', 'main');
       const dirPath = join(cloneDir, 'src');
 
-      // Simulate a full clone with source: 'clone'
       mkdirSync(dirPath, { recursive: true });
       writeFileSync(join(dirPath, 'index.ts'), 'clone content');
       writeFileSync(
@@ -586,11 +564,9 @@ describe('directoryFetch', () => {
 
       expect(result.cached).toBe(true);
       expect(result.files.length).toBeGreaterThan(0);
-      // Original clone file must still exist
       expect(readFileSync(join(dirPath, 'index.ts'), 'utf-8')).toBe(
         'clone content'
       );
-      // Meta must still say 'clone' — not overwritten
       const meta = JSON.parse(
         readFileSync(join(cloneDir, '.octocode-clone-meta.json'), 'utf-8')
       );
@@ -621,11 +597,10 @@ describe('directoryFetch', () => {
         'src',
         'main',
         undefined,
-        true // forceRefresh should be ignored for clone caches
+        true
       );
 
       expect(result.cached).toBe(true);
-      // Clone content must be untouched
       expect(readFileSync(join(dirPath, 'app.ts'), 'utf-8')).toBe(
         'clone version'
       );
@@ -668,7 +643,6 @@ describe('directoryFetch', () => {
     it('should throw when path not found in clone cache', async () => {
       const cloneDir = join(testDir, 'repos', 'owner', 'repo', 'main');
 
-      // Clone exists but requested subdir does NOT
       mkdirSync(cloneDir, { recursive: true });
       writeFileSync(
         join(cloneDir, '.octocode-clone-meta.json'),
@@ -688,7 +662,6 @@ describe('directoryFetch', () => {
     });
 
     it('should allow forceRefresh on directoryFetch cache', async () => {
-      // First call: populate directoryFetch cache
       mockDirectoryListing([
         { name: 'file.ts', path: 'src/file.ts', size: 50 },
       ]);
@@ -696,14 +669,12 @@ describe('directoryFetch', () => {
 
       await fetchDirectoryContents('owner', 'repo', 'src', 'main');
 
-      // Verify it's a directoryFetch cache
       const cloneDir = join(testDir, 'repos', 'owner', 'repo', 'main');
       const meta = JSON.parse(
         readFileSync(join(cloneDir, '.octocode-clone-meta.json'), 'utf-8')
       );
       expect(meta.source).toBe('directoryFetch');
 
-      // forceRefresh should work on directoryFetch caches
       mockDirectoryListing([
         { name: 'file.ts', path: 'src/file.ts', size: 60 },
       ]);
@@ -724,7 +695,6 @@ describe('directoryFetch', () => {
     });
 
     it('should override existing files with fresh content', async () => {
-      // First fetch: file has old content
       mockDirectoryListing([{ name: 'app.ts', path: 'src/app.ts', size: 50 }]);
       mockFetchResponses({ 'src/app.ts': 'version 1' });
 
@@ -741,12 +711,11 @@ describe('directoryFetch', () => {
         'version 1'
       );
 
-      // Expire the cache manually
       writeFileSync(
         join(cloneDir, '.octocode-clone-meta.json'),
         JSON.stringify({
           clonedAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-          expiresAt: new Date(Date.now() - 1000).toISOString(), // just expired
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
           owner: 'owner',
           repo: 'repo',
           branch: 'main',
@@ -754,7 +723,6 @@ describe('directoryFetch', () => {
         })
       );
 
-      // Second fetch: file has new content
       mockDirectoryListing([{ name: 'app.ts', path: 'src/app.ts', size: 60 }]);
       mockFetchResponses({ 'src/app.ts': 'version 2' });
 
@@ -766,7 +734,6 @@ describe('directoryFetch', () => {
       );
       expect(result2.cached).toBe(false);
 
-      // File should have the fresh content
       expect(readFileSync(join(cloneDir, 'src', 'app.ts'), 'utf-8')).toBe(
         'version 2'
       );

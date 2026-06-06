@@ -5,10 +5,6 @@ import {
   isNoResultsSearchError,
 } from '../../src/github/errors.js';
 
-/**
- * Builds a RequestError mirroring GitHub's 422 "Validation Failed" search
- * responses. `errorEntries` is the `response.data.errors[]` payload.
- */
 function makeSearch422(
   errorEntries: Array<Record<string, unknown>>,
   message = 'Validation Failed'
@@ -194,7 +190,6 @@ describe('GitHub Error Handling', () => {
     });
 
     it('should handle GraphQL rate limit error', () => {
-      // Use a future timestamp (current time + 1 hour)
       const futureResetTime = Math.floor(Date.now() / 1000) + 3600;
       const error = new RequestError('GraphQL rate limit exceeded', 403, {
         response: {
@@ -234,9 +229,8 @@ describe('GitHub Error Handling', () => {
           'Set GITHUB_TOKEN for higher rate limits (5000/hour vs 60/hour)',
       });
       expect(result.error).toContain(resetTime.toISOString());
-      // Verify +1 second buffer is included - should be roughly 3600 seconds + 1
       expect(result.retryAfter).toBeGreaterThan(3600);
-      expect(result.retryAfter).toBeLessThan(3610); // Allow small time difference
+      expect(result.retryAfter).toBeLessThan(3610);
     });
 
     it('should handle 429 rate limit error with retry-after headers', () => {
@@ -397,7 +391,7 @@ describe('GitHub Error Handling', () => {
       const result = handleGitHubAPIError(error);
 
       expect(result).toEqual({
-        error: 'String error', // Uses the string itself for better context
+        error: 'String error',
         type: 'unknown',
       });
     });
@@ -462,8 +456,6 @@ describe('GitHub Error Handling', () => {
     expect(result.type).toBe('http');
     expect(typeof result.scopesSuggestion).toBe('string');
   });
-
-  // generateFileAccessHints tests removed: function no longer part of API
 });
 
 describe('isNoResultsSearchError', () => {
@@ -527,8 +519,6 @@ describe('isNoResultsSearchError', () => {
   });
 
   it('still classifies the nonexistent-entity 422 as a normal error via handleGitHubAPIError (propagation intact)', () => {
-    // The classifier is additive — it does NOT change how handleGitHubAPIError
-    // maps the status. Callers opt in to the empty path explicitly.
     const error = makeSearch422([
       { message: 'The listed users cannot be searched...', field: 'q' },
     ]);

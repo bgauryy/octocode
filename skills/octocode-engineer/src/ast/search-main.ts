@@ -1,12 +1,5 @@
 #!/usr/bin/env node
-/**
- * AST-aware structural code search powered by @ast-grep/napi.
- *
- * Usage:
- *   node scripts/ast/search.js --pattern 'console.log($$$ARGS)' --root ./src
- *   node scripts/ast/search.js --preset empty-catch --root ./packages
- *   node scripts/ast/search.js --kind function_declaration --root ./src --json
- */
+
 
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -16,10 +9,6 @@ import { ALLOWED_EXTS, isPythonFile } from '../types/index.js';
 
 import type { NapiConfig, SgNode, SgRoot } from '@ast-grep/napi';
 
-// Require (not static-import) @ast-grep/napi so the resolution happens when this
-// module is first evaluated — not when the outer bundle loads. The entry at
-// src/ast/search.ts runs the dependency bootstrap before dynamic-importing this
-// module, so by the time this line executes the native addon is present.
 const nodeRequire = createRequire(import.meta.url);
 const astGrep = nodeRequire('@ast-grep/napi') as typeof import('@ast-grep/napi');
 const {
@@ -75,7 +64,7 @@ export interface AstSearchResult {
   totalMatches: number;
   totalFiles: number;
   matches: AstMatch[];
-  /** Source lines keyed by relative file path — only populated when context > 0 */
+  
   _sourceByFile?: Map<string, string[]>;
 }
 
@@ -272,7 +261,6 @@ export const PRESETS: Record<string, PresetRule> = {
     description: 'Variable declarations without call expressions (candidates for dead code)',
   },
 
-  // ── Python presets ──────────────────────────────────────────────
   'py-bare-except': {
     rule: {
       kind: 'except_clause',
@@ -846,4 +834,3 @@ export async function main(): Promise<void> {
 }
 
 export { ensurePythonRegistered };
-// Direct execution lives in ./search.ts; this file is an internal module.

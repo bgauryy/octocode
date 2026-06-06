@@ -82,14 +82,12 @@ describe('resolveDefaultBranch - caching', () => {
       return { rest: { repos: { get: mockReposGet } } };
     });
 
-    // Call twice with the same owner/repo
     const branch1 = await resolveDefaultBranch('org', 'repo');
     const branch2 = await resolveDefaultBranch('org', 'repo');
 
     expect(branch1).toBe('develop');
     expect(branch2).toBe('develop');
 
-    // The API should only be called once — second call should use cache
     expect(mockReposGet).toHaveBeenCalledTimes(1);
   });
 
@@ -127,7 +125,6 @@ describe('resolveDefaultBranch - caching', () => {
     expect(branch1).toBe('main');
     expect(branch2).toBe('main');
 
-    // repos.get called once, getBranch called once — second call uses cache
     expect(mockReposGet).toHaveBeenCalledTimes(1);
     expect(mockGetBranch).toHaveBeenCalledTimes(1);
   });
@@ -146,7 +143,6 @@ describe('resolveDefaultBranch - caching', () => {
       'Could not determine default branch'
     );
 
-    // Both candidates tried: main, master
     expect(mockGetBranch).toHaveBeenCalledTimes(2);
   });
 
@@ -161,13 +157,10 @@ describe('resolveDefaultBranch - caching', () => {
       return { rest: { repos: { get: mockReposGet } } };
     });
 
-    // Fill cache beyond limit
     for (let i = 0; i < MAX_BRANCH_CACHE_SIZE + 10; i++) {
       await resolveDefaultBranch('org', `repo-${i}`);
     }
 
-    // The first entries should have been evicted
-    // Verify by calling repo-0 again — it should call the API
     mockReposGet.mockClear();
     await resolveDefaultBranch('org', 'repo-0');
     expect(mockReposGet).toHaveBeenCalledTimes(1);
@@ -184,17 +177,14 @@ describe('resolveDefaultBranch - caching', () => {
       return { rest: { repos: { get: mockReposGet } } };
     });
 
-    // Fill cache to exactly the limit
     for (let i = 0; i < MAX_BRANCH_CACHE_SIZE + 5; i++) {
       await resolveDefaultBranch('org', `repo-${i}`);
     }
 
-    // The most recent entry should still be cached
     mockReposGet.mockClear();
     const lastRepo = `repo-${MAX_BRANCH_CACHE_SIZE + 4}`;
     const branch = await resolveDefaultBranch('org', lastRepo);
     expect(branch).toBe(`branch-${lastRepo}`);
-    // Should NOT have called API — it was cached
     expect(mockReposGet).not.toHaveBeenCalled();
   });
 
@@ -208,14 +198,11 @@ describe('resolveDefaultBranch - caching', () => {
       return { rest: { repos: { get: mockReposGet } } };
     });
 
-    // First call caches the result
     const branch1 = await resolveDefaultBranch('org', 'repo');
     expect(branch1).toBe('develop');
 
-    // Clear all caches
     clearOctokitInstances();
 
-    // Second call should fetch again (cache was cleared)
     const branch2 = await resolveDefaultBranch('org', 'repo');
     expect(branch2).toBe('main');
 

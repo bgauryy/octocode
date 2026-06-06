@@ -18,14 +18,12 @@
  * ```
  */
 
-// Server registration and configuration
 export { registerTools } from './tools/toolsManager.js';
 export { ALL_TOOLS, type ToolConfig } from './tools/toolConfig.js';
 export { initialize, getGitHubToken, getTokenSource } from './serverConfig.js';
 export { initializeProviders } from './providers/factory.js';
 export type { TokenSourceType } from './types/server.js';
 
-// Tool execution functions and security
 import type { z } from 'zod';
 import type {
   FileContentQuerySchema,
@@ -109,7 +107,6 @@ export type {
   LspExactPosition as ExactPosition,
 } from '@octocodeai/octocode-core/extra-types';
 
-// Tool execution — canonical bulk entry points
 export { fetchMultipleGitHubFileContents } from './tools/github_fetch_content/execution.js';
 export { searchMultipleGitHubCode } from './tools/github_search_code/execution.js';
 export { searchMultipleGitHubPullRequests } from './tools/github_search_pull_requests/execution.js';
@@ -152,7 +149,6 @@ export {
 
 export { withBasicSecurityValidation } from './utils/securityBridge.js';
 
-// Zod schemas (re-exported from @octocodeai/octocode-core for convenience)
 export {
   GitHubCodeSearchQuerySchema,
   GitHubViewRepoStructureQuerySchema,
@@ -170,10 +166,8 @@ export {
   CloneRepoQuerySchema,
 } from '@octocodeai/octocode-core/schemas';
 
-// Tool metadata
 export { loadToolContent } from './tools/toolMetadata/state.js';
 
-// Response formatting
 export {
   createResult,
   createResponseFormat,
@@ -192,7 +186,6 @@ export type {
   CallToolResultOutputMode,
 } from './responses.js';
 
-// Session management
 export {
   initializeSession,
   logSessionInit,

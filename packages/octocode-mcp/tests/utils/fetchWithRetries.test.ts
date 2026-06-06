@@ -81,7 +81,7 @@ describe('fetchWithRetries', () => {
   it('should respect Retry-After header', async () => {
     const mockData = { success: true };
     const headers = new Headers();
-    headers.set('Retry-After', '5'); // 5 seconds
+    headers.set('Retry-After', '5');
 
     const mockFetch = vi
       .fn()
@@ -100,11 +100,9 @@ describe('fetchWithRetries', () => {
 
     const promise = fetchWithRetries('https://example.com/data');
 
-    // Advance by less than Retry-After
     await vi.advanceTimersByTimeAsync(4000);
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // Advance past Retry-After
     await vi.advanceTimersByTimeAsync(1001);
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
@@ -129,7 +127,6 @@ describe('fetchWithRetries', () => {
   });
 
   it('should use exponential backoff with jitter', async () => {
-    // Mock Math.random to return 0.5 for predictable jitter
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
     const mockData = { success: true };
@@ -158,19 +155,14 @@ describe('fetchWithRetries', () => {
       initialDelayMs: 1000,
     });
 
-    // First attempt fails immediately
     await vi.advanceTimersByTimeAsync(0);
 
-    // Wait for first retry delay (1s base + 0.5*1000 jitter = 1500ms)
     await vi.advanceTimersByTimeAsync(1500);
 
-    // Second attempt fails
     await vi.advanceTimersByTimeAsync(0);
 
-    // Wait for second retry delay (2s base + 0.5*1000 jitter = 2500ms)
     await vi.advanceTimersByTimeAsync(2500);
 
-    // Third attempt succeeds
     const result = await promise;
 
     expect(result).toEqual(mockData);
@@ -180,7 +172,6 @@ describe('fetchWithRetries', () => {
   });
 
   it('should add jitter in range [0, initialDelayMs)', async () => {
-    // Mock Math.random to return 0.99 for near-maximum jitter
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
 
     const mockData = { success: true };
@@ -203,15 +194,11 @@ describe('fetchWithRetries', () => {
       initialDelayMs: 1000,
     });
 
-    // First attempt fails
     await vi.advanceTimersByTimeAsync(0);
 
-    // Jitter = floor(0.99 * 1000) = 990ms, total = 1000 + 990 = 1990ms
-    // Should NOT have retried yet at 1989ms
     await vi.advanceTimersByTimeAsync(1989);
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // Should retry at 1990ms
     await vi.advanceTimersByTimeAsync(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
@@ -234,7 +221,6 @@ describe('fetchWithRetries', () => {
       maxRetries: 2,
     });
 
-    // maxRetries: 2 means 3 attempts total (1 initial + 2 retries)
     const assertion = expect(promise).rejects.toThrow(
       'Failed to fetch after 3 attempts'
     );
@@ -435,7 +421,6 @@ describe('fetchWithRetries', () => {
       initialDelayMs: 10,
     });
 
-    // Create a combined promise that handles both timer and rejection
     const testPromise = Promise.all([
       vi.runAllTimersAsync(),
       promise.catch(e => e),

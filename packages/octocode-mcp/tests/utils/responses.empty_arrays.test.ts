@@ -1,7 +1,3 @@
-/**
- * Tests to ensure empty arrays are not included in responses
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createMockMcpServer,
@@ -54,7 +50,6 @@ describe('Empty Arrays Removal in Responses', () => {
       loggingEnabled: false,
     });
 
-    // Create mock provider with all methods
     mockProvider = {
       searchCode: vi.fn(),
       searchRepos: vi.fn(),
@@ -107,9 +102,7 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // No legacy `files:` shape; new shape uses `results:`.
       expect(responseText).not.toMatch(/files:\s*\[\]/);
-      // Empty result-set is rendered as `results: []` (no per-tool status field).
       expect(responseText).toContain('results: []');
     });
 
@@ -119,7 +112,7 @@ describe('Empty Arrays Removal in Responses', () => {
           items: [
             {
               path: 'test.js',
-              matches: [], // Empty matches
+              matches: [],
               url: 'https://github.com/test/repo/blob/main/test.js',
               repository: {
                 id: '1',
@@ -157,9 +150,7 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // File should still be present
       expect(responseText).toContain('test.js');
-      // Owner/repo derived from repository.name = "test-repo" (no slash) -> empty owner
       expect(responseText).toContain('repo: "test-repo"');
     });
   });
@@ -224,9 +215,7 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // Multi-query is aggregated into a single flat result-set
       expect(responseText).toContain('found.js');
-      // No empty matches/hints arrays should leak through
       expect(responseText).not.toMatch(/matches:\s*\[\]/);
     });
   });
@@ -275,10 +264,8 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // No empty arrays at any level
       expect(responseText).not.toMatch(/:\s*\[\]/);
 
-      // File should be present with its match
       expect(responseText).toContain('file1.js');
       expect(responseText).toContain('const test = 1');
     });
@@ -309,7 +296,7 @@ describe('Empty Arrays Removal in Responses', () => {
         },
         status: 200,
         provider: 'github',
-        hints: [], // Empty hints
+        hints: [],
       });
 
       const result = await mockServer.callTool(
@@ -331,7 +318,6 @@ describe('Empty Arrays Removal in Responses', () => {
 
       expect(responseText).toContain('results:');
       expect(responseText).toContain('file.js');
-      // No hints field should appear when there is nothing to say (single page, no warnings)
       expect(responseText).not.toMatch(/hints:\s*\[\]/);
     });
   });
@@ -347,7 +333,7 @@ describe('Empty Arrays Removal in Responses', () => {
           items: [
             {
               path: 'path/to/empty_match_file.ts',
-              matches: [], // Empty matches is fine for path-only mode
+              matches: [],
               url: 'https://github.com/test/repo/blob/main/path/to/empty_match_file.ts',
               repository: {
                 id: '1',
@@ -369,7 +355,7 @@ describe('Empty Arrays Removal in Responses', () => {
           queries: [
             {
               keywordsToSearch: ['empty_match'],
-              match: 'path', // Path-only mode
+              match: 'path',
               reasoning: 'Test path-only match preservation',
             },
           ],
@@ -379,7 +365,6 @@ describe('Empty Arrays Removal in Responses', () => {
 
       const responseText = getTextContent(result.content);
 
-      // We expect the file path to be present in the output
       expect(responseText).toContain('path/to/empty_match_file.ts');
     });
   });

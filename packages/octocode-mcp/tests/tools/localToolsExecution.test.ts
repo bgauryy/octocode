@@ -1,20 +1,13 @@
-/**
- * Tests for local tools execution and registration modules
- * Covers execution.ts and register.ts files for local_fetch_content, local_find_files,
- * local_ripgrep, and local_view_structure
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RipgrepQuery } from '@octocodeai/octocode-core';
 
-// Mock the bulk operation module
 vi.mock('../../src/utils/response/bulk.js', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'mocked result' }],
   }),
 }));
 
-// Mock individual tool functions
 vi.mock('../../src/tools/local_fetch_content/fetchContent.js', () => ({
   fetchContent: vi.fn().mockResolvedValue({ status: 'success' }),
 }));
@@ -31,10 +24,6 @@ vi.mock('../../src/tools/local_view_structure/local_view_structure.js', () => ({
   viewStructure: vi.fn().mockResolvedValue({ status: 'success' }),
 }));
 
-// Mock schema modules so safeParse succeeds and visibly applies schema defaults.
-// Execution handlers must pass validation.data to implementations, not the raw
-// query, otherwise MCP clients that omit defaulted fields get inconsistent
-// behavior.
 const withParsedDefaults = <T extends object>(
   query: T
 ): T & {
@@ -64,8 +53,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   };
 });
 
-// localSchemaOverlay re-publishes the ripgrep/find/view schemas with relaxed
-// caps. Stub the overlay so tests can verify orchestration without exercising Zod.
 vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   RipgrepQuerySchema: { safeParse: mockSafeParse },
   FindFilesQuerySchema: { safeParse: mockSafeParse },
@@ -77,7 +64,6 @@ vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   BulkFetchContentQuerySchema: {},
 }));
 
-// Verbosity helper module — only isVerbose exists (boolean detail switch).
 vi.mock('../../src/scheme/verbosity.js', () => ({
   isVerbose: (q: { verbose?: boolean }) => q?.verbose === true,
 }));
@@ -129,12 +115,10 @@ describe('Local Tools Execution', () => {
       ];
       await executeFetchContent({ queries: queries as any });
 
-      // Get the callback function passed to executeBulkOperation
       const mockCall = vi.mocked(executeBulkOperation).mock.calls[0];
       expect(mockCall).toBeDefined();
       const callback = mockCall![1];
 
-      // Execute the callback to cover line 16
       const query = {
         researchGoal: 'Test',
         reasoning: 'Schema validation',

@@ -1,7 +1,3 @@
-/**
- * Fetch with retry mechanism and exponential backoff
- */
-
 import { version } from '../../../package.json';
 import { FETCH_ERRORS } from '../../errors/domainErrors.js';
 import {
@@ -22,52 +18,21 @@ interface ExtendedError extends Error {
   retryable?: boolean;
 }
 
-/** Maximum delay cap for exponential backoff (60 seconds) */
 const MAX_BACKOFF_DELAY_MS = 60000;
 
 interface FetchWithRetriesOptions {
-  /**
-   * Maximum number of retry attempts (excluding the initial request)
-   * @default 3
-   */
   maxRetries?: number;
-  /**
-   * Initial delay in milliseconds for exponential backoff
-   * @default 1000 (1 second)
-   */
   initialDelayMs?: number;
-  /**
-   * Maximum delay in milliseconds for exponential backoff cap
-   * @default 60000 (60 seconds)
-   */
   maxDelayMs?: number;
-  /**
-   * Custom headers to include in the request
-   */
+
   headers?: Record<string, string>;
-  /**
-   * HTTP method
-   * @default 'GET'
-   */
   method?: string;
-  /**
-   * Whether to include the package version as a query parameter
-   * @default false
-   */
   includeVersion?: boolean;
-  /**
-   * AbortSignal for request cancellation (e.g., on shutdown)
-   * When aborted, the function throws immediately without retrying
-   */
+
   signal?: AbortSignal;
-  /**
-   * Provider name used when HTTP 429 responses should count in local rate-limit stats.
-   */
+
   rateLimitProvider?: string;
-  /**
-   * Package registry name used when non-404 registry HTTP failures should be
-   * counted separately from provider API rate limits.
-   */
+
   packageRegistry?: string;
 }
 
@@ -96,14 +61,6 @@ function recordFetchRateLimit(
   }).catch(ignoreBestEffortFailure('fetch rate-limit session logging'));
 }
 
-/**
- * Build the error thrown for a non-OK HTTP response.
- *
- * Releases the response socket, records rate-limit / registry stats, and
- * tags the error with `status`/`headers`/`retryable` so the retry loop can
- * decide whether to back off or propagate. Extracted from the main loop to
- * keep `fetchWithRetries` flat.
- */
 function buildHttpResponseError(
   res: Response,
   method: string,
@@ -111,8 +68,6 @@ function buildHttpResponseError(
   packageRegistry: string | undefined,
   rateLimitProvider: string | undefined
 ): ExtendedError {
-  // Release the underlying TCP socket immediately.
-  // An unconsumed body keeps the socket allocated until GC.
   res.body
     ?.cancel?.()
     .catch(ignoreBestEffortFailure('response body cancellation'));
@@ -135,7 +90,6 @@ function buildHttpResponseError(
     recordFetchRateLimit(rateLimitProvider, method, finalUrl, res.headers);
   }
 
-  // Retry on rate limits (429), request timeouts (408), and server errors (5xx)
   error.retryable =
     res.status === 429 ||
     res.status === 408 ||
@@ -144,22 +98,15 @@ function buildHttpResponseError(
   return error;
 }
 
-/**
- * Compute the backoff delay before the next attempt: exponential growth with
- * jitter, capped at `maxDelayMs`, overridden by a `Retry-After` header when
- * the failing response carried one.
- */
 function computeBackoffDelayMs(
   attempt: number,
   initialDelayMs: number,
   maxDelayMs: number,
   extendedError: ExtendedError | undefined
 ): number {
-  // Exponential backoff capped at maxDelayMs, plus jitter to avoid thundering herd.
   let delayMs = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
   delayMs += Math.floor(Math.random() * initialDelayMs);
 
-  // Respect Retry-After header if present (but still cap at maxDelayMs)
   if (
     extendedError &&
     extendedError.headers &&
@@ -174,28 +121,6 @@ function computeBackoffDelayMs(
   return delayMs;
 }
 
-/**
- * Fetches a URL with automatic retries and exponential backoff.
- *
- * Retry behavior:
- * - Retries on network errors, server errors (5xx), request timeouts (408), and rate limits (429)
- * - Respects 'Retry-After' header for 429 responses
- * - Does NOT retry on client errors (4xx) except rate limits and timeouts
- * - Uses exponential backoff: 1s, 2s, 4s, etc. (capped at 60s default)
- *
- * @param url - The URL to fetch
- * @param options - Configuration options for retries and request
- * @returns The JSON response (or null for 204 No Content)
- * @throws Error if all retry attempts fail
- *
- * @example
- * ```typescript
- * const data = await fetchWithRetries('https://api.example.com/data', {
- *   maxRetries: 3,
- *   headers: { 'User-Agent': 'MyApp/1.0' }
- * });
- * ```
- */
 export async function fetchWithRetries(
   url: string,
   options: FetchWithRetriesOptions = {}
@@ -232,8 +157,6 @@ export async function fetchWithRetries(
     throw new Error(FETCH_ERRORS.FETCH_NOT_AVAILABLE.message);
   }
 
-  // Fail fast if this host's circuit is open (recent repeated failures), so a
-  // down dependency doesn't drag every call through its full retry budget. (#T13)
   assertCircuitAvailable(finalUrl);
 
   let lastError: Error | undefined;
@@ -272,7 +195,6 @@ export async function fetchWithRetries(
     } catch (error: unknown) {
       const extendedError = error as ExtendedError;
 
-      // Don't retry on abort - propagate immediately
       if (
         signal?.aborted ||
         (error instanceof Error && error.name === 'AbortError')
@@ -301,8 +223,6 @@ export async function fetchWithRetries(
     }
   }
 
-  // Retry budget exhausted — count one fetch-level failure toward the host's
-  // circuit (4xx and aborts return/throw earlier, so they don't count). (#T13)
   recordCircuitFailure(finalUrl);
 
   await logSessionError(

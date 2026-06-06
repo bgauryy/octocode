@@ -1,8 +1,3 @@
-/**
- * LSP Call Hierarchy tool - traces function call relationships
- * Uses Language Server Protocol for semantic call hierarchy discovery
- */
-
 import { readFile } from 'fs/promises';
 import { getHints } from '../../hints/index.js';
 import { hints as callHierarchyHints } from './hints.js';
@@ -39,19 +34,9 @@ import {
   getRawResponseChars,
 } from '../../utils/response/charSavings.js';
 
-/**
- * Process a single call hierarchy query.
- *
- * Wraps the internal core logic with the verbosity transformer.
- * verbose=false (default): graph edges only (no per-node snippets).
- * verbose=true: full per-node content included.
- */
 export async function processCallHierarchy(
   query: LSPCallHierarchyQuery
 ): Promise<CallHierarchyResult> {
-  // Surface page-size knob is the cross-tool `itemsPerPage`; the internal
-  // pipeline threads `callsPerPage`. Bridge once here so downstream logic is
-  // unchanged.
   const bridge = query as { itemsPerPage?: number; callsPerPage?: number };
   if (
     bridge.callsPerPage === undefined &&
@@ -116,10 +101,8 @@ async function processCallHierarchyInternal(
             error: error.message,
             hints: [
               ...getHints(TOOL_NAME, 'empty'),
-              `Symbol '${symbolName}' not found at line ${lineHint}`,
-              'Verify the exact function name (case-sensitive)',
-              'Check the line number is correct',
-              'Use localSearchCode to find the function first',
+              `Symbol '${symbolName}' not found at line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
+              'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry.',
             ],
           },
           content.length
@@ -134,10 +117,6 @@ async function processCallHierarchyInternal(
       workspaceRoot
     );
 
-    // No language server: there is no semantic call graph to return. We do
-    // NOT guess one from regex/text matching — that would masquerade as a
-    // real call hierarchy. Return a clear empty result pointing at the
-    // text-based tools instead.
     if (!lspAvailable) {
       return attachRawResponseChars(
         buildLspUnavailableResult(query),
@@ -165,9 +144,6 @@ async function processCallHierarchyInternal(
       );
     }
 
-    // Output bounding is owned entirely by the bulk char-paginator, which
-    // sub-slices an oversized node's nested `content` — so no per-tool
-    // pre-clip is needed (lossless: the cursor reaches the rest).
     return attachRawResponseChars(
       result,
       content.length + countSerializedChars(result)
@@ -179,15 +155,6 @@ async function processCallHierarchyInternal(
   }
 }
 
-/**
- * Build the empty result returned when no language server can resolve the
- * call hierarchy. There is no regex/text fallback: a semantic call graph
- * cannot be faithfully reconstructed from text matching, so rather than
- * return misleading guesses we point the caller at the text-search tools.
- *
- * @param lspFailed true when a language server was available but the request
- *   failed or returned nothing (vs. no language server installed at all).
- */
 function buildLspUnavailableResult(
   query: LSPCallHierarchyQuery,
   lspFailed = false
@@ -209,17 +176,6 @@ function buildLspUnavailableResult(
   };
 }
 
-/**
- * Verbosity shaping for lspCallHierarchy.
- *
- * verbose=false (default):
- *   - Strip `lspMode` metadata
- *   - Strip `content` from all caller/callee nodes (can be hundreds of KB)
- *   - Add `summary: { callerCount, fileCount }` for quick orientation
- * verbose=true: include all fields including LSP mode info and node content.
- *
- * Calls are never dropped. Hints are always returned fully.
- */
 export function applyCallHierarchyVerbosity(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery

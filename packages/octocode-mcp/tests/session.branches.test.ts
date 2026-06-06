@@ -140,7 +140,6 @@ describe('session.branches', () => {
 
       await logRateLimit(rateLimitData);
 
-      // Verify session was updated
       expect(session.getSession().sessionId).toBe('updated-session-id');
       expect(session.getSession().stats.rateLimits).toBe(5);
     });
@@ -194,8 +193,6 @@ describe('session.branches', () => {
       const error = new Error('Network error');
       vi.mocked(fetch).mockRejectedValue(error);
 
-      // Telemetry failures are now silently ignored (no stderr output)
-      // to avoid noise for stdio MCP consumers
       const stderrWriteSpy = vi
         .spyOn(process.stderr, 'write')
         .mockImplementation(() => true);
@@ -204,7 +201,6 @@ describe('session.branches', () => {
       await logSessionError('testTool', 'TEST_ERROR');
 
       expect(vi.mocked(fetch)).toHaveBeenCalled();
-      // Should NOT write to stderr anymore
       expect(stderrWriteSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('[session] Failed to send log')
       );
@@ -223,7 +219,6 @@ describe('session.branches', () => {
       await logSessionError('testTool', 'TEST_ERROR');
 
       expect(vi.mocked(fetch)).toHaveBeenCalled();
-      // Should NOT write to stderr anymore
       expect(stderrWriteSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('[session] Failed to send log')
       );
@@ -304,8 +299,6 @@ describe('session.branches', () => {
       await initialize();
 
       const { isLoggingEnabled } = await import('../src/serverConfig.js');
-      // Default behavior depends on serverConfig implementation
-      // This test verifies the branch is covered
       expect(typeof isLoggingEnabled()).toBe('boolean');
     });
   });

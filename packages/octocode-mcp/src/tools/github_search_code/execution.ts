@@ -25,7 +25,6 @@ import {
 } from '../providerExecution.js';
 import { buildGithubSearchCodeFinalizer } from './finalizer.js';
 
-// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyGithubSearchCodeVerbosity } from './finalizer.js';
 
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
@@ -72,29 +71,20 @@ export async function searchMultipleGitHubCode(
           query
         );
 
-        // Stash the flat per-query shape into the standard tool data surface;
-        // the finalizer reads it back and reshapes the whole bulk result.
-        // Query-shape context lets hints.ts emit the most specific recovery hint.
         const hintContext = {
           hasOwnerRepo: Boolean(query.owner && query.repo),
           owner: query.owner,
           repo: query.repo,
-          // GitHub reported the owner/repo/user does not exist (422) — distinct
-          // from a valid scope that matched nothing. Drives a scope-spelling
-          // hint instead of authoritative "not found".
           nonExistentScope: flat.nonExistentScope,
           match: query.match,
           extension: query.extension,
           filename: query.filename,
           path: query.path,
           keywords: query.keywordsToSearch,
-          // Pagination signals so hasResults hint can emit exhaustive-search guidance
           totalMatches: flat.pagination?.totalMatches,
           hasMore: flat.pagination?.hasMore,
           currentPage: flat.pagination?.currentPage ?? 1,
           totalPages: flat.pagination?.totalPages ?? 1,
-          // Matched paths drive the non-canonical (examples/__tests__/docs)
-          // concept-match warning in hints.hasResults.
           matchedPaths: flat.results.flatMap(group =>
             group.matches.map(m => m.path)
           ),

@@ -1,7 +1,3 @@
-/**
- * Recursive directory content fetching for GitHub repository structure.
- * Extracted from repoStructure.ts.
- */
 import type { GitHubApiFileItem } from '../tools/github_view_repo_structure/types.js';
 import {
   attachRawResponseChars,
@@ -10,9 +6,6 @@ import {
 } from '../utils/response/charSavings.js';
 import { OctokitWithThrottling } from './client.js';
 
-/**
- * Recursively fetch directory contents using API
- */
 export async function fetchDirectoryContentsRecursivelyAPI(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
@@ -51,12 +44,6 @@ export async function fetchDirectoryContentsRecursivelyAPI(
       sha: item.sha,
     }));
 
-    // Intentional projection: `apiItems` carries the fields downstream consumes
-    // (name/path/type/size/urls/sha) but omits `_links` and narrows `size` to
-    // optional, so it is a structural subset of GitHubApiFileItem rather than a
-    // member of it. This is an internal reshape of already-typed API data — not
-    // an untrusted boundary — so the bridge cast is the right tool here (a
-    // runtime validator would add cost without adding safety).
     const allItems: GitHubApiFileItem[] = [
       ...apiItems,
     ] as unknown as GitHubApiFileItem[];
@@ -78,7 +65,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
               dir.path,
               currentDepth + 1,
               maxDepth,
-              visitedPaths // Pass reference, not copy
+              visitedPaths
             );
             rawResponseChars += getRawResponseChars(subItems) ?? 0;
             return subItems;

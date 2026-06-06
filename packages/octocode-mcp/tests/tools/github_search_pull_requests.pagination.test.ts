@@ -1,8 +1,3 @@
-/**
- * Tests for githubSearchPullRequests tool handler pagination fix
- * Verifies that pagination object and hints are correctly passed to the response
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createSuccessResult } from '../../src/tools/utils.js';
 
@@ -33,7 +28,6 @@ describe('githubSearchPullRequests Tool Handler - Pagination Fix', () => {
 
       const pullRequests = [{ number: 1 }, { number: 2 }];
 
-      // Generate pagination hints (simulating what the tool handler does)
       const paginationHints: string[] = [];
       if (pagination) {
         const { currentPage, totalPages, totalMatches, hasMore } = pagination;
@@ -199,7 +193,6 @@ describe('githubSearchPullRequests Tool Handler - Pagination Fix', () => {
         { extraHints: paginationHints }
       );
 
-      // Verify no jump hint is present
       const hasJumpHint = result.hints?.some((h: string) =>
         h.includes('Jump to:')
       );
@@ -214,7 +207,6 @@ describe('githubSearchPullRequests Tool Handler - Pagination Fix', () => {
 
       const pullRequests = [{ number: 1 }];
 
-      // No pagination hints when pagination is undefined
       const paginationHints: string[] = [];
 
       const result = createSuccessResult(
@@ -225,7 +217,6 @@ describe('githubSearchPullRequests Tool Handler - Pagination Fix', () => {
         { extraHints: paginationHints }
       );
 
-      // Hints should be undefined when empty array is passed
       expect(result.hints).toBeUndefined();
     });
   });

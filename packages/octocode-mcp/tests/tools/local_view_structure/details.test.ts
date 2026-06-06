@@ -38,15 +38,15 @@ describe('localViewStructure details param', () => {
         entries,
         maxEntries: 100,
         showHidden: false,
-        showModified: false, // showModified=false
+        showModified: false,
         stats,
-        showDetails: true, // showDetails=true
+        showDetails: true,
       });
 
       const fileEntry = entries.find(e => e.name === 'file.txt');
       expect(fileEntry).toBeDefined();
       expect(fileEntry!.modified).toBeDefined();
-      expect(fileEntry!.modified).toMatch(/^\d{4}-\d{2}-\d{2}T/); // ISO date
+      expect(fileEntry!.modified).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
     it('should populate permissions field when showDetails is true', async () => {
@@ -61,9 +61,9 @@ describe('localViewStructure details param', () => {
         entries,
         maxEntries: 100,
         showHidden: false,
-        showModified: false, // showModified=false
+        showModified: false,
         stats,
-        showDetails: true, // showDetails=true
+        showDetails: true,
       });
 
       const fileEntry = entries.find(e => e.name === 'file.txt');
@@ -112,7 +112,7 @@ describe('localViewStructure details param', () => {
         showHidden: false,
         showModified: false,
         stats,
-        showDetails: false, // showDetails=false
+        showDetails: false,
       });
 
       const fileEntry = entries.find(e => e.name === 'file.txt');
@@ -168,15 +168,12 @@ describe('localViewStructure details param', () => {
 
   describe('parseLsLongFormat with details', () => {
     it('should always include modified when parsing long format', () => {
-      // ls -l output format (macOS):
       const lsOutput = [
         'total 8',
         '-rw-r--r--  1 user  staff  1234 Feb 16 10:00 test.ts',
         'drwxr-xr-x  3 user  staff    96 Feb 16 09:00 src',
       ].join('\n');
 
-      // Even with showModified=false, parseLsLongFormat is called from details=true path
-      // so it should include modified
       const entries = parseLsLongFormat(lsOutput, true);
 
       expect(entries.length).toBe(2);

@@ -1,11 +1,3 @@
-/**
- * GitHub Pull Request Search Operations
- * Orchestrates searching/listing pull requests.
- * Split into focused modules:
- *   - prTransformation.ts: PR data transformation and formatting
- *   - prContentFetcher.ts: comments, commits, file changes, item transforms
- *   - prByNumber.ts: fetch single PR by number
- */
 import type {
   GitHubAPIError,
   GitHubPullRequestsSearchParams,
@@ -54,12 +46,6 @@ function createPullRequestErrorResult(
   };
 }
 
-/**
- * Clean empty result (no `error` field) for searches whose filters reference a
- * nonexistent entity — GitHub 422s these even though "no matches" is the
- * truthful answer. Mirrors the zero-result success shape so the tool layer
- * classifies it as `empty`, not `error`.
- */
 function createPullRequestEmptyResult(
   params: GitHubPullRequestsSearchParams
 ): GitHubPullRequestSearchApiResult {
@@ -245,8 +231,6 @@ async function searchGitHubPullRequestsAPIInternal(
         countSerializedChars(searchResult.data) + transformedRawResponseChars,
     };
   } catch (error: unknown) {
-    // A 422 that names a nonexistent searchable entity (e.g. author:ghost) is
-    // semantically "no matches", not a failure — degrade to a clean empty.
     if (isNoResultsSearchError(error)) {
       return createPullRequestEmptyResult(params);
     }

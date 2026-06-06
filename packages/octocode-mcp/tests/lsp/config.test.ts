@@ -1,13 +1,3 @@
-/**
- * Branch coverage tests for src/lsp/config.ts
- *
- * Covers:
- * - sanitizeUserLanguageServers: skips unsafe shell commands (line 49)
- * - loadUserConfig: getConfigSync throws (line 80)
- * - resolveLanguageServer: bin entry missing (line 141)
- * - resolveLanguageServer: path validation fails (line 150)
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockReadFile = vi.hoisted(() => vi.fn());

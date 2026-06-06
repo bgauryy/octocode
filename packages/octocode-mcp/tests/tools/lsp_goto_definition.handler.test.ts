@@ -1,13 +1,6 @@
-/**
- * Handler tests for LSP Go To Definition tool
- * Tests the actual handler function with mocked dependencies
- * @module tools/lsp_goto_definition.handler.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 
-// Mock fs/promises before importing the module
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
@@ -92,7 +85,6 @@ describe('LSP Goto Definition Handler Tests', () => {
     it('should process single query', async () => {
       vi.resetModules();
 
-      // Mock fs.readFile to return some content
       const mockReadFile = vi.mocked(fs.readFile);
       mockReadFile.mockResolvedValue('function test() { return 1; }');
 
@@ -218,7 +210,6 @@ describe('LSP Goto Definition Handler Tests', () => {
             lineHint: 1,
             researchGoal: 'test',
             reasoning: 'test',
-            // No contextLines specified - should use default
           },
         ],
       });
@@ -284,7 +275,6 @@ describe('LSP Goto Definition Handler Tests', () => {
             lineHint: 1,
             researchGoal: 'test',
             reasoning: 'test',
-            // No orderHint - should default to 0
           },
         ],
       });
@@ -318,7 +308,6 @@ describe('LSP Goto Definition Handler Tests', () => {
         await import('@octocodeai/octocode-core');
 
       expect(typeof LSP_GOTO_DEFINITION_DESCRIPTION).toBe('string');
-      // Description may be empty if tool not in remote metadata (local-only tool)
     });
   });
 

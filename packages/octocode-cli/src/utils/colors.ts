@@ -19,10 +19,6 @@ const colors: Record<ColorName, string> = {
   bgMagenta: '\x1b[45m',
 };
 
-// Colors are only emitted for interactive terminals. When stdout is piped
-// (e.g. an agent capturing output) or NO_COLOR is set, return raw text so the
-// output is free of ANSI escape codes. Evaluated lazily so tests and runtime
-// pick up the current stdout/env state.
 function colorsEnabled(): boolean {
   if (process.env.NO_COLOR) {
     return false;

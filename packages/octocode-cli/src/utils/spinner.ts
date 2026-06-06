@@ -28,10 +28,6 @@ function registerCleanupHandlers(): void {
   });
 }
 
-// The spinner is interactive UI: animation frames, cursor hide/show, and
-// line-clearing only make sense on a TTY. When stdout is piped (e.g. an agent
-// capturing output) the spinner becomes a quiet no-op — start/clear emit
-// nothing, and stop prints just a single plain status line (no control codes).
 function spinnerEnabled(): boolean {
   return Boolean(process.stdout.isTTY);
 }
@@ -106,8 +102,6 @@ export class Spinner {
     activeSpinners.delete(this);
 
     if (!spinnerEnabled()) {
-      // Still surface the final status, but as one clean line with no
-      // carriage-return / clear-line / cursor control codes.
       process.stdout.write(`${c(color, symbol)} ${this.text}\n`);
       return this;
     }

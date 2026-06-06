@@ -808,7 +808,6 @@ describe('Code Search Filtering - File Filters', () => {
                 url: 'https://api.github.com/repos/test/repo',
               },
               text_matches: [],
-              // No last_modified_at
             },
           ],
         },
@@ -836,7 +835,6 @@ describe('Code Search Filtering - File Filters', () => {
         data: {
           total_count: 10,
           items: [
-            // Valid files
             {
               name: 'UserService.js',
               path: 'src/services/UserService.js',
@@ -861,7 +859,6 @@ describe('Code Search Filtering - File Filters', () => {
               repository: { full_name: 'test/repo', url: 'url' },
               text_matches: [],
             },
-            // Invalid - in ignored directories
             {
               name: 'index.js',
               path: 'node_modules/express/index.js',
@@ -885,7 +882,6 @@ describe('Code Search Filtering - File Filters', () => {
               repository: { full_name: 'test/repo', url: 'url' },
               text_matches: [],
             },
-            // Invalid - ignored file names
             {
               name: 'package-lock.json',
               path: 'package-lock.json',
@@ -901,7 +897,6 @@ describe('Code Search Filtering - File Filters', () => {
               repository: { full_name: 'test/repo', url: 'url' },
               text_matches: [],
             },
-            // Invalid - ignored extensions
             {
               name: 'app.exe',
               path: 'bin/app.exe',
@@ -1009,9 +1004,8 @@ describe('Code Search Filtering - File Filters', () => {
     it('should correctly update total_count after filtering', async () => {
       const mockResponse = {
         data: {
-          total_count: 100, // API returns 100 total matches
+          total_count: 100,
           items: [
-            // Mix of valid and invalid files
             {
               name: 'app.js',
               path: 'src/app.js',
@@ -1094,7 +1088,6 @@ describe('Code Search Resilience - Promise.allSettled', () => {
   });
 
   it('should return other items when one item throws during processing', async () => {
-    // Use a getter on html_url that throws to make the item-level processing fail
     const brokenItem = {
       name: 'broken.js',
       path: 'src/broken.js',
@@ -1130,10 +1123,8 @@ describe('Code Search Resilience - Promise.allSettled', () => {
     });
 
     if ('data' in result) {
-      // The good item should still be returned
       expect(result.data.items.length).toBe(1);
       expect(result.data.items[0]!.path).toBe('src/good.js');
-      // matchLocations should include dropped-count warning
       expect(result.data.matchLocations).toBeDefined();
       expect(
         result.data.matchLocations!.some((m: string) =>
@@ -1193,9 +1184,7 @@ describe('Code Search Resilience - Promise.allSettled', () => {
 
     if ('data' in result) {
       expect(result.data.items.length).toBe(1);
-      // 2 of 3 matches should survive
       expect(result.data.items[0]!.matches.length).toBe(2);
-      // matchLocations should include dropped-match warning
       expect(result.data.matchLocations).toBeDefined();
       expect(
         result.data.matchLocations!.some((m: string) =>

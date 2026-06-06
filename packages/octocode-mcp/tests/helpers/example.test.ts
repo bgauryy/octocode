@@ -1,18 +1,7 @@
-/**
- * Example Test File - Demonstrates Unified Test Helpers
- *
- * This file shows how to use the new unified test helpers for local tool testing.
- * Use this as a template for new test files.
- *
- * KEY INSIGHT: vi.hoisted() runs BEFORE any imports, so we must define all mocks
- * inline without using imported functions.
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
   vi.hoisted(() => {
-    // Create all mock functions
     const lstatSync = vi.fn();
     const realpathSync = vi.fn();
     const readdir = vi.fn();
@@ -30,7 +19,6 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
       .mockReturnValue('Command not available');
     const validate = vi.fn();
 
-    // Stats factory
     const createStats = (
       opts: {
         isFile?: boolean;
@@ -52,7 +40,6 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
       mode: 0o644,
     });
 
-    // Dirent factory
     const createDirent = (
       name: string,
       type: 'file' | 'directory' | 'symlink' = 'file'
@@ -68,7 +55,6 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
     });
 
     return {
-      // Mock module structures
       fsMocks: {
         default: {
           lstatSync,
@@ -82,7 +68,6 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
       execMocks: { safeExec, checkCommandAvailability, getMissingCommandError },
       pathValidatorMocks: { pathValidator: { validate } },
 
-      // Individual mocks for direct access
       mocks: {
         lstatSync,
         realpathSync,
@@ -95,11 +80,9 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
         validate,
       },
 
-      // Factories
       createStats,
       createDirent,
 
-      // Helper functions
       helpers: {
         reset: () => {
           [
@@ -183,7 +166,6 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
           realpathSync.mockReturnValue(resolvedPath);
         },
 
-        // Output creators
         createLsOutput: (files: string[]) => files.join('\n'),
 
         createFindOutput: (paths: string[]) =>
@@ -208,22 +190,18 @@ const { viewStructure } =
 
 describe('Example: Using Unified Test Helpers', () => {
   beforeEach(() => {
-    // Reset all mocks to clean state before each test
     helpers.reset();
 
-    // Set up default mocks for most tests
     helpers.setupValidPath('/workspace');
     helpers.setupRealpath('/workspace');
   });
 
   describe('Basic Directory Listing', () => {
     it('should list files from ls output', async () => {
-      // Setup: ls returns file list
       helpers.setupExecSuccess(
         helpers.createLsOutput(['file1.ts', 'file2.ts', 'dir1'])
       );
 
-      // Setup: lstat returns appropriate stats for each entry
       mocks.lstat.mockImplementation(async (path: string) => {
         if (path.includes('dir1')) {
           return createStats({ isDir: true });
@@ -265,13 +243,11 @@ describe('Example: Using Unified Test Helpers', () => {
 
   describe('Recursive Listing with Depth', () => {
     it('should use recursive walk for depth > 0', async () => {
-      // Setup: readdir returns directory contents
       helpers.setupReaddir([
         { name: 'src', type: 'directory' },
         { name: 'package.json', type: 'file' },
       ]);
 
-      // Setup: lstat returns appropriate stats
       mocks.lstat.mockImplementation(async (path: string) => {
         if (path.includes('src') || path.includes('workspace')) {
           return createStats({ isDir: true });
@@ -307,14 +283,12 @@ describe('Example: Using Unified Test Helpers', () => {
         path: '/workspace/src',
       });
 
-      // Empty but valid
       expect(result.status).toBe('empty');
     });
   });
 
   describe('Pagination', () => {
     it('should include pagination info', async () => {
-      // Create many files for pagination
       const files = Array.from({ length: 25 }, (_, i) => `file${i}.ts`);
       helpers.setupExecSuccess(helpers.createLsOutput(files));
       helpers.setupLstatFile();
@@ -357,7 +331,6 @@ describe('Example: Direct Mock Access', () => {
   });
 
   it('should allow direct mock manipulation', async () => {
-    // Using mocks.safeExec directly for complex scenarios
     mocks.safeExec.mockResolvedValueOnce({
       success: true,
       code: 0,
@@ -365,13 +338,11 @@ describe('Example: Direct Mock Access', () => {
       stderr: '',
     });
 
-    // Using mocks.lstat directly
     mocks.lstat.mockResolvedValue(createStats({ isFile: true, size: 500 }));
 
     const result = await viewStructure({ path: '/workspace' });
     expect(result.status).toBeUndefined();
 
-    // Verify mock was called
     expect(mocks.safeExec).toHaveBeenCalled();
   });
 
@@ -380,7 +351,6 @@ describe('Example: Direct Mock Access', () => {
 
     await viewStructure({ path: '/workspace' });
 
-    // Check what command was executed
     expect(mocks.safeExec).toHaveBeenCalledWith(
       'ls',
       expect.arrayContaining(['/workspace'])

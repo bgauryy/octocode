@@ -346,12 +346,7 @@ describe('errorCodes', () => {
   });
 
   describe('redactPath function', () => {
-    // --- Project-relative paths (primary behavior) ---
-    // Local tools enforce workspace boundaries via PathValidator,
-    // so paths always resolve to meaningful project-relative output.
-
     it.each([
-      // [description, absolutePath, workspace, expected]
       ['unix source file', '/project/src/file.ts', '/project', 'src/file.ts'],
       ['unix .env', '/project/.env', '/project', '.env'],
       [
@@ -413,7 +408,6 @@ describe('errorCodes', () => {
       expect(redactPath(absolutePath, workspace)).toBe(expected);
     });
 
-    // --- Prefix collision prevention ---
     it.each([
       [
         '/workspace/project-secret/creds.json',
@@ -433,7 +427,6 @@ describe('errorCodes', () => {
       }
     );
 
-    // --- Path traversal normalization (defense-in-depth) ---
     it.each([
       ['/project/src/../../../etc/passwd', '/project', 'passwd'],
       ['C:\\project\\..\\..\\Windows\\System32\\SAM', 'C:\\project', 'SAM'],
@@ -441,7 +434,6 @@ describe('errorCodes', () => {
       expect(redactPath(absolutePath, workspace)).toBe(expected);
     });
 
-    // --- Defense-in-depth fallbacks ---
     it('home directory fallback → ~/...', () => {
       const homeDir = os.homedir();
       expect(redactPath(`${homeDir}/documents/file.ts`)).toBe(
@@ -466,14 +458,10 @@ describe('errorCodes', () => {
       ).toBe('key.pem');
     });
 
-    // --- Edge cases ---
     it('empty path → empty string', () => {
       expect(redactPath('')).toBe('');
     });
 
-    // --- Auto-resolve workspaceRoot (real caller behavior) ---
-    // Callers don't pass workspaceRoot: ToolErrors.fileAccessFailed(path, error)
-    // So redactPath resolves it from config/CWD automatically.
     it('auto-resolves workspaceRoot from CWD when not provided', () => {
       const cwd = process.cwd();
       expect(redactPath(`${cwd}/src/test-file.ts`)).toBe('src/test-file.ts');
@@ -504,7 +492,6 @@ describe('errorCodes', () => {
     it('auto-resolves workspaceRoot from config when set', () => {
       const mockedGetConfig = vi.mocked(getConfigSync);
       const cwd = process.cwd();
-      // Override config to return a custom workspaceRoot
       mockedGetConfig.mockReturnValueOnce({
         ...mockedGetConfig(),
         local: {

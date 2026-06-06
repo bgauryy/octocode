@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 
-// Mock the session logging
 const mockLogToolCall = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../../src/session.js', () => ({
   logToolCall: mockLogToolCall,
@@ -20,7 +19,6 @@ vi.mock('../../src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-// Mock content sanitizer
 vi.mock('octocode-security-utils/contentSanitizer', () => ({
   ContentSanitizer: {
     validateInputParameters: vi.fn(params => ({
@@ -38,7 +36,6 @@ vi.mock('octocode-security-utils/contentSanitizer', () => ({
   },
 }));
 
-// Mock server config
 vi.mock('../../src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(async () => 'test-token'),
   isLoggingEnabled: vi.fn(() => true),
@@ -49,7 +46,6 @@ vi.mock('../../src/serverConfig.js', () => ({
   })),
 }));
 
-// Import tools after mocks are set up
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
@@ -80,7 +76,6 @@ describe('Tools Logging Integration - Repo/Owner Tracking', () => {
     };
     mockGetProvider.mockReturnValue(mockProvider);
 
-    // Default mock responses
     mockProvider.searchCode.mockResolvedValue({
       data: {
         items: [],

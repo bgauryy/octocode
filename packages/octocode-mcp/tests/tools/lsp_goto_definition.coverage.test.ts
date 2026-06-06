@@ -1,9 +1,3 @@
-/**
- * Extended coverage tests for LSP Go To Definition tool
- * Tests internal functions, error handling, and fallback paths
- * @module tools/lsp_goto_definition.coverage.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { addLineNumbers } from '../../src/tools/lsp_goto_definition/execution.js';
 

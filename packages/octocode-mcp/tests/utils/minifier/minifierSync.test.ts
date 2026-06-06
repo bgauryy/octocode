@@ -1,7 +1,3 @@
-/**
- * Tests for minifierSync utility
- */
-
 import { describe, it, expect } from 'vitest';
 import { minifyContentSync } from '../../../src/utils/minifier/minifier.js';
 
@@ -10,7 +6,6 @@ describe('minifierSync', () => {
     describe('JavaScript/TypeScript minification', () => {
       it('should minify JavaScript files', () => {
         const content = `
-          // This is a comment
           const foo = 'bar';
           /* Multi-line
              comment */
@@ -28,7 +23,6 @@ describe('minifierSync', () => {
 
       it('should minify TypeScript files', () => {
         const content = `
-          // Comment
           interface Foo {
             bar: string;
           }
@@ -42,7 +36,6 @@ describe('minifierSync', () => {
 
       it('should minify JSX files', () => {
         const content = `
-          // React component
           const App = () => {
             return <div>Hello</div>;
           };
@@ -54,7 +47,6 @@ describe('minifierSync', () => {
 
       it('should minify TSX files', () => {
         const content = `
-          // React TypeScript component
           const App: React.FC = () => {
             return <div>Hello</div>;
           };
@@ -66,7 +58,6 @@ describe('minifierSync', () => {
 
       it('should minify MJS files', () => {
         const content = `
-          // ES module
           export const foo = 'bar';
         `;
 
@@ -76,7 +67,6 @@ describe('minifierSync', () => {
 
       it('should minify CJS files', () => {
         const content = `
-          // CommonJS module
           module.exports = { foo: 'bar' };
         `;
 
@@ -213,9 +203,7 @@ Another paragraph  `;
 
         const result = minifyContentSync(content, 'README.md');
 
-        // Should reduce multiple blank lines
         expect(result).not.toMatch(/\n{3,}/);
-        // Should remove trailing whitespace
         expect(result).not.toMatch(/ {2}$/m);
       });
 
@@ -237,14 +225,11 @@ def foo():
     return "bar"
 
 
-
 x = foo()`;
 
         const result = minifyContentSync(content, 'script.py');
 
-        // Should preserve indentation
         expect(result).toContain('    return');
-        // Should remove excessive blank lines
         expect(result).not.toMatch(/\n{3,}/);
       });
 
@@ -255,11 +240,9 @@ def hello
 end
 
 
-
 hello()`;
 
         const result = minifyContentSync(content, 'script.rb');
-        // Ruby is not indentation-sensitive, so uses aggressive minification
         expect(result).not.toContain('# Ruby code');
         expect(result.length).toBeLessThan(content.length);
       });
@@ -268,7 +251,6 @@ hello()`;
         const content = `#!/bin/bash
 # Script
 echo "Hello"
-
 
 
 exit 0`;
@@ -337,10 +319,8 @@ More content`;
       it('should return original content on error', () => {
         const content = 'test content';
 
-        // Create a content that might cause issues but should still return original
         const result = minifyContentSync(content, 'test.ts');
 
-        // Should return something (either minified or original)
         expect(typeof result).toBe('string');
       });
     });
@@ -355,7 +335,6 @@ Jane,25,LA`;
 
         const result = minifyContentSync(csvContent, 'data.csv');
 
-        // Should preserve structure, reduce blank lines
         expect(result).not.toMatch(/\n{3,}/);
         expect(result).toContain('name,age,city');
       });

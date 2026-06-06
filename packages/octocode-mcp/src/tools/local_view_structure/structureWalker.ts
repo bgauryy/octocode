@@ -7,7 +7,7 @@ import type { DirectoryEntry } from './structureFilters.js';
 export interface WalkStats {
   skipped: number;
   permissionDenied: number;
-  /** Set when the root path itself could not be read (e.g. ENOENT, ENOTDIR). */
+
   rootError?: { code: string; message: string };
 }
 
@@ -24,9 +24,6 @@ interface WalkDirectoryOptions {
   showDetails?: boolean;
 }
 
-/**
- * Format Unix file mode bits as rwx permission string (e.g. "rw-r--r--")
- */
 function formatPermissions(mode: number): string {
   const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
   const owner = chars[(mode >> 6) & 7]!;
@@ -58,7 +55,6 @@ export async function walkDirectory(
     const items = await fs.promises.readdir(currentPath);
 
     for (const item of items) {
-      // Skip hidden files if not requested
       if (!showHidden && item.startsWith('.')) continue;
 
       const fullPath = path.join(currentPath, item);
@@ -121,8 +117,6 @@ export async function walkDirectory(
     const message =
       err instanceof Error ? err.message : 'Unknown error reading directory';
 
-    // Record root-level failure separately so callers can surface a clear error
-    // (e.g. ENOENT → "directory not found") rather than a generic skip warning.
     if (depth === 0) {
       stats.rootError = { code, message };
     } else {

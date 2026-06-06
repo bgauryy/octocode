@@ -232,7 +232,6 @@ describe('GitHub Search Repositories Coverage', () => {
           data?: { repositories?: Array<{ owner: string; repo: string }> };
         }>;
       };
-      // dated repo ranks before the one with no created date
       expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
         owner: 'b',
         repo: 'dated',
@@ -269,7 +268,6 @@ describe('GitHub Search Repositories Coverage', () => {
     it('boosts repos matching the requested language and term in topics/description', async () => {
       mockProvider.searchRepos.mockResolvedValue(
         okResponse([
-          // matches stars only, low relevance
           repo({
             id: '1',
             fullPath: 'org/unrelated',
@@ -278,7 +276,6 @@ describe('GitHub Search Repositories Coverage', () => {
             topics: ['misc'],
             description: 'nothing here',
           }),
-          // exact repo-name + language match + topic + description hit
           repo({
             id: '2',
             fullPath: 'org/whale',
@@ -408,6 +405,42 @@ describe('GitHub Search Repositories Coverage', () => {
       });
 
       expect(result.isError).toBe(false);
+    });
+  });
+
+  describe('noisy results hint — no owner/language/stars filter', () => {
+    it('emits narrowing hint when results are returned but no owner/language/stars given', async () => {
+      mockProvider.searchRepos.mockResolvedValue(
+        okResponse([
+          repo({ fullPath: 'a/repo1' }),
+          repo({ fullPath: 'b/repo2' }),
+        ])
+      );
+
+      const result = await call({
+        id: 'noisy_keywords',
+        keywordsToSearch: ['typescript'],
+      });
+
+      const text = getTextContent(result.content);
+      expect(result.isError).toBe(false);
+      expect(text).toContain('owner');
+    });
+
+    it('does not emit narrowing hint when owner is provided', async () => {
+      mockProvider.searchRepos.mockResolvedValue(
+        okResponse([repo({ fullPath: 'myorg/repo1' })])
+      );
+
+      const result = await call({
+        id: 'owner_scoped',
+        keywordsToSearch: ['typescript'],
+        owner: 'myorg',
+      });
+
+      const text = getTextContent(result.content);
+      expect(result.isError).toBe(false);
+      expect(text).not.toContain('Large result set with no owner');
     });
   });
 });

@@ -1,9 +1,5 @@
 import type { Finding, ReporterFormat } from '../types/index.js';
 
-/**
- * Formats findings for alternative output targets.
- * Inspired by eslint's --format flag and dependency-cruiser's reporter plugins.
- */
 
 export function formatFindings(
   findings: Finding[],
@@ -34,10 +30,7 @@ function severityToLevel(severity: string): string {
   }
 }
 
-/**
- * Compact: one-line per finding for terminal/CI logs.
- * Format: severity:file:line - [category] title
- */
+
 function formatCompact(findings: Finding[], root: string): string {
   return findings
     .map(f => {
@@ -48,10 +41,7 @@ function formatCompact(findings: Finding[], root: string): string {
     .join('\n');
 }
 
-/**
- * GitHub Actions: ::warning / ::error annotations.
- * These appear inline on PR diffs.
- */
+
 function formatGitHubActions(findings: Finding[], root: string): string {
   return findings
     .map(f => {

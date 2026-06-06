@@ -25,7 +25,6 @@ describe('Tool Configuration', () => {
 
       const toolNames = ALL_TOOLS.map(t => t.name);
 
-      // GitHub tools
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_SEARCH_CODE);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_FETCH_CONTENT);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE);
@@ -33,7 +32,6 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS);
       expect(toolNames).toContain(TOOL_NAMES.PACKAGE_SEARCH);
 
-      // Local tools
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_RIPGREP);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_VIEW_STRUCTURE);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
@@ -63,7 +61,6 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for Local tools', () => {
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
-      // 4 local + 3 LSP + 1 clone = 8 local tools
       expect(localTools).toHaveLength(8);
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
@@ -199,7 +196,6 @@ describe('Tool Configuration', () => {
 
   describe('getDescription fallback', () => {
     it('should return empty string for unknown tool names', () => {
-      // The DESCRIPTIONS Proxy returns '' for unknown keys via the ?? '' fallback
       const unknownKey = 'unknown_tool_that_does_not_exist';
       expect(DESCRIPTIONS[unknownKey]).toBe('');
     });

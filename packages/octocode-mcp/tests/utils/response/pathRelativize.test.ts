@@ -100,7 +100,6 @@ describe('hoistSharedFields', () => {
         },
       },
     ];
-    // single result but 2 leaves → eligible; type varies so nothing hoists
     expect(hoistSharedFields(results)).toBeUndefined();
   });
 
@@ -115,7 +114,6 @@ describe('hoistSharedFields', () => {
         },
       },
     ];
-    // uri is identical but must stay; line varies → nothing else to hoist
     expect(hoistSharedFields(results)).toBeUndefined();
     expect(results[0]!.data.locations[0]!.uri).toBe('x.ts');
   });
@@ -131,7 +129,6 @@ describe('hoistSharedFields', () => {
         },
       },
     ];
-    // language is the only non-identity constant → only it hoists.
     expect(hoistSharedFields(results)).toEqual({ language: 'TS' });
     expect(results[0]!.data.repositories[0]).toMatchObject({
       owner: 'org',
@@ -167,7 +164,6 @@ describe('commonDirPrefix', () => {
     expect(commonDirPrefix(['/x/a.ts', '/y/b.ts'])).toBe('');
   });
   it('does not split mid-segment', () => {
-    // shared char-prefix is "/a/foo" but the real dir boundary is "/a"
     expect(commonDirPrefix(['/a/foobar.ts', '/a/foobaz.ts'])).toBe('/a');
   });
 });

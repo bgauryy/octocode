@@ -1,11 +1,3 @@
-/**
- * Response-state hints for lspGotoDefinition.
- *
- * Each case emits a concrete next move the agent can take immediately.
- *
- * @module tools/lsp_goto_definition/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
@@ -32,8 +24,8 @@ export const hints: ToolHintGenerators = {
     const { symbolName, lineHint, uri, errorType } = ctx;
     if (errorType === 'symbol_not_found') {
       return [
-        `"${symbolName}" not found at line ${lineHint}.`,
-        'Use `localSearchCode` to find the exact line, then retry with that lineHint.',
+        `"${symbolName}" not found at line ${lineHint} — lineHint is likely stale (file changed since the line number was recorded).`,
+        'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.',
       ];
     }
     if (errorType === 'file_not_found') {

@@ -1,9 +1,3 @@
-/**
- * Dynamic, context-aware hints for tools
- * Aggregates hints from individual tool modules
- * @module hints/dynamic
- */
-
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import type { HintContext, HintStatus, ToolHintGenerators } from './types.js';
 
@@ -22,10 +16,6 @@ import { hints as lspGotoDefinitionHints } from '../tools/lsp_goto_definition/hi
 import { hints as lspFindReferencesHints } from '../tools/lsp_find_references/hints.js';
 import { hints as lspCallHierarchyHints } from '../tools/lsp_call_hierarchy/hints.js';
 
-/**
- * Aggregated hints from all tool modules
- * Keys are actual tool names from STATIC_TOOL_NAMES
- */
 export const HINTS: Record<string, ToolHintGenerators> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: localRipgrepHints,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: localFetchContentHints,
@@ -44,26 +34,12 @@ export const HINTS: Record<string, ToolHintGenerators> = {
   [STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY]: lspCallHierarchyHints,
 };
 
-/**
- * Tool names that have dynamic hint generators
- */
 type DynamicToolName = keyof typeof HINTS;
 
-/**
- * Check if a tool has dynamic hint generators
- */
 export function hasDynamicHints(toolName: string): toolName is DynamicToolName {
   return toolName in HINTS;
 }
 
-/**
- * Get dynamic, context-aware hints for a tool
- *
- * @param toolName - The tool name
- * @param status - The result status
- * @param context - Optional context for smarter hints
- * @returns Array of context-aware hints
- */
 export function getDynamicHints(
   toolName: string,
   status: HintStatus,
@@ -74,6 +50,5 @@ export function getDynamicHints(
 
   const rawHints = hintGenerator(context || {});
 
-  // Filter out undefined values from conditional hints
   return rawHints.filter((h): h is string => typeof h === 'string');
 }

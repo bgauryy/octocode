@@ -38,7 +38,6 @@ describe('Cache Deduplication', () => {
     expect(result2).toBe('result');
     expect(result3).toBe('result');
 
-    // CRITICAL: Operation should only be called once
     expect(callCount).toBe(1);
     expect(operation).toHaveBeenCalledTimes(1);
   });
@@ -55,8 +54,6 @@ describe('Cache Deduplication', () => {
     const promise1 = withDataCache(key, operation);
     const promise2 = withDataCache(key, operation);
 
-    // Attach rejection handlers BEFORE advancing time so neither promise
-    // becomes an unhandled rejection during the timer flush.
     const check1 = expect(promise1).rejects.toThrow('Fetch failed');
     const check2 = expect(promise2).rejects.toThrow('Fetch failed');
 
@@ -66,7 +63,6 @@ describe('Cache Deduplication', () => {
 
     expect(operation).toHaveBeenCalledTimes(1);
 
-    // Subsequent request should retry
     const operation2 = vi.fn(async () => 'success');
     const result = await withDataCache(key, operation2);
     expect(result).toBe('success');

@@ -1,7 +1,3 @@
-/**
- * Tests for localGetFileContent tool
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';

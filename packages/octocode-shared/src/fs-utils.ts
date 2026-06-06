@@ -1,14 +1,6 @@
-/**
- * Shared filesystem utilities for Octocode packages.
- */
-
 import { existsSync, readdirSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 
-/**
- * Calculate the total size of a directory tree in bytes.
- * Uses iterative traversal (stack-based) to avoid stack overflow on deep trees.
- */
 export function getDirectorySizeBytes(targetPath: string): number {
   if (!existsSync(targetPath)) return 0;
 
@@ -38,7 +30,7 @@ export function getDirectorySizeBytes(targetPath: string): number {
           total += st.size;
         }
       } catch {
-        // skip unreadable entries
+        void 0;
       }
     }
   }
@@ -46,9 +38,6 @@ export function getDirectorySizeBytes(targetPath: string): number {
   return total;
 }
 
-/**
- * Format a byte count into a human-readable string (B, KB, MB, GB).
- */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;

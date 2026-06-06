@@ -1,33 +1,10 @@
-/**
- * Configuration File Loader
- *
- * Handles loading and parsing of ~/.octocode/.octocoderc files.
- * Supports JSON5 format (JSON with comments and trailing commas).
- */
-
 import { existsSync, readFileSync } from 'node:fs';
 import { paths } from '../paths.js';
 import type { OctocodeConfig, LoadConfigResult } from './types.js';
 import { OctocodeConfigSchema } from './schemas.js';
 
-/**
- * Full path to configuration file
- */
 export const CONFIG_FILE_PATH = paths.config;
 
-/**
- * Strip comments and trailing commas from JSON5-like content.
- * This is a lightweight parser that handles the most common JSON5 features
- * without requiring an external dependency.
- *
- * Supported features:
- * - Single-line comments (//)
- * - Multi-line comments (/* ... *\/)
- * - Trailing commas
- *
- * @param content - JSON5-like string content
- * @returns Standard JSON string
- */
 function stripJson5Features(content: string): string {
   let result = '';
   let i = 0;
@@ -38,7 +15,6 @@ function stripJson5Features(content: string): string {
     const char = content[i];
     const nextChar = content[i + 1];
 
-    // Handle string literals (don't process comments inside strings)
     if (!inString && (char === '"' || char === "'")) {
       inString = true;
       stringChar = char;
@@ -49,13 +25,11 @@ function stripJson5Features(content: string): string {
 
     if (inString) {
       result += char;
-      // Check for escape sequences
       if (char === '\\' && i + 1 < content.length) {
         result += content[i + 1];
         i += 2;
         continue;
       }
-      // Check for end of string
       if (char === stringChar) {
         inString = false;
       }
@@ -63,21 +37,18 @@ function stripJson5Features(content: string): string {
       continue;
     }
 
-    // Handle single-line comments
     if (char === '/' && nextChar === '/') {
-      // Skip until end of line
       while (i < content.length && content[i] !== '\n') {
         i++;
       }
       continue;
     }
 
-    // Handle multi-line comments
     if (char === '/' && nextChar === '*') {
-      i += 2; // Skip /*
+      i += 2;
       while (i < content.length - 1) {
         if (content[i] === '*' && content[i + 1] === '/') {
-          i += 2; // Skip */
+          i += 2;
           break;
         }
         i++;
@@ -89,53 +60,27 @@ function stripJson5Features(content: string): string {
     i++;
   }
 
-  // Remove trailing commas before ] or }
   result = result.replace(/,(\s*[}\]])/g, '$1');
 
   return result;
 }
 
-/**
- * Parse JSON5-like content to object.
- *
- * @param content - JSON5-like string content
- * @returns Parsed object
- * @throws Error if parsing fails
- */
 function parseJson5(content: string): unknown {
   const jsonContent = stripJson5Features(content);
   return JSON.parse(jsonContent);
 }
 
-/**
- * Check if configuration file exists.
- *
- * @returns true if .octocoderc exists
- */
 export function configExists(): boolean {
   return existsSync(CONFIG_FILE_PATH);
 }
 
-/**
- * Load raw .octocoderc file (async).
- * Returns null if file doesn't exist.
- *
- * @returns Loaded config result
- */
 export async function loadConfig(): Promise<LoadConfigResult> {
   return loadConfigSync();
 }
 
-/**
- * Load raw .octocoderc file (sync).
- * Returns null if file doesn't exist.
- *
- * @returns Loaded config result
- */
 export function loadConfigSync(): LoadConfigResult {
   const path = CONFIG_FILE_PATH;
 
-  // Check if file exists
   if (!existsSync(path)) {
     return {
       success: false,
@@ -145,10 +90,8 @@ export function loadConfigSync(): LoadConfigResult {
   }
 
   try {
-    // Read file content
     const content = readFileSync(path, 'utf-8');
 
-    // Handle empty file
     if (!content.trim()) {
       return {
         success: true,
@@ -157,10 +100,8 @@ export function loadConfigSync(): LoadConfigResult {
       };
     }
 
-    // Parse JSON5-like content
     const parsed = parseJson5(content);
 
-    // Validate structure with Zod schema
     const result = OctocodeConfigSchema.safeParse(parsed);
     if (!result.success) {
       return {
@@ -185,20 +126,10 @@ export function loadConfigSync(): LoadConfigResult {
   }
 }
 
-/**
- * Get the path to the configuration file.
- *
- * @returns Full path to .octocoderc
- */
 export function getConfigPath(): string {
   return CONFIG_FILE_PATH;
 }
 
-/**
- * Get the path to the octocode directory.
- *
- * @returns Full path to ~/.octocode
- */
 export function getOctocodeDir(): string {
   return paths.home;
 }

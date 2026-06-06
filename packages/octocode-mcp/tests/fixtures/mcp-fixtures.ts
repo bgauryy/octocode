@@ -19,23 +19,17 @@ export interface MockMcpServer {
   cleanup: () => void;
 }
 
-/**
- * Create a mock MCP server for testing
- */
 export function createMockMcpServer(): MockMcpServer {
   const toolHandlers = new Map<string, Function>();
 
   const mockServer = {
-    // Mock for the test's server.tool() method - handler is the 2nd parameter
     tool: vi.fn((name: string, handler: Function) => {
       toolHandlers.set(name, handler);
     }),
-    // Mock for the actual tools' server.registerTool() method - handler is the 3rd parameter
 
     registerTool: vi.fn((name: string, _options: any, handler: Function) => {
       toolHandlers.set(name, handler);
     }),
-    // Add other server methods as needed
     addTool: vi.fn(),
     listTools: vi.fn(),
   } as unknown as McpServer;
@@ -81,9 +75,6 @@ export function createMockMcpServer(): MockMcpServer {
   };
 }
 
-/**
- * Create a mock CallToolResult for testing
- */
 export function createMockResult(
   data: unknown,
   isError = false
@@ -99,9 +90,6 @@ export function createMockResult(
   };
 }
 
-/**
- * Parse JSON from a CallToolResult
- */
 export function parseResultJson<T = unknown>(result: CallToolResult): T {
   if (result.isError || !result.content?.[0]) {
     throw new Error('Cannot parse error result');

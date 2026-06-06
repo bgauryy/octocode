@@ -1,11 +1,3 @@
-/**
- * Register the githubCloneRepo tool with the MCP server.
- *
- * This tool enables AI agents to clone (or partially fetch) a GitHub
- * repository so that local filesystem tools and LSP semantic tools can
- * analyse the code offline. Clones are cached for 24 hours.
- */
-
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { z } from 'zod';
 import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';

@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { deleteSession, _resetSessionState } from 'octocode-shared';
 
-// LOG environment variable is set in individual tests
-
 import {
   initializeSession,
   logSessionInit,
@@ -18,7 +16,7 @@ import type { RateLimitData } from '../src/types/session.js';
 describe('Session Logging Control', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset mock session state for each test (done by setup.ts beforeEach)
+
     resetSessionManager();
   });
 
@@ -188,7 +186,6 @@ describe('Session Logging Control', () => {
     });
 
     it('should respect logging state changes', async () => {
-      // Start with logging enabled
       process.env.LOG = 'true';
       cleanup();
       await initialize();
@@ -198,11 +195,8 @@ describe('Session Logging Control', () => {
       await logToolCall('tool1', []);
       expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
 
-      // Note: In the current implementation, logging state is cached
-      // and cannot be changed dynamically without reinitializing
-      // This test documents the current behavior
       await logToolCall('tool2', []);
-      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2); // Still called since LOG=true
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -219,7 +213,6 @@ describe('Session Logging Control', () => {
       initializeSession();
 
       await logSessionInit();
-      // init always fires (even with LOG=false), but failure is swallowed
       expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
 
       vi.mocked(fetch).mockClear();
@@ -237,7 +230,6 @@ describe('Session Logging Control', () => {
     });
 
     it('should persist session ID across restarts when logging is disabled', async () => {
-      // With persistence, the same session ID is reused
       resetSessionManager();
       const session1 = initializeSession();
       const id1 = session1.getSessionId();
@@ -250,7 +242,6 @@ describe('Session Logging Control', () => {
       expect(id1.length).toEqual(36);
       expect(typeof id2).toEqual('string');
       expect(id2.length).toEqual(36);
-      // With persistence, session ID should be the SAME
       expect(id1).toBe(id2);
     });
 
@@ -259,7 +250,6 @@ describe('Session Logging Control', () => {
       const session1 = initializeSession();
       const id1 = session1.getSessionId();
 
-      // Delete persisted session to force new ID
       resetSessionManager();
       deleteSession();
       const session2 = initializeSession();
@@ -269,7 +259,6 @@ describe('Session Logging Control', () => {
       expect(id1.length).toEqual(36);
       expect(typeof id2).toEqual('string');
       expect(id2.length).toEqual(36);
-      // After deleting session, a new ID is generated
       expect(id1).not.toBe(id2);
     });
   });
@@ -325,9 +314,7 @@ describe('Session Logging Control', () => {
 
       await logToolCall(TOOL_NAMES.GITHUB_SEARCH_CODE, ['owner/repo']);
 
-      // Stats are always updated locally, even when remote logging is off
       expect(incrementToolCalls).toHaveBeenCalledWith(1);
-      // But no remote call was made
       expect(vi.mocked(fetch)).not.toHaveBeenCalled();
     });
   });
@@ -469,7 +456,6 @@ describe('Session Logging Control', () => {
 
         initializeSession();
         await logSessionInit();
-        // init always fires
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
         expect(stderrSpy).not.toHaveBeenCalled();
 
@@ -485,7 +471,6 @@ describe('Session Logging Control', () => {
 
         initializeSession();
         await logSessionInit();
-        // init always fires
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
         expect(stderrSpy).not.toHaveBeenCalled();
 
@@ -500,7 +485,6 @@ describe('Session Logging Control', () => {
         await expect(logSessionInit()).resolves.not.toThrow();
         await expect(logToolCall('tool', [])).resolves.not.toThrow();
         await expect(logSessionError('test', 'ERR')).resolves.not.toThrow();
-        // init fires (1 call), tool_call and error are suppressed
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
       });
     });

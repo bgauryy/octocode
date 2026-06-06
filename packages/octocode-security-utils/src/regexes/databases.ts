@@ -1,7 +1,6 @@
 import type { SensitiveDataPattern } from './types.js';
 
 export const databasePatterns: SensitiveDataPattern[] = [
-  // SQL Databases
   {
     name: 'postgresqlConnectionString',
     description: 'PostgreSQL connection string with credentials',
@@ -22,7 +21,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     fileContext: /(?:\.env|config|settings|secrets)/i,
   },
 
-  // NoSQL Databases
   {
     name: 'mongodbConnectionString',
     description:
@@ -46,7 +44,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'medium',
   },
 
-  // Search & Analytics
   {
     name: 'elasticsearchCredentials',
     description: 'Elasticsearch credentials in URL',
@@ -54,7 +51,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Document Databases
   {
     name: 'couchdbCredentials',
     description: 'CouchDB credentials in URL',
@@ -62,7 +58,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Graph Databases
   {
     name: 'neo4jCredentials',
     description: 'Neo4j database credentials in URL',
@@ -70,7 +65,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Time Series Databases
   {
     name: 'timescaledbConnectionString',
     description: 'TimescaleDB connection string with credentials',
@@ -78,7 +72,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Column-Oriented Databases
   {
     name: 'clickhouseCredentials',
     description: 'ClickHouse connection string with credentials',
@@ -92,7 +85,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Cloud Database Services
   {
     name: 'faunadbKey',
     description: 'FaunaDB secret key',
@@ -113,28 +105,24 @@ export const databasePatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'medium',
   },
 
-  // Generic Database Patterns
   {
     name: 'databaseUrlWithCredentials',
     description: 'Generic database URL with embedded credentials',
     regex: /\b(?:postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@[^/\s]+\b/gi,
     matchAccuracy: 'medium',
   },
-  // ClickHouse Cloud API Secret Key
   {
     name: 'clickhouseCloudApiKey',
     description: 'ClickHouse Cloud API secret key',
     regex: /\b4b1d[A-Za-z0-9]{38}\b/g,
     matchAccuracy: 'high',
   },
-  // Neon Database Connection String
   {
     name: 'neonDatabaseConnectionString',
     description: 'Neon database connection string',
     regex: /\bpostgres:\/\/[^:]+:[^@]+@[^/\s]*neon\.tech[^?\s]*\b/gi,
     matchAccuracy: 'high',
   },
-  // Turso Database Token
   {
     name: 'tursoDatabaseToken',
     description: 'Turso database auth token',
@@ -142,7 +130,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:turso|libsql)(?:[\s\w.-]{0,20})(?:token|auth)['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9._-]{50,}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Upstash Redis Token
   {
     name: 'upstashRedisToken',
     description: 'Upstash Redis REST token',
@@ -150,7 +137,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:upstash)(?:[\s\w.-]{0,20})(?:token|key)['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9=]{40,}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Supabase JWT (anon/service_role keys are JWTs starting with eyJ)
   {
     name: 'supabaseJwtKey',
     description: 'Supabase anon or service_role key (JWT format)',
@@ -158,7 +144,6 @@ export const databasePatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:SUPABASE|supabase)_?(?:ANON|SERVICE_ROLE|anon|service_role)?_?(?:KEY|key)['"]?\s*(?::|=>|=)\s*['"]?(eyJ[a-zA-Z0-9_-]{100,})['"]?\b/g,
     matchAccuracy: 'high',
   },
-  // CockroachDB connection string
   {
     name: 'cockroachdbConnectionString',
     description: 'CockroachDB connection string with credentials',

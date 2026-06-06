@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-/**
- * Tavily web search for octocode-brainstorming.
- *
- * Usage:
- *   node tavily-search.mjs --query "prior art for X" [--depth basic|advanced] [--max-results 8] [--topic general|news] [--time-range month|year]
- *   node tavily-search.mjs --check   # exits 0 if key is set, 1 otherwise
- *
- * Requires TAVILY_API_KEY in env or in <skill_dir>/.env
- * Outputs JSON to stdout; progress/errors to stderr. Never prints the key.
- */
+
 
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

@@ -247,7 +247,6 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      // Should still return some results for the successful query
       expect(data).toBeDefined();
     });
   });
@@ -272,7 +271,6 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const data = result.structuredContent as FlatResponse;
       expect(data.errors).toBeUndefined();
-      // Empty results should come back with guidance hints
       expect(data.hints).toBeDefined();
     });
   });

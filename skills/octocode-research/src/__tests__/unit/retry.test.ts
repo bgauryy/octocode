@@ -1,9 +1,3 @@
-/**
- * Unit tests for retry utilities.
- *
- * @module tests/unit/retry
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { withRetry, RETRY_CONFIGS } from '../../utils/retry.js';
 
@@ -34,10 +28,8 @@ describe('withRetry', () => {
 
     const resultPromise = withRetry(operation, RETRY_CONFIGS.local);
 
-    // First call fails immediately
     await vi.advanceTimersByTimeAsync(0);
 
-    // Wait for delay and retry
     await vi.advanceTimersByTimeAsync(100);
 
     const result = await resultPromise;
@@ -72,14 +64,11 @@ describe('withRetry', () => {
 
     const resultPromise = withRetry(operation, config);
 
-    // First attempt fails
     await vi.advanceTimersByTimeAsync(0);
 
-    // First retry after 100ms
     await vi.advanceTimersByTimeAsync(100);
     expect(operation).toHaveBeenCalledTimes(2);
 
-    // Second retry after 200ms (100 * 2)
     await vi.advanceTimersByTimeAsync(200);
 
     const result = await resultPromise;
@@ -97,20 +86,17 @@ describe('withRetry', () => {
     const config = {
       maxAttempts: 3,
       initialDelayMs: 500,
-      maxDelayMs: 600, // Cap at 600ms
+      maxDelayMs: 600,
       backoffMultiplier: 2,
       retryOn: (err: unknown) => (err as { code?: string })?.code === 'ETIMEDOUT',
     };
 
     const resultPromise = withRetry(operation, config);
 
-    // First attempt fails
     await vi.advanceTimersByTimeAsync(0);
 
-    // First retry after 500ms
     await vi.advanceTimersByTimeAsync(500);
 
-    // Second retry should be capped at 600ms (not 1000ms)
     await vi.advanceTimersByTimeAsync(600);
 
     const result = await resultPromise;
@@ -130,13 +116,10 @@ describe('withRetry', () => {
       retryOn: () => true,
     };
 
-    // Start the operation and immediately handle the promise
     const resultPromise = withRetry(operation, config).catch((e) => e);
 
-    // Run all timers to completion
     await vi.runAllTimersAsync();
 
-    // Now check the result
     const result = await resultPromise;
     expect(result).toBe(finalError);
     expect(operation).toHaveBeenCalledTimes(2);

@@ -165,7 +165,6 @@ async function decodeFileContent(data: {
   }
 }
 
-/** Raw GitHub file fetch for caching; line/match slicing happens after cache. */
 export async function fetchRawGitHubFileContent(
   params: FileContentQuery,
   authInfo?: AuthInfo

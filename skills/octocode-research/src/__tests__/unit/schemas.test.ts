@@ -1,14 +1,3 @@
-/**
- * Unit tests for HTTP-compatible Zod schemas.
- *
- * Tests the composed schemas in validation/schemas.ts:
- * - Preprocessing transforms (string → number/boolean/array)
- * - Alias mappings (context → contextLines, maxResults → limit)
- * - Research defaults injection (id, mainResearchGoal, etc.)
- * - Required field validation
- * - Refinement checks
- */
-
 import { describe, it, expect } from 'vitest';
 import {
   localSearchSchema,
@@ -26,9 +15,6 @@ import {
   packageSearchSchema,
 } from '../../validation/schemas.js';
 
-// =============================================================================
-// Local Schemas
-// =============================================================================
 
 describe('localSearchSchema', () => {
   it('parses minimal valid input', () => {
@@ -253,9 +239,6 @@ describe('localStructureSchema', () => {
   });
 });
 
-// =============================================================================
-// LSP Schemas
-// =============================================================================
 
 describe('lspDefinitionSchema', () => {
   it('parses valid input with string numbers', () => {
@@ -267,8 +250,8 @@ describe('lspDefinitionSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.lineHint).toBe(42);
-      expect(result.data.contextLines).toBe(5); // default
-      expect(result.data.orderHint).toBe(0); // default
+      expect(result.data.contextLines).toBe(5);
+      expect(result.data.orderHint).toBe(0);
     }
   });
 
@@ -369,9 +352,6 @@ describe('lspCallsSchema', () => {
   });
 });
 
-// =============================================================================
-// GitHub Schemas
-// =============================================================================
 
 describe('githubSearchSchema', () => {
   it('parses comma-separated keywords', () => {
@@ -469,9 +449,6 @@ describe('githubPRsSchema', () => {
   });
 });
 
-// =============================================================================
-// Package Schema
-// =============================================================================
 
 describe('packageSearchSchema', () => {
   it('parses minimal input with defaults', () => {

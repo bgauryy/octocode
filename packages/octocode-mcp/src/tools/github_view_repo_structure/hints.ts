@@ -1,11 +1,3 @@
-/**
- * Response-state hints for githubViewRepoStructure.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- *
- * @module tools/github_view_repo_structure/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {

@@ -23,7 +23,6 @@ function getAllPatterns(
 }
 
 export class ContentSanitizer {
-  /** Sanitize a single string value, enforcing max length and scanning for secrets. */
   private static sanitizeStringValue(
     key: string,
     value: string,
@@ -48,7 +47,6 @@ export class ContentSanitizer {
     };
   }
 
-  /** Sanitize a single array item (string or nested object). */
   private static sanitizeArrayItem(
     key: string,
     item: unknown,
@@ -87,7 +85,6 @@ export class ContentSanitizer {
     return { sanitized: item, hasSecrets: false, hasValidationErrors: false };
   }
 
-  /** Sanitize an array parameter, enforcing max item count. */
   private static sanitizeArrayValue(
     key: string,
     value: unknown[],
@@ -123,7 +120,6 @@ export class ContentSanitizer {
     return { sanitized, hasSecrets, hasValidationErrors };
   }
 
-  /** Sanitize a nested object parameter. */
   private static sanitizeNestedObject(
     key: string,
     value: Record<string, unknown>,
@@ -155,15 +151,6 @@ export class ContentSanitizer {
 
   private static readonly MAX_CONTENT_SIZE = 10_000_000;
 
-  /**
-   * Scan a string for secrets and replace them with `[REDACTED-*]` tokens.
-   *
-   * @example
-   * ```ts
-   * ContentSanitizer.sanitizeContent('key: ghp_abc123xyz');
-   * // → { content: 'key: [REDACTED-GITHUBTOKENS]', hasSecrets: true, ... }
-   * ```
-   */
   public static sanitizeContent(
     content: string,
     filePath?: string,
@@ -332,18 +319,6 @@ export class ContentSanitizer {
     };
   }
 
-  /**
-   * Recursively sanitize an object — strip secrets, block prototype pollution, enforce limits.
-   *
-   * @example
-   * ```ts
-   * const result = ContentSanitizer.validateInputParameters({
-   *   query: 'search term',
-   *   token: 'sk-proj-abc123xyz',
-   * });
-   * result.sanitizedParams; // { query: 'search term', token: '[REDACTED-...]' }
-   * ```
-   */
   public static validateInputParameters(
     params: Record<string, unknown>
   ): ValidationResult {
@@ -356,7 +331,6 @@ export class ContentSanitizer {
     'prototype',
   ]);
 
-  /** Classify a key — returns an error message if invalid/dangerous, null if safe. */
   private static validateKey(key: string): string | null {
     if (typeof key !== 'string' || key.trim() === '') {
       return `Invalid parameter key: ${key}`;
@@ -367,11 +341,6 @@ export class ContentSanitizer {
     return null;
   }
 
-  /**
-   * Type-dispatch a single entry through the appropriate sanitizer.
-   * Returns { sanitized, hasSecrets, hasValidationErrors, skip } where
-   * skip=true means the entry should be excluded from the output.
-   */
   private static sanitizeValue(
     key: string,
     value: unknown,

@@ -1,8 +1,3 @@
-/**
- * LSP Client Branch Coverage Tests
- * Targets uncovered branches in client.ts
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { LSPClient } from '../../src/lsp/client.js';
 import {
@@ -14,7 +9,6 @@ import * as fs from 'fs';
 import * as jsonrpc from 'vscode-jsonrpc/node.js';
 import { EventEmitter } from 'events';
 
-// Mocks
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }));
@@ -60,7 +54,6 @@ describe('LSP Client Branch Coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Setup mock process
     mockProcess = new EventEmitter() as typeof mockProcess;
     mockProcess.stdin = new EventEmitter();
     mockProcess.stdout = new EventEmitter();
@@ -69,7 +62,6 @@ describe('LSP Client Branch Coverage', () => {
     mockProcess.pid = 12345;
     (cp.spawn as Mock).mockReturnValue(mockProcess);
 
-    // Setup mock connection
     mockConnection = {
       listen: vi.fn(),
       sendRequest: vi.fn().mockResolvedValue({}),
@@ -80,7 +72,6 @@ describe('LSP Client Branch Coverage', () => {
     };
     (jsonrpc.createMessageConnection as Mock).mockReturnValue(mockConnection);
 
-    // Default fs mock
     (fs.promises.readFile as Mock).mockImplementation((path: string) => {
       if (path.includes('lsp-servers.json')) {
         return Promise.reject(new Error('ENOENT'));
@@ -115,7 +106,6 @@ describe('LSP Client Branch Coverage', () => {
         return Promise.reject(new Error('ENOENT'));
       });
 
-      // Mock command exists check - create mock process that closes immediately
       const mockCheckProcess = new EventEmitter();
       (mockCheckProcess as EventEmitter & { kill: Mock }).kill = vi.fn();
       (cp.spawn as Mock).mockImplementation(() => {
@@ -151,7 +141,6 @@ describe('LSP Client Branch Coverage', () => {
       return Promise.reject(new Error('ENOENT'));
     });
 
-    // Mock command exists check
     const mockCheckProcess = new EventEmitter();
     (mockCheckProcess as EventEmitter & { kill: Mock }).kill = vi.fn();
     (cp.spawn as Mock).mockImplementation(() => {
@@ -159,11 +148,9 @@ describe('LSP Client Branch Coverage', () => {
       return mockCheckProcess;
     });
 
-    // First call reads from disk
     await isLanguageServerAvailable('/file.rb', '/workspace');
     expect(fs.promises.readFile).toHaveBeenCalled();
 
-    // Second call also reads from disk (no caching)
     vi.clearAllMocks();
     (fs.promises.readFile as Mock).mockImplementation((path: string) => {
       if (path === workspaceConfigPath) {
@@ -178,7 +165,7 @@ describe('LSP Client Branch Coverage', () => {
       return mockCheckProcess2;
     });
     await isLanguageServerAvailable('/file.rb', '/workspace');
-    expect(fs.promises.readFile).toHaveBeenCalled(); // Called again - no caching
+    expect(fs.promises.readFile).toHaveBeenCalled();
   });
 
   describe('User config with custom args (lines 611-617)', () => {
@@ -206,7 +193,6 @@ describe('LSP Client Branch Coverage', () => {
       );
 
       if (client) {
-        // If client was created, verify config was used
         expect(cp.spawn).toHaveBeenCalledWith(
           'custom-jdtls',
           expect.arrayContaining(['--data', '/tmp/jdt-workspace']),
@@ -221,7 +207,6 @@ describe('LSP Client Branch Coverage', () => {
           '.scala': {
             command: 'custom-metals',
             languageId: 'scala',
-            // args not defined
           },
         },
       };
@@ -241,7 +226,7 @@ describe('LSP Client Branch Coverage', () => {
       if (client) {
         expect(cp.spawn).toHaveBeenCalledWith(
           'custom-metals',
-          [], // Empty args when not specified
+          [],
           expect.any(Object)
         );
       }
@@ -266,7 +251,6 @@ describe('LSP Client Branch Coverage', () => {
         return Promise.resolve('file content');
       });
 
-      // Mock command check
       const mockCheckProcess = new EventEmitter();
       (mockCheckProcess as EventEmitter & { kill: Mock }).kill = vi.fn();
 
@@ -293,12 +277,10 @@ describe('LSP Client Branch Coverage', () => {
         workspaceRoot: '/workspace',
       });
 
-      // closeDocument should return silently without error
       await expect(
         client.closeDocument('/workspace/file.ts')
       ).resolves.toBeUndefined();
 
-      // No notifications should be sent
       expect(mockConnection.sendNotification).not.toHaveBeenCalled();
     });
   });
@@ -310,7 +292,6 @@ describe('LSP Client Branch Coverage', () => {
         workspaceRoot: '/workspace',
       });
 
-      // Mock spawn to return process without pipes
       (cp.spawn as Mock).mockReturnValueOnce({
         stdin: null,
         stdout: null,
@@ -344,7 +325,7 @@ describe('LSP Client Branch Coverage', () => {
       const items = [
         {
           name: 'T',
-          kind: 26, // TypeParameter
+          kind: 26,
           uri: 'file:///workspace/file.ts',
           range: {
             start: { line: 0, character: 0 },
@@ -371,7 +352,7 @@ describe('LSP Client Branch Coverage', () => {
       const items = [
         {
           name: 'Unknown',
-          kind: 999, // Unknown kind
+          kind: 999,
           uri: 'file:///workspace/file.ts',
           range: {
             start: { line: 0, character: 0 },
@@ -406,7 +387,7 @@ describe('LSP Client Branch Coverage', () => {
         { kind: 10, expected: 'enum' },
         { kind: 2, expected: 'module' },
         { kind: 3, expected: 'namespace' },
-        { kind: 26, expected: 'type' }, // TypeParameter
+        { kind: 26, expected: 'type' },
       ];
 
       for (const { kind, expected } of symbolTests) {
@@ -451,8 +432,6 @@ describe('LSP Client Branch Coverage', () => {
     });
 
     it('should handle toUri when input already starts with file:// (line 681)', async () => {
-      // gotoDefinition calls toUri internally
-      // When result comes back as file:// URI, fromUri converts it back
       const location = {
         uri: 'file:///workspace/already-uri.ts',
         range: {
@@ -475,9 +454,8 @@ describe('LSP Client Branch Coverage', () => {
     });
 
     it('should handle fromUri when input does not start with file:// (line 704)', async () => {
-      // When location uri is not a file:// URI, fromUri returns as-is
       const location = {
-        uri: 'untitled:Untitled-1', // Not a file:// URI
+        uri: 'untitled:Untitled-1',
         range: {
           start: { line: 0, character: 0 },
           end: { line: 0, character: 10 },
@@ -486,7 +464,6 @@ describe('LSP Client Branch Coverage', () => {
 
       mockConnection.sendRequest.mockResolvedValueOnce(location);
 
-      // Mock readFile to fail for non-file URIs
       (fs.promises.readFile as Mock).mockImplementation((path: string) => {
         if (path.includes('lsp-servers.json')) {
           return Promise.reject(new Error('ENOENT'));
@@ -502,8 +479,6 @@ describe('LSP Client Branch Coverage', () => {
         character: 1,
       });
 
-      // SECURITY: Non-file:// URIs are now skipped by path validation
-      // (locationsToSnippets validates all paths are under the workspace)
       expect(snippets).toHaveLength(0);
     });
   });
@@ -515,10 +490,6 @@ describe('LSP Client Branch Coverage', () => {
         .mockImplementation(() => {});
 
       try {
-        // Trigger acquirePooledClient which internally attempts to resolve the
-        // bundled typescript-language-server. When the require fails,
-        // the code logs a debug message. We verify the spy is callable
-        // and was not invoked by unrelated code during setup.
         expect(consoleSpy).toBeDefined();
         expect(typeof consoleSpy.mockRestore).toBe('function');
       } finally {
@@ -535,15 +506,12 @@ describe('LSP Client Branch Coverage', () => {
     });
 
     it('should detect languageId for known extensions', async () => {
-      // Create client without explicit languageId to trigger detectLanguageId
       client = new LSPClient({
         command: 'test-server',
         workspaceRoot: '/workspace',
-        // No languageId - will be detected
       });
       await client.start();
 
-      // openDocument should use detected languageId
       await client.openDocument('/workspace/file.ts');
 
       expect(mockConnection.sendNotification).toHaveBeenCalledWith(
@@ -560,7 +528,6 @@ describe('LSP Client Branch Coverage', () => {
       client = new LSPClient({
         command: 'test-server',
         workspaceRoot: '/workspace',
-        // No languageId
       });
       await client.start();
 

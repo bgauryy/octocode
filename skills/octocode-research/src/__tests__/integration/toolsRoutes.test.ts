@@ -108,9 +108,6 @@ describe('Tools Routes', () => {
     vi.clearAllMocks();
   });
 
-  // =========================================================================
-  // GET /tools/list
-  // =========================================================================
   describe('GET /tools/list', () => {
     it('returns 200 with success true', async () => {
       const res = await request(app).get('/tools/list');
@@ -149,9 +146,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // GET /tools/info
-  // =========================================================================
   describe('GET /tools/info', () => {
     it('returns all tools from MCP content', async () => {
       const res = await request(app).get('/tools/info');
@@ -188,9 +182,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // GET /tools/info/:toolName
-  // =========================================================================
   describe('GET /tools/info/:toolName', () => {
     it('returns tool info for valid tool', async () => {
       const res = await request(app).get('/tools/info/localSearchCode');
@@ -238,9 +229,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // GET /tools/metadata
-  // =========================================================================
   describe('GET /tools/metadata', () => {
     it('returns metadata summary', async () => {
       const res = await request(app).get('/tools/metadata');
@@ -259,9 +247,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // GET /tools/schemas
-  // =========================================================================
   describe('GET /tools/schemas', () => {
     it('returns all tool schemas', async () => {
       const res = await request(app).get('/tools/schemas');
@@ -288,9 +273,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // GET /tools/system
-  // =========================================================================
   describe('GET /tools/system', () => {
     it('returns system instructions', async () => {
       const res = await request(app).get('/tools/system');
@@ -307,9 +289,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // GET /tools/initContext
-  // =========================================================================
   describe('GET /tools/initContext', () => {
     it('returns combined system prompt and schemas', async () => {
       const res = await request(app).get('/tools/initContext');
@@ -339,9 +318,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // POST /tools/call/:toolName
-  // =========================================================================
   describe('POST /tools/call/:toolName', () => {
     const validLocalQuery = {
       queries: [{
@@ -461,9 +437,6 @@ describe('Tools Routes', () => {
     });
   });
 
-  // =========================================================================
-  // Readiness (503 when not initialized)
-  // =========================================================================
   describe('Readiness gate', () => {
     it('returns 503 for /tools/list when not initialized', async () => {
       const { isMcpInitialized } = await import('../../mcpCache.js');

@@ -1,10 +1,3 @@
-/**
- * Configuration Validator
- *
- * Validates .octocoderc configuration against the schema.
- * Returns detailed errors for invalid fields.
- */
-
 import type { OctocodeConfig, ValidationResult } from './types.js';
 import { CONFIG_SCHEMA_VERSION } from './types.js';
 import {
@@ -16,13 +9,6 @@ import {
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
 } from './defaults.js';
 
-/**
- * Validate a URL string.
- *
- * @param url - URL to validate
- * @param field - Field name for error messages
- * @returns Error message or null if valid
- */
 function validateUrl(url: unknown, field: string): string | null {
   if (url === undefined || url === null) return null;
 
@@ -41,15 +27,6 @@ function validateUrl(url: unknown, field: string): string | null {
   }
 }
 
-/**
- * Validate a number within range.
- *
- * @param value - Value to validate
- * @param field - Field name for error messages
- * @param min - Minimum allowed value
- * @param max - Maximum allowed value
- * @returns Error message or null if valid
- */
 function validateNumberRange(
   value: unknown,
   field: string,
@@ -69,13 +46,6 @@ function validateNumberRange(
   return null;
 }
 
-/**
- * Validate a boolean.
- *
- * @param value - Value to validate
- * @param field - Field name for error messages
- * @returns Error message or null if valid
- */
 function validateBoolean(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
 
@@ -86,13 +56,6 @@ function validateBoolean(value: unknown, field: string): string | null {
   return null;
 }
 
-/**
- * Validate a string array.
- *
- * @param value - Value to validate
- * @param field - Field name for error messages
- * @returns Error message or null if valid
- */
 function validateStringArray(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
 
@@ -109,18 +72,12 @@ function validateStringArray(value: unknown, field: string): string | null {
   return null;
 }
 
-/**
- * Validate allowedPaths array elements for security.
- * Rejects empty strings, relative paths, and path traversal attempts.
- *
- * @param paths - Array of path strings to validate
- * @returns Array of error messages (empty if all valid)
- */
+// Rejects empty strings, relative paths, and path traversal attempts.
 function validateAllowedPathElements(paths: unknown[]): string[] {
   const errors: string[] = [];
   for (let i = 0; i < paths.length; i++) {
     const p = paths[i];
-    if (typeof p !== 'string') continue; // already caught by validateStringArray
+    if (typeof p !== 'string') continue;
     if (p.trim() === '') {
       errors.push(`local.allowedPaths[${i}]: empty or whitespace-only path`);
     } else if (!p.startsWith('/') && !p.startsWith('~')) {
@@ -136,13 +93,6 @@ function validateAllowedPathElements(paths: unknown[]): string[] {
   return errors;
 }
 
-/**
- * Validate a nullable string array.
- *
- * @param value - Value to validate
- * @param field - Field name for error messages
- * @returns Error message or null if valid
- */
 function validateNullableStringArray(
   value: unknown,
   field: string
@@ -153,13 +103,6 @@ function validateNullableStringArray(
   return validateStringArray(value, field);
 }
 
-/**
- * Validate a string.
- *
- * @param value - Value to validate
- * @param field - Field name for error messages
- * @returns Error message or null if valid
- */
 function validateString(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
 
@@ -361,17 +304,10 @@ function validateOutput(output: unknown, errors: string[]): void {
   }
 }
 
-/**
- * Validate a configuration object against the schema.
- *
- * @param config - Configuration object to validate
- * @returns Validation result with errors and warnings
- */
 export function validateConfig(config: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Check if config is an object
   if (typeof config !== 'object' || config === null || Array.isArray(config)) {
     return {
       valid: false,
@@ -382,7 +318,6 @@ export function validateConfig(config: unknown): ValidationResult {
 
   const cfg = config as Record<string, unknown>;
 
-  // Validate version
   if (cfg.version !== undefined) {
     if (typeof cfg.version !== 'number' || !Number.isInteger(cfg.version)) {
       errors.push('version: Must be an integer');
@@ -393,7 +328,6 @@ export function validateConfig(config: unknown): ValidationResult {
     }
   }
 
-  // Validate each section
   validateGitHub(cfg.github, errors);
   validateLocal(cfg.local, errors);
   validateTools(cfg.tools, errors);
@@ -402,7 +336,6 @@ export function validateConfig(config: unknown): ValidationResult {
   validateLsp(cfg.lsp, errors);
   validateOutput(cfg.output, errors);
 
-  // Check for unknown top-level keys
   const knownKeys = new Set([
     '$schema',
     'version',

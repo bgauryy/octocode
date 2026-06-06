@@ -1,9 +1,3 @@
-/**
- * Extended coverage tests for LSP Call Hierarchy tool
- * Tests execution flow and internal helpers
- * @module tools/lsp_call_hierarchy.coverage.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { registerLSPCallHierarchyTool } from '../../src/tools/lsp_call_hierarchy/register.js';
 import { SymbolResolver } from '../../src/lsp/resolver.js';
@@ -14,7 +8,6 @@ import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
 import * as fsPromises from 'fs/promises';
 
-// Mocks
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
@@ -55,7 +48,6 @@ vi.mock('../../src/hints/index.js', () => {
 
 vi.mock('../../src/utils/response/bulk.js', () => ({
   executeBulkOperation: vi.fn(async (queries, handler) => {
-    // Execute handler for each query immediately for testing
     const results = [];
     for (const query of queries) {
       results.push(await handler(query));
@@ -80,7 +72,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       }),
     };
 
-    // Setup SymbolResolver mock
     mockSymbolResolver = {
       resolvePositionFromContent: vi.fn(),
     };
@@ -88,7 +79,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       return mockSymbolResolver;
     });
 
-    // Setup LSP Client mock
     mockLSPClient = {
       stop: vi.fn(),
       prepareCallHierarchy: vi.fn(),
@@ -99,7 +89,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       mockLSPClient
     );
 
-    // Register tool to get handler
     registerLSPCallHierarchyTool(mockServer);
   });
 
@@ -126,9 +115,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
 
       const result = await toolHandler({ queries: [baseQuery] });
       const results = JSON.parse(result.content[0].text);
-      // The bulk runner flattens `data` into the row entry in JSON output.
-      // Status field is omitted on success — so the error fields surface
-      // at the same level.
       expect(results[0]).toMatchObject({
         isError: true,
         message: 'Invalid path',
@@ -349,8 +335,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         const result = await toolHandler({ queries: [baseQuery] });
         const results = JSON.parse(result.content[0].text);
 
-        // No text/regex fallback: an available-but-failing LSP yields a clean
-        // empty result, not a regex-derived call graph.
         expect(results[0].status).toBe('empty');
         expect(results[0].errorCode).toBe('LSP_EMPTY');
         expect(results[0].incomingCalls).toBeUndefined();
@@ -378,8 +362,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
         const result = await toolHandler({ queries: [baseQuery] });
         const results = JSON.parse(result.content[0].text);
 
-        // No language server: there is no semantic call graph and no
-        // regex/text fallback.
         expect(results[0].status).toBe('empty');
         expect(results[0].errorCode).toBe('LSP_NOT_INSTALLED');
         expect(results[0].direction).toBe('incoming');
@@ -402,7 +384,6 @@ describe('LSP Call Hierarchy Coverage Tests', () => {
       it('does not invoke ripgrep/grep when LSP is unavailable', async () => {
         await toolHandler({ queries: [baseQuery] });
 
-        // The pattern-matching fallback has been removed entirely.
         expect(safeExec).not.toHaveBeenCalled();
       });
     });

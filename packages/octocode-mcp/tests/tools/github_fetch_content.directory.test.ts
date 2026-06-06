@@ -1,6 +1,3 @@
-/**
- * Tests for the directory fetch mode of githubGetFileContent execution layer.
- */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -65,7 +62,6 @@ vi.mock('../../src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-// Mock global fetch for download_url
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
@@ -143,7 +139,7 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
         rmSync(testDir, { recursive: true, force: true });
       }
     } catch {
-      // best-effort
+      void 0;
     }
   });
 
@@ -233,7 +229,6 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
   });
 
   it('should handle directory type with cache hit', async () => {
-    // First call: populate
     mockDirectoryListing([{ name: 'file.ts', path: 'src/file.ts', size: 50 }]);
     mockFetch.mockResolvedValue({
       ok: true,
@@ -255,7 +250,6 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
       ],
     });
 
-    // Second call: should be cache hit
     const result = await fetchMultipleGitHubFileContents({
       queries: [
         {
@@ -278,7 +272,6 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
   });
 
   it('should return real fileCount and totalSize on cache hit', async () => {
-    // First call: populate with 2 files
     mockDirectoryListing([
       { name: 'index.ts', path: 'src/index.ts', size: 100 },
       { name: 'utils.ts', path: 'src/utils.ts', size: 200 },

@@ -1,9 +1,3 @@
-/**
- * LSP Operations
- *
- * LSP protocol operations (goto definition, find references, call hierarchy, etc.)
- */
-
 import { promises as fs } from 'fs';
 import { MessageConnection } from 'vscode-jsonrpc/node.js';
 import {
@@ -32,9 +26,6 @@ import { LSPDocumentManager } from './lspDocumentManager.js';
 import { PathValidator } from 'octocode-security-utils/pathValidator';
 import { sendRequestWithCancellationOnTimeout } from './cancellableRequest.js';
 
-/**
- * LSP operations handler
- */
 export class LSPOperations {
   private connection: MessageConnection | null = null;
   private initialized = false;
@@ -43,18 +34,12 @@ export class LSPOperations {
 
   constructor(documentManager: LSPDocumentManager, workspaceRoot?: string) {
     this.documentManager = documentManager;
-    // Validate LSP file reads against the workspace root.
-    // A malicious/buggy LSP server could return file:///etc/passwd;
-    // this ensures we only read files under the workspace.
     this.pathValidator = new PathValidator({
       workspaceRoot: workspaceRoot ?? process.cwd(),
       includeHomeDir: true,
     });
   }
 
-  /**
-   * Set the connection and initialization status
-   */
   setConnection(
     connection: MessageConnection | null,
     initialized: boolean
@@ -63,10 +48,6 @@ export class LSPOperations {
     this.initialized = initialized;
   }
 
-  /**
-   * Assert that the connection is ready, returning the live connection.
-   * Throws if the LSP client hasn't been initialized yet.
-   */
   private requireConnection(): MessageConnection {
     if (!this.connection || !this.initialized) {
       throw new Error('LSP client not initialized');
@@ -74,10 +55,6 @@ export class LSPOperations {
     return this.connection;
   }
 
-  /**
-   * Open a document, run an LSP operation, and guarantee the document is
-   * closed afterwards — even if the operation throws.
-   */
   private async withDocument<T>(
     filePath: string,
     fn: (connection: MessageConnection) => Promise<T>
@@ -91,9 +68,6 @@ export class LSPOperations {
     }
   }
 
-  /**
-   * Go to definition
-   */
   async gotoDefinition(
     filePath: string,
     position: ExactPosition
@@ -115,9 +89,6 @@ export class LSPOperations {
     });
   }
 
-  /**
-   * Find references
-   */
   async findReferences(
     filePath: string,
     position: ExactPosition,
@@ -141,9 +112,6 @@ export class LSPOperations {
     });
   }
 
-  /**
-   * Prepare call hierarchy (get item at position)
-   */
   async prepareCallHierarchy(
     filePath: string,
     position: ExactPosition
@@ -169,9 +137,6 @@ export class LSPOperations {
     });
   }
 
-  /**
-   * Get incoming calls (who calls this function)
-   */
   async getIncomingCalls(item: CallHierarchyItem): Promise<IncomingCall[]> {
     const connection = this.requireConnection();
 
@@ -201,9 +166,6 @@ export class LSPOperations {
       }));
   }
 
-  /**
-   * Get outgoing calls (what this function calls)
-   */
   async getOutgoingCalls(item: CallHierarchyItem): Promise<OutgoingCall[]> {
     const connection = this.requireConnection();
 
@@ -233,9 +195,6 @@ export class LSPOperations {
       }));
   }
 
-  /**
-   * Convert Location/LocationLink to CodeSnippet
-   */
   private async locationsToSnippets(
     result: Location | Location[] | LocationLink[] | null
   ): Promise<CodeSnippet[]> {
@@ -245,7 +204,6 @@ export class LSPOperations {
     const snippets: CodeSnippet[] = [];
 
     for (const loc of locations) {
-      // Defensive: malformed LSP responses may have missing uri/range
       if (!loc) continue;
 
       const uri = 'targetUri' in loc ? loc.targetUri : loc.uri;
@@ -255,11 +213,9 @@ export class LSPOperations {
 
       const filePath = fromUri(uri);
 
-      // SECURITY: Validate the file path returned by the LSP server.
-      // A malicious/buggy LSP could return URIs like file:///etc/passwd.
       const pathValidation = this.pathValidator.validate(filePath);
       if (!pathValidation.isValid) {
-        continue; // Skip files outside allowed directories
+        continue;
       }
 
       let content = '';
@@ -295,19 +251,14 @@ export class LSPOperations {
     return snippets;
   }
 
-  /**
-   * Convert LSP CallHierarchyItem to our CallHierarchyItem.
-   * Defensive: handles malformed LSP responses with missing range/selectionRange.
-   */
   private convertCallHierarchyItem(
     item: LSPCallHierarchyItem
   ): CallHierarchyItem {
-    // Defensive defaults for malformed LSP responses
     const defaultPos = { line: 0, character: 0 };
     const defaultRange = { start: defaultPos, end: defaultPos };
 
     const range = item.range ?? defaultRange;
-    const selectionRange = item.selectionRange ?? range; // fallback to range
+    const selectionRange = item.selectionRange ?? range;
 
     const startLine = range.start?.line ?? 0;
     const startChar = range.start?.character ?? 0;
@@ -338,9 +289,6 @@ export class LSPOperations {
     };
   }
 
-  /**
-   * Convert our CallHierarchyItem to LSP protocol item
-   */
   private toProtocolCallHierarchyItem(
     item: CallHierarchyItem
   ): LSPCallHierarchyItem {

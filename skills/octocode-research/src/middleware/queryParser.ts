@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
-/**
- * Custom error class for validation failures.
- * Carries HTTP status code for proper error responses.
- */
+
 class ValidationError extends Error {
   statusCode: number;
   code: string;
@@ -18,25 +15,14 @@ class ValidationError extends Error {
   }
 }
 
-/**
- * Parse and validate query parameters using a Zod schema.
- * Returns the validated data wrapped in an array (for tool compatibility).
- *
- * @param query - Express request query object
- * @param schema - Zod schema for validation
- * @returns Array containing the validated query object
- * @throws ValidationError if validation fails
- */
 export function parseAndValidate<T>(
   query: Record<string, unknown>,
   schema: z.ZodType<T>
 ): T[] {
-  // Check for JSON-encoded queries array (batch mode)
   if (query.queries && typeof query.queries === 'string') {
     try {
       const parsed = JSON.parse(query.queries);
       if (Array.isArray(parsed)) {
-        // Validate each item in the array
         const validated = parsed.map((item, index) => {
           const result = schema.safeParse(item);
           if (!result.success) {
@@ -51,12 +37,9 @@ export function parseAndValidate<T>(
       }
     } catch (e) {
       if (e instanceof ValidationError) throw e;
-      // JSON.parse failed - fall through to single query mode silently
-      // (avoid logging untrusted input in production)
     }
   }
 
-  // Parse flat query params (single query mode)
   const cleanedQuery: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(query)) {
     if (key !== 'queries') {
@@ -75,9 +58,7 @@ export function parseAndValidate<T>(
   return [result.data];
 }
 
-/**
- * Format Zod error into a human-readable string.
- */
+
 function formatZodError(error: z.ZodError): string {
   return error.issues
     .map((issue) => {

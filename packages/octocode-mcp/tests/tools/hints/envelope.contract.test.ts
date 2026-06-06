@@ -1,16 +1,3 @@
-/**
- * Hint envelope contract — single and bulk.
- *
- * Covers the gates in `src/tools/utils.ts:createSuccessResult` +
- * `src/utils/response/error.ts:createErrorResult`:
- *
- *  - hasResults: per-tool hints registry MUST NOT fire (gate at line 106).
- *  - empty:      per-tool empty hints fire and merge with extraHints/prefixHints.
- *  - error:      per-tool error hints fire and merge with customHints.
- *  - extraHints: always pass through (success and empty paths).
- *  - dedup:      identical hint strings collapse via the Set in line 112.
- */
-
 import { describe, it, expect, vi } from 'vitest';
 
 import { createSuccessResult } from '../../../src/tools/utils.js';
@@ -18,15 +5,12 @@ import { createErrorResult } from '../../../src/utils/response/error.js';
 import { STATIC_TOOL_NAMES } from '../../../src/tools/toolNames.js';
 import { getHints } from '../../../src/hints/index.js';
 
-// ===========================================================================
-// Single-call envelope — createSuccessResult
-// ===========================================================================
 describe('createSuccessResult — hasResults path', () => {
   it('does not inject per-tool registry hints on hasResults', () => {
     const result = createSuccessResult(
       {},
       { items: ['a', 'b'] },
-      true, // hasContent
+      true,
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
       {
         hintContext: { hasOwnerRepo: true, owner: 'a', repo: 'b' },
@@ -34,8 +18,6 @@ describe('createSuccessResult — hasResults path', () => {
     );
 
     expect(result.status).toBeUndefined();
-    // Registry hints would only fire on 'empty', so no hints field appears
-    // unless extraHints were passed.
     expect((result as Record<string, unknown>).hints).toBeUndefined();
   });
 
@@ -57,9 +39,6 @@ describe('createSuccessResult — hasResults path', () => {
 
   it('does not invoke the registry on success (verified via spy)', () => {
     const reg = vi.fn(getHints);
-    // We can't easily monkey-patch getHints, but we can assert behaviorally:
-    // calling createSuccessResult with hasContent=true and a context that
-    // WOULD trigger an empty hint must still produce no registry hint.
     const result = createSuccessResult(
       {},
       { ok: true },
@@ -85,7 +64,7 @@ describe('createSuccessResult — empty path', () => {
     const result = createSuccessResult(
       {},
       { items: [] },
-      false, // hasContent=false → status='empty'
+      false,
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
       {
         hintContext: {
@@ -124,7 +103,6 @@ describe('createSuccessResult — empty path', () => {
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
       {
         hintContext: { hasOwnerRepo: true, owner: 'a', repo: 'b' },
-        // duplicate the registry-emitted hint
         extraHints: ['No matches in a/b.', 'No matches in a/b.'],
       }
     );
@@ -149,12 +127,8 @@ describe('createSuccessResult — empty path', () => {
   });
 });
 
-// ===========================================================================
-// Error envelope — createErrorResult
-// ===========================================================================
 describe('createErrorResult — per-tool error hints', () => {
   it('emits LSP error hint for symbol_not_found', () => {
-    // Build a ToolError-shaped object that createErrorResult recognizes.
     const result = createErrorResult(
       new Error('boom'),
       {},
@@ -216,8 +190,6 @@ describe('createErrorResult — per-tool error hints', () => {
       }
     );
 
-    // The registry returns []; result.hints may be undefined or an empty array
-    // — but should not contain any LSP-specific error narration.
     const lspNarration = (result.hints ?? []).filter(
       h => h.includes('Symbol') || h.includes('File not found')
     );
@@ -225,9 +197,6 @@ describe('createErrorResult — per-tool error hints', () => {
   });
 });
 
-// ===========================================================================
-// Type-level invariant — HintStatus never accepts 'hasResults'
-// ===========================================================================
 describe('HintStatus narrowing', () => {
   it('getHints with empty status works', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'empty', {
@@ -245,9 +214,6 @@ describe('HintStatus narrowing', () => {
     expect(hints[0]).toContain('not a function');
   });
 
-  // Compile-time guard: this block ensures the type system rejects 'hasResults'.
-  // If someone re-introduces it, this test file fails to compile — that's the
-  // enforcement. No runtime assertion needed.
   it('returns empty array for unknown tool', () => {
     expect(getHints('nonExistentTool', 'empty')).toEqual([]);
   });

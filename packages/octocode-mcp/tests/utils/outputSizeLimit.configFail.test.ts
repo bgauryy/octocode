@@ -1,17 +1,9 @@
-/**
- * Tests the catch branch (line 80) in outputSizeLimit.ts when
- * getConfigSync() throws — e.g., config file is malformed.
- *
- * Covers: configuredDefaultCharLength = undefined (catch block)
- */
-
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('octocode-shared', () => ({
   getConfigSync: vi.fn(() => {
     throw new Error('config unavailable');
   }),
-  // getOutputCharLimit() falls back to this when getConfigSync throws.
   DEFAULT_OUTPUT_CONFIG: {
     format: 'yaml',
     pagination: { defaultCharLength: 2000 },
@@ -25,7 +17,6 @@ describe('applyOutputSizeLimit — catch branch when getConfigSync throws', () =
     const smallContent = 'small content';
     const result = applyOutputSizeLimit(smallContent, {});
 
-    // Should not throw and should return content unchanged
     expect(result.wasLimited).toBe(false);
     expect(result.content).toBe(smallContent);
     expect(result.warnings).toHaveLength(0);

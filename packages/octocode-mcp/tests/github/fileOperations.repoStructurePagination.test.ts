@@ -90,12 +90,11 @@ describe('GitHub Repository Structure - Pagination', () => {
       if ('structure' in result) {
         expect(result.pagination).toBeDefined();
         expect(result.pagination?.currentPage).toBe(1);
-        expect(result.pagination?.totalPages).toBe(5); // 100 / 20
+        expect(result.pagination?.totalPages).toBe(5);
         expect(result.pagination?.hasMore).toBe(true);
         expect(result.pagination?.entriesPerPage).toBe(20);
         expect(result.pagination?.totalEntries).toBe(100);
 
-        // Should only have first 20 files
         expect(result.structure['.']!.files.length).toBe(20);
       }
     });
@@ -122,14 +121,12 @@ describe('GitHub Repository Structure - Pagination', () => {
         expect(result.pagination?.totalPages).toBe(5);
         expect(result.pagination?.hasMore).toBe(true);
 
-        // Should have 20 files on page 3
-        // Note: files are sorted lexicographically, so file10 < file2 < file20
         expect(result.structure['.']!.files.length).toBe(20);
       }
     });
 
     it('should handle last page correctly', async () => {
-      const files = createMockFiles(95); // Not a clean multiple of 20
+      const files = createMockFiles(95);
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
@@ -141,7 +138,7 @@ describe('GitHub Repository Structure - Pagination', () => {
         repo: 'repo',
         branch: 'main',
         entriesPerPage: 20,
-        entryPageNumber: 5, // Last page
+        entryPageNumber: 5,
       });
 
       expect('structure' in result).toBe(true);
@@ -150,8 +147,6 @@ describe('GitHub Repository Structure - Pagination', () => {
         expect(result.pagination?.totalPages).toBe(5);
         expect(result.pagination?.hasMore).toBe(false);
 
-        // Last page should have remaining files (95 total, pages 1-4 have 80, so 15 left)
-        // Note: files are sorted lexicographically
         expect(result.structure['.']!.files.length).toBe(15);
       }
     });
@@ -237,12 +232,11 @@ describe('GitHub Repository Structure - Pagination', () => {
         repo: 'repo',
         branch: 'main',
         entriesPerPage: 20,
-        entryPageNumber: 10, // Way beyond available pages (should be 3)
+        entryPageNumber: 10,
       });
 
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
-        // Should return empty structure for beyond-last-page
         expect(result.structure['.']?.files?.length ?? 0).toBe(0);
         expect(result.pagination?.hasMore).toBe(false);
       }

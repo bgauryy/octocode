@@ -1,9 +1,3 @@
-/**
- * GitHub Search Code - match='file' vs match='path' Modes
- *
- * Tests that both search modes work correctly with the provider layer.
- */
-
 import { getTextContent } from '../utils/testHelpers.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
@@ -237,7 +231,6 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('TestFlags.js');
-      // Path mode should not include text_matches
       expect(responseText).not.toContain('text_matches');
     });
 
@@ -406,7 +399,6 @@ describe('GitHub Search Code - match Parameter Modes', () => {
     });
 
     it('verbose=false is a no-op — provider uses default page size', async () => {
-      // Verbosity does not affect provider limit; it uses the fixed DEFAULT_PAGE_SIZE.
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [],
@@ -430,7 +422,6 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       });
 
       const providerQuery = mockProvider.searchCode.mock.calls[0]?.[0];
-      // Default page size is used (20)
       expect(providerQuery.limit).toBeGreaterThan(0);
     });
 

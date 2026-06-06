@@ -3,7 +3,6 @@ import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { getOctokit } from '../../src/github/client.js';
 import * as minifierModule from '../../src/utils/minifier/minifier.js';
 
-// Mock dependencies
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/utils/minifier/minifier.js');
 
@@ -12,9 +11,6 @@ describe('GitHub File Operations - Pagination', () => {
     vi.clearAllMocks();
   });
 
-  /**
-   * Helper to create mock Octokit with file content
-   */
   function createMockOctokit(content: string, filename = 'test.ts') {
     return {
       rest: {
@@ -37,7 +33,7 @@ describe('GitHub File Operations - Pagination', () => {
 
   describe('auto-pagination', () => {
     it('should NOT paginate small files below the shared output budget', async () => {
-      const smallContent = 'x'.repeat(5000); // 5K chars
+      const smallContent = 'x'.repeat(5000);
       const mockOctokit = createMockOctokit(smallContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
@@ -65,7 +61,7 @@ describe('GitHub File Operations - Pagination', () => {
     });
 
     it('returns full content for large files (char-based pagination removed)', async () => {
-      const largeContent = 'x'.repeat(70000); // 70K chars
+      const largeContent = 'x'.repeat(70000);
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
@@ -85,8 +81,6 @@ describe('GitHub File Operations - Pagination', () => {
         path: 'large.ts',
       });
 
-      // Char-based pagination (charOffset/charLength) was removed.
-      // GitHub file content now returns data without char-based pagination.
       expect(result).toHaveProperty('data');
     });
   });
@@ -168,7 +162,6 @@ describe('GitHub File Operations - Pagination', () => {
     });
 
     it('should paginate when explicit charOffset=0 but content < threshold', async () => {
-      // When charOffset is explicitly 0 but content is small, no pagination needed
       const smallContent = 'x'.repeat(5000);
       const mockOctokit = createMockOctokit(smallContent);
 
@@ -190,7 +183,6 @@ describe('GitHub File Operations - Pagination', () => {
 
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data && !('error' in result.data)) {
-        // Should NOT paginate small content even with explicit charOffset=0
         expect(result.data.pagination).toBeUndefined();
       }
     });
@@ -223,9 +215,8 @@ describe('GitHub File Operations - Pagination', () => {
 
   describe('matchString with pagination', () => {
     it('should paginate large matchString results', async () => {
-      // Create content with many matches that results in > 20K chars
       const lineContent = 'function test() { return true; }\n';
-      const largeContent = lineContent.repeat(1000); // ~33K chars
+      const largeContent = lineContent.repeat(1000);
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
@@ -242,12 +233,11 @@ describe('GitHub File Operations - Pagination', () => {
         repo: 'repo',
         path: 'functions.ts',
         matchString: 'function',
-        matchStringContextLines: 50, // Large context to exceed threshold
+        matchStringContextLines: 50,
       });
 
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data && !('error' in result.data)) {
-        // If the matched content exceeds threshold, it should be paginated
         if ((result.data.content?.length ?? 0) > 20000) {
           expect(result.data.pagination).toBeDefined();
         }
@@ -286,7 +276,6 @@ describe('GitHub File Operations - Pagination', () => {
         path: uniquePath,
       });
 
-      // Second call should hit cache
       expect(mockOctokit.rest.repos.getContent.mock.calls.length).toBe(
         firstCallCount
       );
@@ -318,8 +307,6 @@ describe('GitHub File Operations - Pagination', () => {
         path: 'large.ts',
       });
 
-      // Char-based pagination fields (charOffset/charLength) are no longer returned.
-      // Use startLine/endLine parameters for partial content.
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data && !('error' in result.data)) {
         expect(result.data.content).toBeDefined();

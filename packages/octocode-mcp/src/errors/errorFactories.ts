@@ -1,7 +1,3 @@
-/**
- * Convenience factory functions for common tool errors.
- */
-
 import { ToolError } from './ToolError.js';
 import { LOCAL_TOOL_ERROR_CODES } from './localToolErrors.js';
 import { redactPath } from './pathUtils.js';
@@ -24,7 +20,6 @@ export const ToolErrors = {
     cause?: Error,
     workspaceRoot?: string
   ) => {
-    // Extract specific error message based on error code
     const displayPath = redactPath(filePath, workspaceRoot);
     let message = `Cannot access file: ${displayPath}`;
     const errorCode = (cause as Error & { code?: string })?.code;

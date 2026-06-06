@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Pin the provider-boundary mapping `matchScope -> match`. The query builder
-// already proves `match -> in:title|body|comments`; this closes the chain by
-// proving the provider forwards the public `matchScope` field as `match` to
-// the search API (the seam that was silently dropping it before the fix).
 const mockSearchAPI = vi.hoisted(() => vi.fn());
 
 vi.mock('../../src/github/pullRequestSearch.js', () => ({

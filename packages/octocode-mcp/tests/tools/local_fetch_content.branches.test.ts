@@ -1,9 +1,3 @@
-/**
- * Branch coverage tests for local_fetch_content
- * Targets: contentMinifier catch block, contentExtractor maxMatches edge case,
- * minifier branch when content has no comments/whitespace to strip
- */
-
 import { describe, it, expect, vi } from 'vitest';
 
 describe('applyMinification', () => {
@@ -59,7 +53,6 @@ describe('applyMinification', () => {
   });
 
   it('should return original when content has no comments/whitespace to strip (same length)', async () => {
-    // Content that minifier returns unchanged - exercises branch where minified.length >= content.length
     const { applyMinification } =
       await import('../../src/utils/minifier/applyMinification.js');
 
@@ -133,7 +126,6 @@ describe('extractMatchingLines - edge cases', () => {
     const { extractMatchingLines } =
       await import('../../src/tools/local_fetch_content/contentExtractor.js');
 
-    // maxMatches=-2 is truthy; slice(0,-2) on [2,4] yields [] (empty)
     const lines = ['line1', 'MATCH', 'line3', 'MATCH', 'line5'];
     const result = extractMatchingLines(lines, 'MATCH', 1, false, false, -2);
 

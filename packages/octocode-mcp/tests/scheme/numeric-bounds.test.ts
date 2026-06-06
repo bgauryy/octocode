@@ -20,10 +20,6 @@ import {
   LSPCallHierarchyQuerySchema,
 } from '../../src/scheme/lspSchemaOverlay.js';
 
-// #C1: bare `z.number().int()` fields serialize as
-// {minimum:-9007199254740991, maximum:9007199254740991} — schema bloat in every
-// published inputSchema AND a validation gap (negatives / absurd values pass).
-// Every numeric field must carry meaningful bounds.
 const SENTINEL = 9007199254740991;
 
 const schemas: Record<string, z.ZodTypeAny> = {
@@ -83,8 +79,6 @@ describe('numeric schema fields are bounded (#C1)', () => {
       symbolName: 'x',
       lineHint: -5,
     });
-    // Out-of-range magnitudes clamp (to the min), so lineHint is never the
-    // validation offender. If the parse fails it is for some other field.
     if (r.success) {
       expect(r.data.lineHint).toBe(1);
     } else {
@@ -93,9 +87,6 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
   });
 
-  // The top-level sweep above only inspects `js.properties[*]`; nested array
-  // item types slip through. PR `partialContentMetadata[].additions/deletions`
-  // are bare upstream ints — assert the overlay re-bounds them.
   it('pullRequests: nested partialContentMetadata line arrays are bounded (no sentinel)', () => {
     const js = z.toJSONSchema(GitHubPullRequestSearchQueryLocalSchema) as {
       properties?: Record<

@@ -10,7 +10,7 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
       exclude: [
-        'src/extension.ts', // Entry-point wiring remains covered indirectly until a full VS Code harness lands
+        'src/extension.ts',
       ],
       thresholds: {
         statements: 70,

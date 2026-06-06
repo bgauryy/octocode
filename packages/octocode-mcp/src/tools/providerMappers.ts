@@ -71,9 +71,6 @@ export function buildPaginationHints(
   const startItem = (pagination.currentPage - 1) * perPage + 1;
   const endItem = Math.min(pagination.currentPage * perPage, totalMatches);
 
-  // Strict policy: emit only when there's more to fetch. Page/Previous/Jump
-  // are data echoes of pagination.{currentPage,totalPages} the agent already
-  // has — `Final page` is the same tautology in negative form.
   if (pagination.hasMore) {
     hints.push(
       `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label}). Next: page=${pagination.currentPage + 1}`
@@ -105,8 +102,7 @@ export function mapCodeSearchToolQuery(
 export interface CodeSearchGroupedMatch {
   path: string;
   value?: string;
-  /** Char start/end positions of the keyword within `value`. Populated from
-   *  the provider's `positions` field when available. */
+
   matchIndices?: Array<{ start: number; end: number }>;
 }
 
@@ -128,7 +124,7 @@ export interface CodeSearchPagination {
 export interface CodeSearchFlatResult {
   results: CodeSearchGroupedResult[];
   pagination?: CodeSearchPagination;
-  /** True when the searched owner/repo/user does not exist (GitHub 422). */
+
   nonExistentScope?: boolean;
 }
 
@@ -338,8 +334,6 @@ function capFileChanges(
 } {
   if (!fileChanges)
     return { capped: undefined, totalCount: 0, wasTruncated: false };
-  // No count cap: return EVERY file change for the selected PR page. Nothing
-  // is silently omitted here; callers narrow large PRs with partialContent.
   return {
     capped: fileChanges,
     totalCount: fileChanges.length,
@@ -414,8 +408,6 @@ export function mapPullRequestProviderResultData(
     return {
       number: pr.number,
       title: pr.title,
-      // Full body, never truncated — response size is bounded losslessly by
-      // the char-paginator (agents page for more), not by a 500-char preview.
       body: pr.body ?? undefined,
       url: pr.url,
       state: pr.state,
@@ -437,8 +429,6 @@ export function mapPullRequestProviderResultData(
       deletions: pr.deletions,
       ...(pr.comments && { comments: pr.comments }),
       ...(reviewSummary && { reviewSummary }),
-      // Metadata mode omits fileChanges entirely; changedFilesCount is sufficient.
-      // Full patch data requires type="partialContent" or type="fullContent".
       ...(cappedFileChanges && includeFileChanges
         ? { fileChanges: cappedFileChanges }
         : {}),
@@ -531,8 +521,6 @@ export function mapRepoStructureToolQuery(
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
     depth: typeof query.depth === 'number' ? query.depth : undefined,
-    // Fixed page size (STRUCTURE_PAGE_SIZE = 100 entries/page). Agents navigate
-    // via `page`; the provider layer still uses its `entriesPerPage`/`entryPageNumber` internally.
     entriesPerPage: GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
     entryPageNumber: (() => {
       const p = (query as { page?: number }).page;

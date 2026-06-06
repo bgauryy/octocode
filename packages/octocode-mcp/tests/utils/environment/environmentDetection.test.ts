@@ -1,8 +1,3 @@
-/**
- * Tests for environment detection utilities
- * Verifies Claude Code and IDE detection
- */
-
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   detectEnvironment,
@@ -15,7 +10,6 @@ describe('Environment Detection', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Clear environment variables
     delete process.env.VSCODE_PID;
     delete process.env.VSCODE_IPC_HOOK;
     delete process.env.CURSOR_CHANNEL;
@@ -24,7 +18,6 @@ describe('Environment Detection', () => {
   });
 
   afterEach(() => {
-    // Restore environment
     process.env = { ...originalEnv };
   });
 

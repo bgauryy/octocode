@@ -45,7 +45,6 @@ export const awsPatterns: SensitiveDataPattern[] = [
     regex: /\barn:aws:s3:::[a-zA-Z0-9._-]+\b/g,
     matchAccuracy: 'high',
   },
-  // Alibaba Cloud
   {
     name: 'alibabaAccessKeyId',
     description: 'Alibaba Cloud AccessKey ID',
@@ -66,7 +65,6 @@ export const awsPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:AWS|aws|Aws)?_?(?:SESSION|session|Session)_?(?:TOKEN|token|Token)['"]?\s*(?::|=>|=)\s*['"]?[A-Za-z0-9/+=]{200,}['"]?\b/g,
     matchAccuracy: 'high',
   },
-  // Secrets Manager Secret ARN
   {
     name: 'awsSecretsManagerArn',
     description: 'AWS Secrets Manager secret ARN',

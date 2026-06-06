@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock octocode-shared session storage to prevent filesystem access
 vi.mock('octocode-shared', async importOriginal => {
   const actual = await importOriginal<typeof import('octocode-shared')>();
   return {
@@ -43,7 +42,6 @@ import {
   resetSessionManager,
 } from '../src/session.js';
 
-// Mock fetch
 global.fetch = vi.fn();
 
 describe('session - Edge Cases', () => {
@@ -84,14 +82,12 @@ describe('session - Edge Cases', () => {
         json: async () => ({ success: true }),
       } as Response);
 
-      // Logging is best-effort and may not actually call fetch
       await expect(logSessionInit()).resolves.not.toThrow();
     });
 
     it('should handle fetch failure silently', async () => {
       vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'));
 
-      // Should not throw, logs are best-effort
       await expect(logSessionInit()).resolves.not.toThrow();
     });
 
@@ -101,7 +97,6 @@ describe('session - Edge Cases', () => {
         status: 500,
       } as Response);
 
-      // Should not throw, logs are best-effort
       await expect(logSessionInit()).resolves.not.toThrow();
     });
 
@@ -132,7 +127,6 @@ describe('session - Edge Cases', () => {
         json: async () => ({ success: true }),
       } as Response);
 
-      // Logging is best-effort and may not actually call fetch
       await expect(
         logSessionError('test-component', 'TEST_ERROR')
       ).resolves.not.toThrow();
@@ -141,7 +135,6 @@ describe('session - Edge Cases', () => {
     it('should handle fetch failure silently', async () => {
       vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'));
 
-      // Should not throw, error logs are best-effort
       await expect(
         logSessionError('test', 'ERROR_CODE')
       ).resolves.not.toThrow();
@@ -153,7 +146,6 @@ describe('session - Edge Cases', () => {
         status: 500,
       } as Response);
 
-      // Should not throw
       await expect(
         logSessionError('test', 'ERROR_CODE')
       ).resolves.not.toThrow();
@@ -167,7 +159,6 @@ describe('session - Edge Cases', () => {
           )
       );
 
-      // Should resolve quickly due to timeout
       await expect(
         logSessionError('test', 'ERROR_CODE')
       ).resolves.not.toThrow();
@@ -179,7 +170,6 @@ describe('session - Edge Cases', () => {
         status: 200,
       } as Response);
 
-      // Logging is best-effort
       await expect(
         Promise.all([
           logSessionError('github', 'API_ERROR'),
@@ -195,7 +185,6 @@ describe('session - Edge Cases', () => {
       const session = initializeSession();
       const id = session.getSessionId();
 
-      // Should generate a valid session ID
       expect(typeof id).toBe('string');
       expect(id.length).toBeGreaterThan(0);
     });
@@ -204,7 +193,6 @@ describe('session - Edge Cases', () => {
       const session = initializeSession();
       const id = session.getSessionId();
 
-      // Should be a non-empty string
       expect(typeof id).toBe('string');
       expect(id.length).toBeGreaterThan(0);
     });

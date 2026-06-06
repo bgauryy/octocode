@@ -6,7 +6,6 @@ import type { AnalysisOptions, Thresholds } from './core.js';
 import type { DependencyProfile } from './dependency.js';
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  // Architecture
   couplingThreshold: 15,
   fanInThreshold: 20,
   fanOutThreshold: 15,
@@ -17,7 +16,6 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   sdpMaxSourceInstability: 0.6,
   layerOrder: [],
 
-  // Code quality
   minFunctionStatements: 6,
   minFlowStatements: 6,
   criticalComplexityThreshold: 30,
@@ -35,15 +33,12 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   magicStringMinOccurrences: 3,
   booleanParamThreshold: 3,
 
-  // Semantic
   overrideChainThreshold: 3,
   shotgunThreshold: 8,
 
-  // Security
   secretEntropyThreshold: 4.5,
   secretMinLength: 20,
 
-  // Test quality
   mockThreshold: 10,
 };
 

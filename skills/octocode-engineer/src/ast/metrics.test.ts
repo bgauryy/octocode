@@ -150,14 +150,14 @@ describe('collectMetrics', () => {
     const sf = parse('function foo() { if (a && b) {} }');
     const fn = firstFn(sf);
     const m = collectMetrics(fn);
-    expect(m.complexity).toBe(3); // 1 base + 1 if + 1 &&
+    expect(m.complexity).toBe(3);
   });
 
   it('logical || → complexity+1', () => {
     const sf = parse('function foo() { if (a || b) {} }');
     const fn = firstFn(sf);
     const m = collectMetrics(fn);
-    expect(m.complexity).toBe(3); // 1 base + 1 if + 1 ||
+    expect(m.complexity).toBe(3);
   });
 
   it('for-in loop → loops 1', () => {

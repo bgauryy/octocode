@@ -24,12 +24,6 @@ import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
 
-/**
- * Default page size when a caller hits this API layer WITHOUT a `limit`. Note
- * the MCP surface always injects its own (leaner) default via the schema, so
- * this only applies to direct/internal API callers — it is intentionally not
- * the same value as the tool-schema default.
- */
 const RAW_API_DEFAULT_LIMIT = 30;
 
 export async function searchGitHubCodeAPI(
@@ -37,8 +31,6 @@ export async function searchGitHubCodeAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubAPIResponse<OptimizedCodeSearchResult>> {
-  // Cache key excludes context fields (mainResearchGoal, researchGoal, reasoning)
-  // as they don't affect the API response
   const cacheKey = generateCacheKey(
     'gh-api-code',
     {
@@ -128,7 +120,6 @@ async function searchGitHubCodeAPIInternal(
 
     const optimizedResult = await convertCodeSearchResult(result);
 
-    // GitHub caps at 1000 total results
     const totalMatches = Math.min(optimizedResult.total_count, 1000);
     const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
@@ -157,8 +148,6 @@ async function searchGitHubCodeAPIInternal(
       rawResponseChars: countSerializedChars(result.data),
     };
   } catch (error: unknown) {
-    // A 422 referencing a nonexistent entity (e.g. user:/org:/repo: that does
-    // not exist) is "no matches", not a failure — return a clean empty result.
     if (isNoResultsSearchError(error)) {
       const perPage = Math.min(
         typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
@@ -168,9 +157,6 @@ async function searchGitHubCodeAPIInternal(
         data: {
           total_count: 0,
           items: [],
-          // Signal that the empty result is a nonexistent owner/repo/user, not
-          // a valid scope with zero matches — so the caller hints at the scope
-          // rather than reporting authoritative absence.
           nonExistentScope: true,
           pagination: {
             currentPage: params.page || 1,
@@ -320,7 +306,6 @@ async function transformToOptimizedFormat(
 
   const result: OptimizedCodeSearchResult = {
     items: optimizedItems,
-    // Use API total count if available, otherwise fallback to filtered length
     total_count:
       apiTotalCount !== undefined ? apiTotalCount : filteredItems.length,
     _researchContext: {

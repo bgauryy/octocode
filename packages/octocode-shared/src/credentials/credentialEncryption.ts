@@ -1,9 +1,3 @@
-/**
- * Credential Encryption
- *
- * AES-256-GCM encryption for credential storage.
- */
-
 import {
   existsSync,
   readFileSync,
@@ -20,42 +14,27 @@ import { createLogger } from '../logger/index.js';
 
 const logger = createLogger('token-storage');
 
-/**
- * Mask sensitive data in error messages to prevent token leakage in logs.
- * Matches common token patterns (GitHub tokens, OAuth tokens, etc.)
- */
 function maskErrorMessage(message: string): string {
-  // Mask GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_ prefixes)
-  // Mask generic long alphanumeric strings that look like tokens
   return message
     .replace(/\b(ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{36,}\b/g, '***MASKED***')
     .replace(/\b[a-zA-Z0-9]{40,}\b/g, '***MASKED***');
 }
 
-// Storage constants for file storage
 export const OCTOCODE_DIR = paths.home;
 export const CREDENTIALS_FILE = paths.credentials;
 export const KEY_FILE = paths.key;
 
-// Encryption constants
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 
-/**
- * Ensure .octocode directory exists with secure permissions (0o700)
- */
 export function ensureOctocodeDir(): void {
   ensureHome();
 }
 
-/**
- * Get or create encryption key for file storage
- */
 function getOrCreateKey(): Buffer {
   ensureOctocodeDir();
 
   if (existsSync(KEY_FILE)) {
-    // Verify key file permissions are not too permissive (group/others should have no access)
     const mode = statSync(KEY_FILE).mode & 0o777;
     if (mode & 0o077) {
       chmodSync(KEY_FILE, 0o600);
@@ -68,9 +47,6 @@ function getOrCreateKey(): Buffer {
   return key;
 }
 
-/**
- * Encrypt data for file storage
- */
 export function encrypt(data: string): string {
   const key = getOrCreateKey();
   const iv = randomBytes(IV_LENGTH);
@@ -81,13 +57,9 @@ export function encrypt(data: string): string {
 
   const authTag = cipher.getAuthTag();
 
-  // Format: iv:authTag:encrypted
   return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
 }
 
-/**
- * Decrypt data from file storage
- */
 export function decrypt(encryptedData: string): string {
   const key = getOrCreateKey();
   const [ivHex, authTagHex, encrypted] = encryptedData.split(':');
@@ -107,9 +79,6 @@ export function decrypt(encryptedData: string): string {
   return decrypted;
 }
 
-/**
- * Read credentials store from file
- */
 export function readCredentialsStore(): CredentialsStore {
   ensureOctocodeDir();
 
@@ -130,7 +99,6 @@ export function readCredentialsStore(): CredentialsStore {
     }
     return result.data;
   } catch (error) {
-    // Credentials file is corrupted or key changed - warn user
     const reason =
       error instanceof Error && error.message
         ? maskErrorMessage(error.message)
@@ -146,9 +114,6 @@ export function readCredentialsStore(): CredentialsStore {
   }
 }
 
-/**
- * Write credentials store to file
- */
 export function writeCredentialsStore(store: CredentialsStore): void {
   ensureOctocodeDir();
 
@@ -156,9 +121,6 @@ export function writeCredentialsStore(store: CredentialsStore): void {
   writeFileSync(CREDENTIALS_FILE, encrypted, { mode: 0o600 });
 }
 
-/**
- * Clean up key file and credentials file (best effort)
- */
 export function cleanupKeyFile(): void {
   try {
     if (existsSync(CREDENTIALS_FILE)) {
@@ -168,6 +130,6 @@ export function cleanupKeyFile(): void {
       unlinkSync(KEY_FILE);
     }
   } catch {
-    // Best effort cleanup - ignore errors
+    void 0;
   }
 }

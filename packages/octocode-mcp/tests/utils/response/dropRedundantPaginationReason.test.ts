@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { dropRedundantPaginationReason } from '../../../src/utils/response/bulk.js';
 
-// #B2: a result-page cursor hint already conveys "there's more", so the generic
-// "Result pagination has more results." reason is redundant and gets dropped —
-// but only when such a cursor hint is present, and other reasons are preserved.
 describe('dropRedundantPaginationReason (#B2)', () => {
   it('drops the generic reason when a "Next: page=" cursor hint exists', () => {
     const out = dropRedundantPaginationReason(

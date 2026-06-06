@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { generateCacheKey, clearAllCache } from '../../src/utils/http/cache.js';
 
-// Helper function to safely extract hash from cache key
 function extractHash(cacheKey: string): string {
   const parts = cacheKey.split(':');
   if (parts.length !== 2) {
@@ -19,7 +18,6 @@ function extractHash(cacheKey: string): string {
   return hash;
 }
 
-// Helper function to validate character frequency distribution
 function validateCharacterDistribution(
   charCounts: Record<string, number>,
   expectedTotal: number,
@@ -44,7 +42,6 @@ function validateCharacterDistribution(
   }
 }
 
-// Helper function to validate hash properties
 function validateHashProperties(hash: string): void {
   expect(hash.length).toBe(64);
 
@@ -71,7 +68,6 @@ describe('Cache Collision Resistance Tests', () => {
     it('should resist birthday attack patterns', () => {
       const keys = new Set<string>();
       const attacks = [
-        // Birthday attack: similar prefixes
         ...Array.from({ length: 100 }, (_, i) => ({
           prefix: `attack-${i}`,
           data: 'same',
@@ -81,13 +77,11 @@ describe('Cache Collision Resistance Tests', () => {
           data: `var-${i}`,
         })),
 
-        // Hash extension attacks
         ...Array.from({ length: 50 }, (_, i) => ({
           prefix: 'ext',
           data: `base${'x'.repeat(i)}`,
         })),
 
-        // Padding attacks
         ...Array.from({ length: 50 }, (_, i) => ({
           prefix: 'pad',
           data: { value: 'test', padding: ' '.repeat(i) },
@@ -117,15 +111,15 @@ describe('Cache Collision Resistance Tests', () => {
     it('should handle unicode and special character attacks', () => {
       const unicodeAttacks = [
         { data: 'test' },
-        { data: 'tëst' }, // Similar looking with accent
-        { data: 'tеst' }, // Cyrillic 'e' (U+0435)
-        { data: 'te\u200dst' }, // Zero-width joiner
-        { data: 'te\u200bst' }, // Zero-width space
-        { data: 'test\u0000' }, // Null byte
-        { data: 'test\uffff' }, // Unicode max
-        { data: '💩' }, // Emoji
-        { data: '🏳️\u200d🌈' }, // Complex emoji sequence
-        { data: '👩\u200d💻' }, // Woman technologist emoji
+        { data: 'tëst' },
+        { data: 'tеst' },
+        { data: 'te\u200dst' },
+        { data: 'te\u200bst' },
+        { data: 'test\u0000' },
+        { data: 'test\uffff' },
+        { data: '💩' },
+        { data: '🏳️\u200d🌈' },
+        { data: '👩\u200d💻' },
       ];
 
       const keys = new Set<string>();
@@ -148,24 +142,23 @@ describe('Cache Collision Resistance Tests', () => {
     it('should resist JSON structure manipulation attacks', () => {
       const structureAttacks = [
         { a: '1', b: '2' },
-        { a: '1', b: '2' }, // Same but with quoted keys
-        { b: '2', a: '1' }, // Different order (should be same due to sorting)
-        { a: 1, b: 2 }, // Number vs string
-        { a: '1,b:2' }, // Attempt to mimic object structure in string
-        { 'a:1,b': '2' }, // Key manipulation
-        { '{"a":"1","b"': '"2"}' }, // JSON injection attempt
-        ['a', '1', 'b', '2'], // Array with same values
-        [{ a: '1' }, { b: '2' }], // Array of objects
-        { nested: { a: '1', b: '2' } }, // Nested structure
+        { a: '1', b: '2' },
+        { b: '2', a: '1' },
+        { a: 1, b: 2 },
+        { a: '1,b:2' },
+        { 'a:1,b': '2' },
+        { '{"a":"1","b"': '"2"}' },
+        ['a', '1', 'b', '2'],
+        [{ a: '1' }, { b: '2' }],
+        { nested: { a: '1', b: '2' } },
       ];
 
       const keys = new Set<string>();
-      const sortedKeys = new Map<string, number>(); // Track which should be identical
+      const sortedKeys = new Map<string, number>();
 
       for (let i = 0; i < structureAttacks.length; i++) {
         const key = generateCacheKey('struct', structureAttacks[i]);
 
-        // Special case: {a:'1',b:'2'} and {b:'2',a:'1'} should be identical due to key sorting
         if (i === 0 || i === 1 || i === 2) {
           if (sortedKeys.has(key)) {
             sortedKeys.set(key, sortedKeys.get(key)! + 1);
@@ -234,7 +227,6 @@ describe('Cache Collision Resistance Tests', () => {
 
       const keys = new Set<string>();
 
-      // Test various depths and values
       for (let depth = 1; depth <= 10; depth++) {
         for (let value = 0; value < 5; value++) {
           const obj = createDeepObject(depth, value);
@@ -253,16 +245,13 @@ describe('Cache Collision Resistance Tests', () => {
         }
       }
 
-      expect(keys.size).toBe(10 * 5); // depth * values
+      expect(keys.size).toBe(10 * 5);
     });
 
     it('should handle circular reference prevention', () => {
-      // This tests that our stable string creation handles circular refs gracefully
-      // We'll avoid actual circular references that cause stack overflow
       const obj1 = { a: 1, circular: '[Circular]' };
       const obj2 = { b: 1, circular: '[Circular]' };
 
-      // These should not crash and should produce different keys
       let key1 = '';
       let key2 = '';
 
@@ -274,7 +263,6 @@ describe('Cache Collision Resistance Tests', () => {
         key2 = generateCacheKey('circular', obj2);
       }).not.toThrow();
 
-      // They should be different
       expect(typeof key1).toBe('string');
       expect(typeof key2).toBe('string');
       expect(key1).not.toBe(key2);
@@ -355,14 +343,12 @@ describe('Cache Collision Resistance Tests', () => {
 
   describe('Cryptographic Hash Properties', () => {
     it('should demonstrate avalanche effect', () => {
-      // Small input changes should cause large hash changes
       const base = generateCacheKey('avalanche', { value: 'test' });
-      const changed = generateCacheKey('avalanche', { value: 'Test' }); // Single bit change
+      const changed = generateCacheKey('avalanche', { value: 'Test' });
 
       const baseHash = extractHash(base);
       const changedHash = extractHash(changed);
 
-      // Count different characters
       let differences = 0;
       for (let i = 0; i < baseHash.length; i++) {
         if (baseHash[i] !== changedHash[i]) {
@@ -385,7 +371,6 @@ describe('Cache Collision Resistance Tests', () => {
         hashes.push(hashPart);
       }
 
-      // Count frequency of each hex character
       const charCounts: Record<string, number> = {};
       const hexChars = '0123456789abcdef';
 
@@ -462,7 +447,6 @@ describe('Cache Collision Resistance Tests', () => {
       const testData = { consistent: 'test', value: 42 };
       const keys = new Set<string>();
 
-      // Generate the same key multiple times
       for (let i = 0; i < 100; i++) {
         const key = generateCacheKey('consistency', testData);
         keys.add(key);
@@ -500,12 +484,10 @@ describe('Cache Collision Resistance Tests', () => {
 
     it('should validate security properties are maintained', () => {
       const securityTests = [
-        // Test hash length is always 64
         { prefix: 'security', data: 'short' },
-        { prefix: 'security', data: 'x'.repeat(10000) }, // Very long
+        { prefix: 'security', data: 'x'.repeat(10000) },
         { prefix: 'security', data: { complex: { nested: { deep: 'data' } } } },
 
-        // Test different input types
         { prefix: 'types', data: 123 },
         { prefix: 'types', data: true },
         { prefix: 'types', data: [1, 2, 3] },

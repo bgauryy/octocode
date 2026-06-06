@@ -1,8 +1,3 @@
-/**
- * Core pagination utilities
- * Shared pagination logic for content pagination with proper byte/character handling
- */
-
 import type { PaginationInfo } from '../../types/toolResults.js';
 import type {
   PaginationMetadata,
@@ -11,19 +6,6 @@ import type {
 } from './types.js';
 import { byteToCharIndex, charToByteIndex } from '../file/byteOffset.js';
 
-/**
- * Apply pagination to content based on offset and length
- * Supports both character offsets (default) and byte offsets (for GitHub API compatibility)
- *
- * Returns both byte-based and character-based offsets in the result:
- * - Use byteOffset/nextByteOffset for GitHub API or byte-level operations
- * - Use charOffset/nextCharOffset for JavaScript string operations
- *
- * @param content - The content to paginate
- * @param offset - The starting offset (interpreted based on mode)
- * @param length - The page size (interpreted based on mode)
- * @param options - Pagination options including mode ('bytes' or 'characters')
- */
 export function applyPagination(
   content: string,
   offset: number = 0,
@@ -34,21 +16,17 @@ export function applyPagination(
   const totalChars = content.length;
   const totalBytes = Buffer.byteLength(content, 'utf-8');
 
-  // No pagination requested - return full content
   if (length === undefined) {
     return {
       paginatedContent: content,
-      // Byte fields
       byteOffset: 0,
       byteLength: totalBytes,
       totalBytes,
       nextByteOffset: undefined,
-      // Character fields
       charOffset: 0,
       charLength: totalChars,
       totalChars,
       nextCharOffset: undefined,
-      // Common fields
       hasMore: false,
       estimatedTokens: Math.ceil(content.length / 4),
       currentPage: 1,
@@ -66,42 +44,31 @@ export function applyPagination(
   let totalPages: number;
 
   if (mode === 'bytes') {
-    // Byte mode: offset and length are in bytes
-    // Convert byte positions to character positions first to avoid mid-character slicing
-    // This ensures we always slice on UTF-8 character boundaries
     const requestedStartByte = Math.min(offset, totalBytes);
     const requestedEndByte = Math.min(requestedStartByte + length, totalBytes);
 
-    // Convert to character indices (this aligns to character boundaries)
     startCharPos = byteToCharIndex(content, requestedStartByte);
     endCharPos = byteToCharIndex(content, requestedEndByte);
 
-    // Extract content using safe character positions
     paginatedContent = content.substring(startCharPos, endCharPos);
 
-    // Calculate actual byte positions from the aligned character positions
     startBytePos = charToByteIndex(content, startCharPos);
     endBytePos = charToByteIndex(content, endCharPos);
 
     hasMore = endBytePos < totalBytes;
-    // Use actualOffset for page calculation if provided
     const pageOffset = options.actualOffset ?? requestedStartByte;
     currentPage = Math.floor(pageOffset / length) + 1;
     totalPages = Math.ceil(totalBytes / length);
   } else {
-    // Character mode: offset and length are in characters
     startCharPos = Math.min(offset, totalChars);
     endCharPos = Math.min(startCharPos + length, totalChars);
 
-    // Extract content using character positions
     paginatedContent = content.substring(startCharPos, endCharPos);
 
-    // Calculate byte positions from character positions
     startBytePos = charToByteIndex(content, startCharPos);
     endBytePos = charToByteIndex(content, endCharPos);
 
     hasMore = endCharPos < totalChars;
-    // Use actualOffset for page calculation if provided
     const pageOffset = options.actualOffset ?? startCharPos;
     currentPage = Math.floor(pageOffset / length) + 1;
     totalPages = Math.ceil(totalChars / length);
@@ -109,17 +76,14 @@ export function applyPagination(
 
   return {
     paginatedContent,
-    // Byte fields - actual byte values
     byteOffset: startBytePos,
     byteLength: endBytePos - startBytePos,
     totalBytes,
     nextByteOffset: hasMore ? endBytePos : undefined,
-    // Character fields - actual character values
     charOffset: startCharPos,
     charLength: paginatedContent.length,
     totalChars,
     nextCharOffset: hasMore ? endCharPos : undefined,
-    // Common fields
     hasMore,
     estimatedTokens: Math.ceil(paginatedContent.length / 4),
     currentPage,
@@ -127,9 +91,6 @@ export function applyPagination(
   };
 }
 
-/**
- * Serialize data for pagination (convert to JSON string)
- */
 export function serializeForPagination(
   data: unknown,
   pretty: boolean = false
@@ -137,9 +98,6 @@ export function serializeForPagination(
   return pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data);
 }
 
-/**
- * Slice text by character count while respecting line boundaries
- */
 export function sliceByCharRespectLines(
   text: string,
   charOffset: number,
@@ -173,7 +131,7 @@ export function sliceByCharRespectLines(
   const lines: number[] = [0];
   for (let i = 0; i < text.length; i++) {
     if (text[i] === '\n') {
-      lines.push(i + 1); // Start of next line
+      lines.push(i + 1);
     }
   }
 
@@ -207,7 +165,7 @@ export function sliceByCharRespectLines(
 
   const sliced = text.substring(actualOffset, endPos);
   const hasMore = endPos < totalChars;
-  const lineCount = sliced.split('\n').length - 1; // Count newlines
+  const lineCount = sliced.split('\n').length - 1;
 
   return {
     sliced,
@@ -220,10 +178,6 @@ export function sliceByCharRespectLines(
   };
 }
 
-/**
- * Create PaginationInfo from PaginationMetadata
- * Includes both byte and character offset fields
- */
 export function createPaginationInfo(
   metadata: PaginationMetadata
 ): PaginationInfo {
@@ -231,11 +185,9 @@ export function createPaginationInfo(
     currentPage: metadata.currentPage,
     totalPages: metadata.totalPages,
     hasMore: metadata.hasMore,
-    // Byte fields
     byteOffset: metadata.byteOffset,
     byteLength: metadata.byteLength,
     totalBytes: metadata.totalBytes,
-    // Character fields
     charOffset: metadata.charOffset,
     charLength: metadata.charLength,
     totalChars: metadata.totalChars,

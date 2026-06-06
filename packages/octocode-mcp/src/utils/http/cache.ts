@@ -5,15 +5,14 @@ import type { CacheStats } from '../core/types.js';
 
 const VERSION = 'v1';
 
-/** Maximum age for pending requests before cleanup (5 minutes) */
 const PENDING_REQUEST_MAX_AGE_MS = 5 * 60 * 1000;
 
 const cache = new NodeCache({
   stdTTL: 86400,
-  checkperiod: 300, // Check every 5 minutes (was 3600 — expired entries could linger for up to 1 hour)
+  checkperiod: 300,
   maxKeys: 5000,
   deleteOnExpire: true,
-  useClones: false, // IMPORTANT: callers MUST NOT mutate cached values (read-only)
+  useClones: false,
 });
 
 const cacheStats: CacheStats = {
@@ -43,7 +42,7 @@ const CACHE_TTL_CONFIG = {
   'lsp-references': 86400,
   'lsp-call-hierarchy': 86400,
   'github-user': 900,
-  'npm-search': 14400, // 4 hours
+  'npm-search': 14400,
   default: 86400,
 } as const;
 
@@ -72,14 +71,10 @@ function recordGitHubCacheHit(cacheKey: string): void {
   try {
     incrementGitHubCacheHits(prefix, 1);
   } catch {
-    // Session stats are best-effort and must never affect cache reads.
+    void 0;
   }
 }
 
-/**
- * Clean up stale pending requests that have exceeded max age.
- * This prevents memory leaks from hung operations.
- */
 function cleanupStalePendingRequests(): void {
   const now = Date.now();
   for (const [key, pending] of pendingRequests.entries()) {
@@ -89,13 +84,6 @@ function cleanupStalePendingRequests(): void {
   }
 }
 
-/**
- * Fields that MUST NOT be part of the cache key. `verbose` is a per-request
- * response-shaping flag — verbose=true/false both share the same upstream
- * fetch and cached payload (shaping happens post-fetch).
- * Including it would create duplicate cache entries per semantic query and
- * defeat the cache.
- */
 const CACHE_KEY_EXCLUDED_FIELDS: ReadonlySet<string> = new Set(['verbosity']);
 
 function stripCacheKeyExcludedFields(params: unknown): unknown {
@@ -170,9 +158,6 @@ function createStableParamString(
   return `{${sortedEntries.join(',')}}`;
 }
 
-/**
- * Get TTL for a specific cache prefix
- */
 function getTTLForPrefix(prefix: string): number {
   return (
     (CACHE_TTL_CONFIG as Record<string, number>)[prefix] ||
@@ -180,11 +165,6 @@ function getTTLForPrefix(prefix: string): number {
   );
 }
 
-/**
- * Safely set a cache entry, handling ECACHEFULL by evicting expired entries
- * and retrying once. node-cache throws when maxKeys is reached instead of
- * evicting, so we must handle this explicitly.
- */
 function safeCacheSet(key: string, value: unknown, ttl: number): boolean {
   try {
     cache.set(key, value, ttl);
@@ -192,7 +172,6 @@ function safeCacheSet(key: string, value: unknown, ttl: number): boolean {
     cacheStats.totalKeys = cache.keys().length;
     return true;
   } catch {
-    // Initial set failed (e.g. ECACHEFULL); try evicting expired then retry once.
     try {
       const keys = cache.keys();
       for (const k of keys) {
@@ -203,15 +182,11 @@ function safeCacheSet(key: string, value: unknown, ttl: number): boolean {
       cacheStats.totalKeys = cache.keys().length;
       return true;
     } catch {
-      // Retry after eviction still failed; drop this cache entry.
       return false;
     }
   }
 }
 
-/**
- * Generic typed cache wrapper for raw data (avoids JSON round-trips)
- */
 export async function withDataCache<T>(
   cacheKey: string,
   operation: () => Promise<T>,
@@ -219,7 +194,7 @@ export async function withDataCache<T>(
     ttl?: number;
     skipCache?: boolean;
     forceRefresh?: boolean;
-    shouldCache?: (value: T) => boolean; // default: true
+    shouldCache?: (value: T) => boolean;
   } = {}
 ): Promise<T> {
   if (options.skipCache) {
@@ -235,7 +210,7 @@ export async function withDataCache<T>(
         return cached;
       }
     } catch {
-      // Cache get threw or returned unusable data; treat as miss and run the operation.
+      void 0;
     }
   }
 
@@ -275,9 +250,6 @@ export async function withDataCache<T>(
   return promise as Promise<T>;
 }
 
-/**
- * Clear all cache entries and reset statistics
- */
 export function clearAllCache(): void {
   cache.flushAll();
   pendingRequests.clear();
@@ -289,11 +261,6 @@ export function clearAllCache(): void {
   cacheStats.lastReset = new Date();
 }
 
-/**
- * Clear cache entries by key prefix.
- * Prefix should match the logical cache prefix (e.g. "local-", "gh-api-").
- * Returns number of removed entries.
- */
 function clearCacheByPrefix(prefix: string): number {
   const keys = cache.keys();
   let cleared = 0;
@@ -334,10 +301,6 @@ export function clearRemoteAPICache(): number {
   return cleared;
 }
 
-/**
- * Get cache statistics.
- * @internal Used primarily for testing and debugging - not part of public API
- */
 export function getCacheStats(): CacheStats & {
   hitRate: number;
   cacheSize: number;

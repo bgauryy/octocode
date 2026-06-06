@@ -37,8 +37,6 @@ export function expectHasResults<TSchema extends BulkOutputSchema>(
 ): Extract<z.infer<TSchema>['results'][number], { status: 'hasResults' }> {
   const parsed = getSingleResult(schema, result);
 
-  // hasResults is now signaled by ABSENT status — emitted only for 'empty'
-  // and 'error'. Treat undefined and 'hasResults' as the happy path.
   if (parsed.status !== undefined && parsed.status !== 'hasResults') {
     throw new Error(
       `Expected hasResults but received:\n${JSON.stringify(parsed, null, 2)}`
@@ -58,11 +56,6 @@ export function expectHasResultsData<TSchema extends z.ZodType<object>>(
 ): z.infer<TSchema> {
   expect(result.structuredContent).toBeDefined();
 
-  // Skip strict validation of the outer envelope's `data` field. The
-  // upstream BulkToolOutputSchema embeds the (strict) tool-specific data
-  // schema directly, which would reject forward-compatible fields (e.g.
-  // lspMode) added on the result side ahead of an upstream
-  // @octocodeai/octocode-core schema release.
   const envelope = result.structuredContent as {
     results?: Array<{ id: string; status: BulkResultStatus; data: unknown }>;
   };
@@ -75,8 +68,6 @@ export function expectHasResultsData<TSchema extends z.ZodType<object>>(
   const [singleResult] = envelope.results!;
   expect(singleResult).toBeDefined();
 
-  // hasResults is now signaled by ABSENT status — only 'empty' and 'error'
-  // are emitted explicitly. Treat undefined as the happy path.
   if (
     singleResult!.status !== undefined &&
     singleResult!.status !== 'hasResults'
@@ -86,7 +77,6 @@ export function expectHasResultsData<TSchema extends z.ZodType<object>>(
     );
   }
 
-  // Loosen the data schema as well so unknown fields pass through.
   const looseSchema =
     typeof (dataSchema as { loose?: unknown }).loose === 'function'
       ? (dataSchema as unknown as { loose: () => TSchema }).loose()

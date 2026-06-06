@@ -1,15 +1,3 @@
-/**
- * Additional branch-coverage tests for ripgrepResultBuilder.ts.
- *
- * Targets branches not exercised by ripgrepResultBuilder.branches.test.ts:
- *  - showFileLastModified path (lines 44, 116, 257-259)
- *  - maxFiles limiting + wasLimited hint (lines 57-58, 136)
- *  - isFileListMode: count / countMatches / filesOnly (lines 78-79, 97, 103, 106)
- *  - per-file match pagination "hasMore" hint (line 143)
- *  - applyRipgrepVerbosity: concise (189, 193, 195, 198), compact, basic
- *  - compareModifiedDescending all branches (266-274)
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   buildSearchResult,
@@ -75,7 +63,6 @@ describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', ()
   });
 
   it('falls back to path tiebreak using modified time when match counts tie', async () => {
-    // equal matchCount -> compareModifiedDescending decides order
     mockFsStat
       .mockResolvedValueOnce({
         mtime: new Date('2020-01-01T00:00:00.000Z'),
@@ -90,7 +77,6 @@ describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', ()
       'rg',
       []
     );
-    // newest first
     expect(result.files?.map(f => f.path)).toEqual([
       '/test/new.ts',
       '/test/old.ts',
@@ -159,9 +145,7 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       { matchCount: 42, fileCount: 1 } as any
     );
     expect(result.files?.[0].matches).toEqual([]);
-    // matchCount 0 -> falls back to 1
     expect(result.files?.[0].matchCount).toBe(1);
-    // no per-file pagination object in file-list mode
     expect(result.files?.[0].pagination).toBeUndefined();
   });
 
@@ -192,7 +176,6 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
 
 describe('buildSearchResult - per-file match pagination (lines 106, 143)', () => {
   it('sets file.pagination and emits "more matches" hint when matches exceed matchesPerPage', async () => {
-    // 12 matches with default matchesPerPage of 10 -> hasMore
     const files = [makeFile('/test/a.ts', 12, 12)];
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);
     const file = result.files?.[0];
@@ -221,7 +204,6 @@ describe('buildSearchResult - warnings passthrough', () => {
   });
 });
 
-// applyRipgrepVerbosity is a pass-through regardless of the verbose flag.
 describe('applyRipgrepVerbosity - pass-through contract', () => {
   const baseResult = (overrides: Record<string, unknown> = {}): any => ({
     files: [
@@ -328,10 +310,7 @@ describe('buildSearchResult - empty results', () => {
 });
 
 describe('buildSearchResult - compareModifiedDescending branches (266-274)', () => {
-  // Drive the comparator through buildSearchResult by tying matchCounts
-  // and varying fs.stat results / validity.
   it('both modified missing -> stable path order (line 266)', async () => {
-    // fs.stat rejects for all -> modified undefined for both
     mockFsStat.mockRejectedValue(new Error('nope'));
     const files = [makeFile('/test/b.ts', 1), makeFile('/test/a.ts', 1)];
     const result = await buildSearchResult(
@@ -340,7 +319,6 @@ describe('buildSearchResult - compareModifiedDescending branches (266-274)', () 
       'rg',
       []
     );
-    // falls through to localeCompare on path
     expect(result.files?.map(f => f.path)).toEqual([
       '/test/a.ts',
       '/test/b.ts',
@@ -348,7 +326,6 @@ describe('buildSearchResult - compareModifiedDescending branches (266-274)', () 
   });
 
   it('one modified present sorts before one missing (lines 267-268)', async () => {
-    // first file stat ok, second rejects
     mockFsStat
       .mockResolvedValueOnce({
         mtime: new Date('2024-01-01T00:00:00.000Z'),
@@ -361,7 +338,6 @@ describe('buildSearchResult - compareModifiedDescending branches (266-274)', () 
       'rg',
       []
     );
-    // file with a modified date sorts ahead of one without
     expect(result.files?.[0].path).toBe('/test/has.ts');
   });
 

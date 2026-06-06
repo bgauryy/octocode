@@ -9,10 +9,7 @@ export interface BaselineEntry {
   title: string;
 }
 
-/**
- * Saves current findings as a baseline for future --ignore-known runs.
- * Inspired by dependency-cruiser's --ignore-known baseline file.
- */
+
 export function saveBaseline(
   root: string,
   findings: Finding[]
@@ -37,10 +34,7 @@ export function saveBaseline(
   return baselinePath;
 }
 
-/**
- * Loads a baseline file and filters out known findings.
- * Match key: (category, file) — title changes don't break the match.
- */
+
 export function filterKnownFindings<T extends Pick<Finding, 'category' | 'file'>>(
   findings: T[],
   baselinePath: string,

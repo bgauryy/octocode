@@ -6,7 +6,6 @@ import { RequestError } from 'octokit';
 import * as minifierModule from '../../src/utils/minifier/minifier.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 
-// Helper to create RequestError with proper structure
 function createRequestError(message: string, status: number) {
   return new RequestError(message, status, {
     request: {
@@ -24,7 +23,6 @@ function createRequestError(message: string, status: number) {
   });
 }
 
-// Mock dependencies
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/utils/minifier/minifier.js');
 
@@ -44,7 +42,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
               data: {
                 type: 'file',
                 content: Buffer.from('test').toString('base64'),
-                size: 400 * 1024, // 400KB - exceeds limit
+                size: 400 * 1024,
                 sha: 'abc123',
                 name: 'large-file.txt',
                 path: 'large-file.txt',
@@ -111,8 +109,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
     });
 
     it('should detect and reject binary files', async () => {
-      // Create binary content with null bytes
-      const binaryBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00]); // PNG header with null byte
+      const binaryBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00]);
 
       const mockOctokit = {
         rest: {
@@ -155,7 +152,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
             getContent: vi.fn().mockResolvedValue({
               data: {
                 type: 'file',
-                content: '', // Empty content
+                content: '',
                 size: 0,
                 sha: 'abc123',
                 name: 'empty.txt',
@@ -190,7 +187,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
             getContent: vi.fn().mockResolvedValue({
               data: {
                 type: 'file',
-                content: '   \n  \t  ', // Only whitespace
+                content: '   \n  \t  ',
                 size: 10,
                 sha: 'abc123',
                 name: 'whitespace.txt',
@@ -224,7 +221,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
             getContent: vi.fn().mockResolvedValue({
               data: {
                 type: 'file',
-                content: 'invalid!!!base64', // Invalid base64
+                content: 'invalid!!!base64',
                 size: 100,
                 sha: 'abc123',
                 name: 'invalid.txt',
@@ -245,7 +242,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         path: 'invalid.txt',
       });
 
-      // Should either succeed (base64 might be valid) or fail with decode error
       if ('error' in result) {
         expect(result.error).toBeTruthy();
       }
@@ -350,8 +346,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         matchString: 'NonExistentString',
       });
 
-      // When matchString not found, returns 200 success with matchNotFound flag
-      // This is NOT an error - it's a normal scenario where the search pattern wasn't found
       expect(result).toHaveProperty('status', 200);
       expect('data' in result).toBe(true);
       if ('data' in result && result.data) {
@@ -394,16 +388,14 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         })
       );
 
-      // Search with different case - should still find "Target Line"
       const result = await fetchGitHubFileContentAPI({
         owner: 'test',
         repo: 'repo',
         path: 'test.txt',
-        matchString: 'TARGET LINE', // Different case!
+        matchString: 'TARGET LINE',
         matchStringContextLines: 1,
       });
 
-      // Should find it despite case difference
       expect(result.status).toBe(200);
       expect('data' in result).toBe(true);
       if ('data' in result) {
@@ -413,8 +405,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
     });
 
     it('should resolve a whitespace-stripped (minified) anchor against the raw line (FC-1)', async () => {
-      // Raw file has spaces; the anchor was copied from a minified search
-      // snippet with whitespace removed. Exact includes() would miss it.
       const fileContent =
         'Line 1\nattachPingListener(root, wakeable, rootRenderLanes)\nLine 3';
 
@@ -552,7 +542,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         endLine: 2,
       });
 
-      // Should return full content when invalid range
       expect(result).toHaveProperty('data');
       if ('data' in result && !('error' in result.data)) {
         expect(result.data.content).toContain('Line 1');
@@ -599,7 +588,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         endLine: 200,
       });
 
-      // Should return full content when out of bounds
       expect(result).toHaveProperty('data');
       if ('data' in result && !('error' in result.data)) {
         expect(result.data.content).toBeTruthy();
@@ -645,7 +633,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         endLine: 2,
       });
 
-      // Should return full content when invalid range
       expect(result).toHaveProperty('data');
       if ('data' in result && !('error' in result.data)) {
         expect(result.data.content).toBeTruthy();
@@ -694,7 +681,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       expect(result).toHaveProperty('data');
       if ('data' in result && !('error' in result.data)) {
         expect(result.data.isPartial).toBe(true);
-        expect(result.data.endLine).toBe(3); // Adjusted to file end
+        expect(result.data.endLine).toBe(3);
         expect(result.data.matchLocations).toBeDefined();
         expect(
           result.data.matchLocations?.some(w => w.includes('adjusted to 3'))
@@ -774,7 +761,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         mockOctokit as unknown as ReturnType<typeof getOctokit>
       );
       vi.mocked(minifierModule.minifyContent).mockResolvedValue({
-        content: fileContent, // Returns original content
+        content: fileContent,
         failed: true,
         type: 'terser',
       });
@@ -790,9 +777,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
   });
 
   describe('fetchGitHubFileContentAPI - content is verbatim (no pre-finalizer minify)', () => {
-    // Contract: content is never minified by the base processor.
-    // The base processor must return content verbatim so a fullContent
-    // read matches the bytes on disk (regardless of the verbose flag).
     it('does NOT minify fullContent in the base processor', async () => {
       const fileContent = '{\n  "name": "demo",\n  "version": "1.0.0"\n}';
 
@@ -816,7 +800,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         mockOctokit as unknown as ReturnType<typeof getOctokit>
       );
-      // Sentinel: if the base processor minifies, this marker leaks into output.
       const minifySpy = vi
         .mocked(minifierModule.minifyContent)
         .mockResolvedValue({
@@ -834,7 +817,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
 
       expect('data' in result).toBe(true);
       if ('data' in result && result.data) {
-        // Verbatim — original whitespace/newlines preserved, sentinel absent.
         expect(result.data.content).toBe(fileContent);
       }
       expect(minifySpy).not.toHaveBeenCalled();

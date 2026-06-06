@@ -357,7 +357,6 @@ describe('toolCommand', () => {
       options: {},
     });
 
-    // Output should contain both tool names
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('localFindFiles');
@@ -366,15 +365,12 @@ describe('toolCommand', () => {
   it('shows error and tool help when --queries input cannot be parsed into a valid tool input', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
-    // Pass something that's valid JSON but doesn't map to a valid tool input
-    // (null is valid JSON but prepareDirectToolInputFromJsonText returns null for it)
     await toolCommand.handler!({
       command: 'tool',
       args: ['localSearchCode'],
       options: { queries: 'null' },
     });
 
-    // The function prints an error message and then shows tool help
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('Tool input must be a JSON object');
   });

@@ -16,40 +16,16 @@ import type { PromiseResult } from '../../types/promise.js';
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
 import { relativizeResultPaths, hoistSharedFields } from './pathRelativize.js';
 
-/** Default concurrency for bulk operations */
 const DEFAULT_BULK_CONCURRENCY = 3;
 
-/**
- * Maximum timeout per query in bulk operations (default 60s).
- * Configurable via OCTOCODE_BULK_QUERY_TIMEOUT_MS.
- */
 const BULK_QUERY_TIMEOUT_MS =
   parseInt(process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS || '60000', 10) || 60000;
 
-/**
- * The outer (security wrapper) timeout that bounds the entire tool call.
- * Used to compute an adaptive per-query timeout so multi-query operations
- * don't hit the outer wall before all queries complete.
- */
 const OUTER_TIMEOUT_MS =
   parseInt(process.env.OCTOCODE_TOOL_TIMEOUT_MS || '60000', 10) || 60000;
 
-/** Minimum per-query timeout to avoid impractically short budgets */
 const MIN_QUERY_TIMEOUT_MS = 5_000;
 
-/**
- * Compute per-query timeout that respects the outer tool timeout.
- *
- * Accounts for concurrency: when queries run in parallel, the wall-clock
- * time equals the slowest query in each batch, not the sum. So each query
- * in a fully-parallel batch can safely use the full outer budget.
- *
- * @param queryCount    Total number of queries.
- * @param concurrency   Max concurrent queries (determines batch count).
- * @param minTimeoutMs  Optional floor — guarantees a minimum per-query budget
- *                      for expensive operations (e.g. LSP cold-start).
- * @internal Exported for testing.
- */
 export function computeQueryTimeout(
   queryCount: number,
   concurrency: number,
@@ -112,8 +88,6 @@ function createBulkResponse<
   );
 
   results.forEach(r => {
-    // Omit status when absent — success is signaled by the lack of a
-    // status field. Only 'empty' / 'error' are emitted.
     const status = r.result.status;
     orderedQueries[r.queryIndex] = {
       id: resolveQueryId(r.originalQuery, r.queryIndex),
@@ -137,8 +111,6 @@ function createBulkResponse<
     (query): query is FlatQueryResult => query !== undefined
   );
 
-  // Finalizer hook — tools with a non-default response shape (e.g. flat
-  // owner/repo grouped responses) own the rest of the pipeline from here.
   if (config.finalize) {
     const finalized = config.finalize({
       queries,
@@ -153,8 +125,6 @@ function createBulkResponse<
     );
     return {
       content: [{ type: 'text' as const, text: finalized.text }],
-      // No cast needed — TOutput is constrained to `Record<string, unknown>`,
-      // so it is structurally compatible with `CallToolResult.structuredContent`.
       structuredContent: finalized.structuredContent,
       isError:
         finalized.isError ??
@@ -163,19 +133,14 @@ function createBulkResponse<
     };
   }
 
-  // Lift hints out of each query's `data` so they appear once at peer level.
   const aggregatedHints = config.peerHints ? dedupePeerHints(flatQueries) : [];
 
-  // Lift per-query `data.evidence` blocks into a single top-level summary.
   const aggregatedEvidence = config.peerEvidence
     ? aggregatePeerEvidence(flatQueries)
     : undefined;
 
   const responseData: BulkToolResponse = { results: flatQueries };
 
-  // Leanness: hoist redundancy out of the canonical structuredContent.
-  //   - `base`: common directory of absolute `path`/`uri` fields.
-  //   - `shared`: scalar fields identical across every leaf object.
   if (Array.isArray(responseData.results)) {
     const dataBase = relativizeResultPaths(
       responseData.results as Array<{ data?: unknown }>
@@ -188,9 +153,6 @@ function createBulkResponse<
     if (shared) responseData.shared = shared;
   }
 
-  // Second lift-and-dedupe pass: tool processors may attach extra hints to
-  // per-query `data` after earlier shaping. Lift them once more so each
-  // breadcrumb shows up exactly once at the top-level `hints[]`.
   const postPaginationHints = config.peerHints
     ? dedupePeerHints(
         Array.isArray(responseData.results)
@@ -218,10 +180,6 @@ function createBulkResponse<
     responseData.evidence = finalEvidence;
   }
 
-  // Structured YAML/JSON output: the full per-query `results` array is the
-  // single source of truth, surfaced identically in content[0].text and
-  // structuredContent. `base` relativization keeps paths compact; evidence /
-  // pagination / hints carry the response-state signal.
   const text = createResponseFormat(responseData, fullKeysPriority);
   recordBulkCharSavings(config.toolName, results, errors, text.length);
 
@@ -232,10 +190,6 @@ function createBulkResponse<
         text,
       },
     ],
-    // structuredContent holds the canonical structured records (results +
-    // pagination + hints + evidence + `base`). `base` is retained here:
-    // canonical paths are relativized against it, so the model reconstructs
-    // abs = `${base}/${path}`. (#A1)
     structuredContent: sanitizeStructuredContent(responseData) as Record<
       string,
       unknown
@@ -246,11 +200,6 @@ function createBulkResponse<
   };
 }
 
-/**
- * Walk every flattened query and lift `data.hints` out into a deduped
- * top-level array. Mutates each query result to drop its local `hints` so
- * the field appears once at response root instead of repeated per query.
- */
 function dedupePeerHints(queries: FlatQueryResult[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -316,17 +265,10 @@ function withEvidenceReasons(
 
 const RESULT_PAGINATION_REASON = 'Result pagination has more results.';
 
-/** True when a hint already carries the actionable result-page cursor. */
 function hasResultPageCursorHint(hints: readonly string[]): boolean {
   return hints.some(h => /\bNext:\s*page=|\bPage\s+\d+\/\d+/i.test(h));
 }
 
-/**
- * #B2: when a cursor hint (e.g. "Page 1/10 … Next: page=2") already tells the
- * agent there's more, the generic `evidence.reason` "Result pagination has more
- * results." is pure redundancy — drop it. `complete` stays false (the hint
- * conveys incompleteness); other reasons are preserved.
- */
 export function dropRedundantPaginationReason(
   evidence: EvidenceMetadata,
   hints: readonly string[]
@@ -337,24 +279,13 @@ export function dropRedundantPaginationReason(
     .map(part => part.trim())
     .filter(Boolean);
   const kept = parts.filter(part => part !== RESULT_PAGINATION_REASON);
-  if (kept.length === parts.length) return evidence; // nothing removed
+  if (kept.length === parts.length) return evidence;
   const next: EvidenceMetadata = { ...evidence };
   if (kept.length > 0) next.reason = kept.join('; ');
   else delete next.reason;
   return next;
 }
 
-/**
- * Walk every query and combine their `data.evidence` blocks into one
- * top-level summary. Mutates each query to drop its local `evidence` so the
- * field appears once at root. Combination rules:
- *   - `kind`          → first non-empty value (most tools emit one kind).
- *   - `answerReady`   → true only if every query that set it is true.
- *   - `complete`      → true only if every query that set it is true.
- *   - `confidence`    → weakest of all present (low < medium < high).
- *   - `missingFields` → deduped union of all entries.
- *   - `reason`        → joined when multiple queries supplied one.
- */
 export function aggregatePeerEvidence(
   queries: FlatQueryResult[]
 ): EvidenceMetadata | undefined {
@@ -447,19 +378,10 @@ function recordBulkCharSavings(
   try {
     incrementToolCharSavings(toolName, rawChars, responseChars);
   } catch {
-    // Local stats are best-effort and must never affect tool responses.
+    void 0;
   }
 }
 
-/**
- * Process multiple queries in parallel with error isolation.
- * Internal function used by executeBulkOperation().
- *
- * @param queries - Array of query objects to process
- * @param processor - Async function that processes each query
- * @param concurrency - Maximum number of concurrent operations
- * @returns Object containing successful results and errors
- */
 async function processBulkQueries<TQuery extends object>(
   queries: Array<TQuery>,
   processor: (query: TQuery, index: number) => Promise<ProcessedBulkResult>,

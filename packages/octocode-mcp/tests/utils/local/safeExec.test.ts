@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
-// Mock process for testing
 class MockChildProcess extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
@@ -112,13 +111,10 @@ describe('safeExec', () => {
         timeout: 100,
       });
 
-      // Catch rejection to prevent unhandled rejection warning
       const resultPromise = promise.catch(e => e);
 
-      // Advance past timeout to trigger kill
       await vi.advanceTimersByTimeAsync(150);
 
-      // Emit stderr after kill - should be ignored
       mockProcess.stderr.emit('data', Buffer.from('late stderr'));
 
       const error = await resultPromise;
@@ -139,7 +135,6 @@ describe('safeExec', () => {
       });
 
       setTimeout(() => {
-        // Send data that exceeds maxOutputSize via stdout
         const largeData = 'x'.repeat(maxSize + 50);
         mockProcess.stdout.emit('data', Buffer.from(largeData));
       }, 10);
@@ -157,7 +152,6 @@ describe('safeExec', () => {
       });
 
       setTimeout(() => {
-        // Send multiple small chunks that together exceed the limit
         mockProcess.stdout.emit('data', Buffer.from('x'.repeat(40)));
         mockProcess.stdout.emit('data', Buffer.from('y'.repeat(40)));
         mockProcess.stdout.emit('data', Buffer.from('z'.repeat(40)));
@@ -176,13 +170,10 @@ describe('safeExec', () => {
         timeout: 100,
       });
 
-      // Catch rejection to prevent unhandled rejection warning
       const resultPromise = promise.catch(e => e);
 
-      // Advance past timeout to trigger kill
       await vi.advanceTimersByTimeAsync(150);
 
-      // Emit stdout after kill - should be ignored
       mockProcess.stdout.emit('data', Buffer.from('late stdout'));
 
       const error = await resultPromise;
@@ -203,7 +194,6 @@ describe('safeExec', () => {
       });
 
       setTimeout(() => {
-        // Send data that exceeds maxOutputSize via stderr
         const largeData = 'x'.repeat(maxSize + 50);
         mockProcess.stderr.emit('data', Buffer.from(largeData));
       }, 10);
@@ -221,7 +211,6 @@ describe('safeExec', () => {
       });
 
       setTimeout(() => {
-        // Send half from stdout, then half+1 from stderr to exceed limit
         mockProcess.stdout.emit('data', Buffer.from('x'.repeat(60)));
         mockProcess.stderr.emit('data', Buffer.from('y'.repeat(50)));
       }, 10);
@@ -258,7 +247,6 @@ describe('safeExec', () => {
       });
 
       setTimeout(() => {
-        // Send multiple small chunks that together exceed the limit
         mockProcess.stderr.emit('data', Buffer.from('x'.repeat(40)));
         mockProcess.stderr.emit('data', Buffer.from('y'.repeat(40)));
         mockProcess.stderr.emit('data', Buffer.from('z'.repeat(40)));
@@ -288,13 +276,10 @@ describe('safeExec', () => {
         timeout: 100,
       });
 
-      // Catch rejection to prevent unhandled rejection warning
       const resultPromise = promise.catch(e => e);
 
-      // Advance past timeout to trigger kill
       await vi.advanceTimersByTimeAsync(150);
 
-      // Emit error after kill - should be ignored
       mockProcess.emit('error', new Error('late error'));
 
       const error = await resultPromise;
@@ -305,29 +290,24 @@ describe('safeExec', () => {
     });
 
     it('should handle spawn failure during process creation', async () => {
-      // Override the mock to throw during spawn
       vi.mocked(spawn).mockImplementation(() => {
         throw new Error('Failed to spawn process');
       });
 
       const { safeExec } = await import('../../../src/utils/exec/safe.js');
 
-      // Use 'ls' which is allowed - the spawn mock will throw before command runs
-      // The error from spawn is re-thrown as-is when it's an Error instance
       await expect(safeExec('ls', [], { cwd: process.cwd() })).rejects.toThrow(
         'Failed to spawn process'
       );
     });
 
     it('should handle non-Error spawn failures', async () => {
-      // Override the mock to throw a non-Error value
       vi.mocked(spawn).mockImplementation(() => {
         throw 'some string error';
       });
 
       const { safeExec } = await import('../../../src/utils/exec/safe.js');
 
-      // Non-Error throws are wrapped with a generic message by spawnWithTimeout
       await expect(safeExec('ls', [], { cwd: process.cwd() })).rejects.toThrow(
         "Failed to spawn command 'ls'"
       );
@@ -339,16 +319,13 @@ describe('safeExec', () => {
       vi.useFakeTimers();
 
       const { safeExec } = await import('../../../src/utils/exec/safe.js');
-      // Use 'ls' which is an allowed command
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 500,
       });
 
-      // Catch rejection to prevent unhandled rejection warning
       const resultPromise = promise.catch(e => e);
 
-      // Don't simulate any output - let it timeout
       await vi.advanceTimersByTimeAsync(600);
 
       const error = await resultPromise;
@@ -363,10 +340,8 @@ describe('safeExec', () => {
       vi.useFakeTimers();
 
       const { safeExec } = await import('../../../src/utils/exec/safe.js');
-      // Use 'ls' which is an allowed command
       const promise = safeExec('ls', ['-la'], { cwd: process.cwd() });
 
-      // Catch rejection to prevent unhandled rejection warning
       const resultPromise = promise.catch(e => e);
 
       await vi.advanceTimersByTimeAsync(31000);
@@ -390,13 +365,10 @@ describe('safeExec', () => {
         maxOutputSize: maxSize,
       });
 
-      // Send large output immediately to trigger output size limit
       mockProcess.stdout.emit('data', Buffer.from('x'.repeat(maxSize + 50)));
 
-      // Wait for the promise to reject from output size limit
       await expect(promise).rejects.toThrow('Output size limit exceeded');
 
-      // Now advance timers past timeout - should not cause issues
       await vi.advanceTimersByTimeAsync(600);
 
       vi.useRealTimers();
@@ -441,7 +413,6 @@ describe('safeExec', () => {
     });
 
     it('should handle command validation failure without error message', async () => {
-      // Mock command validator to return invalid without error message
       const commandValidatorModule =
         await import('octocode-security-utils/commandValidator');
       const validateCommandSpy = vi.spyOn(
@@ -501,19 +472,15 @@ describe('safeExec', () => {
       vi.useFakeTimers();
 
       const { safeExec } = await import('../../../src/utils/exec/safe.js');
-      // Use 'ls' which is an allowed command
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 100,
       });
 
-      // Catch rejection to prevent unhandled rejection warning
       const resultPromise = promise.catch(e => e);
 
-      // Advance past timeout to trigger kill
       await vi.advanceTimersByTimeAsync(150);
 
-      // Emit close after kill - should be ignored
       mockProcess.emit('close', 0);
 
       const error = await resultPromise;

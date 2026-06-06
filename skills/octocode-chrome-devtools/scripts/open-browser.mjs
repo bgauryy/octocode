@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Launch Chrome with CDP enabled; tracks isolated sessions for cleanup.
 
 import { spawn, execSync, execFileSync } from 'child_process';
 import { platform, tmpdir }  from 'os';
@@ -26,7 +25,6 @@ const CONFIG_PATH = getArg('--config', '');
 
 const TMP         = tmpdir();
 const SESSION_FILE = join(TMP, `cdp-session-${PORT}.json`);
-// Headless always uses an isolated temp profile.
 const HEADLESS_PROFILE_DIR = join(TMP, `cdp-chrome-profile-${PORT}`);
 
 function ok(payload)  { console.log(JSON.stringify(payload)); }
@@ -265,7 +263,6 @@ if (CHROME_PATH && !existsSync(CHROME_PATH)) err(`Chrome not found at --chromePa
 
 const HOME = process.env.HOME ?? process.env.USERPROFILE;
 
-// If Chrome is already running without CDP, real-profile launches may hand off to it.
 function isChromeRunning() {
   if (platform() === 'darwin') {
     try { execSync('pgrep -x "Google Chrome" > /dev/null 2>&1'); return true; } catch { return false; }

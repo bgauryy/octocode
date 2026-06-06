@@ -1,11 +1,3 @@
-/**
- * Response-state hints for localFindFiles.
- *
- * Empty branch names the active filters and proposes a concrete recovery move.
- *
- * @module tools/local_find_files/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {

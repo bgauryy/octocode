@@ -1,12 +1,3 @@
-/**
- * Branch coverage tests for prTransformation.ts
- * Targets uncovered branches: applyPartialContentFilter
- *
- * NOTE: getBodyLimitForBatchSize / truncatePRBody were removed — PR bodies are
- * no longer truncated; full bodies are returned and bounded losslessly by the
- * char-paginator.
- */
-
 import { describe, it, expect } from 'vitest';
 import { applyPartialContentFilter } from '../../src/github/prTransformation.js';
 import type { GitHubPullRequestsSearchParams } from '../../src/github/githubAPI.js';

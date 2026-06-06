@@ -82,7 +82,6 @@ export function parseFeedCatalog(markdown) {
       pastSeparator = false;
     }
 
-    // Fenced-block parsing (legacy ### RSS Feeds format)
     if (/^### RSS Feeds/.test(trimmed)) {
       awaitingFence = true;
       insideFeedBlock = false;
@@ -107,7 +106,6 @@ export function parseFeedCatalog(markdown) {
       return;
     }
 
-    // Table parsing: extract from RSS column
     if (trimmed.startsWith("|")) {
       const cells = trimmed
         .replace(/^\|/, "")
@@ -326,8 +324,8 @@ export async function readResponseBody(response, maxBytes = 1024 * 1024) {
     try {
       await reader.cancel();
     } catch {
-      // Ignore cancellation errors once we have the bytes we need.
-    }
+    void 0;
+  }
   }
 
   text += decoder.decode();

@@ -1,15 +1,5 @@
-/**
- * Zod schemas for session storage validation.
- *
- * These schemas mirror the TypeScript interfaces in types.ts and provide
- * runtime validation for data parsed from the session JSON file.
- */
-
 import { z } from 'zod';
 
-/**
- * Schema for session statistics
- */
 const ToolCharSavingsStatsSchema = z.object({
   rawChars: z.number(),
   responseChars: z.number(),
@@ -55,12 +45,6 @@ export const SessionStatsSchema = z.object({
   totalUsage: SessionTotalUsageStatsSchema.optional(),
 });
 
-/**
- * Schema for persisted session identity data.
- *
- * `stats` remains optional here so older session.json files can be read and
- * migrated into stats.json.
- */
 export const PersistedSessionSchema = z.object({
   version: z.literal(1),
   sessionId: z.string(),
@@ -69,9 +53,6 @@ export const PersistedSessionSchema = z.object({
   stats: SessionStatsSchema.optional(),
 });
 
-/**
- * Schema for persisted stats data
- */
 export const PersistedStatsSchema = z.object({
   version: z.literal(1),
   stats: SessionStatsSchema,

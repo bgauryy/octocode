@@ -58,9 +58,6 @@ export function withDerivedUsageTotals(stats: SessionStats): SessionStats {
   };
 }
 
-/**
- * Default persisted statistics.
- */
 export function createDefaultStats(): SessionStats {
   return withDerivedUsageTotals({
     toolCalls: 0,

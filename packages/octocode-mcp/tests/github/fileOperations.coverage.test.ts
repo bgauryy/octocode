@@ -12,7 +12,6 @@ vi.mock('../../src/session.js', () => ({
 }));
 vi.mock('../../src/utils/minifier/minifier.js');
 
-// Helper to create RequestError with proper structure
 function createRequestError(message: string, status: number) {
   return new RequestError(message, status, {
     request: {
@@ -140,7 +139,7 @@ describe('File Operations - Additional Coverage Tests', () => {
       const result = await fetchGitHubFileContentAPI({
         owner: 'test',
         repo: 'repo',
-        path: 'test2.txt', // Different path to avoid cache
+        path: 'test2.txt',
       });
 
       expect(result).toHaveProperty('data');
@@ -259,13 +258,11 @@ describe('File Operations - Additional Coverage Tests', () => {
           repos: {
             getContent: vi
               .fn()
-              // First call fails - file not found
               .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // Second call - parent directory listing
               .mockResolvedValueOnce({
                 data: [
                   {
-                    name: 'README.MD', // Case mismatch
+                    name: 'README.MD',
                     path: 'README.MD',
                     type: 'file',
                   },
@@ -290,7 +287,7 @@ describe('File Operations - Additional Coverage Tests', () => {
       const result = await fetchGitHubFileContentAPI({
         owner: 'test',
         repo: 'repo',
-        path: 'readme.md', // lowercase
+        path: 'readme.md',
         branch: 'main',
       });
 
@@ -312,7 +309,7 @@ describe('File Operations - Additional Coverage Tests', () => {
               .mockResolvedValueOnce({
                 data: [
                   {
-                    name: 'config.js', // Different extension
+                    name: 'config.js',
                     path: 'src/config.js',
                     type: 'file',
                   },
@@ -337,7 +334,7 @@ describe('File Operations - Additional Coverage Tests', () => {
       const result = await fetchGitHubFileContentAPI({
         owner: 'test',
         repo: 'repo',
-        path: 'src/config.ts', // Looking for .ts but .js and .json exist
+        path: 'src/config.ts',
         branch: 'main',
       });
 
@@ -355,7 +352,6 @@ describe('File Operations - Additional Coverage Tests', () => {
             getContent: vi
               .fn()
               .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // Parent directory also fails
               .mockRejectedValueOnce(new Error('Network error')),
             get: vi.fn().mockResolvedValue({
               data: { default_branch: 'main' },
@@ -375,7 +371,6 @@ describe('File Operations - Additional Coverage Tests', () => {
         branch: 'main',
       });
 
-      // Should still return 404 error, just without suggestions
       expect('error' in result).toBe(true);
       if ('error' in result) {
         expect(result.status).toBe(404);
@@ -389,7 +384,6 @@ describe('File Operations - Additional Coverage Tests', () => {
             getContent: vi
               .fn()
               .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // Parent path returns a file, not array
               .mockResolvedValueOnce({
                 data: {
                   name: 'parent',
@@ -418,7 +412,6 @@ describe('File Operations - Additional Coverage Tests', () => {
       expect('error' in result).toBe(true);
       if ('error' in result) {
         expect(result.status).toBe(404);
-        // Should not have suggestions since parent is not a directory
         expect(result.hints?.some(h => h.includes('Did you mean'))).toBeFalsy();
       }
     });
@@ -474,7 +467,6 @@ describe('File Operations - Additional Coverage Tests', () => {
           repos: {
             getContent: vi
               .fn()
-              // Explicit branch is strict: no fallback branches are tried.
               .mockRejectedValueOnce(createRequestError('Not Found', 404)),
           },
         },
@@ -520,7 +512,7 @@ describe('File Operations - Additional Coverage Tests', () => {
       const result = await viewGitHubRepositoryStructureAPI({
         owner: 'test',
         repo: 'repo',
-        branch: 'main', // Same as default
+        branch: 'main',
         path: 'nonexistent/path',
       });
 
@@ -660,9 +652,7 @@ describe('File Operations - Additional Coverage Tests', () => {
         path: 'packages/',
       });
 
-      // Should succeed — trailing slash stripped before API call
       expect('structure' in result).toBe(true);
-      // Verify the API was called with cleaned path (no trailing slash)
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledWith(
         expect.objectContaining({
           path: 'packages',
@@ -769,7 +759,6 @@ describe('File Operations - Additional Coverage Tests', () => {
             }),
             getContent: vi
               .fn()
-              // First call - root with directories
               .mockResolvedValueOnce({
                 data: [
                   {
@@ -792,9 +781,7 @@ describe('File Operations - Additional Coverage Tests', () => {
                   },
                 ],
               })
-              // Second call - dir1 errors
               .mockRejectedValueOnce(new Error('Access denied'))
-              // Third call - dir2 succeeds
               .mockResolvedValueOnce({
                 data: [
                   {
@@ -825,14 +812,11 @@ describe('File Operations - Additional Coverage Tests', () => {
         depth: 2,
       });
 
-      // Should complete successfully, dir2 results included
       expect('structure' in result).toBe(true);
       if ('structure' in result) {
         expect(result.structure['.']).toBeDefined();
         expect(result.structure['.']!.folders).toContain('dir1');
         expect(result.structure['.']!.folders).toContain('dir2');
-        // dir2 content should have been fetched even though dir1 failed
-        // The content is merged at the root level for depth=2
         expect(result.summary.totalFolders).toBeGreaterThanOrEqual(2);
       }
     });
@@ -919,7 +903,6 @@ describe('File Operations - Additional Coverage Tests', () => {
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data) {
         expect(result.data.matchLocations).toBeDefined();
-        // Should mention multiple locations
         expect(
           result.data.matchLocations?.some(
             w => w.includes('2 other locations') || w.includes('other location')

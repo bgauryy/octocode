@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aggregatePeerEvidence } from '../../../src/utils/response/bulk.js';
 
-// A query result with pagination.hasMore=true should flip complete=false.
 function queryResultWithPagination() {
   return {
     id: 'q1',

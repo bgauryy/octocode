@@ -1,23 +1,3 @@
-/**
- * Token Resolution Priority Tests
- *
- * Tests the documented token resolution priority order:
- * 1. OCTOCODE_TOKEN env
- * 2. GH_TOKEN env
- * 3. GITHUB_TOKEN env
- * 4. File (encrypted storage ~/.octocode/credentials.json)
- * 5. gh auth token (GitHub CLI) - fallback
- *
- * Note: Token resolution is DYNAMIC - no caching.
- * Each call to getGitHubToken() resolves fresh.
- *
- * These tests mock `resolveTokenFull` from octocode-shared which handles
- * the entire resolution chain. Tests for the actual priority chain logic
- * are in the octocode-shared package.
- *
- * @see docs/AUTHENTICATION_SETUP.md
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import {
   initialize,
@@ -31,10 +11,8 @@ import {
 import type { FullTokenResolution } from 'octocode-shared';
 
 describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
-  // Store original env values (not a reference to process.env!)
   const savedEnvVars: Record<string, string | undefined> = {};
 
-  // Mock for resolveTokenFull from octocode-shared
   type ResolveTokenFullMock = Mock<
     (options?: {
       hostname?: string;
@@ -47,7 +25,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
 
   let mockResolveTokenFull: ResolveTokenFullMock;
 
-  // Helper to create token resolution result
   function mockTokenResult(
     token: string | null,
     source:
@@ -71,9 +48,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     vi.clearAllMocks();
     cleanup();
 
-    // Save and clear token-related env vars (don't replace process.env!)
-    // This is critical: we must modify the SAME process.env object that
-    // octocode-shared reads from, not create a new object
     savedEnvVars.OCTOCODE_TOKEN = process.env.OCTOCODE_TOKEN;
     savedEnvVars.GH_TOKEN = process.env.GH_TOKEN;
     savedEnvVars.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -84,17 +58,14 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     delete process.env.GITHUB_TOKEN;
     delete process.env.LOG;
 
-    // Create fresh mock for resolveTokenFull
     mockResolveTokenFull = vi.fn(async () => null);
 
-    // Inject mock
     _setTokenResolvers({
       resolveTokenFull: mockResolveTokenFull,
     });
   });
 
   afterEach(() => {
-    // Restore original env values
     if (savedEnvVars.OCTOCODE_TOKEN !== undefined) {
       process.env.OCTOCODE_TOKEN = savedEnvVars.OCTOCODE_TOKEN;
     } else {
@@ -220,7 +191,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should handle CLI token with whitespace trimmed', async () => {
-      // The trimming is done by resolveTokenFull, which returns trimmed token
       mockResolveTokenFull.mockResolvedValue(
         mockTokenResult('cli-token-trimmed', 'gh-cli')
       );
@@ -239,7 +209,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should handle CLI errors gracefully (resolveTokenFull falls through)', async () => {
-      // When gh CLI fails, resolveTokenFull returns null or the next source
       mockResolveTokenFull.mockResolvedValue(null);
 
       const token = await getGitHubToken();
@@ -303,21 +272,18 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should pick up token changes immediately', async () => {
-      // First call - env token available
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('env-token', 'env:GITHUB_TOKEN')
       );
       const token1 = await getGitHubToken();
       expect(token1).toBe('env-token');
 
-      // Second call - CLI token available
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('cli-token', 'gh-cli')
       );
       const token2 = await getGitHubToken();
       expect(token2).toBe('cli-token');
 
-      // Third call - no token
       mockResolveTokenFull.mockResolvedValueOnce(null);
       const token3 = await getGitHubToken();
       expect(token3).toBeNull();
@@ -363,7 +329,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should handle empty token result', async () => {
-      // Empty string token should be treated as no token
       mockResolveTokenFull.mockResolvedValue({
         token: '',
         source: 'env:GITHUB_TOKEN',
@@ -371,7 +336,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
       });
 
       const token = await getGitHubToken();
-      // Empty string is falsy, so it's treated as null (no valid token)
       expect(token).toBeNull();
     });
   });
@@ -400,7 +364,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
 
   describe('Documentation Compliance', () => {
     it('should NOT access storage when env token is available (performance)', async () => {
-      // resolveTokenFull handles this internally - we just verify it's called once
       mockResolveTokenFull.mockResolvedValue(
         mockTokenResult('env-token', 'env:GITHUB_TOKEN')
       );
@@ -411,7 +374,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should NOT access gh CLI when storage token is available', async () => {
-      // resolveTokenFull handles this internally - we just verify it's called once
       mockResolveTokenFull.mockResolvedValue(
         mockTokenResult('stored-token', 'octocode-storage')
       );
@@ -425,7 +387,7 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
   describe('Token Source Tracking', () => {
     it('should track source as env:OCTOCODE_TOKEN when using OCTOCODE_TOKEN', async () => {
       process.env.OCTOCODE_TOKEN = 'octocode-env-token';
-      _resetTokenResolvers(); // Use real implementation for env detection
+      _resetTokenResolvers();
 
       await initialize();
 
@@ -436,7 +398,7 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
 
     it('should track source as env:GH_TOKEN when using GH_TOKEN', async () => {
       process.env.GH_TOKEN = 'gh-env-token';
-      _resetTokenResolvers(); // Use real implementation for env detection
+      _resetTokenResolvers();
 
       await initialize();
 
@@ -447,7 +409,7 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
 
     it('should track source as env:GITHUB_TOKEN when using GITHUB_TOKEN', async () => {
       process.env.GITHUB_TOKEN = 'github-env-token';
-      _resetTokenResolvers(); // Use real implementation for env detection
+      _resetTokenResolvers();
 
       await initialize();
 
@@ -469,7 +431,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should track source as octocode-storage when using stored credentials', async () => {
-      // 'octocode-storage' source maps to 'octocode-storage'
       mockResolveTokenFull.mockResolvedValue(
         mockTokenResult('stored-token', 'octocode-storage')
       );
@@ -492,7 +453,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     });
 
     it('should resolve fresh source on each getTokenSource call', async () => {
-      // First: env token - mock for initialize() and getTokenSource()
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('env-token', 'env:GITHUB_TOKEN')
       );
@@ -502,13 +462,11 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
       await initialize();
       expect(await getTokenSource()).toBe('env:GITHUB_TOKEN');
 
-      // Change: CLI available
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('cli-token', 'gh-cli')
       );
       expect(await getTokenSource()).toBe('gh-cli');
 
-      // Change: no token
       mockResolveTokenFull.mockResolvedValueOnce(null);
       expect(await getTokenSource()).toBe('none');
     });

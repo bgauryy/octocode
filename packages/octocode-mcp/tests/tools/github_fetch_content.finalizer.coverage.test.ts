@@ -1,12 +1,3 @@
-/**
- * Branch-coverage tests for `src/tools/github_fetch_content/finalizer.ts`.
- *
- * Both exported functions are unit-testable in isolation with hand-built
- * `results`/`queries` arrays, so these tests drive the finalizer and the
- * verbosity shaper directly rather than through the MCP server. They target
- * the narrowing helpers (pagination / file / directory entries), runtime
- * hints, error hints, char-pagination, and the concise/compact verbosity paths.
- */
 import { describe, it, expect } from 'vitest';
 import {
   buildGithubFetchContentFinalizer,
@@ -22,7 +13,6 @@ type Config = {
   responseCharLength?: number;
 };
 
-// Build the finalizer once; it is stateless.
 const finalize = buildGithubFetchContentFinalizer<Query>();
 
 function run(
@@ -57,7 +47,6 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
             charOffset: 0,
             charLength: 11,
             totalChars: 99,
-            // non-finite / wrong-type optional fields are skipped (line 144)
             totalBytes: Number.NaN,
             filesPerPage: 'nope',
           },
@@ -66,7 +55,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
           endLine: 11,
           lastModified: '2026-05-01',
           lastModifiedBy: 'alice',
-          warnings: ['w1', 2, 'w2'], // mixed array -> filtered to strings
+          warnings: ['w1', 2, 'w2'],
         },
       },
     ];
@@ -83,7 +72,6 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     expect(file.warnings).toEqual(['w1', 'w2']);
     const pg = file.pagination as Record<string, unknown>;
     expect(pg.charOffset).toBe(0);
-    // NaN / non-number optional fields were dropped.
     expect(pg.totalBytes).toBeUndefined();
     expect(pg.filesPerPage).toBeUndefined();
   });
@@ -94,10 +82,9 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
       {
         id: 'q1',
         data: {
-          // no path, non-string content, invalid pagination, empty warnings
           content: 123,
-          pagination: { currentPage: 'x' }, // fails number check -> undefined
-          warnings: [1, 2, 3], // all non-string -> readStringArray returns undefined
+          pagination: { currentPage: 'x' },
+          warnings: [1, 2, 3],
           isPartial: false,
         },
       },
@@ -128,7 +115,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
           resolvedBranch: 'dev',
           files: [
             { path: 'a.ts', size: 10, type: 'file' },
-            'not-a-record', // filtered by isRecord
+            'not-a-record',
             {
               /* defaults */
             },
@@ -144,7 +131,6 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     expect(dir.path).toBe('src');
     expect(dir.localPath).toBe('/tmp/clone/src');
     expect(dir.cached).toBe(true);
-    // fileCount falls back to files.length (2 records survived).
     expect(dir.fileCount).toBe(2);
     const files = dir.files as Array<Record<string, unknown>>;
     expect(files).toHaveLength(2);
@@ -167,17 +153,12 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
   });
 
   it('reads a directory entry with all defaults (no files array, no cache, no path)', () => {
-    // Hits the default sides: data.files not an array, query.path missing,
-    // localPath/totalSize defaults, cached !== true, directory not cached.
     const queries: Query[] = [{ owner: 'o', repo: 'r', type: 'directory' }];
     const results: FlatQueryResult[] = [
       {
         id: 'q1',
         data: {
-          // files is not an array -> rawFiles = []
           files: 'not-an-array',
-          // no localPath, no totalSize, no fileCount -> all defaults
-          // cached omitted -> not cached
         },
       },
     ];
@@ -193,14 +174,12 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     expect(dir.fileCount).toBe(0);
     expect(dir.cached).toBeUndefined();
     expect(dir.files).toBeUndefined();
-    // Not cached -> no cache hint emitted.
     expect(data.hints?.some(h => /served from cache/.test(h)) ?? false).toBe(
       false
     );
   });
 
   it('reads a file entry with neither data.path nor query.path (double fallback)', () => {
-    // Hits `String(query.path ?? '')` -> '' side on line 173.
     const queries: Query[] = [{ owner: 'o', repo: 'r' }];
     const results: FlatQueryResult[] = [{ id: 'q1', data: { content: 'c' } }];
     const out = run(queries, results);
@@ -211,7 +190,6 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
   });
 
   it('drops a result whose query slot is missing (results longer than queries)', () => {
-    // queries[1] is undefined -> `if (!query) return` true side (line 218).
     const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'a.ts' }];
     const results: FlatQueryResult[] = [
       { id: 'q1', data: { path: 'a.ts', content: 'x' } },
@@ -225,8 +203,8 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
   it('skips error results and queries with missing owner/repo', () => {
     const queries: Query[] = [
       { owner: 'o', repo: 'r', path: 'ok.ts' },
-      { owner: '', repo: 'r', path: 'missing-owner.ts' }, // dropped
-      { owner: 'o2', repo: 'r2', path: 'errored.ts' }, // error status
+      { owner: '', repo: 'r', path: 'missing-owner.ts' },
+      { owner: 'o2', repo: 'r2', path: 'errored.ts' },
     ];
     const results: FlatQueryResult[] = [
       { id: 'a', data: { path: 'ok.ts', content: 'x' } },
@@ -241,7 +219,6 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const data = out.structuredContent as {
       results: Array<{ owner: string }>;
     };
-    // Only the first query produced a group.
     expect(data.results).toHaveLength(1);
     expect(data.results[0].owner).toBe('o');
   });
@@ -270,10 +247,8 @@ describe('buildGithubFetchContentFinalizer — partial file continuation hints',
       evidence?: { reason?: string; incompleteReasons?: string[] };
     };
 
-    // Navigation instruction must appear in hints[]
     expect(data.hints?.some(h => /startLine=51/.test(h))).toBe(true);
 
-    // evidence.reason must NOT contain navigation instructions
     const reasonStr = Array.isArray(data.evidence?.incompleteReasons)
       ? data.evidence.incompleteReasons.join(' ')
       : (data.evidence?.reason ?? '');
@@ -301,7 +276,6 @@ describe('buildGithubFetchContentFinalizer — partial file continuation hints',
       evidence?: { reason?: string };
     };
 
-    // Should state it is partial, but not navigation details
     const reason = data.evidence?.reason ?? '';
     expect(reason.length).toBeGreaterThan(0);
   });
@@ -351,7 +325,6 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     expect(
       data.errors![0].hints?.some(h => /githubViewRepoStructure/.test(h))
     ).toBe(true);
-    // groups empty + errors present -> isError flagged
     expect(out.isError).toBe(true);
   });
 
@@ -426,7 +399,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       warnings?: Array<{ kind: string; path?: string }>;
       results: Array<{ files?: Array<{ content: string }> }>;
     };
-    // No truncation warnings — content is returned as-is or auto-paginated.
     expect(
       data.warnings?.some(w => w.kind === 'content-truncated') ?? false
     ).toBe(false);
@@ -436,11 +408,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
   });
 
   it('paginates a group of small files + a directory without truncating any item', () => {
-    // Small files all fit the budget (truncator content-fits side, line 274),
-    // the directory passes the truncator unchanged (no `content`, line 268),
-    // getGroupItems concatenates directories (line 244), and setGroupItems
-    // re-splits files/directories. responseCharLength omitted -> MAX_SAFE
-    // default (line 388 `?? MAX`).
     const queries: Query[] = [
       { owner: 'o', repo: 'r', path: 'a.ts' },
       { owner: 'o', repo: 'r', path: 'b.ts' },
@@ -452,7 +419,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
         data: {
           path: 'a.ts',
           content: 'short',
-          // pagination with hasMore but no charLength -> `?? 0` side (line 307)
           pagination: {
             currentPage: 1,
             totalPages: 2,
@@ -468,7 +434,6 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       },
     ];
     const out = run(queries, results, {
-      // offset set but length omitted -> charLength defaults to MAX_SAFE.
       responseCharOffset: 0,
     });
     const data = out.structuredContent as {
@@ -479,13 +444,11 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
       warnings?: Array<{ kind: string }>;
       hints?: string[];
     };
-    // Nothing truncated.
     expect(
       data.warnings?.some(w => w.kind === 'content-truncated') ?? false
     ).toBe(false);
     expect(data.results[0].files).toHaveLength(2);
     expect(data.results[0].directories).toHaveLength(1);
-    // charOffset continuation hint uses charLength default of 0 -> charOffset=7.
     expect(data.hints?.some(h => /charOffset=7\b/.test(h))).toBe(true);
   });
 });
@@ -511,7 +474,6 @@ describe('applyGithubFetchContentVerbosity', () => {
       hints: ['keep me'],
     } as never;
     applyGithubFetchContentVerbosity(responseData, [] as never);
-    // metadata stripped since no query has verbose=true
     const file = (responseData as any).results[0].files[0];
     expect(file).not.toHaveProperty('lastModified');
   });
@@ -544,7 +506,6 @@ describe('applyGithubFetchContentVerbosity', () => {
       files: Array<Record<string, unknown>>;
     }>;
     const file0 = results[0].files[0];
-    // Metadata preserved when verbose=true
     expect(file0.lastModified).toBe('2026-01-01');
     expect(file0.lastModifiedBy).toBe('bob');
   });
@@ -614,7 +575,6 @@ describe('applyGithubFetchContentVerbosity', () => {
       responseData as never,
       [{ owner: 'o', repo: 'r' }] as never
     );
-    // Hints are not modified by the verbosity layer
     const hints = responseData.hints as string[];
     expect(hints).toEqual(allHints);
     expect(hints.some(h => /too large/.test(h))).toBe(true);

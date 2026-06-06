@@ -16,7 +16,7 @@ describe('Session-scoped Caching', () => {
 
       const key1 = generateCacheKey('gh-api-code', params, 'session1');
       const key2 = generateCacheKey('gh-api-code', params, 'session2');
-      const key3 = generateCacheKey('gh-api-code', params); // no session
+      const key3 = generateCacheKey('gh-api-code', params);
 
       expect(key1).not.toBe(key2);
       expect(key1).not.toBe(key3);
@@ -61,14 +61,12 @@ describe('Session-scoped Caching', () => {
     it('should include session ID in hash generation', () => {
       const params = { simple: 'test' };
 
-      // Generate keys with different session IDs
       const sessionKeys = [
         generateCacheKey('test', params, 'session-1'),
         generateCacheKey('test', params, 'session-2'),
         generateCacheKey('test', params, 'session-3'),
       ];
 
-      // All keys should be different
       const uniqueKeys = new Set(sessionKeys);
       expect(uniqueKeys.size).toBe(3);
     });

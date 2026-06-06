@@ -1,11 +1,3 @@
-/**
- * Empty-result recovery hints for githubSearchCode.
- * Focus: the path: filter is matched by GitHub against a file's DIRECTORY, not
- * a full file path. The old hint blamed the phrase ("use a single distinctive
- * identifier instead of a phrase"), which is wrong — a single token + a
- * file-pointing path also returns zero. These tests pin the corrected guidance.
- */
-
 import { describe, it, expect } from 'vitest';
 import { hints } from '../../src/tools/github_search_code/hints.js';
 
@@ -46,7 +38,6 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
       keywords: ['const patch handler'],
     });
     const joined = out.join(' ');
-    // Some actionable broadening guidance, but never the old phrase-blaming line.
     expect(joined).not.toMatch(
       /single distinctive identifier instead of a phrase/i
     );

@@ -1,7 +1,3 @@
-/**
- * Command validation for security - prevents command injection attacks
- */
-
 import {
   ALLOWED_COMMANDS,
   DANGEROUS_PATTERNS,
@@ -9,22 +5,8 @@ import {
 } from './securityConstants.js';
 import { securityRegistry } from './registry.js';
 
-/**
- * Normalize a command identifier to its base name for allow-list matching.
- *
- * Callers may pass either a bare command (e.g. `rg`) or an absolute path
- * to a bundled binary (e.g. `/.../node_modules/@vscode/ripgrep/bin/rg` or
- * `...\\bin\\rg.exe` on Windows). The allow-list and arg-dispatch logic
- * only know bare names, so we strip directories and the Windows `.exe`
- * suffix before matching. We deliberately do NOT lowercase the whole name
- * because POSIX command names are case-sensitive — but `.exe` is matched
- * case-insensitively so `RG.EXE` from Windows shells still resolves.
- */
 export function normalizeCommandName(command: string): string {
   if (!command || typeof command !== 'string') return command;
-  // Strip BOTH POSIX and Windows separators regardless of the host OS, so
-  // a Windows-style path (`...\\bin\\rg.exe`) inspected on a POSIX host
-  // (e.g. CI on Linux validating a Windows binary record) still normalizes.
   const lastSep = Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\'));
   const base = lastSep >= 0 ? command.slice(lastSep + 1) : command;
   return base.replace(/\.exe$/i, '');
@@ -62,7 +44,6 @@ const RG_ALLOWED_FLAGS = new Set([
   '--debug',
 ]);
 
-/** Single-character flags extracted from RG_ALLOWED_FLAGS for bundle validation */
 const RG_ALLOWED_SHORT_FLAGS = new Set(
   [...RG_ALLOWED_FLAGS].filter(f => /^-[a-zA-Z]$/.test(f)).map(f => f[1]!)
 );
@@ -106,11 +87,6 @@ const FIND_DISALLOWED_OPERATORS = new Set([
   '-ls',
 ]);
 
-/**
- * Git: only allow specific subcommands and flags for security.
- * - clone: shallow-clone repositories (githubCloneRepo tool)
- * - sparse-checkout: partial tree fetching for specific paths
- */
 const GIT_ALLOWED_SUBCOMMANDS = new Set(['clone', 'sparse-checkout']);
 
 const GIT_CLONE_ALLOWED_FLAGS = new Set([
@@ -123,10 +99,9 @@ const GIT_CLONE_ALLOWED_FLAGS = new Set([
   '--quiet',
   '-q',
   '-c',
-  '--', // end-of-flags separator (security: prevents positional args being parsed as flags)
+  '--',
 ]);
 
-/** Allowed sub-subcommands for `git sparse-checkout` */
 const GIT_SPARSE_CHECKOUT_ALLOWED_ACTIONS = new Set([
   'init',
   'set',
@@ -138,18 +113,11 @@ const GIT_SPARSE_CHECKOUT_ALLOWED_ACTIONS = new Set([
 const GIT_SPARSE_CHECKOUT_ALLOWED_FLAGS = new Set([
   '--cone',
   '--no-cone',
-  '--', // end-of-flags separator (security: prevents path args being parsed as flags)
+  '--',
 ]);
 
-/**
- * Allowlist of git config keys permitted via the -c flag.
- * Only keys needed for legitimate authentication/transport configuration are allowed.
- * ALL others are blocked — including those that enable arbitrary code execution:
- *   core.sshCommand, core.hooksPath, credential.helper, core.gitProxy, http.proxy,
- *   protocol.allow, etc.
- */
 const GIT_SAFE_CONFIG_KEYS = new Set([
-  'advice.detachedHead', // suppresses detached-HEAD warning message — display only
+  'advice.detachedHead',
   'core.autocrlf',
   'core.sparseCheckout',
   'http.extraHeader',
@@ -158,19 +126,8 @@ const GIT_SAFE_CONFIG_KEYS = new Set([
   'http.version',
 ]);
 
-/**
- * Git clone URL protocols that are explicitly blocked for security.
- * - file://  → local filesystem access (can read /etc/passwd etc.)
- * - git://   → unauthenticated, no TLS, susceptible to MITM
- * - http://  → unencrypted transmission of credentials
- * Allowed: https://, git@ (SSH), ssh://
- */
 const GIT_BLOCKED_URL_PROTOCOLS = ['file://', 'git://', 'http://'] as const;
 
-/**
- * Validate a git -c key=value argument against the safe config key allowlist.
- * Returns an error string if the key is not in the allowlist, null if safe.
- */
 function validateGitConfigKeyValue(keyValue: string): string | null {
   const eqIndex = keyValue.indexOf('=');
   const key = eqIndex >= 0 ? keyValue.substring(0, eqIndex) : keyValue;
@@ -180,10 +137,6 @@ function validateGitConfigKeyValue(keyValue: string): string | null {
   return null;
 }
 
-/**
- * Validate a git clone URL against blocked protocols.
- * Returns an error string if the URL uses a blocked protocol, null if safe.
- */
 function validateGitCloneUrl(url: string): string | null {
   for (const protocol of GIT_BLOCKED_URL_PROTOCOLS) {
     if (url.startsWith(protocol)) {
@@ -194,7 +147,7 @@ function validateGitCloneUrl(url: string): string | null {
 }
 
 const FIND_ALLOWED_TOKENS = new Set([
-  '-E', // macOS BSD find: enable extended regex (must appear before path)
+  '-E',
   '-O3',
   '-empty',
   '-executable',
@@ -224,31 +177,15 @@ const FIND_ALLOWED_TOKENS_WITH_VALUES = new Set([
   '-perm',
 ]);
 
-/**
- * Result of command validation
- */
 interface CommandValidationResult {
   isValid: boolean;
   error?: string;
 }
 
-/**
- * Validates that a command is allowed and safe to execute.
- * Uses command-aware validation to allow legitimate patterns.
- *
- * @example
- * ```ts
- * validateCommand('rg', ['--json', 'pattern', './src']);
- * // → { isValid: true }
- * validateCommand('rm', ['-rf', '/']);
- * // → { isValid: false, error: "Command 'rm' is not allowed. ..." }
- * ```
- */
 export function validateCommand(
   command: string,
   args: string[]
 ): CommandValidationResult {
-  // Guard: args must be an array to prevent TypeError on .length / iteration
   if (!Array.isArray(args)) {
     return {
       isValid: false,
@@ -256,9 +193,6 @@ export function validateCommand(
     };
   }
 
-  // Allow callers to pass an absolute path to a bundled binary
-  // (e.g. @vscode/ripgrep's `rgPath`). We allow-list the *basename*, then
-  // pass the basename to arg-dispatch so per-command rules still fire.
   const normalized = normalizeCommandName(command);
 
   const extraCmds = securityRegistry.extraAllowedCommands;
@@ -274,18 +208,9 @@ export function validateCommand(
     };
   }
 
-  // Command-aware validation (uses the normalized name so absolute paths
-  // still get the right per-command flag/arg rules).
   return validateCommandArgs(normalized, args);
 }
 
-/**
- * Validates arguments based on command context
- * Uses position-aware validation - certain args are search patterns, others are paths
- *
- * Pattern arguments (regex, globs) get more permissive validation that allows
- * legitimate regex metacharacters but still blocks shell injection vectors.
- */
 function validateCommandArgs(
   command: string,
   args: string[]
@@ -313,16 +238,12 @@ function validateCommandArgs(
     }
   }
 
-  // Define which argument positions contain patterns (not paths/filenames)
-  // Patterns can safely contain |, (), etc. as they're regex/search patterns
   const patternPositions = getPatternArgPositions(command, args);
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     const isPattern = patternPositions.has(i);
 
-    // Use appropriate validation set based on argument type
-    // Pattern args get more permissive checks but still block shell injection
     const dangerousPatterns = isPattern
       ? PATTERN_DANGEROUS_PATTERNS
       : DANGEROUS_PATTERNS;
@@ -451,10 +372,8 @@ function findDisallowedRgFlag(args: string[]): string | null {
       continue;
     }
 
-    // Allow short flag bundles like -rnH if every character is an allowed single-char flag.
-    // This prevents passing dangerous flags (e.g. -x for --pre) in a bundle.
     if (/^-[a-zA-Z]{2,}$/.test(arg)) {
-      const chars = arg.slice(1); // remove leading '-'
+      const chars = arg.slice(1);
       const allAllowed = [...chars].every(ch => RG_ALLOWED_SHORT_FLAGS.has(ch));
       if (allAllowed) {
         continue;
@@ -468,18 +387,11 @@ function findDisallowedRgFlag(args: string[]): string | null {
   return null;
 }
 
-/**
- * Validate git command arguments.
- * Only allows specific subcommands (clone, sparse-checkout) with safe flags.
- */
 function validateGitArgs(args: string[]): string | null {
   if (args.length === 0) {
     return 'git command requires a subcommand';
   }
 
-  // Find the subcommand, skipping global options before it:
-  //   -c key=value  → git config override (key validated against allowlist)
-  //   -C path       → change directory before running
   let subcommandIndex = 0;
   while (subcommandIndex < args.length) {
     const arg = args[subcommandIndex]!;
@@ -523,10 +435,6 @@ const GIT_CLONE_FLAGS_WITH_VALUES = new Set([
   '--filter',
 ]);
 
-/**
- * Process a single clone flag and return the number of extra args it consumes,
- * or an error string if the flag is disallowed or its value is invalid.
- */
 function processCloneFlag(
   args: string[],
   i: number
@@ -548,11 +456,6 @@ function processCloneFlag(
   return { skip: 0 };
 }
 
-/**
- * Validate arguments for `git clone`.
- * Validates flags against the allowlist, config keys against GIT_SAFE_CONFIG_KEYS,
- * and the clone URL against GIT_BLOCKED_URL_PROTOCOLS.
- */
 function validateGitCloneArgs(
   args: string[],
   subcommandIndex: number
@@ -585,10 +488,6 @@ function validateGitCloneArgs(
   return null;
 }
 
-/**
- * Validate flags in a git subcommand arg list against an allowlist.
- * Non-flag positional arguments are allowed through.
- */
 function validateGitSubcommandFlags(
   args: string[],
   startIndex: number,
@@ -605,10 +504,6 @@ function validateGitSubcommandFlags(
   return null;
 }
 
-/**
- * Validate arguments for `git sparse-checkout`.
- * Validates the action and any flags.
- */
 function validateGitSparseCheckoutArgs(
   args: string[],
   subcommandIndex: number
@@ -638,8 +533,6 @@ function findInvalidFindArg(args: string[]): string | null {
       continue;
     }
 
-    // find grammar is effectively: find <path...> <expr...>
-    // First non-flag token is treated as path; expression starts at first flag.
     if (!afterPathArgs && !arg.startsWith('-') && arg !== '(' && arg !== ')') {
       continue;
     }
@@ -658,7 +551,6 @@ function findInvalidFindArg(args: string[]): string | null {
       continue;
     }
 
-    // Non-flag values are acceptable expression operands (e.g., path/pattern values)
     if (!arg.startsWith('-')) {
       continue;
     }

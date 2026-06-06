@@ -21,9 +21,6 @@ import {
   isRecord,
 } from '../evidence.js';
 
-// Verbosity shaping is defined alongside fetchContent (used internally before
-// `createSuccessResult`). Re-exported here so every tool exposes
-// `apply<Tool>Verbosity` from execution.ts.
 export { applyFetchContentVerbosity } from './fetchContent.js';
 
 function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
@@ -50,11 +47,6 @@ function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
   });
 }
 
-/**
- * Execute bulk fetch content operation.
- * Wraps fetchContent with bulk operation handling for multiple queries.
- * Validates each query individually so one invalid query doesn't block the batch.
- */
 export async function executeFetchContent(
   args: ToolExecutionArgs<FetchContentQuery>
 ): Promise<CallToolResult> {

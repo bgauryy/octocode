@@ -15,10 +15,6 @@ function stripQuotes(value: string): string {
   return value;
 }
 
-// Minimal extractor for top-level (non-indented) frontmatter fields. Handles the
-// common scalar forms found in SKILL.md frontmatter without pulling in a full
-// YAML dependency: plain single-line values, quoted values, and folded (>) /
-// literal (|) block scalars whose content sits on the following indented lines.
 function extractField(lines: string[], key: string): string | undefined {
   const keyPattern = new RegExp(`^${key}:(.*)$`);
   const idx = lines.findIndex(line => keyPattern.test(line));
@@ -28,7 +24,6 @@ function extractField(lines: string[], key: string): string | undefined {
 
   const inline = (lines[idx].match(keyPattern)?.[1] ?? '').trim();
 
-  // Block scalar: ">" or "|" with optional chomping/indent indicators (e.g. >-, |+, |2).
   if (/^[|>][+-]?\d*$/.test(inline)) {
     const folded = inline.startsWith('>');
     const body: string[] = [];
@@ -38,7 +33,6 @@ function extractField(lines: string[], key: string): string | undefined {
         body.push('');
         continue;
       }
-      // A non-indented line is the next top-level key — the block ends.
       if (!/^\s/.test(line)) {
         break;
       }
@@ -52,8 +46,6 @@ function extractField(lines: string[], key: string): string | undefined {
       return body.join('\n').trim();
     }
 
-    // Folded: join consecutive non-blank lines with a single space; blank lines
-    // become newlines (paragraph breaks).
     let out = '';
     for (const line of body) {
       if (line === '') {

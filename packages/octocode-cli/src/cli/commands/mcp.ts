@@ -17,7 +17,6 @@ import {
 import https from 'node:https';
 import http from 'node:http';
 
-/** Fire-and-forget HEAD request to check if a URL is reachable. */
 function checkUrlReachable(url: string, timeoutMs = 5000): Promise<boolean> {
   return new Promise(resolve => {
     try {
@@ -44,7 +43,6 @@ function checkUrlReachable(url: string, timeoutMs = 5000): Promise<boolean> {
   });
 }
 
-/** Return the best URL to preflight for a registry entry, or null if no check needed. */
 function getPreflightUrl(entry: {
   installationType?: string;
   npmPackage?: string;
@@ -53,24 +51,19 @@ function getPreflightUrl(entry: {
   installConfig: { command: string };
 }): string | null {
   const cmd = entry.installConfig.command;
-  // Only preflight internet-fetching commands
   if (cmd !== 'npx' && cmd !== 'uvx' && cmd !== 'pip' && cmd !== 'pipx') {
     return null;
   }
-  // npm package → check npm registry
   if (entry.npmPackage) {
     const pkg = entry.npmPackage.replace(/^@/, '').replace('/', '%2F');
     return `https://registry.npmjs.org/${pkg}`;
   }
-  // python package → check PyPI
   if ((entry as { pythonPackage?: string }).pythonPackage) {
     return `https://pypi.org/pypi/${(entry as { pythonPackage?: string }).pythonPackage}/json`;
   }
-  // fallback: GitHub repo
   return entry.repository;
 }
 
-/** Check if a required env var is currently set (non-empty). */
 function envVarStatus(name: string): 'set' | 'missing' {
   const val = process.env[name];
   return val && val.trim().length > 0 ? 'set' : 'missing';
@@ -174,7 +167,6 @@ export const mcpCommand: CLICommand = {
     const installedMap = config.mcpServers || {};
 
     if (subcommand === 'list') {
-      // When no client/config AND no registry filters: scan all OS config files
       const scanAll =
         !rawClient &&
         !rawConfig &&
@@ -232,7 +224,6 @@ export const mcpCommand: CLICommand = {
         return;
       }
 
-      // --client specified: show registry filtered by that client's installed MCPs
       let entries = MCP_REGISTRY;
       if (typeof rawSearch === 'string' && rawSearch.trim().length > 0) {
         const query = rawSearch.trim().toLowerCase();
@@ -361,7 +352,6 @@ export const mcpCommand: CLICommand = {
         return;
       }
 
-      // Batch: --id accepts comma-separated ids
       const mcpIds = mcpId
         .split(',')
         .map(s => s.trim())
@@ -393,7 +383,6 @@ export const mcpCommand: CLICommand = {
         preflightFailed?: boolean;
       }> = [];
 
-      // Resolve all entries; fail-fast on unknown ids
       const resolved = mcpIds.map(id => ({
         id,
         entry: MCP_REGISTRY.find(
@@ -416,7 +405,6 @@ export const mcpCommand: CLICommand = {
         } => Boolean(r.entry)
       );
 
-      // Already-installed guard
       const toInstall = known.filter(r => {
         if (installedMap[r.entry.id] && !force) {
           batchResults.push({
@@ -430,7 +418,6 @@ export const mcpCommand: CLICommand = {
         return true;
       });
 
-      // Parallel preflight — only for internet-fetching commands
       const preflightMap = new Map<
         string,
         { ok: boolean; url: string | null }
@@ -443,7 +430,6 @@ export const mcpCommand: CLICommand = {
         })
       );
 
-      // Write phase
       for (const r of toInstall) {
         const pf = preflightMap.get(r.entry.id);
         if (pf && !pf.ok && !force) {
@@ -470,7 +456,6 @@ export const mcpCommand: CLICommand = {
           serverConfig.env = mergedEnv;
         }
 
-        // Read fresh config each time so batch writes accumulate
         const currentConfig = readMCPConfig(configPath) || { mcpServers: {} };
         const nextConfig = {
           ...currentConfig,

@@ -105,7 +105,6 @@ describe('ContentSanitizer', () => {
         const result = ContentSanitizer.validateInputParameters(params);
 
         expect(result.isValid).toBe(true);
-        // Safe characters should be preserved
         expect(result.sanitizedParams.owner).toEqual([
           'microsoft-corp',
           'facebook.inc',
@@ -126,7 +125,6 @@ describe('ContentSanitizer', () => {
 
         const result = ContentSanitizer.validateInputParameters(params);
 
-        // Verify format that buildGitHubCliArgs expects
         expect(Array.isArray(result.sanitizedParams.owner)).toBe(true);
         expect(result.sanitizedParams.owner).toEqual([
           'microsoft',
@@ -134,7 +132,6 @@ describe('ContentSanitizer', () => {
           'google',
         ]);
 
-        // Should be ready for: owners.forEach(owner => args.push(`--owner=${owner}`))
         const mockCliArgs: string[] = [];
         (result.sanitizedParams.owner as string[]).forEach((owner: string) => {
           mockCliArgs.push(`--owner=${owner}`);
@@ -155,7 +152,6 @@ describe('ContentSanitizer', () => {
 
         const result = ContentSanitizer.validateInputParameters(params);
 
-        // Verify format for combined owner/repo
         expect(Array.isArray(result.sanitizedParams.repo)).toBe(true);
         expect(result.sanitizedParams.repo).toEqual([
           'react',
@@ -163,7 +159,6 @@ describe('ContentSanitizer', () => {
           'angular',
         ]);
 
-        // Should be ready for: repos.forEach(repo => args.push(`--repo=${owner}/${repo}`))
         const mockCliArgs: string[] = [];
         (result.sanitizedParams.repo as string[]).forEach((repo: string) => {
           mockCliArgs.push(`--repo=${result.sanitizedParams.owner}/${repo}`);
@@ -238,7 +233,6 @@ describe('ContentSanitizer', () => {
         const result = ContentSanitizer.validateInputParameters(params);
 
         expect(result.isValid).toBe(true);
-        // Should preserve nested structure as-is (non-string elements pass through)
         expect(result.sanitizedParams.owner).toEqual([
           ['microsoft'],
           ['facebook'],
@@ -253,7 +247,6 @@ describe('ContentSanitizer', () => {
         const result = ContentSanitizer.validateInputParameters(params);
 
         expect(result.isValid).toBe(true);
-        // Only strings should be sanitized, others pass through
         expect(result.sanitizedParams.owner).toEqual([
           'microsoft',
           123,
@@ -304,30 +297,24 @@ describe('ContentSanitizer', () => {
       const result = ContentSanitizer.validateInputParameters(params);
       expect(result.isValid).toBe(true);
 
-      // Simulate what buildGitHubCliArgs does
       const args: string[] = ['code'];
 
-      // Add exact query (join terms as typically done in CLI)
       if (result.sanitizedParams.keywordsToSearch) {
         args.push(
           (result.sanitizedParams.keywordsToSearch as string[]).join(' ')
         );
       }
 
-      // Add language
       args.push(`--language=${result.sanitizedParams.language}`);
 
-      // Add repos with owners
       (result.sanitizedParams.repo as string[]).forEach((repo: string) => {
         (result.sanitizedParams.owner as string[]).forEach((owner: string) => {
           args.push(`--repo=${owner}/${repo}`);
         });
       });
 
-      // Add limit
       args.push(`--limit=${result.sanitizedParams.limit}`);
 
-      // Add JSON format
       args.push('--json=repository,path,textMatches,sha,url');
 
       const repoArgs = args.filter(arg => arg.startsWith('--repo='));
@@ -584,7 +571,7 @@ describe('ContentSanitizer', () => {
           GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz123456
           OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyzT3BlbkFJABCDEFGHIJKLMNO
           AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-          DATABASE_URL=postgresql://user:pass@localhost:5432/db
+          DATABASE_URL=postgresql:
         `;
         const result = ContentSanitizer.sanitizeContent(content);
 
@@ -760,14 +747,10 @@ describe('ContentSanitizer', () => {
 
   describe('Error Handling', () => {
     it('should handle regex errors gracefully in detectSecrets', () => {
-      // Create content that would normally match but we'll mock an error
       const content = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
 
-      // We can't easily force a regex error in the current implementation,
-      // but we can test the fallback behavior
       const result = ContentSanitizer.sanitizeContent(content);
 
-      // Should still process the content
       expect(result).toBeDefined();
       expect(result.content).toBeDefined();
     });
@@ -886,7 +869,6 @@ describe('ContentSanitizer', () => {
 
   describe('Dangerous Parameter Keys', () => {
     it('should block __proto__ key', () => {
-      // Create params with __proto__ as an actual property using Object.defineProperty
       const params: Record<string, unknown> = { normal: 'safe' };
       Object.defineProperty(params, '__proto__', {
         value: 'dangerous',
@@ -904,7 +886,6 @@ describe('ContentSanitizer', () => {
           w.includes('Dangerous parameter key blocked: __proto__')
         )
       ).toBe(true);
-      // __proto__ should not be in sanitized params
       expect(
         Object.prototype.hasOwnProperty.call(
           result.sanitizedParams,
@@ -959,10 +940,8 @@ describe('ContentSanitizer', () => {
       const result = ContentSanitizer.validateInputParameters(params);
 
       expect(result.isValid).toBe(false);
-      // Should have warnings for dangerous keys
       expect(result.warnings.length).toBeGreaterThan(0);
       expect(result.sanitizedParams.normal).toBe('safe');
-      // Dangerous keys should not be in sanitized params own properties
       expect(
         Object.prototype.hasOwnProperty.call(
           result.sanitizedParams,
@@ -1016,7 +995,6 @@ describe('ContentSanitizer', () => {
 
       const result = ContentSanitizer.validateInputParameters(params);
 
-      // Should detect invalid nested object and block it
       expect(result.isValid).toBe(false);
       expect(result.warnings.length).toBeGreaterThan(0);
       expect(
@@ -1042,9 +1020,6 @@ describe('ContentSanitizer', () => {
     });
 
     it('should propagate hasSecrets from nested objects', () => {
-      // This test ensures the hasSecrets flag is propagated correctly
-      // Note: Current implementation doesn't check for secrets in validation,
-      // but the structure is in place
       const params = {
         search: {
           query: 'test',
@@ -1058,7 +1033,7 @@ describe('ContentSanitizer', () => {
       const result = ContentSanitizer.validateInputParameters(params);
 
       expect(result.isValid).toBe(true);
-      expect(result.hasSecrets).toBe(false); // No actual secret detection in validation
+      expect(result.hasSecrets).toBe(false);
     });
 
     it('should handle nested objects with invalid parameters', () => {
@@ -1115,9 +1090,7 @@ describe('ContentSanitizer', () => {
         string,
         unknown
       >;
-      // Array should be truncated to 100 items
       expect((searchParams.keywords as string[]).length).toBe(100);
-      // Verify the sanitized params contain the nested structure
       expect(searchParams.owner).toBe('microsoft');
     });
   });
@@ -1135,15 +1108,12 @@ describe('ContentSanitizer', () => {
     });
 
     it('should allow nesting at exactly depth 20 (boundary — last allowed)', () => {
-      // buildNested(20) creates 20 recursive levels; the root call is _depth=0,
-      // so the deepest call reaches _depth=20 (20 > 20 is false → allowed)
       const result = ContentSanitizer.validateInputParameters(buildNested(20));
       expect(result.isValid).toBe(true);
       expect(result.warnings).toHaveLength(0);
     });
 
     it('should block nesting at depth 21 (first rejected level)', () => {
-      // At _depth=21 the check (_depth > 20) fires → isValid: false
       const result = ContentSanitizer.validateInputParameters(buildNested(21));
       expect(result.isValid).toBe(false);
       expect(

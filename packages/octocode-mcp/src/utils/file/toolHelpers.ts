@@ -1,7 +1,3 @@
-/**
- * Helper utilities for local tools
- */
-
 import path from 'path';
 import { pathValidator } from 'octocode-security-utils/pathValidator';
 import { ToolErrors } from '../../errors/errorFactories.js';
@@ -13,25 +9,16 @@ import {
 } from '../response/error.js';
 import { getConfigSync } from 'octocode-shared';
 
-/**
- * Local error result type - compatible with UnifiedErrorResult
- */
 type LocalErrorResult = UnifiedErrorResult;
 
 export { createErrorResult };
 
-/**
- * Path validation result with error result for tool returns
- */
 interface ToolPathValidationResult {
   isValid: boolean;
   errorResult?: LocalErrorResult;
   sanitizedPath?: string;
 }
 
-/**
- * Generate hints for path-related errors based on the error type
- */
 function getPathErrorHints(
   inputPath: string,
   errorMessage: string | undefined,
@@ -67,9 +54,6 @@ function getPathErrorHints(
   return hints;
 }
 
-/**
- * Validate tool path and return validation result
- */
 export function validateToolPath(
   query: PartialBaseQueryLocal & { path?: string },
   toolName: string
@@ -81,16 +65,11 @@ export function validateToolPath(
       errorResult: createErrorResult(toolError, query, { toolName }),
     };
   }
-  // Priority: WORKSPACE_ROOT env var > local.workspaceRoot (.octocoderc) > process.cwd()
   const cwd =
     process.env.WORKSPACE_ROOT?.trim() ||
     getConfigSync().local.workspaceRoot ||
     process.cwd();
   const inputPath = query.path.replace(/^file:\/\//, '');
-  // Resolve relative paths against WORKSPACE_ROOT (or CWD) so that agents
-  // using relative paths from the workspace root get the correct absolute path.
-  // pathValidator.validate also calls path.resolve internally, so passing the
-  // pre-resolved absolute path ensures sanitizedPath is correct.
   const resolvedPath = path.isAbsolute(inputPath)
     ? inputPath
     : path.resolve(cwd, inputPath);
@@ -131,27 +110,18 @@ export function validateToolPath(
   return { isValid: true, sanitizedPath: validation.sanitizedPath };
 }
 
-/**
- * Options for checkLargeOutputSafety
- */
 interface LargeOutputSafetyOptions {
   threshold?: number;
   itemType?: string;
   detailed?: boolean;
 }
 
-/**
- * Result of large output safety check
- */
 interface LargeOutputSafetyResult {
   shouldBlock: boolean;
   errorCode?: string;
   hints?: string[];
 }
 
-/**
- * Check if output is too large and should be blocked
- */
 export function checkLargeOutputSafety(
   itemCount: number,
   hasCharLength: boolean,
@@ -159,7 +129,6 @@ export function checkLargeOutputSafety(
 ): LargeOutputSafetyResult {
   const { threshold = 100, itemType = 'item', detailed = false } = options;
 
-  // If charLength is provided, pagination is already handled
   if (hasCharLength) {
     return { shouldBlock: false };
   }

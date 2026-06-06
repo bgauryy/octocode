@@ -1,15 +1,6 @@
-/**
- * Language Server Registry
- * Default language server commands by file extension.
- * Reference: https://github.com/helix-editor/helix/blob/master/languages.toml
- *            https://github.com/microsoft/multilspy
- * @module lsp/lspRegistry
- */
-
 import type { LanguageServerCommand } from './types.js';
 
 export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
-  // TypeScript/JavaScript (bundled)
   '.ts': {
     command: 'typescript-language-server',
     args: ['--stdio'],
@@ -47,7 +38,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_TS_SERVER_PATH',
   },
 
-  // Python: pip install python-lsp-server
   '.py': {
     command: 'pylsp',
     args: [],
@@ -61,7 +51,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_PYTHON_SERVER_PATH',
   },
 
-  // Go: go install golang.org/x/tools/gopls@latest
   '.go': {
     command: 'gopls',
     args: ['serve'],
@@ -69,7 +58,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_GO_SERVER_PATH',
   },
 
-  // Rust: rustup component add rust-analyzer
   '.rs': {
     command: 'rust-analyzer',
     args: [],
@@ -77,7 +65,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_RUST_SERVER_PATH',
   },
 
-  // Java: brew install jdtls OR download from Eclipse
   '.java': {
     command: 'jdtls',
     args: [],
@@ -85,7 +72,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_JAVA_SERVER_PATH',
   },
 
-  // Kotlin: brew install kotlin-language-server
   '.kt': {
     command: 'kotlin-language-server',
     args: [],
@@ -99,7 +85,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_KOTLIN_SERVER_PATH',
   },
 
-  // C/C++: brew install llvm (includes clangd)
   '.c': {
     command: 'clangd',
     args: [],
@@ -137,7 +122,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_CLANGD_SERVER_PATH',
   },
 
-  // C#: dotnet tool install -g csharp-ls
   '.cs': {
     command: 'csharp-ls',
     args: [],
@@ -145,7 +129,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_CSHARP_SERVER_PATH',
   },
 
-  // Ruby: gem install solargraph
   '.rb': {
     command: 'solargraph',
     args: ['stdio'],
@@ -153,7 +136,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_RUBY_SERVER_PATH',
   },
 
-  // PHP: npm install -g intelephense
   '.php': {
     command: 'intelephense',
     args: ['--stdio'],
@@ -161,7 +143,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_PHP_SERVER_PATH',
   },
 
-  // Swift: comes with Xcode
   '.swift': {
     command: 'sourcekit-lsp',
     args: [],
@@ -169,7 +150,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_SWIFT_SERVER_PATH',
   },
 
-  // Dart: dart pub global activate dart_language_server
   '.dart': {
     command: 'dart',
     args: ['language-server', '--client-id=octocode'],
@@ -177,7 +157,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_DART_SERVER_PATH',
   },
 
-  // Lua: brew install lua-language-server
   '.lua': {
     command: 'lua-language-server',
     args: [],
@@ -185,7 +164,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_LUA_SERVER_PATH',
   },
 
-  // Zig: https://github.com/zigtools/zls
   '.zig': {
     command: 'zls',
     args: [],
@@ -193,7 +171,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_ZIG_SERVER_PATH',
   },
 
-  // Elixir: https://github.com/elixir-lsp/elixir-ls
   '.ex': {
     command: 'elixir-ls',
     args: [],
@@ -207,7 +184,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_ELIXIR_SERVER_PATH',
   },
 
-  // Scala: cs install metals
   '.scala': {
     command: 'metals',
     args: [],
@@ -221,7 +197,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_SCALA_SERVER_PATH',
   },
 
-  // Haskell: ghcup install hls
   '.hs': {
     command: 'haskell-language-server-wrapper',
     args: ['--lsp'],
@@ -229,7 +204,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_HASKELL_SERVER_PATH',
   },
 
-  // OCaml: opam install ocaml-lsp-server
   '.ml': {
     command: 'ocamllsp',
     args: [],
@@ -243,7 +217,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_OCAML_SERVER_PATH',
   },
 
-  // Clojure: brew install clojure-lsp
   '.clj': {
     command: 'clojure-lsp',
     args: [],
@@ -263,7 +236,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_CLOJURE_SERVER_PATH',
   },
 
-  // Vue: npm install -g @vue/language-server
   '.vue': {
     command: 'vue-language-server',
     args: ['--stdio'],
@@ -271,7 +243,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_VUE_SERVER_PATH',
   },
 
-  // Svelte: npm install -g svelte-language-server
   '.svelte': {
     command: 'svelteserver',
     args: ['--stdio'],
@@ -279,7 +250,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_SVELTE_SERVER_PATH',
   },
 
-  // YAML: npm install -g yaml-language-server
   '.yaml': {
     command: 'yaml-language-server',
     args: ['--stdio'],
@@ -293,7 +263,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_YAML_SERVER_PATH',
   },
 
-  // TOML: cargo install taplo-cli --features lsp
   '.toml': {
     command: 'taplo',
     args: ['lsp', 'stdio'],
@@ -301,7 +270,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_TOML_SERVER_PATH',
   },
 
-  // JSON: npm install -g vscode-langservers-extracted
   '.json': {
     command: 'vscode-json-language-server',
     args: ['--stdio'],
@@ -315,7 +283,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_JSON_SERVER_PATH',
   },
 
-  // HTML/CSS: npm install -g vscode-langservers-extracted
   '.html': {
     command: 'vscode-html-language-server',
     args: ['--stdio'],
@@ -341,7 +308,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_CSS_SERVER_PATH',
   },
 
-  // Bash: npm install -g bash-language-server
   '.sh': {
     command: 'bash-language-server',
     args: ['start'],
@@ -361,7 +327,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_BASH_SERVER_PATH',
   },
 
-  // SQL: npm install -g sql-language-server
   '.sql': {
     command: 'sql-language-server',
     args: ['up', '--method', 'stdio'],
@@ -369,7 +334,6 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_SQL_SERVER_PATH',
   },
 
-  // GraphQL: npm install -g graphql-language-service-cli
   '.graphql': {
     command: 'graphql-lsp',
     args: ['server', '-m', 'stream'],
@@ -383,14 +347,10 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     envVar: 'OCTOCODE_GRAPHQL_SERVER_PATH',
   },
 
-  // Terraform: brew install terraform-ls
   '.tf': {
     command: 'terraform-ls',
     args: ['serve'],
     languageId: 'terraform',
     envVar: 'OCTOCODE_TERRAFORM_SERVER_PATH',
   },
-
-  // Dockerfile: npm install -g dockerfile-language-server-nodejs
-  // Note: Dockerfile has no extension, handled separately if needed
 };

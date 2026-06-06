@@ -1,9 +1,3 @@
-/**
- * Local filesystem routes using route factory pattern.
- * 
- * @module routes/local
- */
-
 import { Router } from 'express';
 import {
   localSearchCode,
@@ -32,7 +26,6 @@ import { isObject, hasNumberProperty } from '../types/guards.js';
 
 export const localRoutes = Router();
 
-// GET /localSearchCode - Search code with ripgrep
 localRoutes.get(
   '/localSearchCode',
   createRouteHandler({
@@ -67,7 +60,6 @@ localRoutes.get(
   })
 );
 
-// GET /localGetFileContent - Read file contents
 localRoutes.get(
   '/localGetFileContent',
   createRouteHandler({
@@ -79,7 +71,6 @@ localRoutes.get(
   })
 );
 
-// GET /localFindFiles - Find files by metadata
 localRoutes.get(
   '/localFindFiles',
   createRouteHandler({
@@ -111,7 +102,6 @@ localRoutes.get(
   })
 );
 
-// GET /localViewStructure - View directory structure
 localRoutes.get(
   '/localViewStructure',
   createRouteHandler({
@@ -125,7 +115,6 @@ localRoutes.get(
       const files: string[] = [];
       const folders: string[] = [];
 
-      // Extract files and folders from output
       const lines = structuredOutput.split('\n');
       for (const line of lines) {
         if (line.includes('[FILE]')) {
@@ -150,7 +139,6 @@ localRoutes.get(
   })
 );
 
-// Helper: Format file size
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;

@@ -1,8 +1,3 @@
-/**
- * Tests for lspCallHierarchy output size limits.
- * Verifies that large call hierarchy results are auto-paginated
- * and that charOffset/charLength work for manual pagination.
- */
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import { SymbolResolver } from '../../src/lsp/resolver.js';
@@ -13,7 +8,6 @@ import { checkCommandAvailability } from '../../src/utils/exec/commandAvailabili
 import * as fsPromises from 'fs/promises';
 import { registerLSPCallHierarchyTool } from '../../src/tools/lsp_call_hierarchy/register.js';
 
-// Mocks
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
@@ -85,9 +79,6 @@ function createLargeIncomingCalls(count: number) {
   }));
 }
 
-// ---------------------------------------------------------------------------
-// applyCallHierarchyVerbosity unit tests
-// ---------------------------------------------------------------------------
 const mockCallResult = {
   incomingCalls: [
     {
@@ -239,7 +230,6 @@ describe('lspCallHierarchy output size limits', () => {
       mockLSPClient
     );
 
-    // Default path and file mocks
     (toolHelpers.validateToolPath as Mock).mockReturnValue({
       isValid: true,
       sanitizedPath: '/workspace/file.ts',
@@ -264,11 +254,6 @@ describe('lspCallHierarchy output size limits', () => {
   });
 
   describe('auto-pagination on large output', () => {
-    // Auto-pagination for large call hierarchy output is now owned by the
-    // unified bulk engine (applyBulkResponsePagination via responsePagination),
-    // not a per-tool applyCallHierarchyOutputLimit layer. The integration-level
-    // cursor behavior is covered by structuredPagination.coverage.test.ts.
-    // This test verifies the tool handles large inputs without error.
     it('should handle large LSP result without error', async () => {
       const largeCalls = createLargeIncomingCalls(100);
       mockLSPClient.getIncomingCalls.mockResolvedValue(largeCalls);
@@ -294,7 +279,6 @@ describe('lspCallHierarchy output size limits', () => {
     });
 
     it('should NOT add outputPagination when output is small', async () => {
-      // Small output: just 1 caller with minimal content
       mockLSPClient.getIncomingCalls.mockResolvedValue([
         {
           from: {
@@ -365,9 +349,6 @@ describe('lspCallHierarchy output size limits', () => {
         ],
       });
 
-      // Char-pagination via charLength is accepted and the tool responds without error.
-      // The cursor behavior (outputPagination) is tested in the unit-level
-      // structuredPagination tests which run against the engine directly.
       expect(result.isError).toBeFalsy();
       expect(result.content[0]!.text.length).toBeGreaterThan(50);
     });
@@ -442,9 +423,6 @@ describe('lspCallHierarchy output size limits', () => {
     });
 
     it('returns a clear empty result when no language server is available', async () => {
-      // No text/pattern fallback: when the LSP is unavailable the tool returns
-      // an empty result routing the caller to localSearchCode, rather than a
-      // regex-derived call graph.
       (managerModule.isLanguageServerAvailable as Mock).mockResolvedValue(
         false
       );
@@ -504,10 +482,8 @@ describe('lspCallHierarchy output size limits', () => {
     });
 
     it('should NOT apply output limit when LSP returns null and pattern matching has empty results', async () => {
-      // Make LSP return null (prepareCallHierarchy returns null)
       (managerModule.acquirePooledClient as Mock).mockResolvedValue(null);
 
-      // Pattern matching fallback: mock rg as unavailable, grep returns no matches
       (checkCommandAvailability as Mock).mockResolvedValue({
         available: false,
       });
@@ -566,7 +542,6 @@ describe('lspCallHierarchy output size limits', () => {
 
       expect(firstResult.status).toBe('empty');
       expect(firstResult.errorCode).toBe('LSP_EMPTY');
-      // No text/pattern fallback graph, no target item to strip.
       expect(firstResult.outgoingCalls).toBeUndefined();
       expect(firstResult.outputPagination).toBeUndefined();
     });
@@ -642,9 +617,6 @@ describe('lspCallHierarchy output size limits', () => {
         ],
       });
 
-      // Large outgoing call hierarchy: tool responds without error.
-      // Auto-capping is owned by the unified bulk engine; cursor behavior
-      // is tested in tests/utils/structuredPagination.coverage.test.ts.
       expect(result.isError).toBeFalsy();
       expect(result.content[0]!.text.length).toBeGreaterThan(50);
     });

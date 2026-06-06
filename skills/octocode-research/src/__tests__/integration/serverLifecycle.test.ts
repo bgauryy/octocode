@@ -1,15 +1,3 @@
-/**
- * Integration test: server lifecycle (startup, PID file, shutdown).
- *
- * All external calls (network, process spawning, fs) are mocked.
- * Tests verify:
- * 1. Server creates PID file on startup
- * 2. Health endpoint reports ok after initialization
- * 3. PID file is removed on graceful shutdown
- * 4. server-init detects an already-running server (fast path)
- * 5. server-init starts server when not running, waits for health
- */
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -17,7 +5,6 @@ import request from 'supertest';
 import { join } from 'path';
 import { homedir } from 'os';
 
-// ── Mocks (hoisted before any imports) ──────────────────────────────────────
 
 vi.mock('../../mcpCache.js', () => ({
   getMcpContent: vi.fn().mockReturnValue({
@@ -107,7 +94,6 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-// ── Tests ───────────────────────────────────────────────────────────────────
 
 import { createServer } from '../../server.js';
 
@@ -159,8 +145,7 @@ describe('Server Lifecycle', () => {
         }) as any
       );
 
-      // startServer creates its own app internally, so we test writePidFile via
-      // the PID_FILE export and fs mock instead
+
       const OCTOCODE_DIR = process.env.OCTOCODE_HOME || join(homedir(), '.octocode');
       const expectedPidFile = PID_FILE;
 
@@ -188,7 +173,6 @@ describe('Server Lifecycle', () => {
       globalThis.fetch = mockFetch as any;
 
       try {
-        // Simulate checkHealth logic from server-init.ts
         const response = await globalThis.fetch('http://localhost:1987/health', {
           signal: AbortSignal.timeout(5000),
         });
@@ -218,7 +202,6 @@ describe('Server Lifecycle', () => {
       globalThis.fetch = mockFetch as any;
 
       try {
-        // Simulate waitForReady polling logic
         let ready = false;
         for (let i = 0; i < 5 && !ready; i++) {
           try {
@@ -228,8 +211,8 @@ describe('Server Lifecycle', () => {
             const body = await (res as any).json();
             if (body.status === 'ok') ready = true;
           } catch {
-            // retry
-          }
+    void 0;
+  }
         }
 
         expect(ready).toBe(true);
@@ -268,8 +251,8 @@ describe('Server Lifecycle', () => {
             const body = await (res as any).json();
             if (body.status === 'ok') ready = true;
           } catch {
-            // retry
-          }
+    void 0;
+  }
         }
 
         expect(ready).toBe(true);

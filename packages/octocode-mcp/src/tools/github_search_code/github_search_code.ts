@@ -6,11 +6,6 @@ import {
 import { searchMultipleGitHubCode } from './execution.js';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
-// Tool description lives in a single canonical place — the host resource
-// `octocode-mcp-host/src/octocode/resources/tools/githubSearchCode.ts` —
-// and is pulled through DESCRIPTIONS at registration time. Empty-result
-// pivot hints live in `./hints.ts:empty`; non-canonical-path and pagination
-// warnings live in `./hints.ts:hasResults`.
 export const registerGitHubSearchCodeTool = createRemoteToolRegistration({
   name: TOOL_NAMES.GITHUB_SEARCH_CODE,
   title: 'GitHub Code Search',

@@ -116,8 +116,6 @@ describe('LSPCallHierarchyQuerySchema depth bound', () => {
       ...base,
       depth: LOCAL_OVERLAY_MAX_DEPTH,
     });
-    // Result may still fail validation on other required fields; what we
-    // assert is that depth is NOT the offender.
     if (!result.success) {
       const paths = result.error.issues.map(i => i.path.join('.'));
       expect(paths).not.toContain('depth');

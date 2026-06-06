@@ -921,7 +921,6 @@ export function detectMessageChains(fileSummaries: FileEntry[]): FindingDraft[] 
   const findings: FindingDraft[] = [];
   for (const entry of fileSummaries) {
     if (!entry.messageChains || entry.messageChains.length === 0) continue;
-    // Group by line start — take the deepest chain at each location
     const byLine = new Map<number, typeof entry.messageChains[0]>();
     for (const chain of entry.messageChains) {
       const existing = byLine.get(chain.lineStart);

@@ -40,7 +40,6 @@ describe('spawn env and memory hardening', () => {
 
     expect(env.PATH).toBe('/usr/bin');
     expect(env.HOME).toBe('/Users/test');
-    // SECRET_TOKEN is not in allowlist, so not inherited from process.env
     expect(env.SECRET_TOKEN).toBeUndefined();
   });
 
@@ -52,11 +51,8 @@ describe('spawn env and memory hardening', () => {
       ['PATH'] as const
     );
 
-    // PATH is both allowlisted AND overridden — override wins
     expect(env.PATH).toBe('/custom/path');
-    // GIT_TERMINAL_PROMPT is NOT in allowlist — override is filtered out
     expect(env.GIT_TERMINAL_PROMPT).toBeUndefined();
-    // CUSTOM_FLAG is NOT in allowlist — override is filtered out
     expect(env.CUSTOM_FLAG).toBeUndefined();
   });
 
@@ -202,46 +198,35 @@ describe('spawn utilities - validateArgs', () => {
     });
 
     it('should validate all arguments in array', () => {
-      // First arg has null byte
       expect(validateArgs(['has\0null', 'valid', 'valid']).valid).toBe(false);
 
-      // Last arg has null byte
       expect(validateArgs(['valid', 'valid', 'has\0null']).valid).toBe(false);
 
-      // Middle arg has null byte
       expect(validateArgs(['valid', 'has\0null', 'valid']).valid).toBe(false);
     });
 
     it('should validate length of all arguments in array', () => {
       const longArg = 'a'.repeat(1001);
 
-      // First arg too long
       expect(validateArgs([longArg, 'short', 'short']).valid).toBe(false);
 
-      // Last arg too long
       expect(validateArgs(['short', 'short', longArg]).valid).toBe(false);
 
-      // Middle arg too long
       expect(validateArgs(['short', longArg, 'short']).valid).toBe(false);
     });
 
     it('should handle unicode characters correctly', () => {
-      // Unicode characters should be allowed
       const result = validateArgs(['こんにちは', '你好', '🎉']);
 
       expect(result.valid).toBe(true);
     });
 
     it('should count length by JavaScript string length (code units)', () => {
-      // '🎉' is represented as 2 code units in JavaScript (surrogate pair)
-      // So 500 emoji = 1000 code units = at max length
       const unicodeArg = '🎉'.repeat(500);
       const result = validateArgs([unicodeArg]);
 
-      // Note: '🎉'.length === 2 in JavaScript (surrogate pair)
       expect(result.valid).toBe(true);
 
-      // 501 emoji = 1002 code units = over max length
       const tooLong = '🎉'.repeat(501);
       expect(validateArgs([tooLong]).valid).toBe(false);
     });
@@ -278,11 +263,9 @@ describe('spawn utilities - validateArgs', () => {
     });
 
     it('should check null bytes before length', () => {
-      // Argument with null byte AND too long
       const longWithNull = 'a'.repeat(1001) + '\0';
       const result = validateArgs([longWithNull]);
 
-      // Should fail on null byte check first (iterated first in loop)
       expect(result.valid).toBe(false);
       expect(result.error).toContain('Null bytes');
     });
@@ -295,7 +278,6 @@ describe('spawn utilities - validateArgs', () => {
     });
 
     it('should handle custom max length of 0', () => {
-      // Zero max length means only empty strings are allowed
       expect(validateArgs([''], 0).valid).toBe(true);
       expect(validateArgs(['a'], 0).valid).toBe(false);
     });

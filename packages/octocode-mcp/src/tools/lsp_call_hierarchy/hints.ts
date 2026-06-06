@@ -1,26 +1,7 @@
-/**
- * Response-state hints for lspCallHierarchy.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- *
- * @module tools/lsp_call_hierarchy/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
-  empty: (ctx: HintContext = {}) => {
-    const symbolName = ctx.symbolName;
-    if (symbolName) {
-      return [
-        `No call hierarchy found for '${symbolName}'.`,
-        'If no language server is available, use `localSearchCode` with ' +
-          `\`pattern: "${symbolName}("\` to find call sites textually, then read each file with \`localGetFileContent\`.`,
-        'Verify `lineHint` is on the function definition line — use `localSearchCode` to find the exact line first.',
-      ];
-    }
-    return [];
-  },
+  empty: (_ctx: HintContext = {}) => [],
 
   error: (ctx: HintContext = {}) => {
     const { depth, errorType, symbolName } = ctx;

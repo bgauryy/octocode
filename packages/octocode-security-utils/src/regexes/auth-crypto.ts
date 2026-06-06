@@ -56,9 +56,6 @@ export const authPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // --- New Auth Patterns ---
-
-  // Auth0 Client Secret
   {
     name: 'auth0ClientSecret',
     description: 'Auth0 client secret',
@@ -66,7 +63,6 @@ export const authPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:AUTH0|auth0)_?(?:CLIENT|client)?_?(?:SECRET|secret)['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9_-]{32,64}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Auth0 Management API Token
   {
     name: 'auth0ManagementToken',
     description: 'Auth0 Management API token',
@@ -74,7 +70,6 @@ export const authPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:AUTH0|auth0)_?(?:MANAGEMENT|management|MGMT)?_?(?:API)?_?(?:TOKEN|token)['"]?\s*(?::|=>|=)\s*['"]?eyJ[a-zA-Z0-9_-]{50,}['"]?\b/gi,
     matchAccuracy: 'high',
   },
-  // Supertokens API Key
   {
     name: 'supertokensApiKey',
     description: 'SuperTokens API key',
@@ -82,7 +77,6 @@ export const authPatterns: SensitiveDataPattern[] = [
       /\b['"]?(?:SUPERTOKENS|supertokens)_?(?:API|api)?_?(?:KEY|key)['"]?\s*(?::|=>|=)\s*['"]?[a-zA-Z0-9_-]{30,}['"]?\b/gi,
     matchAccuracy: 'medium',
   },
-  // Basic Auth header (base64-encoded credentials)
   {
     name: 'basicAuthHeader',
     description: 'Basic authentication header with credentials',
@@ -92,14 +86,12 @@ export const authPatterns: SensitiveDataPattern[] = [
 ];
 
 export const codeConfigPatterns: SensitiveDataPattern[] = [
-  // Application Secrets
   {
     name: 'jwtSecrets',
     description: 'JWT secrets',
     regex: /\bjwt[_-]?secret\s*[:=]\s*['"][^'"]{16,}['"]\b/gi,
     matchAccuracy: 'high',
   },
-  // Infrastructure & Deployment
   {
     name: 'kubernetesSecrets',
     description: 'Kubernetes secrets in YAML',
@@ -117,7 +109,6 @@ export const codeConfigPatterns: SensitiveDataPattern[] = [
     fileContext: /docker-compose\.ya?ml$/i,
   },
 
-  // Application Configuration
   {
     name: 'springBootSecrets',
     description: 'Spring Boot application secrets',
@@ -135,7 +126,6 @@ export const codeConfigPatterns: SensitiveDataPattern[] = [
     fileContext: /(?:appsettings|web\.config).*\.(?:json|config)$/i,
   },
 
-  // Generic High-Value Patterns
   {
     name: 'base64EncodedSecrets',
     description: 'Base64 encoded secrets in config',
@@ -146,7 +136,6 @@ export const codeConfigPatterns: SensitiveDataPattern[] = [
 ];
 
 export const cryptographicPatterns: SensitiveDataPattern[] = [
-  // Private Keys (PEM Format)
   {
     name: 'rsaPrivateKey',
     description: 'RSA private key',
@@ -176,7 +165,6 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // SSH Keys
   {
     name: 'opensshPrivateKey',
     description: 'OpenSSH private key',
@@ -197,7 +185,6 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
     regex: /\bPuTTY-User-Key-File-[23]:\s*[\s\S]*?Private-MAC:\b/g,
     matchAccuracy: 'high',
   },
-  // PGP Keys
   {
     name: 'pgpPrivateKey',
     description: 'PGP private key block',
@@ -205,7 +192,6 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
       /\b-----BEGIN PGP PRIVATE KEY BLOCK-----\s*[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----\b/g,
     matchAccuracy: 'high',
   },
-  // Service-Specific Keys
   {
     name: 'firebaseServiceAccountPrivateKey',
     description: 'Firebase service account private key (JSON format)',
@@ -220,7 +206,6 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Cryptographic Parameters
   {
     name: 'dhParameters',
     description: 'Diffie-Hellman parameters',
@@ -229,14 +214,12 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Modern Encryption Tools
   {
     name: 'ageSecretKey',
     description: 'Age encryption secret key',
     regex: /\bAGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}\b/g,
     matchAccuracy: 'high',
   },
-  // Vault & Secrets Management
   {
     name: 'vaultBatchToken',
     description: 'HashiCorp Vault batch token',
@@ -256,7 +239,6 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
 
-  // Generic Cryptographic Patterns
   {
     name: 'base64PrivateKeyContent',
     description: 'Base64 encoded private key content',
@@ -273,7 +255,6 @@ export const cryptographicPatterns: SensitiveDataPattern[] = [
 ];
 
 export const privateKeyPatterns: SensitiveDataPattern[] = [
-  // Private Key Detection - \s+ allows any whitespace between words (including multiple spaces)
   {
     name: 'privateKeyPem',
     description: 'Private key in PEM format (all key types)',
@@ -291,14 +272,12 @@ export const privateKeyPatterns: SensitiveDataPattern[] = [
 ];
 
 export const genericSecretPatterns: SensitiveDataPattern[] = [
-  // URL-based Detection
   {
     name: 'credentialsInUrl',
     description: 'Credentials embedded in URL',
     regex: /\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{3,20}:[^\\/\s:@]{3,20}@[^\s'"]+\b/g,
     matchAccuracy: 'high',
   },
-  // Generic environment variable secrets
   {
     name: 'envVarSecrets',
     description: 'Environment variable secrets (KEY, SECRET, TOKEN, PASSWORD)',

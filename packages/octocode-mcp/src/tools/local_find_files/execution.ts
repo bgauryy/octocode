@@ -23,7 +23,6 @@ import {
   records,
 } from '../evidence.js';
 
-// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyFindFilesVerbosity } from './findFiles.js';
 
 export function buildFindFilesEvidence(result: unknown): EvidenceMetadata {
@@ -46,11 +45,6 @@ export function buildFindFilesEvidence(result: unknown): EvidenceMetadata {
   });
 }
 
-/**
- * Execute bulk find files operation.
- * Wraps findFiles with bulk operation handling for multiple queries.
- * Validates each query individually so one invalid query doesn't block the batch.
- */
 export async function executeFindFiles(
   args: ToolExecutionArgs<FindFilesQuery>
 ): Promise<CallToolResult> {

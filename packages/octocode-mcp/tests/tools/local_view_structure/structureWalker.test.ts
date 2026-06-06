@@ -16,8 +16,6 @@ describe('walkDirectory - WalkStats error tracking', () => {
   });
 
   it('should increment stats.skipped on lstat error', async () => {
-    // Create a file, then make lstat fail by removing read permission on parent
-    // Simpler: mock fs.promises.lstat to fail for a specific path
     await fs.promises.writeFile(path.join(tmpDir, 'good.txt'), 'hello');
     await fs.promises.writeFile(path.join(tmpDir, 'bad.txt'), 'world');
 
@@ -79,7 +77,6 @@ describe('walkDirectory - WalkStats error tracking', () => {
       stats,
     });
 
-    // Root-level errors are captured in rootError, not counted as skipped entries
     expect(stats.rootError).toBeDefined();
     expect(stats.skipped).toBe(0);
     expect(entries.length).toBe(0);
@@ -98,7 +95,6 @@ describe('walkDirectory - WalkStats error tracking', () => {
     const entries: DirectoryEntry[] = [];
     const stats: WalkStats = { skipped: 0, permissionDenied: 0 };
 
-    // Call with depth=1, maxDepth=1 - should return immediately without reading subdir
     await walkDirectory({
       basePath: tmpDir,
       currentPath: path.join(tmpDir, 'subdir'),
@@ -111,7 +107,6 @@ describe('walkDirectory - WalkStats error tracking', () => {
       stats,
     });
 
-    // When depth >= maxDepth, we return before readdir - so subdir's contents are never read
     expect(entries.length).toBe(0);
     readdirSpy.mockRestore();
   });

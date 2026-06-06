@@ -1,7 +1,3 @@
-/**
- * Tests for cache ECACHEFULL handling and stale pending request cleanup.
- * Uses a hoisted mock of node-cache to simulate cache-full errors.
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockCacheGet = vi.fn();

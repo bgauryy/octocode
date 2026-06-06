@@ -1,11 +1,3 @@
-/**
- * GitHub Repository Structure
- *
- * Extracted from GitHubProvider for better modularity.
- *
- * @module providers/github/githubStructure
- */
-
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
   ProviderResponse,
@@ -30,9 +22,6 @@ import {
 } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
 
-/**
- * Transform GitHub repository structure result to unified format.
- */
 export function transformRepoStructureResult(
   data: GitHubRepositoryStructureResult
 ): RepoStructureResult {
@@ -54,9 +43,6 @@ export function transformRepoStructureResult(
   };
 }
 
-/**
- * Get repository structure from GitHub.
- */
 export async function getRepoStructure(
   query: RepoStructureQuery,
   authInfo?: AuthInfo,

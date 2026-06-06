@@ -1,11 +1,3 @@
-/**
- * #4 — minifier consolidation guard.
- *
- * After the basic=verbatim fix (#1), minification is owned solely by the
- * concise verbosity finalizers, both using the sync `applyMinification`
- * wrapper. That wrapper must live in the shared `utils/minifier/` module — NOT
- * under one tool's directory where another tool reaches across to import it.
- */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +11,6 @@ describe('minifier consolidation (#4)', () => {
   it('applyMinification is exported from the shared minifier util', async () => {
     const mod = await import('../../src/utils/minifier/applyMinification.js');
     expect(typeof mod.applyMinification).toBe('function');
-    // Behaviour preserved: returns minified only when smaller, else original.
     expect(mod.applyMinification('x', 'f.txt')).toBe('x');
   });
 

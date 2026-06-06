@@ -9,7 +9,6 @@ import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view
 import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/register.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
-// Mock dependencies
 vi.mock('../../src/github/codeSearch.js', () => ({
   searchGitHubCodeAPI: vi.fn().mockResolvedValue({
     data: { items: [], repository: { name: 'test-repo' } },

@@ -76,7 +76,7 @@ function createShutdownHandler(
       try {
         await server.close();
       } catch {
-        // server.close() may throw if already closed; shutdown still proceeds to exit.
+        void 0;
       }
 
       if (state.timeout) {
@@ -86,7 +86,6 @@ function createShutdownHandler(
 
       process.exit(0);
     } catch {
-      // Graceful shutdown failed; still clear timeout and exit with error.
       if (state.timeout) {
         clearTimeout(state.timeout);
         state.timeout = null;
@@ -145,9 +144,6 @@ export async function registerAllTools(
     }
   }
 
-  // Dynamic import: defers all tool schema construction until AFTER metadata
-  // is loaded. Zod .describe() captures strings eagerly at call time, so
-  // schema modules must be evaluated after the metadata singleton is set.
   const { registerTools } = await import('./tools/toolsManager.js');
   const { successCount, failedTools, failedToolErrors } =
     await registerTools(server);
@@ -168,8 +164,6 @@ export async function registerAllTools(
   }
 }
 
-// Server Initialization
-
 async function createServer(content: CompleteMetadata): Promise<McpServer> {
   const capabilities: {
     tools: { listChanged: boolean };
@@ -179,9 +173,6 @@ async function createServer(content: CompleteMetadata): Promise<McpServer> {
     logging: {},
   };
 
-  // Server-level instructions are the upstream content alone. No static
-  // priming block — the single hint flow is dynamic per response (empty /
-  // error / pagination cursor). See `tests/tools/unified-hint-flow.contract`.
   return new McpServer(SERVER_CONFIG, {
     capabilities,
     instructions: content.instructions,
@@ -192,12 +183,9 @@ async function startServer() {
   const shutdownState: ShutdownState = { inProgress: false, timeout: null };
   let logger: Logger | null = null;
 
-  // Lazy getter: shutdown/error handlers always get the current logger
-  // (null before connect, valid after connect, works during the server lifetime)
   const getLogger = () => logger;
 
   try {
-    // Phase 1: Initialize configuration & providers
     await initialize();
     configureSecurity({
       logToolCall,
@@ -210,12 +198,9 @@ async function startServer() {
     const content = await loadToolContent();
     const session = initializeSession();
 
-    // Phase 2: Create server, register tools (pre-connect)
     const server = await createServer(content);
     await registerAllTools(server, content);
 
-    // Phase 3: Setup shutdown/crash handlers BEFORE connect
-    // Uses lazy getLogger() so handlers work both with and without a logger
     const gracefulShutdown = createShutdownHandler(
       server,
       getLogger,
@@ -223,11 +208,9 @@ async function startServer() {
     );
     setupProcessHandlers(gracefulShutdown, getLogger);
 
-    // Phase 4: Connect transport — server is now live on stdio
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    // Phase 5: Logger works NOW (transport connected, isConnected() = true)
     logger = createLogger(server, 'server');
 
     await logger.info('Server ready', {
@@ -236,12 +219,10 @@ async function startServer() {
       provider: getActiveProvider(),
     });
 
-    // Start periodic cache GC when clone support is enabled
     if (isCloneEnabled()) {
       startCacheGC(getOctocodeDir());
     }
 
-    // Background session logging
     logSessionInit().catch(() => {
       /* Background session init log failure is non-fatal */
     });
@@ -251,8 +232,6 @@ async function startServer() {
     process.exit(1);
   }
 }
-
-// Entry Point
 
 startServer().catch((error: unknown) => {
   const message =

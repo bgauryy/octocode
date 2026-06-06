@@ -146,7 +146,7 @@ describe('Repository Search - Pagination', () => {
 
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalPages
-      ).toBe(10); // 95/10 = 9.5, ceil = 10, but capped at 10
+      ).toBe(10);
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalMatches
       ).toBe(95);
@@ -169,13 +169,12 @@ describe('Repository Search - Pagination', () => {
         page: 1,
       });
 
-      // 5000 results, but GitHub caps at 1000, so 1000/100 = 10 pages max
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalPages
       ).toBe(10);
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalMatches
-      ).toBe(1000); // Capped at 1000
+      ).toBe(1000);
     });
 
     it('should set hasMore=true when more pages exist', async () => {
@@ -266,21 +265,18 @@ describe('Repository Search - Pagination', () => {
         >
       );
 
-      // First call - page 1
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         limit: 10,
         page: 1,
       });
 
-      // Second call - page 2
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         limit: 10,
         page: 2,
       });
 
-      // Both pages should trigger API calls (different cache keys)
       expect(searchReposMock).toHaveBeenCalledTimes(2);
     });
 
@@ -295,21 +291,18 @@ describe('Repository Search - Pagination', () => {
         >
       );
 
-      // First call
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         limit: 10,
         page: 1,
       });
 
-      // Second call with same params
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         limit: 10,
         page: 1,
       });
 
-      // Should only call API once (second is cached)
       expect(searchReposMock).toHaveBeenCalledTimes(1);
     });
 
@@ -324,7 +317,6 @@ describe('Repository Search - Pagination', () => {
         >
       );
 
-      // First call with context
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         limit: 10,
@@ -334,7 +326,6 @@ describe('Repository Search - Pagination', () => {
         reasoning: 'Reason 1',
       });
 
-      // Second call with different context
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
         limit: 10,
@@ -344,7 +335,6 @@ describe('Repository Search - Pagination', () => {
         reasoning: 'Different Reason',
       });
 
-      // Should only call API once (context fields don't affect cache)
       expect(searchReposMock).toHaveBeenCalledTimes(1);
     });
   });
@@ -442,13 +432,13 @@ describe('Repository Search - Pagination', () => {
 
       await searchGitHubReposAPI({
         keywordsToSearch: ['react'],
-        limit: 150, // Request more than allowed
+        limit: 150,
         page: 1,
       });
 
       expect(searchReposMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          per_page: 100, // Should be capped at 100
+          per_page: 100,
         })
       );
     });
@@ -500,7 +490,6 @@ describe('Repository Search - Pagination', () => {
         sort: 'best-match',
       });
 
-      // best-match should not pass sort param
       expect(searchReposMock).toHaveBeenCalledWith(
         expect.not.objectContaining({
           sort: expect.anything(),

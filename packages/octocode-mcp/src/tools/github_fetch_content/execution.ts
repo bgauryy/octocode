@@ -32,7 +32,6 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
-// Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyGithubFetchContentVerbosity } from './finalizer.js';
 
 export async function fetchMultipleGitHubFileContents(
@@ -45,10 +44,6 @@ export async function fetchMultipleGitHubFileContents(
     queries,
     async (query: PartialFileContentQuery, _index: number) => {
       try {
-        // Per-query extraction-mode mutex. The bulk envelope is relaxed (so one
-        // malformed query never rejects the whole batch at MCP validation);
-        // enforce the fullContent/matchString/lineRange mutex here instead so a
-        // bad query errors on its own while valid siblings still run.
         const validated = FileContentQueryLocalSchema.safeParse(query);
         if (!validated.success) {
           const messages = validated.error.issues
@@ -180,9 +175,6 @@ async function handleFileFetch(
     TOOL_NAMES.GITHUB_FETCH_CONTENT,
     {
       rawResponse: providerResult.response.rawResponseChars,
-      // Path drives the non-canonical (examples/__tests__/docs/fixtures)
-      // warning in hints.hasResults. isPartial/endLine keep continuation
-      // hints working alongside.
       hintContext: {
         path: query.path,
         branch: query.branch,

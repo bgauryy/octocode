@@ -44,8 +44,6 @@ vi.mock('@octocodeai/octocode-core', () => ({
   completeMetadata: minimalCompleteMetadata,
 }));
 
-// Execution shims for ripgrep/find/view import schemas from the local overlay;
-// stub it so this flow test does not pull in zod at all.
 vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   RipgrepQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),

@@ -3,8 +3,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 
-// Mock toolConfig with ALL_TOOLS containing only local tools for this test
-// The fn functions call server.registerTool to simulate real registration
 type MockServer = {
   registerTool: (name: string, options: unknown, handler: unknown) => unknown;
 };
@@ -94,7 +92,6 @@ vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(),
 }));
 
-// Mock local tool implementations
 vi.mock('../../src/tools/local_ripgrep/register.js', () => ({
   searchContentRipgrep: vi.fn().mockResolvedValue({ status: 'hasResults' }),
 }));
@@ -123,7 +120,6 @@ describe('Local Tools Registration (TDD)', () => {
     registeredTools = new Map();
     process.stderr.write = vi.fn();
 
-    // Create mock server that tracks registered tools
     mockServer = {
       registerTool: vi.fn(
         (name: string, options: unknown, handler: unknown) => {
@@ -193,7 +189,6 @@ describe('Local Tools Registration (TDD)', () => {
   it('should register tools with valid inputSchema', async () => {
     await registerTools(mockServer);
 
-    // Check that each tool has a valid schema
     for (const [name, value] of registeredTools.entries()) {
       const { options } = value as { options: unknown; handler: unknown };
       const opts = options as { inputSchema?: unknown };

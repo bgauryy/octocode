@@ -59,7 +59,6 @@ export function buildEntryPaginationHints(
   },
   endIdx: number
 ): string[] {
-  // Strict policy: only emit a hint when more pages exist.
   if (!pagination.hasMore) return [];
 
   const nextPagePreview = entries

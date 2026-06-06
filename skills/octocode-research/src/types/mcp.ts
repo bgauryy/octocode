@@ -1,7 +1,3 @@
-/**
- * MCP Protocol utilities for /tools endpoints
- */
-
 interface JsonSchemaProperty {
   type: string;
   description?: string;
@@ -26,10 +22,7 @@ interface JsonSchema {
   additionalProperties?: boolean;
 }
 
-/**
- * Transform description-based schema to JSON Schema format.
- * Fallback transformer when full JSON schemas are not available.
- */
+
 export function transformToJsonSchema(
   schemaDescriptions: Record<string, string>,
   toolName: string

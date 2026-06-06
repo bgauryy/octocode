@@ -3,13 +3,6 @@ import { transformCodeSearchResult } from '../../../src/providers/github/githubS
 import { buildPaginationHints } from '../../../src/tools/providerMappers.js';
 import type { OptimizedCodeSearchResult } from '@octocodeai/octocode-core/extra-types';
 
-/**
- * Code search lost its real page size in the transform: unlike
- * transformRepoSearchResult, the code transform never carried the API's
- * `perPage` into `entriesPerPage`, so buildPaginationHints fell back to the
- * hardcoded `|| 10` and emitted "showing 1-10" regardless of the caller's
- * itemsPerPage. Repos was correct; code was not. This pins the symmetry.
- */
 describe('transformCodeSearchResult — pagination page size', () => {
   const makeData = (perPage: number): OptimizedCodeSearchResult =>
     ({
@@ -47,7 +40,6 @@ describe('transformCodeSearchResult — pagination page size', () => {
       result.pagination as Parameters<typeof buildPaginationHints>[0],
       'matches'
     );
-    // perPage=4 → first page shows items 1-4, not 1-10.
     expect(hints[0]).toContain('showing 1-4 of 179 matches');
   });
 });

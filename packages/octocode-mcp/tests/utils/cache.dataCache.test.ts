@@ -41,20 +41,16 @@ describe('withDataCache typed data cache', () => {
     };
     const key = generateCacheKey('gh-api-code', { mode: 'options' });
 
-    // skipCache: always executes operation
     await withDataCache(key, op, { skipCache: true });
     await withDataCache(key, op, { skipCache: true });
     expect(calls).toBe(2);
 
-    // Normal call caches
     await withDataCache(key, op);
     expect(calls).toBe(3);
 
-    // Cached hit does not execute
     await withDataCache(key, op);
     expect(calls).toBe(3);
 
-    // forceRefresh executes and overwrites cache
     await withDataCache(key, op, { forceRefresh: true });
     expect(calls).toBe(4);
   });
@@ -93,7 +89,6 @@ describe('withDataCache typed data cache', () => {
       return { result: calls };
     };
 
-    // Use a key that doesn't match any known prefix pattern
     const key = 'unusual-key-without-prefix';
 
     const r1 = await withDataCache(key, op);
@@ -110,7 +105,6 @@ describe('withDataCache typed data cache', () => {
       return { data: 'test' };
     };
 
-    // Use a key with a known prefix format (v1-gh-api-code:...)
     const key = generateCacheKey('gh-api-code', { test: 'ttl-prefix' });
 
     const r1 = await withDataCache(key, op);

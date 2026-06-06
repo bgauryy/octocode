@@ -21,7 +21,6 @@ export function errorHandler(
   const statusCode = error.statusCode ?? 500;
   const isValidationError = statusCode === 400;
 
-  // Log with appropriate level - now persisted to ~/.octocode/logs/errors.log
   if (isValidationError) {
     logWarn(`[VALIDATION] ${req.method} ${req.path}: ${error.message}`, {
       path: req.path,
@@ -32,7 +31,6 @@ export function errorHandler(
     logError(`[SERVER] ${req.method} ${req.path}: ${error.message}`, error);
   }
 
-  // Log error to session telemetry
   const toolName = extractToolName(req.path);
   const errorCode = error.code ?? (isValidationError ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR');
   fireAndForgetWithTimeout(
@@ -56,7 +54,6 @@ export function errorHandler(
     },
   };
 
-  // Include validation details for 400 errors
   if (isValidationError && error.details) {
     response.error.details = error.details;
   }

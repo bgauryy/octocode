@@ -683,10 +683,6 @@ describe('Skills Config', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// getSkillsDirForTarget — all target paths
-// ---------------------------------------------------------------------------
-
 describe('getSkillsDirForTarget — all targets', () => {
   it('returns defaultDestDir for claude-code', () => {
     const result = getSkillsDirForTarget('claude-code', '/custom/dest');
@@ -721,10 +717,6 @@ describe('getSkillsDirForTarget — all targets', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// installSkillToDestination — uncovered branches
-// ---------------------------------------------------------------------------
-
 describe('installSkillToDestination', () => {
   beforeEach(() => {
     vi.mocked(existsSync).mockReset();
@@ -737,7 +729,6 @@ describe('installSkillToDestination', () => {
 
   it('creates parent dir when it does not exist then copies (copy mode)', () => {
     vi.mocked(existsSync).mockReturnValue(false);
-    // source exists, but destination parent does NOT → mkdirSync should be called
     vi.mocked(dirExists).mockImplementation(
       (p: string) => p === '/src/my-skill'
     );
@@ -759,7 +750,6 @@ describe('installSkillToDestination', () => {
 
   it('installs via symlink when mode is symlink', () => {
     vi.mocked(existsSync).mockReturnValue(false);
-    // source and parent dir both exist → no mkdirSync, installs via symlink
     vi.mocked(dirExists).mockReturnValue(true);
 
     const result = installSkillToDestination({

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Create hoisted mocks
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockHandleGitHubAPIError = vi.hoisted(() => vi.fn());
 const mockBuildPullRequestSearchQuery = vi.hoisted(() => vi.fn());
@@ -12,7 +11,6 @@ const mockContentSanitizer = vi.hoisted(() => ({
 }));
 const mockLogSessionError = vi.hoisted(() => vi.fn());
 
-// Set up mocks
 vi.mock('../../src/session.js', () => ({
   logSessionError: mockLogSessionError,
 }));
@@ -24,7 +22,6 @@ vi.mock('../../src/github/client.js', () => ({
 
 vi.mock('../../src/github/errors.js', () => ({
   handleGitHubAPIError: mockHandleGitHubAPIError,
-  // Default: not a no-results error, so existing error-path assertions hold.
   isNoResultsSearchError: vi.fn(() => false),
 }));
 
@@ -42,14 +39,12 @@ vi.mock('octocode-security-utils/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
-// Import after mocks are set up
 import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch.js';
 import { fetchGitHubPullRequestByNumberAPI } from '../../src/github/prByNumber.js';
 import { transformPullRequestItemFromREST } from '../../src/github/prContentFetcher.js';
 import type { PullRequestSimple } from '../../src/github/githubAPI.js';
 import { countSerializedChars } from '../../src/utils/response/charSavings.js';
 
-// Type for mock PR items in tests - allows partial data
 type MockPRItem = Partial<PullRequestSimple>;
 
 describe('Pull Request Search', () => {
@@ -70,7 +65,6 @@ describe('Pull Request Search', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Setup default mock Octokit instance
     mockOctokit = {
       rest: {
         search: { issuesAndPullRequests: vi.fn() },
@@ -86,7 +80,6 @@ describe('Pull Request Search', () => {
     };
     mockGetOctokit.mockResolvedValue(mockOctokit);
 
-    // Setup default cache behavior - execute the operation directly
     mockGenerateCacheKey.mockReturnValue('test-cache-key');
     mockWithDataCache.mockImplementation(
       async (_cacheKey: string, operation: () => Promise<unknown>) => {
@@ -94,13 +87,11 @@ describe('Pull Request Search', () => {
       }
     );
 
-    // Setup default error handler
     mockHandleGitHubAPIError.mockReturnValue({
       error: 'API Error',
       type: 'http',
     });
 
-    // Setup default content sanitizer
     mockContentSanitizer.sanitizeContent.mockImplementation(
       (content: string) => ({
         content,
@@ -108,7 +99,6 @@ describe('Pull Request Search', () => {
       })
     );
 
-    // Setup default query builder
     mockBuildPullRequestSearchQuery.mockReturnValue(
       'repo:test/test is:pr state:open'
     );
@@ -374,7 +364,6 @@ describe('Pull Request Search', () => {
       });
       mockOctokit.rest.pulls.get.mockResolvedValue({ data: {} });
 
-      // Simulate API error in listCommits
       mockOctokit.rest.pulls.listCommits = vi
         .fn()
         .mockRejectedValue(new Error('API Error'));
@@ -385,11 +374,8 @@ describe('Pull Request Search', () => {
         withCommits: true,
       });
 
-      // Should succeed but without commit_details
       expect(result.pull_requests?.[0]?.commit_details).toBeUndefined();
-      // Error should be logged now
       expect(mockLogSessionError).toHaveBeenCalled();
-      // Warning should be present (using type assertion since _sanitization_warnings may not be in PullRequestInfo type)
       const prWithWarnings = result.pull_requests?.[0] as
         | { _sanitization_warnings?: string[] }
         | undefined;
@@ -545,7 +531,6 @@ describe('Pull Request Search', () => {
         }));
 
       mockOctokit.rest.pulls.get.mockResolvedValue({ data: mockPR });
-      // Page 1 returns a full page (100) → the loop MUST fetch page 2.
       mockOctokit.rest.issues.listComments
         .mockResolvedValueOnce({ data: mkComments(1, 100) })
         .mockResolvedValueOnce({ data: mkComments(101, 30) });
@@ -557,9 +542,6 @@ describe('Pull Request Search', () => {
         withComments: true,
       });
 
-      // The fetch loop continued PAST the full first page — comments 101+ are
-      // no longer silently skipped at the API layer (the bug this guards). Any
-      // further size-bounding is the response char-paginator's job (lossless).
       expect(result.pull_requests).toHaveLength(1);
       expect(mockOctokit.rest.issues.listComments).toHaveBeenCalledTimes(2);
       expect(mockOctokit.rest.issues.listComments).toHaveBeenLastCalledWith({
@@ -625,20 +607,16 @@ describe('Pull Request Search', () => {
       });
 
       const pr = result.pull_requests[0] as Record<string, unknown>;
-      // Output shape: `comments` is the count, `comment_details` is the array.
       const comments = pr.comment_details as Array<{
         user: string;
         body: string;
       }>;
-      // Both bot comments dropped; only the human one survives.
       expect(pr.comments).toBe(1);
       expect(comments).toHaveLength(1);
       expect(comments[0]!.user).toBe('human-reviewer');
-      // Machine blobs stripped from the surviving body.
       expect(comments[0]!.body).toContain('Looks good to me');
       expect(comments[0]!.body).not.toContain('internal state');
       expect(comments[0]!.body).not.toContain('[vc]:');
-      // Non-silent: a note records what was hidden.
       const warnings = (pr._sanitization_warnings as string[]) ?? [];
       expect(warnings.some(w => w.includes('bot comment'))).toBe(true);
     });
@@ -732,9 +710,6 @@ describe('Pull Request Search', () => {
     });
 
     it('should correctly set merged status from PR details when using Search API', async () => {
-      // This test verifies the fix for the bug where merged: true filter
-      // returned PRs with merged: false because merged_at wasn't being
-      // copied from PR details to the result
       mockShouldUseSearchForPRs.mockReturnValue(true);
       mockBuildPullRequestSearchQuery.mockReturnValue(
         'repo:test/repo is:pr is:merged'
@@ -756,7 +731,6 @@ describe('Pull Request Search', () => {
             html_url: 'https://github.com/test/repo/pull/100',
             body: 'This PR was merged',
             pull_request: {},
-            // Note: Search API doesn't return merged_at
           },
         ],
       };
@@ -765,14 +739,13 @@ describe('Pull Request Search', () => {
         data: mockSearchResult,
       });
 
-      // PR details include merged_at - this is where we get the merged status
       mockOctokit.rest.pulls.get.mockResolvedValue({
         data: {
           number: 100,
           head: { ref: 'feature', sha: 'abc' },
           base: { ref: 'main', sha: 'def' },
           draft: false,
-          merged_at: '2023-01-10T00:00:00Z', // This should be copied to result
+          merged_at: '2023-01-10T00:00:00Z',
         },
       });
 
@@ -818,14 +791,13 @@ describe('Pull Request Search', () => {
         data: mockSearchResult,
       });
 
-      // PR details without merged_at - closed but not merged
       mockOctokit.rest.pulls.get.mockResolvedValue({
         data: {
           number: 101,
           head: { ref: 'feature', sha: 'abc' },
           base: { ref: 'main', sha: 'def' },
           draft: false,
-          merged_at: null, // Not merged
+          merged_at: null,
         },
       });
 
@@ -860,7 +832,6 @@ describe('Pull Request Search', () => {
             closed_at: null,
             html_url: 'https://github.com/test/repo/issues/1',
             body: 'Issue description',
-            // No pull_request field - this is an issue, not a PR
           },
           {
             number: 2,
@@ -873,7 +844,7 @@ describe('Pull Request Search', () => {
             closed_at: null,
             html_url: 'https://github.com/test/repo/pull/2',
             body: 'PR description',
-            pull_request: {}, // This is a PR
+            pull_request: {},
           },
         ],
       };
@@ -896,7 +867,6 @@ describe('Pull Request Search', () => {
         repo: 'repo',
       });
 
-      // Should only include the PR, not the issue
       expect(result.pull_requests).toHaveLength(1);
       expect(result.pull_requests?.[0]?.number).toBe(2);
     });
@@ -925,12 +895,12 @@ describe('Pull Request Search', () => {
       await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        limit: 500, // Should be capped at 100
+        limit: 500,
       });
 
       expect(mockOctokit.rest.pulls.list).toHaveBeenCalledWith(
         expect.objectContaining({
-          per_page: 100, // Capped at 100
+          per_page: 100,
         })
       );
     });
@@ -1032,7 +1002,6 @@ describe('Pull Request Search', () => {
         })
       );
 
-      // Verify the shouldCache predicate
       const cacheOptions = mockWithDataCache.mock.calls[0]?.[2] as
         | { shouldCache: (data: unknown) => boolean }
         | undefined;
@@ -1220,7 +1189,6 @@ describe('Pull Request Search', () => {
         mockOctokit
       );
 
-      // Should complete without file_changes
       expect(result.number).toBe(793);
       expect(result.file_changes).toBeUndefined();
     });
@@ -1252,7 +1220,6 @@ describe('Pull Request Search', () => {
         mockOctokit
       );
 
-      // Should complete with empty comments array
       expect(result.number).toBe(794);
       expect(result.comments).toEqual([]);
     });
@@ -1338,12 +1305,11 @@ describe('Pull Request Search', () => {
         body: 'Test body',
       };
 
-      // Mock listCommits to throw if called (or spy on it)
       mockOctokit.rest.pulls.listCommits = vi.fn();
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo' }, // withCommits undefined
+        { owner: 'test', repo: 'repo' },
         mockOctokit
       );
 
@@ -1360,11 +1326,8 @@ describe('Pull Request Search', () => {
         html_url: 'url',
       };
 
-      // Mock listCommits to return invalid data to cause a runtime error in processing
-      // This will bypass the internal try/catch in fetchPRCommitsAPI (which only catches API errors)
-      // and cause fetchPRCommitsWithFiles to throw when trying to sort/map
       mockOctokit.rest.pulls.listCommits = vi.fn().mockResolvedValue({
-        data: 'not-an-array', // This will cause .sort() or iteration to fail
+        data: 'not-an-array',
       });
 
       const result = await transformPullRequestItemFromREST(
@@ -1406,12 +1369,10 @@ describe('Pull Request Search', () => {
           sha: 'sha3',
           commit: {
             message: 'nodate',
-            author: null, // No date case
+            author: null,
           },
         },
       ];
-
-      // sha2 (new) -> sha1 (old) -> sha3 (no date = 0)
 
       mockOctokit.rest.pulls.listCommits = vi
         .fn()

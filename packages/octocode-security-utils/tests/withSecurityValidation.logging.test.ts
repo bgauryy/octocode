@@ -4,11 +4,9 @@ import {
   configureSecurity,
 } from '../src/withSecurityValidation.js';
 
-// Mock injectable deps using hoisted
 const mockLogToolCall = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mockIsLoggingEnabled = vi.hoisted(() => vi.fn(() => true));
 
-// Mock content sanitizer
 vi.mock('../src/contentSanitizer.js', () => ({
   ContentSanitizer: {
     validateInputParameters: vi.fn(() => ({
@@ -28,11 +26,10 @@ vi.mock('../src/contentSanitizer.js', () => ({
 describe('withSecurityValidation logging', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset mock to return resolved promise
+
     mockLogToolCall.mockResolvedValue(undefined);
-    // Ensure logging is enabled for all tests
     mockIsLoggingEnabled.mockReturnValue(true);
-    // Inject mocks via configureSecurity
+
     configureSecurity({
       logToolCall: mockLogToolCall,
       isLoggingEnabled: mockIsLoggingEnabled,
@@ -40,7 +37,6 @@ describe('withSecurityValidation logging', () => {
     });
   });
 
-  // Q3: reset global configureSecurity state after each test
   afterEach(() => {
     configureSecurity({
       logToolCall: undefined,
@@ -107,7 +103,6 @@ describe('withSecurityValidation logging', () => {
       ],
     };
 
-    // Mock the sanitizer to return our test args
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
     vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
       isValid: true,
@@ -141,7 +136,6 @@ describe('withSecurityValidation logging', () => {
       path: 'test/file.js',
     };
 
-    // Mock the sanitizer to return our test args
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
     vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
       isValid: true,
@@ -162,7 +156,6 @@ describe('withSecurityValidation logging', () => {
   });
 
   it('should skip logging when logging is disabled', async () => {
-    // Disable logging for this test
     mockIsLoggingEnabled.mockReturnValue(false);
 
     const mockHandler = vi.fn(async () => ({
@@ -177,7 +170,6 @@ describe('withSecurityValidation logging', () => {
       repo: 'test-repo',
     };
 
-    // Mock the sanitizer
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
     vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
       isValid: true,
@@ -188,13 +180,10 @@ describe('withSecurityValidation logging', () => {
 
     await wrappedHandler(args, { signal: new AbortController().signal });
 
-    // Verify isLoggingEnabled was called
     expect(mockIsLoggingEnabled).toHaveBeenCalled();
 
-    // Verify logToolCall was NOT called since logging is disabled
     expect(mockLogToolCall).not.toHaveBeenCalled();
 
-    // Verify the handler was still called successfully
     expect(mockHandler).toHaveBeenCalled();
   });
 
@@ -218,7 +207,6 @@ describe('withSecurityValidation logging', () => {
       ],
     };
 
-    // Mock the sanitizer to return our test args
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
     vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
       isValid: true,
@@ -257,7 +245,6 @@ describe('withSecurityValidation logging', () => {
       ],
     };
 
-    // Mock the sanitizer to return our test args
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
     vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
       isValid: true,
@@ -345,7 +332,6 @@ describe('withSecurityValidation logging', () => {
         ],
       };
 
-      // Mock the sanitizer to return our test args
       const { ContentSanitizer } = await import('../src/contentSanitizer.js');
       vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
         isValid: true,
@@ -356,10 +342,8 @@ describe('withSecurityValidation logging', () => {
 
       await wrappedHandler(args, { signal: new AbortController().signal });
 
-      // Verify logToolCall was called twice (once per query)
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
 
-      // Verify first query was logged individually
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         1,
         'test_tool',
@@ -369,7 +353,6 @@ describe('withSecurityValidation logging', () => {
         'Security audit'
       );
 
-      // Verify second query was logged individually
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         2,
         'test_tool',
@@ -416,10 +399,8 @@ describe('withSecurityValidation logging', () => {
 
       await wrappedHandler(args, { signal: new AbortController().signal });
 
-      // Verify logToolCall was called 3 times (once per query)
       expect(mockLogToolCall).toHaveBeenCalledTimes(3);
 
-      // Verify each query logged with its specific repo
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
         1,
         'test_tool',
@@ -465,7 +446,6 @@ describe('withSecurityValidation logging', () => {
           },
           {
             keywordsToSearch: ['test2'],
-            // No repo info
           },
           {
             owner: 'owner3',
@@ -485,7 +465,6 @@ describe('withSecurityValidation logging', () => {
 
       await wrappedHandler(args, { signal: new AbortController().signal });
 
-      // Every valid query should be counted, even when it has no repository fields.
       expect(mockLogToolCall).toHaveBeenCalledTimes(3);
 
       expect(mockLogToolCall).toHaveBeenNthCalledWith(
@@ -537,12 +516,10 @@ describe('withSecurityValidation logging', () => {
             owner: 'owner2',
             repo: 'repo2',
             mainResearchGoal: 'Goal 2',
-            // Missing researchGoal and reasoning
           },
           {
             owner: 'owner3',
             repo: 'repo3',
-            // Only reasoning, no goals
             reasoning: 'Reason 3',
           },
         ],
@@ -607,7 +584,6 @@ describe('withSecurityValidation logging', () => {
       ],
     };
 
-    // Mock the sanitizer to return our test args
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
     vi.mocked(ContentSanitizer.validateInputParameters).mockReturnValue({
       isValid: true,

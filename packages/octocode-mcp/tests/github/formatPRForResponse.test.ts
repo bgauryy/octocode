@@ -5,7 +5,6 @@ import type {
   DiffEntry,
 } from '../../src/github/githubAPI.js';
 
-// Helper to create mock DiffEntry objects with required properties
 const createMockDiffEntry = (
   overrides: Partial<DiffEntry> &
     Pick<

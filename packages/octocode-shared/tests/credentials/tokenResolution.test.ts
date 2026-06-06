@@ -1,8 +1,3 @@
-/**
- * TDD: tokenResolution — initTokenResolution, resetTokenResolution, resolveTokenFull,
- * and the deprecated resolveToken / resolveTokenWithRefresh wrappers.
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const ENV_VARS = ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'] as const;
@@ -286,7 +281,6 @@ describe('tokenResolution', () => {
           .mockResolvedValue({ token: null, source: 'none' }),
       });
 
-      // Even if gh-cli would work, wrapper disables it
       expect(await mod.resolveToken()).toBeNull();
     });
   });

@@ -1,16 +1,3 @@
-/**
- * Session Storage Edge Cases Tests
- *
- * Comprehensive test coverage for edge cases in session storage:
- * - File corruption scenarios
- * - Disk full / I/O error conditions
- * - Concurrent access from multiple processes
- * - Permission issues
- * - Exit handler edge cases
- * - Recovery & resilience
- * - Rate limit specific edge cases
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import {
@@ -66,7 +53,6 @@ const defaultStats = () => ({
   totalUsage: zeroTotalUsageStats(),
 });
 
-// Mock node:fs to prevent tests from touching real filesystem
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -76,7 +62,6 @@ vi.mock('node:fs', () => ({
   renameSync: vi.fn(),
 }));
 
-// Mock ensureOctocodeDir to prevent creating real directories
 vi.mock('../../src/credentials/storage.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../src/credentials/storage.js')>();
@@ -87,20 +72,16 @@ vi.mock('../../src/credentials/storage.js', async importOriginal => {
 });
 
 describe('Session Storage Edge Cases', () => {
-  // In-memory store for mocked filesystem
   let mockFileStore: Map<string, string>;
 
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
 
-    // Reset internal state (cache, timer, etc.)
     _resetSessionState();
 
-    // Initialize mock file store
     mockFileStore = new Map();
 
-    // Setup fs mocks to use in-memory store
     vi.mocked(fs.existsSync).mockImplementation((path: unknown) => {
       return mockFileStore.has(String(path));
     });
@@ -137,7 +118,6 @@ describe('Session Storage Edge Cases', () => {
   });
 
   afterEach(() => {
-    // Reset internal state
     _resetSessionState();
     vi.resetAllMocks();
   });
@@ -151,7 +131,6 @@ describe('Session Storage Edge Cases', () => {
         const session = readSession();
         expect(session).toBeNull();
 
-        // Creating new session should work
         const newSession = getOrCreateSession();
         expect(newSession.sessionId).toBeDefined();
         expect(newSession.stats.rateLimits).toBe(0);
@@ -217,7 +196,6 @@ describe('Session Storage Edge Cases', () => {
             sessionId: 'test-uuid',
             createdAt: '2026-01-09T10:00:00.000Z',
             lastActiveAt: '2026-01-09T10:00:00.000Z',
-            // Missing: stats
           })
         );
         _resetSessionState();
@@ -239,17 +217,14 @@ describe('Session Storage Edge Cases', () => {
             lastActiveAt: '2026-01-09T10:00:00.000Z',
             stats: {
               toolCalls: 5,
-              // Missing: errors, rateLimits
             },
           })
         );
         _resetSessionState();
 
-        // Zod validation rejects sessions with partial stats (missing required fields)
         const session = readSession();
         expect(session).toBeNull();
 
-        // No session loaded, so increment fails gracefully
         const result = incrementRateLimits(1);
         expect(result.success).toBe(false);
         expect(result.session).toBeNull();
@@ -272,7 +247,6 @@ describe('Session Storage Edge Cases', () => {
         );
         _resetSessionState();
 
-        // Zod validation rejects sessions with non-numeric stat values
         const session = readSession();
         expect(session).toBeNull();
 
@@ -298,7 +272,6 @@ describe('Session Storage Edge Cases', () => {
 
         const result = incrementRateLimits(1);
         expect(result.success).toBe(true);
-        // -3 + 1 = -2
         expect(result.session?.stats.rateLimits).toBe(-2);
       });
     });
@@ -335,14 +308,12 @@ describe('Session Storage Edge Cases', () => {
           createdAt: '2026-01-09T10:00:00.000Z',
           lastActiveAt: '2026-01-09T10:00:00.000Z',
           stats: { toolCalls: 0, errors: 0, rateLimits: 0 },
-          // Inject large payload (simulate tampering/corruption)
-          extraData: 'x'.repeat(1024 * 1024), // 1MB
+          extraData: 'x'.repeat(1024 * 1024),
         };
 
         mockFileStore.set(SESSION_FILE, JSON.stringify(largeSession));
         _resetSessionState();
 
-        // Should still read valid session
         const session = readSession();
         expect(session?.sessionId).toBe('test-uuid');
       });
@@ -372,23 +343,17 @@ describe('Session Storage Edge Cases', () => {
         getOrCreateSession();
         incrementRateLimits(5);
 
-        // Reset isDirty by writing manually first
         mockFileStore.clear();
         _resetSessionState();
         getOrCreateSession();
         incrementRateLimits(5);
 
-        // Simulate disk full
         vi.mocked(fs.writeFileSync).mockImplementation(() => {
           throw FS_ERRORS.ENOSPC();
         });
 
-        // CURRENT BEHAVIOR: flushSession does NOT catch write errors
-        // This is a potential improvement area - could catch and handle gracefully
-        // Note: flushSessionSync DOES catch errors (for exit handlers)
         expect(() => flushSession()).toThrow('ENOSPC');
 
-        // In-memory cache should still be valid despite error
         const cached = readSession();
         expect(cached?.stats.rateLimits).toBe(5);
       });
@@ -403,7 +368,6 @@ describe('Session Storage Edge Cases', () => {
           throw FS_ERRORS.EDQUOT();
         });
 
-        // CURRENT BEHAVIOR: flushSession propagates write errors
         expect(() => flushSession()).toThrow('EDQUOT');
       });
     });
@@ -418,7 +382,6 @@ describe('Session Storage Edge Cases', () => {
 
         _resetSessionState();
 
-        // Should return null, not throw
         const session = readSession();
         expect(session).toBeNull();
       });
@@ -429,12 +392,10 @@ describe('Session Storage Edge Cases', () => {
         getOrCreateSession();
         incrementRateLimits(5);
 
-        // writeFileSync succeeds but renameSync fails
         vi.mocked(fs.renameSync).mockImplementation(() => {
           throw FS_ERRORS.EXDEV();
         });
 
-        // CURRENT BEHAVIOR: flushSession propagates rename errors
         expect(() => flushSession()).toThrow('EXDEV');
       });
 
@@ -446,7 +407,6 @@ describe('Session Storage Edge Cases', () => {
           throw FS_ERRORS.ENOENT(`${SESSION_FILE}.tmp`);
         });
 
-        // CURRENT BEHAVIOR: flushSession propagates rename errors
         expect(() => flushSession()).toThrow('ENOENT');
       });
     });
@@ -460,7 +420,6 @@ describe('Session Storage Edge Cases', () => {
           throw FS_ERRORS.EACCES();
         });
 
-        // Should throw on getOrCreateSession since dir creation fails
         expect(() => getOrCreateSession()).toThrow();
       });
     });
@@ -474,7 +433,6 @@ describe('Session Storage Edge Cases', () => {
           throw FS_ERRORS.EROFS();
         });
 
-        // CURRENT BEHAVIOR: flushSession propagates write errors
         expect(() => flushSession()).toThrow('EROFS');
       });
     });
@@ -485,7 +443,6 @@ describe('Session Storage Edge Cases', () => {
       it('should handle rapid sequential increments', () => {
         getOrCreateSession();
 
-        // 100 sequential increment calls
         for (let i = 0; i < 100; i++) {
           incrementRateLimits(1);
         }
@@ -516,7 +473,6 @@ describe('Session Storage Edge Cases', () => {
         incrementRateLimits(5);
         flushSession();
 
-        // Simulate external process modifying the file
         const externalSession = createTestSession({
           sessionId: 'external-process-uuid',
           stats: {
@@ -534,11 +490,9 @@ describe('Session Storage Edge Cases', () => {
           })
         );
 
-        // Cache takes precedence
         const cachedSession = readSession();
         expect(cachedSession?.stats.rateLimits).toBe(5);
 
-        // After cache reset, should read external changes
         _resetSessionState();
 
         const readBack = readSession();
@@ -550,7 +504,6 @@ describe('Session Storage Edge Cases', () => {
         const session = getOrCreateSession();
         const originalId = session.sessionId;
 
-        // Modify file externally
         mockFileStore.set(
           SESSION_FILE,
           JSON.stringify(
@@ -565,11 +518,9 @@ describe('Session Storage Edge Cases', () => {
           )
         );
 
-        // Cache should still return original
         const cached = readSession();
         expect(cached?.sessionId).toBe(originalId);
 
-        // Increments should work on cached version
         incrementRateLimits(1);
         expect(readSession()?.stats.rateLimits).toBe(1);
       });
@@ -580,19 +531,15 @@ describe('Session Storage Edge Cases', () => {
         getOrCreateSession();
         incrementRateLimits(10);
 
-        // Simulate slow write
         vi.mocked(fs.writeFileSync).mockImplementation((path, data) => {
-          // During the write, reading should return cached data
           const session = readSession();
           expect(session?.stats.rateLimits).toBe(10);
 
-          // Complete the write
           mockFileStore.set(String(path), String(data));
         });
 
         flushSession();
 
-        // After flush, data should be consistent
         const session = readSession();
         expect(session?.stats.rateLimits).toBe(10);
       });
@@ -623,10 +570,8 @@ describe('Session Storage Edge Cases', () => {
           throw FS_ERRORS.EACCES();
         });
 
-        // CURRENT BEHAVIOR: flushSession propagates write errors
         expect(() => flushSession()).toThrow('EACCES');
 
-        // Data should still be preserved in cache
         expect(readSession()?.stats.rateLimits).toBe(5);
       });
     });
@@ -654,9 +599,6 @@ describe('Session Storage Edge Cases', () => {
           throw FS_ERRORS.EBUSY();
         });
 
-        // BUG: EBUSY errors propagate up from flushSession
-        // Current behavior: Error thrown
-        // Expected behavior: Should catch and retry or gracefully degrade
         expect(() => flushSession()).toThrow('EBUSY');
       });
     });
@@ -679,14 +621,12 @@ describe('Session Storage Edge Cases', () => {
       it('should not register duplicate exit handlers', () => {
         const exitSpy = vi.spyOn(process, 'on');
 
-        // Multiple operations that trigger handler registration
         getOrCreateSession();
         incrementRateLimits(1);
         incrementRateLimits(1);
         incrementToolCalls(1);
         incrementErrors(1);
 
-        // Count 'exit' registrations
         const exitCalls = exitSpy.mock.calls.filter(call => call[0] === 'exit');
         expect(exitCalls.length).toBe(1);
 
@@ -699,8 +639,6 @@ describe('Session Storage Edge Cases', () => {
         getOrCreateSession();
         incrementRateLimits(5);
 
-        // Without explicit flush, flushSession in exit handler will persist
-        // We verify the data is in cache
         const cached = readSession();
         expect(cached?.stats.rateLimits).toBe(5);
       });
@@ -822,7 +760,6 @@ describe('Session Storage Edge Cases', () => {
           throw new Error('Disk error during shutdown');
         });
 
-        // flushSessionSync should catch all errors silently
         expect(() => flushSessionSync()).not.toThrow();
       });
 
@@ -836,7 +773,6 @@ describe('Session Storage Edge Cases', () => {
           throw new Error(`Error ${callCount}`);
         });
 
-        // Should not throw even with errors
         expect(() => flushSessionSync()).not.toThrow();
         expect(() => flushSessionSync()).not.toThrow();
       });
@@ -846,17 +782,14 @@ describe('Session Storage Edge Cases', () => {
   describe('Recovery and Resilience', () => {
     describe('Recovery After Corruption', () => {
       it('should create fresh session after detecting corruption', () => {
-        // Start with corrupted file
         mockFileStore.set(SESSION_FILE, MALFORMED_JSON.randomGarbage);
         _resetSessionState();
 
-        // getOrCreateSession should recover
         const session = getOrCreateSession();
 
         expect(session.sessionId).toBeDefined();
         expect(session.stats.rateLimits).toBe(0);
 
-        // New session should be valid
         incrementRateLimits(1);
         expect(readSession()?.stats.rateLimits).toBe(1);
       });
@@ -865,14 +798,13 @@ describe('Session Storage Edge Cases', () => {
         mockFileStore.set(
           SESSION_FILE,
           JSON.stringify({
-            version: 999, // Unknown version
+            version: 999,
             sessionId: 'old-session',
             createdAt: '2026-01-01T00:00:00.000Z',
           })
         );
         _resetSessionState();
 
-        // Should create new session
         const session = getOrCreateSession();
         expect(session.sessionId).not.toBe('old-session');
         expect(session.version).toBe(1);
@@ -883,7 +815,6 @@ describe('Session Storage Edge Cases', () => {
       it('should handle orphaned temp file from crashed write', () => {
         const tempFile = `${SESSION_FILE}.tmp`;
 
-        // Simulate crashed write - temp file exists but main file doesn't
         mockFileStore.set(
           tempFile,
           JSON.stringify(
@@ -896,7 +827,6 @@ describe('Session Storage Edge Cases', () => {
 
         _resetSessionState();
 
-        // Current behavior: Ignores temp file, creates new session
         const session = getOrCreateSession();
         expect(session.sessionId).not.toBe('orphaned-session');
       });
@@ -920,7 +850,6 @@ describe('Session Storage Edge Cases', () => {
 
         const result = incrementRateLimits(5);
 
-        // Should handle overflow gracefully
         expect(Number.isFinite(result.session?.stats.rateLimits)).toBe(true);
       });
 
@@ -937,10 +866,8 @@ describe('Session Storage Edge Cases', () => {
         getOrCreateSession();
         incrementRateLimits(5);
 
-        // Try to decrement (current behavior: allowed)
         const result = incrementRateLimits(-3);
 
-        // Document current behavior: negative increments are allowed
         expect(result.session?.stats.rateLimits).toBe(2);
       });
 
@@ -956,7 +883,6 @@ describe('Session Storage Edge Cases', () => {
   describe('Rate Limit Specific Edge Cases', () => {
     describe('Increment Without Session', () => {
       it('should return failure when incrementing without session', () => {
-        // Don't create session first
         const result = incrementRateLimits(1);
 
         expect(result.success).toBe(false);
@@ -985,11 +911,9 @@ describe('Session Storage Edge Cases', () => {
         const session1 = getOrCreateSession();
         const firstActiveAt = session1.lastActiveAt;
 
-        // Wait a bit to ensure timestamp changes
         await new Promise(resolve => setTimeout(resolve, 10));
 
         const result = incrementRateLimits(0);
-        // lastActiveAt should be updated even with zero increment
         expect(result.session?.lastActiveAt).toBeDefined();
       });
     });
@@ -1000,7 +924,6 @@ describe('Session Storage Edge Cases', () => {
 
         const result = incrementRateLimits(1.5);
 
-        // Current behavior: JS allows float addition
         expect(result.session?.stats.rateLimits).toBe(1.5);
       });
 
@@ -1010,7 +933,6 @@ describe('Session Storage Edge Cases', () => {
 
         const result = incrementRateLimits(NaN);
 
-        // 5 + NaN = NaN
         expect(Number.isNaN(result.session?.stats.rateLimits)).toBe(true);
       });
 
@@ -1026,7 +948,6 @@ describe('Session Storage Edge Cases', () => {
       it('should update rateLimits atomically with other stats', () => {
         getOrCreateSession();
 
-        // Update multiple stats at once
         const result = updateSessionStats({
           rateLimits: 5,
           errors: 3,
@@ -1043,10 +964,9 @@ describe('Session Storage Edge Cases', () => {
         getOrCreateSession();
         incrementRateLimits(10);
 
-        // Update only errors
         const result = updateSessionStats({ errors: 5 });
 
-        expect(result.session?.stats.rateLimits).toBe(10); // Unchanged
+        expect(result.session?.stats.rateLimits).toBe(10);
         expect(result.session?.stats.errors).toBe(5);
       });
     });
@@ -1055,10 +975,8 @@ describe('Session Storage Edge Cases', () => {
       it('should reset stats even with corrupted values', () => {
         getOrCreateSession();
 
-        // Somehow get NaN into stats
         incrementRateLimits(NaN);
 
-        // Reset should fix it
         const result = resetSessionStats();
         expect(result.success).toBe(true);
         expect(result.session?.stats.rateLimits).toBe(0);
@@ -1139,7 +1057,6 @@ describe('Session Storage Edge Cases', () => {
         );
         _resetSessionState();
 
-        // Should still read session (dates are not validated)
         const session = readSession();
         expect(session?.sessionId).toBe('test-uuid');
         expect(session?.createdAt).toBe('invalid-date');
@@ -1154,7 +1071,6 @@ describe('Session Storage Edge Cases', () => {
 
         _resetSessionState();
 
-        // Should propagate error
         expect(() => readSession()).toThrow();
       });
     });
@@ -1166,7 +1082,6 @@ describe('Session Storage Edge Cases', () => {
 
         deleteSession();
 
-        // Incrementing after delete should fail
         const result = incrementRateLimits(1);
         expect(result.success).toBe(false);
       });

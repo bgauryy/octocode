@@ -1,8 +1,3 @@
-/**
- * Branch coverage tests for GitHub Pull Requests tool
- * Targets specific uncovered branches to increase coverage from 91.51% to 92%+
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createMockMcpServer,
@@ -159,7 +154,6 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
   describe('Execution Error Handling', () => {
     describe('Try/catch error handling (line 131)', () => {
       it('should catch and handle errors thrown during execution', async () => {
-        // Mock provider to throw an error
         mockProvider.searchPullRequests.mockRejectedValue(
           new Error('Unexpected provider error')
         );
@@ -179,12 +173,10 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
 
         expect(result.isError).toBe(true);
         const responseText = getTextContent(result.content);
-        // Should handle the error gracefully
         expect(responseText).toContain('error');
       });
 
       it('should handle errors when getProvider throws', async () => {
-        // Mock getProvider to throw
         mockGetProvider.mockImplementation(() => {
           throw new Error('Provider initialization failed');
         });
@@ -212,11 +204,6 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
   describe('PR Content Fetcher Error Handling', () => {
     describe('fetchCommitFilesAPI catch block (line 234)', () => {
       it('should handle getCommit errors gracefully by returning null', async () => {
-        // This test targets line 234 in prContentFetcher.ts where fetchCommitFilesAPI
-        // catches errors from octokit.rest.repos.getCommit and returns null.
-        // We test this by directly calling transformPullRequestItemFromREST
-        // which internally calls fetchPRCommitsWithFiles -> fetchCommitFilesAPI.
-
         const { transformPullRequestItemFromREST } =
           await import('../../src/github/prContentFetcher.js');
 
@@ -275,13 +262,12 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
           {
             owner: 'test',
             repo: 'repo',
-            withCommits: true, // Triggers fetchPRCommitsWithFiles -> fetchCommitFilesAPI
+            withCommits: true,
           },
           mockOctokit as any,
           undefined
         );
 
-        // Verify that getCommit was called (it will throw, and line 234 catch handles it)
         expect(getCommitMock).toHaveBeenCalled();
         expect(getCommitMock).toHaveBeenCalledWith({
           owner: 'test',
@@ -289,10 +275,7 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
           ref: 'commit-sha-1',
         });
 
-        // Verify the result has commits (even if files are empty due to error)
         expect(result).toBeDefined();
-        // The error is caught by line 234 and fetchCommitFilesAPI returns null,
-        // resulting in commits with empty files arrays
       });
     });
   });

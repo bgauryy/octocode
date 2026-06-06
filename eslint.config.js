@@ -3,7 +3,6 @@ import tseslint from 'typescript-eslint';
 import eslintPluginPrettier from 'eslint-plugin-prettier/recommended';
 
 export default tseslint.config(
-  // Global ignores
   {
     ignores: [
       '**/build/**',
@@ -15,19 +14,15 @@ export default tseslint.config(
       '**/*.mjs',
       '**/*.d.ts',
       '**/examples/**',
-      // Skills have their own eslint configs
       'skills/**',
     ],
   },
 
-  // Base config for all TypeScript files
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
 
-  // Prettier integration
   eslintPluginPrettier,
 
-  // Common rules for all packages
   {
     languageOptions: {
       ecmaVersion: 2022,
@@ -38,8 +33,6 @@ export default tseslint.config(
       },
     },
     rules: {
-      // Allow unused vars/types that start with _ or are exported (may be used externally)
-      // Downgraded to warn since many exported types are used by external consumers
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {
@@ -59,7 +52,6 @@ export default tseslint.config(
     },
   },
 
-  // octocode-mcp specific rules
   {
     files: ['packages/octocode-mcp/src/**/*.ts', 'packages/octocode-mcp/tests/**/*.ts'],
     rules: {
@@ -69,7 +61,6 @@ export default tseslint.config(
     },
   },
 
-  // octocode-cli specific rules
   {
     files: ['packages/octocode-cli/src/**/*.ts', 'packages/octocode-cli/tests/**/*.ts'],
     rules: {
@@ -78,7 +69,6 @@ export default tseslint.config(
     },
   },
 
-  // octocode-cli tests - allow any
   {
     files: ['packages/octocode-cli/tests/**/*.ts'],
     rules: {
@@ -86,7 +76,6 @@ export default tseslint.config(
     },
   },
 
-  // octocode-vscode specific rules
   {
     files: ['packages/octocode-vscode/src/**/*.ts'],
     rules: {
@@ -96,7 +85,6 @@ export default tseslint.config(
     },
   },
 
-  // octocode-shared specific rules
   {
     files: ['packages/octocode-shared/src/**/*.ts', 'packages/octocode-shared/tests/**/*.ts'],
     rules: {
@@ -105,7 +93,6 @@ export default tseslint.config(
     },
   },
 
-  // octocode-security-utils specific rules
   {
     files: [
       'packages/octocode-security-utils/src/**/*.ts',
@@ -117,7 +104,6 @@ export default tseslint.config(
     },
   },
 
-  // Test files - add globals for vitest and relax rules
   {
     files: ['**/tests/**/*.ts', '**/tests/**/*.tsx'],
     languageOptions: {

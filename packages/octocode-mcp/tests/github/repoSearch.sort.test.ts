@@ -29,12 +29,6 @@ describe('Repo Search - Sorting', () => {
       mockOctokit as unknown as ReturnType<typeof getOctokit>
     );
 
-    // Mock API returning results in specific order (e.g. Ascending Stars)
-    // Repo A: 5 stars
-    // Repo B: 10 stars
-    // If we request ASC order, API returns A then B.
-    // Current bug forces DESC sort, so it would return B then A.
-
     searchReposMock.mockResolvedValue({
       data: {
         items: [
@@ -64,7 +58,6 @@ describe('Repo Search - Sorting', () => {
     if ('data' in result) {
       expect(result.data).toBeDefined();
       expect(result.data.repositories.length).toBe(2);
-      // Should match API order (A then B)
       expect(result.data.repositories?.[0]?.repo).toBe('repoA');
       expect(result.data.repositories?.[1]?.repo).toBe('repoB');
     }

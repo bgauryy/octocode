@@ -1,8 +1,3 @@
-/**
- * Tests for LSP Go To Definition tool - focuses on helper functions and registration
- * @module tools/lsp_goto_definition.test
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { addLineNumbers } from '../../src/tools/lsp_goto_definition/execution.js';
 
@@ -17,7 +12,6 @@ describe('LSP Goto Definition Tool', () => {
 
   describe('registerLSPGotoDefinitionTool', () => {
     it('should register tool with correct name and schema', async () => {
-      // Reset module cache to get fresh import
       vi.resetModules();
 
       const { registerLSPGotoDefinitionTool } =
@@ -198,13 +192,11 @@ describe('LSP Goto Definition Tool', () => {
 
   describe('Description export', () => {
     it('should export tool description', async () => {
-      // Don't reset modules - use the initialized metadata from setup.ts
       const { LSP_GOTO_DEFINITION_DESCRIPTION } =
         await import('@octocodeai/octocode-core');
 
       expect(LSP_GOTO_DEFINITION_DESCRIPTION).toBeDefined();
       expect(typeof LSP_GOTO_DEFINITION_DESCRIPTION).toBe('string');
-      // Description may be empty if tool not in remote metadata (local-only tool)
     });
   });
 });

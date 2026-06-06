@@ -141,10 +141,8 @@ export const statusCommand: CLICommand = {
     console.log(`  ${bold('🟢 Octocode Status')}`);
     console.log();
 
-    // Auth section
     printAuthStatus(hostname);
 
-    // MCP clients section
     const found = mcpClients.filter(c => c.exists);
     console.log();
     console.log(
@@ -164,7 +162,6 @@ export const statusCommand: CLICommand = {
       console.log(`  ${dim('No MCP config files found.')}`);
     }
 
-    // Cache section
     console.log();
     console.log(
       `  ${bold('Cache')}  ${dim(formatBytes(reposBytes + skillsBytes + logsBytes))} total`
@@ -173,7 +170,6 @@ export const statusCommand: CLICommand = {
     console.log(`    ${c('cyan', '•')} skills: ${formatBytes(skillsBytes)}`);
     console.log(`    ${c('cyan', '•')} logs:   ${formatBytes(logsBytes)}`);
 
-    // Sync analysis section (--sync)
     if (syncData) {
       console.log();
       console.log(

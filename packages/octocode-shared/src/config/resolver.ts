@@ -1,8 +1,3 @@
-/**
- * Configuration Resolver — Public API barrel
- *
- * Also provides the getConfigValue() convenience accessor.
- */
 export {
   resolveConfigSync,
   resolveConfig,
@@ -16,18 +11,6 @@ export {
 
 import { getConfigSync } from './resolverCache.js';
 
-/**
- * Get a specific configuration value by path.
- *
- * @param path - Dot-separated path (e.g., 'github.apiUrl', 'local.enabled')
- * @returns Configuration value or undefined if not found
- *
- * @example
- * ```typescript
- * const apiUrl = getConfigValue('github.apiUrl'); // 'https://api.github.com'
- * const enabled = getConfigValue('local.enabled'); // true
- * ```
- */
 export function getConfigValue<T = unknown>(path: string): T | undefined {
   const config = getConfigSync();
   const parts = path.split('.');

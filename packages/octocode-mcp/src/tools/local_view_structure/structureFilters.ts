@@ -4,14 +4,11 @@ import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas
 type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 import { checkRegexSafety } from '../../utils/core/safeRegex.js';
 
-/**
- * Internal directory entry for processing
- */
 export interface DirectoryEntry {
   name: string;
   type: 'file' | 'directory' | 'symlink';
   size?: string;
-  /** Raw size in bytes — used for numeric sort to avoid parseFileSize round-trip loss. */
+
   sizeBytes?: number;
   modified?: string;
   permissions?: string;
@@ -19,16 +16,11 @@ export interface DirectoryEntry {
   depth?: number;
 }
 
-/** Subset of ViewStructureQuery fields used by applyEntryFilters */
 type EntryFilterQuery = Pick<
   Partial<ViewStructureQuery>,
   'pattern' | 'extension' | 'extensions' | 'directoriesOnly' | 'filesOnly'
 >;
 
-/**
- * Apply query filters to entry list
- * Used by both CLI and recursive paths to ensure consistent filtering
- */
 export function applyEntryFilters(
   entries: DirectoryEntry[],
   query: EntryFilterQuery
@@ -42,11 +34,8 @@ export function applyEntryFilters(
       pattern.includes('*') || pattern.includes('?') || pattern.includes('[');
 
     if (isGlob) {
-      // First escape regex metacharacters INCLUDING glob characters (* and ?)
-      // so they can be converted to regex patterns in the next step
       let regexPattern = pattern.replace(/[.+^${}()|[\]\\*?]/g, '\\$&');
 
-      // Convert escaped glob characters to regex equivalents
       regexPattern = regexPattern
         .replace(/\\\*/g, '.*')
         .replace(/\\\?/g, '.')
@@ -58,7 +47,6 @@ export function applyEntryFilters(
         const fullPattern = `^${regexPattern}$`;
         const safety = checkRegexSafety(fullPattern);
         if (!safety.safe) {
-          // Fall back to literal match for unsafe patterns
           filtered = filtered.filter(e => {
             const filename = e.name.includes('/')
               ? e.name.split('/').pop()!
@@ -69,8 +57,6 @@ export function applyEntryFilters(
         }
         const regex = new RegExp(fullPattern, 'i');
         filtered = filtered.filter(e => {
-          // For recursive mode, entry.name is the relative path (e.g., "subdir/file.ts")
-          // Pattern should match the filename part only for consistency
           const filename = e.name.includes('/')
             ? e.name.split('/').pop()!
             : e.name;
@@ -86,8 +72,6 @@ export function applyEntryFilters(
       }
     } else {
       filtered = filtered.filter(e => {
-        // For recursive mode, entry.name is the relative path (e.g., "subdir/file.ts")
-        // Pattern should match the filename part only for consistency
         const filename = e.name.includes('/')
           ? e.name.split('/').pop()!
           : e.name;
@@ -122,10 +106,6 @@ export function applyEntryFilters(
   return filtered;
 }
 
-/**
- * Format directory entry as compact string
- * Format: [TYPE] [permissions] name (size) date .ext
- */
 export function formatEntryString(
   entry: DirectoryEntry,
   indent: number = 0

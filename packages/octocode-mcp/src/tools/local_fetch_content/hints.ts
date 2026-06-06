@@ -1,13 +1,3 @@
-/**
- * Response-state hints for localGetFileContent.
- *
- * Emits actionable recovery moves the agent can execute immediately.
- * Pagination/cursors are carried in the response envelope; usage guidance
- * lives in the tool description.
- *
- * @module tools/local_fetch_content/hints
- */
-
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {

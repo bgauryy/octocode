@@ -25,7 +25,6 @@ const getPort = (raw?: string): number => {
 
   const port = Number(raw);
 
-  // Strictly allow only the non-privileged, user-registered range
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
     throw new Error(
       `Invalid OCTOCODE_RESEARCH_PORT: "${raw}". ` +
@@ -38,15 +37,14 @@ const getPort = (raw?: string): number => {
 
 const PORT = getPort(process.env.OCTOCODE_RESEARCH_PORT || process.env.OCTOCODE_PORT);
 
-const MAX_IDLE_TIME_MS = 30 * 60 * 1000;  // 30 minutes idle before restart
-const IDLE_CHECK_INTERVAL_MS = 120 * 1000; // Check every 2 minute
+const MAX_IDLE_TIME_MS = 30 * 60 * 1000;
+const IDLE_CHECK_INTERVAL_MS = 120 * 1000;
 
 let server: Server | null = null;
 let lastRequestTime: number = Date.now();
 let idleCheckInterval: NodeJS.Timeout | null = null;
 let isShuttingDown = false;
 
-// PID file for daemon lifecycle management
 const OCTOCODE_DIR = process.env.OCTOCODE_HOME || join(homedir(), '.octocode');
 export const PID_FILE = join(OCTOCODE_DIR, `research-server-${PORT}.pid`);
 
@@ -55,7 +53,7 @@ function writePidFile(): void {
     mkdirSync(OCTOCODE_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(PID_FILE, String(process.pid), { mode: 0o600 });
   } catch {
-    // Non-fatal — server works without PID file
+    void 0;
   }
 }
 
@@ -63,13 +61,11 @@ function removePidFile(): void {
   try {
     unlinkSync(PID_FILE);
   } catch {
-    // Already removed or never written
+    void 0;
   }
 }
 
-/**
- * Check if server has been idle and should restart
- */
+
 function checkIdleRestart(): void {
   const idleTime = Date.now() - lastRequestTime;
   const idleSeconds = Math.floor(idleTime / 1000);
@@ -82,23 +78,18 @@ function checkIdleRestart(): void {
   }
 }
 
-/**
- * Start periodic idle checking
- */
+
 function startIdleCheck(): void {
   if (idleCheckInterval) return;
   
   idleCheckInterval = setInterval(checkIdleRestart, IDLE_CHECK_INTERVAL_MS);
   
-  // Unref so it doesn't prevent process exit
   idleCheckInterval.unref();
   
   console.log(dimLog(`⏱️ Idle check started (${IDLE_CHECK_INTERVAL_MS / 1000}s interval, ${MAX_IDLE_TIME_MS / 1000}s threshold)`));
 }
 
-/**
- * Stop idle checking
- */
+
 function stopIdleCheck(): void {
   if (idleCheckInterval) {
     clearInterval(idleCheckInterval);
@@ -108,16 +99,13 @@ function stopIdleCheck(): void {
 }
 
 export async function createServer(): Promise<Express> {
-  // Initialize logger first (sync for startup, async after)
   initializeLogger();
   
-  // Initialize session for telemetry tracking
   initializeSession();
 
   const app = express();
   app.use(express.json());
   
-  // Track activity for idle restart
   app.use((_req: Request, _res: Response, next: NextFunction) => {
     lastRequestTime = Date.now();
     next();
@@ -139,7 +127,6 @@ export async function createServer(): Promise<Express> {
       uptime: Math.floor(process.uptime()),
       processManager: 'self (detached daemon)',
       pid: process.pid,
-      // Idle tracking info
       idle: {
         currentMs: idleTimeMs,
         thresholdMs: MAX_IDLE_TIME_MS,
@@ -163,11 +150,9 @@ export async function createServer(): Promise<Express> {
     });
   });
   
-  // All tool execution via /tools/call/:toolName (readiness check applied in route files)
   app.use('/tools', toolsRoutes);
   app.use('/prompts', promptsRoutes);
 
-  // 404 handler for undefined routes
   app.use((_req: Request, res: Response) => {
     res.status(404).json({
       success: false,
@@ -197,11 +182,7 @@ export async function createServer(): Promise<Express> {
   return app;
 }
 
-/**
- * Graceful shutdown handler.
- * Triggered by SIGTERM, SIGINT, or idle timeout. Cleans up all resources
- * including PID file, circuit breakers, and HTTP connections.
- */
+
 function gracefulShutdown(signal: string): void {
   if (isShuttingDown) {
     console.log(dimLog(`Already shutting down, ignoring ${signal}`));
@@ -217,21 +198,16 @@ function gracefulShutdown(signal: string): void {
     process.exit(1);
   }, FORCE_EXIT_TIMEOUT_MS).unref();
 
-  // 1. Remove PID file immediately
   removePidFile();
 
-  // 2. Stop idle check interval
   stopIdleCheck();
 
-  // 3. Stop circuit cleanup interval
   stopCircuitCleanup();
   console.log(successLog('✅ Circuit cleanup interval stopped'));
 
-  // 4. Clear circuit breakers
   clearAllCircuits();
   console.log(successLog('✅ Circuit breakers cleared'));
   
-  // 5. Close HTTP server (waits for connections to drain)
   if (server) {
     console.log(dimLog('⏳ Waiting for connections to drain...'));
     server.close((err) => {
@@ -257,16 +233,13 @@ export async function startServer(): Promise<void> {
       console.log(agentLog(`🔍 Octocode Research Server running on http://${HOST}:${PORT} (pid: ${process.pid})`));
       console.log(dimLog(`⏳ initializing context...`));
       
-      // Start background initialization (Warm Start)
       initializeMcpContent()
         .then(() => initializeProviders())
         .then(() => {
           console.log(successLog('✅ Context initialized - Server Ready'));
           
-          // Reset idle timer after init (prevents early timeout)
           lastRequestTime = Date.now();
           
-          // Start idle check after initialization
           startIdleCheck();
           
           console.log(agentLog(`📁 Logs: ${getLogsPath()}`));
@@ -283,7 +256,6 @@ export async function startServer(): Promise<void> {
           console.log(dimLog(`  GET  /prompts/list            - List prompts`));
           console.log(dimLog(`  GET  /prompts/info/:name      - Get prompt content`));
 
-          // Log session initialization after server is ready
           fireAndForgetWithTimeout(
             () => logSessionInit(),
             5000,
@@ -299,7 +271,6 @@ export async function startServer(): Promise<void> {
   });
 }
 
-// Signal handlers — server is a detached daemon, handles its own signals
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 

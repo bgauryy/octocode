@@ -1,9 +1,3 @@
-/**
- * LSP routes using route factory pattern.
- * 
- * @module routes/lsp
- */
-
 import { Router } from 'express';
 import {
   lspGotoDefinition,
@@ -23,7 +17,6 @@ import { isObject, hasProperty, hasNumberProperty, hasStringProperty } from '../
 
 export const lspRoutes = Router();
 
-// GET /lspGotoDefinition - Go to symbol definition
 lspRoutes.get(
   '/lspGotoDefinition',
   createRouteHandler({
@@ -46,7 +39,6 @@ lspRoutes.get(
   })
 );
 
-// GET /lspFindReferences - Find all references to a symbol
 lspRoutes.get(
   '/lspFindReferences',
   createRouteHandler({
@@ -69,7 +61,6 @@ lspRoutes.get(
   })
 );
 
-// GET /lspCallHierarchy - Get call hierarchy (incoming/outgoing)
 lspRoutes.get(
   '/lspCallHierarchy',
   createRouteHandler({
@@ -164,7 +155,7 @@ function extractCallHierarchyLocations(
     const item = isObject(call.from) ? call.from : isObject(call.to) ? call.to : call;
     const itemObj = isObject(item) ? item as Record<string, unknown> : {};
 
-    const lineFromRange = extractStartLine(itemObj) - 1; // undo +1 from extractStartLine
+    const lineFromRange = extractStartLine(itemObj) - 1;
     const lineFromItem = hasNumberProperty(itemObj, 'line') ? itemObj.line : 0;
 
     return {

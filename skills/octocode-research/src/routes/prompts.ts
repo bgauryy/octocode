@@ -6,7 +6,6 @@ import { checkReadiness } from '../middleware/readiness.js';
 
 export const promptsRoutes = Router();
 
-// Apply readiness check middleware to all prompts routes
 promptsRoutes.use(checkReadiness);
 
 declare const __PACKAGE_VERSION__: string;
@@ -24,28 +23,6 @@ interface PromptInfo {
   arguments?: PromptArg[];
 }
 
-/**
- * GET /prompts/list - List all prompts (MCP-compatible format)
- * 
- * Returns prompt names, descriptions, and arguments following MCP protocol.
- * 
- * @example
- * GET /prompts/list
- * 
- * Response:
- * {
- *   "prompts": [
- *     {
- *       "name": "research",
- *       "description": "Start a code research session",
- *       "arguments": [
- *         { "name": "goal", "description": "The research goal", "required": true }
- *       ]
- *     }
- *   ],
- *   "_meta": { "totalCount": 5, "version": "2.2.0" }
- * }
- */
 promptsRoutes.get('/list', async (
   _req: Request,
   res: Response,
@@ -54,10 +31,8 @@ promptsRoutes.get('/list', async (
   try {
     const content = getMcpContent();
     
-    // Use Object.entries to get both key and prompt
-    // The key is what's used for lookup in /prompts/info/:promptName
     const prompts: PromptInfo[] = Object.entries(content.prompts).map(([key, prompt]) => ({
-      name: key, // Use the key (lookup name), not prompt.name (display name may differ)
+      name: key,
       description: prompt.description,
       arguments: prompt.args?.map(arg => ({
         name: arg.name,
@@ -80,11 +55,7 @@ promptsRoutes.get('/list', async (
   }
 });
 
-/**
- * GET /prompts/info/:promptName - Get specific prompt details
- * 
- * Returns detailed information about a specific prompt.
- */
+
 promptsRoutes.get('/info/:promptName', async (
   req: Request,
   res: Response,
@@ -111,7 +82,6 @@ promptsRoutes.get('/info/:promptName', async (
       return;
     }
 
-    // Log prompt call for session telemetry
     fireAndForgetWithTimeout(
       () => logPromptCall(promptName),
       5000,

@@ -1,32 +1,4 @@
-/**
- * Octocode Slides — Presenter View
- *
- * Press P in the generated deck shell to open the presenter popup.
- *
- * The popup shows:
- *   - Current slide live preview (scaled iframe)
- *   - Next slide live preview (scaled iframe)
- *   - Speaker notes
- *   - Running timer (persisted across page refreshes via localStorage)
- *   - Jump-to-slide control (updates the main deck window)
- *
- * Requires same-origin serving (npx serve works; file:// does not).
- * The default scripts/base.html template already loads and wires this file;
- * custom index.html files should copy that integration instead of inventing
- * a second keyboard handler.
- *
- * Expected call site in index.html:
- *
- *   initPresenter(
- *     () => stage.querySelector('.slide-frame[data-active]'),
- *     playable,
- *     () => current
- *   );
- */
 function initPresenter(getActiveFrame, playable, getCurrentIndex) {
-  // ── localStorage key — scoped to this deck (title + pathname) ───────────
-  // Survives page refreshes on localhost so the timer keeps running while
-  // you edit slides. Cleared on "Reset timer" or when the deck changes.
   var LS_KEY = 'octocode-slides:timer:' +
     (document.title || 'deck') + ':' + location.pathname;
 
@@ -35,7 +7,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
   var timerRef  = null;
   var startTime = null;
 
-  // ── Restore timer across page refreshes ─────────────────────────────────
   (function restoreTimer() {
     try {
       var saved = localStorage.getItem(LS_KEY);
@@ -49,12 +20,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     } catch (_) {}
   })();
 
-  // ── Popup HTML ───────────────────────────────────────────────────────────
-  // Layout (4-row grid):
-  //   topbar   — slide name (left) + running timer (right)
-  //   previews — current slide iframe + next slide iframe (two columns)
-  //   notes    — scrollable speaker notes (fills remaining height)
-  //   bottom   — jump-to-slide input · Reset timer · Close
   var POPUP_HTML =
     '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
     '<title>Presenter View</title><style>' +
@@ -133,7 +98,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     '</div>' +
 
     '<script>' +
-    // Scale preview iframes to fill their boxes (slides are 1280×720)
     'function updateScale(){' +
     '  ["curr","next"].forEach(function(id){' +
     '    var box=document.getElementById(id+"-box");' +
@@ -146,26 +110,21 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     '}' +
     'window.addEventListener("resize",updateScale);' +
 
-    // Receive state updates from the deck window
     'window.addEventListener("message",function(e){' +
     '  var d=e.data;if(!d||d.type!=="octocode-slides:presenter-update")return;' +
 
-    // Notes
     '  var nEl=document.getElementById("notes");' +
     '  if(d.notes){nEl.textContent=d.notes;nEl.className=""}' +
     '  else{nEl.textContent="(no speaker notes)";nEl.className="empty"}' +
 
-    // Slide name
     '  document.getElementById("slide-name").textContent=d.name||"\u2014";' +
 
-    // Jump control
     '  if(typeof d.totalSlides==="number"){' +
     '    document.getElementById("jump-total").textContent="/ "+d.totalSlides;' +
     '    document.getElementById("jump-input").max=d.totalSlides;' +
     '    document.getElementById("jump-input").value=(d.currentIndex||0)+1;' +
     '  }' +
 
-    // Current slide preview
     '  var cBox=document.getElementById("curr-box");' +
     '  if(d.currUrl){' +
     '    var cf=cBox.querySelector("iframe");' +
@@ -175,7 +134,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     '    }' +
     '  }' +
 
-    // Next slide preview
     '  var nBox=document.getElementById("next-box");' +
     '  if(d.nextUrl){' +
     '    var nf=nBox.querySelector("iframe");' +
@@ -188,7 +146,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     '  }' +
     '});' +
 
-    // Jump-to-slide: send index to opener so deck navigates
     'document.getElementById("jump-input").addEventListener("change",function(){' +
     '  var n=parseInt(this.value,10);if(!isFinite(n))return;' +
     '  window.opener&&window.opener.postMessage(' +
@@ -201,10 +158,8 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     'document.getElementById("btn-close").onclick=function(){window.close()};' +
     '<\/script></body></html>';
 
-  // ── Timer ───────────────────────────────────────────────────────────────
   function startTimer() {
     if (!startTime) startTime = Date.now() - elapsed * 1000;
-    // Persist start time so a page refresh doesn't reset the clock
     try { localStorage.setItem(LS_KEY, JSON.stringify({ startTime: startTime })); }
     catch (_) {}
 
@@ -222,7 +177,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     }, 1000);
   }
 
-  // ── Read speaker notes from active iframe ───────────────────────────────
   function readNotes(frame) {
     try {
       var el = frame && frame.contentDocument &&
@@ -243,17 +197,12 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     }
   }
 
-  // ── Push update to popup ────────────────────────────────────────────────
-  // Sends: slide names, speaker notes, slide URLs (for live previews),
-  //        total count and current index (for jump control).
   function push() {
     if (!win || win.closed) return;
     var idx      = getCurrentIndex();
     var curr     = playable[idx];
     var next     = playable[idx + 1];
     var frame    = getActiveFrame();
-    // Compute absolute base URL so iframe srcs work in the popup window
-    // (popup is opened with '', so relative URLs would not resolve).
     var deckBase = location.href.replace(/[^\/]*$/, '');
 
     function doSend() {
@@ -276,7 +225,6 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     }
   }
 
-  // ── Open popup ──────────────────────────────────────────────────────────
   function open() {
     if (win && !win.closed) { win.focus(); return; }
     win = window.open('', 'octocode-presenter',
@@ -285,32 +233,25 @@ function initPresenter(getActiveFrame, playable, getCurrentIndex) {
     win.document.open();
     win.document.write(POPUP_HTML);
     win.document.close();
-    // startTimer picks up startTime from localStorage restore if already running
     startTimer();
-    setTimeout(push, 200); // let popup render first
+    setTimeout(push, 200);
   }
 
-  // ── Listen for messages from popup ──────────────────────────────────────
   window.addEventListener('message', function (e) {
     if (!e.data) return;
     if (e.data.type === 'octocode-slides:presenter-reset') {
       elapsed = 0;
       startTime = Date.now();
-      // Clear persisted timer so a refresh after reset starts from 00:00
       try { localStorage.removeItem(LS_KEY); } catch (_) {}
-      // Re-persist the fresh start time
       try { localStorage.setItem(LS_KEY, JSON.stringify({ startTime: startTime })); }
       catch (_) {}
     }
   });
 
-  // ── Slide change hook ───────────────────────────────────────────────────
-  // Call push() whenever the slide changes.
-  // index.html should call presenter.onSlideChange() after go().
   return {
     open: open,
     push: push,
-    /** Call this after go() in index.html to update the popup. */
+    
     onSlideChange: push
   };
 }

@@ -162,7 +162,6 @@ export const cacheCommand: CLICommand = {
         return;
       }
 
-      // Compute what would be freed
       const plan: Array<{ target: string; path: string; sizeBytes: number }> =
         [];
       if (targetRepos && existsSync(reposDir)) {
@@ -188,7 +187,6 @@ export const cacheCommand: CLICommand = {
       }
       const totalWouldFree = plan.reduce((s, p) => s + p.sizeBytes, 0);
 
-      // --dry-run: show plan without deleting
       if (dryRun) {
         if (jsonOutput) {
           console.log(
@@ -225,7 +223,6 @@ export const cacheCommand: CLICommand = {
         return;
       }
 
-      // TTY --all confirm (skip with --yes or --json or non-TTY)
       if (
         hasAllFlag &&
         !skipConfirm &&

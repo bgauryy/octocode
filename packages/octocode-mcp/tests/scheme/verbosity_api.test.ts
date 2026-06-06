@@ -1,12 +1,3 @@
-/**
- * TDD contract for the verbosity module's public API.
- *
- * The module exposes EXACTLY one function: `isVerbose`.
- * All legacy helpers (isConcise, isCompact, isBasic, normalizeVerbosity,
- * compactTrimHints, makeAdvisoryPredicate, assertConcisePayload) and the
- * Verbosity string-enum type have been removed.
- */
-
 import { describe, it, expect } from 'vitest';
 import * as verbosityModule from '../../src/scheme/verbosity.js';
 import { isVerbose } from '../../src/scheme/verbosity.js';

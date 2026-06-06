@@ -1,8 +1,3 @@
-/**
- * Targeted tests to push branch coverage from 91.97% to 92%+
- * Tests specific uncovered branches in multiple small files
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { hints as codeSearchHints } from '../../src/tools/github_search_code/hints.js';
@@ -48,13 +43,12 @@ import { extractMatchingLines } from '../../src/tools/local_fetch_content/conten
 describe('contentExtractor - empty matches branch', () => {
   it('should return empty result when no matches found (line 61)', () => {
     const lines = ['line1', 'line2', 'line3'];
-    // Search for a string that doesn't exist
     const result = extractMatchingLines(
       lines,
       'nonexistent_string_xyz',
-      5, // contextLines
-      false, // isRegex
-      false // caseSensitive
+      5,
+      false,
+      false
     );
     expect(result.matchCount).toBe(0);
     expect(result.lines).toEqual([]);
@@ -84,7 +78,6 @@ describe('repoStructureRecursive - error branches', () => {
       },
     } as any);
 
-    // The function catches errors and returns empty array
     const mockOctokit = await getOctokit();
     const result = await fetchDirectoryContentsRecursivelyAPI(
       mockOctokit!,

@@ -46,9 +46,7 @@ describe('File Operations - Branch Fallback & Caching', () => {
         },
       });
 
-    // 1. Try 'main' -> 404
     getContentMock.mockRejectedValueOnce(create404());
-    // 2. resolveDefaultBranch returns 'develop', try 'develop' -> 200
     getContentMock.mockResolvedValueOnce({
       data: { type: 'file', content: 'base64encoded', encoding: 'base64' },
     });
@@ -67,7 +65,6 @@ describe('File Operations - Branch Fallback & Caching', () => {
       undefined
     );
 
-    // Second call uses the same resolveDefaultBranch (caching is internal)
     getContentMock.mockClear();
     getContentMock.mockRejectedValueOnce(create404());
     getContentMock.mockResolvedValueOnce({

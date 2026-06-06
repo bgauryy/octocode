@@ -46,8 +46,6 @@ describe('base query metadata fields', () => {
 
 describe('per-tool query types compose WithLocalOverlay', () => {
   it('preserves verbose:false at the bulk schema boundary (resolved at read time)', () => {
-    // z.preprocess normalization was removed: verbose is preserved as-is in
-    // the parsed output and resolved lazily by verbosity.ts isVerbose().
     const parsed = BulkRipgrepQuerySchema.parse({
       queries: [{ pattern: 'foo', path: '.', verbose: false }],
     });

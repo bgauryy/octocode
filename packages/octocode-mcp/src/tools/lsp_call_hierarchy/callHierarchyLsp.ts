@@ -1,7 +1,3 @@
-/**
- * LSP call hierarchy implementation - core LSP protocol calls
- */
-
 import { readFile } from 'node:fs/promises';
 import { getHints } from '../../hints/index.js';
 import { acquirePooledClient } from '../../lsp/manager.js';
@@ -29,7 +25,6 @@ import {
 } from './callHierarchyHelpers.js';
 import { TOOL_NAME } from './constants.js';
 
-/** Error result when the server lacks callHierarchyProvider. */
 function buildCapabilityErrorResult(
   query: WithOptionalMeta<LSPCallHierarchyQuery>
 ): CallHierarchyResult {
@@ -48,7 +43,6 @@ function buildCapabilityErrorResult(
   };
 }
 
-/** Empty result when no callable symbol sits at the resolved position. */
 function buildNoSymbolResult(
   query: WithOptionalMeta<LSPCallHierarchyQuery>
 ): CallHierarchyResult {
@@ -61,15 +55,12 @@ function buildNoSymbolResult(
     depth: query.depth ?? 1,
     hints: [
       ...getHints(TOOL_NAME, 'empty'),
-      'Language server could not identify a callable symbol',
-      'Ensure the position is on a function/method name',
-      'Try adjusting lineHint to the exact function declaration line',
-      'If pointing at an import, run lspGotoDefinition first and use the definition lineHint',
+      'lineHint must point to the function name line — run localSearchCode to get the exact line, then retry.',
+      'If pointing at an import, run lspGotoDefinition first to resolve to the definition line.',
     ],
   };
 }
 
-/** Gather + paginate + enhance incoming callers for the target item. */
 async function resolveIncomingCalls(
   client: LSPClient,
   targetItem: CallHierarchyItem,
@@ -87,7 +78,7 @@ async function resolveIncomingCalls(
     targetItem,
     depth,
     visited,
-    0 // Gather without content enhancement
+    0
   );
 
   if (allIncomingCalls.length === 0) {
@@ -99,11 +90,8 @@ async function resolveIncomingCalls(
       incomingCalls: [],
       hints: [
         ...getHints(TOOL_NAME, 'empty', { direction: 'incoming' }),
-        `No callers found for '${query.symbolName}' via Language Server`,
-        'The function may not be called directly in the workspace',
-        'Check if it is called via alias or dynamic invocation',
-        'Try lspFindReferences for broader usage search',
-        'If no callers seems wrong, use lspFindReferences as the semantic fallback.',
+        `No static callers found for '${query.symbolName}' — use lspFindReferences for broader usage search.`,
+        'Dynamic callers (await import(...), require(), event handlers) are invisible to LSP call hierarchy — use localSearchCode to find them textually.',
       ],
     });
   }
@@ -163,7 +151,6 @@ async function resolveIncomingCalls(
   });
 }
 
-/** Gather + paginate + enhance outgoing callees for the target item. */
 async function resolveOutgoingCalls(
   client: LSPClient,
   targetItem: CallHierarchyItem,
@@ -181,7 +168,7 @@ async function resolveOutgoingCalls(
     targetItem,
     depth,
     visited,
-    0 // Gather without content enhancement
+    0
   );
 
   if (allOutgoingCalls.length === 0) {
@@ -193,10 +180,8 @@ async function resolveOutgoingCalls(
       outgoingCalls: [],
       hints: [
         ...getHints(TOOL_NAME, 'empty', { direction: 'outgoing' }),
-        `No callees found in '${query.symbolName}' via Language Server`,
-        'The function may only contain primitive operations',
-        'Check if calls use dynamic invocation patterns',
-        'If no callees seems wrong, retry at the definition returned by lspGotoDefinition.',
+        `No outgoing calls found in '${query.symbolName}' — dynamic calls (await import(...), require()) are invisible to LSP.`,
+        'Use localSearchCode to find dynamic call sites, or retry at the definition returned by lspGotoDefinition.',
       ],
     });
   }
@@ -256,9 +241,6 @@ async function resolveOutgoingCalls(
   });
 }
 
-/**
- * Use LSP client for semantic call hierarchy
- */
 export async function callHierarchyWithLSP(
   filePath: string,
   workspaceRoot: string,
@@ -266,8 +248,6 @@ export async function callHierarchyWithLSP(
   query: WithOptionalMeta<LSPCallHierarchyQuery>,
   content: string
 ): Promise<CallHierarchyResult | null> {
-  // Pooled client: the pool owns its lifecycle, so we MUST NOT stop() it
-  // here. Idle eviction tears it down later (see lsp/lspClientPool.ts).
   const client = await acquirePooledClient(workspaceRoot, filePath);
   if (!client) return null;
 
@@ -279,8 +259,6 @@ export async function callHierarchyWithLSP(
     let items = await client.prepareCallHierarchy(filePath, position);
     let effectiveContent = content;
 
-    // Auto-follow: if no callable symbol at position (e.g. import line),
-    // try gotoDefinition to follow to the actual declaration and retry
     if (!items || items.length === 0) {
       const followed = await tryFollowToDefinition(client, filePath, position);
       if (followed) {
@@ -323,17 +301,10 @@ export async function callHierarchyWithLSP(
           visited
         );
   } catch {
-    // Preserve existing fallback contract: caller falls back to pattern matching
-    // when LSP path fails for any reason. The pool owns lifecycle, so no
-    // stop() call here — idle eviction handles teardown.
     return null;
   }
 }
 
-/**
- * Recursively gather incoming calls with cycle detection.
- * Returns a flattened list of all callers up to the specified depth.
- */
 export async function gatherIncomingCallsRecursive(
   client: LSPClient | null,
   item: CallHierarchyItem,
@@ -358,7 +329,7 @@ export async function gatherIncomingCallsRecursive(
     const nestedCallGroups = await Promise.all(
       enhancedCalls.map(async call => {
         const key = createCallItemKey(call.from);
-        if (visited.has(key)) return []; // Skip cycles
+        if (visited.has(key)) return [];
         visited.add(key);
 
         return gatherIncomingCallsRecursive(
@@ -381,10 +352,6 @@ export async function gatherIncomingCallsRecursive(
   }
 }
 
-/**
- * Recursively gather outgoing calls with cycle detection.
- * Returns a flattened list of all callees up to the specified depth.
- */
 export async function gatherOutgoingCallsRecursive(
   client: LSPClient | null,
   item: CallHierarchyItem,
@@ -409,7 +376,7 @@ export async function gatherOutgoingCallsRecursive(
     const nestedCallGroups = await Promise.all(
       enhancedCalls.map(async call => {
         const key = createCallItemKey(call.to);
-        if (visited.has(key)) return []; // Skip cycles
+        if (visited.has(key)) return [];
         visited.add(key);
 
         return gatherOutgoingCallsRecursive(
@@ -432,10 +399,6 @@ export async function gatherOutgoingCallsRecursive(
   }
 }
 
-/**
- * When prepareCallHierarchy returns empty (e.g. position is on an import),
- * try gotoDefinition to follow to the actual declaration and retry.
- */
 async function tryFollowToDefinition(
   client: LSPClient,
   filePath: string,
@@ -467,21 +430,16 @@ async function tryFollowToDefinition(
       try {
         content = await readFile(def.uri, 'utf-8');
       } catch {
-        // Definition file unreadable; omit extra snippet text, items are still valid.
+        void 0;
       }
     }
 
     return { items: defItems, content };
   } catch {
-    // gotoDefinition or prepareCallHierarchy failed after import follow; no definition hop available.
     return null;
   }
 }
 
-/**
- * Strip internal LSP fields from call hierarchy results before returning.
- * Removes selectionRange and displayRange which are not useful for LLM consumers.
- */
 function stripCallHierarchyInternalFields(
   result: CallHierarchyResult
 ): CallHierarchyResult {

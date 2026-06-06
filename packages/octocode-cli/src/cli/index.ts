@@ -58,14 +58,10 @@ function showVersion(): void {
 export async function runCLI(argv?: string[]): Promise<boolean> {
   const args = parseArgs(argv);
 
-  // B4: honor an explicit --no-color flag by setting NO_COLOR before any output
-  // (colors and the spinner both check NO_COLOR / isTTY lazily).
   if (args.options['no-color'] === true) {
     process.env.NO_COLOR = '1';
   }
 
-  // `--agent` is the documented entry point; `--tools-context` is a legacy
-  // alias kept for backward compatibility (not advertised in --help).
   if (
     args.options['tools-context'] === true ||
     args.options['agent'] === true

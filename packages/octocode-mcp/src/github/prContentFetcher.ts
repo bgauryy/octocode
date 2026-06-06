@@ -1,7 +1,3 @@
-/**
- * PR content fetching — comments, commits, file changes, and item transformation.
- * Extracted from pullRequestSearch.ts.
- */
 import {
   GitHubPullRequestsSearchParams,
   GitHubPullRequestItem,
@@ -30,10 +26,6 @@ import {
   getRawResponseChars,
 } from '../utils/response/charSavings.js';
 
-// PR threads on popular repos are dominated by automation: deploy-preview
-// tables, install-this-PR blocks, and reviewer-bot status. None of it is
-// load-bearing for "what does this PR do / why the disagreement", yet it can
-// be the single largest cost in a metered run. Default to dropping it.
 const KNOWN_BOT_LOGINS = new Set([
   'vercel',
   'pkg-pr-new',
@@ -51,11 +43,6 @@ function isBotAuthor(login: string): boolean {
   return l.endsWith('[bot]') || KNOWN_BOT_LOGINS.has(l.replace(/\[bot\]$/, ''));
 }
 
-/**
- * Strip machine-generated blobs that bloat comment bodies without adding
- * review signal: HTML comment blocks (CodeRabbit `<!-- internal state … -->`),
- * Vercel `[vc]: #…` base64 markers, and other base64-only lines.
- */
 function stripMachineBlobs(body: string): string {
   return body
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -73,10 +60,6 @@ async function fetchPRComments(
   includeBots: boolean = false
 ): Promise<{ comments: PRCommentItem[]; note?: string }> {
   try {
-    // Page through ALL comments (GitHub caps per_page at 100). Same loop the
-    // file fetch uses below — never stop at page 1, so comments 101+ are not
-    // silently dropped. Total size is then bounded losslessly by the response
-    // char-paginator.
     const raw: IssueComment[] = [];
     let rawResponseChars = 0;
     let page = 1;
@@ -100,9 +83,6 @@ async function fetchPRComments(
       : raw.filter((c: IssueComment) => !isBotAuthor(c.user?.login ?? ''));
     const botsDropped = raw.length - kept.length;
 
-    // No count cap: keep EVERY non-bot comment for the requested PR payload;
-    // callers narrow oversized threads via targeted PR/file modes, never by
-    // silently dropping the tail here.
     const comments = kept.map((comment: IssueComment): PRCommentItem => {
       const stripped = stripMachineBlobs(comment.body ?? '');
       return {
@@ -133,7 +113,6 @@ export async function transformPullRequestItemFromSearch(
   params: GitHubPullRequestsSearchParams,
   octokit: InstanceType<typeof OctokitWithThrottling>
 ): Promise<GitHubPullRequestItem> {
-  // Cast to RawPRData - Search API items may have merged_at in extended response
   const rawItem = item as IssueSearchResultItem & { merged_at?: string | null };
   const { prData: result, sanitizationWarnings } =
     createBasePRTransformation(rawItem);
@@ -403,7 +382,6 @@ export async function transformPullRequestItemFromREST(
   const shouldFetchContent =
     type === 'fullContent' || type === 'partialContent' || type === 'metadata';
 
-  // Owner and repo are guaranteed to be strings for REST API calls
   const owner = params.owner as string;
   const repo = params.repo as string;
 
