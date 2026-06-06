@@ -70,7 +70,7 @@ describe('commandAvailability', () => {
       const result = await checkCommandAvailability('rg', true);
 
       expect(result.available).toBe(false);
-      expect(result.error).toContain('not installed');
+      expect(result.error).toContain('bundled binary is unavailable');
 
       spawnSpy.mockRestore();
     });
@@ -139,7 +139,7 @@ describe('commandAvailability', () => {
       const error = getMissingCommandError('rg');
 
       expect(error).toContain('ripgrep');
-      expect(error).toContain('brew install ripgrep');
+      expect(error).toContain('@vscode/ripgrep');
     });
 
     it('should return install instructions for find', () => {

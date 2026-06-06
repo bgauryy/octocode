@@ -317,46 +317,6 @@ resetSessionStats();
 
 ---
 
-## API Reference
-
-### Session Management
-
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `getOrCreateSession(opts?)` | Get or create session | `PersistedSession` |
-| `readSession()` | Read current session | `PersistedSession \| null` |
-| `writeSession(session)` | Write session (deferred) | `void` |
-| `deleteSession()` | Delete session completely | `boolean` |
-| `getSessionId()` | Get current session ID | `string \| null` |
-
-### Flush Control
-
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `flushSession()` | Async flush to disk | `void` |
-| `flushSessionSync()` | Sync flush (for exit handlers) | `void` |
-
-### Statistics
-
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `updateSessionStats(updates)` | Batch update stats | `SessionUpdateResult` |
-| `incrementToolCalls(n?)` | Increment tool calls | `SessionUpdateResult` |
-| `incrementErrors(n?)` | Increment error count | `SessionUpdateResult` |
-| `incrementRateLimits(n?)` | Increment global provider rate-limit count | `SessionUpdateResult` |
-| `incrementRateLimitByProvider(provider, n?)` | Increment global and per-provider rate-limit counts | `SessionUpdateResult` |
-| `incrementPackageRegistryFailures(registry, n?)` | Increment package-registry failure counts separately from rate limits | `SessionUpdateResult` |
-| `resetSessionStats()` | Reset all stats to 0 | `SessionUpdateResult` |
-
-### Constants
-
-| Export | Value | Purpose |
-|--------|-------|---------|
-| `SESSION_FILE` | `~/.octocode/session.json` | Session file path |
-| `STATS_FILE` | `~/.octocode/stats.json` | Stats file path |
-
----
-
 ## Performance Characteristics
 
 | Operation | Time Complexity | I/O |

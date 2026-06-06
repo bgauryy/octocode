@@ -1,20 +1,17 @@
 /**
  * LSP Call Hierarchy tool - traces function call relationships
  * Uses Language Server Protocol for semantic call hierarchy discovery
- * Falls back to pattern matching when LSP is unavailable
  */
 
 import { readFile } from 'fs/promises';
 import { getHints } from '../../hints/index.js';
+import { hints as callHierarchyHints } from './hints.js';
 import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
-import {
-  isLanguageServerAvailable,
-  LSP_UNAVAILABLE_HINT,
-} from '../../lsp/manager.js';
+import { isLanguageServerAvailable } from '../../lsp/manager.js';
 import type { CallHierarchyResult } from '../../lsp/types.js';
 import type { z } from 'zod';
 import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/schemas';
@@ -197,27 +194,29 @@ function buildLspUnavailableResult(
 ): CallHierarchyResult {
   return {
     status: 'empty',
-    errorType: 'unknown',
+    errorType: 'lsp_unavailable',
     errorCode: lspFailed
       ? LSP_ERROR_CODES.LSP_EMPTY
       : LSP_ERROR_CODES.LSP_NOT_INSTALLED,
     direction: query.direction,
     depth: query.depth ?? 1,
-    hints: [
-      ...getHints(TOOL_NAME, 'empty'),
-      lspFailed
-        ? 'The language server returned no call hierarchy for this symbol.'
-        : LSP_UNAVAILABLE_HINT,
-      'Use localSearchCode to find callers/callees by text, then localGetFileContent to inspect them.',
-    ],
+    hints: callHierarchyHints
+      .error({
+        errorType: 'lsp_unavailable',
+        symbolName: query.symbolName,
+      })
+      .filter((hint): hint is string => typeof hint === 'string'),
   };
 }
 
 /**
  * Verbosity shaping for lspCallHierarchy.
  *
- * verbose=false (default): omit `lspMode` metadata from results.
- * verbose=true: include all fields including LSP mode info.
+ * verbose=false (default):
+ *   - Strip `lspMode` metadata
+ *   - Strip `content` from all caller/callee nodes (can be hundreds of KB)
+ *   - Add `summary: { callerCount, fileCount }` for quick orientation
+ * verbose=true: include all fields including LSP mode info and node content.
  *
  * Calls are never dropped. Hints are always returned fully.
  */
@@ -225,9 +224,42 @@ export function applyCallHierarchyVerbosity(
   result: CallHierarchyResult,
   query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
-  if (isVerbose(query) || result.status !== undefined) return result;
-  if (!('lspMode' in (result as object))) return result;
-  const { lspMode: _lm, ...rest } = result as typeof result & { lspMode?: unknown };
+  if (isVerbose(query)) return result;
+  if (result.status !== undefined) return result;
+
+  const r = result as typeof result & { lspMode?: unknown };
+
+  const incomingCalls = r.incomingCalls?.map(call => ({
+    ...call,
+    from: stripContent(call.from),
+  }));
+  const outgoingCalls = r.outgoingCalls?.map(call => ({
+    ...call,
+    to: stripContent(call.to),
+  }));
+
+  const callerCount =
+    (incomingCalls?.length ?? 0) + (outgoingCalls?.length ?? 0);
+  const fileCount = new Set([
+    ...(incomingCalls?.map(c => c.from.uri) ?? []),
+    ...(outgoingCalls?.map(c => c.to.uri) ?? []),
+  ]).size;
+
+  const { lspMode: _lm, ...rest } = r;
   void _lm;
-  return rest as CallHierarchyResult;
+
+  return {
+    ...(rest as CallHierarchyResult),
+    ...(incomingCalls !== undefined ? { incomingCalls } : {}),
+    ...(outgoingCalls !== undefined ? { outgoingCalls } : {}),
+    summary: { callerCount, fileCount },
+  };
+}
+
+function stripContent<T extends { content?: string }>(
+  item: T
+): Omit<T, 'content'> {
+  const { content: _c, ...rest } = item;
+  void _c;
+  return rest as Omit<T, 'content'>;
 }

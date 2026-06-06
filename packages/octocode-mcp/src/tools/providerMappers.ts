@@ -338,26 +338,13 @@ function capFileChanges(
 } {
   if (!fileChanges)
     return { capped: undefined, totalCount: 0, wasTruncated: false };
-  // No count cap: return EVERY file change. Output size is bounded losslessly
-  // by the response char-paginator (agents page for more via responseCharOffset),
-  // never by silently dropping files. Nothing is omitted.
+  // No count cap: return EVERY file change for the selected PR page. Nothing
+  // is silently omitted here; callers narrow large PRs with partialContent.
   return {
     capped: fileChanges,
     totalCount: fileChanges.length,
     wasTruncated: false,
   };
-}
-
-/**
- * Strip patches from a file-changes list, keeping path + status + counts.
- * Lets metadata (triage) mode answer "which files changed?" without the diff
- * payload — and without forcing a second partialContent/fullContent call.
- */
-function toLightweightFileChanges(
-  fileChanges: ProviderPullRequestSearchResult['items'][number]['fileChanges']
-): ProviderPullRequestSearchResult['items'][number]['fileChanges'] {
-  if (!fileChanges) return fileChanges;
-  return fileChanges.map(({ patch: _patch, ...rest }) => rest);
 }
 
 type ProviderPrComment = NonNullable<
@@ -450,16 +437,10 @@ export function mapPullRequestProviderResultData(
       deletions: pr.deletions,
       ...(pr.comments && { comments: pr.comments }),
       ...(reviewSummary && { reviewSummary }),
-      // In metadata (triage) mode we keep a LIGHTWEIGHT file list — paths +
-      // additions/deletions, no patch — so "which files changed?" is answered
-      // without a second partialContent/fullContent round-trip. Full patches
-      // still require type="partialContent"/"fullContent".
-      ...(cappedFileChanges
-        ? {
-            fileChanges: includeFileChanges
-              ? cappedFileChanges
-              : toLightweightFileChanges(cappedFileChanges),
-          }
+      // Metadata mode omits fileChanges entirely; changedFilesCount is sufficient.
+      // Full patch data requires type="partialContent" or type="fullContent".
+      ...(cappedFileChanges && includeFileChanges
+        ? { fileChanges: cappedFileChanges }
         : {}),
     };
   });

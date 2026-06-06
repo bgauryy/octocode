@@ -77,7 +77,9 @@ describe('E2E: verbose boolean — data payload is preserved in both modes', () 
     expect(withMeta.entries?.length).toBe(def.entries?.length);
     // verbose:false strips metadata fields; verbose:true includes them
     const defEntry = def.entries?.[0] as Record<string, unknown> | undefined;
-    const metaEntry = withMeta.entries?.[0] as Record<string, unknown> | undefined;
+    const metaEntry = withMeta.entries?.[0] as
+      | Record<string, unknown>
+      | undefined;
     expect(defEntry).toBeDefined();
     expect(metaEntry).toBeDefined();
     // All research fields (name, path, type) are present in both

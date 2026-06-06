@@ -54,8 +54,9 @@ interface ContentResolution {
 }
 
 /**
- * Resolve repository content by trying the requested branch, the default
- * branch, and common fallback branches (main, master, develop).
+ * Resolve repository content on the requested/default branch only.
+ * Explicit branch requests are strict: a missing branch/path returns an error
+ * instead of substituting content from another branch.
  */
 async function resolveContentWithBranchFallback(
   octokit: Octokit,
@@ -65,14 +66,25 @@ async function resolveContentWithBranchFallback(
   branch: string | undefined,
   authInfo?: AuthInfo
 ): Promise<ContentResolution | GitHubRepositoryStructureError> {
-  const workingBranch = branch ?? 'main';
+  let workingBranch: string;
+  try {
+    workingBranch =
+      branch ?? (await resolveDefaultBranch(owner, repo, authInfo));
+  } catch (repoError) {
+    const apiError = handleGitHubAPIError(repoError);
+    await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.NOT_FOUND.code);
+    return {
+      error: REPOSITORY_ERRORS.NOT_FOUND.message(owner, repo, apiError.error),
+      status: apiError.status,
+    };
+  }
 
   try {
     const result = await octokit.rest.repos.getContent({
       owner,
       repo,
       path: cleanPath || '',
-      ref: branch,
+      ref: workingBranch,
     });
     return { data: result.data, workingBranch };
   } catch (error: unknown) {
@@ -92,75 +104,16 @@ async function resolveContentWithBranchFallback(
       };
     }
 
-    let defaultBranch: string;
-    let repoDefaultBranch: string | undefined;
-    try {
-      defaultBranch = await resolveDefaultBranch(owner, repo, authInfo);
-      repoDefaultBranch = defaultBranch;
-    } catch (repoError) {
-      const apiError = handleGitHubAPIError(repoError);
-      await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.NOT_FOUND.code);
-      return {
-        error: REPOSITORY_ERRORS.NOT_FOUND.message(owner, repo, apiError.error),
-        status: apiError.status,
-      };
-    }
-
-    if (defaultBranch === branch) {
-      const apiError = handleGitHubAPIError(error);
-      await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.PATH_NOT_FOUND.code);
-      return {
-        error: REPOSITORY_ERRORS.PATH_NOT_FOUND.message(
-          cleanPath,
-          owner,
-          repo,
-          branch
-        ),
-        status: apiError.status,
-      };
-    }
-
-    const branchCandidates = [
-      defaultBranch,
-      ...['main', 'master', 'develop'].filter(
-        b => b !== branch && b !== defaultBranch
-      ),
-    ];
-
-    for (const candidate of branchCandidates) {
-      try {
-        const result = await octokit.rest.repos.getContent({
-          owner,
-          repo,
-          path: cleanPath || '',
-          ref: candidate,
-        });
-        return {
-          data: result.data,
-          workingBranch: candidate,
-          repoDefaultBranch,
-        };
-      } catch {
-        // Path/ref missing on this branch; try the next candidate
-      }
-    }
-
     const apiError = handleGitHubAPIError(error);
-    await logSessionError(
-      TOOL_NAME,
-      REPOSITORY_ERRORS.PATH_NOT_FOUND_ANY_BRANCH.code
-    );
+    await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.PATH_NOT_FOUND.code);
     return {
-      error: REPOSITORY_ERRORS.PATH_NOT_FOUND_ANY_BRANCH.message(
+      error: REPOSITORY_ERRORS.PATH_NOT_FOUND.message(
         cleanPath,
         owner,
-        repo
+        repo,
+        workingBranch
       ),
       status: apiError.status,
-      triedBranches: [branch, ...branchCandidates].filter(
-        (b): b is string => b !== undefined
-      ),
-      defaultBranch,
     };
   }
 }

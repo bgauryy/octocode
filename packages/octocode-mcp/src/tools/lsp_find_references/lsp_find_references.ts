@@ -2,7 +2,6 @@
  * LSP Find References Tool
  *
  * Finds all references to a symbol across the workspace using Language Server Protocol.
- * Falls back to pattern matching when LSP is not available.
  *
  * @module tools/lsp_find_references
  */
@@ -26,10 +25,7 @@ type LSPFindReferencesQuery = WithVerbosity<
   orderHint?: number;
 };
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
-import {
-  isLanguageServerAvailable,
-  LSP_UNAVAILABLE_HINT,
-} from '../../lsp/manager.js';
+import { isLanguageServerAvailable } from '../../lsp/manager.js';
 import type {
   FindReferencesResult,
   ExactPosition,
@@ -78,13 +74,9 @@ export async function findReferences(
   }
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
-  // Output bounding for this tool is handled exclusively by applyBulkResponsePagination
-  // (the query-level applyQueryOutputPagination is bypassed — see the early-return
-  // guard in structuredPagination.ts). The LSP_FIND_REFERENCES case in
-  // structuredPagination.ts char-paginates the `locations` array, slicing it
-  // to the responseCharLength budget and sub-slicing an oversized single
-  // location's `content`. Row navigation stays on `page` / `referencesPerPage`;
-  // bulk responseCharOffset / responseCharLength are the only cursor levers.
+  // Row navigation is page-based (`page` / `referencesPerPage`). The generic
+  // bulk response does not expose response-level char cursors, so this tool
+  // returns the current page in full and relies on item pagination for bounds.
   const shaped = attachReferencesEvidence(
     applyFindReferencesVerbosity(result, query)
   );
@@ -186,7 +178,7 @@ async function findReferencesInternal(
     // the dedicated text-search tool instead.
     if (!lspAvailable) {
       return attachRawResponseChars(
-        buildLspUnavailableResult(),
+        buildLspUnavailableResult(false, query.symbolName),
         content.length
       );
     }
@@ -212,7 +204,7 @@ async function findReferencesInternal(
 
     if (!lspResult) {
       return attachRawResponseChars(
-        buildLspUnavailableResult(true),
+        buildLspUnavailableResult(true, query.symbolName),
         content.length
       );
     }
@@ -237,19 +229,22 @@ async function findReferencesInternal(
  * @param lspFailed true when a language server was available but the request
  *   failed or returned nothing (vs. no language server installed at all).
  */
-function buildLspUnavailableResult(lspFailed = false): FindReferencesResult {
+function buildLspUnavailableResult(
+  lspFailed = false,
+  symbolName?: string
+): FindReferencesResult {
   return {
     status: 'empty',
-    errorType: 'unknown',
+    errorType: 'lsp_unavailable',
     errorCode: lspFailed
       ? LSP_ERROR_CODES.LSP_EMPTY
       : LSP_ERROR_CODES.LSP_NOT_INSTALLED,
     hints: [
       ...getHints(TOOL_NAME, 'empty'),
-      lspFailed
-        ? 'The language server returned no references for this symbol.'
-        : LSP_UNAVAILABLE_HINT,
-      'Use localSearchCode to find textual usages of the symbol across the workspace.',
+      ...getHints(TOOL_NAME, 'error', {
+        errorType: 'lsp_unavailable',
+        symbolName,
+      }),
     ],
   };
 }
@@ -268,22 +263,22 @@ function buildReferencesByFile(
   const byUri = new Map<string, ReferencesByFile>();
 
   for (const loc of locations) {
+    const lineNumber = loc.range.start.line + 1;
     const existing = byUri.get(loc.uri);
     if (existing) {
       const hasDefinition = existing.hasDefinition || loc.isDefinition;
-      byUri.set(loc.uri, {
-        ...existing,
-        count: existing.count + 1,
-        ...(hasDefinition ? { hasDefinition: true } : {}),
-      });
+      existing.count += 1;
+      existing.lines.push(lineNumber);
+      if (hasDefinition) existing.hasDefinition = true;
       continue;
     }
 
     byUri.set(loc.uri, {
       uri: loc.uri,
       count: 1,
-      firstLine: loc.range.start.line + 1,
+      firstLine: lineNumber,
       firstCharacter: loc.range.start.character,
+      lines: [lineNumber],
       ...(loc.isDefinition ? { hasDefinition: true } : {}),
     });
   }
@@ -326,7 +321,9 @@ export function applyFindReferencesVerbosity(
 
   if (isVerbose(query)) return result;
   if (!('lspMode' in (result as object))) return result;
-  const { lspMode: _lm, ...rest } = result as typeof result & { lspMode?: unknown };
+  const { lspMode: _lm, ...rest } = result as typeof result & {
+    lspMode?: unknown;
+  };
   void _lm;
   return rest as FindReferencesResult;
 }

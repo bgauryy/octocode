@@ -274,7 +274,7 @@ describe('providerMappers', () => {
     });
   });
 
-  it('keeps a lightweight fileChanges list (paths+counts, no patch) when includeFileChanges is false', () => {
+  it('omits fileChanges entirely in metadata mode (includeFileChanges=false)', () => {
     const { resultData } = mapPullRequestProviderResultData(
       {
         items: [
@@ -327,13 +327,8 @@ describe('providerMappers', () => {
     );
 
     const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
-    // Metadata mode keeps the file list so "which files changed?" needs no
-    // second call — but strips patches to stay lean.
-    const fileChanges = pr!.fileChanges as Array<Record<string, unknown>>;
-    expect(fileChanges).toHaveLength(2);
-    expect(fileChanges.map(f => f.path)).toEqual(['a.md', 'b.md']);
-    expect(fileChanges[0]!.additions).toBe(50);
-    expect(fileChanges.every(f => f.patch === undefined)).toBe(true);
+    // Metadata mode omits fileChanges entirely — changedFilesCount is sufficient for triage.
+    expect(pr).not.toHaveProperty('fileChanges');
     expect(pr!.changedFilesCount).toBe(2);
     expect(pr!.additions).toBe(90);
     expect(pr!.deletions).toBe(70);

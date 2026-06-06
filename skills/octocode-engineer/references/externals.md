@@ -68,9 +68,7 @@ Declarative rule DSL (`forbidden`/`allowed`/`required`). Scanner has 28 built-in
 
 ```bash
 npx depcruise --no-config --output-type err src/
-npx depcruise --no-config --output-type metrics src/
 npx depcruise --no-config --output-type mermaid src/ > deps.md
-npx depcruise --no-config --output-type mermaid --focus "^src/session" src/
 npx depcruise --no-config --output-type err --affected HEAD src/
 ```
 
@@ -127,10 +125,8 @@ bandit -r <target> -s B101   # skip specific check (e.g. assert)
 ### pytest — Test runner
 
 ```bash
-pytest
 pytest --tb=short -q
 pytest --cov=<package> --cov-report=term-missing
-pytest -x   # stop on first failure
 ```
 
 ---

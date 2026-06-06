@@ -81,8 +81,6 @@ npx add-skill https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-
 
 The [Octocode MCP Server](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp) connects your AI assistant to code:
 
-The [Octocode MCP Server](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp) connects your AI assistant to code:
-
 - **GitHub**: Search repositories, find usage patterns, read implementations, explore PRs
 - **Local Tools**: Search code (ripgrep), browse directories, find files in your local codebase
 - **LSP Intelligence**: Go to Definition, Find References, Call Hierarchy (compiler-level understanding)

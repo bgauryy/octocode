@@ -15,11 +15,15 @@ import { LocalGetFileContentOutputSchema } from '@octocodeai/octocode-core/schem
  */
 const MatchRangeSchema = z.object({ start: z.number(), end: z.number() });
 
-const LocalGetFileContentFixedOutputSchema = LocalGetFileContentOutputSchema.extend({
-  matchRanges: z.array(MatchRangeSchema).optional().describe(
-    'Line ranges for each matched context block. Each entry has start (1-based first line) and end (1-based last line) of the block.'
-  ),
-});
+const LocalGetFileContentFixedOutputSchema =
+  LocalGetFileContentOutputSchema.extend({
+    matchRanges: z
+      .array(MatchRangeSchema)
+      .optional()
+      .describe(
+        'Line ranges for each matched context block. Each entry has start (1-based first line) and end (1-based last line) of the block.'
+      ),
+  });
 
 /**
  * Register the local fetch content tool with the MCP server.

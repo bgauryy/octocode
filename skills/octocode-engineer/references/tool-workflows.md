@@ -49,16 +49,13 @@ Trace a function: definition → callers → callees.
 5. **Find callers** — incoming call hierarchy → who depends on this?
 6. **Find callees** — outgoing call hierarchy → what does this depend on?
 
-### 3 — Impact Analysis (Pre-Refactor)
+### 3 — Impact Analysis (Quick Blast Radius)
 
-Assess blast radius before changing a symbol.
+Fast pre-change check. For a full refactoring plan with coupling and cycle analysis, use [Workflow 12](#12--refactoring-plan-safe-restructure).
 
-1. **Map structural imports** — AST search for import patterns involving the symbol
-2. **Locate the symbol** — text search to get file + lineHint
-3. **Count all consumers** — find references, excluding declaration
-4. **Count test consumers** — find references filtered to test directories only
-5. **Count production consumers** — find references excluding test directories
-6. **Assess safety** — few production refs + high test coverage = safe to change. Many production refs = plan carefully, consider incremental migration.
+1. **Locate the symbol** — text search to get file + lineHint
+2. **Count all consumers** — find references, excluding declaration; split test vs production
+3. **Assess safety** — few production refs + high test coverage = safe to change. Many refs = plan carefully → Workflow 12.
 
 ### 4 — Dead Export Validation
 
@@ -162,17 +159,17 @@ Before writing new code, understand the existing landscape to pick the right loc
 
 ### 12 — Refactoring Plan (Safe Restructure)
 
-Plan a multi-file refactor with full blast radius awareness.
+Full blast-radius refactoring plan. Use when Workflow 3 (quick check) reveals high consumer count or cross-package scope.
 
 1. **Map all files containing the symbol** — text search with file-list mode
 2. **Count all consumers** — find references excluding declaration
-3. **Split test vs production consumers** — find references with include/exclude patterns for test dirs
-4. **Map callers and dependencies** — incoming and outgoing call hierarchy
-5. **Check import graph** — AST search for import patterns in the target area
+3. **Split test vs production consumers** — find references filtered to test dirs; 0 test refs = coverage risk
+4. **Map structural imports** — AST search for import patterns involving the symbol
+5. **Map callers and dependencies** — incoming and outgoing call hierarchy
 6. **Check coupling/cycle risk** — scoped scan with architecture + graph features
 7. **Assess test quality around target** — scoped scan with test-quality feature
 
-**Output**: file list + consumer count + test coverage + coupling risk = refactoring confidence level.
+**Output**: file list + consumer count (test/prod split) + import graph + coupling risk = refactoring confidence level.
 
 ### 13 — Codebase Exploration (New Repo Orientation)
 

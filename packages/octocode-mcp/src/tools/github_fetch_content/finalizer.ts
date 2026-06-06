@@ -13,9 +13,7 @@ import {
   formatFinalizedResponse,
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
-import type {
-  GitHubFetchContentOutputLocal,
-} from '../../scheme/remoteSchemaOverlay.js';
+import type { GitHubFetchContentOutputLocal } from '../../scheme/remoteSchemaOverlay.js';
 import { isVerbose } from '../../scheme/verbosity.js';
 import { buildEvidenceMetadata } from '../evidence.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
@@ -137,16 +135,8 @@ function buildFetchEvidence(
           `Use charOffset=${nextOffset} for ${group.id}:${file.path}.`
         );
       }
-      if (
-        file.isPartial &&
-        typeof file.endLine === 'number' &&
-        typeof file.totalLines === 'number' &&
-        file.endLine < file.totalLines
-      ) {
-        reasons.push(
-          `Use startLine=${file.endLine + 1} with an endLine up to ${file.totalLines} for ${group.id}:${file.path}.`
-        );
-      }
+      // startLine navigation is now emitted as a hints[] entry (buildRuntimeHints),
+      // not as an evidence reason, so agents following the hint-driven flow see it.
     }
   }
   if (errors.length > 0) {
@@ -296,7 +286,6 @@ function buildGroups(
   return Array.from(groups.values());
 }
 
-
 function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
   const hints: string[] = [];
 
@@ -309,6 +298,17 @@ function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
         const currentLength = file.pagination.charLength ?? 0;
         hints.push(
           `Use charOffset=${file.pagination.charOffset + currentLength} for ${group.id}:${file.path} to continue this file.`
+        );
+      }
+      // Line-range partial: navigation instruction belongs in hints[], not evidence.reason
+      if (
+        file.isPartial &&
+        typeof file.endLine === 'number' &&
+        typeof file.totalLines === 'number' &&
+        file.endLine < file.totalLines
+      ) {
+        hints.push(
+          `File content is partial (lines ${file.startLine ?? 1}–${file.endLine} of ${file.totalLines}). Use startLine=${file.endLine + 1} to read the next section of ${group.id}:${file.path}.`
         );
       }
     }

@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import { buildGithubSearchCodeFinalizer } from '../../src/tools/github_search_code/finalizer.js';
-import type { FlatQueryResult } from '../../src/types.js';
+import type { FlatQueryResult } from '../../src/types/toolResults.js';
 
 describe('githubGetFileContent finalizer — optimization fixes', () => {
   it('FIX #1: does not emit top-level "Partial content ... Use startLine=..." hint when the file is partial (info already in fields)', () => {

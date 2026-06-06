@@ -167,7 +167,11 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: Array.from({ length: 20 }, (_, i) =>
-            makeItem('owner/repo', `src/page2-file-${i + 1}.ts`, `body-${i + 1}`)
+            makeItem(
+              'owner/repo',
+              `src/page2-file-${i + 1}.ts`,
+              `body-${i + 1}`
+            )
           ),
           totalCount: 100,
           pagination: { currentPage: 2, totalPages: 5, hasMore: true },
@@ -177,7 +181,9 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo', page: 2 }],
+        queries: [
+          { keywordsToSearch: ['x'], owner: 'owner', repo: 'repo', page: 2 },
+        ],
       });
 
       const data = result.structuredContent as FlatResponse;

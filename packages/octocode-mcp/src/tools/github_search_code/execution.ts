@@ -99,6 +99,7 @@ export async function searchMultipleGitHubCode(
             group.matches.map(m => m.path)
           ),
         };
+        const fileCount = flat.results.flatMap(r => r.matches).length;
         return createSuccessResult(
           query,
           flat as unknown as GitHubSearchCodeData,
@@ -107,6 +108,12 @@ export async function searchMultipleGitHubCode(
           {
             hintContext,
             rawResponse: providerResult.response.rawResponseChars,
+            extraHints:
+              flat.results.length > 0
+                ? [
+                    `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — use githubGetFileContent(owner, repo, branch, path) to read specific files.`,
+                  ]
+                : [],
           }
         );
       } catch (error) {

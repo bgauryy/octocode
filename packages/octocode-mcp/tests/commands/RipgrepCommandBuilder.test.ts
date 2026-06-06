@@ -22,8 +22,9 @@ describe('RipgrepCommandBuilder', () => {
   describe('build()', () => {
     it('resolves a ripgrep binary as the command', () => {
       const { command } = new RipgrepCommandBuilder().build();
-      // Bundled @vscode/ripgrep path or 'rg' fallback — never empty.
+      // Bundled @vscode/ripgrep path — never a host-specific PATH fallback.
       expect(command).toBeTruthy();
+      expect(command).not.toBe('rg');
     });
   });
 

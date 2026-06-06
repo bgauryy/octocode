@@ -164,9 +164,7 @@ function createBulkResponse<
   }
 
   // Lift hints out of each query's `data` so they appear once at peer level.
-  const aggregatedHints = config.peerHints
-    ? dedupePeerHints(flatQueries)
-    : [];
+  const aggregatedHints = config.peerHints ? dedupePeerHints(flatQueries) : [];
 
   // Lift per-query `data.evidence` blocks into a single top-level summary.
   const aggregatedEvidence = config.peerEvidence
@@ -190,9 +188,8 @@ function createBulkResponse<
     if (shared) responseData.shared = shared;
   }
 
-  // Second lift-and-dedupe pass: applyBulkResponsePagination can re-introduce
-  // hints into per-query `data` (via withPaginationHints) AFTER the initial
-  // dedupePeerHints pass ran. Lift those once more so each pagination
+  // Second lift-and-dedupe pass: tool processors may attach extra hints to
+  // per-query `data` after earlier shaping. Lift them once more so each
   // breadcrumb shows up exactly once at the top-level `hints[]`.
   const postPaginationHints = config.peerHints
     ? dedupePeerHints(
@@ -292,7 +289,6 @@ function queryPaginationReasons(data: Record<string, unknown>): string[] {
   }
   return reasons;
 }
-
 
 function withEvidenceReasons(
   evidence: EvidenceMetadata,

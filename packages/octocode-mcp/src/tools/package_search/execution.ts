@@ -21,11 +21,8 @@ import type {
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import {
-  handleCatchError,
-  createSuccessResult,
-  createErrorResult,
-} from '../utils.js';
+import { createSuccessResult, createErrorResult } from '../utils.js';
+import { getHints } from '../../hints/index.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 
@@ -36,7 +33,7 @@ function isPackageSearchError(
 }
 
 function getPackageName(pkg: PackageResult): string {
-  if ('path' in pkg) {
+  if ('path' in pkg && typeof pkg.path === 'string') {
     return pkg.path;
   }
   return pkg.name;
@@ -64,12 +61,9 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
   return {};
 }
 
-// Pagination note: the returned `packages` array is NOT a data-loss surface —
-// it is char-paginated losslessly by the bulk engine (PACKAGE_SEARCH case in
-// structuredPagination.ts → paginatePackageEntry), so every returned package is
-// reachable by advancing the charOffset / responseCharOffset cursor. `itemsPerPage`
-// is the explicit fetch cap (how many the registry query returns), the cross-tool
-// page-size knob that replaced the old upstream `searchLimit`.
+// Pagination note: `itemsPerPage` is the explicit fetch cap (how many the
+// registry query returns), the cross-tool page-size knob that replaced the old
+// upstream `searchLimit`. Returned packages are emitted as the current page.
 // TODO (feature, not data loss): fetching results BEYOND itemsPerPage needs a
 // registry result-page cursor, and per-result lastPublished/weeklyDownloads
 // enrichment is currently only applied to exact-match lookups (itemsPerPage=1)
@@ -115,8 +109,18 @@ export async function searchPackages(
         const apiResult = await searchPackage(validatedQuery);
 
         if (isPackageSearchError(apiResult)) {
+          const errorHints = getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
+            originalError: apiResult.error,
+          });
+          // Prepend hints from the lower layer (e.g. npm.ts network-fallback
+          // hints) so they appear before the generic tool-level hints.
+          const mergedHints = [
+            ...(apiResult.hints ?? []),
+            ...errorHints,
+          ];
           return createErrorResult(apiResult.error, query, {
             rawResponse: apiResult,
+            customHints: mergedHints,
           });
         }
 
@@ -124,7 +128,9 @@ export async function searchPackages(
           const repoUrl = getPackageRepo(pkg);
           const { owner, repo } = parseRepoInfo(repoUrl);
           const name = getPackageName(pkg);
-          return { ...pkg, name, ...(owner && repo ? { owner, repo } : {}) };
+          // Omit internal `path` field — `name` is the canonical output field.
+          const { path: _path, ...pkgRest } = pkg as PackageResult & { path?: string };
+          return { ...pkgRest, name, ...(owner && repo ? { owner, repo } : {}) };
         });
 
         const result = {
@@ -190,7 +196,11 @@ export async function searchPackages(
           }
         );
       } catch (error) {
-        return handleCatchError(error, query);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorHints = getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
+          originalError: errorMsg,
+        });
+        return createErrorResult(error, query, { customHints: errorHints });
       }
     },
     {
@@ -275,10 +285,18 @@ export function applyPackageSearchVerbosity(
   }
 
   // Strip metadata-only fields (license, downloads, recentVersions) when verbose=false
-  const METADATA_KEYS = new Set(['license', 'weeklyDownloads', 'recentVersions', 'publishedAt', 'maintainers']);
+  const METADATA_KEYS = new Set([
+    'license',
+    'weeklyDownloads',
+    'recentVersions',
+    'publishedAt',
+    'maintainers',
+  ]);
   const packages = (input.data.packages ?? []).map(p => {
     const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(p as unknown as Record<string, unknown>)) {
+    for (const [key, val] of Object.entries(
+      p as unknown as Record<string, unknown>
+    )) {
       if (!METADATA_KEYS.has(key)) result[key] = val;
     }
     return result;

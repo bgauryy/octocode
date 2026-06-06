@@ -43,6 +43,7 @@ export async function registerTools(
 ): Promise<{
   successCount: number;
   failedTools: string[];
+  failedToolErrors?: Record<string, string>;
 }> {
   const localEnabled = isLocalEnabled();
   const cloneEnabled = isCloneEnabled();

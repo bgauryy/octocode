@@ -244,11 +244,10 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
 
   it('verbose:false — preserves full files[] and original hints', () => {
     const result = baseResult();
-    const out = applyRipgrepVerbosity(
-      result,
-      baseQuery({ verbose: false }),
-      { totalMatches: 2, totalFiles: 1 }
-    );
+    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: false }), {
+      totalMatches: 2,
+      totalFiles: 1,
+    });
     expect(out.files).toEqual(result.files);
     expect(out.hints).toEqual(result.hints);
   });
@@ -257,21 +256,19 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
     const result = baseResult({
       files: [{ path: '/test/a.ts', matchCount: 0, matches: [] }],
     });
-    const out = applyRipgrepVerbosity(
-      result,
-      baseQuery({ verbose: false }),
-      { totalMatches: 0, totalFiles: 1 }
-    );
+    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: false }), {
+      totalMatches: 0,
+      totalFiles: 1,
+    });
     expect(out.files).toEqual(result.files);
   });
 
   it('verbose:false — returns result unchanged when files is empty', () => {
     const result = baseResult({ files: [] });
-    const out = applyRipgrepVerbosity(
-      result,
-      baseQuery({ verbose: false }),
-      { totalMatches: 0, totalFiles: 0 }
-    );
+    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: false }), {
+      totalMatches: 0,
+      totalFiles: 0,
+    });
     expect(out.files).toEqual([]);
     expect(out.hints).toEqual(result.hints);
   });
@@ -304,11 +301,10 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
       },
       hints: [...allHints],
     };
-    const out = applyRipgrepVerbosity(
-      result,
-      baseQuery({ verbose: true }),
-      { totalMatches: 0, totalFiles: 0 }
-    );
+    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: true }), {
+      totalMatches: 0,
+      totalFiles: 0,
+    });
     expect(out.hints).toEqual(allHints);
   });
 

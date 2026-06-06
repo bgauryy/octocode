@@ -475,6 +475,7 @@ async function gotoDefinitionWithLSP(
       locations.length > 1
         ? 'Multiple definitions - check overloads or re-exports'
         : undefined,
+      'Definition found — use lspFindReferences with the same symbolName+lineHint to find all usages, or lspCallHierarchy to trace call flow.',
     ].filter(Boolean) as string[],
   };
 }
@@ -520,7 +521,9 @@ export function applyGotoDefinitionVerbosity(
 ): GotoDefinitionResult {
   if (isVerbose(query) || result.status !== undefined) return result;
   if (!('lspMode' in (result as object))) return result;
-  const { lspMode: _lm, ...rest } = result as typeof result & { lspMode?: unknown };
+  const { lspMode: _lm, ...rest } = result as typeof result & {
+    lspMode?: unknown;
+  };
   void _lm;
   return rest as GotoDefinitionResult;
 }

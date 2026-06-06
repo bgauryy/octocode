@@ -17,7 +17,6 @@ import {
   TOOL_HINTS,
   getToolHintsSync,
   getGenericErrorHintsSync,
-  getDynamicHints,
 } from '../../../src/tools/toolMetadata/hints.js';
 
 const LOCAL_TOOL = 'localSearchCode';
@@ -39,7 +38,7 @@ describe('hints.ts with global mock metadata', () => {
 
     it('returns the tool hints object for a real tool', () => {
       const hints = TOOL_HINTS[REMOTE_TOOL];
-      expect(hints.empty).toEqual([
+      expect(hints?.empty).toEqual([
         'Test hint for empty 1',
         'Test hint for empty 2',
       ]);
@@ -125,26 +124,7 @@ describe('hints.ts with global mock metadata', () => {
     });
   });
 
-  describe('getDynamicHints', () => {
-    it('returns the dynamic hint array for a tool that has one', () => {
-      expect(getDynamicHints(LOCAL_TOOL, 'parallelTip')).toEqual([
-        'Use parallel queries for faster results',
-      ]);
-    });
 
-    it('returns [] for a tool without that dynamic hint type', () => {
-      // packageSearch uses mockToolSchema which has no `dynamic` block.
-      expect(getDynamicHints('packageSearch', 'parallelTip')).toEqual([]);
-    });
-
-    it('returns [] for a known tool with an unknown dynamic hint key', () => {
-      expect(getDynamicHints(LOCAL_TOOL, 'noSuchDynamicKey')).toEqual([]);
-    });
-
-    it('returns [] for an unknown tool', () => {
-      expect(getDynamicHints(UNKNOWN_TOOL, 'parallelTip')).toEqual([]);
-    });
-  });
 });
 
 describe('hints.ts with isolated re-mocked metadata', () => {
@@ -269,7 +249,6 @@ describe('hints.ts with isolated re-mocked metadata', () => {
       TOOL_HINTS: HINTS,
       getToolHintsSync: getHints,
       getGenericErrorHintsSync: getErrHints,
-      getDynamicHints: getDyn,
     } = await import('../../../src/tools/toolMetadata/hints.js');
 
     // Force getMetadataOrNull() to return null so `?? completeMetadata` runs.
@@ -289,6 +268,5 @@ describe('hints.ts with isolated re-mocked metadata', () => {
       'fallback tool hint',
     ]);
     expect(getErrHints()).toEqual(['fallback error hint']);
-    expect(getDyn('githubSearchCode', 'whatever')).toEqual([]);
   });
 });

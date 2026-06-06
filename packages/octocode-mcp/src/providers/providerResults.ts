@@ -239,7 +239,7 @@ export interface RepoStructureResult {
   projectPath: string;
   /** Branch/ref that was actually used */
   branch: string;
-  /** Default branch of the repository (populated when a branch fallback occurred) */
+  /** Repository default branch, when resolved separately from the request */
   defaultBranch?: string;
   /** Current path */
   path: string;

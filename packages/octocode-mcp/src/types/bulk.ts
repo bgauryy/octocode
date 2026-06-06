@@ -5,16 +5,13 @@
  * @module types/bulk
  */
 
-import type {
-  EvidenceMetadata,
-  FlatQueryResult,
-} from './toolResults.js';
+import type { EvidenceMetadata, FlatQueryResult } from './toolResults.js';
 
 /**
  * Input handed to a {@link BulkFinalizer} after `executeBulkOperation` has
  * processed every query. All side effects (provider calls, error isolation,
- * timeouts) have already run; the finalizer owns shape, char-pagination, and
- * serialization for tools that emit a non-default response shape.
+ * timeouts) have already run; the finalizer owns shape and serialization for
+ * tools that emit a non-default response shape.
  */
 export interface BulkFinalizerInput<
   TQuery,
@@ -89,9 +86,8 @@ export interface BulkResponseConfig<
    */
   minQueryTimeoutMs?: number;
   /**
-   * Optional finalizer hook. When provided, the default per-query +
-   * bulk-response char-pagination steps are skipped and the finalizer owns
-   * the response shape entirely. Telemetry (`incrementToolCharSavings`)
+   * Optional finalizer hook. When provided, the finalizer owns the response
+   * shape entirely. Telemetry (`incrementToolCharSavings`)
    * still runs through the bulk runner so every tool reports raw vs sent
    * chars uniformly. Parametrize `TOutput` with `z.infer<typeof
    * MyOutputSchema>` to get compile-time shape safety.

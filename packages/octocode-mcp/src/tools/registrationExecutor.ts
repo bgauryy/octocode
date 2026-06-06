@@ -4,7 +4,7 @@ import type { ToolConfig } from './toolConfig.js';
 
 type ToolRegistrationOutcome =
   | { status: 'success' }
-  | { status: 'failed'; toolName: string }
+  | { status: 'failed'; toolName: string; error: string }
   | { status: 'skipped' };
 
 export async function registerSingleTool(
@@ -20,8 +20,12 @@ export async function registerSingleTool(
   try {
     const result = await tool.fn(server, callback);
     return result !== null ? { status: 'success' } : { status: 'skipped' };
-  } catch {
-    return { status: 'failed', toolName: tool.name };
+  } catch (error) {
+    return {
+      status: 'failed',
+      toolName: tool.name,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -41,17 +45,24 @@ export async function registerToolsBatch(
 export function summarizeOutcomes(outcomes: ToolRegistrationOutcome[]): {
   successCount: number;
   failedTools: string[];
+  failedToolErrors?: Record<string, string>;
 } {
   const successCount = outcomes.filter(
     outcome => outcome.status === 'success'
   ).length;
 
-  const failedTools = outcomes
-    .filter(
-      (outcome): outcome is { status: 'failed'; toolName: string } =>
-        outcome.status === 'failed'
-    )
-    .map(outcome => outcome.toolName);
+  const failures = outcomes.filter(
+    (
+      outcome
+    ): outcome is { status: 'failed'; toolName: string; error: string } =>
+      outcome.status === 'failed'
+  );
+  const failedTools = failures.map(outcome => outcome.toolName);
+  const failedToolErrors = Object.fromEntries(
+    failures.map(outcome => [outcome.toolName, outcome.error])
+  );
 
-  return { successCount, failedTools };
+  return failedTools.length > 0
+    ? { successCount, failedTools, failedToolErrors }
+    : { successCount, failedTools };
 }

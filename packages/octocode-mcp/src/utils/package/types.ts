@@ -20,11 +20,18 @@ export interface MinimalPackageResult {
 }
 
 export interface NpmPackageResult {
+  /** Package name (canonical; replaces internal `path`). */
+  name: string;
+  /** npm registry page URL, e.g. https://www.npmjs.com/package/react */
+  npmUrl: string;
   repoUrl: string | null;
-  path: string;
+  /** @deprecated use `name` — kept for internal mapping only, omitted from output */
+  path?: string;
   version: string;
-  mainEntry: string | null;
-  typeDefinitions: string | null;
+  /** Only populated for exact-name lookups via `npm view`. */
+  mainEntry?: string | null;
+  /** Only populated for exact-name lookups via `npm view`. */
+  typeDefinitions?: string | null;
   lastPublished?: string;
   owner?: string;
   repo?: string;

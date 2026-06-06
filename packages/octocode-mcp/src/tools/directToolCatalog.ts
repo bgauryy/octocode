@@ -15,8 +15,6 @@ import { ALL_TOOLS, type ToolConfig } from './toolConfig.js';
 
 export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];
-  responseCharLength?: number;
-  responseCharOffset?: number;
 };
 
 export interface DirectToolDefinition {
@@ -337,6 +335,13 @@ export function buildDirectToolExampleQuery(
     example[field.name] = buildExampleValue(field.name, field.type);
   }
 
+  if (
+    toolName.startsWith('lsp') &&
+    fields.some(field => field.name === 'uri')
+  ) {
+    example.uri ??= 'uri';
+  }
+
   return example;
 }
 
@@ -396,19 +401,11 @@ function buildDirectToolPayload(
   options: PrepareDirectToolInputOptions
 ): DirectToolInput {
   let queriesInput: unknown[] = [];
-  let responseCharLength: number | undefined;
-  let responseCharOffset: number | undefined;
 
   if (Array.isArray(rawPayload)) {
     queriesInput = rawPayload;
   } else if (isRecord(rawPayload) && Array.isArray(rawPayload.queries)) {
     queriesInput = rawPayload.queries;
-    if (typeof rawPayload.responseCharLength === 'number') {
-      responseCharLength = rawPayload.responseCharLength;
-    }
-    if (typeof rawPayload.responseCharOffset === 'number') {
-      responseCharOffset = rawPayload.responseCharOffset;
-    }
   } else if (isRecord(rawPayload)) {
     queriesInput = [rawPayload];
   } else {
@@ -432,8 +429,6 @@ function buildDirectToolPayload(
         }
       )
     ),
-    responseCharLength,
-    responseCharOffset,
   };
 }
 

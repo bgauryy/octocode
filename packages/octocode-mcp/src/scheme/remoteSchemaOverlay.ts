@@ -70,44 +70,9 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
   STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
   UpstreamFileContentQuerySchema.extend({
     ...optionalMetaFields,
-    owner: describeField(
-      UpstreamFileContentQuerySchema.shape.owner,
-      'GitHub repository owner or organization.'
-    ),
-    repo: describeField(
-      UpstreamFileContentQuerySchema.shape.repo,
-      'GitHub repository name without the owner.'
-    ),
-    path: describeField(
-      UpstreamFileContentQuerySchema.shape.path,
-      'Repository-relative file path, or directory path when type="directory".'
-    ),
-    branch: describeField(
-      UpstreamFileContentQuerySchema.shape.branch,
-      'Branch, tag, or commit SHA. Omit to resolve the repository default branch.'
-    ),
-    type: z
-      .enum(['file', 'directory'])
-      .optional()
-      .describe(
-        'Content mode: "file" for a file slice, "directory" to fetch a subtree to disk. Directory mode requires ENABLE_LOCAL=true and ENABLE_CLONE=true.'
-      ),
-    fullContent: describeField(
-      UpstreamFileContentQuerySchema.shape.fullContent,
-      'Read the whole file. Mutually exclusive with matchString and startLine/endLine.'
-    ),
-    matchString: describeField(
-      UpstreamFileContentQuerySchema.shape.matchString,
-      'Anchor text or regex used to return matching slices with matchStringContextLines around each match.'
-    ),
-    startLine: describeField(
-      lineNumberField,
-      '1-based first line to include. Use with endLine; mutually exclusive with fullContent and matchString.'
-    ),
-    endLine: describeField(
-      lineNumberField,
-      '1-based last line to include. Use with startLine; mutually exclusive with fullContent and matchString.'
-    ),
+    type: z.enum(['file', 'directory']).optional(),
+    startLine: lineNumberField,
+    endLine: lineNumberField,
     matchStringContextLines: contextLinesField,
   })
 );
@@ -455,15 +420,23 @@ export const GitHubPullRequestSearchQueryLocalSchema =
       partialContentMetadata: z
         .array(
           z.object({
-            file: z.string().describe('File path relative to repo root, exactly as returned in the metadata-mode file list (e.g. "src/utils/foo.ts").'),
+            file: z
+              .string()
+              .describe(
+                'File path relative to repo root, exactly as returned in the metadata-mode file list (e.g. "src/utils/foo.ts").'
+              ),
             additions: z
               .array(clampedInt(1, 1_000_000_000))
               .optional()
-              .describe('New-file line numbers to keep from the patch (e.g. [12,13,14]). Omit to include all additions.'),
+              .describe(
+                'New-file line numbers to keep from the patch (e.g. [12,13,14]). Omit to include all additions.'
+              ),
             deletions: z
               .array(clampedInt(1, 1_000_000_000))
               .optional()
-              .describe('Original-file line numbers to keep from the patch. Omit to include all deletions.'),
+              .describe(
+                'Original-file line numbers to keep from the patch. Omit to include all deletions.'
+              ),
           })
         )
         .optional()
@@ -497,7 +470,9 @@ const npmPackageQueryWithLimit = withCoreSchemaDescriptions(
     ecosystem: z
       .literal('npm')
       .optional()
-      .describe('Registry ecosystem — always "npm". Omit or set to "npm".'),
+      .describe(
+        'Registry ecosystem. Only "npm" is supported (PyPI not yet available). Omit to use the default.'
+      ),
     page: relaxedPageNumberField.describe(
       `Result page (1-based). Exact package-name lookups return one canonical package; keyword searches use page to walk registry results (up to ${DEFAULT_PAGE_SIZE} per page).`
     ),

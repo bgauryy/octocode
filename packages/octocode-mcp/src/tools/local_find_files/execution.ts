@@ -23,7 +23,6 @@ import {
   records,
 } from '../evidence.js';
 
-
 // Re-exported so every tool exposes `apply<Tool>Verbosity` from execution.ts.
 export { applyFindFilesVerbosity } from './findFiles.js';
 

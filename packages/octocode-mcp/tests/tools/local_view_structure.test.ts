@@ -2569,7 +2569,9 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBe(100);
-      expect((result as Record<string, unknown>).charPagination).toBeUndefined();
+      expect(
+        (result as Record<string, unknown>).charPagination
+      ).toBeUndefined();
     });
 
     it('should handle UTF-8 filenames correctly', async () => {
@@ -2595,7 +2597,9 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries?.every(e => !e.name.includes('\uFFFD'))).toBe(true);
-      expect((result as Record<string, unknown>).charPagination).toBeUndefined();
+      expect(
+        (result as Record<string, unknown>).charPagination
+      ).toBeUndefined();
     });
   });
 

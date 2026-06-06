@@ -148,12 +148,18 @@ async function resolveIncomingCalls(
     depth,
     incomingCalls: enhancedItems,
     pagination,
-    hints:
-      pagination && pagination.totalPages > 1
+    hints: [
+      ...(enhancedItems.length > 0
+        ? [
+            `Found ${enhancedItems.length} caller${enhancedItems.length === 1 ? '' : 's'} across ${new Set(enhancedItems.map(c => c.from.uri)).size} file${new Set(enhancedItems.map(c => c.from.uri)).size === 1 ? '' : 's'} — use depth=1 to limit tracing, or narrow with a different symbol.`,
+          ]
+        : []),
+      ...(pagination && pagination.totalPages > 1
         ? [
             `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
           ]
-        : [],
+        : []),
+    ],
   });
 }
 
@@ -235,12 +241,18 @@ async function resolveOutgoingCalls(
     depth,
     outgoingCalls: enhancedItems,
     pagination,
-    hints:
-      pagination && pagination.totalPages > 1
+    hints: [
+      ...(enhancedItems.length > 0
+        ? [
+            `Found ${enhancedItems.length} callee${enhancedItems.length === 1 ? '' : 's'} across ${new Set(enhancedItems.map(c => c.to.uri)).size} file${new Set(enhancedItems.map(c => c.to.uri)).size === 1 ? '' : 's'} — use depth=1 to limit tracing, or narrow with a different symbol.`,
+          ]
+        : []),
+      ...(pagination && pagination.totalPages > 1
         ? [
             `Showing page ${pagination.currentPage} of ${pagination.totalPages}. Use page=${(pagination.currentPage ?? 1) + 1} for more.`,
           ]
-        : [],
+        : []),
+    ],
   });
 }
 

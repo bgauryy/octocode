@@ -131,6 +131,8 @@ export interface ReferencesByFile {
   firstLine: number;
   /** First reference character in this file, 0-indexed */
   firstCharacter: number;
+  /** All 1-indexed line numbers where this symbol is referenced in this file */
+  lines: number[];
   /** Whether this file includes the declaration/definition reference */
   hasDefinition?: boolean;
 }
@@ -199,6 +201,7 @@ type LSPErrorType =
   | 'symbol_not_found'
   | 'file_not_found'
   | 'not_a_function'
+  | 'lsp_unavailable'
   | 'timeout'
   | 'parse_error'
   | 'unknown';

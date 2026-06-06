@@ -38,7 +38,7 @@ describe('registrationExecutor', () => {
     expect(tool.fn).not.toHaveBeenCalled();
   });
 
-  it('returns failed with tool name when registration throws', async () => {
+  it('returns failed with tool name and diagnostic when registration throws', async () => {
     const tool = makeTool({
       name: 't2',
       fn: vi.fn().mockRejectedValue(new Error('fail')),
@@ -49,7 +49,11 @@ describe('registrationExecutor', () => {
       undefined,
       () => true
     );
-    expect(outcome).toEqual({ status: 'failed', toolName: 't2' });
+    expect(outcome).toEqual({
+      status: 'failed',
+      toolName: 't2',
+      error: 'fail',
+    });
   });
 
   it('batch executes and summarizes outcomes', async () => {
@@ -70,5 +74,6 @@ describe('registrationExecutor', () => {
     const summary = summarizeOutcomes(outcomes);
     expect(summary.successCount).toBe(1);
     expect(summary.failedTools).toEqual(['c']);
+    expect(summary.failedToolErrors).toEqual({ c: 'bad' });
   });
 });

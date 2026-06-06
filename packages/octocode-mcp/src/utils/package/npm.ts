@@ -114,12 +114,19 @@ interface NpmCliSearchItem {
   name?: string;
   version?: string;
   description?: string;
+  keywords?: string[];
+  date?: string;
   links?: {
     npm?: string;
     homepage?: string;
     repository?: string;
+    bugs?: string;
   };
   repository?: string | { url?: string; type?: string };
+  score?: {
+    final?: number;
+    detail?: { quality?: number; popularity?: number; maintenance?: number };
+  };
 }
 
 function cleanRepoUrl(url: string): string {
@@ -164,6 +171,44 @@ function isExactPackageName(query: string): boolean {
   return /^[a-z0-9][a-z0-9._-]*$/i.test(query);
 }
 
+/**
+ * Returns true when the error string represents a transient network failure
+ * (unreachable registry, DNS, timeout) rather than a definitive "not found".
+ * Used to decide whether to fall through to the /-/v1/search fallback path.
+ */
+function isNetworkFetchError(error: string | undefined): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return (
+    lower.includes('fetch failed') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('network') ||
+    lower.includes('econnrefused') ||
+    lower.includes('enotfound') ||
+    lower.includes('etimedout') ||
+    lower.includes('socket hang up') ||
+    lower.includes('connect timeout')
+  );
+}
+
+/**
+ * Converts an exact package name into a plain-text search keyword string.
+ * Strips the scope prefix and replaces separators with spaces so the
+ * registry /-/v1/search endpoint gets multiple independent terms.
+ * Examples:
+ *   "@modelcontextprotocol/sdk" → "modelcontextprotocol sdk"
+ *   "react-query"               → "react query"
+ *
+ * Exported with underscore prefix for use in tests only.
+ */
+export function _packageNameToSearchKeywords(packageName: string): string {
+  return packageName
+    .replace(/^@/, '')
+    .replace(/[/_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parseRegistrySearchTotal(
   total: string | number | undefined,
   fallback: number
@@ -199,8 +244,9 @@ function mapToResult(
   }
 
   const result: NpmPackageResult = {
+    name: data.name,
+    npmUrl: `https://www.npmjs.com/package/${encodeURIComponent(data.name)}`,
     repoUrl,
-    path: data.name,
     version: data.version || 'latest',
     mainEntry: data.main || null,
     typeDefinitions: data.types || data.typings || null,
@@ -266,14 +312,22 @@ function mapSearchItemToResult(
   item: NpmCliSearchItem
 ): NpmPackageResult | null {
   if (!item.name) return null;
-  return {
+  const npmUrl =
+    (item.links?.npm ?? '') ||
+    `https://www.npmjs.com/package/${encodeURIComponent(item.name)}`;
+  const homepage = item.links?.homepage ?? undefined;
+  const result: NpmPackageResult = {
+    name: item.name,
+    npmUrl,
     repoUrl: getSearchItemRepoUrl(item),
-    path: item.name,
     version: item.version ?? 'unknown',
-    mainEntry: null,
-    typeDefinitions: null,
     ...(item.description ? { description: item.description } : {}),
+    ...(homepage ? { homepage } : {}),
+    ...(item.keywords && item.keywords.length > 0
+      ? { keywords: item.keywords }
+      : {}),
   };
+  return result;
 }
 
 /**
@@ -535,14 +589,20 @@ async function fetchNpmPackageByView(
 
   if (!pkg) {
     if (errorDetail) {
+      const isNetwork = isNetworkFetchError(errorDetail);
       return {
         error: `NPM view failed for '${packageName}': ${errorDetail}`,
         rawResponseChars,
-        hints: [
-          'Ensure npm is installed and available in PATH',
-          'Check package name for typos',
-          `Try: npm view ${packageName} --json`,
-        ],
+        hints: isNetwork
+          ? [
+              'npm registry is unreachable.',
+              'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+            ]
+          : [
+              'Ensure npm is installed and available in PATH',
+              'Check package name for typos',
+              `Try: npm view ${packageName} --json`,
+            ],
       };
     }
     return {
@@ -724,15 +784,22 @@ async function searchNpmPackageViaRegistrySearch(
 
         return {
           pkg: {
+            name: item.name,
+            npmUrl:
+              (item.links?.npm ?? '') ||
+              `https://www.npmjs.com/package/${encodeURIComponent(item.name)}`,
             repoUrl:
               item.links?.repository &&
               typeof item.links.repository === 'string'
                 ? cleanRepoUrl(item.links.repository)
                 : null,
-            path: item.name,
             version: item.version ?? 'unknown',
-            mainEntry: null,
-            typeDefinitions: null,
+            ...(item.description
+              ? { description: item.description as string }
+              : {}),
+            ...(item.links?.homepage
+              ? { homepage: item.links.homepage as string }
+              : {}),
           } as NpmPackageResult,
           rawResponseChars: 0,
         };
@@ -810,15 +877,62 @@ export async function searchNpmPackage(
   return withDataCache(
     cacheKey,
     async () => {
+      let networkFailed = false;
       if (from === 0 && isExactPackageName(packageName)) {
         const exactResult = await fetchNpmPackageByView(
           packageName,
           fetchMetadata
         );
-        if ('error' in exactResult) return exactResult;
-        if (exactResult.packages.length > 0 || limit === 1) return exactResult;
+        if ('error' in exactResult) {
+          // Hard-stop only for definitive errors (bad package name, 404, auth).
+          // Transient network failures fall through to the /-/v1/search path
+          // which uses a different CDN endpoint and may still be reachable.
+          if (!isNetworkFetchError(exactResult.error)) return exactResult;
+          networkFailed = true;
+        } else if (exactResult.packages.length > 0 || limit === 1) {
+          return exactResult;
+        }
       }
-      return searchNpmPackageViaSearch(packageName, limit, fetchMetadata, from);
+      // Try the registry /-/v1/search endpoint. When falling through from a
+      // network-failed exact lookup, also try split keywords (e.g.
+      // "@scope/pkg" → "scope pkg") as a second attempt so partial matches
+      // are still surfaced even when the primary query returns nothing.
+      const searchResult = await searchNpmPackageViaSearch(
+        packageName,
+        limit,
+        fetchMetadata,
+        from
+      );
+      if (!('error' in searchResult) && searchResult.packages.length > 0) {
+        return searchResult;
+      }
+      const keywords = _packageNameToSearchKeywords(packageName);
+      if (keywords !== packageName) {
+        const kwResult = await searchNpmPackageViaSearch(
+          keywords,
+          limit,
+          fetchMetadata,
+          from
+        );
+        if (!('error' in kwResult) && kwResult.packages.length > 0) {
+          return kwResult;
+        }
+      }
+      // All paths exhausted. When the root cause was a network failure, surface
+      // an actionable hint so the caller knows to try GitHub instead of retrying
+      // the registry. The hint is added here (not in fetchNpmPackageByView)
+      // because the hints in the exact-lookup error are never returned when we
+      // fall through to the search path.
+      if (networkFailed && 'error' in searchResult) {
+        return {
+          ...searchResult,
+          hints: [
+            'npm registry is unreachable on all endpoints (exact lookup + /-/v1/search).',
+            'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+          ],
+        };
+      }
+      return searchResult;
     },
     {
       // Don't cache errors or empty results. Empty results may indicate

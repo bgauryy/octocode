@@ -147,6 +147,103 @@ describe('package_search execution branches', () => {
     });
   });
 
+  describe('network error recovery hints', () => {
+    it('PackageSearchError emits githubSearchRepositories recovery hint', async () => {
+      mockSearchPackage.mockResolvedValue({
+        error: 'Failed to fetch after 2 attempts: fetch failed',
+      });
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, id: 'err:1', name: 'react' } as never],
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('githubSearchRepositories');
+    });
+
+    it('PackageSearchError for unreachable registry emits unreachable hint', async () => {
+      mockSearchPackage.mockResolvedValue({
+        error: 'NPM view failed: network timeout',
+      });
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, id: 'err:2', name: 'lodash' } as never],
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('unreachable');
+    });
+
+    it('thrown error emits githubSearchRepositories recovery hint', async () => {
+      mockSearchPackage.mockRejectedValue(new Error('fetch failed'));
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, id: 'err:3', name: 'axios' } as never],
+      });
+
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('githubSearchRepositories');
+    });
+  });
+
+  describe('npm.ts hints propagate through execution.ts (integration boundary)', () => {
+    it('passes hints from PackageSearchError through to the response', async () => {
+      // Simulate what npm.ts now returns when all registry paths fail with a
+      // network error: an error object WITH hints attached.
+      mockSearchPackage.mockResolvedValue({
+        error: 'NPM registry search failed: fetch failed',
+        hints: [
+          'npm registry is unreachable on all endpoints (exact lookup + /-/v1/search).',
+          'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+        ],
+      });
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, id: 'hint:1', name: 'octocode-mcp' } as never],
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      // npm.ts hint must appear in the output (not swallowed by execution.ts)
+      expect(text).toContain('unreachable');
+      expect(text).toContain('githubSearchRepositories');
+    });
+
+    it('packages returned via fallback path are shaped correctly', async () => {
+      // Simulate searchPackage returning packages that came from /-/v1/search
+      // (scoped package, no path field — only name)
+      mockSearchPackage.mockResolvedValue({
+        packages: [
+          {
+            name: '@modelcontextprotocol/sdk',
+            version: '1.0.0',
+            description: 'MCP TypeScript SDK',
+            repoUrl: 'https://github.com/modelcontextprotocol/typescript-sdk',
+            mainEntry: null,
+            typeDefinitions: null,
+          },
+        ],
+        ecosystem: 'npm',
+        totalFound: 1,
+      });
+
+      const result = await searchPackages({
+        queries: [
+          { ...baseQuery, id: 'fallback:1', name: '@modelcontextprotocol/sdk' } as never,
+        ],
+      });
+
+      expect(result.isError).not.toBe(true);
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('@modelcontextprotocol/sdk');
+      expect(text).toContain('1.0.0');
+      // owner/repo should be extracted from repoUrl
+      expect(text).toContain('modelcontextprotocol');
+    });
+  });
+
   describe('packageSearch verbose shaping', () => {
     it('verbose:false — all packages returned unchanged (pass-through)', async () => {
       const { applyPackageSearchVerbosity } =

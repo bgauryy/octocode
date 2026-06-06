@@ -246,45 +246,6 @@ function normalizeHostname(hostname: string): string {
 
 ---
 
-## API Reference
-
-### Primary Functions
-
-| Function | Purpose | Async? |
-|----------|---------|--------|
-| `resolveTokenFull(options)` | Complete token resolution with all fallbacks | ✅ |
-| `getTokenWithRefresh(host)` | Get token with auto-refresh | ✅ |
-| `storeCredentials(creds)` | Store credentials securely | ✅ |
-| `getCredentials(host)` | Retrieve credentials | ✅ |
-| `deleteCredentials(host)` | Remove credentials | ✅ |
-
-### Synchronous Variants
-
-| Function | Purpose |
-|----------|---------|
-| `getCredentialsSync(host)` | Sync credential retrieval |
-| `getTokenSync(host)` | Sync token retrieval (no refresh) |
-| `hasCredentialsSync(host)` | Sync credential existence check |
-
-### Token Source Detection
-
-| Function | Purpose |
-|----------|---------|
-| `getTokenFromEnv()` | Get token from environment |
-| `getEnvTokenSource()` | Get which env var has token |
-| `hasEnvToken()` | Check if env token exists |
-
-### Utility Functions
-
-| Function | Purpose |
-|----------|---------|
-| `isTokenExpired(creds)` | Check token expiration |
-| `isRefreshTokenExpired(creds)` | Check refresh token expiration |
-| `invalidateCredentialsCache(host?)` | Clear credential cache |
-| `listStoredHosts()` | List all stored hostnames |
-
----
-
 ## Security Considerations
 
 ### ✅ What We Do

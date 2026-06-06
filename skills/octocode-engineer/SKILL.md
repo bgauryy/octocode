@@ -68,7 +68,7 @@ Every **non-trivial** task MUST satisfy this contract:
 
 ## When To Use It
 
-Use when the user asks to **understand** a codebase/feature end-to-end, **change** unclear/shared/cross-file code, **review** quality/architecture/tech-debt/dead-code/security/build issues, or **decide** architecture and validate RFCs against real behavior. Any language; strongest on Node/TypeScript and Python. For formal RFCs with migration strategy, pair with [octocode-rfc-generator](https://skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator).
+Use when the user asks to **understand** a codebase/feature end-to-end, **change** unclear/shared/cross-file code, **review** quality/architecture/tech-debt/dead-code/security/build issues, or **decide** architecture and validate RFCs against real behavior. Any language; strongest on Node/TypeScript and Python. For architecture options, trade-offs, or migration strategy that need a formal proposal before coding, pair with [octocode-rfc-generator](https://skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator).
 
 ## Trivial vs. non-trivial — when the contract binds
 
@@ -120,12 +120,12 @@ Cover all six on a full review; on a scoped task, cover those the change touches
 |------|------|-----------------|
 | Small functions | `scripts/run.js` | `god-function`, `cognitive-complexity`, `halstead-effort`, `excessive-parameters` |
 | Duplication | `scripts/run.js` | `duplicate-function-body`, `duplicate-flow-structure`, `similar-function-body` |
-| Silent failures | `scripts/ast/search.js` | `--preset empty-catch`, `--preset py-bare-except`, `--preset py-pass-except`, `--preset catch-rethrow` |
+| Silent failures | `scripts/ast/search.js` | `--preset empty-catch`, `--preset py-bare-except`, `--preset catch-rethrow` |
 | Loose types | `scripts/ast/search.js` | `--preset any-type`, `--preset type-assertion`, `--preset non-null-assertion` |
 | Intent-revealing names | code read + `lspFindReferences` | widely-used cryptic symbols, abbreviations that spread |
 | Dead / unreachable | scanner + `knip` | `dead-export`, `dead-file`, `unused-import`, `unused-npm-dependency` |
 
-For the full detector catalog, metric definitions, and severity rubric, see [quality-indicators.md](./references/quality-indicators.md).
+Full detector catalog, metric definitions, and severity rubric: [quality-indicators.md](./references/quality-indicators.md).
 
 ### Required output: understanding artifact
 
@@ -260,36 +260,15 @@ Non-trivial tasks follow this arc (recommended, not mandatory): clarify the ques
 
 ## Task shapes
 
-Same working order; emphasis differs:
-
-| Task | Weight on | Notes |
-|------|-----------|-------|
-| **Code understanding** | steps 3–8 (layout → LSP → AST → scoped scanner → read) | Deliverable is the artifact. |
-| **Bug fixing** | Flows + Execution from failing behavior to entry point; adjacent error/retry/contract risk | Fix the smallest layer that solves the root cause; escalate via Smallest-fix vs. safest-fix gate when systemic. |
-| **Refactor** | blast radius (`lspFindReferences`), scoped scan, duplication inventory, then plan | Prefer extracting modules, clarifying contracts, simplifying flows over cosmetic reshuffling. Verify per batch. |
-| **Architecture review** | scanner `--graph` first, then LSP on candidate modules, then read representatives | Report both local and system-level causes. |
-| **RFC / design validation** | map each claim to code ownership; verify flow, contract, and architecture alignment | Mark claims `confirmed|likely|uncertain`; report mismatches as doc or code follow-ups. |
+Same working order; emphasis differs. **Code understanding**: steps 3–8 (layout → LSP → AST → scanner → read), deliverable is the artifact. **Bug fixing**: Flows + Execution from failing behavior inward; fix the smallest responsible layer; escalate at the Smallest-fix gate if systemic. **Refactor**: blast radius first (`lspFindReferences`), then scoped scan + duplication inventory; prefer extracting modules and clarifying contracts over cosmetic reshuffling; verify per batch. **Architecture review**: scanner `--graph` first, then LSP on candidates; report local and system-level causes. **RFC/design validation**: map each claim to code ownership; verify flow, contract, and architecture alignment; mark `confirmed|likely|uncertain`.
 
 ## Before / During / After A Change
 
-Operational actions per phase (investigation substance = lenses + artifact):
+**Before**: produce the understanding artifact; map RFC/design-doc claims to code ownership; look for an existing pattern before inventing one.
 
-### Before
-- Produce the understanding artifact.
-- Map design-doc / RFC claims to concrete code ownership when one exists.
-- Look for an existing local pattern before inventing a new one.
+**During**: stay in the smallest responsible layer; preserve contract/protocol compatibility unless migration is in scope; if root cause is structural mid-task, stop at the Smallest-fix vs. safest-fix gate.
 
-### During
-- Keep edits in the smallest responsible layer; preserve boundaries unless the plan intentionally changes them.
-- Maintain contract/protocol compatibility unless an explicit migration is in scope.
-- If root cause turns out structural mid-task, stop and hit the Smallest-fix vs. safest-fix gate instead of continuing with a cosmetic patch.
-
-### After
-- Run tests, lint, and build/type-check.
-- Re-check changed symbols with LSP after renames/moves; run a scoped scanner pass for non-trivial changes.
-- Run `knip` when the refactor may leave dead artifacts; CSS checks when styles changed.
-- Re-validate the artifact's dimensions against the final implementation; note any remaining architectural risk even if the code now works.
-- Sync docs / RFC sections touched by the change.
+**After**: run tests, lint, build/type-check; re-check changed symbols with LSP; run scoped scanner pass for non-trivial changes; run `knip` if dead artifacts are likely; sync docs/RFC sections the change touches.
 
 ## Confidence Rules
 
@@ -394,8 +373,3 @@ Fallback applies only when an Octocode tool is truly **unavailable** — not reg
 
 **If degraded but completed:** treat the response as valid; on empty/wrong results, retry with a simpler input (drop regex meta-characters, switch to literal search, narrow the path). **Do not** switch to native Claude Code tools — that leaves the skill's evidence model.
 
-## Companion Skill
-
-Pair with the RFC skill when architecture options, trade-offs, or migration strategy need a formal proposal before coding:
-
-- [octocode-rfc-generator](https://skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) — generate a smart RFC from validated system evidence.

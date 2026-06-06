@@ -12,7 +12,7 @@
 export { TOOL_NAMES } from './names.js';
 export { BASE_SCHEMA } from './baseSchema.js';
 export { DESCRIPTIONS } from './descriptions.js';
-export { TOOL_HINTS, getToolHintsSync, getDynamicHints } from './hints.js';
+export { TOOL_HINTS, getToolHintsSync } from './hints.js';
 export { GENERIC_ERROR_HINTS } from './genericErrorHints.js';
 export { getGenericErrorHintsSync } from './hints.js';
 export { isToolInMetadata } from './metadataPresence.js';

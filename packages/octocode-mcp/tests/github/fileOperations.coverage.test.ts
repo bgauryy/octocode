@@ -474,15 +474,7 @@ describe('File Operations - Additional Coverage Tests', () => {
           repos: {
             getContent: vi
               .fn()
-              // Original branch - 404
-              .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // Default branch (custom-default) - 404
-              .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // main - 404
-              .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // master - 404
-              .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              // develop - 404
+              // Explicit branch is strict: no fallback branches are tried.
               .mockRejectedValueOnce(createRequestError('Not Found', 404)),
           },
         },
@@ -502,10 +494,8 @@ describe('File Operations - Additional Coverage Tests', () => {
       expect('error' in result).toBe(true);
       if ('error' in result) {
         expect(result.error).toContain('not found');
-        expect(result.triedBranches).toBeDefined();
-        expect(result.triedBranches).toContain('nonexistent');
-        expect(result.triedBranches).toContain('custom-default');
-        expect(result.defaultBranch).toBe('custom-default');
+        expect(result.triedBranches).toBeUndefined();
+        expect(result.defaultBranch).toBeUndefined();
       }
     });
 

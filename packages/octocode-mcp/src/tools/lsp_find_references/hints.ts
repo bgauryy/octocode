@@ -29,6 +29,14 @@ export const hints: ToolHintGenerators = {
   },
 
   error: (ctx: HintContext = {}) => {
+    if (ctx.errorType === 'lsp_unavailable') {
+      const symbolName = ctx.symbolName;
+      const sym = symbolName ? `\`${symbolName}\`` : 'the symbol';
+      return [
+        'No language server available for this file type.',
+        `Use \`localSearchCode\` with \`pattern: "${symbolName ?? 'SYMBOL_NAME'}"\` to find textual usages of ${sym} across the workspace.`,
+      ];
+    }
     if (ctx.errorType === 'timeout') {
       return [
         'Reference lookup timed out — try scoping with `includePattern` to a single package, or use `localSearchCode` as a text fallback.',

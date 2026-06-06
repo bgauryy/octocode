@@ -23,7 +23,15 @@ export const hints: ToolHintGenerators = {
   },
 
   error: (ctx: HintContext = {}) => {
-    const { depth, errorType } = ctx;
+    const { depth, errorType, symbolName } = ctx;
+    if (errorType === 'lsp_unavailable') {
+      const sym = symbolName ? `\`${symbolName}\`` : 'the symbol';
+      return [
+        'No language server available for this file type.',
+        `Use \`localSearchCode\` with \`pattern: "${symbolName ?? 'SYMBOL_NAME'}("\` to find call sites for ${sym} textually.`,
+        'Then read each caller file with `localGetFileContent` to inspect the call context.',
+      ];
+    }
     if (errorType === 'not_a_function') {
       return [
         'Symbol is not a function — `lspCallHierarchy` only works on callable symbols.',

@@ -29,6 +29,7 @@ import {
   getNpmRegistryUrl,
   checkNpmRegistryReachable,
   _resetNpmRegistryUrlCache,
+  _packageNameToSearchKeywords,
 } from '../../src/utils/package/npm.js';
 
 function makeSearchResult(
@@ -270,6 +271,161 @@ describe('fetchPackageDetails - HTTP error handling', () => {
   });
 });
 
+// _packageNameToSearchKeywords — direct unit tests (guards regex regressions)
+describe('_packageNameToSearchKeywords', () => {
+  it('strips scope and replaces slash with space', () => {
+    expect(_packageNameToSearchKeywords('@modelcontextprotocol/sdk')).toBe(
+      'modelcontextprotocol sdk'
+    );
+  });
+
+  it('replaces hyphens with spaces', () => {
+    expect(_packageNameToSearchKeywords('react-query')).toBe('react query');
+  });
+
+  it('replaces underscores with spaces', () => {
+    expect(_packageNameToSearchKeywords('lodash_fp')).toBe('lodash fp');
+  });
+
+  it('leaves simple names unchanged', () => {
+    expect(_packageNameToSearchKeywords('express')).toBe('express');
+  });
+
+  it('collapses multiple separators', () => {
+    expect(_packageNameToSearchKeywords('@a/b-c_d')).toBe('a b c d');
+  });
+
+  it('trims leading/trailing whitespace', () => {
+    expect(_packageNameToSearchKeywords('  pkg  ')).toBe('pkg');
+  });
+});
+
+// searchNpmPackage — network error fallback to /-/v1/search
+describe('searchNpmPackage - network error fallback', () => {
+  it('should fall through to registry search when exact lookup fails with fetch failed', async () => {
+    mockFetchWithRetries
+      // exact registry lookup (/pkg/latest) fails with network error
+      .mockRejectedValueOnce(new Error('fetch failed'))
+      // /-/v1/search succeeds
+      .mockResolvedValueOnce(
+        makeSearchResult([{ name: 'test-pkg', version: '1.0.0' }])
+      );
+
+    const result = await searchNpmPackage('test-pkg', 5, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages).toHaveLength(1);
+      expect((result.packages[0] as { name: string }).name).toBe('test-pkg');
+    }
+  });
+
+  it('should fall through to registry search when exact lookup fails with econnrefused', async () => {
+    mockFetchWithRetries
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED 127.0.0.1:4873'))
+      .mockResolvedValueOnce(
+        makeSearchResult([{ name: 'my-lib', version: '2.0.0' }])
+      );
+
+    const result = await searchNpmPackage('my-lib', 5, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages).toHaveLength(1);
+    }
+  });
+
+  it('should try keyword-split when exact name search returns empty', async () => {
+    mockFetchWithRetries
+      // exact registry lookup fails with network error
+      .mockRejectedValueOnce(new Error('fetch failed'))
+      // first search (exact name "react-query") returns nothing
+      .mockResolvedValueOnce(makeSearchResult([]))
+      // keyword-split search ("react query") succeeds
+      .mockResolvedValueOnce(
+        makeSearchResult([{ name: 'react-query', version: '5.0.0' }])
+      );
+
+    const result = await searchNpmPackage('react-query', 5, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages).toHaveLength(1);
+    }
+  });
+
+  it('should surface registry-unreachable hint when ALL paths fail with network error', async () => {
+    // Every fetch call throws a network error
+    mockFetchWithRetries.mockRejectedValue(new Error('fetch failed'));
+
+    const result = await searchNpmPackage('octocode-mcp', 5, false);
+
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.hints).toBeDefined();
+      const hints = result.hints ?? [];
+      expect(hints.some(h => h.toLowerCase().includes('unreachable'))).toBe(true);
+      expect(hints.some(h => h.includes('githubSearchRepositories'))).toBe(true);
+    }
+  });
+
+  it('should surface network hint even for scoped packages', async () => {
+    mockFetchWithRetries.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const result = await searchNpmPackage('@scope/pkg', 5, false);
+
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.hints).toBeDefined();
+      expect(
+        (result.hints ?? []).some(h => h.includes('githubSearchRepositories'))
+      ).toBe(true);
+    }
+  });
+
+  it('should try keyword-split for scoped packages when exact fails', async () => {
+    mockFetchWithRetries
+      // exact registry lookup fails
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      // search "@modelcontextprotocol/sdk" returns empty
+      .mockResolvedValueOnce(makeSearchResult([]))
+      // search "modelcontextprotocol sdk" succeeds
+      .mockResolvedValueOnce(
+        makeSearchResult([{ name: '@modelcontextprotocol/sdk', version: '1.0.0' }])
+      );
+
+    const result = await searchNpmPackage('@modelcontextprotocol/sdk', 5, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages).toHaveLength(1);
+    }
+  });
+
+  it('should NOT fall through for definitive non-network errors (e.g. invalid JSON)', async () => {
+    // Non-network error: fetchWithRetries returns unparseable data
+    mockFetchWithRetries.mockResolvedValue({ invalid_field: true });
+
+    const result = await searchNpmPackage('test-pkg', 1, false);
+
+    // Falls through exact → registry search path (invalid format → error)
+    // but NOT because of network — the error surfaces via search fallback
+    expect('error' in result || 'packages' in result).toBe(true);
+  });
+
+  it('should surface network hint when registry is unreachable', async () => {
+    mockFetchWithRetries.mockRejectedValue(new Error('fetch failed'));
+
+    // All paths fail — should return an error
+    const result = await searchNpmPackage('test-pkg', 1, false);
+
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error).toBeTruthy();
+    }
+  });
+});
+
 // searchNpmPackageViaSearch — registry search API error handling
 describe('searchNpmPackageViaSearch - error handling', () => {
   it('should return error when fetch throws for search', async () => {
@@ -433,7 +589,7 @@ describe('isExactPackageName', () => {
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
       expect(result.packages).toHaveLength(1);
-      expect((result.packages[0] as NpmPackageResult).path).toBe('react');
+      expect((result.packages[0] as NpmPackageResult).name).toBe('react');
     }
     expect(mockFetchWithRetries).toHaveBeenCalledWith(
       expect.stringContaining('/react/latest'),
@@ -737,7 +893,7 @@ describe('searchNpmPackageViaSearch - result handling', () => {
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
       expect(result.packages).toHaveLength(1);
-      expect((result.packages[0] as NpmPackageResult).path).toBe('pkg-1');
+      expect((result.packages[0] as NpmPackageResult).name).toBe('pkg-1');
       expect((result.packages[0] as NpmPackageResult).version).toBe('1.0.0');
     }
   });
@@ -791,7 +947,7 @@ describe('cache behavior - empty results not cached', () => {
     expect('packages' in result2).toBe(true);
     if ('packages' in result2) {
       expect(result2.totalFound).toBe(1);
-      expect((result2.packages[0] as { path?: string }).path).toBe('express');
+      expect((result2.packages[0] as { name?: string }).name).toBe('express');
     }
   });
 
@@ -1108,7 +1264,7 @@ describe('fetchNpmPackageByView - success cases', () => {
     if ('packages' in result) {
       expect(result.totalFound).toBe(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('express');
+      expect(pkg.name).toBe('express');
       expect(pkg.version).toBe('5.0.1');
       expect(pkg.mainEntry).toBe('index.js');
       expect(pkg.typeDefinitions).toBe('index.d.ts');

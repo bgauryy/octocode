@@ -674,6 +674,45 @@ describe('pagination hints — fire only on hasMore=true', () => {
     });
   });
 
+  describe('lspCallHierarchy — lsp_unavailable error type', () => {
+    it('error with lsp_unavailable emits localSearchCode guidance', () => {
+      const h = callHints
+        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
+        .filter((s): s is string => typeof s === 'string');
+      expect(h.some(s => s.includes('localSearchCode'))).toBe(true);
+    });
+
+    it('error with lsp_unavailable and symbolName names the symbol', () => {
+      const h = callHints
+        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
+        .filter((s): s is string => typeof s === 'string');
+      expect(h.some(s => s.includes('myFn'))).toBe(true);
+    });
+
+    it('error with no context still returns []', () => {
+      const h = callHints
+        .error({})
+        .filter((s): s is string => typeof s === 'string');
+      expect(h).toEqual([]);
+    });
+  });
+
+  describe('lspFindReferences — lsp_unavailable error type', () => {
+    it('error with lsp_unavailable emits localSearchCode guidance', () => {
+      const h = refsHints
+        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
+        .filter((s): s is string => typeof s === 'string');
+      expect(h.some(s => s.includes('localSearchCode'))).toBe(true);
+    });
+
+    it('error with lsp_unavailable and symbolName names the symbol', () => {
+      const h = refsHints
+        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
+        .filter((s): s is string => typeof s === 'string');
+      expect(h.some(s => s.includes('myFn'))).toBe(true);
+    });
+  });
+
   describe('generateStructurePaginationHints (repo structure)', () => {
     it('emits entryPageNumber cursor', () => {
       const h = generateStructurePaginationHints(

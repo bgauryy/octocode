@@ -21,7 +21,13 @@ export const hints: ToolHintGenerators = {
     const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
 
     // Stay silent when there is nothing meaningful to guide the agent.
-    if (!pattern && !path && !type && include.length === 0 && excludeDir.length === 0) {
+    if (
+      !pattern &&
+      !path &&
+      !type &&
+      include.length === 0 &&
+      excludeDir.length === 0
+    ) {
       return [];
     }
 

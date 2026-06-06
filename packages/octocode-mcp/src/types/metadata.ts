@@ -31,7 +31,8 @@ export interface HintContext {
     | 'file_not_found'
     | 'timeout'
     | 'not_a_function'
-    | 'rate_limit';
+    | 'rate_limit'
+    | 'lsp_unavailable';
   originalError?: string;
   status?: number;
 

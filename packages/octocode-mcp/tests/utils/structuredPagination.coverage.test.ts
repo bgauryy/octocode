@@ -71,7 +71,10 @@ describe('structuredPagination branch coverage', () => {
   it('leaves localFindFiles unchanged when no explicit pagination request', () => {
     const queryResult = {
       id: 'find',
-      data: { files: ['a.ts', 'b.ts'], pagination: { currentPage: 1, totalPages: 1, hasMore: false } },
+      data: {
+        files: ['a.ts', 'b.ts'],
+        pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+      },
     };
     const result = applyQueryOutputPagination(
       queryResult,

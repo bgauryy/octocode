@@ -247,6 +247,66 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
   });
 });
 
+describe('buildGithubFetchContentFinalizer — partial file continuation hints', () => {
+  it('partial file emits startLine continuation in hints[], not evidence.reason', () => {
+    const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'large.ts' }];
+    const results: FlatQueryResult[] = [
+      {
+        id: 'q1',
+        data: {
+          path: 'large.ts',
+          content: 'hello',
+          totalLines: 200,
+          isPartial: true,
+          startLine: 1,
+          endLine: 50,
+        },
+      },
+    ];
+
+    const out = run(queries, results, { peerEvidence: true } as never);
+    const data = out.structuredContent as {
+      hints?: string[];
+      evidence?: { reason?: string; incompleteReasons?: string[] };
+    };
+
+    // Navigation instruction must appear in hints[]
+    expect(data.hints?.some(h => /startLine=51/.test(h))).toBe(true);
+
+    // evidence.reason must NOT contain navigation instructions
+    const reasonStr = Array.isArray(data.evidence?.incompleteReasons)
+      ? data.evidence.incompleteReasons.join(' ')
+      : (data.evidence?.reason ?? '');
+    expect(reasonStr).not.toMatch(/startLine=51/);
+  });
+
+  it('evidence.reason describes the partial state without navigation details', () => {
+    const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'large.ts' }];
+    const results: FlatQueryResult[] = [
+      {
+        id: 'q1',
+        data: {
+          path: 'large.ts',
+          content: 'hello',
+          totalLines: 200,
+          isPartial: true,
+          startLine: 1,
+          endLine: 50,
+        },
+      },
+    ];
+
+    const out = run(queries, results, { peerEvidence: true } as never);
+    const data = out.structuredContent as {
+      evidence?: { reason?: string };
+    };
+
+    // Should state it is partial, but not navigation details
+    const reason = data.evidence?.reason ?? '';
+    expect(reason.length).toBeGreaterThan(0);
+  });
+});
+
 describe('buildGithubFetchContentFinalizer — runtime hints', () => {
   it('emits a charOffset continuation hint when a file paginates', () => {
     const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'big.ts' }];
@@ -370,7 +430,9 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     expect(
       data.warnings?.some(w => w.kind === 'content-truncated') ?? false
     ).toBe(false);
-    expect(data.results[0].files![0].content).not.toMatch(/\[(truncated|clipped)\]/i);
+    expect(data.results[0].files![0].content).not.toMatch(
+      /\[(truncated|clipped)\]/i
+    );
   });
 
   it('paginates a group of small files + a directory without truncating any item', () => {
@@ -436,7 +498,14 @@ describe('applyGithubFetchContentVerbosity', () => {
           id: 'o/r',
           owner: 'o',
           repo: 'r',
-          files: [{ path: 'a', content: 'x', lastModified: '2026', lastModifiedBy: 'alice' }],
+          files: [
+            {
+              path: 'a',
+              content: 'x',
+              lastModified: '2026',
+              lastModifiedBy: 'alice',
+            },
+          ],
         },
       ],
       hints: ['keep me'],

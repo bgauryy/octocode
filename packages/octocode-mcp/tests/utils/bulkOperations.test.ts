@@ -408,8 +408,7 @@ describe('executeBulkOperation', () => {
         expect.any(Number),
         responseText.length
       );
-      const [, rawChars] = vi.mocked(incrementToolCharSavings)
-        .mock.calls[0]!;
+      const [, rawChars] = vi.mocked(incrementToolCharSavings).mock.calls[0]!;
       expect(rawChars).toBeGreaterThanOrEqual(10000);
       expect(responseText).not.toContain('octocode.rawResponseChars');
       expect(result.structuredContent).not.toHaveProperty(

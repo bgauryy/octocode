@@ -5,7 +5,6 @@ import {
 import type { BulkFinalizerOutput } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
 import { countSerializedChars } from './charSavings.js';
-import { getBulkDefaultCharLength } from '../pagination/charLimit.js';
 
 export type CharPagination = {
   currentPage: number;
@@ -254,53 +253,6 @@ export function paginateGroupsCharWindow<TGroup, TItem>({
       totalChars
     ),
   };
-}
-
-/**
- * Bulk char-window policy shared by every grouped finalizer (search_code,
- * fetch_content, …). Auto-paginates the merged groups at the count-scaled
- * {@link getBulkDefaultCharLength} (one base window reserved per group, so a
- * large first group can't starve its siblings off page 1 — #3), adopting the
- * slice ONLY when the caller drove pagination (explicit
- * `responseCharOffset`/`responseCharLength`) OR the response actually
- * overflowed — so a response that fits is emitted whole with no pagination
- * noise. Centralizing this here keeps the "explicit-or-overflow" rule in one
- * place instead of copy-pasted per finalizer (drift risk).
- */
-export function applyBulkCharWindow<TGroup, TItem>(
-  groups: TGroup[],
-  config: {
-    responseCharOffset?: number;
-    responseCharLength?: number;
-    maxItems?: number;
-  },
-  accessors: {
-    getItems: (group: TGroup) => readonly TItem[];
-    setItems: (group: TGroup, items: TItem[]) => TGroup;
-    getItemText?: (item: TItem) => string | undefined;
-    setItemText?: (item: TItem, text: string) => TItem;
-  }
-): { groups: TGroup[]; responsePagination?: CharPagination } {
-  if (groups.length === 0) return { groups };
-  const explicitlyPaginated =
-    config.responseCharLength !== undefined ||
-    config.responseCharOffset !== undefined;
-  const sliced = paginateGroupsCharWindow({
-    groups,
-    ...accessors,
-    charOffset: config.responseCharOffset ?? 0,
-    // Reserve one base window per group so a large first group doesn't starve
-    // its siblings off page 1 (#3). Explicit responseCharLength still wins.
-    charLength:
-      config.responseCharLength ?? getBulkDefaultCharLength(groups.length),
-    maxItems: config.maxItems,
-  });
-  // The item cap (itemsPerPage) is a page-shaping constraint, not just an
-  // overflow backstop: adopt the slice when it bound (hasMore) even if the
-  // caller didn't pass explicit char cursors.
-  return explicitlyPaginated || sliced.pagination.hasMore
-    ? { groups: sliced.groups, responsePagination: sliced.pagination }
-    : { groups };
 }
 
 export function dedupeHints(hints: readonly string[]): string[] {

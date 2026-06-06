@@ -7,7 +7,6 @@ import * as minifierModule from '../../src/utils/minifier/minifier.js';
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/utils/minifier/minifier.js');
 
-
 describe('GitHub File Operations - Pagination', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -94,7 +93,10 @@ describe('GitHub File Operations - Pagination', () => {
 
   describe('page-based navigation', () => {
     it('uses startLine/endLine for partial file content', async () => {
-      const largeContent = Array.from({ length: 1000 }, (_, i) => `line ${i + 1}`).join('\n');
+      const largeContent = Array.from(
+        { length: 1000 },
+        (_, i) => `line ${i + 1}`
+      ).join('\n');
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
@@ -274,7 +276,8 @@ describe('GitHub File Operations - Pagination', () => {
         path: uniquePath,
       });
 
-      const firstCallCount = mockOctokit.rest.repos.getContent.mock.calls.length;
+      const firstCallCount =
+        mockOctokit.rest.repos.getContent.mock.calls.length;
       expect(firstCallCount).toBe(1);
 
       const result2 = await fetchGitHubFileContentAPI({
@@ -284,7 +287,9 @@ describe('GitHub File Operations - Pagination', () => {
       });
 
       // Second call should hit cache
-      expect(mockOctokit.rest.repos.getContent.mock.calls.length).toBe(firstCallCount);
+      expect(mockOctokit.rest.repos.getContent.mock.calls.length).toBe(
+        firstCallCount
+      );
 
       expect('data' in result1 && result1.data?.content).toBeTruthy();
       expect('data' in result2 && result2.data?.content).toBeTruthy();

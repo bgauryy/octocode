@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { ToolInvocationCallback } from '../../src/types.js';
+import { ToolInvocationCallback } from '../../src/types/toolResults.js';
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';

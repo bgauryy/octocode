@@ -991,8 +991,9 @@ describe('localGetFileContent', () => {
 
     it('should navigate to page 2 via the page field (full-file read)', async () => {
       // Content where each line is unique so pages are distinguishable
-      const largeContent = Array.from({ length: 500 }, (_, i) =>
-        `line-${String(i).padStart(4, '0')}:${'x'.repeat(30)}`
+      const largeContent = Array.from(
+        { length: 500 },
+        (_, i) => `line-${String(i).padStart(4, '0')}:${'x'.repeat(30)}`
       ).join('\n');
       mockStat.mockResolvedValue({
         size: largeContent.length,
@@ -1305,9 +1306,9 @@ describe('localGetFileContent', () => {
 
     it('should handle CJK content without corruption', async () => {
       const cjkContent = '你好世界'.repeat(200);
-      mockStat.mockResolvedValue({ size: cjkContent.length * 3 } as unknown as Awaited<
-        ReturnType<typeof fs.stat>
-      >);
+      mockStat.mockResolvedValue({
+        size: cjkContent.length * 3,
+      } as unknown as Awaited<ReturnType<typeof fs.stat>>);
       mockReadFile.mockResolvedValue(cjkContent);
 
       const result = await fetchContent({

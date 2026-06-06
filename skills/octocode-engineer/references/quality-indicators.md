@@ -91,56 +91,16 @@ The scanner detects quality indicators across 5 pillars: **Architecture**, **Cod
 
 ## New Detector Details
 
-### deep-nesting
-- **Threshold**: `deepNestingThreshold` (default: 5)
-- **Signal**: `max(maxBranchDepth, maxLoopDepth)` per function
-- **Severity mapping**: `≥ threshold+3` → high, `≥ threshold+1` → medium, else → low
-- **Fix strategy**: Guard clauses, early returns, extract to named helpers
-
-### multiple-return-paths
-- **Threshold**: `multipleReturnThreshold` (default: 6)
-- **Signal**: `returns` count per function (includes throw statements)
-- **Severity mapping**: `≥ threshold+4` → high, `≥ threshold+2` → medium, else → low
-- **Fix strategy**: Single result variable, guard clauses for error paths only
-
-### catch-rethrow
-- **Signal**: Catch blocks containing a throw statement — candidates for simplification (may include other statements alongside the rethrow)
-- **Severity**: Always low (noise reduction)
-- **Fix strategy**: Remove the try-catch if only rethrowing, or add logging/wrapping before re-throw
-
-### magic-string
-- **Threshold**: `magicStringMinOccurrences` (default: 3)
-- **Signal**: String literals used in `===`, `!==`, `==`, `!=` comparisons or `case` clauses, appearing ≥ threshold times
-- **Severity mapping**: `≥ 8` → high, `≥ 5` → medium, else → low
-- **Fix strategy**: Extract to named constant or enum
-
-### boolean-parameter-cluster
-- **Threshold**: `booleanParamThreshold` (default: 3)
-- **Signal**: Functions with ≥ threshold parameters typed as `boolean`
-- **Severity**: Always medium
-- **Fix strategy**: Replace with options object or split into separate functions
-
-### promise-all-unhandled
-- **Signal**: `Promise.all/allSettled/race/any` calls without surrounding try-catch or `.catch()` chain
-- **Severity**: Always medium
-- **Fix strategy**: Wrap in try-catch or chain `.catch()`
-
-### export-surface-density
-- **Signal**: `exportCount / totalStatements` ratio ≥ 0.5 (modules with ≥ 20 statements)
-- **Severity mapping**: `≥ 80%` → high, `≥ 60%` → medium, else → low
-- **Fix strategy**: Make non-essential symbols private, split into facade + implementation
-
-### change-risk (composite)
-- **Signal**: Weighted sum of overlapping quality problems in a single file
-- **Components scored**:
-  - High average complexity → +2
-  - High cognitive complexity → +2
-  - Low maintainability functions → +count
-  - Empty catches → +1
-  - Unhandled promise combinators → +1
-  - Excessive exports (>15) → +1
-- **Threshold**: Score ≥ 4 triggers finding
-- **Severity mapping**: `≥ 8` → critical, `≥ 6` → high, else → medium
+| Category | Threshold flag (default) | Signal | Severity | Fix |
+|----------|--------------------------|--------|----------|-----|
+| `deep-nesting` | `--deep-nesting-threshold N` (5) | `max(maxBranchDepth, maxLoopDepth)` per fn | `≥T+3`→high, `≥T+1`→med, else low | Guard clauses, early returns, extract helpers |
+| `multiple-return-paths` | `--multiple-return-threshold N` (6) | return/throw count per fn | `≥T+4`→high, `≥T+2`→med, else low | Single result var; guard clauses for error paths |
+| `catch-rethrow` | — | catch containing a throw (simplification candidates) | always low | Remove try-catch if only re-throwing, or add logging before re-throw |
+| `magic-string` | `--magic-string-min-occurrences N` (3) | string literals in `===`/`!==`/`case` appearing ≥N times | `≥8`→high, `≥5`→med, else low | Extract to named constant or enum |
+| `boolean-parameter-cluster` | `--boolean-param-threshold N` (3) | fns with ≥N `boolean` params | always medium | Options object or split into separate fns |
+| `promise-all-unhandled` | — | `Promise.all/allSettled/race/any` without try-catch or `.catch()` | always medium | Wrap in try-catch or chain `.catch()` |
+| `export-surface-density` | — | `exportCount / totalStatements ≥ 0.5` (files with ≥20 stmts) | `≥80%`→high, `≥60%`→med, else low | Make non-essential symbols private; split facade + impl |
+| `change-risk` | — | weighted sum: complexity+2, cognitive+2, low-MI+count, empty-catch+1, unhandled-promise+1, exports>15+1; fires at ≥4 | `≥8`→critical, `≥6`→high, else med | Fix overlapping quality signals in the file |
 
 ---
 

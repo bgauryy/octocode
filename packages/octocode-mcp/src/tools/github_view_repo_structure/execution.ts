@@ -146,6 +146,12 @@ export async function exploreMultipleRepositoryStructures(
             ? resultData.branchFallback
             : undefined;
         const apiHints = providerResult.response.data.hints || [];
+        const escalationHints: string[] =
+          hasContent && query.owner && query.repo
+            ? [
+                `Structure complete — use githubSearchCode(owner="${query.owner}", repo="${query.repo}") to find patterns, or githubGetFileContent to read specific files.`,
+              ]
+            : [];
         const branchHints: string[] = branchFallback
           ? [
               `WARNING: Branch '${String((branchFallback as { requestedBranch: string }).requestedBranch)}' not found. Showing '${String((branchFallback as { actualBranch: string }).actualBranch)}' (default branch). Re-query with the correct branch name if branch-specific results are required.`,
@@ -180,7 +186,7 @@ export async function exploreMultipleRepositoryStructures(
             data: resultData as Record<string, unknown>,
             entryCount,
             summary,
-            extraHints: apiHints,
+            extraHints: [...apiHints, ...escalationHints],
           },
           query
         );
@@ -271,7 +277,8 @@ export function applyGithubViewRepoStructureVerbosity(
       branchFallback: _bf,
       ...coreData
     } = input.data as Record<string, unknown>;
-    void _rb; void _bf;
+    void _rb;
+    void _bf;
     return {
       data: coreData,
       extraHints: [...nextPathHints, ...input.extraHints],

@@ -26,12 +26,16 @@ export function withCoreSchemaDescriptions<
   } as Record<string, unknown>;
   const describedShape = Object.fromEntries(
     Object.entries(schema.shape).map(([fieldName, fieldSchema]) => {
+      const fs = fieldSchema as z.ZodTypeAny;
+      // Preserve descriptions already set by the overlay (via describeField or
+      // .describe()) — core descriptions are the fallback, not the override.
+      const alreadyDescribed =
+        typeof (fs as { description?: string }).description === 'string';
+      if (alreadyDescribed) return [fieldName, fs];
       const description = descriptions[fieldName];
       return [
         fieldName,
-        typeof description === 'string'
-          ? (fieldSchema as z.ZodTypeAny).describe(description)
-          : fieldSchema,
+        typeof description === 'string' ? fs.describe(description) : fs,
       ];
     })
   ) as z.ZodRawShape;

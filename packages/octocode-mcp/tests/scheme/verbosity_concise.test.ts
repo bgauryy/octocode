@@ -118,6 +118,68 @@ describe('applyFindFilesVerbosity', () => {
     );
     expect(out.files).toEqual(baseResult.files);
   });
+
+  it('verbose:false + sortBy=modified preserves modified timestamps', () => {
+    const resultWithTimestamps = {
+      ...baseResult,
+      files: [
+        {
+          path: '/repo/src/foo.ts',
+          name: 'foo.ts',
+          modified: '2026-05-01T10:00:00Z',
+          size: 1000,
+          permissions: '644',
+        },
+        {
+          path: '/repo/src/bar.ts',
+          name: 'bar.ts',
+          modified: '2026-04-01T10:00:00Z',
+          size: 500,
+          permissions: '644',
+        },
+      ],
+    };
+
+    const out = applyFindFilesVerbosity(
+      resultWithTimestamps as never,
+      { ...baseQuery, sortBy: 'modified', verbose: false } as never,
+      totals
+    );
+
+    // modified must be preserved when sortBy=modified regardless of verbose
+    for (const file of out.files ?? []) {
+      expect((file as Record<string, unknown>).modified).toBeDefined();
+    }
+    // size and permissions are still stripped (not sorting key)
+    for (const file of out.files ?? []) {
+      expect((file as Record<string, unknown>).size).toBeUndefined();
+      expect((file as Record<string, unknown>).permissions).toBeUndefined();
+    }
+  });
+
+  it('verbose:false without sortBy=modified strips modified timestamps', () => {
+    const resultWithTimestamps = {
+      ...baseResult,
+      files: [
+        {
+          path: '/repo/src/foo.ts',
+          name: 'foo.ts',
+          modified: '2026-05-01T10:00:00Z',
+        },
+      ],
+    };
+
+    const out = applyFindFilesVerbosity(
+      resultWithTimestamps as never,
+      { ...baseQuery, verbose: false } as never,
+      totals
+    );
+
+    // modified should be stripped when not sorting by it
+    for (const file of out.files ?? []) {
+      expect((file as Record<string, unknown>).modified).toBeUndefined();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

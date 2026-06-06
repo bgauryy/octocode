@@ -52,9 +52,13 @@ describe('Verbosity: githubSearchCode', () => {
 
     // verbose=false: matchIndices stripped (metadata)
     applyGithubSearchCodeVerbosity(responseData, [{ verbose: false }]);
-    expect(responseData.results[0]!.matches[0]).not.toHaveProperty('matchIndices');
+    expect(responseData.results[0]!.matches[0]).not.toHaveProperty(
+      'matchIndices'
+    );
     // Core data preserved
-    expect(responseData.results[0]!.matches[0]!.value).toBe(originalMatches[0]!.value);
+    expect(responseData.results[0]!.matches[0]!.value).toBe(
+      originalMatches[0]!.value
+    );
   });
 });
 
@@ -99,9 +103,9 @@ describe('Evidence: githubGetFileContent', () => {
     expect(output.structuredContent.evidence?.reason).toContain(
       'Use charOffset=200 for o/r:src/a.ts.'
     );
-    expect(output.structuredContent.evidence?.reason).toContain(
-      'Use startLine=41 with an endLine up to 120 for o/r:src/a.ts.'
-    );
+    // startLine continuation hint is surfaced in hints[], not evidence.reason (Fix 7)
+    const hints = output.structuredContent.hints as string[] | undefined;
+    expect(hints?.some(h => h.includes('startLine=41'))).toBe(true);
   });
 });
 

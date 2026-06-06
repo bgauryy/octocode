@@ -163,4 +163,3 @@ For available tools and detailed usage, see the [GitHub Tools Reference](https:/
 - [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — General troubleshooting guide
 
 ---
-Created by Octocode MCP https://octocode.ai

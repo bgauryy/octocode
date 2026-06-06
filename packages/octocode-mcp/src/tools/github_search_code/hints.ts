@@ -78,7 +78,12 @@ export const hints: ToolHintGenerators = {
     }
 
     // Unscoped search (no owner/repo) with keywords and no hits yet — guide broadening.
-    if (!ctx.hasOwnerRepo && out.length === 0 && keywords && keywords.length > 0) {
+    if (
+      !ctx.hasOwnerRepo &&
+      out.length === 0 &&
+      keywords &&
+      keywords.length > 0
+    ) {
       out.push(
         'No matches across GitHub — scope to owner/repo, run separate single-term queries, or add extension/path filters.'
       );

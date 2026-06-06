@@ -190,7 +190,9 @@ function buildFindFilesHints(ctx: {
           sizeGreater: query.sizeGreater,
           sizeLess: query.sizeLess,
         } as Record<string, unknown>)
-      : []),
+      : [
+          `Found ${totalFiles} file${totalFiles === 1 ? '' : 's'} — use localSearchCode(path=<file>) to search within them, or localGetFileContent to read specific files.`,
+        ]),
     ...(paginationMetadata
       ? generatePaginationHints(paginationMetadata, {
           toolName: TOOL_NAMES.LOCAL_FIND_FILES,
@@ -391,16 +393,30 @@ export function applyFindFilesVerbosity(
   if (isVerbose(query)) return result;
   if (!result.files?.length) return result;
 
+  // When sorted by modification time, `modified` is the sort key — strip it
+  // and the ordering becomes meaningless. Always preserve it in that case.
+  const sortByModified =
+    (query as Record<string, unknown>).sortBy === 'modified';
+
   return {
     ...result,
     files: result.files.map(f => {
-      const { size: _s, modified: _m, permissions: _p, ...rest } = f as typeof f & {
+      const {
+        size: _s,
+        modified: _m,
+        permissions: _p,
+        ...rest
+      } = f as typeof f & {
         size?: unknown;
         modified?: unknown;
         permissions?: unknown;
       };
-      void _s; void _m; void _p;
-      return rest as typeof f;
+      void _s;
+      void _p;
+      return {
+        ...rest,
+        ...(sortByModified && _m !== undefined ? { modified: _m } : {}),
+      } as typeof f;
     }),
   };
 }

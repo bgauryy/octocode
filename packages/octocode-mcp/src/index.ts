@@ -149,13 +149,15 @@ export async function registerAllTools(
   // is loaded. Zod .describe() captures strings eagerly at call time, so
   // schema modules must be evaluated after the metadata singleton is set.
   const { registerTools } = await import('./tools/toolsManager.js');
-  const { successCount, failedTools } = await registerTools(server);
+  const { successCount, failedTools, failedToolErrors } =
+    await registerTools(server);
   await logger.info('Tools registered', { count: successCount });
 
   if (failedTools.length > 0) {
     await logger.warning('Some tools failed to register', {
       failedCount: failedTools.length,
       failedTools,
+      failedToolErrors,
     });
   }
 

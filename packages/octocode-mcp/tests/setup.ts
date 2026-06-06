@@ -528,8 +528,7 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
       charOffset: z.number().optional().default(0),
     });
   const identityValidator = <T>(v: T) => v;
-  const stubBulkSchema = () =>
-    z.looseObject({ queries: z.array(z.unknown()) });
+  const stubBulkSchema = () => z.looseObject({ queries: z.array(z.unknown()) });
 
   const schemaStubs = {
     // Local tools

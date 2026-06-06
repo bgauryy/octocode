@@ -4,6 +4,7 @@
  * and that charOffset/charLength work for manual pagination.
  */
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import { SymbolResolver } from '../../src/lsp/resolver.js';
 import * as managerModule from '../../src/lsp/manager.js';
 import * as toolHelpers from '../../src/utils/file/toolHelpers.js';
@@ -83,6 +84,101 @@ function createLargeIncomingCalls(count: number) {
     ],
   }));
 }
+
+// ---------------------------------------------------------------------------
+// applyCallHierarchyVerbosity unit tests
+// ---------------------------------------------------------------------------
+const mockCallResult = {
+  incomingCalls: [
+    {
+      from: {
+        name: 'callerA',
+        kind: 'function',
+        uri: '/src/a.ts',
+        range: {
+          start: { line: 1, character: 0 },
+          end: { line: 5, character: 0 },
+        },
+        content: 'function callerA() { target(); }',
+      },
+      fromRanges: [
+        { start: { line: 3, character: 2 }, end: { line: 3, character: 8 } },
+      ],
+    },
+    {
+      from: {
+        name: 'callerB',
+        kind: 'function',
+        uri: '/src/b.ts',
+        range: {
+          start: { line: 10, character: 0 },
+          end: { line: 15, character: 0 },
+        },
+        content: 'function callerB() { target(); }',
+      },
+      fromRanges: [
+        { start: { line: 12, character: 4 }, end: { line: 12, character: 10 } },
+      ],
+    },
+  ],
+  lspMode: 'full',
+} as never;
+
+describe('applyCallHierarchyVerbosity', () => {
+  it('verbose=false omits content from all incomingCalls[].from nodes', () => {
+    const result = applyCallHierarchyVerbosity(mockCallResult, {
+      verbose: false,
+    } as never);
+    for (const call of result.incomingCalls ?? []) {
+      expect(call.from.content).toBeUndefined();
+    }
+  });
+
+  it('verbose=false strips lspMode', () => {
+    const result = applyCallHierarchyVerbosity(mockCallResult, {
+      verbose: false,
+    } as never);
+    expect((result as Record<string, unknown>).lspMode).toBeUndefined();
+  });
+
+  it('verbose=false adds summary with callerCount', () => {
+    const result = applyCallHierarchyVerbosity(mockCallResult, {
+      verbose: false,
+    } as never);
+    expect((result as Record<string, unknown>).summary).toBeDefined();
+    expect(
+      ((result as Record<string, unknown>).summary as Record<string, unknown>)
+        .callerCount
+    ).toBe(2);
+  });
+
+  it('verbose=false summary includes fileCount', () => {
+    const result = applyCallHierarchyVerbosity(mockCallResult, {
+      verbose: false,
+    } as never);
+    const summary = (result as Record<string, unknown>).summary as Record<
+      string,
+      unknown
+    >;
+    expect(summary.fileCount).toBeDefined();
+    expect(typeof summary.fileCount).toBe('number');
+  });
+
+  it('verbose=true preserves content in caller nodes', () => {
+    const result = applyCallHierarchyVerbosity(mockCallResult, {
+      verbose: true,
+    } as never);
+    const hasContent = result.incomingCalls?.some(c => c.from.content);
+    expect(hasContent).toBe(true);
+  });
+
+  it('verbose=true preserves lspMode', () => {
+    const result = applyCallHierarchyVerbosity(mockCallResult, {
+      verbose: true,
+    } as never);
+    expect((result as Record<string, unknown>).lspMode).toBe('full');
+  });
+});
 
 describe('lspCallHierarchy output size limits', () => {
   let toolHandler: (args: { queries: unknown[] }) => Promise<{

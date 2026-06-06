@@ -71,14 +71,3 @@ export function getGenericErrorHintsSync(): readonly string[] {
   const metadata = getMetadataOrNull() ?? completeMetadata;
   return metadata.genericErrorHints;
 }
-
-export function getDynamicHints(
-  toolName: string,
-  hintType: string
-): readonly string[] {
-  const metadata = getMetadataOrNull() ?? completeMetadata;
-  const tool = (metadata.tools as Record<string, unknown>)[toolName] as
-    | { hints?: { dynamic?: Record<string, string[] | undefined> } }
-    | undefined;
-  return tool?.hints?.dynamic?.[hintType] ?? [];
-}

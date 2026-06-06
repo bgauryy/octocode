@@ -131,14 +131,15 @@ export async function searchMultipleGitHubPullRequests(
             )
           : [];
 
-        // Char-pagination is owned by the unified bulk engine: per-query
-        // charOffset/charLength flow through applyQueryOutputPagination and the
-        // aggregate through applyBulkResponsePagination (see
-        // structuredPagination.ts). Both slice the `pull_requests` array
-        // losslessly against the single getOutputCharLimit() and expose a
-        // cursor — so this tool no longer pre-paginates (the old per-query
-        // applyOutputSizeLimit attached metadata but never clipped the body,
-        // emitting contradictory totals). resultData is passed through as-is.
+        // PR pagination is item/page-based here. The old char-window path was
+        // removed from the public bulk envelope, so resultData is passed
+        // through as-is and completeness is carried by page metadata/evidence.
+
+        const resultHints: string[] = hasContent
+          ? [
+              `Found ${pullRequests.length} PR${pullRequests.length === 1 ? '' : 's'} — use prNumber=<n> with type="fullContent" to read a specific PR's full diff, or type="partialContent" + partialContentMetadata for targeted file patches.`,
+            ]
+          : [];
 
         const fileChangeHints: string[] = [];
         const largeFileChangePRs = pullRequests.filter(
@@ -177,13 +178,13 @@ export async function searchMultipleGitHubPullRequests(
           ).length;
           if (withChanges > 0) {
             fileChangeHints.push(
-              'Metadata mode: file lists include paths + counts, no patches. Gradual workflow — re-call with type="partialContent" + partialContentMetadata=[{file:"src/foo.ts"},{file:"src/bar.ts"}] to fetch targeted patches. Add line filters via additions/deletions arrays. Use type="fullContent" with prNumber only for small PRs.'
+              'Metadata mode: fileChanges omitted (changedFilesCount available). Re-call with type="partialContent" + partialContentMetadata=[{file:"src/foo.ts"}] to fetch targeted diffs. Use type="fullContent" with prNumber only for small PRs.'
             );
           }
         }
 
-        // Result-page completeness only; char-pagination completeness is
-        // reflected by the engine via responsePagination + evidence reasons.
+        // Result-page completeness is reflected by pagination hints and
+        // evidence reasons.
         const hasMore = Boolean(pagination?.hasMore);
 
         const shaped = applyGithubSearchPullRequestsVerbosity(
@@ -191,6 +192,7 @@ export async function searchMultipleGitHubPullRequests(
             data: resultData,
             pullRequests,
             extraHints: [
+              ...resultHints,
               ...paginationHints,
               ...verbosityDowngradeHints,
               ...fileChangeHints,
@@ -274,9 +276,19 @@ export function applyGithubSearchPullRequestsVerbosity(
 
   // Strip metadata-only fields from each PR entry
   const METADATA_KEYS = new Set([
-    'createdAt', 'updatedAt', 'closedAt', 'mergedAt',
-    'comments', 'reactions', 'labels', 'assignees', 'reviewers',
-    'commits', 'additions', 'deletions', 'changedFiles',
+    'createdAt',
+    'updatedAt',
+    'closedAt',
+    'mergedAt',
+    'comments',
+    'reactions',
+    'labels',
+    'assignees',
+    'reviewers',
+    'commits',
+    'additions',
+    'deletions',
+    'changedFiles',
   ]);
   const strippedPrs = input.pullRequests.map(pr => {
     const result: Record<string, unknown> = {};

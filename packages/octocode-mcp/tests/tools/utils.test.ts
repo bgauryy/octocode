@@ -12,7 +12,7 @@ import {
   invokeCallbackSafely,
 } from '../../src/tools/utils.js';
 import type { GitHubAPIError } from '../../src/github/githubAPI.js';
-import type { ToolInvocationCallback } from '../../src/types.js';
+import type { ToolInvocationCallback } from '../../src/types/toolResults.js';
 import { logSessionError } from '../../src/session.js';
 
 // Mock session logging

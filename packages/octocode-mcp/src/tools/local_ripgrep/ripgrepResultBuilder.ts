@@ -184,7 +184,15 @@ export async function buildSearchResult(
       hasMore: filePageNumber < totalFilePages,
     },
     ...(warnings.length > 0 ? { warnings } : {}),
-    hints: [...paginationHints, ...refinementHints],
+    hints: [
+      ...(totalFiles > 0
+        ? [
+            'Results include lineHint values — pass them to lspGotoDefinition / lspFindReferences / lspCallHierarchy to get semantic definitions and references.',
+          ]
+        : []),
+      ...paginationHints,
+      ...refinementHints,
+    ],
   };
 
   return applyRipgrepVerbosity(fullResult, configuredQuery, {

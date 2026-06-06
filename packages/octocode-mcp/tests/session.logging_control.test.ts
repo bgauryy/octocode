@@ -13,7 +13,7 @@ import {
 } from '../src/session.js';
 import { TOOL_NAMES } from '../src/tools/toolMetadata/proxies.js';
 import { initialize, cleanup } from '../src/serverConfig.js';
-import type { RateLimitData } from '../src/types.js';
+import type { RateLimitData } from '../src/types/session.js';
 
 describe('Session Logging Control', () => {
   beforeEach(() => {

@@ -298,7 +298,9 @@ async function viewStructureRecursive(
   const isEmpty = totalEntries === 0;
   const baseHints = isEmpty
     ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
-    : [];
+    : [
+        'Use localSearchCode to search within discovered directories, or localGetFileContent to read specific files.',
+      ];
   const entryPaginationHints = buildEntryPaginationHints(
     filteredEntries,
     paginatedEntries.length,
@@ -347,11 +349,16 @@ export function applyViewStructureVerbosity(
   return {
     ...result,
     entries: result.entries.map(e => {
-      const { size: _s, modified: _m, ...rest } = e as typeof e & {
+      const {
+        size: _s,
+        modified: _m,
+        ...rest
+      } = e as typeof e & {
         size?: unknown;
         modified?: unknown;
       };
-      void _s; void _m;
+      void _s;
+      void _m;
       return rest as typeof e;
     }),
   };

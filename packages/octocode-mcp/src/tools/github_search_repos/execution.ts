@@ -38,12 +38,19 @@ export function applyGithubSearchReposVerbosity(
     return { data, extraHints: [] };
   }
   const repositories = (data.repositories ?? []).map(r => {
-    const { pushed_at: _pa, topics: _t, license: _l, ...rest } = r as typeof r & {
+    const {
+      pushed_at: _pa,
+      topics: _t,
+      license: _l,
+      ...rest
+    } = r as typeof r & {
       pushed_at?: unknown;
       topics?: unknown;
       license?: unknown;
     };
-    void _pa; void _t; void _l;
+    void _pa;
+    void _t;
+    void _l;
     return rest;
   });
   return { data: { ...data, repositories }, extraHints: [] };
@@ -511,6 +518,11 @@ export async function searchMultipleGitHubRepos(
           if (top?.owner && top?.repo) {
             escalationHints.push(
               `Top result: ${top.owner}/${top.repo} — use githubViewRepoStructure to browse or githubSearchCode to search within it.`
+            );
+          }
+          if (repositories.length > 1) {
+            escalationHints.push(
+              'Use multiple githubViewRepoStructure queries in parallel to compare the layouts of top results.'
             );
           }
         }

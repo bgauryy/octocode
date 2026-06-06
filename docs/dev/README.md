@@ -23,7 +23,8 @@ How to use, extend, and contribute to Octocode.
 | Doc | When to read |
 |-----|--------------|
 | [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md) | Pull a GitHub repo, then analyze locally with LSP |
-| [CLI vs MCP Benchmark](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/BENCHMARK.md) | Performance comparison + when to pick each |
+| [Advanced MCP Tool Verification](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/ADVANCED_MCP_TOOL_VERIFICATION.md) | Release-grade tool contract verification playbook |
+| [CLI vs MCP Benchmark](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/BENCHMARK.md) | Agent benchmark harness comparing MCP and CLI paths |
 
 ## [architecture/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/dev/architecture) — Internal design
 

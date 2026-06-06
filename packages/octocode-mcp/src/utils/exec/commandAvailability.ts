@@ -9,10 +9,7 @@
  */
 
 import { spawnCheckSuccess } from './spawn.js';
-import {
-  resolveRipgrepBinary,
-  RIPGREP_PATH_FALLBACK,
-} from './ripgrepBinary.js';
+import { resolveRipgrepBinary } from './ripgrepBinary.js';
 
 /**
  * Result of command availability check
@@ -101,7 +98,7 @@ export async function checkCommandAvailability(
       // availability honest cross-platform (Windows .exe included).
       const resolved = resolveRipgrepBinary();
       isAvailable = await spawnCheckSuccess(
-        resolved === RIPGREP_PATH_FALLBACK ? 'rg' : resolved,
+        resolved,
         [cmdInfo.versionFlag],
         COMMAND_CHECK_TIMEOUT_MS
       );
@@ -119,7 +116,7 @@ export async function checkCommandAvailability(
       ...(isAvailable
         ? {}
         : {
-            error: `${cmdInfo.name} (${command}) is not installed or not in PATH`,
+            error: `${cmdInfo.name} (${command}) bundled binary is unavailable`,
           }),
     };
 
@@ -168,7 +165,7 @@ export function getMissingCommandError(command: CommandName): string {
   const cmdInfo = REQUIRED_COMMANDS[command];
 
   const installInstructions: Record<CommandName, string> = {
-    rg: 'Bundled ripgrep failed to load. Reinstall the MCP package (npm i / yarn install) to repair @vscode/ripgrep, or install system ripgrep: brew install ripgrep (macOS), apt install ripgrep (Ubuntu).',
+    rg: 'Bundled ripgrep failed to load. Reinstall the MCP package (npm i / yarn install) to repair @vscode/ripgrep.',
     find: 'find should be available on all Unix systems; on Windows install Git Bash or WSL.',
     ls: 'ls should be available on all Unix systems; on Windows install Git Bash or WSL.',
   };

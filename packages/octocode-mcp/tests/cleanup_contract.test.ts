@@ -111,6 +111,14 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     ).toBe(false);
   });
 
+  it('ripgrep resolver does not fall back to PATH rg', async () => {
+    const source = await import('fs/promises').then(fs =>
+      fs.readFile(`${ROOT}/src/utils/exec/ripgrepBinary.ts`, 'utf-8')
+    );
+    expect(source).not.toMatch(/RIPGREP_PATH_FALLBACK/);
+    expect(source).not.toMatch(/return ['"]rg['"]/);
+  });
+
   it('LSP tools never assign lspMode into result objects (LSP-only, absent ≡ semantic)', async () => {
     // The pattern/text fallback paths were removed, so the `lspMode`
     // provenance marker is gone entirely. No LSP tool source may assign it
@@ -128,9 +136,15 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
       // i.e. not preceded by "{ " or followed by " _" (rename pattern)
       const assignPattern = /lspMode\s*:\s*(?!_)/g;
       const matches = [...src.matchAll(assignPattern)].filter(
-        m => !src.slice(Math.max(0, (m.index ?? 0) - 10), m.index ?? 0).includes('{')
+        m =>
+          !src
+            .slice(Math.max(0, (m.index ?? 0) - 10), m.index ?? 0)
+            .includes('{')
       );
-      expect(matches, `${file} must not emit lspMode into results`).toHaveLength(0);
+      expect(
+        matches,
+        `${file} must not emit lspMode into results`
+      ).toHaveLength(0);
     }
   });
 

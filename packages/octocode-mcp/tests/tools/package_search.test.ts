@@ -8,7 +8,7 @@ import {
   beforeEach,
   afterEach,
 } from 'vitest';
-import type { ToolInvocationCallback } from '../../src/types.js';
+import type { ToolInvocationCallback } from '../../src/types/toolResults.js';
 import {
   createMockMcpServer,
   MockMcpServer,
@@ -369,7 +369,7 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('packages' in result) {
       expect(result.packages.length).toBe(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('axios');
+      expect(pkg.name).toBe('axios');
       expect(pkg.repoUrl).toBe('https://github.com/axios/axios');
       // version IS present now
       expect(pkg.version).toBe('1.6.0');
@@ -426,7 +426,7 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('packages' in result) {
       expect(result.packages.length).toBe(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('axios');
+      expect(pkg.name).toBe('axios');
       expect(pkg.repoUrl).toBe('https://github.com/axios/axios');
 
       // fields present
@@ -497,7 +497,7 @@ describe('searchPackage - NPM (CLI)', () => {
       const verbosePkg = verboseResult.packages[0] as NpmPackageResult;
       const leanPkg = leanResult.packages[0] as NpmPackageResult;
 
-      expect(verbosePkg.path).toBe('verbose-pkg');
+      expect(verbosePkg.name).toBe('verbose-pkg');
       expect(verbosePkg.repoUrl).toBe('https://github.com/octo/verbose-pkg');
       expect(verbosePkg.version).toBe('2.0.0');
       expect(verbosePkg.keywords).toEqual(['detail', 'metadata']);
@@ -505,7 +505,7 @@ describe('searchPackage - NPM (CLI)', () => {
       expect(verbosePkg.author).toBe('Octo Dev');
       expect(verbosePkg.peerDependencies).toEqual({ react: '^18.0.0' });
 
-      expect(leanPkg.path).toBe('lean-pkg');
+      expect(leanPkg.name).toBe('lean-pkg');
       expect(leanPkg.repoUrl).toBe('https://github.com/octo/lean-pkg');
       expect(leanPkg.version).toBe('1.0.0');
       expect(leanPkg.description).toBe('Lean package');
@@ -543,7 +543,7 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('packages' in result) {
       expect(result.packages).toHaveLength(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('left-pad');
+      expect(pkg.name).toBe('left-pad');
       expect(pkg.repoUrl).toBe('https://github.com/stevemao/left-pad');
     }
     expect(mockFetch).toHaveBeenCalledWith(
@@ -605,11 +605,11 @@ describe('searchPackage - NPM (CLI)', () => {
       expect(result.totalFound).toBe(2);
 
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('lodash');
+      expect(pkg.name).toBe('lodash');
       // version IS present now
       expect(pkg.version).toBe('4.17.21');
-      // mainEntry is null because we didn't fetch metadata
-      expect(pkg.mainEntry).toBeNull();
+      // mainEntry is not populated for keyword search results
+      expect(pkg.mainEntry).toBeUndefined();
     }
 
     // Verify npm CLI search was used before any registry fallback.
@@ -671,7 +671,7 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('packages' in result) {
       expect(result.packages.length).toBe(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('test-package');
+      expect(pkg.name).toBe('test-package');
       expect(pkg.version).toBe('1.0.0');
       expect(pkg.repoUrl).toBe('https://github.com/test/test-package');
     }
@@ -778,7 +778,7 @@ describe('searchPackage - NPM (CLI)', () => {
       expect(result.packages.length).toBe(1);
       expect(result.totalFound).toBe(1);
       const first = result.packages[0] as NpmPackageResult;
-      expect(first.path).toBe('typescript');
+      expect(first.name).toBe('typescript');
       expect(first.version).toBe('5.7.3');
     }
   });
@@ -849,10 +849,10 @@ describe('searchPackage - NPM (CLI)', () => {
       // null-name ghost package is filtered; only 2 valid packages remain
       expect(result.packages.length).toBe(2);
       const first = result.packages[0] as NpmPackageResult;
-      expect(first.path).toBe('typescript');
+      expect(first.name).toBe('typescript');
       expect(first.version).toBe('5.7.3');
       const second = result.packages[1] as NpmPackageResult;
-      expect(second.path).toBe('ts-node');
+      expect(second.name).toBe('ts-node');
       // null version falls back to 'unknown'
       expect(second.version).toBe('unknown');
       // null repository URL → repoUrl is null, not a crash
@@ -918,10 +918,10 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('packages' in result) {
       expect(result.packages.length).toBe(2);
       const first = result.packages[0] as NpmPackageResult;
-      expect(first.path).toBe('typescript');
+      expect(first.name).toBe('typescript');
       expect(first.version).toBe('5.7.3');
       const second = result.packages[1] as NpmPackageResult;
-      expect(second.path).toBe('ts-node');
+      expect(second.name).toBe('ts-node');
       // Missing version falls back to 'unknown' rather than crashing
       expect(second.version).toBe('unknown');
     }
@@ -959,7 +959,7 @@ describe('searchPackage - NPM (CLI)', () => {
     if ('packages' in result) {
       expect(result.packages.length).toBe(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.path).toBe('lodash');
+      expect(pkg.name).toBe('lodash');
     }
   });
 });
@@ -1040,7 +1040,7 @@ describe('Package search response structure', () => {
       expect(Array.isArray(result.packages)).toBe(true);
 
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg).toHaveProperty('path');
+      expect(pkg).toHaveProperty('name');
       expect(pkg).toHaveProperty('repoUrl');
       expect(pkg).toHaveProperty('version');
 
@@ -1073,7 +1073,7 @@ describe('Package search response structure', () => {
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg).toHaveProperty('path');
+      expect(pkg).toHaveProperty('name');
       expect(pkg).toHaveProperty('version');
       expect(pkg).toHaveProperty('repoUrl');
       expect(pkg).toHaveProperty('mainEntry');

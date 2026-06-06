@@ -84,6 +84,7 @@ describe('ToolsManager - Dependency Injection', () => {
     expect(result).toEqual({
       successCount: 0,
       failedTools: ['skipMetadataTool'],
+      failedToolErrors: { skipMetadataTool: 'fail' },
     });
     expect(mockIsToolInMetadata).not.toHaveBeenCalled();
   });

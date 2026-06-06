@@ -14,17 +14,18 @@ export const hints: ToolHintGenerators = {
     const query = typeof c.query === 'string' ? c.query : undefined;
     // Support both field names — ctx uses the actual query param name which
     // may be `keywords` or `keywordsToSearch` depending on the schema version.
-    const keywords =
-      Array.isArray(c.keywords)
-        ? c.keywords
-        : Array.isArray(c.keywordsToSearch)
-          ? c.keywordsToSearch
-          : undefined;
+    const keywords = Array.isArray(c.keywords)
+      ? c.keywords
+      : Array.isArray(c.keywordsToSearch)
+        ? c.keywordsToSearch
+        : undefined;
     const language = typeof c.language === 'string' ? c.language : undefined;
     const owner = typeof c.owner === 'string' ? c.owner : undefined;
     const topic = typeof c.topic === 'string' ? c.topic : undefined;
     const hasFilters = language || owner || topic;
-    const searchTerm = query ?? (keywords && keywords.length > 0 ? String(keywords[0]) : undefined);
+    const searchTerm =
+      query ??
+      (keywords && keywords.length > 0 ? String(keywords[0]) : undefined);
 
     if (!searchTerm && !hasFilters) return [];
 
@@ -45,10 +46,7 @@ export const hints: ToolHintGenerators = {
       );
     }
 
-    if (
-      searchTerm &&
-      /^(@[\w-]+\/)?[\w.-]+$/.test(searchTerm)
-    ) {
+    if (searchTerm && /^(@[\w-]+\/)?[\w.-]+$/.test(searchTerm)) {
       out.push(
         `"${searchTerm}" looks like a package — use \`packageSearch\` to resolve it directly to the source repo.`
       );

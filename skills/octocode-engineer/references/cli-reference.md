@@ -77,17 +77,11 @@ This skill is private (no `bin` entry) — **do not use `npx`**. `npx` applies o
 
 ## Flag Details
 
-`--scope` focuses on specific paths (comma-separated, relative to root). Use `file:symbol` syntax to drill into a specific function or exported variable — only findings whose line range overlaps with that symbol are returned. The full dependency graph is still built so architecture findings involving scoped files are reported. Combinable with `--features`/`--exclude`.
-
-**Symbol scope fallback**: if the scanner cannot resolve a `file:symbol` target (e.g., the symbol name doesn't match an exported function or the file uses patterns that prevent resolution), it falls back to file-level scope and emits a warning: `"symbol scope could not resolve: <path>. Falling back to file-level scope."` If you see this warning, check the exact exported function name and try again, or use file-level scope directly.
-
-`--features` and `--exclude` are mutually exclusive. Both accept pillar names (`architecture`, `code-quality`, `dead-code`, `security`, `test-quality`) and individual category names, comma-separated.
-
-`--semantic` enables TypeChecker + LanguageService analysis (additional categories). Off by default since it adds ~3-5s. Semantic categories require `--semantic` to appear in results.
-
-`--out` changes the output destination. If the path ends with `.json`, writes a single monolithic file (legacy mode). Otherwise, writes to the given directory instead of the default timestamped directory.
-
-`--parser` selects the parse engine: `auto` (default — uses tree-sitter with TS fallback), `typescript` (TS compiler only), or `tree-sitter` (tree-sitter only).
+- **`--scope`**: comma-separated paths relative to root. Use `file:symbol` to drill into a specific exported function — only findings overlapping that symbol are returned; the full dependency graph is still built. If `file:symbol` can't resolve (symbol name mismatch), falls back to file-level scope with a warning — check the exact exported name or switch to file-level scope.
+- **`--features` / `--exclude`**: mutually exclusive. Accept pillar names (`architecture`, `code-quality`, `dead-code`, `security`, `test-quality`) and individual category names, comma-separated.
+- **`--semantic`**: enables TypeChecker + LanguageService analysis (~3-5s overhead). Semantic categories only appear in results when this flag is set.
+- **`--out`**: output destination. Path ending in `.json` → single monolithic file (legacy). Otherwise writes to the given directory instead of the default timestamped directory.
+- **`--parser`**: `auto` (default — tree-sitter with TS fallback), `typescript` (TS compiler only), or `tree-sitter` (tree-sitter only).
 
 ---
 

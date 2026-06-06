@@ -1295,11 +1295,11 @@ __metadata:
   linkType: soft
 
 "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp":
-  version: 4.0.0
-  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=286b3c&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
+  version: 4.1.0
+  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=203969&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/dac2dfc5c50211fb4a5b787d187f1b7671d660be9d4f768b03c371a0277d7303698d1238d072762b051b83de12c0ec59252fca9df1e69a536c73186536c3e786
+  checksum: 10c0/ec2dd0aff4e2179a12f0bdc1ed0f35ea1f917087b2483a084d7f64036da9d0b20cf82fcd65146774a505a20ee565de07eb34ac9aea27eab2728d24b390945ab1
   languageName: node
   linkType: hard
 

@@ -54,6 +54,7 @@ vi.mock('../../src/serverConfig.js', () => ({
 
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
 import { applyGithubSearchPullRequestsVerbosity } from '../../src/tools/github_search_pull_requests/execution.js';
+import { mapPullRequestProviderResultData } from '../../src/tools/providerMappers.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 
 function basePR(overrides: Record<string, unknown> = {}) {
@@ -314,7 +315,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(text).not.toContain('file changes.');
     });
 
-    it('keeps a lightweight file list (paths+counts, no patch) in metadata mode (default)', async () => {
+    it('omits fileChanges entirely in metadata mode (type omitted = default)', async () => {
       const fileChanges = Array.from({ length: 5 }, (_, i) => ({
         filename: `src/file${i}.ts`,
         status: 'modified',
@@ -346,17 +347,10 @@ describe('github_search_pull_requests execution — branch coverage', () => {
           >) ?? []
       );
       expect(prs?.length).toBe(1);
-      // Metadata keeps the file list (so "which files?" needs no second call)
-      // but strips patches.
-      const metaFileChanges = prs?.[0]?.fileChanges as
-        | Array<Record<string, unknown>>
-        | undefined;
-      expect(metaFileChanges).toHaveLength(5);
-      expect(metaFileChanges?.every(f => f.patch === undefined)).toBe(true);
+      // Metadata mode omits fileChanges entirely — changedFilesCount is sufficient for triage.
+      expect(prs?.[0]).not.toHaveProperty('fileChanges');
       expect(prs?.[0]?.changedFilesCount).toBe(5);
-      expect(getTextContent(result.content)).toContain(
-        'Metadata mode: file lists include paths + counts, no patches'
-      );
+      expect(getTextContent(result.content)).toContain('Metadata mode');
     });
 
     it('keeps the file list when type="fullContent"', async () => {
@@ -517,8 +511,20 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
 
 describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
   const basePRs = [
-    { number: 101, title: 'A', state: 'open', merged: false, createdAt: '2024-01-01' },
-    { number: 102, title: 'B', state: 'closed', merged: true, updatedAt: '2024-01-02' },
+    {
+      number: 101,
+      title: 'A',
+      state: 'open',
+      merged: false,
+      createdAt: '2024-01-01',
+    },
+    {
+      number: 102,
+      title: 'B',
+      state: 'closed',
+      merged: true,
+      updatedAt: '2024-01-02',
+    },
   ] as Array<Record<string, unknown>>;
 
   it('verbose=false (default) strips metadata fields from PRs', () => {
@@ -543,7 +549,9 @@ describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
       pullRequests: basePRs,
       extraHints: ['h1'],
     };
-    const out = applyGithubSearchPullRequestsVerbosity(input, { verbose: true } as never);
+    const out = applyGithubSearchPullRequestsVerbosity(input, {
+      verbose: true,
+    } as never);
 
     // verbose=true: data passes through unchanged
     expect(out.data).toEqual({ total_count: 2 });
@@ -606,5 +614,78 @@ describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
     );
     expect(out.data).toEqual({ x: 1 });
     expect(out.extraHints).toEqual(['keep']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapPullRequestProviderResultData — metadata mode omits fileChanges entirely
+// ---------------------------------------------------------------------------
+
+function makeProviderData(fileChanges: Array<Record<string, unknown>>) {
+  return {
+    items: [
+      {
+        number: 42,
+        title: 'Test PR',
+        state: 'open',
+        draft: false,
+        merged: false,
+        author: { login: 'user', id: '1' },
+        assignees: [],
+        labels: [],
+        head: { ref: 'feature', sha: 'abc' },
+        base: { ref: 'main', sha: 'def' },
+        body: null,
+        comments: [],
+        createdAt: '2024-01-01',
+        updatedAt: '2024-01-01',
+        closedAt: null,
+        mergedAt: null,
+        commentsCount: 0,
+        changedFilesCount: fileChanges.length,
+        additions: 5,
+        deletions: 2,
+        url: 'https://github.com/t/r/pull/42',
+        fileChanges,
+      },
+    ],
+    totalCount: 1,
+    pagination: undefined,
+  } as never;
+}
+
+describe('mapPullRequestProviderResultData — metadata mode (includeFileChanges=false)', () => {
+  const fileChanges = [
+    { filename: 'src/a.ts', additions: 5, deletions: 2, patch: 'diff...' },
+    { filename: 'src/b.ts', additions: 1, deletions: 0, patch: 'diff...' },
+  ];
+
+  it('type=metadata (includeFileChanges=false) omits fileChanges from each PR', () => {
+    const { pullRequests } = mapPullRequestProviderResultData(
+      makeProviderData(fileChanges),
+      { includeFileChanges: false }
+    );
+    for (const pr of pullRequests) {
+      expect(pr).not.toHaveProperty('fileChanges');
+    }
+  });
+
+  it('type=metadata keeps changedFilesCount', () => {
+    const { pullRequests } = mapPullRequestProviderResultData(
+      makeProviderData(fileChanges),
+      { includeFileChanges: false }
+    );
+    expect(pullRequests[0]).toHaveProperty('changedFilesCount');
+    expect((pullRequests[0] as Record<string, unknown>).changedFilesCount).toBe(
+      fileChanges.length
+    );
+  });
+
+  it('type=partialContent (includeFileChanges=true) includes fileChanges', () => {
+    const { pullRequests } = mapPullRequestProviderResultData(
+      makeProviderData(fileChanges),
+      { includeFileChanges: true }
+    );
+    expect(pullRequests[0]).toHaveProperty('fileChanges');
   });
 });

@@ -190,18 +190,63 @@ describe('LSP Find References - Branch Coverage Tests', () => {
           count: 2,
           firstLine: 5,
           firstCharacter: 2,
+          lines: [5, 9],
         },
         {
           uri: '/workspace/src/a.ts',
           count: 1,
           firstLine: 2,
           firstCharacter: 0,
+          lines: [2],
           hasDefinition: true,
         },
       ]);
       expect(grouped.hints?.some(hint => hint.startsWith('byFile:'))).toBe(
         false
       );
+    });
+
+    it('byFile entries include all reference line numbers in lines[]', () => {
+      const result: FindReferencesResult = {
+        locations: [
+          {
+            uri: '/workspace/src/b.ts',
+            range: {
+              start: { line: 4, character: 2 },
+              end: { line: 4, character: 14 },
+            },
+            content: 'use testFunction',
+          },
+          {
+            uri: '/workspace/src/b.ts',
+            range: {
+              start: { line: 8, character: 4 },
+              end: { line: 8, character: 16 },
+            },
+            content: 'testFunction();',
+          },
+          {
+            uri: '/workspace/src/b.ts',
+            range: {
+              start: { line: 9, character: 0 },
+              end: { line: 9, character: 12 },
+            },
+            content: 'testFunction();',
+          },
+        ],
+      };
+
+      const grouped = applyFindReferencesVerbosity(result, {
+        ...baseQuery,
+        groupByFile: true,
+      });
+
+      const bEntry = grouped.byFile?.[0];
+      expect(bEntry?.lines).toBeDefined();
+      expect(bEntry?.lines).toHaveLength(3);
+      expect(bEntry?.lines).toContain(5); // line 4 (0-indexed) + 1 = 5
+      expect(bEntry?.lines).toContain(9); // line 8 + 1
+      expect(bEntry?.lines).toContain(10); // line 9 + 1
     });
 
     it('rolls up ALL references in groupByFile, not just the current page', async () => {

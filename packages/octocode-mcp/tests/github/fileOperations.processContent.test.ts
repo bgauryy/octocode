@@ -842,24 +842,13 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
   });
 
   describe('viewGitHubRepositoryStructureAPI - Branch Fallback', () => {
-    it('should try default branch when requested branch fails', async () => {
+    it('should not try default branch when requested branch fails', async () => {
       const mockOctokit = {
         rest: {
           repos: {
             getContent: vi
               .fn()
-              .mockRejectedValueOnce(createRequestError('Not Found', 404))
-              .mockResolvedValueOnce({
-                data: [
-                  {
-                    name: 'README.md',
-                    path: 'README.md',
-                    type: 'file',
-                    size: 100,
-                    sha: 'abc',
-                  },
-                ],
-              }),
+              .mockRejectedValueOnce(createRequestError('Not Found', 404)),
             get: vi.fn().mockResolvedValue({
               data: {
                 default_branch: 'main',
@@ -880,32 +869,17 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         path: '',
       });
 
-      expect(result).toHaveProperty('structure');
-      if ('structure' in result) {
-        expect(result.branch).toBe('main');
-      }
+      expect(result).toHaveProperty('error');
+      expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
-    it('should try common branches when default branch also fails', async () => {
+    it('should not try common branches when requested branch fails', async () => {
       const mockOctokit = {
         rest: {
           repos: {
             getContent: vi
               .fn()
-              .mockRejectedValueOnce(createRequestError('Not Found', 404)) // Original branch
-              .mockRejectedValueOnce(createRequestError('Not Found', 404)) // Default branch
-              .mockResolvedValueOnce({
-                // master branch succeeds
-                data: [
-                  {
-                    name: 'index.js',
-                    path: 'index.js',
-                    type: 'file',
-                    size: 50,
-                    sha: 'def',
-                  },
-                ],
-              }),
+              .mockRejectedValueOnce(createRequestError('Not Found', 404)),
             get: vi.fn().mockResolvedValue({
               data: {
                 default_branch: 'main',
@@ -926,10 +900,8 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         path: '',
       });
 
-      expect(result).toHaveProperty('structure');
-      if ('structure' in result) {
-        expect(result.branch).toBe('master');
-      }
+      expect(result).toHaveProperty('error');
+      expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
   });
 });

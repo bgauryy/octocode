@@ -100,9 +100,9 @@ async function fetchPRComments(
       : raw.filter((c: IssueComment) => !isBotAuthor(c.user?.login ?? ''));
     const botsDropped = raw.length - kept.length;
 
-    // No count cap: keep EVERY non-bot comment. Oversized threads are bounded
-    // losslessly by the response char-paginator (agents page for more via
-    // responseCharOffset), never by silently dropping the tail.
+    // No count cap: keep EVERY non-bot comment for the requested PR payload;
+    // callers narrow oversized threads via targeted PR/file modes, never by
+    // silently dropping the tail here.
     const comments = kept.map((comment: IssueComment): PRCommentItem => {
       const stripped = stripMachineBlobs(comment.body ?? '');
       return {

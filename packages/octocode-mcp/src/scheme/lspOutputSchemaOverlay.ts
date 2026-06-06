@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
-
 const PositionSchema = z.looseObject({
   line: z.number(),
   character: z.number(),
@@ -34,6 +33,7 @@ const ReferencesByFileLocalSchema = z.looseObject({
   count: z.number(),
   firstLine: z.number(),
   firstCharacter: z.number(),
+  lines: z.array(z.number()),
   hasDefinition: z.boolean().optional(),
 });
 
@@ -160,4 +160,3 @@ export const LspCallHierarchyOutputLocalSchema = z.object({
     ])
   ),
 });
-
