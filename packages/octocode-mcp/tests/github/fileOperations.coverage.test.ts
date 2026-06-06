@@ -354,8 +354,16 @@ describe('File Operations - Additional Coverage Tests', () => {
               .mockRejectedValueOnce(createRequestError('Not Found', 404))
               .mockResolvedValueOnce({
                 data: [
-                  { name: 'npm.ts', path: 'src/utils/package/npm.ts', type: 'file' },
-                  { name: 'types.ts', path: 'src/utils/package/types.ts', type: 'file' },
+                  {
+                    name: 'npm.ts',
+                    path: 'src/utils/package/npm.ts',
+                    type: 'file',
+                  },
+                  {
+                    name: 'types.ts',
+                    path: 'src/utils/package/types.ts',
+                    type: 'file',
+                  },
                 ],
               }),
             get: vi.fn().mockResolvedValue({
@@ -391,9 +399,7 @@ describe('File Operations - Additional Coverage Tests', () => {
               .fn()
               .mockRejectedValueOnce(createRequestError('Not Found', 404))
               .mockResolvedValueOnce({
-                data: [
-                  { name: 'io.ts', path: 'src/io.ts', type: 'file' },
-                ],
+                data: [{ name: 'io.ts', path: 'src/io.ts', type: 'file' }],
               }),
             get: vi.fn().mockResolvedValue({
               data: { default_branch: 'main' },
