@@ -15,32 +15,18 @@ import type {
 } from '../../types/toolResults.js';
 import {
   attachEvidence,
-  buildEvidenceMetadata,
-  hasMorePagination,
-  incompleteHintReasons,
-  isRecord,
-  paginationTotal,
-  records,
+  buildCollectionEvidence,
 } from '../evidence.js';
 
 export { applyViewStructureVerbosity } from './local_view_structure.js';
 
 export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
-  const data = isRecord(result) ? result : {};
-  const entries = records(data.entries);
-  const hasResults =
-    entries.length > 0 || paginationTotal(data.pagination, 'totalEntries') > 0;
-  const reasons: string[] = [];
-
-  if (hasMorePagination(data.pagination)) {
-    reasons.push('Entry pagination has more results.');
-  }
-  reasons.push(...incompleteHintReasons(data));
-
-  return buildEvidenceMetadata({
+  return buildCollectionEvidence({
+    result,
+    collectionField: 'entries',
+    totalKeys: ['totalEntries'],
+    paginationMoreReason: 'Entry pagination has more results.',
     kind: 'structure',
-    answerReady: hasResults,
-    incompleteReasons: reasons,
     emptyReason: 'No directory entries matched the supplied view.',
   });
 }

@@ -15,32 +15,18 @@ import type {
 } from '../../types/toolResults.js';
 import {
   attachEvidence,
-  buildEvidenceMetadata,
-  hasMorePagination,
-  incompleteHintReasons,
-  isRecord,
-  paginationTotal,
-  records,
+  buildCollectionEvidence,
 } from '../evidence.js';
 
 export { applyFindFilesVerbosity } from './findFiles.js';
 
 export function buildFindFilesEvidence(result: unknown): EvidenceMetadata {
-  const data = isRecord(result) ? result : {};
-  const files = records(data.files);
-  const hasResults =
-    files.length > 0 || paginationTotal(data.pagination, 'totalFiles') > 0;
-  const reasons: string[] = [];
-
-  if (hasMorePagination(data.pagination)) {
-    reasons.push('File pagination has more results.');
-  }
-  reasons.push(...incompleteHintReasons(data));
-
-  return buildEvidenceMetadata({
+  return buildCollectionEvidence({
+    result,
+    collectionField: 'files',
+    totalKeys: ['totalFiles'],
+    paginationMoreReason: 'File pagination has more results.',
     kind: 'metadata',
-    answerReady: hasResults,
-    incompleteReasons: reasons,
     emptyReason: 'No files matched the supplied metadata filters.',
   });
 }
