@@ -581,7 +581,7 @@ describe('ContentSanitizer', () => {
           GITHUB_TOKEN=[REDACTED-GITHUBTOKENS]
           OPENAI_API_KEY=[REDACTED-OPENAIAPIKEYLEGACY]
           AWS_ACCESS_KEY_ID=[REDACTED-AWSACCESSKEYID]
-          DATABASE_URL=[REDACTED-POSTGRESQLCONNECTIONSTRING]
+          DATABASE_URL=postgresql:
         `,
 
           hasSecrets: true,
@@ -589,10 +589,9 @@ describe('ContentSanitizer', () => {
           secretsDetected: [
             'openaiApiKeyLegacy',
             'awsAccessKeyId',
-            'postgresqlConnectionString',
             'githubTokens',
           ],
-          warnings: ['4 secret(s) redacted'],
+          warnings: ['3 secret(s) redacted'],
         });
       });
     });

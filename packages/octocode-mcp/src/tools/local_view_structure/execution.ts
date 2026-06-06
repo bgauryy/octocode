@@ -13,10 +13,7 @@ import type {
   EvidenceMetadata,
   ProcessedBulkResult,
 } from '../../types/toolResults.js';
-import {
-  attachEvidence,
-  buildCollectionEvidence,
-} from '../evidence.js';
+import { attachEvidence, buildCollectionEvidence } from '../evidence.js';
 
 export { applyViewStructureVerbosity } from './local_view_structure.js';
 
