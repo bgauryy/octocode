@@ -145,6 +145,9 @@ describe('syncCommand', () => {
           mcpCount: 3,
         },
       ],
+      conflicts: [],
+      fullyConsistent: [],
+      needsSync: [],
       summary: {
         clientsWithConfig: 2,
         totalUniqueMCPs: 5,
@@ -222,6 +225,9 @@ describe('syncCommand', () => {
     const features = await import('../../../src/features/sync.js');
     vi.mocked(features.analyzeSyncState).mockReturnValue({
       clients: [],
+      conflicts: [],
+      fullyConsistent: [],
+      needsSync: [],
       summary: {
         clientsWithConfig: 2,
         totalUniqueMCPs: 3,

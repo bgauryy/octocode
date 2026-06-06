@@ -1,6 +1,6 @@
 {
   "name": "octocode-cli",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Interactive CLI installer for octocode-mcp - Configure MCP servers for Cursor, Claude Desktop, and more",
   "keywords": [
     "ai-coding",
@@ -68,7 +68,7 @@
     "@vitest/coverage-v8": "^4.0.16",
     "esbuild": "^0.27.2",
     "eslint": "^9.18.0",
-    "octocode-mcp": "^15.0.0",
+    "octocode-mcp": "^15.0.2",
     "octocode-shared": "workspace:^",
     "open": "^11.0.0",
     "tsx": "^4.21.0",

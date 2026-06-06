@@ -36,7 +36,7 @@ npx octocode-cli install
 Verify, then sign in:
 
 ```bash
-octocode --version        # → octocode v1.5.2
+octocode --version        # → octocode v1.5.3
 octocode login            # GitHub OAuth (device flow)
 ```
 
@@ -142,8 +142,8 @@ octocode token --reveal           # print the full token on screen
 | `sync --status` | | Show sync analysis without syncing |
 | `sync --force` | | Auto-resolve conflicts (use first variant found) |
 | `skills` | `sk` | Install / remove / list / search / read / sync skills |
-| `skills search <query>` | | Agent mode: emits the search protocol (Octocode/GitHub + skills.sh + web search) |
-| `skills search --direct` | | Search skills.sh directly (human-readable, immediate results) |
+| `skills search <query>` | | In a terminal: immediate results from skills.sh. In scripts/agents (non-TTY): emits the research protocol |
+| `skills search --direct` | | Force direct results from skills.sh (auto-enabled in a terminal; use this in scripts/pipes) |
 | `skills search --direct --install` | | Fetch and install top result automatically |
 | `skills read <path \| owner/repo/path \| github-url>` | | Preview a SKILL.md from disk or GitHub (`--full` for untruncated) |
 | `skills install --targets <t1,t2>` | | Install all bundled skills to targets |

@@ -430,6 +430,24 @@ export const skillsCommand: CLICommand = {
         }
         console.log();
         console.log(`  ${c('red', '✗')} ${readError ?? 'Empty content'}`);
+        if (
+          readError?.includes('not found') ||
+          readError?.includes('tried main')
+        ) {
+          console.log(
+            `  ${dim('This skill may have been moved or removed from the registry.')}`
+          );
+          const skillName =
+            (rawInput as string)
+              .replace(/\/SKILL\.md$/i, '')
+              .split('/')
+              .at(-1) ?? '';
+          if (skillName) {
+            console.log(
+              `  ${dim('Search for it:')} octocode skills search "${skillName}" --direct`
+            );
+          }
+        }
         console.log();
         process.exitCode = 1;
         return;
@@ -489,7 +507,8 @@ export const skillsCommand: CLICommand = {
         args.args[1] ||
         (args.options['query'] as string) ||
         (args.options['q'] as string);
-      const directMode = Boolean(args.options['direct']);
+      const isHumanTTY = process.stdout.isTTY === true;
+      const directMode = Boolean(args.options['direct']) || isHumanTTY;
       const rawLimit = args.options['limit'] ?? args.options['l'];
       const limit =
         typeof rawLimit === 'string' && /^\d+$/.test(rawLimit)
