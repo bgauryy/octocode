@@ -331,6 +331,29 @@ describe('githubGetFileContent — error', () => {
     } as never);
     expect(h[0]).toContain('README.md');
   });
+
+  it('rate-limited with retryAfter', () => {
+    const h = ghFetchHints.error({
+      isRateLimited: true,
+      retryAfter: 30,
+    } as never);
+    expect(h[0]).toContain('Retry after 30s');
+  });
+
+  it('rate-limited without retryAfter says wait', () => {
+    const h = ghFetchHints.error({ isRateLimited: true } as never);
+    expect(h[0]).toContain('Wait before retrying');
+  });
+
+  it('status 401 returns token error', () => {
+    const h = ghFetchHints.error({ status: 401 } as never);
+    expect(h[0]).toContain('GITHUB_TOKEN');
+  });
+
+  it('status 403 returns scope error', () => {
+    const h = ghFetchHints.error({ status: 403 } as never);
+    expect(h[0]).toContain('repo');
+  });
 });
 
 describe('githubSearchPullRequests — empty permutations', () => {
@@ -359,6 +382,61 @@ describe('githubSearchPullRequests — empty permutations', () => {
 
   it('stays silent without filters', () => {
     expect(ghPrHints.empty({} as never)).toEqual([]);
+  });
+
+  it('returns [] when scope is defined but no state/author/query filters', () => {
+    const h = ghPrHints.empty({ owner: 'a', repo: 'b' } as never);
+    expect(h).toEqual([]);
+  });
+
+  it('non-merged state shows loose filter hint not merged-specific', () => {
+    const h = ghPrHints.empty({
+      state: 'open',
+      owner: 'a',
+      repo: 'b',
+    } as never);
+    expect(h[1]).toContain('try removing one filter');
+    expect(h[1]).not.toContain('Zero merged PRs');
+  });
+
+  it('no query shows add-query hint', () => {
+    const h = ghPrHints.empty({
+      state: 'open',
+      owner: 'a',
+      repo: 'b',
+    } as never);
+    expect(h[2]).toContain('Add a `query`');
+  });
+});
+
+describe('githubSearchPullRequests — error permutations', () => {
+  it('rate-limited with retryAfter includes retry time', () => {
+    const h = ghPrHints.error({
+      isRateLimited: true,
+      retryAfter: 45,
+    } as never);
+    expect(h[0]).toContain('Retry after 45s');
+  });
+
+  it('rate-limited without retryAfter says wait', () => {
+    const h = ghPrHints.error({
+      isRateLimited: true,
+    } as never);
+    expect(h[0]).toContain('Wait before retrying');
+  });
+
+  it('status 401 returns token error', () => {
+    const h = ghPrHints.error({ status: 401 } as never);
+    expect(h[0]).toContain('GITHUB_TOKEN');
+  });
+
+  it('status 403 returns scope error', () => {
+    const h = ghPrHints.error({ status: 403 } as never);
+    expect(h[0]).toContain('repo');
+  });
+
+  it('unknown error returns []', () => {
+    expect(ghPrHints.error({ status: 500 } as never)).toEqual([]);
   });
 });
 
@@ -450,6 +528,31 @@ describe('githubCloneRepo — error', () => {
 
   it('unknown returns []', () => {
     expect(cloneHints.error({ errorType: 'other' as never })).toEqual([]);
+  });
+
+  it('rate-limited with retryAfter', () => {
+    const h = cloneHints.error({
+      isRateLimited: true,
+      retryAfter: 20,
+    } as never);
+    expect(h[0]).toContain('Retry after 20s');
+  });
+
+  it('rate-limited without retryAfter says wait', () => {
+    const h = cloneHints.error({ isRateLimited: true } as never);
+    expect(h[0]).toContain('Wait before retrying');
+  });
+});
+
+describe('githubCloneRepo — empty', () => {
+  it('returns [] when no sparsePath', () => {
+    expect(cloneHints.empty({} as never)).toEqual([]);
+  });
+
+  it('returns guidance when sparsePath provided but matched nothing', () => {
+    const h = cloneHints.empty({ path: 'src/utils' } as never);
+    expect(h[0]).toContain('src/utils');
+    expect(h[1]).toContain('sparse_path');
   });
 });
 

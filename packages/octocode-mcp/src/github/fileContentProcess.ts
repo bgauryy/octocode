@@ -167,9 +167,15 @@ export async function processFileContentAPI(
     actualEndLine = matchEndLine;
     isPartial = true;
 
-    matchLocationsSet.add(
-      `Found "${matchString}" on line ${firstMatch}${matchingLines.length > 1 ? ` (and ${matchingLines.length - 1} other locations)` : ''}`
-    );
+    if (matchingLines.length > 1) {
+      // List ALL match line numbers so the agent can issue targeted startLine/endLine reads
+      const otherLines = matchingLines.slice(1);
+      matchLocationsSet.add(
+        `Found "${matchString}" on line ${firstMatch} (showing ±${matchStringContextLines} lines). Other occurrences at lines: ${otherLines.join(', ')} — use startLine/endLine to read those locations directly.`
+      );
+    } else {
+      matchLocationsSet.add(`Found "${matchString}" on line ${firstMatch}`);
+    }
   } else if (startLine !== undefined || endLine !== undefined) {
     const effectiveStartLine = startLine || 1;
 

@@ -567,9 +567,13 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       expect(result.status).toBe(200);
       if ('data' in result) {
         expect(result.data.content).toContain('import React from "react"');
-        expect(result.data.matchLocations).toContain(
-          'Found "import" on line 2 (and 1 other locations)'
-        );
+        expect(
+          result.data.matchLocations?.some(
+            loc =>
+              loc.startsWith('Found "import" on line 2') &&
+              loc.includes('Other occurrences at lines:')
+          )
+        ).toBe(true);
       }
     });
   });
@@ -744,7 +748,9 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       }
     });
 
-    it('should handle file too large error', async () => {
+    it('should decode files larger than 300KB that have inline content', async () => {
+      // The 300 KB gate has been removed. Files with inline base64 content are
+      // decoded regardless of reported size; pagination handles large output.
       const params = createTestParams();
       const largeContent = 'x'.repeat(500 * 1024);
 
@@ -759,11 +765,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const result = await fetchGitHubFileContentAPI(params);
 
-      expect('error' in result).toBe(true);
-      if ('error' in result) {
-        expect(result.error).toContain('File too large');
-        expect(result.error).toContain('300KB');
-      }
+      expect('error' in result).toBe(false);
+      expect(result).toHaveProperty('data');
     });
 
     it('should handle empty file (no content)', async () => {

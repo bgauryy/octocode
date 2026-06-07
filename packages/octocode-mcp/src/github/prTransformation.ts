@@ -67,7 +67,124 @@ export function createBasePRTransformation(item: RawPRData): {
   return { prData, sanitizationWarnings };
 }
 
-export function formatPRForResponse(pr: GitHubPullRequestItem) {
+const SEARCH_RESULT_BODY_CHAR_LENGTH = 2_000;
+const SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH = 800;
+const SEARCH_RESULT_MAX_COMMENT_DETAILS = 3;
+
+interface PRResponseFormatOptions {
+  includeFullBody?: boolean;
+  includeFullCommentDetails?: boolean;
+  charOffset?: number;
+  charLength?: number;
+}
+
+interface TextPaginationInfo {
+  charOffset: number;
+  charLength: number;
+  totalChars: number;
+  hasMore: boolean;
+  nextCharOffset?: number;
+}
+
+function paginateText(
+  value: string | null | undefined,
+  charOffset: number,
+  charLength: number,
+  enabled: boolean
+): { value: string | null | undefined; pagination?: TextPaginationInfo } {
+  if (typeof value !== 'string' || !enabled) {
+    return { value };
+  }
+
+  const totalChars = value.length;
+  const safeOffset = Math.min(Math.max(0, charOffset), totalChars);
+  const safeLength = Math.max(1, charLength);
+  const endOffset = Math.min(safeOffset + safeLength, totalChars);
+  const hasMore = endOffset < totalChars;
+
+  if (safeOffset === 0 && endOffset === totalChars) {
+    return { value };
+  }
+
+  return {
+    value: value.slice(safeOffset, endOffset),
+    pagination: {
+      charOffset: safeOffset,
+      charLength: endOffset - safeOffset,
+      totalChars,
+      hasMore,
+      ...(hasMore ? { nextCharOffset: endOffset } : {}),
+    },
+  };
+}
+
+export function formatPRForResponse(
+  pr: GitHubPullRequestItem,
+  options: PRResponseFormatOptions = {}
+) {
+  const charOffset = options.charOffset ?? 0;
+  const bodyCharLength = options.charLength ?? SEARCH_RESULT_BODY_CHAR_LENGTH;
+  const commentCharLength =
+    options.charLength ?? SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH;
+  const body = paginateText(
+    pr.body,
+    charOffset,
+    bodyCharLength,
+    !options.includeFullBody
+  );
+  // Sort so review_inline comments appear before discussion comments — they are
+  // the most semantically rich (include file + line) and most often confused
+  // with the total comment count.
+  const comments = (pr.comments ?? []).sort((a, b) => {
+    const aIsInline = a.commentType === 'review_inline' ? 0 : 1;
+    const bIsInline = b.commentType === 'review_inline' ? 0 : 1;
+    return aIsInline - bIsInline;
+  });
+
+  // Pre-compute breakdown so it can be surfaced immediately in the output —
+  // before the flat comment_details array — preventing agents from confusing
+  // the total count with the inline review count.
+  const inlineReviewCount = comments.filter(
+    c => c.commentType === 'review_inline'
+  ).length;
+  const discussionCount = comments.length - inlineReviewCount;
+
+  const visibleComments = options.includeFullCommentDetails
+    ? comments
+    : comments.slice(0, SEARCH_RESULT_MAX_COMMENT_DETAILS);
+  const commentDetails = visibleComments.map(comment => {
+    const bodyResult = paginateText(
+      comment.body,
+      charOffset,
+      commentCharLength,
+      !options.includeFullCommentDetails
+    );
+
+    return {
+      ...comment,
+      body: bodyResult.value ?? '',
+      ...(bodyResult.pagination
+        ? { body_pagination: bodyResult.pagination }
+        : {}),
+    };
+  });
+  const commentDetailsPaginated =
+    !options.includeFullCommentDetails &&
+    (comments.length > visibleComments.length ||
+      commentDetails.some(comment => 'body_pagination' in comment));
+  const paginationWarnings = [
+    ...(body.pagination
+      ? [
+          `PR body paginated at charOffset=${body.pagination.charOffset}, charLength=${body.pagination.charLength}, totalChars=${body.pagination.totalChars}. Re-call with prNumber and charOffset=${body.pagination.nextCharOffset ?? body.pagination.totalChars} to continue this body.`,
+        ]
+      : []),
+    ...(commentDetailsPaginated
+      ? [
+          `PR comments are paginated/summarized to ${SEARCH_RESULT_MAX_COMMENT_DETAILS} comment(s) per search result with ${commentCharLength} chars each. Use prNumber with withComments=true and charOffset to continue specific comment bodies.`,
+        ]
+      : []),
+  ];
+
   return {
     number: pr.number,
     title: pr.title,
@@ -84,8 +201,17 @@ export function formatPRForResponse(pr: GitHubPullRequestItem) {
     ...(pr.head_sha ? { head_sha: pr.head_sha } : {}),
     base_ref: pr.base || '',
     ...(pr.base_sha ? { base_sha: pr.base_sha } : {}),
-    body: pr.body,
-    comments: pr.comments?.length || 0,
+    body: body.value,
+    ...(body.pagination ? { body_pagination: body.pagination } : {}),
+    comments: comments.length,
+    // Breakdown of comment types — prevents confusing the total with the
+    // inline review count. Omitted when there are no comments at all.
+    ...(comments.length > 0 && {
+      comment_details_breakdown: {
+        inline_review: inlineReviewCount,
+        discussion: discussionCount,
+      },
+    }),
     commits: pr.commits?.length || 0,
     additions:
       pr.file_changes?.files.reduce((sum, file) => sum + file.additions, 0) ||
@@ -106,12 +232,17 @@ export function formatPRForResponse(pr: GitHubPullRequestItem) {
     ...(pr.commits && {
       commit_details: pr.commits,
     }),
-    ...(pr.comments &&
-      pr.comments.length > 0 && {
-        comment_details: pr.comments,
-      }),
-    ...(pr._sanitization_warnings && {
-      _sanitization_warnings: pr._sanitization_warnings,
+    ...(commentDetails.length > 0 && {
+      comment_details: commentDetails,
+      comment_details_shown: commentDetails.length,
+      comment_details_total: comments.length,
+      ...(commentDetailsPaginated ? { comment_details_paginated: true } : {}),
+    }),
+    ...((pr._sanitization_warnings || paginationWarnings.length > 0) && {
+      _sanitization_warnings: [
+        ...(pr._sanitization_warnings || []),
+        ...paginationWarnings,
+      ],
     }),
   };
 }

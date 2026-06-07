@@ -32,6 +32,7 @@ export function transformPullRequestResult(
       number: pr.number,
       title: pr.title,
       body: pr.body || null,
+      ...(pr.body_pagination && { bodyPagination: pr.body_pagination }),
       url: pr.url,
       state: pr.merged ? 'merged' : pr.state,
       draft: pr.draft || false,
@@ -60,8 +61,18 @@ export function transformPullRequestResult(
         id: c.id,
         author: c.user,
         body: c.body,
+        ...(c.body_pagination && { bodyPagination: c.body_pagination }),
         createdAt: c.created_at,
         updatedAt: c.updated_at,
+        ...(c.commentType && { commentType: c.commentType }),
+        ...(c.path && { path: c.path }),
+        ...(c.line !== undefined && { line: c.line }),
+      })),
+      commits: pr.commit_details?.map(c => ({
+        sha: c.sha,
+        message: c.message,
+        author: c.author,
+        date: c.date,
       })),
       fileChanges: pr.file_changes?.map(f => ({
         path: f.filename,
@@ -149,6 +160,8 @@ export async function searchPullRequests(
     order: query.order,
     limit: query.limit,
     page: query.page,
+    charOffset: query.charOffset,
+    charLength: query.charLength,
   };
 
   const result = await searchGitHubPullRequestsAPI(githubParams, authInfo);

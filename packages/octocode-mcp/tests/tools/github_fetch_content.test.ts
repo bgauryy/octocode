@@ -761,5 +761,47 @@ describe('GitHub Fetch Content Tool', () => {
 
       expect(result).toBeDefined();
     });
+
+    it('returns error when fullContent and matchString are both provided (mutually exclusive)', async () => {
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'facebook',
+              repo: 'react',
+              path: 'src/index.js',
+              fullContent: true,
+              matchString: 'createRoot',
+            },
+          ],
+        }
+      );
+
+      expect(result.isError).toBe(true);
+      const text = JSON.stringify(result);
+      expect(text).toContain('mutually exclusive');
+    });
+
+    it('returns error when fullContent and startLine are both provided (mutually exclusive)', async () => {
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'facebook',
+              repo: 'react',
+              path: 'src/index.js',
+              fullContent: true,
+              startLine: 1,
+            },
+          ],
+        }
+      );
+
+      expect(result.isError).toBe(true);
+      const text = JSON.stringify(result);
+      expect(text).toContain('mutually exclusive');
+    });
   });
 });

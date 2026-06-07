@@ -123,6 +123,12 @@ export interface PRCommentItem {
   body: string;
   created_at: string;
   updated_at: string;
+  /** 'discussion' = PR-level thread; 'review_inline' = code-level thread */
+  commentType?: 'discussion' | 'review_inline';
+  /** File path targeted by an inline review comment */
+  path?: string;
+  /** Line number in the file targeted by an inline review comment */
+  line?: number;
 }
 
 export type GitHubPullRequestItem = Pick<
@@ -203,6 +209,8 @@ export interface GitHubPullRequestsSearchParams {
   maxPages?: number;
   pageSize?: number;
   page?: number;
+  charOffset?: number;
+  charLength?: number;
 }
 
 export function isGitHubAPIError(obj: unknown): obj is GitHubAPIError {

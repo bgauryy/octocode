@@ -509,11 +509,18 @@ function buildSuccessResult(
   }
 
   const warnings = [...(extraction.warnings ?? [])];
-  let effectiveCharLength: number | undefined;
+  const explicitCharLength = (query as unknown as { charLength?: number })
+    .charLength;
+  const explicitCharOffset =
+    (query as unknown as { charOffset?: number }).charOffset ?? 0;
+  let effectiveCharLength: number | undefined = explicitCharLength;
   let autoPaginated = false;
-  let charOffset = 0;
+  let charOffset = explicitCharOffset;
 
-  if (extraction.resultContent.length > defaultOutputCharLength) {
+  if (
+    effectiveCharLength === undefined &&
+    extraction.resultContent.length > defaultOutputCharLength
+  ) {
     effectiveCharLength = defaultOutputCharLength;
     autoPaginated = true;
     const page = (query as unknown as { page?: number }).page ?? 1;
@@ -560,7 +567,9 @@ function buildSuccessResult(
         }),
       }),
     ...(fileStats.mtime && { modified: fileStats.mtime.toISOString() }),
-    ...((effectiveCharLength || autoPaginated) && {
+    ...((effectiveCharLength !== undefined ||
+      explicitCharOffset > 0 ||
+      autoPaginated) && {
       pagination: createPaginationInfo(pagination),
     }),
     ...(warnings.length > 0 && { warnings }),

@@ -1,0 +1,1 @@
+{"calls":2,"in_chars":310,"out_chars":2045,"elapsed_ms":2605,"calls_detail":[{"cmd":"githubGetFileContent","in_chars":155,"out_chars":453,"elapsed_ms":1046,"exit":5},{"cmd":"githubViewRepoStructure","in_chars":155,"out_chars":1592,"elapsed_ms":1559,"exit":0}],"tool_elapsed_ms":2605,"q_elapsed_ms":22075}

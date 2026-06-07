@@ -1,7 +1,4 @@
-import {
-  checkCommandAvailability,
-  getMissingCommandError,
-} from '../../utils/exec/commandAvailability.js';
+import { checkCommandAvailability } from '../../utils/exec/commandAvailability.js';
 import type { z } from 'zod';
 import { applyWorkflowMode } from '@octocodeai/octocode-core/schemas/runtime';
 import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
@@ -14,8 +11,8 @@ import { createErrorResult } from '../../utils/file/toolHelpers.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
-import { ToolErrors } from '../../errors/errorFactories.js';
 import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
+import { executeGrepFallbackSearch } from './grepFallbackExecutor.js';
 
 export async function searchContentRipgrep(
   query: RipgrepQuery
@@ -26,13 +23,10 @@ export async function searchContentRipgrep(
     const rgAvailability = await checkCommandAvailability('rg');
 
     if (!rgAvailability.available) {
-      const toolError = ToolErrors.commandNotAvailable(
-        'rg',
-        getMissingCommandError('rg')
+      return await executeGrepFallbackSearch(
+        configuredQuery,
+        rgAvailability.error
       );
-      return createErrorResult(toolError, configuredQuery, {
-        toolName: TOOL_NAMES.LOCAL_RIPGREP,
-      }) as LocalSearchCodeToolResult;
     }
 
     return await executeRipgrepSearchInternal(configuredQuery);

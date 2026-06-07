@@ -109,6 +109,10 @@ export async function searchMultipleGitHubPullRequests(
         }
 
         const hasContent = pullRequests.length > 0;
+        const totalCount =
+          (providerResult.response.data as { total_count?: number })
+            .total_count ?? -1;
+        const confirmedZero = !hasContent && totalCount === 0;
 
         const paginationHints = pagination
           ? buildPaginationHints(
@@ -205,14 +209,19 @@ export async function searchMultipleGitHubPullRequests(
             extraHints: shaped.extraHints,
             evidence: {
               kind: 'pr',
-              answerReady: hasContent,
-              complete: hasContent && !hasMore,
-              ...(hasContent
-                ? {}
-                : {
+              answerReady: hasContent || confirmedZero,
+              complete: hasContent ? !hasMore : confirmedZero,
+              ...(confirmedZero
+                ? {
                     reason:
-                      'No PRs matched the supplied filters; try widening the query or removing state/author/label filters.',
-                  }),
+                      '0 results confirmed — search returned zero matches.',
+                  }
+                : !hasContent
+                  ? {
+                      reason:
+                        'No PRs matched the supplied filters; try widening the query or removing state/author/label filters.',
+                    }
+                  : {}),
             },
             rawResponse: providerResult.response.rawResponseChars,
           }
@@ -253,16 +262,22 @@ export function applyGithubSearchPullRequestsVerbosity(
     'updatedAt',
     'closedAt',
     'mergedAt',
-    'comments',
     'reactions',
     'labels',
     'assignees',
     'reviewers',
-    'commits',
     'additions',
     'deletions',
     'changedFiles',
   ]);
+
+  // Preserve explicitly requested data — don't strip comments or commits when the
+  // caller opted in via withComments / withCommits.
+  const withComments = Boolean((query as Record<string, unknown>).withComments);
+  const withCommits = Boolean((query as Record<string, unknown>).withCommits);
+  if (!withComments) METADATA_KEYS.add('comments');
+  if (!withCommits) METADATA_KEYS.add('commits');
+
   const strippedPrs = input.pullRequests.map(pr => {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(pr)) {

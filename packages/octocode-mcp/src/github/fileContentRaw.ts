@@ -101,32 +101,12 @@ async function handle404NoBranch(
   return apiError;
 }
 
-async function decodeFileContent(data: {
-  content?: string;
-  size?: number;
-  type: string;
-}): Promise<GitHubAPIResponse<string>> {
-  const fileSize = data.size || 0;
-  const MAX_FILE_SIZE = 300 * 1024;
-
-  if (fileSize > MAX_FILE_SIZE) {
-    await logSessionError(
-      TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      FILE_OPERATION_ERRORS.FILE_TOO_LARGE.code
-    );
-    return {
-      error: FILE_OPERATION_ERRORS.FILE_TOO_LARGE.message(
-        Math.round(fileSize / 1024),
-        Math.round(MAX_FILE_SIZE / 1024),
-        TOOL_NAMES.GITHUB_SEARCH_CODE
-      ),
-      type: 'unknown' as const,
-      status: 413,
-    };
-  }
-
-  const base64Content = (data.content || '').replace(/\s/g, '');
-  if (!data.content || !base64Content) {
+async function decodeBase64Content(
+  base64: string,
+  filePath: string
+): Promise<GitHubAPIResponse<string>> {
+  const stripped = base64.replace(/\s/g, '');
+  if (!stripped) {
     await logSessionError(
       TOOL_NAMES.GITHUB_FETCH_CONTENT,
       FILE_OPERATION_ERRORS.FILE_EMPTY.code
@@ -137,9 +117,8 @@ async function decodeFileContent(data: {
       status: 404,
     };
   }
-
   try {
-    const buffer = Buffer.from(base64Content, 'base64');
+    const buffer = Buffer.from(stripped, 'base64');
     if (buffer.indexOf(0) !== -1) {
       await logSessionError(
         TOOL_NAMES.GITHUB_FETCH_CONTENT,
@@ -162,6 +141,117 @@ async function decodeFileContent(data: {
       type: 'unknown' as const,
       status: 422,
     };
+  }
+  void filePath;
+}
+
+async function fetchContentViaBlob(
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  owner: string,
+  repo: string,
+  sha: string,
+  filePath: string
+): Promise<GitHubAPIResponse<string>> {
+  try {
+    const blobResult = await octokit.rest.git.getBlob({
+      owner,
+      repo,
+      file_sha: sha,
+    });
+    const { content, encoding } = blobResult.data;
+    if (encoding === 'base64') {
+      return decodeBase64Content(content, filePath);
+    }
+    if (encoding === 'utf-8') {
+      return { data: content, status: 200 };
+    }
+    return {
+      error: `Unsupported blob encoding: ${encoding}`,
+      type: 'unknown' as const,
+      status: 415,
+    };
+  } catch (err: unknown) {
+    return handleGitHubAPIError(err);
+  }
+}
+
+/**
+ * Fallback for files that the Contents API rejects with HTTP 413.
+ * Fetches the parent directory listing to obtain the target file's blob SHA,
+ * then delegates to fetchContentViaBlob() (GET /git/blobs/{sha}).
+ * Supports files up to 100 MB (GitHub's Git Blob API limit).
+ */
+async function fetchContentViaTreeFallback(
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  owner: string,
+  repo: string,
+  filePath: string,
+  branch?: string | null,
+  authInfo?: AuthInfo
+): Promise<GitHubAPIResponse<RawContentResult>> {
+  try {
+    const parentPath = filePath.split('/').slice(0, -1).join('/');
+    const fileName = filePath.split('/').pop();
+    if (!fileName) {
+      return {
+        error: `Cannot determine file name from path: ${filePath}`,
+        type: 'unknown' as const,
+        status: 400,
+      };
+    }
+
+    const ref =
+      branch ||
+      (await resolveDefaultBranch(owner, repo, authInfo).catch(() => 'HEAD'));
+
+    // A directory listing (array) includes each entry's blob SHA.
+    const dirResult = await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path: parentPath || '',
+      ref,
+    });
+
+    if (!Array.isArray(dirResult.data)) {
+      return {
+        error: `Expected directory listing for ${parentPath || 'root'}`,
+        type: 'unknown' as const,
+        status: 500,
+      };
+    }
+
+    const entry = (
+      dirResult.data as Array<{ name: string; sha: string; type: string }>
+    ).find(e => e.name === fileName && e.type === 'file');
+
+    if (!entry) {
+      return {
+        error: `File ${fileName} not found in ${parentPath || 'root'}`,
+        type: 'unknown' as const,
+        status: 404,
+      };
+    }
+
+    const decoded = await fetchContentViaBlob(
+      octokit,
+      owner,
+      repo,
+      entry.sha,
+      filePath
+    );
+    if ('error' in decoded)
+      return decoded as GitHubAPIResponse<RawContentResult>;
+
+    return {
+      data: {
+        rawContent: decoded.data,
+        branch: typeof ref === 'string' ? ref : undefined,
+        resolvedRef: typeof ref === 'string' ? ref : 'HEAD',
+      },
+      status: 200,
+    };
+  } catch (err: unknown) {
+    return handleGitHubAPIError(err);
   }
 }
 
@@ -213,6 +303,18 @@ export async function fetchRawGitHubFileContent(
             branch
           );
         }
+      } else if (error instanceof RequestError && error.status === 413) {
+        // GitHub returned 413 — file is too large for the Contents API inline
+        // path. Fall back to the directory listing to get the blob SHA, then
+        // fetch via the Git Blob API (no inline size cap, supports up to 100 MB).
+        return await fetchContentViaTreeFallback(
+          octokit,
+          owner,
+          repo,
+          filePath,
+          branch || actualBranch,
+          authInfo
+        );
       } else {
         throw error;
       }
@@ -235,7 +337,44 @@ export async function fetchRawGitHubFileContent(
     }
 
     if ('content' in data && data.type === 'file') {
-      const decoded = await decodeFileContent(data);
+      // Normalise to a string (field may be absent on very large responses).
+      const contentStr = typeof data.content === 'string' ? data.content : '';
+      const fileSize = (data as { size?: number }).size ?? 0;
+
+      // Any non-empty content string (including whitespace-only) goes through
+      // decodeBase64Content, which strips whitespace before decoding.
+      // An absent/empty content field with a positive file size means GitHub
+      // withheld the inline content (≥ 1 MB) — use the Git Blob API instead.
+      let decoded: GitHubAPIResponse<string>;
+      if (contentStr.length > 0) {
+        decoded = await decodeBase64Content(contentStr, filePath);
+      } else if (
+        fileSize > 0 &&
+        'sha' in data &&
+        typeof data.sha === 'string' &&
+        data.sha
+      ) {
+        // GitHub Contents API returns empty content for files ≥ 1 MB.
+        // Fall back to the Git Blob API which has no inline size cap.
+        decoded = await fetchContentViaBlob(
+          octokit,
+          owner,
+          repo,
+          data.sha,
+          filePath
+        );
+      } else {
+        await logSessionError(
+          TOOL_NAMES.GITHUB_FETCH_CONTENT,
+          FILE_OPERATION_ERRORS.FILE_EMPTY.code
+        );
+        return {
+          error: FILE_OPERATION_ERRORS.FILE_EMPTY.message,
+          type: 'unknown' as const,
+          status: 404,
+        };
+      }
+
       if ('error' in decoded)
         return decoded as GitHubAPIResponse<RawContentResult>;
 

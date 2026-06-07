@@ -903,7 +903,10 @@ describe('File Operations - Additional Coverage Tests', () => {
   });
 
   describe('File content with no content returned', () => {
-    it('should handle file with null content field', async () => {
+    it('should fall back to blob API when content field is null but file has size', async () => {
+      // GitHub Contents API returns content: null for files >= 1 MB.
+      // The fetch layer detects size > 0 + sha present and uses the Git Blob API.
+      const blobContent = Buffer.from('hello from blob').toString('base64');
       const mockOctokit = {
         rest: {
           repos: {
@@ -916,6 +919,12 @@ describe('File Operations - Additional Coverage Tests', () => {
                 name: 'test.txt',
                 path: 'test.txt',
               },
+            }),
+            listCommits: vi.fn().mockResolvedValue({ data: [] }),
+          },
+          git: {
+            getBlob: vi.fn().mockResolvedValue({
+              data: { content: blobContent, encoding: 'base64' },
             }),
           },
         },
@@ -931,10 +940,8 @@ describe('File Operations - Additional Coverage Tests', () => {
         path: 'test-null.txt',
       });
 
-      expect('error' in result).toBe(true);
-      if ('error' in result) {
-        expect(result.error).toContain('File is empty');
-      }
+      expect('error' in result).toBe(false);
+      expect(result).toHaveProperty('data');
     });
   });
 
@@ -985,7 +992,9 @@ describe('File Operations - Additional Coverage Tests', () => {
         expect(result.data.matchLocations).toBeDefined();
         expect(
           result.data.matchLocations?.some(
-            w => w.includes('2 other locations') || w.includes('other location')
+            w =>
+              w.includes('Other occurrences at lines:') ||
+              w.includes('other location')
           )
         ).toBe(true);
       }

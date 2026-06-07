@@ -395,6 +395,7 @@ async function gotoDefinitionWithLSP(
         ? 'Multiple definitions - check overloads or re-exports'
         : undefined,
       'Definition found — use lspFindReferences with the same symbolName+lineHint to find all usages, or lspCallHierarchy to trace call flow.',
+      'Need more code than the returned context window? Use localGetFileContent on the returned uri with startLine/endLine, or fullContent=true with charOffset/charLength for paginated file content.',
     ].filter(Boolean) as string[],
   };
 }

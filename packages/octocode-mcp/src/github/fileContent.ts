@@ -12,6 +12,7 @@ import {
   type RawContentResult,
 } from './fileContentRaw.js';
 import {
+  applyContentPagination,
   fetchFileTimestamp,
   processFileContentAPI,
 } from './fileContentProcess.js';
@@ -59,7 +60,7 @@ export async function fetchGitHubFileContentAPI(
     params.fullContent || false,
     params.startLine,
     params.endLine,
-    params.matchStringContextLines ?? 5,
+    params.matchStringContextLines ?? 15,
     params.matchString
   );
 
@@ -70,6 +71,16 @@ export async function fetchGitHubFileContentAPI(
       type: 'unknown' as const,
     };
   }
+
+  // Always paginate: if the content exceeds the output char budget, truncate
+  // and attach pagination info so the caller can continue with charOffset.
+  const charOffset = (params as { charOffset?: number }).charOffset ?? 0;
+  const charLength = (params as { charLength?: number }).charLength;
+  const paginatedResult = applyContentPagination(
+    processedResult,
+    charOffset,
+    charLength
+  );
 
   if (!params.noTimestamp) {
     try {
@@ -82,8 +93,8 @@ export async function fetchGitHubFileContentAPI(
         params.branch
       );
       if (timestampInfo) {
-        processedResult.lastModified = timestampInfo.lastModified;
-        processedResult.lastModifiedBy = timestampInfo.lastModifiedBy;
+        paginatedResult.lastModified = timestampInfo.lastModified;
+        paginatedResult.lastModifiedBy = timestampInfo.lastModifiedBy;
       }
     } catch {
       void 0;
@@ -91,7 +102,7 @@ export async function fetchGitHubFileContentAPI(
   }
 
   return {
-    data: processedResult,
+    data: paginatedResult,
     status: 200,
     rawResponseChars: rawResult.rawResponseChars,
   };

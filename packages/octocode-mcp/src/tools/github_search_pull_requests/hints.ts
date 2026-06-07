@@ -32,10 +32,10 @@ export const hints: ToolHintGenerators = {
       return [];
     }
     return [
-      `No PRs in ${scope ?? 'this scope'} matching ${filters.join(' + ')}.`,
+      `0 PRs found in ${scope ?? 'this scope'} matching ${filters.join(' + ')} — result is confirmed empty.`,
       state === 'merged'
-        ? 'state="merged" already emits is:merged — the repo may have no merged PRs in this scope. Try omitting `state` to search all PRs, or widen by removing the owner/repo filter.'
-        : 'Try removing filters one at a time: drop `author` or loosen `query` keywords first.',
+        ? 'Zero merged PRs matched. If unexpected, verify the label spelling or date range; try omitting `state` to check all PR states.'
+        : 'If unexpected, try removing one filter at a time: drop `author` first, then loosen `query` keywords.',
       query
         ? 'For approximate title matching, use `matchScope=["title"]` with `sort="best-match"` to surface the closest PR.'
         : 'Add a `query` with keywords from the PR title or body to narrow the search.',

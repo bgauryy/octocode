@@ -64,9 +64,22 @@ export function generateGitHubPaginationHints(
   const nextOffset =
     (pagination.byteOffset ?? 0) + (pagination.byteLength ?? 0);
 
-  return [
+  const hints: string[] = [
     `Page ${pagination.currentPage}/${pagination.totalPages}. Next: charOffset=${nextOffset}`,
   ];
+
+  // For large files (3+ pages), surface a tail-seek hint so the agent can jump
+  // directly to the end without iterating forward through every page.
+  const totalChars = pagination.totalChars;
+  if (pagination.totalPages > 2 && totalChars != null && totalChars > 0) {
+    const pageSize = pagination.charLength ?? 8000;
+    const tailOffset = Math.max(0, totalChars - pageSize);
+    hints.push(
+      `File has ${totalChars} total chars. To read the tail directly: charOffset=${tailOffset}`
+    );
+  }
+
+  return hints;
 }
 
 export function generateStructurePaginationHints(

@@ -16,7 +16,7 @@ type RipgrepQuery = WithVerbosity<UpstreamRipgrepQuery>;
 export async function buildSearchResult(
   parsedFiles: LocalSearchCodeFile[],
   configuredQuery: RipgrepQuery,
-  _searchEngine: 'rg',
+  _searchEngine: 'rg' | 'grep',
   warnings: string[],
   stats?: SearchStats
 ): Promise<LocalSearchCodeToolResult> {
@@ -63,6 +63,8 @@ export async function buildSearchResult(
   const aligned = configuredQuery as {
     itemsPerPage?: number;
     matchesPerFile?: number;
+    maxMatchesPerFile?: number;
+    matchPage?: number;
     page?: number;
   };
   const filesPerPage =
@@ -74,15 +76,23 @@ export async function buildSearchResult(
   const paginatedFiles = limitedFiles.slice(startIdx, endIdx);
 
   const matchesPerPage =
-    aligned.matchesPerFile || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
+    aligned.maxMatchesPerFile ||
+    aligned.matchesPerFile ||
+    RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
 
   const finalFiles: LocalSearchCodeFile[] = paginatedFiles.map(
     (file: LocalSearchCodeFile & { modified?: string }) => {
       const totalFileMatches = file.matches.length;
       const totalMatchPages = Math.ceil(totalFileMatches / matchesPerPage);
+      const matchPage = Math.max(1, aligned.matchPage || 1);
+      const matchStartIdx = (matchPage - 1) * matchesPerPage;
+      const matchEndIdx = Math.min(
+        matchStartIdx + matchesPerPage,
+        totalFileMatches
+      );
       const paginatedMatches = isFileListMode
         ? []
-        : file.matches.slice(0, matchesPerPage);
+        : file.matches.slice(matchStartIdx, matchEndIdx);
 
       const result: LocalSearchCodeFile = {
         path: file.path,
@@ -91,11 +101,11 @@ export async function buildSearchResult(
         pagination:
           !isFileListMode && totalFileMatches > matchesPerPage
             ? {
-                currentPage: 1,
+                currentPage: matchPage,
                 totalPages: totalMatchPages,
                 matchesPerPage,
                 totalMatches: totalFileMatches,
-                hasMore: totalMatchPages > 1,
+                hasMore: matchPage < totalMatchPages,
               }
             : undefined,
       };
@@ -126,7 +136,7 @@ export async function buildSearchResult(
   const filesWithMoreMatches = finalFiles.filter(f => f.pagination?.hasMore);
   if (filesWithMoreMatches.length > 0) {
     paginationHints.push(
-      `Note: ${filesWithMoreMatches.length} file(s) have more matches — add maxMatchesPerFile to retrieve more per file`
+      `Note: ${filesWithMoreMatches.length} file(s) have more matches — use matchPage=${(aligned.matchPage || 1) + 1} with maxMatchesPerFile to continue matches inside those files`
     );
   }
 

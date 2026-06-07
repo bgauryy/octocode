@@ -118,6 +118,14 @@ export interface PullRequestItem {
 
   body: string | null;
 
+  bodyPagination?: {
+    charOffset: number;
+    charLength: number;
+    totalChars: number;
+    hasMore: boolean;
+    nextCharOffset?: number;
+  };
+
   url: string;
 
   state: 'open' | 'closed' | 'merged';
@@ -160,6 +168,26 @@ export interface PullRequestItem {
     body: string;
     createdAt: string;
     updatedAt: string;
+    bodyPagination?: {
+      charOffset: number;
+      charLength: number;
+      totalChars: number;
+      hasMore: boolean;
+      nextCharOffset?: number;
+    };
+    /** 'discussion' = PR-level thread; 'review_inline' = code-level annotation */
+    commentType?: 'discussion' | 'review_inline';
+    /** File targeted by an inline review comment */
+    path?: string;
+    /** Line number targeted by an inline review comment */
+    line?: number;
+  }>;
+
+  commits?: Array<{
+    sha: string;
+    message: string;
+    author: string;
+    date: string;
   }>;
 
   fileChanges?: Array<{

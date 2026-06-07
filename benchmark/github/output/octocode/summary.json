@@ -1,0 +1,204 @@
+{
+  "run": "octocode",
+  "agent": "octocode",
+  "questions": 17,
+  "totals": {
+    "calls": 101,
+    "in_chars": 22773,
+    "out_chars": 807063,
+    "total_chars": 829836,
+    "approx_tokens": 207459,
+    "tool_elapsed_ms": 299726,
+    "q_elapsed_ms": 1265241,
+    "reasoning_ms": 965515
+  },
+  "per_q": [
+    {
+      "q": 1,
+      "calls": 2,
+      "in_chars": 488,
+      "out_chars": 20337,
+      "total_chars": 20825,
+      "approx_tokens": 5207,
+      "tool_elapsed_ms": 4559,
+      "q_elapsed_ms": 52542,
+      "reasoning_ms": 47983
+    },
+    {
+      "q": 2,
+      "calls": 3,
+      "in_chars": 1384,
+      "out_chars": 6792,
+      "total_chars": 8176,
+      "approx_tokens": 2044,
+      "tool_elapsed_ms": 8349,
+      "q_elapsed_ms": 36084,
+      "reasoning_ms": 27735
+    },
+    {
+      "q": 3,
+      "calls": 3,
+      "in_chars": 691,
+      "out_chars": 4269,
+      "total_chars": 4960,
+      "approx_tokens": 1240,
+      "tool_elapsed_ms": 5015,
+      "q_elapsed_ms": 27861,
+      "reasoning_ms": 22846
+    },
+    {
+      "q": 4,
+      "calls": 1,
+      "in_chars": 342,
+      "out_chars": 16090,
+      "total_chars": 16432,
+      "approx_tokens": 4108,
+      "tool_elapsed_ms": 3161,
+      "q_elapsed_ms": 49193,
+      "reasoning_ms": 46032
+    },
+    {
+      "q": 5,
+      "calls": 7,
+      "in_chars": 1928,
+      "out_chars": 26927,
+      "total_chars": 28855,
+      "approx_tokens": 7214,
+      "tool_elapsed_ms": 14941,
+      "q_elapsed_ms": 78053,
+      "reasoning_ms": 63112
+    },
+    {
+      "q": 6,
+      "calls": 5,
+      "in_chars": 1094,
+      "out_chars": 30646,
+      "total_chars": 31740,
+      "approx_tokens": 7935,
+      "tool_elapsed_ms": 9985,
+      "q_elapsed_ms": 59981,
+      "reasoning_ms": 49996
+    },
+    {
+      "q": 7,
+      "calls": 4,
+      "in_chars": 1099,
+      "out_chars": 3333,
+      "total_chars": 4432,
+      "approx_tokens": 1108,
+      "tool_elapsed_ms": 6568,
+      "q_elapsed_ms": 36693,
+      "reasoning_ms": 30125
+    },
+    {
+      "q": 8,
+      "calls": 2,
+      "in_chars": 310,
+      "out_chars": 2045,
+      "total_chars": 2355,
+      "approx_tokens": 589,
+      "tool_elapsed_ms": 2605,
+      "q_elapsed_ms": 22075,
+      "reasoning_ms": 19470
+    },
+    {
+      "q": 9,
+      "calls": 1,
+      "in_chars": 152,
+      "out_chars": 923,
+      "total_chars": 1075,
+      "approx_tokens": 269,
+      "tool_elapsed_ms": 1502,
+      "q_elapsed_ms": 8438,
+      "reasoning_ms": 6936
+    },
+    {
+      "q": 10,
+      "calls": 1,
+      "in_chars": 274,
+      "out_chars": 1871,
+      "total_chars": 2145,
+      "approx_tokens": 537,
+      "tool_elapsed_ms": 1445,
+      "q_elapsed_ms": 15911,
+      "reasoning_ms": 14466
+    },
+    {
+      "q": 11,
+      "calls": 7,
+      "in_chars": 1282,
+      "out_chars": 17010,
+      "total_chars": 18292,
+      "approx_tokens": 4573,
+      "tool_elapsed_ms": 12935,
+      "q_elapsed_ms": 55755,
+      "reasoning_ms": 42820
+    },
+    {
+      "q": 12,
+      "calls": 7,
+      "in_chars": 1426,
+      "out_chars": 103318,
+      "total_chars": 104744,
+      "approx_tokens": 26186,
+      "tool_elapsed_ms": 16681,
+      "q_elapsed_ms": 83325,
+      "reasoning_ms": 66644
+    },
+    {
+      "q": 13,
+      "calls": 2,
+      "in_chars": 348,
+      "out_chars": 12480,
+      "total_chars": 12828,
+      "approx_tokens": 3207,
+      "tool_elapsed_ms": 5019,
+      "q_elapsed_ms": 36574,
+      "reasoning_ms": 31555
+    },
+    {
+      "q": 14,
+      "calls": 18,
+      "in_chars": 4327,
+      "out_chars": 200538,
+      "total_chars": 204865,
+      "approx_tokens": 51217,
+      "tool_elapsed_ms": 80922,
+      "q_elapsed_ms": 249429,
+      "reasoning_ms": 168507
+    },
+    {
+      "q": 15,
+      "calls": 1,
+      "in_chars": 172,
+      "out_chars": 1065,
+      "total_chars": 1237,
+      "approx_tokens": 310,
+      "tool_elapsed_ms": 1640,
+      "q_elapsed_ms": 21168,
+      "reasoning_ms": 19528
+    },
+    {
+      "q": 16,
+      "calls": 2,
+      "in_chars": 410,
+      "out_chars": 19574,
+      "total_chars": 19984,
+      "approx_tokens": 4996,
+      "tool_elapsed_ms": 5394,
+      "q_elapsed_ms": 41394,
+      "reasoning_ms": 36000
+    },
+    {
+      "q": 17,
+      "calls": 35,
+      "in_chars": 7046,
+      "out_chars": 339845,
+      "total_chars": 346891,
+      "approx_tokens": 86723,
+      "tool_elapsed_ms": 119005,
+      "q_elapsed_ms": 390765,
+      "reasoning_ms": 271760
+    }
+  ]
+}

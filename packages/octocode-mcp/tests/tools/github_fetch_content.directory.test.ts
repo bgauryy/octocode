@@ -391,4 +391,42 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
       undefined
     );
   });
+
+  it('returns error when directory fetch is requested without owner/repo', async () => {
+    const result = await fetchMultipleGitHubFileContents({
+      queries: [
+        {
+          path: 'src',
+          type: 'directory',
+          mainResearchGoal: 'test',
+          researchGoal: 'test',
+          reasoning: 'test',
+        } as never,
+      ],
+    });
+
+    expect(result.isError).toBeTruthy();
+    const text = JSON.stringify(result);
+    expect(text).toMatch(/owner|required|string/i);
+  });
+
+  it('returns error when provider does not support directory fetch', async () => {
+    mockGetProvider.mockImplementation(() => createMockProvider('other'));
+
+    const result = await fetchMultipleGitHubFileContents({
+      queries: [
+        {
+          owner: 'owner',
+          repo: 'repo',
+          path: 'src',
+          type: 'directory',
+          mainResearchGoal: 'test',
+          researchGoal: 'test',
+          reasoning: 'test',
+        },
+      ],
+    });
+
+    expect(result.isError).toBeTruthy();
+  });
 });

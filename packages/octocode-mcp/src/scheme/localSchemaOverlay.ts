@@ -265,6 +265,11 @@ const RipgrepQueryBaseSchema = withCoreSchemaDescriptions(
     contextLines: contextLinesField.default(2),
     maxFiles: ripgrepCapField,
     maxMatchesPerFile: ripgrepCapField,
+    matchPage: relaxedPageNumberField
+      .default(1)
+      .describe(
+        'Per-file match page (1-based). Use with maxMatchesPerFile to continue matches inside files that report pagination.hasMore=true.'
+      ),
     page: relaxedPageNumberField
       .default(1)
       .describe(
@@ -364,6 +369,9 @@ export const FindFilesQuerySchema = withCoreSchemaDescriptions(
       .describe(
         `Result page (1-based). Each page returns up to ${STRUCTURE_PAGE_SIZE} files. Use page=2, page=3, … to walk through results.`
       ),
+    itemsPerPage: clampedInt(1, 50)
+      .optional()
+      .describe('Files per page for metadata result pagination.'),
     limit: limitField,
   })
 );
@@ -406,6 +414,16 @@ const FetchContentQueryBaseSchema = withCoreSchemaDescriptions(
     page: relaxedPageNumberField.describe(
       '1-based page number for char-based pagination. When a matchString or full-file read is truncated, the response includes pagination.totalPages. Re-call with page=2, page=3, etc. to read subsequent chunks. Ignored when content fits in one page.'
     ),
+    charOffset: clampedInt(0, 100_000_000)
+      .optional()
+      .describe(
+        'Character offset for content pagination. Prefer the response pagination.nextCharOffset when present.'
+      ),
+    charLength: clampedInt(1, 50_000)
+      .optional()
+      .describe(
+        'Character page size for content pagination. Use with charOffset to read exact chunks without losing data.'
+      ),
   })
 );
 
@@ -443,6 +461,9 @@ export const ViewStructureQuerySchema = withCoreSchemaDescriptions(
       .describe(
         `Result page (1-based). Each page returns up to ${STRUCTURE_PAGE_SIZE} directory entries. Use page=2, page=3, … to walk through large directories.`
       ),
+    itemsPerPage: clampedInt(1, 50)
+      .optional()
+      .describe('Directory entries per page for structure pagination.'),
     limit: limitField,
     depth: depthField,
   })

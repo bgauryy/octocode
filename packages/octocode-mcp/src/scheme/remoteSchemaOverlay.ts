@@ -50,6 +50,8 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
     startLine: lineNumberField,
     endLine: lineNumberField,
     matchStringContextLines: contextLinesField,
+    charOffset: clampedInt(0, 100_000_000).optional(),
+    charLength: clampedInt(1, 50_000).optional(),
   })
 );
 
@@ -70,6 +72,10 @@ const PaginationInfoSchema = z.object({
   byteOffset: z.number().optional(),
   byteLength: z.number().optional(),
   totalBytes: z.number().optional(),
+  charOffset: z.number().optional(),
+  charLength: z.number().optional(),
+  totalChars: z.number().optional(),
+  nextCharOffset: z.number().optional(),
   filesPerPage: z.number().optional(),
   totalFiles: z.number().optional(),
   entriesPerPage: z.number().optional(),
@@ -262,6 +268,9 @@ export const GitHubViewRepoStructureQueryLocalSchema =
         .describe(
           `Result page (1-based). Each page returns up to ${STRUCTURE_PAGE_SIZE} entries. Use page=2, page=3, … to walk through large directories.`
         ),
+      itemsPerPage: clampedInt(1, 200)
+        .optional()
+        .describe('Entries per page for repository structure pagination.'),
       depth: depthField,
     })
   );
@@ -287,7 +296,7 @@ export const GitHubReposSearchSingleQueryLocalSchema =
       ),
       owner: describeField(
         UpstreamGitHubReposSearchSingleQuerySchema.shape.owner,
-        'Optional owner/org scope for repository discovery.'
+        'Optional owner/org scope for repository discovery. Supply owner without keywordsToSearch to enumerate ALL repositories in an org or user account (uses the listing endpoint, bypasses the 1 000-result search cap). Supply owner WITH keywords to scope a keyword search to that org.'
       ),
       language: z
         .string()
@@ -372,6 +381,16 @@ export const GitHubPullRequestSearchQueryLocalSchema =
         .default(1)
         .describe(
           `Result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} pull requests.`
+        ),
+      charOffset: clampedInt(0, 100_000_000)
+        .optional()
+        .describe(
+          'Character offset for paginated PR bodies/comment bodies in search results. Use the returned nextCharOffset to continue without losing data.'
+        ),
+      charLength: clampedInt(1, 50_000)
+        .optional()
+        .describe(
+          'Character page size for PR bodies/comment bodies in search results. Broad PR searches default to compact body/comment windows; direct prNumber lookups return full details.'
         ),
       partialContentMetadata: z
         .array(

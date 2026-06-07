@@ -24,7 +24,18 @@ export interface GitHubPullRequestApiItem {
   base_ref: string;
   base_sha?: string;
   body?: string | null;
+  body_pagination?: {
+    charOffset: number;
+    charLength: number;
+    totalChars: number;
+    hasMore: boolean;
+    nextCharOffset?: number;
+  };
   comments?: number;
+  comment_details_breakdown?: {
+    inline_review: number;
+    discussion: number;
+  };
   commits?: number;
   additions?: number;
   deletions?: number;
@@ -35,7 +46,20 @@ export interface GitHubPullRequestApiItem {
     body: string;
     created_at: string;
     updated_at: string;
+    commentType?: 'discussion' | 'review_inline';
+    path?: string;
+    line?: number;
+    body_pagination?: {
+      charOffset: number;
+      charLength: number;
+      totalChars: number;
+      hasMore: boolean;
+      nextCharOffset?: number;
+    };
   }>;
+  comment_details_shown?: number;
+  comment_details_total?: number;
+  comment_details_paginated?: boolean;
   file_changes?: Array<{
     filename: string;
     status: string;

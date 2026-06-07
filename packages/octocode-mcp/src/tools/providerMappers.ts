@@ -319,6 +319,8 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     order: query.order as 'asc' | 'desc' | undefined,
     limit: DEFAULT_PAGE_SIZE,
     page: query.page,
+    charOffset: (query as { charOffset?: number }).charOffset,
+    charLength: (query as { charLength?: number }).charLength,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
@@ -373,6 +375,8 @@ function buildReviewSummary(
 ):
   | {
       totalComments: number;
+      inlineComments: number;
+      discussionComments: number;
       commenters: string[];
       latestCommentAt?: string;
       themes: string[];
@@ -387,8 +391,15 @@ function buildReviewSummary(
     .filter(Boolean)
     .sort()
     .at(-1);
+  const inlineComments = comments.filter(
+    c =>
+      (c as ProviderPrComment & { commentType?: string }).commentType ===
+      'review_inline'
+  ).length;
   return {
     totalComments: comments.length,
+    inlineComments,
+    discussionComments: comments.length - inlineComments,
     commenters: commenters.slice(0, 8),
     ...(latestCommentAt ? { latestCommentAt } : {}),
     themes: detectReviewThemes(comments),
@@ -409,6 +420,7 @@ export function mapPullRequestProviderResultData(
       number: pr.number,
       title: pr.title,
       body: pr.body ?? undefined,
+      ...(pr.bodyPagination && { bodyPagination: pr.bodyPagination }),
       url: pr.url,
       state: pr.state,
       draft: pr.draft,
@@ -427,7 +439,16 @@ export function mapPullRequestProviderResultData(
       changedFilesCount: pr.changedFilesCount ?? originalFileChangeCount,
       additions: pr.additions,
       deletions: pr.deletions,
-      ...(pr.comments && { comments: pr.comments }),
+      ...(Array.isArray(pr.comments) &&
+        pr.comments.length > 0 && {
+          comments: pr.comments.map(comment => ({
+            ...comment,
+            ...(comment.bodyPagination && {
+              bodyPagination: comment.bodyPagination,
+            }),
+          })),
+        }),
+      ...(pr.commits && { commits: pr.commits }),
       ...(reviewSummary && { reviewSummary }),
       ...(cappedFileChanges && includeFileChanges
         ? { fileChanges: cappedFileChanges }
@@ -471,6 +492,8 @@ export function mapFileContentToolQuery(
       fullContent || !query.matchString ? undefined : String(query.matchString),
     matchStringContextLines: query.matchStringContextLines ?? 5,
     fullContent,
+    charOffset: (query as { charOffset?: number }).charOffset,
+    charLength: (query as { charLength?: number }).charLength,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
@@ -521,7 +544,9 @@ export function mapRepoStructureToolQuery(
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
     depth: typeof query.depth === 'number' ? query.depth : undefined,
-    entriesPerPage: GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
+    entriesPerPage:
+      (query as { itemsPerPage?: number }).itemsPerPage ??
+      GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
     entryPageNumber: (() => {
       const p = (query as { page?: number }).page;
       return typeof p === 'number' ? p : undefined;

@@ -186,6 +186,23 @@ describe('buildSearchResult - per-file match pagination (lines 106, 143)', () =>
     expect(hints).toContain('have more matches');
   });
 
+  it('uses matchPage to continue per-file match pagination without losing matches', async () => {
+    const files = [makeFile('/test/a.ts', 12, 12)];
+    const result = await buildSearchResult(
+      files,
+      { ...baseQuery(), matchPage: 2 },
+      'rg',
+      []
+    );
+    const file = result.files?.[0];
+    expect(file?.matches.map(m => m.line)).toEqual([11, 12]);
+    expect(file?.pagination).toMatchObject({
+      currentPage: 2,
+      totalPages: 2,
+      hasMore: false,
+    });
+  });
+
   it('no per-file pagination when matches fit within matchesPerPage', async () => {
     const files = [makeFile('/test/a.ts', 3, 3)];
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);

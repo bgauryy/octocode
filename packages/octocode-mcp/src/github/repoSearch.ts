@@ -77,12 +77,145 @@ export async function searchGitHubReposAPI(
   return result;
 }
 
+/**
+ * Lists all repositories for an owner (org or user) using the REST listing
+ * endpoint. Unlike the search API (capped at 1 000 results), this endpoint
+ * paginates without a hard limit, enabling full enumeration of large orgs.
+ */
+async function listGitHubOrgReposAPIInternal(
+  params: {
+    owner: string;
+    sort?: 'stars' | 'updated';
+    limit?: number;
+    page?: number;
+  },
+  octokit: Awaited<ReturnType<typeof getOctokit>>
+): Promise<GitHubAPIResponse<RepoSearchAPIData>> {
+  const perPage = Math.min(params.limit || 100, 100);
+  const currentPage = params.page || 1;
+
+  // Accepted sort values differ between org and user listing endpoints.
+  // 'stars' is not a valid listing sort (only search supports it); fall back
+  // to 'updated' as the nearest equivalent.
+  const listSort =
+    params.sort === 'updated' ? 'updated' : ('full_name' as const);
+
+  let repoItems: RepoSearchResultItem[];
+  let totalCount: number | undefined;
+
+  try {
+    const orgResult = await octokit.rest.repos.listForOrg({
+      org: params.owner,
+      per_page: perPage,
+      page: currentPage,
+      sort: listSort,
+    });
+    repoItems = orgResult.data as unknown as RepoSearchResultItem[];
+    // The listing endpoints don't return a total_count — use the Link header
+    // heuristic: if we got a full page there are likely more results.
+    totalCount = undefined;
+  } catch {
+    // Not an org (or no access) — try the user listing endpoint.
+    try {
+      const userResult = await octokit.rest.repos.listForUser({
+        username: params.owner,
+        per_page: perPage,
+        page: currentPage,
+        sort: listSort,
+      });
+      repoItems = userResult.data as unknown as RepoSearchResultItem[];
+      totalCount = undefined;
+    } catch (err: unknown) {
+      return handleGitHubAPIError(err);
+    }
+  }
+
+  const repositories = repoItems.map((repo: RepoSearchResultItem) => {
+    const fullName = repo.full_name;
+    const parts = fullName.split('/');
+    const owner = parts[0] || '';
+    const repoName = parts[1] || '';
+    return {
+      owner,
+      repo: repoName,
+      defaultBranch: repo.default_branch,
+      stars: repo.stargazers_count || 0,
+      description: repo.description
+        ? repo.description.length > 150
+          ? repo.description.substring(0, 150) + '...'
+          : repo.description
+        : 'No description',
+      url: repo.html_url,
+      createdAt: repo.created_at,
+      updatedAt: repo.updated_at,
+      pushedAt: repo.pushed_at,
+      visibility: repo.visibility,
+      ...(repo.topics && repo.topics.length > 0 && { topics: repo.topics }),
+      ...(repo.forks_count &&
+        repo.forks_count > 0 && { forksCount: repo.forks_count }),
+      ...(repo.open_issues_count &&
+        repo.open_issues_count > 0 && {
+          openIssuesCount: repo.open_issues_count,
+        }),
+      ...(repo.language && { language: repo.language }),
+    };
+  });
+
+  const fetchedCount = repositories.length;
+  const hasMore = fetchedCount === perPage; // full page → there may be more
+  const totalMatches = totalCount ?? fetchedCount + (hasMore ? 1 : 0);
+
+  return {
+    data: {
+      repositories: repositories as GitHubRepositoryOutput[],
+      pagination: {
+        currentPage,
+        totalPages: hasMore ? currentPage + 1 : currentPage,
+        perPage,
+        totalMatches,
+        hasMore,
+      },
+    },
+    status: 200,
+    rawResponseChars: countSerializedChars(repoItems),
+  };
+}
+
 async function searchGitHubReposAPIInternal(
   params: WithOptionalMeta<GitHubReposSearchSingleQuery>,
   authInfo?: AuthInfo
 ): Promise<GitHubAPIResponse<RepoSearchAPIData>> {
   try {
     const octokit = await getOctokit(authInfo);
+
+    // Owner-only mode: when the caller supplies just owner (no keywords or
+    // topics), use the REST listing endpoint instead of the search API.
+    // The search API is capped at 1 000 results and cannot enumerate every
+    // repository in a large organisation. repos.listForOrg / listForUser
+    // paginates exhaustively with no hard cap.
+    const hasSearchTerms =
+      (params.keywordsToSearch?.length ?? 0) > 0 ||
+      (params.topicsToSearch?.length ?? 0) > 0;
+
+    const ownerParam =
+      typeof params.owner === 'string'
+        ? params.owner
+        : Array.isArray(params.owner)
+          ? params.owner[0]
+          : undefined;
+
+    if (!hasSearchTerms && ownerParam) {
+      return await listGitHubOrgReposAPIInternal(
+        {
+          owner: ownerParam,
+          sort: params.sort as 'stars' | 'updated' | undefined,
+          limit: params.limit,
+          page: params.page,
+        },
+        octokit
+      );
+    }
+
     const query = buildRepoSearchQuery(params);
 
     if (!query.trim()) {

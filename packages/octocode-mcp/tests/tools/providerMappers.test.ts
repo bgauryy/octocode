@@ -423,4 +423,99 @@ describe('providerMappers', () => {
 
     expect(result).toHaveProperty('branchFallback');
   });
+
+  it('mapPullRequestProviderResultData includes commits when provided', () => {
+    const { resultData } = mapPullRequestProviderResultData({
+      items: [
+        {
+          number: 501,
+          title: 'PR with commits',
+          body: null,
+          url: 'https://github.com/owner/repo/pull/501',
+          state: 'open',
+          draft: false,
+          author: 'dev',
+          assignees: [],
+          labels: [],
+          sourceBranch: 'feat',
+          targetBranch: 'main',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-02T00:00:00Z',
+          commits: [
+            {
+              sha: 'abc123',
+              message: 'feat: add thing',
+              author: 'dev',
+              date: '2024-01-01',
+            },
+          ],
+        },
+      ],
+      totalCount: 1,
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+        totalMatches: 1,
+      },
+    });
+
+    const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
+    expect(pr).toHaveProperty('commits');
+    expect((pr!.commits as unknown[]).length).toBe(1);
+  });
+
+  it('mapPullRequestProviderResultData counts inline vs discussion comments in reviewSummary', () => {
+    const { resultData } = mapPullRequestProviderResultData({
+      items: [
+        {
+          number: 502,
+          title: 'PR with mixed comments',
+          body: null,
+          url: 'https://github.com/owner/repo/pull/502',
+          state: 'open',
+          draft: false,
+          author: 'dev',
+          assignees: [],
+          labels: [],
+          sourceBranch: 'feat',
+          targetBranch: 'main',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-02T00:00:00Z',
+          comments: [
+            {
+              id: 'c1',
+              author: 'alice',
+              body: 'looks good',
+              createdAt: '2024-01-01',
+              updatedAt: '2024-01-01',
+              commentType: 'review_inline' as const,
+              path: 'src/foo.ts',
+              line: 42,
+            },
+            {
+              id: 'c2',
+              author: 'bob',
+              body: 'agreed',
+              createdAt: '2024-01-01',
+              updatedAt: '2024-01-01',
+            },
+          ],
+        },
+      ],
+      totalCount: 1,
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+        totalMatches: 1,
+      },
+    });
+
+    const [pr] = resultData.pull_requests as Array<Record<string, unknown>>;
+    const summary = pr!.reviewSummary as Record<string, unknown>;
+    expect(summary.totalComments).toBe(2);
+    expect(summary.inlineComments).toBe(1);
+    expect(summary.discussionComments).toBe(1);
+  });
 });

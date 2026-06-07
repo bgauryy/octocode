@@ -6981,7 +6981,7 @@ __metadata:
     "@vitest/coverage-v8": "npm:^4.0.16"
     esbuild: "npm:^0.27.2"
     eslint: "npm:^9.18.0"
-    octocode-mcp: "npm:^15.0.2"
+    octocode-mcp: "workspace:^"
     octocode-shared: "workspace:^"
     open: "npm:^11.0.0"
     tsx: "npm:^4.21.0"
@@ -7007,7 +7007,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode-mcp@npm:^15.0.2, octocode-mcp@workspace:^, octocode-mcp@workspace:packages/octocode-mcp":
+"octocode-mcp@workspace:^, octocode-mcp@workspace:packages/octocode-mcp":
   version: 0.0.0-use.local
   resolution: "octocode-mcp@workspace:packages/octocode-mcp"
   dependencies:

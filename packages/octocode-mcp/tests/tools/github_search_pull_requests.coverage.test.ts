@@ -584,6 +584,77 @@ describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
     expect(out.data).toEqual({ x: 1 });
     expect(out.extraHints).toEqual(['keep']);
   });
+
+  it('withComments:true preserves comments array instead of stripping it', () => {
+    const prsWithComments = [
+      {
+        number: 200,
+        title: 'PR with comments',
+        comments: [
+          {
+            id: '1',
+            author: 'user',
+            body: 'inline note',
+            commentType: 'review_inline',
+          },
+        ],
+        createdAt: '2024-01-01',
+      },
+    ] as Array<Record<string, unknown>>;
+    const out = applyGithubSearchPullRequestsVerbosity(
+      { data: {}, pullRequests: prsWithComments, extraHints: [] },
+      { withComments: true } as never
+    );
+    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
+    expect(prs[0]).toHaveProperty('comments');
+    expect(prs[0]).not.toHaveProperty('createdAt');
+  });
+
+  it('withCommits:true preserves commits array instead of stripping it', () => {
+    const prsWithCommits = [
+      {
+        number: 201,
+        title: 'PR with commits',
+        commits: [
+          {
+            sha: 'abc123',
+            message: 'feat: add',
+            author: 'dev',
+            date: '2024-01-01',
+          },
+        ],
+        createdAt: '2024-01-01',
+      },
+    ] as Array<Record<string, unknown>>;
+    const out = applyGithubSearchPullRequestsVerbosity(
+      { data: {}, pullRequests: prsWithCommits, extraHints: [] },
+      { withCommits: true } as never
+    );
+    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
+    expect(prs[0]).toHaveProperty('commits');
+    expect(prs[0]).not.toHaveProperty('createdAt');
+  });
+
+  it('without withComments/withCommits, both keys are stripped', () => {
+    const prs = [
+      {
+        number: 202,
+        title: 'PR',
+        comments: [{ id: '1', author: 'u', body: 'note' }],
+        commits: [{ sha: 'x', message: 'm', author: 'a', date: 'd' }],
+        createdAt: '2024-01-01',
+      },
+    ] as Array<Record<string, unknown>>;
+    const out = applyGithubSearchPullRequestsVerbosity(
+      { data: {}, pullRequests: prs, extraHints: [] },
+      {} as never
+    );
+    const result = (
+      out.data.pull_requests as Array<Record<string, unknown>>
+    )[0];
+    expect(result).not.toHaveProperty('comments');
+    expect(result).not.toHaveProperty('commits');
+  });
 });
 
 function makeProviderData(fileChanges: Array<Record<string, unknown>>) {

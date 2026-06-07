@@ -112,7 +112,10 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
     const transformedPR: GitHubPullRequestItem =
       await transformPullRequestItemFromREST(pr, params, octokit, authInfo);
 
-    const formattedPR = formatPRForResponse(transformedPR);
+    const formattedPR = formatPRForResponse(transformedPR, {
+      includeFullBody: true,
+      includeFullCommentDetails: true,
+    });
 
     return {
       pull_requests: [formattedPR],

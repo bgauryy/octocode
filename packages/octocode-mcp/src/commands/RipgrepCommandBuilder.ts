@@ -1,5 +1,4 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
-import { RESOURCE_LIMITS } from '../utils/core/constants.js';
 import type { z } from 'zod';
 import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 
@@ -176,16 +175,7 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
       this.addFlag('-c');
     }
 
-    if (query.maxMatchesPerFile !== undefined) {
-      this.addOption('-m', query.maxMatchesPerFile);
-    } else if (!query.filesOnly && !query.count && !query.countMatches) {
-      const limit = (
-        query.matchesPerPage && Number.isFinite(query.matchesPerPage)
-          ? query.matchesPerPage
-          : RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE
-      ) as number;
-      this.addOption('-m', limit);
-    }
+    void query;
   }
 
   private _applyFilterFlags(query: RipgrepQuery): void {

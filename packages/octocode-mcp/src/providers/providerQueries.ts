@@ -164,6 +164,10 @@ export interface PullRequestQuery extends BaseProviderQuery {
   limit?: number;
 
   page?: number;
+
+  charOffset?: number;
+
+  charLength?: number;
 }
 
 export interface RepoStructureQuery extends BaseProviderQuery {

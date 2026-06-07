@@ -34,20 +34,24 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
   });
 
   describe('fetchGitHubFileContentAPI - File Size and Encoding', () => {
-    it('should reject files larger than 300KB', async () => {
+    it('should decode files larger than 300KB that have inline content', async () => {
+      // GitHub Contents API returns inline base64 for files up to ~1 MB.
+      // The 300 KB gate has been removed — files with inline content are
+      // decoded normally regardless of the reported size field.
       const mockOctokit = {
         rest: {
           repos: {
             getContent: vi.fn().mockResolvedValue({
               data: {
                 type: 'file',
-                content: Buffer.from('test').toString('base64'),
+                content: Buffer.from('large file content').toString('base64'),
                 size: 400 * 1024,
                 sha: 'abc123',
                 name: 'large-file.txt',
                 path: 'large-file.txt',
               },
             }),
+            listCommits: vi.fn().mockResolvedValue({ data: [] }),
           },
         },
       };
@@ -55,6 +59,11 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         mockOctokit as unknown as ReturnType<typeof getOctokit>
       );
+      vi.mocked(minifierModule.minifyContent).mockResolvedValue({
+        content: 'large file content',
+        failed: false,
+        type: 'general',
+      });
 
       const result = await fetchGitHubFileContentAPI({
         owner: 'test',
@@ -62,13 +71,8 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         path: 'large-file.txt',
       });
 
-      expect('error' in result).toBe(true);
-      if ('error' in result) {
-        expect(result.error).toContain('File too large');
-        expect(result.error).toContain('400KB');
-        expect(result.error).toContain('300KB');
-        expect(result.status).toBe(413);
-      }
+      expect('error' in result).toBe(false);
+      expect(result).toHaveProperty('data');
     });
 
     it('should handle files at exactly 300KB (boundary)', async () => {

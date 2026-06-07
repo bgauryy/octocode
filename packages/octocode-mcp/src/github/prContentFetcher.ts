@@ -91,12 +91,84 @@ async function fetchPRComments(
         body: ContentSanitizer.sanitizeContent(stripped).content,
         created_at: comment.created_at ?? '',
         updated_at: comment.updated_at ?? '',
+        commentType: 'discussion',
       };
     });
 
     const notes: string[] = [];
     if (botsDropped > 0) {
       notes.push(`${botsDropped} bot comment(s) hidden (set includeBots:true)`);
+    }
+
+    return {
+      comments: attachRawResponseChars(comments, rawResponseChars),
+      note: notes.length > 0 ? notes.join('; ') : undefined,
+    };
+  } catch {
+    return { comments: attachRawResponseChars([], 0) };
+  }
+}
+
+/**
+ * Fetches inline review thread comments (code-level annotations) for a PR.
+ * These are distinct from PR-level discussion comments — they live at
+ * GET /repos/{owner}/{repo}/pulls/{pull_number}/comments and include the
+ * file path and line number the reviewer annotated.
+ */
+async function fetchPRInlineComments(
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  includeBots: boolean = false
+): Promise<{ comments: PRCommentItem[]; note?: string }> {
+  try {
+    type ReviewComment = Awaited<
+      ReturnType<typeof octokit.rest.pulls.listReviewComments>
+    >['data'][number];
+
+    const raw: ReviewComment[] = [];
+    let rawResponseChars = 0;
+    let page = 1;
+    let keepFetching = true;
+    do {
+      const result = await octokit.rest.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+        page,
+      });
+      rawResponseChars += countSerializedChars(result.data);
+      raw.push(...result.data);
+      keepFetching = result.data.length === 100;
+      page++;
+    } while (keepFetching);
+
+    const kept = includeBots
+      ? raw
+      : raw.filter((c: ReviewComment) => !isBotAuthor(c.user?.login ?? ''));
+    const botsDropped = raw.length - kept.length;
+
+    const comments = kept.map((comment: ReviewComment): PRCommentItem => {
+      const stripped = stripMachineBlobs(comment.body ?? '');
+      return {
+        id: String(comment.id),
+        user: comment.user?.login ?? 'unknown',
+        body: ContentSanitizer.sanitizeContent(stripped).content,
+        created_at: comment.created_at ?? '',
+        updated_at: comment.updated_at ?? '',
+        commentType: 'review_inline',
+        path: comment.path,
+        line: comment.line ?? comment.original_line ?? undefined,
+      };
+    });
+
+    const notes: string[] = [];
+    if (botsDropped > 0) {
+      notes.push(
+        `${botsDropped} bot inline comment(s) hidden (set includeBots:true)`
+      );
     }
 
     return {
@@ -180,19 +252,32 @@ export async function transformPullRequestItemFromSearch(
   if (params.withComments) {
     const { owner, repo } = normalizeOwnerRepo(params);
     if (owner && repo) {
-      const { comments, note } = await fetchPRComments(
-        octokit,
-        owner,
-        repo,
-        item.number,
-        params.includeBots
+      const [
+        { comments: discussionComments, note: discussionNote },
+        { comments: inlineComments, note: inlineNote },
+      ] = await Promise.all([
+        fetchPRComments(octokit, owner, repo, item.number, params.includeBots),
+        fetchPRInlineComments(
+          octokit,
+          owner,
+          repo,
+          item.number,
+          params.includeBots
+        ),
+      ]);
+
+      result.comments = [...discussionComments, ...inlineComments];
+      rawResponseChars +=
+        (getRawResponseChars(discussionComments) ?? 0) +
+        (getRawResponseChars(inlineComments) ?? 0);
+
+      const notes = [discussionNote, inlineNote].filter(
+        (n): n is string => typeof n === 'string'
       );
-      result.comments = comments;
-      rawResponseChars += getRawResponseChars(comments) ?? 0;
-      if (note) {
+      if (notes.length > 0) {
         result._sanitization_warnings = [
           ...(result._sanitization_warnings || []),
-          note,
+          ...notes,
         ];
       }
     }
@@ -279,13 +364,26 @@ async function fetchPRCommitsAPI(
   authInfo?: AuthInfo
 ): Promise<CommitListItem[] | null> {
   const octokit = await getOctokit(authInfo);
-  const result = await octokit.rest.pulls.listCommits({
-    owner,
-    repo,
-    pull_number: prNumber,
-  });
+  const all: CommitListItem[] = [];
+  let rawResponseChars = 0;
+  let page = 1;
+  let keepFetching = true;
 
-  return attachRawResponseChars(result.data as CommitListItem[], result.data);
+  do {
+    const result = await octokit.rest.pulls.listCommits({
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+      page,
+    });
+    rawResponseChars += countSerializedChars(result.data);
+    all.push(...(result.data as CommitListItem[]));
+    keepFetching = result.data.length === 100;
+    page++;
+  } while (keepFetching);
+
+  return attachRawResponseChars(all, rawResponseChars);
 }
 
 async function fetchCommitFilesAPI(
@@ -411,19 +509,32 @@ export async function transformPullRequestItemFromREST(
   }
 
   if (params.withComments) {
-    const { comments, note } = await fetchPRComments(
-      octokit,
-      owner,
-      repo,
-      item.number,
-      params.includeBots
+    const [
+      { comments: discussionComments, note: discussionNote },
+      { comments: inlineComments, note: inlineNote },
+    ] = await Promise.all([
+      fetchPRComments(octokit, owner, repo, item.number, params.includeBots),
+      fetchPRInlineComments(
+        octokit,
+        owner,
+        repo,
+        item.number,
+        params.includeBots
+      ),
+    ]);
+
+    result.comments = [...discussionComments, ...inlineComments];
+    rawResponseChars +=
+      (getRawResponseChars(discussionComments) ?? 0) +
+      (getRawResponseChars(inlineComments) ?? 0);
+
+    const notes = [discussionNote, inlineNote].filter(
+      (n): n is string => typeof n === 'string'
     );
-    result.comments = comments;
-    rawResponseChars += getRawResponseChars(comments) ?? 0;
-    if (note) {
+    if (notes.length > 0) {
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
-        note,
+        ...notes,
       ];
     }
   }

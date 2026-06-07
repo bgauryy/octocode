@@ -1,0 +1,67 @@
+{"ts":"2026-06-07T07:15:36.307Z","q":1,"agent":"rtk","cmd":"rtk rg filter_markdown_body /tmp/rtk-bench","in_chars":38,"out_chars":4109,"elapsed_ms":88,"exit":0}
+{"ts":"2026-06-07T07:15:48.174Z","q":1,"agent":"rtk","cmd":"rtk rg -n filter_markdown_body\\( /tmp/rtk-bench/src","in_chars":47,"out_chars":2092,"elapsed_ms":72,"exit":0}
+{"ts":"2026-06-07T07:16:09.689Z","q":2,"agent":"rtk","cmd":"rtk rg -n \\.(with_tee|stdout_only|early_exit_on_failure|no_trailing_newline|inherit_stdin)\\( /tmp/rtk-bench/src","in_chars":107,"out_chars":3032,"elapsed_ms":85,"exit":0}
+{"ts":"2026-06-07T07:16:23.519Z","q":2,"agent":"rtk","cmd":"rtk rg -n \\.(with_tee|stdout_only|early_exit_on_failure|no_trailing_newline|inherit_stdin)\\( /tmp/rtk-bench","in_chars":103,"out_chars":3032,"elapsed_ms":98,"exit":0}
+{"ts":"2026-06-07T07:16:34.303Z","q":2,"agent":"rtk","cmd":"rtk rg -n (with_tee|stdout_only|early_exit_on_failure|no_trailing_newline|inherit_stdin)\\( /tmp/rtk-bench","in_chars":101,"out_chars":6939,"elapsed_ms":87,"exit":0}
+{"ts":"2026-06-07T07:16:47.655Z","q":3,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/core/runner.rs","in_chars":38,"out_chars":6899,"elapsed_ms":73,"exit":0}
+{"ts":"2026-06-07T07:16:57.933Z","q":3,"agent":"rtk","cmd":"rtk rg -n skip_filter_on_failure|Passthrough|early_exit_on_failure|passthrough /tmp/rtk-bench/src/core/runner.rs","in_chars":108,"out_chars":646,"elapsed_ms":76,"exit":0}
+{"ts":"2026-06-07T07:17:12.085Z","q":4,"agent":"rtk","cmd":"rtk rg -n TODO|FIXME|HACK /tmp/rtk-bench/src","in_chars":40,"out_chars":642,"elapsed_ms":89,"exit":0}
+{"ts":"2026-06-07T07:17:26.880Z","q":5,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/core/README.md","in_chars":38,"out_chars":7588,"elapsed_ms":70,"exit":0}
+{"ts":"2026-06-07T07:17:34.572Z","q":5,"agent":"rtk","cmd":"rtk rg -n Minimal|Aggressive|filter level|FilterLevel /tmp/rtk-bench/src/core/README.md /tmp/rtk-bench/src","in_chars":102,"out_chars":3487,"elapsed_ms":85,"exit":0}
+{"ts":"2026-06-07T07:17:48.654Z","q":6,"agent":"rtk","cmd":"rtk find /tmp/rtk-bench/src/cmds --name *.rs","in_chars":40,"out_chars":32,"elapsed_ms":69,"exit":0}
+{"ts":"2026-06-07T07:17:48.757Z","q":6,"agent":"rtk","cmd":"rtk find /tmp/rtk-bench/src/cmds --type d","in_chars":37,"out_chars":32,"elapsed_ms":60,"exit":0}
+{"ts":"2026-06-07T07:17:55.955Z","q":6,"agent":"rtk","cmd":"rtk tree /tmp/rtk-bench/src/cmds","in_chars":28,"out_chars":178,"elapsed_ms":66,"exit":1}
+{"ts":"2026-06-07T07:18:04.627Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds","in_chars":26,"out_chars":91,"elapsed_ms":82,"exit":0}
+{"ts":"2026-06-07T07:18:04.732Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/agent","in_chars":32,"out_chars":61,"elapsed_ms":57,"exit":1}
+{"ts":"2026-06-07T07:18:04.835Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/cloud","in_chars":32,"out_chars":123,"elapsed_ms":60,"exit":0}
+{"ts":"2026-06-07T07:18:04.932Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/config","in_chars":33,"out_chars":62,"elapsed_ms":51,"exit":1}
+{"ts":"2026-06-07T07:18:05.030Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/git","in_chars":30,"out_chars":114,"elapsed_ms":53,"exit":0}
+{"ts":"2026-06-07T07:18:05.115Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/go","in_chars":29,"out_chars":68,"elapsed_ms":47,"exit":0}
+{"ts":"2026-06-07T07:18:05.204Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/jvm","in_chars":30,"out_chars":34,"elapsed_ms":51,"exit":0}
+{"ts":"2026-06-07T07:18:05.299Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/js","in_chars":29,"out_chars":208,"elapsed_ms":55,"exit":0}
+{"ts":"2026-06-07T07:18:05.396Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/python","in_chars":33,"out_chars":104,"elapsed_ms":56,"exit":0}
+{"ts":"2026-06-07T07:18:05.506Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/ruby","in_chars":31,"out_chars":89,"elapsed_ms":66,"exit":0}
+{"ts":"2026-06-07T07:18:05.618Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/rust","in_chars":31,"out_chars":64,"elapsed_ms":64,"exit":0}
+{"ts":"2026-06-07T07:18:05.718Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/system","in_chars":33,"out_chars":286,"elapsed_ms":57,"exit":0}
+{"ts":"2026-06-07T07:18:26.186Z","q":6,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/cmds/dotnet","in_chars":33,"out_chars":117,"elapsed_ms":66,"exit":0}
+{"ts":"2026-06-07T07:18:35.711Z","q":7,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src/discover","in_chars":30,"out_chars":118,"elapsed_ms":74,"exit":0}
+{"ts":"2026-06-07T07:18:35.829Z","q":7,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/discover/lexer.rs","in_chars":41,"out_chars":40218,"elapsed_ms":57,"exit":0}
+{"ts":"2026-06-07T07:18:35.940Z","q":7,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/discover/mod.rs","in_chars":39,"out_chars":11171,"elapsed_ms":56,"exit":0}
+{"ts":"2026-06-07T07:18:36.040Z","q":7,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/discover/provider.rs","in_chars":44,"out_chars":20208,"elapsed_ms":46,"exit":0}
+{"ts":"2026-06-07T07:18:36.141Z","q":7,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/discover/registry.rs","in_chars":44,"out_chars":119856,"elapsed_ms":49,"exit":0}
+{"ts":"2026-06-07T07:18:36.243Z","q":7,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/discover/report.rs","in_chars":42,"out_chars":13814,"elapsed_ms":48,"exit":0}
+{"ts":"2026-06-07T07:18:36.346Z","q":7,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/discover/rules.rs","in_chars":41,"out_chars":26437,"elapsed_ms":48,"exit":0}
+{"ts":"2026-06-07T07:19:11.923Z","q":8,"agent":"rtk","cmd":"rtk find --help","in_chars":11,"out_chars":497,"elapsed_ms":59,"exit":0}
+{"ts":"2026-06-07T07:19:12.085Z","q":8,"agent":"rtk","cmd":"rtk wc -l /tmp/rtk-bench/src/cmds/git/gh_cmd.rs /tmp/rtk-bench/src/cmds/git/glab_cmd.rs /tmp/rtk-bench/src/cmds/cloud/aws_cmd.rs /tmp/rtk-bench/src/cmds/git/git.rs /tmp/rtk-bench/src/discover/registry.rs","in_chars":199,"out_chars":132,"elapsed_ms":48,"exit":0}
+{"ts":"2026-06-07T07:19:17.644Z","q":8,"agent":"rtk","cmd":"rtk find /tmp/rtk-bench/src -name *.rs","in_chars":34,"out_chars":709,"elapsed_ms":68,"exit":0}
+{"ts":"2026-06-07T07:19:33.297Z","q":9,"agent":"rtk","cmd":"rtk find /tmp/rtk-bench/src -name *.rs -printf %T@ %TY-%Tm-%TdT%TH:%TM:%TS %p\\n","in_chars":75,"out_chars":751,"elapsed_ms":64,"exit":0}
+{"ts":"2026-06-07T07:19:41.869Z","q":10,"agent":"rtk","cmd":"rtk gh pr view 2129 --repo rtk-ai/rtk","in_chars":33,"out_chars":1762,"elapsed_ms":953,"exit":0}
+{"ts":"2026-06-07T07:19:42.801Z","q":10,"agent":"rtk","cmd":"rtk gh pr view 2129 --repo rtk-ai/rtk --comments","in_chars":44,"out_chars":77,"elapsed_ms":883,"exit":0}
+{"ts":"2026-06-07T07:19:57.972Z","q":11,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --state merged --search ultra-compact --limit 20","in_chars":77,"out_chars":1257,"elapsed_ms":587,"exit":0}
+{"ts":"2026-06-07T07:19:58.117Z","q":11,"agent":"rtk","cmd":"rtk gh search prs --repo rtk-ai/rtk ultra-compact --state merged --limit 20","in_chars":71,"out_chars":3320,"elapsed_ms":94,"exit":1}
+{"ts":"2026-06-07T07:20:07.243Z","q":11,"agent":"rtk","cmd":"rtk gh search prs \"--ultra-compact\" --repo rtk-ai/rtk --merged --limit 20","in_chars":69,"out_chars":1423,"elapsed_ms":853,"exit":0}
+{"ts":"2026-06-07T07:20:08.030Z","q":11,"agent":"rtk","cmd":"rtk gh pr view 1188 --repo rtk-ai/rtk","in_chars":33,"out_chars":1110,"elapsed_ms":737,"exit":0}
+{"ts":"2026-06-07T07:20:18.135Z","q":12,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --state open --limit 10 --json number,title,labels,updatedAt,createdAt","in_chars":99,"out_chars":1625,"elapsed_ms":767,"exit":0}
+{"ts":"2026-06-07T07:20:18.757Z","q":12,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --state open --limit 10","in_chars":52,"out_chars":743,"elapsed_ms":574,"exit":0}
+{"ts":"2026-06-07T07:20:28.585Z","q":13,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/cmds/git/diff_cmd.rs","in_chars":44,"out_chars":13992,"elapsed_ms":59,"exit":0}
+{"ts":"2026-06-07T07:20:28.692Z","q":13,"agent":"rtk","cmd":"rtk rg -n context|hunk|diff --git|@@|MAX|strip|compress|keep|truncate /tmp/rtk-bench/src/cmds/git/diff_cmd.rs","in_chars":105,"out_chars":809,"elapsed_ms":67,"exit":0}
+{"ts":"2026-06-07T07:20:53.751Z","q":14,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/SECURITY.md","in_chars":31,"out_chars":7514,"elapsed_ms":63,"exit":0}
+{"ts":"2026-06-07T07:20:53.853Z","q":14,"agent":"rtk","cmd":"rtk rg -n trusted|untrusted|command injection|shell|risk|exec|Command /tmp/rtk-bench/SECURITY.md","in_chars":92,"out_chars":1374,"elapsed_ms":58,"exit":0}
+{"ts":"2026-06-07T07:21:11.353Z","q":15,"agent":"rtk","cmd":"rtk rg -n #\\[test\\] /tmp/rtk-bench/src","in_chars":34,"out_chars":115198,"elapsed_ms":101,"exit":0}
+{"ts":"2026-06-07T07:21:32.621Z","q":16,"agent":"rtk","cmd":"rtk rg -n args\\.first|match .*as_str|\"pr\"|\"issue\"|\"run\"|\"repo\"|\"api\"|\"release\"|_ => /tmp/rtk-bench/src/cmds/git/gh_cmd.rs","in_chars":117,"out_chars":1807,"elapsed_ms":78,"exit":0}
+{"ts":"2026-06-07T07:21:32.707Z","q":16,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/src/cmds/git/gh_cmd.rs","in_chars":42,"out_chars":54507,"elapsed_ms":48,"exit":0}
+{"ts":"2026-06-07T07:21:56.540Z","q":17,"agent":"rtk","cmd":"rtk gh search prs hooks auto rewrite interception --repo rtk-ai/rtk --merged --limit 20","in_chars":83,"out_chars":0,"elapsed_ms":646,"exit":0}
+{"ts":"2026-06-07T07:21:57.866Z","q":17,"agent":"rtk","cmd":"rtk gh search prs hook rewrite --repo rtk-ai/rtk --merged --limit 20","in_chars":64,"out_chars":2225,"elapsed_ms":1271,"exit":0}
+{"ts":"2026-06-07T07:22:07.168Z","q":17,"agent":"rtk","cmd":"rtk gh pr view 241 --repo rtk-ai/rtk --comments","in_chars":43,"out_chars":17788,"elapsed_ms":963,"exit":0}
+{"ts":"2026-06-07T07:22:24.266Z","q":18,"agent":"rtk","cmd":"rtk npm view rtk name version description repository.url dist-tags.latest","in_chars":69,"out_chars":321,"elapsed_ms":808,"exit":0}
+{"ts":"2026-06-07T07:22:24.699Z","q":18,"agent":"rtk","cmd":"rtk npm view rtk downloads","in_chars":22,"out_chars":3,"elapsed_ms":385,"exit":0}
+{"ts":"2026-06-07T07:22:34.939Z","q":18,"agent":"rtk","cmd":"rtk curl https://api.npmjs.org/downloads/point/last-week/rtk","in_chars":56,"out_chars":75,"elapsed_ms":1266,"exit":0}
+{"ts":"2026-06-07T07:22:51.844Z","q":19,"agent":"rtk","cmd":"rtk rg -n // SAFETY: /tmp/rtk-bench/src","in_chars":35,"out_chars":0,"elapsed_ms":103,"exit":1}
+{"ts":"2026-06-07T07:22:51.977Z","q":19,"agent":"rtk","cmd":"rtk rg -n unsafe_code|forbid\\(unsafe|deny\\(unsafe /tmp/rtk-bench/Cargo.toml /tmp/rtk-bench/src","in_chars":90,"out_chars":174,"elapsed_ms":87,"exit":0}
+{"ts":"2026-06-07T07:23:00.696Z","q":20,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/.github/workflows","in_chars":35,"out_chars":109,"elapsed_ms":79,"exit":0}
+{"ts":"2026-06-07T07:23:00.818Z","q":20,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/.github/workflows/cd.yml","in_chars":44,"out_chars":5463,"elapsed_ms":61,"exit":0}
+{"ts":"2026-06-07T07:23:00.919Z","q":20,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/.github/workflows/ci.yml","in_chars":44,"out_chars":15459,"elapsed_ms":50,"exit":0}
+{"ts":"2026-06-07T07:23:01.024Z","q":20,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/.github/workflows/CICD.md","in_chars":45,"out_chars":4764,"elapsed_ms":51,"exit":0}
+{"ts":"2026-06-07T07:23:01.126Z","q":20,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/.github/workflows/next-release.yml","in_chars":54,"out_chars":3825,"elapsed_ms":46,"exit":0}
+{"ts":"2026-06-07T07:23:01.216Z","q":20,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/.github/workflows/pr-target-check.yml","in_chars":57,"out_chars":1659,"elapsed_ms":43,"exit":0}
+{"ts":"2026-06-07T07:23:01.314Z","q":20,"agent":"rtk","cmd":"rtk read /tmp/rtk-bench/.github/workflows/release.yml","in_chars":49,"out_chars":11652,"elapsed_ms":52,"exit":0}

@@ -175,9 +175,7 @@ async function searchGitHubPullRequestsAPIInternal(
     }
 
     const sortValue =
-      params.sort && params.sort !== 'best-match' && params.sort !== 'created'
-        ? params.sort
-        : undefined;
+      params.sort && params.sort !== 'best-match' ? params.sort : undefined;
 
     const perPage = Math.min(params.limit || 30, 100);
     const currentPage = params.page || 1;
@@ -209,7 +207,14 @@ async function searchGitHubPullRequestsAPIInternal(
       (sum, pr) => sum + (getRawResponseChars(pr) ?? 0),
       0
     );
-    const formattedPRs = transformedPRs.map(formatPRForResponse);
+    const formattedPRs = transformedPRs.map(pr =>
+      formatPRForResponse(pr, {
+        includeFullBody: false,
+        includeFullCommentDetails: false,
+        charOffset: params.charOffset,
+        charLength: params.charLength,
+      })
+    );
 
     const totalMatches = Math.min(searchResult.data.total_count, 1000);
     const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
@@ -280,7 +285,14 @@ async function searchPullRequestsWithREST(
       (sum, pr) => sum + (getRawResponseChars(pr) ?? 0),
       0
     );
-    const formattedPRs = transformedPRs.map(formatPRForResponse);
+    const formattedPRs = transformedPRs.map(pr =>
+      formatPRForResponse(pr, {
+        includeFullBody: false,
+        includeFullCommentDetails: false,
+        charOffset: params.charOffset,
+        charLength: params.charLength,
+      })
+    );
 
     const hasMore = result.data.length === perPage;
 

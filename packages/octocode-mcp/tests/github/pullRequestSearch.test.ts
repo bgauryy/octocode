@@ -341,6 +341,226 @@ describe('Pull Request Search', () => {
       expect(result.pull_requests?.[0]?.commit_details).toHaveLength(1);
     });
 
+    it('withComments:true via Search API filters bot inline comments and adds warning', async () => {
+      mockShouldUseSearchForPRs.mockReturnValue(true);
+      mockBuildPullRequestSearchQuery.mockReturnValue('repo:test/repo is:pr');
+
+      mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
+        data: {
+          total_count: 1,
+          incomplete_results: false,
+          items: [
+            {
+              number: 851,
+              title: 'Bot comments PR',
+              state: 'open',
+              user: { login: 'dev' },
+              labels: [],
+              created_at: '2023-01-01T00:00:00Z',
+              updated_at: '2023-01-02T00:00:00Z',
+              html_url: 'https://github.com/test/repo/pull/851',
+              pull_request: {},
+              body: 'body',
+            },
+          ],
+        },
+      });
+
+      mockOctokit.rest.pulls.get.mockResolvedValue({
+        data: {
+          number: 851,
+          head: { ref: 'feat', sha: 'x' },
+          base: { ref: 'main', sha: 'y' },
+          draft: false,
+        },
+      });
+
+      mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
+      (mockOctokit.rest.pulls as Record<string, unknown>).listReviewComments =
+        vi.fn().mockResolvedValue({
+          data: [
+            {
+              id: 99,
+              user: { login: 'dependabot[bot]' },
+              body: 'Bot review comment',
+              created_at: '2023-01-03T00:00:00Z',
+              updated_at: '2023-01-03T00:00:00Z',
+              path: 'src/index.ts',
+              line: 5,
+              original_line: 5,
+            },
+          ],
+        });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        withComments: true,
+      });
+
+      const pr = result.pull_requests?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(pr).toBeDefined();
+      const warnings = pr?._sanitization_warnings as string[] | undefined;
+      expect(warnings).toBeDefined();
+      expect(warnings!.some(w => w.includes('bot inline comment'))).toBe(true);
+    });
+
+    it('paginates PR bodies and comment details for broad Search API results without losing continuation metadata', async () => {
+      mockShouldUseSearchForPRs.mockReturnValue(true);
+      mockBuildPullRequestSearchQuery.mockReturnValue('repo:test/repo is:pr');
+
+      const longBody = 'b'.repeat(8_000);
+      const longComment = 'human review comment '.repeat(700);
+
+      mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
+        data: {
+          total_count: 1,
+          incomplete_results: false,
+          items: [
+            {
+              number: 852,
+              title: 'Huge discussion PR',
+              state: 'open',
+              user: { login: 'dev' },
+              labels: [],
+              created_at: '2023-01-01T00:00:00Z',
+              updated_at: '2023-01-02T00:00:00Z',
+              html_url: 'https://github.com/test/repo/pull/852',
+              pull_request: {},
+              body: longBody,
+            },
+          ],
+        },
+      });
+
+      mockOctokit.rest.pulls.get.mockResolvedValue({
+        data: {
+          number: 852,
+          head: { ref: 'feat', sha: 'x' },
+          base: { ref: 'main', sha: 'y' },
+          draft: false,
+        },
+      });
+      mockOctokit.rest.issues.listComments.mockResolvedValue({
+        data: Array.from({ length: 6 }, (_, i) => ({
+          id: i + 1,
+          user: { login: `human${i}` },
+          body: longComment,
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-03T00:00:00Z',
+        })),
+      });
+      (mockOctokit.rest.pulls as Record<string, unknown>).listReviewComments =
+        vi.fn().mockResolvedValue({ data: [] });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        withComments: true,
+      });
+
+      const pr = result.pull_requests?.[0] as Record<string, unknown>;
+      expect(pr.body).toBeTypeOf('string');
+      expect((pr.body as string).length).toBeLessThan(longBody.length);
+      expect(pr.body_pagination).toMatchObject({
+        charOffset: 0,
+        charLength: 2_000,
+        totalChars: longBody.length,
+        hasMore: true,
+        nextCharOffset: 2_000,
+      });
+      expect(pr.comments).toBe(6);
+      expect(pr.comment_details_total).toBe(6);
+      expect(pr.comment_details_shown).toBe(3);
+      expect(pr.comment_details_paginated).toBe(true);
+      const comments = pr.comment_details as Array<{ body: string }>;
+      expect(comments).toHaveLength(3);
+      expect(comments[0]!.body.length).toBeLessThan(longComment.length);
+      expect(comments[0]).toMatchObject({
+        body_pagination: {
+          charOffset: 0,
+          charLength: 800,
+          totalChars: longComment.trim().length,
+          hasMore: true,
+          nextCharOffset: 800,
+        },
+      });
+      expect(JSON.stringify(pr)).not.toContain(longComment);
+      const warnings = (pr._sanitization_warnings as string[]) ?? [];
+      expect(warnings.some(w => w.includes('PR body paginated'))).toBe(true);
+      expect(warnings.some(w => w.includes('PR comments are paginated'))).toBe(
+        true
+      );
+    });
+
+    it('uses charOffset and charLength to return the requested PR body/comment window', async () => {
+      mockShouldUseSearchForPRs.mockReturnValue(true);
+      mockBuildPullRequestSearchQuery.mockReturnValue('repo:test/repo is:pr');
+
+      const longBody = '0123456789'.repeat(400);
+      const longComment = 'human note '.repeat(400);
+
+      mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
+        data: {
+          total_count: 1,
+          incomplete_results: false,
+          items: [
+            {
+              number: 853,
+              title: 'Paged discussion PR',
+              state: 'open',
+              user: { login: 'dev' },
+              labels: [],
+              created_at: '2023-01-01T00:00:00Z',
+              updated_at: '2023-01-02T00:00:00Z',
+              html_url: 'https://github.com/test/repo/pull/853',
+              pull_request: {},
+              body: longBody,
+            },
+          ],
+        },
+      });
+      mockOctokit.rest.pulls.get.mockResolvedValue({ data: { draft: false } });
+      mockOctokit.rest.issues.listComments.mockResolvedValue({
+        data: [
+          {
+            id: 1,
+            user: { login: 'human' },
+            body: longComment,
+            created_at: '2023-01-03T00:00:00Z',
+            updated_at: '2023-01-03T00:00:00Z',
+          },
+        ],
+      });
+      (mockOctokit.rest.pulls as Record<string, unknown>).listReviewComments =
+        vi.fn().mockResolvedValue({ data: [] });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        withComments: true,
+        charOffset: 10,
+        charLength: 25,
+      });
+
+      const pr = result.pull_requests?.[0] as Record<string, unknown>;
+      expect(pr.body).toBe(longBody.slice(10, 35));
+      expect(pr.body_pagination).toMatchObject({
+        charOffset: 10,
+        charLength: 25,
+        totalChars: longBody.length,
+        nextCharOffset: 35,
+      });
+      const comments = pr.comment_details as Array<{
+        body: string;
+        body_pagination: { nextCharOffset?: number };
+      }>;
+      expect(comments[0]!.body).toBe(longComment.slice(10, 35));
+      expect(comments[0]!.body_pagination.nextCharOffset).toBe(35);
+    });
+
     it('should handle commit fetch API error gracefully (Search API)', async () => {
       mockShouldUseSearchForPRs.mockReturnValue(true);
       mockBuildPullRequestSearchQuery.mockReturnValue('repo:test/repo is:pr');
@@ -1280,6 +1500,8 @@ describe('Pull Request Search', () => {
         owner: 'test',
         repo: 'repo',
         pull_number: 795,
+        per_page: 100,
+        page: 1,
       });
       expect(mockOctokit.rest.repos.getCommit).toHaveBeenCalledWith({
         owner: 'test',
@@ -1394,6 +1616,116 @@ describe('Pull Request Search', () => {
       expect(result.commits![1]!.sha).toBe('sha1');
 
       expect(result.commits![2]!.sha).toBe('sha3');
+    });
+
+    it('should paginate listCommits when first page returns exactly 100 items', async () => {
+      const mockItem: MockPRItem = {
+        number: 799,
+        title: 'Many Commits',
+        state: 'open',
+      };
+
+      const page1Commits = Array.from({ length: 100 }, (_, i) => ({
+        sha: `sha-${i}`,
+        commit: {
+          message: `commit ${i}`,
+          author: { name: 'Dev', date: '2023-01-01T00:00:00Z' },
+        },
+      }));
+      const page2Commits = [
+        {
+          sha: 'sha-extra',
+          commit: {
+            message: 'extra commit',
+            author: { name: 'Dev', date: '2023-01-02T00:00:00Z' },
+          },
+        },
+      ];
+
+      mockOctokit.rest.pulls.listCommits = vi
+        .fn()
+        .mockResolvedValueOnce({ data: page1Commits })
+        .mockResolvedValueOnce({ data: page2Commits });
+      mockOctokit.rest.repos.getCommit.mockResolvedValue({
+        data: { files: [] },
+      });
+
+      const result = await transformPullRequestItemFromREST(
+        mockItem as PullRequestSimple,
+        { owner: 'test', repo: 'repo', withCommits: true },
+        mockOctokit
+      );
+
+      expect(mockOctokit.rest.pulls.listCommits).toHaveBeenCalledTimes(2);
+      expect(result.commits).toHaveLength(101);
+    });
+
+    it('fetches inline review comments and filters bots, uses original_line as fallback', async () => {
+      const mockItem: MockPRItem = {
+        number: 800,
+        title: 'Inline Comments PR',
+        state: 'open',
+        draft: false,
+        user: { login: 'testuser' } as PullRequestSimple['user'],
+        labels: [] as PullRequestSimple['labels'],
+        created_at: '2023-01-01T00:00:00Z',
+        updated_at: '2023-01-02T00:00:00Z',
+        closed_at: null,
+        html_url: 'https://github.com/test/repo/pull/800',
+        head: { ref: 'feature', sha: 'abc123' } as PullRequestSimple['head'],
+        base: { ref: 'main', sha: 'def456' } as PullRequestSimple['base'],
+        body: 'Test body',
+      };
+
+      const inlineComments = [
+        {
+          id: 10,
+          user: { login: 'human-dev' },
+          body: 'Please rename this',
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-03T00:00:00Z',
+          path: 'src/foo.ts',
+          line: null,
+          original_line: 42,
+        },
+        {
+          id: 11,
+          user: { login: 'coderabbitai[bot]' },
+          body: 'AI review comment',
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-03T00:00:00Z',
+          path: 'src/foo.ts',
+          line: 10,
+          original_line: 10,
+        },
+      ];
+
+      (mockOctokit.rest.pulls as Record<string, unknown>).listReviewComments =
+        vi.fn().mockResolvedValue({ data: inlineComments });
+      mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
+
+      const result = await transformPullRequestItemFromREST(
+        mockItem as PullRequestSimple,
+        { owner: 'test', repo: 'repo', withComments: true },
+        mockOctokit
+      );
+
+      const allComments = result.comments as Array<{
+        commentType?: string;
+        line?: number;
+      }>;
+      expect(allComments).toBeDefined();
+      const inlineOnly = allComments.filter(
+        c => c.commentType === 'review_inline'
+      );
+      expect(inlineOnly.length).toBe(1);
+      expect(inlineOnly[0]!.line).toBe(42);
+      expect(result._sanitization_warnings).toBeDefined();
+      expect(
+        (result._sanitization_warnings as string[]).some(w =>
+          w.includes('bot inline comment')
+        )
+      ).toBe(true);
     });
   });
 });
