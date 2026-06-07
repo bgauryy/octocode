@@ -408,6 +408,12 @@ const FetchContentQueryBaseSchema = withCoreSchemaDescriptions(
       .describe(
         'Character page size for content pagination. Use with charOffset to read exact chunks without losing data.'
       ),
+    signaturesOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        'Extract only the structural skeleton of the file: imports, function/class/interface/type signatures — bodies are dropped. Saves many tokens. Use for structure exploration; follow up with startLine/endLine to read specific bodies.'
+      ),
   })
 );
 

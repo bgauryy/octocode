@@ -112,18 +112,23 @@ export function minifyGeneralCore(content: string): string {
 
 export function minifyMarkdownCore(content: string): string {
   try {
-    return content
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/[ \t]+$/gm, '')
-      .replace(/\r\n/g, '\n')
-      .replace(/\n\s*\n\s*\n+/g, '\n\n')
-      .replace(/([^\n])[ \t]{5,}([^\n])/g, '$1 $2')
-      .replace(/\s*\|\s*/g, ' | ')
-      .replace(/^(#{1,6})[ \t]+/gm, '$1 ')
-      .replace(/^(\s*)([-*+]|\d+\.)[ \t]+/gm, '$1$2 ')
-      .replace(/\n{3,}(```)/g, '\n\n$1') // Normalize before code blocks
-      .replace(/(```)\n{3,}/g, '$1\n\n') // Normalize after code blocks
-      .trim();
+    return (
+      content
+        .replace(/<!--[\s\S]*?-->/g, '')
+        // Strip quoted-reply lines (lines starting with ">") — pure redundancy
+        // in PR/issue comments where the original message is already in context.
+        .replace(/^[ \t]*>.*$/gm, '')
+        .replace(/[ \t]+$/gm, '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\n\s*\n\s*\n+/g, '\n\n')
+        .replace(/([^\n])[ \t]{5,}([^\n])/g, '$1 $2')
+        .replace(/\s*\|\s*/g, ' | ')
+        .replace(/^(#{1,6})[ \t]+/gm, '$1 ')
+        .replace(/^(\s*)([-*+]|\d+\.)[ \t]+/gm, '$1$2 ')
+        .replace(/\n{3,}(```)/g, '\n\n$1')
+        .replace(/(```)\n{3,}/g, '$1\n\n')
+        .trim()
+    );
   } /* v8 ignore start */ catch {
     return content;
   } /* v8 ignore stop */

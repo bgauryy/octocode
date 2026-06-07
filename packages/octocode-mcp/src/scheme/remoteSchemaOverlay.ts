@@ -50,6 +50,12 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
     matchStringContextLines: contextLinesField,
     charOffset: clampedInt(0, 100_000_000).optional(),
     charLength: clampedInt(1, 50_000).optional(),
+    signaturesOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        'Extract only the structural skeleton of the file: imports, function/class/interface/type signatures — bodies are dropped. Saves 80–95% tokens. Use for structure exploration; follow up with startLine/endLine to read specific bodies.'
+      ),
   })
 );
 

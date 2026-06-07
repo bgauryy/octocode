@@ -61,7 +61,8 @@ export async function fetchGitHubFileContentAPI(
     params.startLine,
     params.endLine,
     params.matchStringContextLines ?? 15,
-    params.matchString
+    params.matchString,
+    (params as unknown as { signaturesOnly?: boolean }).signaturesOnly
   );
 
   if ('error' in processedResult) {

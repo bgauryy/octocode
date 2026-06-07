@@ -2,6 +2,10 @@ import { open, readFile, stat } from 'fs/promises';
 import { getHints } from '../../hints/index.js';
 import { extractMatchingLines } from './contentExtractor.js';
 import {
+  applyContentViewMinification,
+  extractSignatures,
+} from '../../utils/minifier/applyMinification.js';
+import {
   applyPagination,
   createPaginationInfo,
 } from '../../utils/pagination/core.js';
@@ -551,7 +555,10 @@ function buildSuccessResult(
 
   return {
     path: query.path,
-    content: pagination.paginatedContent,
+    content: applyContentViewMinification(
+      pagination.paginatedContent,
+      query.path
+    ),
     isPartial,
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
@@ -625,6 +632,25 @@ export async function fetchContent(
     );
     if (readError || content === undefined) {
       return readError as LocalGetFileContentToolResult;
+    }
+
+    if ((query as unknown as { signaturesOnly?: boolean }).signaturesOnly) {
+      const sigs = extractSignatures(content, query.path);
+      if (sigs !== null) {
+        const totalLinesOrig = content.split('\n').length;
+        return attachRawResponseChars(
+          {
+            path: query.path,
+            content: sigs,
+            isPartial: true,
+            totalLines: totalLinesOrig,
+            hints: [
+              'signaturesOnly=true: imports + function/class/interface/type signatures extracted. Function bodies omitted. Use startLine/endLine to read specific bodies.',
+            ],
+          },
+          content.length
+        );
+      }
     }
 
     const totalLines = content.split('\n').length;

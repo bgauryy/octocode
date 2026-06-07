@@ -97,3 +97,65 @@ export function filterPatch(
     })
     .join('\n');
 }
+
+const DIFF_CONTEXT_LINES = 2;
+
+/**
+ * Trim a raw unified diff to at most DIFF_CONTEXT_LINES context lines
+ * around each changed block. Changed lines (+/-) and hunk headers (@@)
+ * are always preserved. Only pure context lines are trimmed.
+ *
+ * Activates only when the diff is long enough to benefit (> 30 lines total).
+ * Returns the original patch unchanged if it is already short or has no
+ * context to trim.
+ */
+export function trimDiffContext(patch: string): string {
+  if (!patch) return '';
+
+  const lines = patch.split('\n');
+  if (lines.length <= 30) return patch;
+
+  const changed = new Set<number>();
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (l !== undefined && (l.startsWith('+') || l.startsWith('-'))) {
+      changed.add(i);
+    }
+  }
+
+  if (changed.size === 0) return patch;
+
+  const keep = new Set<number>();
+  for (const ci of changed) {
+    for (
+      let j = Math.max(0, ci - DIFF_CONTEXT_LINES);
+      j <= Math.min(lines.length - 1, ci + DIFF_CONTEXT_LINES);
+      j++
+    ) {
+      keep.add(j);
+    }
+  }
+
+  const result: string[] = [];
+  let prevKept = true;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined) continue;
+    if (line.startsWith('@@')) {
+      result.push(line);
+      prevKept = true;
+      continue;
+    }
+    if (keep.has(i)) {
+      result.push(line);
+      prevKept = true;
+    } else {
+      if (prevKept) result.push('...');
+      prevKept = false;
+    }
+  }
+
+  const trimmed = result.join('\n');
+  return trimmed.length < patch.length ? trimmed : patch;
+}

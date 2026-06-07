@@ -2,6 +2,10 @@ import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/t
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import {
+  applyContentViewMinification,
+  extractSignatures,
+} from '../utils/minifier/applyMinification.js';
+import {
   applyPagination,
   createPaginationInfo,
 } from '../utils/pagination/core.js';
@@ -95,8 +99,27 @@ export async function processFileContentAPI(
   startLine?: number,
   endLine?: number,
   matchStringContextLines: number = 5,
-  matchString?: string
+  matchString?: string,
+  signaturesOnly?: boolean
 ): Promise<GitHubFileContentApiResult> {
+  if (signaturesOnly) {
+    const sigs = extractSignatures(decodedContent, filePath);
+    if (sigs !== null) {
+      return {
+        owner,
+        repo,
+        path: filePath,
+        content: sigs,
+        branch,
+        totalLines: decodedContent.split('\n').length,
+        isPartial: true,
+        hints: [
+          'signaturesOnly=true: imports + function/class/interface/type signatures extracted. Function bodies omitted. Use startLine/endLine to read specific bodies.',
+        ],
+      };
+    }
+  }
+
   const matchLocationsSet = new Set<string>();
 
   const originalContent = decodedContent;
@@ -212,7 +235,10 @@ export async function processFileContentAPI(
     finalContent,
     filePath
   );
-  finalContent = sanitizationResult.content;
+  finalContent = applyContentViewMinification(
+    sanitizationResult.content,
+    filePath
+  );
 
   if (sanitizationResult.hasSecrets) {
     matchLocationsSet.add(

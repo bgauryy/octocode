@@ -44,6 +44,9 @@ export const hints: ToolHintGenerators = {
       out.push(
         "Verify files exist: use `localFindFiles` with a name filter or `localViewStructure` to confirm the path isn't empty before retrying."
       );
+      out.push(
+        'Tip: use mode="discovery" for a fast cheap presence-check (returns only file paths + match counts, no content) before doing a full read.'
+      );
     }
     return out;
   },

@@ -780,9 +780,10 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
     });
   });
 
-  describe('fetchGitHubFileContentAPI - content is verbatim (no pre-finalizer minify)', () => {
-    it('does NOT minify fullContent in the base processor', async () => {
+  describe('fetchGitHubFileContentAPI - JSON content is minified by applyContentViewMinification', () => {
+    it('minifies JSON content (sync inline minification, not async minifyContent)', async () => {
       const fileContent = '{\n  "name": "demo",\n  "version": "1.0.0"\n}';
+      const minifiedJson = '{"name":"demo","version":"1.0.0"}';
 
       const mockOctokit = {
         rest: {
@@ -804,7 +805,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         mockOctokit as unknown as ReturnType<typeof getOctokit>
       );
-      const minifySpy = vi
+      const asyncMinifySpy = vi
         .mocked(minifierModule.minifyContent)
         .mockResolvedValue({
           content: 'SHOULD_NOT_APPEAR',
@@ -821,9 +822,9 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
 
       expect('data' in result).toBe(true);
       if ('data' in result && result.data) {
-        expect(result.data.content).toBe(fileContent);
+        expect(result.data.content).toBe(minifiedJson);
       }
-      expect(minifySpy).not.toHaveBeenCalled();
+      expect(asyncMinifySpy).not.toHaveBeenCalled();
     });
   });
 

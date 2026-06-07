@@ -85,9 +85,7 @@ describe('localGetFileContent', () => {
       expect(result.isPartial).toBe(true);
     });
 
-    // Contract: (default) returns verbatim content. The
-    // matchString slice path must NOT minify; content is always returned as-is.
-    it('does NOT minify the matchString slice ( default)', async () => {
+    it('strips inline comments from JS files in the matchString slice (comment + indent minification)', async () => {
       const testContent =
         'before\nconst x = 1; // keep this comment\nTARGET\nafter';
       mockReadFile.mockResolvedValue(testContent);
@@ -99,13 +97,12 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Verbatim slice — the line comment survives (would be stripped if minified).
-      expect(result.content).toBe(
-        'const x = 1; // keep this comment\nTARGET\nafter'
-      );
+      expect(result.content).not.toContain('// keep this comment');
+      expect(result.content).toContain('const x = 1');
+      expect(result.content).toContain('TARGET');
     });
 
-    it('matchString slice preserves content verbatim', async () => {
+    it('matchString slice — two calls return identical content', async () => {
       const testContent =
         'before\nconst x = 1; // keep this comment\nTARGET\nafter';
       mockReadFile.mockResolvedValue(testContent);
@@ -122,9 +119,9 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Verbosity is a no-op for content: content preserved verbatim (no minification)
       expect(result.content).toBe(def.content);
-      expect(result.content).toContain('// keep this comment');
+      expect(result.content).not.toContain('// keep this comment');
+      expect(result.content).toContain('const x = 1');
     });
 
     it('should return empty when pattern not found', async () => {

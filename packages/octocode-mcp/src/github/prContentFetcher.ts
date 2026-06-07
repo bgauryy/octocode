@@ -13,6 +13,7 @@ import {
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { logSessionError } from '../session.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { minifyMarkdownCore } from '../utils/minifier/minifierStrategies.js';
 import { getOctokit, OctokitWithThrottling } from './client.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import {
@@ -84,7 +85,9 @@ async function fetchPRComments(
     const botsDropped = raw.length - kept.length;
 
     const comments = kept.map((comment: IssueComment): PRCommentItem => {
-      const stripped = stripMachineBlobs(comment.body ?? '');
+      const stripped = minifyMarkdownCore(
+        stripMachineBlobs(comment.body ?? '')
+      );
       return {
         id: String(comment.id),
         user: comment.user?.login ?? 'unknown',
@@ -151,7 +154,9 @@ async function fetchPRInlineComments(
     const botsDropped = raw.length - kept.length;
 
     const comments = kept.map((comment: ReviewComment): PRCommentItem => {
-      const stripped = stripMachineBlobs(comment.body ?? '');
+      const stripped = minifyMarkdownCore(
+        stripMachineBlobs(comment.body ?? '')
+      );
       return {
         id: String(comment.id),
         user: comment.user?.login ?? 'unknown',

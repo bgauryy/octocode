@@ -5,7 +5,8 @@ import {
   CommitFileInfo,
 } from './githubAPI.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
-import { filterPatch } from '../utils/parsers/diff.js';
+import { filterPatch, trimDiffContext } from '../utils/parsers/diff.js';
+import { minifyMarkdownCore } from '../utils/minifier/minifierStrategies.js';
 
 interface RawPRData {
   number: number;
@@ -30,7 +31,7 @@ export function createBasePRTransformation(item: RawPRData): {
 } {
   const titleSanitized = ContentSanitizer.sanitizeContent(item.title ?? '');
   const bodySanitized = item.body
-    ? ContentSanitizer.sanitizeContent(item.body)
+    ? ContentSanitizer.sanitizeContent(minifyMarkdownCore(item.body))
     : { content: undefined, warnings: [] };
 
   const sanitizationWarnings = new Set<string>([
@@ -287,5 +288,8 @@ export function applyPartialContentFilter(
         };
       });
   }
-  return files;
+  return files.map(file => ({
+    ...file,
+    patch: file.patch ? trimDiffContext(file.patch) : file.patch,
+  }));
 }

@@ -128,6 +128,7 @@ export async function searchMultipleGitHubPullRequests(
         const resultHints: string[] = hasContent
           ? [
               `Found ${pullRequests.length} PR${pullRequests.length === 1 ? '' : 's'} — use prNumber=<n> with type="fullContent" to read a specific PR's full diff, or type="partialContent" + partialContentMetadata for targeted file patches.`,
+              `To read inline review comments and discussion threads, re-call with prNumber=<n> + type="fullContent" + withComments=true. Comments are in result.comments[].`,
             ]
           : [];
 
