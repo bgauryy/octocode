@@ -25,8 +25,6 @@ import {
 } from '../providerExecution.js';
 import { buildGithubSearchCodeFinalizer } from './finalizer.js';
 
-export { applyGithubSearchCodeVerbosity } from './finalizer.js';
-
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
 function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {

@@ -108,15 +108,6 @@ export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
     `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. For large trees, page the entries (page=N) or narrow the path rather than over-deepening.`
   );
 
-const verboseField = z
-  .boolean()
-  .optional()
-  .describe(
-    'Boolean detail switch shared by every tool query. false returns efficient research data; true includes extended metadata.'
-  );
-
-export type WithVerbosity<T> = T & { verbose?: boolean };
-
 export type WithQueryMeta<T> = T & {
   id?: string;
   mainResearchGoal?: string;
@@ -124,13 +115,7 @@ export type WithQueryMeta<T> = T & {
   reasoning?: string;
 };
 
-export type WithLocalOverlay<T> = WithVerbosity<WithQueryMeta<T>>;
-
-export function createVerbosityFields() {
-  return {
-    verbose: verboseField,
-  } as const;
-}
+export type WithLocalOverlay<T> = WithQueryMeta<T>;
 
 export function createRelaxedBulkQuerySchema(
   toolName: string,
@@ -185,7 +170,6 @@ export const optionalMetaFields = {
     .string()
     .optional()
     .describe('Why this query helps achieve the research goal.'),
-  ...createVerbosityFields(),
 } as const;
 
 const limitField = clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)

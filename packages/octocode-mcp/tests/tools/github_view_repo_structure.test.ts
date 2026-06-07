@@ -544,7 +544,6 @@ describe('GitHub View Repository Structure Tool', () => {
               owner: 'facebook',
               repo: 'react',
               branch: 'nonexistent-branch',
-              verbose: true,
             },
           ],
         }

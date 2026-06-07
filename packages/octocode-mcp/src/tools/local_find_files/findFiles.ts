@@ -21,13 +21,11 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import { LOCAL_OVERLAY_MAX_LIMIT } from '../../scheme/localSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
-type FindFilesQuery = WithVerbosity<WithOptionalMeta<UpstreamFindFilesQuery>>;
+type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery>;
 
 const DEFAULT_FIND_EXCLUDE_DIRS = [
   'node_modules',
@@ -336,7 +334,7 @@ export async function findFiles(
     };
 
     return attachRawResponseChars(
-      applyFindFilesVerbosity(fullResult, query, { totalFiles }),
+      finalizeFindFilesResult(fullResult, query, { totalFiles }),
       result.stdout.length
     );
   } catch (error) {
@@ -346,38 +344,12 @@ export async function findFiles(
   }
 }
 
-export function applyFindFilesVerbosity(
+export function finalizeFindFilesResult(
   result: LocalFindFilesToolResult,
-  query: FindFilesQuery,
+  _query: FindFilesQuery,
   _totals: { totalFiles: number }
 ): LocalFindFilesToolResult {
-  if (isVerbose(query)) return result;
-  if (!result.files?.length) return result;
-
-  const sortByModified =
-    (query as Record<string, unknown>).sortBy === 'modified';
-
-  return {
-    ...result,
-    files: result.files.map(f => {
-      const {
-        size: _s,
-        modified: _m,
-        permissions: _p,
-        ...rest
-      } = f as typeof f & {
-        size?: unknown;
-        modified?: unknown;
-        permissions?: unknown;
-      };
-      void _s;
-      void _p;
-      return {
-        ...rest,
-        ...(sortByModified && _m !== undefined ? { modified: _m } : {}),
-      } as typeof f;
-    }),
-  };
+  return result;
 }
 
 function sortLocalFindFilesEntrys(

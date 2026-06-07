@@ -109,8 +109,8 @@ describe('GitHub Search Repositories Coverage', () => {
     });
   }
 
-  describe('verbose flag — pass-through contract', () => {
-    it('verbose:false — limit is not capped, returns all repos', async () => {
+  describe('limit and filter behavior', () => {
+    it(' — limit is not capped, returns all repos', async () => {
       const repos = [
         repo({ id: '1', fullPath: 'a/top-repo', stars: 900, language: 'Go' }),
         repo({ id: '2', fullPath: 'b/second', stars: 500 }),
@@ -120,8 +120,7 @@ describe('GitHub Search Repositories Coverage', () => {
       mockProvider.searchRepos.mockResolvedValue(okResponse(repos));
 
       const result = await call({
-        id: 'verbose_false',
-        verbose: false,
+        id: 'q_no_filter',
         keywordsToSearch: ['anything'],
         limit: 50,
       });
@@ -133,26 +132,24 @@ describe('GitHub Search Repositories Coverage', () => {
       expect(result.isError).toBe(false);
     });
 
-    it('verbose:false — default limit applies when limit not passed', async () => {
+    it(' — default limit applies when limit not passed', async () => {
       mockProvider.searchRepos.mockResolvedValue(
         okResponse([repo({ fullPath: 'a/only' })])
       );
 
       const result = await call({
-        id: 'verbose_false_no_limit',
-        verbose: false,
+        id: 'q_default_limit',
         keywordsToSearch: ['x'],
       });
 
       expect(result.isError).toBe(false);
     });
 
-    it('verbose:false — no (top:) summary hint when no repos found', async () => {
+    it(' — no (top:) summary hint when no repos found', async () => {
       mockProvider.searchRepos.mockResolvedValue(okResponse([]));
 
       const result = await call({
-        id: 'verbose_false_empty',
-        verbose: false,
+        id: 'q_empty_results',
         keywordsToSearch: ['nomatch'],
       });
 
@@ -394,13 +391,12 @@ describe('GitHub Search Repositories Coverage', () => {
     });
   });
 
-  describe('verbose:true — full hints returned (metadata mode)', () => {
+  describe(' — full hints returned (metadata mode)', () => {
     it('returns full hints even when results are empty', async () => {
       mockProvider.searchRepos.mockResolvedValue(okResponse([]));
 
       const result = await call({
-        id: 'verbose_true_empty',
-        verbose: true,
+        id: 'q_topics_empty',
         topicsToSearch: ['t1'],
       });
 

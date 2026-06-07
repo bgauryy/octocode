@@ -36,10 +36,6 @@ describe('all-tools pagination contract', () => {
         }
       });
 
-      it('declares the boolean verbose detail control', () => {
-        expect(schemaText).toMatch(/"verbose"/);
-      });
-
       it('schema is free of silent-loss language (paginates, never truncates)', () => {
         for (const re of LOSS_LANGUAGE) {
           expect(schemaText, `loss-language matched ${re}`).not.toMatch(re);

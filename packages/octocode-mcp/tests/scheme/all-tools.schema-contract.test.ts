@@ -125,7 +125,6 @@ describe('all-tools schema contract', () => {
         'mainResearchGoal',
         'researchGoal',
         'reasoning',
-        'verbose',
       ] as const;
 
       it('per-query schema (tool.direct.schema) exposes all cross-tool shared fields', () => {
@@ -169,7 +168,7 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      it('parses with all research metadata + verbose=true', () => {
+      it('parses with all research metadata', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const result = bulkSchema.safeParse({
@@ -180,30 +179,14 @@ describe('all-tools schema contract', () => {
               mainResearchGoal: 'contract test',
               researchGoal: 'schema validation',
               reasoning: 'zod v4 audit',
-              verbose: true,
             },
           ],
         });
         expect(
           result.success,
-          `${toolName}: failed with research metadata + verbose.\n` +
+          `${toolName}: failed with research metadata.\n` +
             `Errors: ${!result.success ? JSON.stringify(result.error.issues) : ''}`
         ).toBe(true);
-      });
-
-      it('accepts verbose:true and verbose:false (boolean detail switch)', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
-        if (!minQuery) return;
-        for (const verbose of [true, false] as const) {
-          const r = bulkSchema.safeParse({
-            queries: [{ ...minQuery, verbose }],
-          });
-          expect(
-            r.success,
-            `${toolName}: rejected verbose=${verbose}.\n` +
-              `Errors: ${!r.success ? JSON.stringify(r.error.issues) : ''}`
-          ).toBe(true);
-        }
       });
 
       it('parses 3 parallel queries (bulk batching)', () => {

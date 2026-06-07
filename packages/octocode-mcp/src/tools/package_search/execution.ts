@@ -17,8 +17,6 @@ import type {
   DeprecationInfo,
 } from '../../utils/package/common.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import { isVerbose } from '../../scheme/verbosity.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import { createSuccessResult, createErrorResult } from '../utils.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
@@ -68,16 +66,6 @@ export async function searchPackages(
     queries,
     async (query: PackageSearchQuery, _index: number) => {
       try {
-        const queryWithVerbosity = query as WithVerbosity<typeof query>;
-        if (
-          queryWithVerbosity.verbose !== undefined &&
-          (query as { npmFetchMetadata?: boolean }).npmFetchMetadata ===
-            undefined
-        ) {
-          (query as { npmFetchMetadata?: boolean }).npmFetchMetadata =
-            queryWithVerbosity.verbose;
-        }
-
         if (!query.name) {
           return createErrorResult(
             'Package name is required for package search',
@@ -134,10 +122,7 @@ export async function searchPackages(
           ? generateSuccessHints(result, deprecationInfo)
           : generateEmptyHints(validatedQuery);
 
-        const shaped = applyPackageSearchVerbosity(
-          { data: result, extraHints },
-          query
-        );
+        const shaped = { data: result, extraHints };
         const itemsPerPage =
           (query as { itemsPerPage?: number }).itemsPerPage ?? 20;
         const isPartial =
@@ -242,41 +227,6 @@ function generateEmptyHints(query: PackageSearchQuery): string[] {
   }
 
   return hints;
-}
-
-export function applyPackageSearchVerbosity(
-  input: {
-    data: { packages: PackageResult[]; totalFound: number };
-    extraHints: string[];
-  },
-  query: PackageSearchQuery
-): {
-  data: { packages: unknown[]; totalFound: number };
-  extraHints: string[];
-} {
-  const queryWithVerbosity = query as WithVerbosity<typeof query>;
-
-  if (isVerbose(queryWithVerbosity)) {
-    return { data: input.data, extraHints: input.extraHints };
-  }
-
-  const METADATA_KEYS = new Set([
-    'license',
-    'weeklyDownloads',
-    'recentVersions',
-    'publishedAt',
-    'maintainers',
-  ]);
-  const packages = (input.data.packages ?? []).map(p => {
-    const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(
-      p as unknown as Record<string, unknown>
-    )) {
-      if (!METADATA_KEYS.has(key)) result[key] = val;
-    }
-    return result;
-  });
-  return { data: { ...input.data, packages }, extraHints: input.extraHints };
 }
 
 function generateNameVariations(name: string): string[] {

@@ -21,7 +21,7 @@ import {
   isRecord,
 } from '../evidence.js';
 
-export { applyFetchContentVerbosity } from './fetchContent.js';
+export { finalizeFetchContentResult } from './fetchContent.js';
 
 function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
   const data = isRecord(result) ? result : {};

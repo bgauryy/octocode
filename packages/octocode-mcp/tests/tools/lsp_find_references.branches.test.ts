@@ -74,7 +74,7 @@ import {
 } from '../../src/utils/file/toolHelpers.js';
 import type { FindReferencesResult } from '../../src/lsp/types.js';
 import {
-  applyFindReferencesVerbosity,
+  finalizeFindReferencesResult,
   findReferences,
 } from '../../src/tools/lsp_find_references/lsp_find_references.js';
 
@@ -165,7 +165,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         ],
       };
 
-      const grouped = applyFindReferencesVerbosity(result, {
+      const grouped = finalizeFindReferencesResult(result, {
         ...baseQuery,
         groupByFile: true,
       });
@@ -225,7 +225,7 @@ describe('LSP Find References - Branch Coverage Tests', () => {
         ],
       };
 
-      const grouped = applyFindReferencesVerbosity(result, {
+      const grouped = finalizeFindReferencesResult(result, {
         ...baseQuery,
         groupByFile: true,
       });

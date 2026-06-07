@@ -64,7 +64,7 @@ describe('localSearchCode — LSP lineHint success hint', () => {
 
 describe('lspGotoDefinition — success-path extra hint', () => {
   it('success return includes lspFindReferences chaining hint', async () => {
-    const { applyGotoDefinitionVerbosity } =
+    const { finalizeGotoDefinitionResult } =
       await import('../../../src/tools/lsp_goto_definition/execution.js');
     const mockResult = {
       locations: [
@@ -82,7 +82,7 @@ describe('lspGotoDefinition — success-path extra hint', () => {
         'Definition found — use lspFindReferences with the same symbolName+lineHint to find all usages, or lspCallHierarchy to trace call flow.',
       ],
     };
-    const result = applyGotoDefinitionVerbosity(
+    const result = finalizeGotoDefinitionResult(
       mockResult as never,
       {} as never
     );

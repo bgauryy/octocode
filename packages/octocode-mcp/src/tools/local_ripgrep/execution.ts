@@ -23,7 +23,7 @@ import {
   records,
 } from '../evidence.js';
 
-export { applyRipgrepVerbosity } from './ripgrepResultBuilder.js';
+export { finalizeRipgrepResult } from './ripgrepResultBuilder.js';
 
 export function buildRipgrepEvidence(result: unknown): EvidenceMetadata {
   const data = isRecord(result) ? result : {};

@@ -6,16 +6,13 @@ import type { LSPFindReferencesQuerySchema } from '@octocodeai/octocode-core/sch
 type UpstreamLSPFindReferencesQuery = z.infer<
   typeof LSPFindReferencesQuerySchema
 >;
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 
-type LSPFindReferencesQuery = WithVerbosity<
-  WithOptionalMeta<UpstreamLSPFindReferencesQuery>
-> & {
-  groupByFile?: boolean;
-  orderHint?: number;
-};
+type LSPFindReferencesQuery =
+  WithOptionalMeta<UpstreamLSPFindReferencesQuery> & {
+    groupByFile?: boolean;
+    orderHint?: number;
+  };
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import { isLanguageServerAvailable } from '../../lsp/manager.js';
 import type {
@@ -57,7 +54,7 @@ export async function findReferences(
   const result = await findReferencesInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
   const shaped = attachReferencesEvidence(
-    applyFindReferencesVerbosity(result, query)
+    finalizeFindReferencesResult(result, query)
   );
   return attachRawResponseChars(shaped, rawChars);
 }
@@ -243,7 +240,7 @@ function buildReferencesByFile(
   });
 }
 
-export function applyFindReferencesVerbosity(
+export function finalizeFindReferencesResult(
   result: FindReferencesResult,
   query: LSPFindReferencesQuery
 ): FindReferencesResult {
@@ -262,13 +259,7 @@ export function applyFindReferencesVerbosity(
     };
   }
 
-  if (isVerbose(query)) return result;
-  if (!('lspMode' in (result as object))) return result;
-  const { lspMode: _lm, ...rest } = result as typeof result & {
-    lspMode?: unknown;
-  };
-  void _lm;
-  return rest as FindReferencesResult;
+  return result;
 }
 
 export { findReferencesWithLSP } from './lspReferencesCore.js';

@@ -7,15 +7,12 @@ import type { LSPGotoDefinitionQuerySchema } from '@octocodeai/octocode-core/sch
 type UpstreamLSPGotoDefinitionQuery = z.infer<
   typeof LSPGotoDefinitionQuerySchema
 >;
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
-type LSPGotoDefinitionQuery = WithVerbosity<
-  WithOptionalMeta<UpstreamLSPGotoDefinitionQuery>
-> & {
-  orderHint?: number;
-};
+type LSPGotoDefinitionQuery =
+  WithOptionalMeta<UpstreamLSPGotoDefinitionQuery> & {
+    orderHint?: number;
+  };
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import {
   acquirePooledClient,
@@ -186,7 +183,7 @@ async function gotoDefinition(
     }
 
     return attachRawResponseChars(
-      applyGotoDefinitionVerbosity(result, query),
+      finalizeGotoDefinitionResult(result, query),
       content.length + countSerializedChars(result)
     );
   } catch (error) {
@@ -418,17 +415,11 @@ function buildLspUnavailableResult(lspFailed = false): GotoDefinitionResult {
   };
 }
 
-export function applyGotoDefinitionVerbosity(
+export function finalizeGotoDefinitionResult(
   result: GotoDefinitionResult,
-  query: LSPGotoDefinitionQuery
+  _query: LSPGotoDefinitionQuery
 ): GotoDefinitionResult {
-  if (isVerbose(query) || result.status !== undefined) return result;
-  if (!('lspMode' in (result as object))) return result;
-  const { lspMode: _lm, ...rest } = result as typeof result & {
-    lspMode?: unknown;
-  };
-  void _lm;
-  return rest as GotoDefinitionResult;
+  return result;
 }
 
 export function addLineNumbers(

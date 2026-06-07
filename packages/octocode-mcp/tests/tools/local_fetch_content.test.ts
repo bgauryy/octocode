@@ -85,9 +85,9 @@ describe('localGetFileContent', () => {
       expect(result.isPartial).toBe(true);
     });
 
-    // Contract: verbose:false (default) returns verbatim content. The
+    // Contract: (default) returns verbatim content. The
     // matchString slice path must NOT minify; content is always returned as-is.
-    it('does NOT minify the matchString slice (verbose:false default)', async () => {
+    it('does NOT minify the matchString slice ( default)', async () => {
       const testContent =
         'before\nconst x = 1; // keep this comment\nTARGET\nafter';
       mockReadFile.mockResolvedValue(testContent);
@@ -105,7 +105,7 @@ describe('localGetFileContent', () => {
       );
     });
 
-    it('verbose=false (default) — matchString slice preserves content verbatim', async () => {
+    it('matchString slice preserves content verbatim', async () => {
       const testContent =
         'before\nconst x = 1; // keep this comment\nTARGET\nafter';
       mockReadFile.mockResolvedValue(testContent);
@@ -119,7 +119,6 @@ describe('localGetFileContent', () => {
         path: 'test.js',
         matchString: 'TARGET',
         matchStringContextLines: 1,
-        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
@@ -1130,7 +1129,7 @@ describe('localGetFileContent', () => {
       ).toBe(true);
     });
 
-    it('preserves the line-range continuation hint when verbose=false', async () => {
+    it('preserves the line-range continuation hint', async () => {
       const lines = [];
       for (let i = 1; i <= 100; i++) {
         lines.push(`const x${i} = ${i};`);
@@ -1141,10 +1140,9 @@ describe('localGetFileContent', () => {
         path: 'test.ts',
         startLine: 1,
         endLine: 40,
-        verbose: false,
       });
 
-      // Pagination is orthogonal to verbosity — the continuation cursor must survive.
+      // Pagination is orthogonal to output shaping — the continuation cursor must survive.
       expect(
         result.hints?.some(h =>
           h.includes('More content: use startLine=41 to continue')

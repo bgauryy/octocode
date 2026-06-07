@@ -2,43 +2,11 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { getHints } from '../../src/hints/index.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
-import { applyGithubSearchCodeVerbosity } from '../../src/tools/github_search_code/finalizer.js';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
-import { applyGithubViewRepoStructureVerbosity } from '../../src/tools/github_view_repo_structure/execution.js';
+import { buildRepoStructureOutput } from '../../src/tools/github_view_repo_structure/execution.js';
 
 beforeAll(async () => {
   await initializeToolMetadata();
-});
-
-describe('Verbosity: githubSearchCode', () => {
-  it('verbose=false strips matchIndices metadata, preserves core match data', () => {
-    const originalMatches = [
-      {
-        path: 'ReactFiberThrow.js',
-        value: 'function throwException() {',
-        matchIndices: [{ start: 0, end: 5 }],
-      },
-      { path: 'ReactFiberThrow.js', value: 'throw value;' },
-    ];
-    const responseData = {
-      results: [
-        {
-          id: 'facebook/react',
-          owner: 'facebook',
-          repo: 'react',
-          matches: [...originalMatches],
-        },
-      ],
-    };
-
-    applyGithubSearchCodeVerbosity(responseData, [{ verbose: false }]);
-    expect(responseData.results[0]!.matches[0]).not.toHaveProperty(
-      'matchIndices'
-    );
-    expect(responseData.results[0]!.matches[0]!.value).toBe(
-      originalMatches[0]!.value
-    );
-  });
 });
 
 describe('Evidence: githubGetFileContent', () => {
@@ -89,7 +57,7 @@ describe('Evidence: githubGetFileContent', () => {
 
 describe('Verbosity: githubViewRepoStructure', () => {
   it('suggests concrete next paths when a structure response is truncated', () => {
-    const shaped = applyGithubViewRepoStructureVerbosity(
+    const shaped = buildRepoStructureOutput(
       {
         data: {
           path: '',
@@ -104,7 +72,7 @@ describe('Verbosity: githubViewRepoStructure', () => {
         summary: { truncated: true },
         extraHints: [],
       },
-      { verbose: false }
+      {}
     );
 
     expect(shaped.extraHints).toContain(

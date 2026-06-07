@@ -7,7 +7,6 @@ import {
 import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   createRelaxedBulkQuerySchema,
-  createVerbosityFields,
   contextLinesField,
   optionalMetaFields,
   relaxedPageNumberField,
@@ -56,7 +55,6 @@ export const LSPGotoDefinitionQuerySchema = withFilePathAlias(
         .describe('Alias for uri — pass either, not both'),
       lineHint: requiredLineHintField,
       orderHint: orderHintField,
-      ...createVerbosityFields(),
       contextLines: contextLinesField,
     })
   )
@@ -82,7 +80,6 @@ export const LSPFindReferencesQuerySchema = withFilePathAlias(
         .describe('Alias for uri — pass either, not both'),
       lineHint: requiredLineHintField,
       orderHint: orderHintField,
-      ...createVerbosityFields(),
       contextLines: contextLinesField,
       page: relaxedPageNumberField
         .default(1)
@@ -114,7 +111,6 @@ export const LSPCallHierarchyQuerySchema = withFilePathAlias(
         .describe('Alias for uri — pass either, not both'),
       lineHint: requiredLineHintField,
       orderHint: orderHintField,
-      ...createVerbosityFields(),
       contextLines: contextLinesField,
       page: relaxedPageNumberField
         .default(1)

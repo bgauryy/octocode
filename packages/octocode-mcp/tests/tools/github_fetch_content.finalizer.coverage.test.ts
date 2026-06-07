@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildGithubFetchContentFinalizer,
-  applyGithubFetchContentVerbosity,
-} from '../../src/tools/github_fetch_content/finalizer.js';
+import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import type { FlatQueryResult } from '../../src/types/toolResults.js';
 
 type Query = Record<string, unknown>;
@@ -29,9 +26,7 @@ function run(
 
 describe('buildGithubFetchContentFinalizer — group building & narrowing', () => {
   it('reads a full file entry with pagination, partial flags and warnings', () => {
-    const queries: Query[] = [
-      { owner: 'o', repo: 'r', path: 'src/a.ts', verbose: false },
-    ];
+    const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'src/a.ts' }];
     const results: FlatQueryResult[] = [
       {
         id: 'q1',
@@ -450,133 +445,5 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     expect(data.results[0].files).toHaveLength(2);
     expect(data.results[0].directories).toHaveLength(1);
     expect(data.hints?.some(h => /charOffset=7\b/.test(h))).toBe(true);
-  });
-});
-
-describe('applyGithubFetchContentVerbosity', () => {
-  it('strips lastModified/lastModifiedBy metadata when no queries are verbose (default)', () => {
-    const responseData = {
-      results: [
-        {
-          id: 'o/r',
-          owner: 'o',
-          repo: 'r',
-          files: [
-            {
-              path: 'a',
-              content: 'x',
-              lastModified: '2026',
-              lastModifiedBy: 'alice',
-            },
-          ],
-        },
-      ],
-      hints: ['keep me'],
-    } as never;
-    applyGithubFetchContentVerbosity(responseData, [] as never);
-    const file = (responseData as any).results[0].files[0];
-    expect(file).not.toHaveProperty('lastModified');
-  });
-
-  it('preserves all metadata when at least one query has verbose=true', () => {
-    const responseData = {
-      results: [
-        {
-          id: 'o/r',
-          owner: 'o',
-          repo: 'r',
-          files: [
-            {
-              path: 'a.ts',
-              content: '// comment\nconst   x   =   1;\n',
-              totalLines: 3,
-              lastModified: '2026-01-01',
-              lastModifiedBy: 'bob',
-            },
-          ],
-        },
-      ],
-      hints: ['old hint'],
-    } as Record<string, unknown>;
-    applyGithubFetchContentVerbosity(
-      responseData as never,
-      [{ owner: 'o', repo: 'r', verbose: true }] as never
-    );
-    const results = responseData.results as Array<{
-      files: Array<Record<string, unknown>>;
-    }>;
-    const file0 = results[0].files[0];
-    expect(file0.lastModified).toBe('2026-01-01');
-    expect(file0.lastModifiedBy).toBe('bob');
-  });
-
-  it('passes through results with no files array without error', () => {
-    const responseData = {
-      results: [{ id: 'o/r', owner: 'o', repo: 'r', directories: [] }],
-    } as Record<string, unknown>;
-    expect(() =>
-      applyGithubFetchContentVerbosity(
-        responseData as never,
-        [{ owner: 'o', repo: 'r' }] as never
-      )
-    ).not.toThrow();
-    expect(responseData.hints).toBeUndefined();
-  });
-
-  it('passes through missing results without error', () => {
-    const responseData = {} as Record<string, unknown>;
-    expect(() =>
-      applyGithubFetchContentVerbosity(
-        responseData as never,
-        [{ owner: 'o', repo: 'r' }] as never
-      )
-    ).not.toThrow();
-  });
-
-  it('no warnings injected by verbosity layer', () => {
-    const responseData = {
-      results: [
-        {
-          id: 'o/r',
-          owner: 'o',
-          repo: 'r',
-          files: [{ path: 'a.ts', content: 'x' }],
-        },
-      ],
-      warnings: [{ kind: 'pre-existing' }],
-    } as Record<string, unknown>;
-    applyGithubFetchContentVerbosity(
-      responseData as never,
-      [{ owner: 'o', repo: 'r' }] as never
-    );
-    const warnings = responseData.warnings as Array<{ kind: string }>;
-    expect(warnings.some(w => w.kind === 'pre-existing')).toBe(true);
-  });
-
-  it('hints are not modified by verbosity layer', () => {
-    const allHints = [
-      'file_too_large to display fully',
-      'too large to display',
-      'useful hint 1',
-      'useful hint 2',
-    ];
-    const responseData = {
-      results: [
-        {
-          id: 'o/r',
-          owner: 'o',
-          repo: 'r',
-          files: [{ path: 'a', content: 'x' }],
-        },
-      ],
-      hints: [...allHints],
-    } as Record<string, unknown>;
-    applyGithubFetchContentVerbosity(
-      responseData as never,
-      [{ owner: 'o', repo: 'r' }] as never
-    );
-    const hints = responseData.hints as string[];
-    expect(hints).toEqual(allHints);
-    expect(hints.some(h => /too large/.test(h))).toBe(true);
   });
 });

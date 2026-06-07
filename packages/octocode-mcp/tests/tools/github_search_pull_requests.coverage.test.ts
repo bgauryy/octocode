@@ -38,7 +38,7 @@ vi.mock('../../src/serverConfig.js', () => ({
 }));
 
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { applyGithubSearchPullRequestsVerbosity } from '../../src/tools/github_search_pull_requests/execution.js';
+import { buildPRSearchOutput } from '../../src/tools/github_search_pull_requests/execution.js';
 import { mapPullRequestProviderResultData } from '../../src/tools/providerMappers.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 
@@ -119,8 +119,8 @@ describe('github_search_pull_requests execution — branch coverage', () => {
     vi.resetAllMocks();
   });
 
-  describe('verbosity pre-flight behavior (lines 86,88,94,95,97,99,102)', () => {
-    it('verbose=false is a no-op — no limit cap, no type coercion', async () => {
+  describe('query validation behavior', () => {
+    it('no limit cap, no type coercion on normal queries', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
@@ -130,7 +130,6 @@ describe('github_search_pull_requests execution — branch coverage', () => {
         state: 'open',
         type: 'fullContent',
         partialContentMetadata: { foo: 'bar' },
-        verbose: false,
       };
 
       const result = await mockServer.callTool(
@@ -149,7 +148,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(q.limit).toBeGreaterThan(0);
     });
 
-    it('verbose:false with omitted type — succeeds without type coercion', async () => {
+    it(' with omitted type — succeeds without type coercion', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
@@ -162,7 +161,6 @@ describe('github_search_pull_requests execution — branch coverage', () => {
               owner: 'test',
               repo: 'repo',
               state: 'open',
-              verbose: false,
             },
           ],
         }
@@ -172,7 +170,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);
     });
 
-    it('verbose:false with prNumber + explicit type — succeeds', async () => {
+    it(' with prNumber + explicit type — succeeds', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR({ number: 456 })])
       );
@@ -186,7 +184,6 @@ describe('github_search_pull_requests execution — branch coverage', () => {
               repo: 'repo',
               prNumber: 456,
               type: 'fullContent',
-              verbose: false,
             },
           ],
         }
@@ -196,7 +193,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);
     });
 
-    it('does not cap when verbose=false with page=1', async () => {
+    it('does not cap with page=1', async () => {
       mockProvider.searchPullRequests.mockResolvedValue(
         providerResponse([basePR()])
       );
@@ -208,7 +205,6 @@ describe('github_search_pull_requests execution — branch coverage', () => {
             repo: 'repo',
             state: 'open',
             page: 1,
-            verbose: false,
           },
         ],
       });
@@ -481,7 +477,7 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
   });
 });
 
-describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
+describe('buildPRSearchOutput — direct', () => {
   const basePRs = [
     {
       number: 101,
@@ -499,57 +495,44 @@ describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
     },
   ] as Array<Record<string, unknown>>;
 
-  it('verbose=false (default) strips metadata fields from PRs', () => {
+  it('returns data and extraHints unchanged', () => {
     const input = {
       data: { total_count: 2 } as Record<string, unknown>,
       pullRequests: basePRs,
       extraHints: ['h1'],
     };
-    const out = applyGithubSearchPullRequestsVerbosity(input, {} as never);
-
-    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
-    expect(prs).toBeDefined();
-    expect(prs[0]).not.toHaveProperty('createdAt');
-    expect(prs[0]).toHaveProperty('number');
+    const out = buildPRSearchOutput(input, {} as never);
+    expect(out.data).toBe(input.data);
     expect(out.extraHints).toEqual(['h1']);
   });
 
-  it('verbose=true passes PRs and data through unchanged with all metadata', () => {
-    const input = {
-      data: { total_count: 2 } as Record<string, unknown>,
-      pullRequests: basePRs,
-      extraHints: ['h1'],
-    };
-    const out = applyGithubSearchPullRequestsVerbosity(input, {
-      verbose: true,
-    } as never);
-
-    expect(out.data).toEqual({ total_count: 2 });
-    expect(out.extraHints).toEqual(['h1']);
-  });
-
-  it('with no-number PR — strips metadata but keeps core fields', () => {
-    const input = {
-      data: {},
-      pullRequests: [{ title: 'no-number', createdAt: '2024-01-01' }],
-      extraHints: [],
-    };
-    const out = applyGithubSearchPullRequestsVerbosity(input, {} as never);
-
-    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
-    expect(prs[0]).not.toHaveProperty('createdAt');
-    expect(prs[0]).toHaveProperty('title');
+  it('always preserves all PR fields including metadata', () => {
+    const prs = [
+      {
+        number: 100,
+        title: 'A',
+        state: 'open',
+        merged: false,
+        createdAt: '2024-01-01',
+        labels: ['bug'],
+      },
+    ] as Array<Record<string, unknown>>;
+    const out = buildPRSearchOutput(
+      { data: { pull_requests: prs }, pullRequests: prs, extraHints: [] },
+      {} as never
+    );
+    expect(out.data).toEqual({ pull_requests: prs });
     expect(out.extraHints).toEqual([]);
   });
 
-  it('advisory hints always preserved regardless of verbosity', () => {
+  it('advisory hints always preserved', () => {
     const allHints = [
       'Page 1/2 (showing 1 of 2 PRs)',
       'PR archaeology: use prNumber',
       'withComments adds tokens',
       'another data hint',
     ];
-    const out = applyGithubSearchPullRequestsVerbosity(
+    const out = buildPRSearchOutput(
       {
         data: { pull_requests: [{ number: 1 }] },
         pullRequests: [{ number: 1 }],
@@ -557,103 +540,18 @@ describe('applyGithubSearchPullRequestsVerbosity — direct', () => {
       },
       {} as never
     );
-
     expect(out.extraHints).toEqual(allHints);
     expect(out.extraHints.length).toBe(4);
-    expect(out.extraHints).toContain('Page 1/2 (showing 1 of 2 PRs)');
-    expect(
-      out.extraHints.some(h => h.toLowerCase().includes('archaeology'))
-    ).toBe(true);
   });
 
-  it('empty pullRequests returns empty pull_requests array', () => {
-    const out = applyGithubSearchPullRequestsVerbosity(
-      { data: { x: 1 }, pullRequests: [], extraHints: [] },
+  it('preserves data reference when input is empty', () => {
+    const inputData = { x: 1 };
+    const out = buildPRSearchOutput(
+      { data: inputData, pullRequests: [], extraHints: ['keep'] },
       {} as never
     );
-    expect(out.extraHints).toEqual([]);
-    const prs = out.data.pull_requests as Array<unknown>;
-    expect(prs).toEqual([]);
-  });
-
-  it('verbose=true with hints and data passes through unchanged', () => {
-    const out = applyGithubSearchPullRequestsVerbosity(
-      { data: { x: 1 }, pullRequests: [{ number: 1 }], extraHints: ['keep'] },
-      { verbose: true } as never
-    );
-    expect(out.data).toEqual({ x: 1 });
+    expect(out.data).toBe(inputData);
     expect(out.extraHints).toEqual(['keep']);
-  });
-
-  it('withComments:true preserves comments array instead of stripping it', () => {
-    const prsWithComments = [
-      {
-        number: 200,
-        title: 'PR with comments',
-        comments: [
-          {
-            id: '1',
-            author: 'user',
-            body: 'inline note',
-            commentType: 'review_inline',
-          },
-        ],
-        createdAt: '2024-01-01',
-      },
-    ] as Array<Record<string, unknown>>;
-    const out = applyGithubSearchPullRequestsVerbosity(
-      { data: {}, pullRequests: prsWithComments, extraHints: [] },
-      { withComments: true } as never
-    );
-    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
-    expect(prs[0]).toHaveProperty('comments');
-    expect(prs[0]).not.toHaveProperty('createdAt');
-  });
-
-  it('withCommits:true preserves commits array instead of stripping it', () => {
-    const prsWithCommits = [
-      {
-        number: 201,
-        title: 'PR with commits',
-        commits: [
-          {
-            sha: 'abc123',
-            message: 'feat: add',
-            author: 'dev',
-            date: '2024-01-01',
-          },
-        ],
-        createdAt: '2024-01-01',
-      },
-    ] as Array<Record<string, unknown>>;
-    const out = applyGithubSearchPullRequestsVerbosity(
-      { data: {}, pullRequests: prsWithCommits, extraHints: [] },
-      { withCommits: true } as never
-    );
-    const prs = out.data.pull_requests as Array<Record<string, unknown>>;
-    expect(prs[0]).toHaveProperty('commits');
-    expect(prs[0]).not.toHaveProperty('createdAt');
-  });
-
-  it('without withComments/withCommits, both keys are stripped', () => {
-    const prs = [
-      {
-        number: 202,
-        title: 'PR',
-        comments: [{ id: '1', author: 'u', body: 'note' }],
-        commits: [{ sha: 'x', message: 'm', author: 'a', date: 'd' }],
-        createdAt: '2024-01-01',
-      },
-    ] as Array<Record<string, unknown>>;
-    const out = applyGithubSearchPullRequestsVerbosity(
-      { data: {}, pullRequests: prs, extraHints: [] },
-      {} as never
-    );
-    const result = (
-      out.data.pull_requests as Array<Record<string, unknown>>
-    )[0];
-    expect(result).not.toHaveProperty('comments');
-    expect(result).not.toHaveProperty('commits');
   });
 });
 

@@ -9,43 +9,21 @@ type GitHubReposSearchSingleQuery = z.infer<
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { compareIsoDateDescending } from '../../utils/core/compare.js';
-import { isVerbose } from '../../scheme/verbosity.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
 } from '../../types/execution.js';
 
 type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
-type ReposQueryWithVerbosity = WithVerbosity<PartialReposSearchQuery>;
 
-export function applyGithubSearchReposVerbosity(
+export function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
-  query: ReposQueryWithVerbosity
+  _query: PartialReposSearchQuery
 ): {
   data: { repositories: unknown[]; pagination?: unknown };
   extraHints: string[];
 } {
-  if (isVerbose(query)) {
-    return { data, extraHints: [] };
-  }
-  const repositories = (data.repositories ?? []).map(r => {
-    const {
-      pushed_at: _pa,
-      topics: _t,
-      license: _l,
-      ...rest
-    } = r as typeof r & {
-      pushed_at?: unknown;
-      topics?: unknown;
-      license?: unknown;
-    };
-    void _pa;
-    void _t;
-    void _l;
-    return rest;
-  });
-  return { data: { ...data, repositories }, extraHints: [] };
+  return { data, extraHints: [] };
 }
 import {
   handleCatchError,
@@ -484,9 +462,9 @@ export async function searchMultipleGitHubRepos(
         const variantsPartial =
           variants.length > 1 && successfulVariants.length < variants.length;
 
-        const verbosityShape = applyGithubSearchReposVerbosity(
+        const shape = buildReposSearchOutput(
           { repositories, pagination: resultPagination },
-          query as ReposQueryWithVerbosity
+          query
         );
 
         const escalationHints: string[] = [];
@@ -505,7 +483,7 @@ export async function searchMultipleGitHubRepos(
         }
         const allExtraHints = [
           ...scopeHints,
-          ...verbosityShape.extraHints,
+          ...shape.extraHints,
           ...partialFailureHints,
           ...paginationHints,
           ...(searchHints || []),
@@ -515,7 +493,7 @@ export async function searchMultipleGitHubRepos(
 
         return createSuccessResult(
           query,
-          verbosityShape.data,
+          shape.data,
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {

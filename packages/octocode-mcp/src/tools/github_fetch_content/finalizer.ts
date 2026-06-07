@@ -14,9 +14,7 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubFetchContentOutputLocal } from '../../scheme/remoteSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 import { buildEvidenceMetadata } from '../evidence.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
@@ -363,8 +361,6 @@ export function buildGithubFetchContentFinalizer<
       responseData.evidence = buildFetchEvidence(groups, errors ?? []);
     }
 
-    applyGithubFetchContentVerbosity(responseData, queries);
-
     return formatFinalizedResponse<GitHubFetchContentOutputLocal>(
       responseData,
       [
@@ -387,23 +383,4 @@ export function buildGithubFetchContentFinalizer<
       groups.length === 0 && Boolean(errors && errors.length > 0)
     );
   };
-}
-
-export function applyGithubFetchContentVerbosity(
-  responseData: GitHubFetchContentOutputLocal,
-  queries: readonly PartialFileContentQuery[]
-): void {
-  const queriesTyped = queries as Array<WithVerbosity<PartialFileContentQuery>>;
-  const anyVerbose = queriesTyped.some(q => isVerbose(q));
-  if (anyVerbose) return;
-
-  responseData.results = (responseData.results ?? []).map(g => ({
-    ...g,
-    files: (g.files ?? []).map(f => {
-      const shaped = { ...f };
-      delete (shaped as Record<string, unknown>).lastModified;
-      delete (shaped as Record<string, unknown>).lastModifiedBy;
-      return shaped;
-    }),
-  })) as typeof responseData.results;
 }

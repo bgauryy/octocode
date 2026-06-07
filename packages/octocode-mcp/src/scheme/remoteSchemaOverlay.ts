@@ -12,7 +12,6 @@ import { STATIC_TOOL_NAMES } from '../tools/toolNames.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
-  createVerbosityFields,
   describeField,
   contextLinesField,
   relaxedPageNumberField,
@@ -33,7 +32,6 @@ export const CloneRepoQueryLocalSchema = withCoreSchemaDescriptions(
   STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
   CloneRepoElementSchema.extend({
     ...optionalMetaFields,
-    ...createVerbosityFields(),
   })
 );
 

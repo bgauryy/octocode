@@ -64,10 +64,6 @@ vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
   BulkFetchContentQuerySchema: {},
 }));
 
-vi.mock('../../src/scheme/verbosity.js', () => ({
-  isVerbose: (q: { verbose?: boolean }) => q?.verbose === true,
-}));
-
 describe('Local Tools Execution', () => {
   beforeEach(() => {
     vi.clearAllMocks();

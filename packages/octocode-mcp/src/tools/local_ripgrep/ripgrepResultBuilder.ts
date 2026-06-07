@@ -8,10 +8,7 @@ import type { SearchStats } from '../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { compareIsoDateDescending } from '../../utils/core/compare.js';
 import { promises as fs } from 'fs';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
-
-type RipgrepQuery = WithVerbosity<UpstreamRipgrepQuery>;
+type RipgrepQuery = UpstreamRipgrepQuery;
 
 export async function buildSearchResult(
   parsedFiles: LocalSearchCodeFile[],
@@ -189,32 +186,18 @@ export async function buildSearchResult(
     ],
   };
 
-  return applyRipgrepVerbosity(fullResult, configuredQuery, {
+  return finalizeRipgrepResult(fullResult, configuredQuery, {
     totalMatches,
     totalFiles,
   });
 }
 
-export function applyRipgrepVerbosity(
+export function finalizeRipgrepResult(
   result: LocalSearchCodeToolResult,
-  query: RipgrepQuery,
+  _query: RipgrepQuery,
   _totals: { totalMatches: number; totalFiles: number }
 ): LocalSearchCodeToolResult {
-  if (isVerbose(query) || result.status !== undefined) return result;
-
-  if (!result.files?.length) return result;
-  const hasModified = result.files.some(f => 'modified' in (f as object));
-  if (!hasModified) return result;
-  return {
-    ...result,
-    files: result.files.map(f => {
-      const { modified: _m, ...rest } = f as typeof f & {
-        modified?: unknown;
-      };
-      void _m;
-      return rest as typeof f;
-    }),
-  };
+  return result;
 }
 
 function _getStructuredResultSizeHints(

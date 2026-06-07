@@ -3,14 +3,14 @@
   "agent": "octocode",
   "questions": 17,
   "totals": {
-    "calls": 101,
-    "in_chars": 22773,
-    "out_chars": 807063,
-    "total_chars": 829836,
-    "approx_tokens": 207459,
-    "tool_elapsed_ms": 299726,
-    "q_elapsed_ms": 1265241,
-    "reasoning_ms": 965515
+    "calls": 119,
+    "in_chars": 24975,
+    "out_chars": 887433,
+    "total_chars": 912408,
+    "approx_tokens": 228102,
+    "tool_elapsed_ms": 339598,
+    "q_elapsed_ms": 1904835,
+    "reasoning_ms": 1634708
   },
   "per_q": [
     {
@@ -81,14 +81,14 @@
     },
     {
       "q": 7,
-      "calls": 4,
-      "in_chars": 1099,
-      "out_chars": 3333,
-      "total_chars": 4432,
-      "approx_tokens": 1108,
-      "tool_elapsed_ms": 6568,
-      "q_elapsed_ms": 36693,
-      "reasoning_ms": 30125
+      "calls": 13,
+      "in_chars": 2486,
+      "out_chars": 19806,
+      "total_chars": 22292,
+      "approx_tokens": 5573,
+      "tool_elapsed_ms": 21969,
+      "q_elapsed_ms": 137481,
+      "reasoning_ms": 115512
     },
     {
       "q": 8,
@@ -147,14 +147,14 @@
     },
     {
       "q": 13,
-      "calls": 2,
-      "in_chars": 348,
-      "out_chars": 12480,
-      "total_chars": 12828,
-      "approx_tokens": 3207,
-      "tool_elapsed_ms": 5019,
-      "q_elapsed_ms": 36574,
-      "reasoning_ms": 31555
+      "calls": 9,
+      "in_chars": 950,
+      "out_chars": 47208,
+      "total_chars": 48158,
+      "approx_tokens": 12040,
+      "tool_elapsed_ms": 23260,
+      "q_elapsed_ms": 910381,
+      "reasoning_ms": 887121
     },
     {
       "q": 14,
@@ -191,14 +191,14 @@
     },
     {
       "q": 17,
-      "calls": 35,
-      "in_chars": 7046,
-      "out_chars": 339845,
-      "total_chars": 346891,
-      "approx_tokens": 86723,
-      "tool_elapsed_ms": 119005,
-      "q_elapsed_ms": 390765,
-      "reasoning_ms": 271760
+      "calls": 37,
+      "in_chars": 7259,
+      "out_chars": 369014,
+      "total_chars": 376273,
+      "approx_tokens": 94069,
+      "tool_elapsed_ms": 125235,
+      "q_elapsed_ms": 55764,
+      "reasoning_ms": 0
     }
   ]
 }

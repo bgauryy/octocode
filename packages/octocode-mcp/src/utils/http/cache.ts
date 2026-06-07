@@ -84,7 +84,7 @@ function cleanupStalePendingRequests(): void {
   }
 }
 
-const CACHE_KEY_EXCLUDED_FIELDS: ReadonlySet<string> = new Set(['verbosity']);
+const CACHE_KEY_EXCLUDED_FIELDS: ReadonlySet<string> = new Set([]);
 
 function stripCacheKeyExcludedFields(params: unknown): unknown {
   if (params === null || typeof params !== 'object' || Array.isArray(params)) {

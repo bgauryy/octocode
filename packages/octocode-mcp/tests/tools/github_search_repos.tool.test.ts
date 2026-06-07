@@ -540,7 +540,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       const firstResult = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        { queries: [{ keywordsToSearch: ['repo'], verbose: true }] }
+        { queries: [{ keywordsToSearch: ['repo'] }] }
       );
 
       const firstStructured = firstResult.structuredContent as {

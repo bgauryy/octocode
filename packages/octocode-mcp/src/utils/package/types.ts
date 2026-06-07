@@ -4,7 +4,6 @@ export interface PackageSearchInput {
 
   page?: number;
 
-  verbose?: boolean;
   npmFetchMetadata?: boolean;
   mainResearchGoal?: string;
   researchGoal?: string;

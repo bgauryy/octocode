@@ -14,8 +14,6 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import { isVerbose } from '../../scheme/verbosity.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { shouldIgnoreFile, shouldIgnoreDir } from '../../utils/file/filters.js';
 import { handleCatchError, createSuccessResult } from '../utils.js';
@@ -170,7 +168,7 @@ export async function exploreMultipleRepositoryStructures(
           );
         }
 
-        const shaped = applyGithubViewRepoStructureVerbosity(
+        const shaped = buildRepoStructureOutput(
           {
             data: resultData as Record<string, unknown>,
             entryCount,
@@ -232,35 +230,20 @@ export async function exploreMultipleRepositoryStructures(
   );
 }
 
-export function applyGithubViewRepoStructureVerbosity(
+export function buildRepoStructureOutput(
   input: {
     data: Record<string, unknown>;
     entryCount: number;
     summary: { truncated?: boolean; filtered?: boolean } | undefined;
     extraHints: string[];
   },
-  query: PartialRepoStructureQuery
+  _query: PartialRepoStructureQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
-  const queryWithVerbosity = query as WithVerbosity<typeof query>;
   const nextPathHints = buildNextPathHints(
     (input.data as { structure?: unknown }).structure,
     input.entryCount,
     Boolean(input.summary?.truncated)
   );
-
-  if (!isVerbose(queryWithVerbosity)) {
-    const {
-      resolvedBranch: _rb,
-      branchFallback: _bf,
-      ...coreData
-    } = input.data as Record<string, unknown>;
-    void _rb;
-    void _bf;
-    return {
-      data: coreData,
-      extraHints: [...nextPathHints, ...input.extraHints],
-    };
-  }
 
   return {
     data: input.data,

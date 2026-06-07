@@ -154,7 +154,6 @@ describe('directToolCatalog', () => {
     expect(localByName['id']).toBeUndefined();
     expect(localByName['pattern']?.required).toBe(true);
     expect(localByName['include']?.type).toBe('array<string>');
-    expect(localByName['verbose']?.type).toBe('boolean');
     expect(getDirectToolDisplayFields('missingTool')).toEqual([]);
 
     expect(

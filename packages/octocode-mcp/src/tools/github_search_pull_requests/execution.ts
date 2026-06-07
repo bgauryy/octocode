@@ -8,8 +8,6 @@ type GitHubPullRequestSearchQuery = z.infer<
 >;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
-import { isVerbose } from '../../scheme/verbosity.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
@@ -53,7 +51,7 @@ export async function searchMultipleGitHubPullRequests(
       try {
         const currentProviderContext = getProviderContext();
         const effectiveQuery: PartialPRQuery = { ...query };
-        const verbosityDowngradeHints: string[] = [];
+        const downgradeHints: string[] = [];
 
         if (effectiveQuery.query && String(effectiveQuery.query).length > 256) {
           return createErrorResult(
@@ -177,14 +175,14 @@ export async function searchMultipleGitHubPullRequests(
 
         const hasMore = Boolean(pagination?.hasMore);
 
-        const shaped = applyGithubSearchPullRequestsVerbosity(
+        const shaped = buildPRSearchOutput(
           {
             data: resultData,
             pullRequests,
             extraHints: [
               ...resultHints,
               ...paginationHints,
-              ...verbosityDowngradeHints,
+              ...downgradeHints,
               ...fileChangeHints,
             ],
           },
@@ -244,49 +242,13 @@ export async function searchMultipleGitHubPullRequests(
   );
 }
 
-export function applyGithubSearchPullRequestsVerbosity(
+export function buildPRSearchOutput(
   input: {
     data: Record<string, unknown>;
     pullRequests: Array<Record<string, unknown>>;
     extraHints: string[];
   },
-  query: PartialPRQuery
+  _query: PartialPRQuery
 ): { data: Record<string, unknown>; extraHints: string[] } {
-  const queryWithVerbosity = query as WithVerbosity<typeof query>;
-  if (isVerbose(queryWithVerbosity)) {
-    return { data: input.data, extraHints: input.extraHints };
-  }
-
-  const METADATA_KEYS = new Set([
-    'createdAt',
-    'updatedAt',
-    'closedAt',
-    'mergedAt',
-    'reactions',
-    'labels',
-    'assignees',
-    'reviewers',
-    'additions',
-    'deletions',
-    'changedFiles',
-  ]);
-
-  // Preserve explicitly requested data — don't strip comments or commits when the
-  // caller opted in via withComments / withCommits.
-  const withComments = Boolean((query as Record<string, unknown>).withComments);
-  const withCommits = Boolean((query as Record<string, unknown>).withCommits);
-  if (!withComments) METADATA_KEYS.add('comments');
-  if (!withCommits) METADATA_KEYS.add('commits');
-
-  const strippedPrs = input.pullRequests.map(pr => {
-    const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(pr)) {
-      if (!METADATA_KEYS.has(key)) result[key] = val;
-    }
-    return result;
-  });
-  return {
-    data: { ...input.data, pull_requests: strippedPrs },
-    extraHints: input.extraHints,
-  };
+  return { data: input.data, extraHints: input.extraHints };
 }

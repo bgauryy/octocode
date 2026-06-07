@@ -15,7 +15,7 @@ import type {
 } from '../../types/toolResults.js';
 import { attachEvidence, buildCollectionEvidence } from '../evidence.js';
 
-export { applyFindFilesVerbosity } from './findFiles.js';
+export { finalizeFindFilesResult } from './findFiles.js';
 
 export function buildFindFilesEvidence(result: unknown): EvidenceMetadata {
   return buildCollectionEvidence({

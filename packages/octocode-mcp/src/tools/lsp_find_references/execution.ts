@@ -17,7 +17,7 @@ type LSPFindReferencesQuery =
 import { TOOL_NAME } from './constants.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 
-export { applyFindReferencesVerbosity } from './lsp_find_references.js';
+export { finalizeFindReferencesResult } from './lsp_find_references.js';
 
 export async function executeFindReferences(
   args: ToolExecutionArgs<LSPFindReferencesQuery>

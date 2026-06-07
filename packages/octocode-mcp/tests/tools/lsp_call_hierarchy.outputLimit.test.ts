@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
-import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
+import { finalizeCallHierarchyResult } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import { SymbolResolver } from '../../src/lsp/resolver.js';
 import * as managerModule from '../../src/lsp/manager.js';
 import * as toolHelpers from '../../src/utils/file/toolHelpers.js';
@@ -115,59 +115,21 @@ const mockCallResult = {
   lspMode: 'full',
 } as never;
 
-describe('applyCallHierarchyVerbosity', () => {
-  it('verbose=false omits content from all incomingCalls[].from nodes', () => {
-    const result = applyCallHierarchyVerbosity(mockCallResult, {
-      verbose: false,
-    } as never);
-    for (const call of result.incomingCalls ?? []) {
-      expect(call.from.content).toBeUndefined();
-    }
-  });
-
-  it('verbose=false strips lspMode', () => {
-    const result = applyCallHierarchyVerbosity(mockCallResult, {
-      verbose: false,
-    } as never);
-    expect((result as Record<string, unknown>).lspMode).toBeUndefined();
-  });
-
-  it('verbose=false adds summary with callerCount', () => {
-    const result = applyCallHierarchyVerbosity(mockCallResult, {
-      verbose: false,
-    } as never);
-    expect((result as Record<string, unknown>).summary).toBeDefined();
-    expect(
-      ((result as Record<string, unknown>).summary as Record<string, unknown>)
-        .callerCount
-    ).toBe(2);
-  });
-
-  it('verbose=false summary includes fileCount', () => {
-    const result = applyCallHierarchyVerbosity(mockCallResult, {
-      verbose: false,
-    } as never);
-    const summary = (result as Record<string, unknown>).summary as Record<
-      string,
-      unknown
-    >;
-    expect(summary.fileCount).toBeDefined();
-    expect(typeof summary.fileCount).toBe('number');
-  });
-
-  it('verbose=true preserves content in caller nodes', () => {
-    const result = applyCallHierarchyVerbosity(mockCallResult, {
-      verbose: true,
-    } as never);
+describe('finalizeCallHierarchyResult', () => {
+  it('always returns result unchanged — content is preserved in caller nodes', () => {
+    const result = finalizeCallHierarchyResult(mockCallResult, {} as never);
     const hasContent = result.incomingCalls?.some(c => c.from.content);
     expect(hasContent).toBe(true);
   });
 
-  it('verbose=true preserves lspMode', () => {
-    const result = applyCallHierarchyVerbosity(mockCallResult, {
-      verbose: true,
-    } as never);
+  it('always returns result unchanged — lspMode is preserved', () => {
+    const result = finalizeCallHierarchyResult(mockCallResult, {} as never);
     expect((result as Record<string, unknown>).lspMode).toBe('full');
+  });
+
+  it('always returns the original result object', () => {
+    const result = finalizeCallHierarchyResult(mockCallResult, {} as never);
+    expect(result).toBe(mockCallResult);
   });
 });
 
@@ -529,7 +491,6 @@ describe('lspCallHierarchy output size limits', () => {
             direction: 'outgoing',
             depth: 1,
             contextLines: 0,
-            verbose: false,
             researchGoal: 'test',
             reasoning: 'test',
             mainResearchGoal: 'test',

@@ -18,7 +18,7 @@ export type {
 export async function searchPackage(
   query: PackageSearchInput
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
-  const fetchMetadata = query.npmFetchMetadata ?? query.verbose === true;
+  const fetchMetadata = query.npmFetchMetadata ?? true;
   const searchLimit = query.itemsPerPage ?? 1;
   const from = Math.max(0, ((query.page ?? 1) - 1) * searchLimit);
 

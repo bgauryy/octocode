@@ -401,25 +401,15 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should use verbose as the boolean metadata switch while preserving findings', async () => {
-    mockNpmViewFull('verbose-pkg', {
-      name: 'verbose-pkg',
+  it('should always return full package metadata (npmFetchMetadata defaults to true)', async () => {
+    mockNpmViewFull('full-meta-pkg', {
+      name: 'full-meta-pkg',
       version: '2.0.0',
-      description: 'Verbose package',
+      description: 'Full metadata package',
       keywords: ['detail', 'metadata'],
-      repository: 'git+https://github.com/octo/verbose-pkg.git',
-      homepage: 'https://example.com/verbose',
+      repository: 'git+https://github.com/octo/full-meta-pkg.git',
+      homepage: 'https://example.com/full',
       author: { name: 'Octo Dev' },
-      peerDependencies: { react: '^18.0.0' },
-    });
-    mockNpmViewFull('lean-pkg', {
-      name: 'lean-pkg',
-      version: '1.0.0',
-      description: 'Lean package',
-      keywords: ['hidden-unless-verbose'],
-      repository: 'git+https://github.com/octo/lean-pkg.git',
-      homepage: 'https://example.com/lean',
-      author: 'Hidden Author',
       peerDependencies: { react: '^18.0.0' },
     });
 
@@ -431,43 +421,23 @@ describe('searchPackage - NPM (CLI)', () => {
       })
     );
 
-    const verboseResult = await searchPackage({
-      name: 'verbose-pkg',
-      verbose: true,
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
-      reasoning: 'Test',
-    });
-    const leanResult = await searchPackage({
-      name: 'lean-pkg',
-      verbose: false,
+    const result = await searchPackage({
+      name: 'full-meta-pkg',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
     });
 
-    expect('packages' in verboseResult).toBe(true);
-    expect('packages' in leanResult).toBe(true);
-    if ('packages' in verboseResult && 'packages' in leanResult) {
-      const verbosePkg = verboseResult.packages[0] as NpmPackageResult;
-      const leanPkg = leanResult.packages[0] as NpmPackageResult;
-
-      expect(verbosePkg.name).toBe('verbose-pkg');
-      expect(verbosePkg.repoUrl).toBe('https://github.com/octo/verbose-pkg');
-      expect(verbosePkg.version).toBe('2.0.0');
-      expect(verbosePkg.keywords).toEqual(['detail', 'metadata']);
-      expect(verbosePkg.homepage).toBe('https://example.com/verbose');
-      expect(verbosePkg.author).toBe('Octo Dev');
-      expect(verbosePkg.peerDependencies).toEqual({ react: '^18.0.0' });
-
-      expect(leanPkg.name).toBe('lean-pkg');
-      expect(leanPkg.repoUrl).toBe('https://github.com/octo/lean-pkg');
-      expect(leanPkg.version).toBe('1.0.0');
-      expect(leanPkg.description).toBe('Lean package');
-      expect(leanPkg.keywords).toBeUndefined();
-      expect(leanPkg.homepage).toBeUndefined();
-      expect(leanPkg.author).toBeUndefined();
-      expect(leanPkg.peerDependencies).toBeUndefined();
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      const pkg = result.packages[0] as NpmPackageResult;
+      expect(pkg.name).toBe('full-meta-pkg');
+      expect(pkg.repoUrl).toBe('https://github.com/octo/full-meta-pkg');
+      expect(pkg.version).toBe('2.0.0');
+      expect(pkg.keywords).toEqual(['detail', 'metadata']);
+      expect(pkg.homepage).toBe('https://example.com/full');
+      expect(pkg.author).toBe('Octo Dev');
+      expect(pkg.peerDependencies).toEqual({ react: '^18.0.0' });
     }
   });
 

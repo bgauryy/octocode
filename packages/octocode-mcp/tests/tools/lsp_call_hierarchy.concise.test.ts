@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { applyCallHierarchyVerbosity } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
+import { finalizeCallHierarchyResult } from '../../src/tools/lsp_call_hierarchy/callHierarchy.js';
 import { attachLspEvidence } from '../../src/lsp/evidence.js';
 
-describe('lspCallHierarchy verbosity contract', () => {
+describe('lspCallHierarchy pass-through contract', () => {
   const fullResult = {
     item: { name: 'startServer', content: 'x'.repeat(5000) },
     direction: 'outgoing',
@@ -14,9 +14,8 @@ describe('lspCallHierarchy verbosity contract', () => {
     pagination: { currentPage: 1, totalPages: 3, hasMore: true },
   } as never;
 
-  it('verbose:false — preserves full calls[] and pagination', () => {
-    const out = applyCallHierarchyVerbosity(fullResult, {
-      verbose: false,
+  it(' — preserves full calls[] and pagination', () => {
+    const out = finalizeCallHierarchyResult(fullResult, {
       direction: 'outgoing',
     } as never) as Record<string, unknown>;
 
@@ -26,9 +25,8 @@ describe('lspCallHierarchy verbosity contract', () => {
     );
   });
 
-  it('verbose:true — preserves full calls[] and pagination', () => {
-    const out = applyCallHierarchyVerbosity(fullResult, {
-      verbose: true,
+  it(' — preserves full calls[] and pagination', () => {
+    const out = finalizeCallHierarchyResult(fullResult, {
       direction: 'outgoing',
     } as never) as Record<string, unknown>;
 
@@ -39,8 +37,7 @@ describe('lspCallHierarchy verbosity contract', () => {
   });
 
   it('evidence is attached when pagination.hasMore is true', () => {
-    const out = applyCallHierarchyVerbosity(fullResult, {
-      verbose: false,
+    const out = finalizeCallHierarchyResult(fullResult, {
       direction: 'outgoing',
     } as never);
     const evidenced = attachLspEvidence(out, {
@@ -50,7 +47,7 @@ describe('lspCallHierarchy verbosity contract', () => {
     expect(evidenced.evidence).toBeDefined();
   });
 
-  it('verbose:false strips incoming call content and adds a summary', () => {
+  it('preserves incoming call content (pass-through)', () => {
     const incomingResult = {
       item: { name: 'target', content: 'y'.repeat(100) },
       direction: 'incoming',
@@ -64,8 +61,7 @@ describe('lspCallHierarchy verbosity contract', () => {
       ],
     } as never;
 
-    const out = applyCallHierarchyVerbosity(incomingResult, {
-      verbose: false,
+    const out = finalizeCallHierarchyResult(incomingResult, {
       direction: 'incoming',
     } as never) as Record<string, unknown>;
 
@@ -73,8 +69,8 @@ describe('lspCallHierarchy verbosity contract', () => {
     const first = (
       out.incomingCalls as Array<{ from?: { content?: string } }>
     )[0];
-    expect(first?.from?.content).toBeUndefined();
-    expect(out.summary).toEqual({ callerCount: 2, fileCount: 1 });
+    expect(first?.from?.content).toBe('z'.repeat(100));
+    expect(out).toBe(incomingResult);
   });
 
   it('preserves outgoingCalls structure', () => {
@@ -85,13 +81,14 @@ describe('lspCallHierarchy verbosity contract', () => {
       outgoingCalls: [{ to: { name: 'callee' }, fromRanges: [] }],
     } as never;
 
-    const out = applyCallHierarchyVerbosity(outgoingResult, {
-      verbose: false,
-    } as never) as Record<string, unknown>;
+    const out = finalizeCallHierarchyResult(
+      outgoingResult,
+      {} as never
+    ) as Record<string, unknown>;
 
     expect(Array.isArray(out.outgoingCalls)).toBe(true);
     expect(out.outgoingCalls).toEqual(outgoingResult.outgoingCalls);
-    expect(out.summary).toEqual({ callerCount: 1, fileCount: 1 });
+    expect(out).toBe(outgoingResult);
   });
 
   it('empty/error results pass through unchanged', () => {
@@ -100,11 +97,11 @@ describe('lspCallHierarchy verbosity contract', () => {
       errorCode: 'LSP_NOT_INSTALLED',
       hints: ['x'],
     } as never;
-    const out = applyCallHierarchyVerbosity(emptyResult, {} as never);
+    const out = finalizeCallHierarchyResult(emptyResult, {} as never);
     expect(out).toBe(emptyResult);
   });
 
-  it('hints are NOT trimmed regardless of verbose flag', () => {
+  it('hints are NOT trimmed', () => {
     const originalHints = [
       'Prefer depth=1 to avoid timeouts',
       'real data hint',
@@ -117,16 +114,16 @@ describe('lspCallHierarchy verbosity contract', () => {
       hints: [...originalHints],
     } as never;
 
-    const out = applyCallHierarchyVerbosity(withHints, {
-      verbose: false,
-    } as never) as Record<string, unknown>;
+    const out = finalizeCallHierarchyResult(withHints, {} as never) as Record<
+      string,
+      unknown
+    >;
     expect(out.hints).toEqual(originalHints);
 
-    const basic = applyCallHierarchyVerbosity(withHints, {} as never) as Record<
+    const basic = finalizeCallHierarchyResult(withHints, {} as never) as Record<
       string,
       unknown
     >;
     expect(basic.hints).toEqual(originalHints);
-    expect(basic.summary).toEqual({ callerCount: 0, fileCount: 0 });
   });
 });

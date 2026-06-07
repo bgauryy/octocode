@@ -95,7 +95,7 @@ describe('localFindFiles', () => {
       expect(hints).toMatch(/outside available range|page 999 is/i);
     });
 
-    it('should include metadata when verbose=true', async () => {
+    it('should include metadata (size, permissions) in results', async () => {
       const modified = new Date('2025-01-01T00:00:00Z');
 
       mockSafeExec.mockResolvedValue({
@@ -114,7 +114,7 @@ describe('localFindFiles', () => {
         mtime: modified,
       } as unknown as import('fs').Stats);
 
-      const result = await findFiles({ path: '/test/path', verbose: true });
+      const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
 
@@ -766,7 +766,6 @@ describe('localFindFiles', () => {
         path: '/test/path',
         showFileLastModified: true,
         details: true,
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();

@@ -255,7 +255,7 @@ Tracked stats:
 | `packageRegistryFailures` | Package registry HTTP failures by registry, such as `npm` and `pypi`. These are not counted as provider API rate limits. |
 | `totalUsage` | Derived aggregate totals for display: overall counters, provider rate-limit breakdown, total raw characters, total returned characters, total saved characters, char-savings call count, total GitHub cache hits, GitHub cache rate-limit count, and package-registry failure totals. |
 
-For every registered tool, Octocode records source/raw characters before Octocode-specific trimming, filtering, verbosity reduction, and bulk response pagination when that source size is available. The returned character count is the final MCP tool text response. Bulk and parallel calls are aggregated once per tool invocation, including mixed success/error query results.
+For every registered tool, Octocode records source/raw characters before Octocode-specific trimming, filtering, and bulk response pagination when that source size is available. The returned character count is the final MCP tool text response. Bulk and parallel calls are aggregated once per tool invocation, including mixed success/error query results.
 
 `totalUsage` is recalculated whenever stats are read or written, so dashboards can read a single object without separately summing `charsSavedByTool` and `githubCacheHits`. The per-tool and per-cache counters remain the source of truth for detailed breakdowns.
 

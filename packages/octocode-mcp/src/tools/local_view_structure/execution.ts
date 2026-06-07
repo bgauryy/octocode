@@ -15,7 +15,7 @@ import type {
 } from '../../types/toolResults.js';
 import { attachEvidence, buildCollectionEvidence } from '../evidence.js';
 
-export { applyViewStructureVerbosity } from './local_view_structure.js';
+export { finalizeViewStructureResult } from './local_view_structure.js';
 
 export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
   return buildCollectionEvidence({

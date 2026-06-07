@@ -14,13 +14,9 @@ import type { LSPCallHierarchyQuerySchema } from '@octocodeai/octocode-core/sche
 type UpstreamLSPCallHierarchyQuery = z.infer<
   typeof LSPCallHierarchyQuerySchema
 >;
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 
-type LSPCallHierarchyQuery = WithVerbosity<
-  WithOptionalMeta<UpstreamLSPCallHierarchyQuery>
-> & {
+type LSPCallHierarchyQuery = WithOptionalMeta<UpstreamLSPCallHierarchyQuery> & {
   orderHint?: number;
 };
 import { ToolErrors } from '../../errors/errorFactories.js';
@@ -47,7 +43,7 @@ export async function processCallHierarchy(
   const result = await processCallHierarchyInternal(query);
   const rawChars = getRawResponseChars(result) ?? countSerializedChars(result);
   return attachRawResponseChars(
-    applyCallHierarchyVerbosity(result, query),
+    finalizeCallHierarchyResult(result, query),
     rawChars
   );
 }
@@ -176,46 +172,9 @@ function buildLspUnavailableResult(
   };
 }
 
-export function applyCallHierarchyVerbosity(
+export function finalizeCallHierarchyResult(
   result: CallHierarchyResult,
-  query: LSPCallHierarchyQuery
+  _query: LSPCallHierarchyQuery
 ): CallHierarchyResult {
-  if (isVerbose(query)) return result;
-  if (result.status !== undefined) return result;
-
-  const r = result as typeof result & { lspMode?: unknown };
-
-  const incomingCalls = r.incomingCalls?.map(call => ({
-    ...call,
-    from: stripContent(call.from),
-  }));
-  const outgoingCalls = r.outgoingCalls?.map(call => ({
-    ...call,
-    to: stripContent(call.to),
-  }));
-
-  const callerCount =
-    (incomingCalls?.length ?? 0) + (outgoingCalls?.length ?? 0);
-  const fileCount = new Set([
-    ...(incomingCalls?.map(c => c.from.uri) ?? []),
-    ...(outgoingCalls?.map(c => c.to.uri) ?? []),
-  ]).size;
-
-  const { lspMode: _lm, ...rest } = r;
-  void _lm;
-
-  return {
-    ...(rest as CallHierarchyResult),
-    ...(incomingCalls !== undefined ? { incomingCalls } : {}),
-    ...(outgoingCalls !== undefined ? { outgoingCalls } : {}),
-    summary: { callerCount, fileCount },
-  };
-}
-
-function stripContent<T extends { content?: string }>(
-  item: T
-): Omit<T, 'content'> {
-  const { content: _c, ...rest } = item;
-  void _c;
-  return rest as Omit<T, 'content'>;
+  return result;
 }

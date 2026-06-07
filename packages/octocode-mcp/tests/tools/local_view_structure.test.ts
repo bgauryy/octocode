@@ -206,7 +206,6 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -233,7 +232,6 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -305,7 +303,6 @@ describe('localViewStructure', () => {
         path: '/test/path',
         details: true,
         humanReadable: true,
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -709,7 +706,6 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -732,7 +728,6 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -2630,7 +2625,7 @@ describe('localViewStructure', () => {
     });
   });
 
-  describe('verbose boolean — pass-through contract', () => {
+  describe('pass-through contract — full entries always returned', () => {
     beforeEach(() => {
       mockSafeExec.mockResolvedValue({
         success: true,
@@ -2650,11 +2645,10 @@ describe('localViewStructure', () => {
       );
     });
 
-    it('verbose:false returns same full entries[] as default', async () => {
+    it(' returns same full entries[] as default', async () => {
       const def = await viewStructure({ path: '/test/path' });
       const result = await viewStructure({
         path: '/test/path',
-        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
@@ -2662,21 +2656,19 @@ describe('localViewStructure', () => {
       expect(result.entries!.length).toBeGreaterThan(0);
     });
 
-    it('verbose:false keeps pagination so the agent still sees totalEntries', async () => {
+    it(' keeps pagination so the agent still sees totalEntries', async () => {
       const result = await viewStructure({
         path: '/test/path',
-        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBeGreaterThan(0);
     });
 
-    it('verbose:false emits same hints as default — no tier commentary', async () => {
+    it(' emits same hints as default — no tier commentary', async () => {
       const def = await viewStructure({ path: '/test/path' });
       const result = await viewStructure({
         path: '/test/path',
-        verbose: false,
       });
 
       expect(result.status).toBeUndefined();
@@ -2685,7 +2677,7 @@ describe('localViewStructure', () => {
       expect(hintsBlob).not.toMatch(/drill-back|re-call|detail dropped/i);
     });
 
-    it('omitted verbose returns full entries', async () => {
+    it('always returns full entries', async () => {
       const result = await viewStructure({
         path: '/test/path',
       });
@@ -2695,10 +2687,9 @@ describe('localViewStructure', () => {
       expect(result.entries!.length).toBeGreaterThan(0);
     });
 
-    it('verbose:true also returns full entries (metadata is additive)', async () => {
+    it(' also returns full entries (metadata is additive)', async () => {
       const result = await viewStructure({
         path: '/test/path',
-        verbose: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -2716,7 +2707,6 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        verbose: false,
       });
 
       expect(result.status).toBe('empty');

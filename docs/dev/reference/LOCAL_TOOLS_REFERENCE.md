@@ -138,45 +138,24 @@ All local and LSP tools support the same size-aware continuation contract.
   - `responsePagination`: top-level bulk response pagination metadata
 - Default budget: oversized responses auto-page at `output.pagination.defaultCharLength`, which defaults to `8000` unless overridden in config or per request.
 
-## Universal `verbosity`
-
-Every local and LSP tool accepts `verbosity`. Choose it by cost:
-
-| Value | Use when | Returns | Drops |
-|---|---|---|---|
-| _omitted_ / `"compact"` | Default for normal work and follow-up `lineHint`s. | Actionable paths, lines, snippets/entries, metadata, pagination, and `lspMode` where relevant. | Nothing. |
-| `"verbose"` | Rarely. Currently only for future expansion. | Same as `compact` today. | Nothing, but it does not add value yet. |
-| `"concise"` | First pass over broad or large scopes. | Counts, summary, top path/line or graph edge hints, plus drill-back guidance. | Heavy arrays/content such as `files[]`, `entries[]`, snippets, node content, or call arrays. |
-
-Default strategy: probe with `concise`; if the signal matters, re-call with `compact` scoped to the returned path, line, file page, or include pattern.
-
-```jsonc
-// Cheap existence probe
-{ "queries": [{ "pattern": "parseHints", "path": "./", "verbosity": "concise" }] }
-// -> "5 matches in 3 files (top: src/hints/parseHints.ts:12)"
-
-// Drill back for exact matches and line hints
-{ "queries": [{ "pattern": "parseHints", "path": "src/hints/parseHints.ts", "verbosity": "compact" }] }
-```
-
 ## Tools at a Glance
 
 ### Local Tools
 
-| Tool | Description | `verbosity:"concise"` payload |
-|------|-------------|------------------------------|
-| **`localSearchCode`** | Fast pattern search across files using ripgrep. Returns matches with line numbers and context. Produces `lineHint` for LSP tools. | `"N matches in M files (top: path:line)"` |
-| **`localViewStructure`** | Lists directory contents with metadata (size, type, time). Supports depth control and sorting. | `"X entries (Y files, Z dirs, size)"` |
-| **`localFindFiles`** | Finds files by name, type, size, or modification time using recursive metadata search. | `"N files in M dirs (newest: path)"` |
-| **`localGetFileContent`** | Reads file content with line ranges or match-based extraction. **Use as LAST step.** | `"path: N lines, ~T tokens raw"` |
+| Tool | Description |
+|------|-------------|
+| **`localSearchCode`** | Fast pattern search across files using ripgrep. Returns full matches with line numbers, context, and file metadata. Produces `lineHint` for LSP tools. |
+| **`localViewStructure`** | Lists directory contents with metadata (size, type, time). Supports depth control and sorting. |
+| **`localFindFiles`** | Finds files by name, type, size, or modification time using recursive metadata search. |
+| **`localGetFileContent`** | Reads file content with line ranges or match-based extraction. **Use as LAST step.** |
 
 ### LSP Tools
 
-| Tool | Description | `verbosity:"concise"` payload |
-|------|-------------|------------------------------|
-| **`lspGotoDefinition`** | Jumps to where a symbol is defined. Requires `lineHint` from search. | `"N definition(s) (top: file:line:col)"` |
-| **`lspFindReferences`** | Finds all usages of a symbol (types, variables, constants). Requires `lineHint`. | `"N refs in M files"` + flat `refs[]` (< 500) or `topFiles` rollup (≥ 500). Force rollup any fanout with `groupByFile:true`. |
-| **`lspCallHierarchy`** | Traces function call relationships (incoming/outgoing callers). Requires `lineHint`. | `"N incoming/outgoing edge(s) for symbol"` + `edges: a → b (×n); …` |
+| Tool | Description |
+|------|-------------|
+| **`lspGotoDefinition`** | Jumps to where a symbol is defined. Requires `lineHint` from search. |
+| **`lspFindReferences`** | Finds all usages of a symbol (types, variables, constants). Requires `lineHint`. Use `groupByFile:true` for fanout rollup. |
+| **`lspCallHierarchy`** | Traces function call relationships (incoming/outgoing callers). Requires `lineHint`. |
 
 ### Quick Decision Guide
 

@@ -16,13 +16,9 @@ import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas
 import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
 
 type UpstreamViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
-type ViewStructureQuery = WithVerbosity<
-  WithOptionalMeta<UpstreamViewStructureQuery>
->;
+type ViewStructureQuery = WithOptionalMeta<UpstreamViewStructureQuery>;
 
 function buildActiveViewStructureFilters(query: ViewStructureQuery): string[] {
   const activeFilters: string[] = [`path: ${query.path}`];
@@ -151,7 +147,7 @@ export async function viewStructure(
     const summary = summarizeEntries(filteredEntries);
 
     return attachRawResponseChars(
-      applyViewStructureVerbosity(
+      finalizeViewStructureResult(
         {
           ...(isEmpty ? { status: 'empty' as const } : {}),
           entries: outputEntries,
@@ -296,7 +292,7 @@ async function viewStructureRecursive(
   const summary = summarizeEntries(filteredEntries);
 
   return attachRawResponseChars(
-    applyViewStructureVerbosity(
+    finalizeViewStructureResult(
       {
         ...(isEmpty ? { status: 'empty' as const } : {}),
         entries: outputEntries,
@@ -315,27 +311,9 @@ async function viewStructureRecursive(
   );
 }
 
-export function applyViewStructureVerbosity(
+export function finalizeViewStructureResult(
   result: LocalViewStructureToolResult,
-  query: ViewStructureQuery
+  _query: ViewStructureQuery
 ): LocalViewStructureToolResult {
-  if (isVerbose(query)) return result;
-  if (!result.entries?.length) return result;
-
-  return {
-    ...result,
-    entries: result.entries.map(e => {
-      const {
-        size: _s,
-        modified: _m,
-        ...rest
-      } = e as typeof e & {
-        size?: unknown;
-        modified?: unknown;
-      };
-      void _s;
-      void _m;
-      return rest as typeof e;
-    }),
-  };
+  return result;
 }

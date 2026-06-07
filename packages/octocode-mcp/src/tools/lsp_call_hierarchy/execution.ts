@@ -20,7 +20,7 @@ type LSPCallHierarchyQuery = WithOptionalMeta<UpstreamLSPCallHierarchyQuery> & {
 import { TOOL_NAME } from './constants.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 
-export { applyCallHierarchyVerbosity } from './callHierarchy.js';
+export { finalizeCallHierarchyResult } from './callHierarchy.js';
 
 export async function executeCallHierarchy(
   args: ToolExecutionArgs<LSPCallHierarchyQuery>

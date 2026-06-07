@@ -398,7 +398,7 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       expect(providerQuery.match).toBe('file');
     });
 
-    it('verbose=false is a no-op — provider uses default page size', async () => {
+    it('provider uses default page size when no limit overrides are set', async () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [],
@@ -416,7 +416,6 @@ describe('GitHub Search Code - match Parameter Modes', () => {
             owner: 'test',
             repo: 'repo',
             match: 'file',
-            verbose: false,
           },
         ],
       });

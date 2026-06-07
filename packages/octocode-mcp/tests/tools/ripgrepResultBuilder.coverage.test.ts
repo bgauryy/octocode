@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   buildSearchResult,
-  applyRipgrepVerbosity,
+  finalizeRipgrepResult,
 } from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
 import { promises as fs } from 'fs';
 
@@ -54,7 +54,7 @@ describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', ()
     const files = [makeFile('/test/a.ts', 1), makeFile('/test/b.ts', 1)];
     const result = await buildSearchResult(
       files,
-      baseQuery({ showFileLastModified: true, verbose: true }),
+      baseQuery({ showFileLastModified: true }),
       'rg',
       []
     );
@@ -221,7 +221,7 @@ describe('buildSearchResult - warnings passthrough', () => {
   });
 });
 
-describe('applyRipgrepVerbosity - pass-through contract', () => {
+describe('finalizeRipgrepResult - pass-through contract', () => {
   const baseResult = (overrides: Record<string, unknown> = {}): any => ({
     files: [
       {
@@ -241,9 +241,9 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
     ...overrides,
   });
 
-  it('verbose:false — preserves full files[] and original hints', () => {
+  it(' — preserves full files[] and original hints', () => {
     const result = baseResult();
-    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: false }), {
+    const out = finalizeRipgrepResult(result, baseQuery({}), {
       totalMatches: 2,
       totalFiles: 1,
     });
@@ -251,20 +251,20 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
     expect(out.hints).toEqual(result.hints);
   });
 
-  it('verbose:false — preserves files[] when top file has no matches', () => {
+  it(' — preserves files[] when top file has no matches', () => {
     const result = baseResult({
       files: [{ path: '/test/a.ts', matchCount: 0, matches: [] }],
     });
-    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: false }), {
+    const out = finalizeRipgrepResult(result, baseQuery({}), {
       totalMatches: 0,
       totalFiles: 1,
     });
     expect(out.files).toEqual(result.files);
   });
 
-  it('verbose:false — returns result unchanged when files is empty', () => {
+  it(' — returns result unchanged when files is empty', () => {
     const result = baseResult({ files: [] });
-    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: false }), {
+    const out = finalizeRipgrepResult(result, baseQuery({}), {
       totalMatches: 0,
       totalFiles: 0,
     });
@@ -272,9 +272,9 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
     expect(out.hints).toEqual(result.hints);
   });
 
-  it('verbose:false — returns result unchanged when status is set', () => {
+  it(' — returns result unchanged when status is set', () => {
     const r = baseResult({ status: 'empty' });
-    const out = applyRipgrepVerbosity(r, baseQuery({ verbose: false }), {
+    const out = finalizeRipgrepResult(r, baseQuery({}), {
       totalMatches: 0,
       totalFiles: 0,
     });
@@ -282,7 +282,7 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
     expect(out.files?.length).toBe(1);
   });
 
-  it('verbose:true — all hints preserved', () => {
+  it(' — all hints preserved', () => {
     const allHints = [
       'Large result set - narrow: add type',
       'keep me 1',
@@ -300,16 +300,16 @@ describe('applyRipgrepVerbosity - pass-through contract', () => {
       },
       hints: [...allHints],
     };
-    const out = applyRipgrepVerbosity(result, baseQuery({ verbose: true }), {
+    const out = finalizeRipgrepResult(result, baseQuery({}), {
       totalMatches: 0,
       totalFiles: 0,
     });
     expect(out.hints).toEqual(allHints);
   });
 
-  it('omitted verbose — returns result untouched', () => {
+  it('returns result untouched (pass-through)', () => {
     const result: any = { files: [], pagination: {}, hints: ['x'] };
-    const out = applyRipgrepVerbosity(result, baseQuery({}), {
+    const out = finalizeRipgrepResult(result, baseQuery({}), {
       totalMatches: 0,
       totalFiles: 0,
     });

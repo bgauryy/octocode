@@ -7,8 +7,6 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubCodeSearchOutputLocal } from '../../scheme/remoteSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
 import { buildEvidenceMetadata } from '../evidence.js';
 import {
   buildPaginationHints,
@@ -249,8 +247,6 @@ export function buildGithubSearchCodeFinalizer<
       );
     }
 
-    applyGithubSearchCodeVerbosity(responseData, queries);
-
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,
       [
@@ -267,24 +263,4 @@ export function buildGithubSearchCodeFinalizer<
       groups.length === 0 && errors.length > 0
     );
   };
-}
-
-export function applyGithubSearchCodeVerbosity(
-  responseData: GitHubCodeSearchOutputLocal,
-  queries: readonly QueryWithPagination[]
-): void {
-  const queriesTyped = queries as Array<WithVerbosity<QueryWithPagination>>;
-  const anyVerbose = queriesTyped.some(q => isVerbose(q));
-  if (anyVerbose) return;
-
-  responseData.results = (responseData.results ?? []).map(g => ({
-    ...g,
-    matches: g.matches.map(m => {
-      const { matchIndices: _mi, ...rest } = m as typeof m & {
-        matchIndices?: unknown;
-      };
-      void _mi;
-      return rest;
-    }),
-  })) as typeof responseData.results;
 }

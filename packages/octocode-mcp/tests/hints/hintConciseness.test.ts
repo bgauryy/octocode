@@ -234,7 +234,7 @@ describe('Hint conciseness', () => {
       expect(hints.some(h => h.startsWith('Fix:'))).toBe(true);
     });
 
-    it('should not contain the old verbose TIP or multi-line format', () => {
+    it('should not contain the old wordy TIP or multi-line format', () => {
       const result = validateToolPath(
         { path: '/outside/path', researchGoal: 'test', reasoning: 'test' },
         'LOCAL_RIPGREP'

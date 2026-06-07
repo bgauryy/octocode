@@ -22,13 +22,9 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
-import type { WithVerbosity } from '../../scheme/localSchemaOverlay.js';
-import { isVerbose } from '../../scheme/verbosity.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
-type FetchContentQuery = WithVerbosity<
-  WithOptionalMeta<UpstreamFetchContentQuery>
->;
+type FetchContentQuery = WithOptionalMeta<UpstreamFetchContentQuery>;
 
 type FileStats = Awaited<ReturnType<typeof stat>>;
 
@@ -640,7 +636,7 @@ export async function fetchContent(
 
     if (extraction.earlyResult) {
       return attachRawResponseChars(
-        applyFetchContentVerbosity(extraction.earlyResult, query, totalLines),
+        finalizeFetchContentResult(extraction.earlyResult, query, totalLines),
         content.length
       );
     }
@@ -653,7 +649,7 @@ export async function fetchContent(
       defaultOutputCharLength
     );
     return attachRawResponseChars(
-      applyFetchContentVerbosity(fullResult, query, totalLines),
+      finalizeFetchContentResult(fullResult, query, totalLines),
       content.length
     );
   } catch (error) {
@@ -663,14 +659,10 @@ export async function fetchContent(
   }
 }
 
-export function applyFetchContentVerbosity(
+export function finalizeFetchContentResult(
   result: LocalGetFileContentToolResult,
-  query: FetchContentQuery,
+  _query: FetchContentQuery,
   _totalLines: number
 ): LocalGetFileContentToolResult {
-  if (isVerbose(query)) return result;
-
-  const shaped = { ...result };
-  delete (shaped as { modified?: string }).modified;
-  return shaped;
+  return result;
 }
