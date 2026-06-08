@@ -40,10 +40,20 @@ export const LspGetSemanticContentQuerySchema = z.preprocess(
       ...baseFields,
       type: z.enum(SEMANTIC_CONTENT_TYPES).default('definition'),
       symbolName: z.string().min(1).optional(),
-      lineHint: requiredLineHintField.optional(),
+      lineHint: requiredLineHintField
+        .optional()
+        .describe(
+          'Required for all symbol-anchored types (everything except documentSymbols). 1-based line number from a prior localSearchCode result.'
+        ),
       orderHint: orderHintField,
       depth: depthField,
-      includeDeclaration: z.boolean().optional(),
+      includeDeclaration: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+          'For references: whether to include the symbol declaration itself in results. Defaults to true.'
+        ),
       groupByFile: z.boolean().optional(),
     })
     .superRefine((value, ctx) => {

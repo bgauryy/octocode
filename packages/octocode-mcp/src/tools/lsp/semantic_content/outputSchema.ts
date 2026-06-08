@@ -1,16 +1,156 @@
 import { z } from 'zod';
 import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
-const SemanticDataSchema = z.looseObject({
+const PositionSchema = z.object({
+  line: z.number(),
+  character: z.number(),
+});
+
+const RangeSchema = z.object({
+  start: PositionSchema,
+  end: PositionSchema,
+});
+
+const DisplayRangeSchema = z.object({
+  startLine: z.number(),
+  endLine: z.number(),
+});
+
+const LocationSchema = z.object({
+  uri: z.string(),
+  range: RangeSchema,
+  content: z.string().optional(),
+  displayRange: DisplayRangeSchema.optional(),
+  isDefinition: z.boolean().optional(),
+});
+
+const ResolvedSymbolSchema = z.object({
+  name: z.string(),
+  uri: z.string(),
+  range: RangeSchema,
+  foundAtLine: z.number(),
+  orderHint: z.number().optional(),
+  position: PositionSchema,
+});
+
+const LspSchema = z.object({
+  serverAvailable: z.boolean(),
+  provider: z.string().optional(),
+  source: z.string().optional(),
+});
+
+const EvidenceSchema = z.object({
+  confidence: z.enum(['high', 'medium', 'low']),
+  complete: z.boolean(),
+  reason: z.string().optional(),
+});
+
+const PaginationSchema = z.object({
+  currentPage: z.number(),
+  totalPages: z.number(),
+  totalResults: z.number(),
+  hasMore: z.boolean(),
+  itemsPerPage: z.number(),
+  nextPage: z.number().optional(),
+});
+
+const CompactSymbolSchema = z.object({
+  name: z.string(),
+  kind: z.string(),
+  line: z.number(),
+  character: z.number(),
+  endLine: z.number(),
+  childCount: z.number(),
+  containerName: z.string().optional(),
+});
+
+const CompactCallTargetSchema = z.object({
+  name: z.string(),
+  kind: z.string(),
+  uri: z.string(),
+  line: z.number(),
+  endLine: z.number(),
+  selectionLine: z.number().optional(),
+});
+
+const CompactCallSchema = z.object({
+  direction: z.enum(['incoming', 'outgoing']),
+  item: CompactCallTargetSchema,
+  ranges: z.array(z.object({ line: z.number(), character: z.number() })),
+  rangeCount: z.number(),
+  rangeSampleCount: z.number(),
+  contentPreview: z.string().optional(),
+});
+
+const CompletenessSchema = z.object({
+  complete: z.boolean(),
+  truncatedByDepth: z.boolean(),
+  cycleCount: z.number(),
+  failedRequestCount: z.number(),
+  dynamicCallsExcluded: z.literal(true),
+});
+
+const ReferencesByFileSchema = z.object({
+  uri: z.string(),
+  count: z.number(),
+  firstLine: z.number(),
+  firstCharacter: z.number(),
+  lines: z.array(z.number()),
+  hasDefinition: z.boolean().optional(),
+});
+
+const PayloadSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('definition'),
+    locations: z.array(LocationSchema),
+  }),
+  z.object({
+    kind: z.literal('typeDefinition'),
+    locations: z.array(LocationSchema),
+  }),
+  z.object({
+    kind: z.literal('implementation'),
+    locations: z.array(LocationSchema),
+  }),
+  z.object({
+    kind: z.literal('references'),
+    locations: z.array(LocationSchema),
+    byFile: z.array(ReferencesByFileSchema).optional(),
+    totalReferences: z.number(),
+    totalFiles: z.number(),
+  }),
+  z.object({
+    kind: z.literal('calls'),
+    root: CompactCallTargetSchema.optional(),
+    direction: z.enum(['incoming', 'outgoing', 'both']),
+    calls: z.array(CompactCallSchema),
+    totalCalls: z.number(),
+    completeness: CompletenessSchema,
+  }),
+  z.object({
+    kind: z.literal('hover'),
+    markdown: z.string().optional(),
+    text: z.string().optional(),
+    range: RangeSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('documentSymbols'),
+    symbols: z.array(CompactSymbolSchema),
+    totalSymbols: z.number().optional(),
+    topLevelSymbols: z.number().optional(),
+  }),
+  z.object({ kind: z.literal('empty'), reason: z.string() }),
+]);
+
+const SemanticDataSchema = z.object({
   type: z.string(),
   uri: z.string(),
-  resolvedSymbol: z.unknown().optional(),
-  lsp: z.unknown(),
-  evidence: z.unknown(),
-  payload: z.looseObject({
-    kind: z.string(),
-  }),
-  pagination: z.unknown().optional(),
+  resolvedSymbol: ResolvedSymbolSchema.optional(),
+  lsp: LspSchema,
+  evidence: EvidenceSchema,
+  payload: PayloadSchema,
+  pagination: PaginationSchema.optional(),
+  summary: z.record(z.string(), z.unknown()).optional(),
   warnings: z.array(z.string()).optional(),
   hints: z.array(z.string()).optional(),
 });

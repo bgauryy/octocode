@@ -1,11 +1,43 @@
 import { z } from 'zod';
 import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
-const DiagnosticsDataSchema = z.looseObject({
+const PositionSchema = z.object({
+  line: z.number(),
+  character: z.number(),
+});
+
+const RangeSchema = z.object({
+  start: PositionSchema,
+  end: PositionSchema,
+});
+
+const RelatedInformationSchema = z.object({
+  location: z.object({
+    uri: z.string(),
+    range: RangeSchema,
+  }),
+  message: z.string(),
+});
+
+const DiagnosticEntrySchema = z.object({
+  range: RangeSchema,
+  severity: z.enum(['error', 'warning', 'information', 'hint']),
+  message: z.string(),
+  source: z.string().optional(),
+  code: z.unknown().optional(),
+  relatedInformation: z.array(RelatedInformationSchema).optional(),
+});
+
+const LspSchema = z.object({
+  serverAvailable: z.boolean(),
+  source: z.string().optional(),
+});
+
+const DiagnosticsDataSchema = z.object({
   uri: z.string(),
-  lsp: z.unknown(),
-  diagnostics: z.array(z.unknown()),
-  summary: z.looseObject({
+  lsp: LspSchema,
+  diagnostics: z.array(DiagnosticEntrySchema),
+  summary: z.object({
     errors: z.number(),
     warnings: z.number(),
     information: z.number(),

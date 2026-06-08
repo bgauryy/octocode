@@ -40,7 +40,7 @@ const PLATFORM_MAP = {
   'darwin-x64':     { vscodeArch: 'darwin-x64',    binary: 'rg'     },
   'linux-arm64':    { vscodeArch: 'linux-arm64',   binary: 'rg'     },
   'linux-x64':      { vscodeArch: 'linux-x64',     binary: 'rg'     },
-  'linux-x64-musl': { vscodeArch: 'linux-x64',     binary: 'rg'     }, // uses glibc build
+  'linux-x64-musl': { vscodeArch: 'linux-x64',     binary: 'rg'     }, // @vscode/ripgrep's linux-x64 rg is static-pie linked (no glibc/musl interpreter), so it runs on Alpine/musl too
   'windows-x64':    { vscodeArch: 'win32-x64',     binary: 'rg.exe' },
 };
 

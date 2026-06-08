@@ -62,14 +62,11 @@ vi.mock('../../index.js', () => ({
   githubSearchPullRequests: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      pull_requests: []' }],
   }),
-  lspGotoDefinition: vi.fn().mockResolvedValue({
+  lspGetSemanticContent: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      definition: null' }],
   }),
-  lspFindReferences: vi.fn().mockResolvedValue({
-    content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      references: []' }],
-  }),
-  lspCallHierarchy: vi.fn().mockResolvedValue({
-    content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      calls: []' }],
+  lspGetDiagnostics: vi.fn().mockResolvedValue({
+    content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      diagnostics: []' }],
   }),
   packageSearch: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      packages: []' }],
@@ -115,9 +112,9 @@ describe('Tools Routes', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('returns all 13 tools', async () => {
+    it('returns all 12 tools', async () => {
       const res = await request(app).get('/tools/list');
-      expect(res.body.data.tools).toHaveLength(13);
+      expect(res.body.data.tools).toHaveLength(12);
     });
 
     it('each tool has name and description', async () => {
@@ -135,7 +132,7 @@ describe('Tools Routes', () => {
       const names = res.body.data.tools.map((t: any) => t.name);
       expect(names).toContain('localSearchCode');
       expect(names).toContain('githubSearchCode');
-      expect(names).toContain('lspGotoDefinition');
+      expect(names).toContain('lspGetSemanticContent');
       expect(names).toContain('packageSearch');
     });
 

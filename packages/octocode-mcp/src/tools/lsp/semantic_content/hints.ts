@@ -49,12 +49,18 @@ export function semanticHints(
     ],
     callers: [
       'Callers show static incoming call sites only; combine with localSearchCode for dynamic dispatch or framework wiring.',
+      'Set depth=2 to trace one level deeper into the call chain.',
+      'Set contextLines=3 to include source snippets around each call site.',
     ],
     callees: [
       'Callees show static outgoing calls only; combine with localSearchCode for dynamic imports, callbacks, or event names.',
+      'Set depth=2 to trace one level deeper into called functions.',
+      'Set contextLines=3 to include source snippets around each call site.',
     ],
     callHierarchy: [
       'Bidirectional call hierarchy is depth-limited and excludes dynamic calls.',
+      'Use type="callers" or type="callees" for a focused single-direction view.',
+      'Set depth=2 to explore one more level in both directions.',
     ],
     hover: [
       'Hover found — use type="typeDefinition" for declared types or type="implementation" for concrete behavior.',

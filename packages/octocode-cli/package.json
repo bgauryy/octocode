@@ -1,6 +1,6 @@
 {
   "name": "octocode-cli",
-  "version": "1.5.3",
+  "version": "1.6.0",
   "description": "Interactive CLI installer for octocode-mcp - Configure MCP servers for Cursor, Claude Desktop, and more",
   "keywords": [
     "ai-coding",
@@ -60,7 +60,9 @@
     "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp && yarn validate:skills"
   },
   "dependencies": {
-    "@vscode/ripgrep": "^1.18.0"
+    "@vscode/ripgrep": "^1.18.0",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "^5.1.3"
   },
   "devDependencies": {
     "@inquirer/prompts": "^8.1.0",
@@ -75,7 +77,6 @@
     "octocode-shared": "workspace:^",
     "open": "^11.0.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }
 }

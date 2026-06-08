@@ -35,7 +35,7 @@ describe('gatherIncomingCallsRecursive', () => {
     vi.clearAllMocks();
   });
 
-  it('returns [] when client is null', async () => {
+  it('returns empty result when client is null', async () => {
     const item = makeItem('fn', '/a.ts');
     const result = await gatherIncomingCallsRecursive(
       null,
@@ -44,10 +44,13 @@ describe('gatherIncomingCallsRecursive', () => {
       new Set(),
       0
     );
-    expect(result).toEqual([]);
+    expect(result.calls).toEqual([]);
+    expect(result.truncatedByDepth).toBe(false);
+    expect(result.cycleCount).toBe(0);
+    expect(result.failedRequestCount).toBe(0);
   });
 
-  it('returns [] when remainingDepth is 0', async () => {
+  it('returns empty result when remainingDepth is 0', async () => {
     const item = makeItem('fn', '/a.ts');
     const result = await gatherIncomingCallsRecursive(
       mockClient as never,
@@ -56,11 +59,12 @@ describe('gatherIncomingCallsRecursive', () => {
       new Set(),
       0
     );
-    expect(result).toEqual([]);
+    expect(result.calls).toEqual([]);
+    expect(result.truncatedByDepth).toBe(false);
     expect(mockClient.getIncomingCalls).not.toHaveBeenCalled();
   });
 
-  it('returns direct calls at depth 1 (no recursion)', async () => {
+  it('returns direct calls at depth 1 with truncatedByDepth=true when calls exist', async () => {
     const parent = makeItem('parent', '/b.ts', 10);
     const call = { from: parent, fromRanges: [] };
     mockClient.getIncomingCalls.mockResolvedValue([call]);
@@ -74,8 +78,25 @@ describe('gatherIncomingCallsRecursive', () => {
       0
     );
 
-    expect(result).toEqual([call]);
+    expect(result.calls).toEqual([call]);
+    expect(result.truncatedByDepth).toBe(true);
+    expect(result.cycleCount).toBe(0);
+    expect(result.failedRequestCount).toBe(0);
     expect(mockClient.getIncomingCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns truncatedByDepth=false at depth 1 when no calls exist', async () => {
+    mockClient.getIncomingCalls.mockResolvedValue([]);
+    const item = makeItem('fn', '/a.ts');
+    const result = await gatherIncomingCallsRecursive(
+      mockClient as never,
+      item,
+      1,
+      new Set(),
+      0
+    );
+    expect(result.calls).toEqual([]);
+    expect(result.truncatedByDepth).toBe(false);
   });
 
   it('recurses and deduplicates by key', async () => {
@@ -85,7 +106,6 @@ describe('gatherIncomingCallsRecursive', () => {
     const gpCall = { from: grandparent, fromRanges: [] };
     const parentCall = { from: parent, fromRanges: [] };
 
-    // depth=2: first call returns [parentCall], second (for parent) returns [gpCall]
     mockClient.getIncomingCalls
       .mockResolvedValueOnce([parentCall])
       .mockResolvedValueOnce([gpCall]);
@@ -100,12 +120,12 @@ describe('gatherIncomingCallsRecursive', () => {
       0
     );
 
-    expect(result).toHaveLength(2);
-    expect(result).toContain(parentCall);
-    expect(result).toContain(gpCall);
+    expect(result.calls).toHaveLength(2);
+    expect(result.calls).toContain(parentCall);
+    expect(result.calls).toContain(gpCall);
   });
 
-  it('skips already-visited nodes to prevent cycles', async () => {
+  it('counts cycleCount when a visited node would have been recursed', async () => {
     const parent = makeItem('parent', '/b.ts', 10);
     const call = { from: parent, fromRanges: [] };
     mockClient.getIncomingCalls.mockResolvedValue([call]);
@@ -121,12 +141,12 @@ describe('gatherIncomingCallsRecursive', () => {
       0
     );
 
-    // parentCall is in enhanced calls but not recursed into (already visited)
-    expect(result).toContain(call);
+    expect(result.calls).toContain(call);
+    expect(result.cycleCount).toBe(1);
     expect(mockClient.getIncomingCalls).toHaveBeenCalledTimes(1);
   });
 
-  it('returns [] when getIncomingCalls throws', async () => {
+  it('counts failedRequestCount and returns empty on getIncomingCalls throw', async () => {
     mockClient.getIncomingCalls.mockRejectedValue(new Error('LSP error'));
     const item = makeItem('fn', '/a.ts');
     const result = await gatherIncomingCallsRecursive(
@@ -136,7 +156,9 @@ describe('gatherIncomingCallsRecursive', () => {
       new Set(),
       0
     );
-    expect(result).toEqual([]);
+    expect(result.calls).toEqual([]);
+    expect(result.failedRequestCount).toBe(1);
+    expect(result.truncatedByDepth).toBe(false);
   });
 });
 
@@ -169,10 +191,10 @@ describe('gatherIncomingCallsRecursive with contextLines', () => {
       1
     );
 
-    expect(result).toHaveLength(1);
-    expect((result[0] as { from: CallHierarchyItem }).from.content).toContain(
-      'line'
-    );
+    expect(result.calls).toHaveLength(1);
+    expect(
+      (result.calls[0] as { from: CallHierarchyItem }).from.content
+    ).toContain('line');
   });
 
   it('returns item unchanged when file cannot be read (missing file)', async () => {
@@ -189,9 +211,9 @@ describe('gatherIncomingCallsRecursive with contextLines', () => {
       2
     );
 
-    expect(result).toHaveLength(1);
+    expect(result.calls).toHaveLength(1);
     expect(
-      (result[0] as { from: CallHierarchyItem }).from.content
+      (result.calls[0] as { from: CallHierarchyItem }).from.content
     ).toBeUndefined();
   });
 });
@@ -201,7 +223,7 @@ describe('gatherOutgoingCallsRecursive', () => {
     vi.clearAllMocks();
   });
 
-  it('returns [] when client is null', async () => {
+  it('returns empty result when client is null', async () => {
     const item = makeItem('fn', '/a.ts');
     const result = await gatherOutgoingCallsRecursive(
       null,
@@ -210,10 +232,13 @@ describe('gatherOutgoingCallsRecursive', () => {
       new Set(),
       0
     );
-    expect(result).toEqual([]);
+    expect(result.calls).toEqual([]);
+    expect(result.truncatedByDepth).toBe(false);
+    expect(result.cycleCount).toBe(0);
+    expect(result.failedRequestCount).toBe(0);
   });
 
-  it('returns [] when remainingDepth is 0', async () => {
+  it('returns empty result when remainingDepth is 0', async () => {
     const item = makeItem('fn', '/a.ts');
     const result = await gatherOutgoingCallsRecursive(
       mockClient as never,
@@ -222,10 +247,10 @@ describe('gatherOutgoingCallsRecursive', () => {
       new Set(),
       0
     );
-    expect(result).toEqual([]);
+    expect(result.calls).toEqual([]);
   });
 
-  it('returns direct outgoing calls at depth 1', async () => {
+  it('returns direct outgoing calls at depth 1 with truncatedByDepth=true when calls exist', async () => {
     const callee = makeItem('callee', '/b.ts', 5);
     const call = { to: callee, fromRanges: [] };
     mockClient.getOutgoingCalls.mockResolvedValue([call]);
@@ -239,7 +264,22 @@ describe('gatherOutgoingCallsRecursive', () => {
       0
     );
 
-    expect(result).toEqual([call]);
+    expect(result.calls).toEqual([call]);
+    expect(result.truncatedByDepth).toBe(true);
+  });
+
+  it('returns truncatedByDepth=false at depth 1 when no outgoing calls exist', async () => {
+    mockClient.getOutgoingCalls.mockResolvedValue([]);
+    const item = makeItem('fn', '/a.ts');
+    const result = await gatherOutgoingCallsRecursive(
+      mockClient as never,
+      item,
+      1,
+      new Set(),
+      0
+    );
+    expect(result.calls).toEqual([]);
+    expect(result.truncatedByDepth).toBe(false);
   });
 
   it('recurses for outgoing calls at depth > 1', async () => {
@@ -262,12 +302,12 @@ describe('gatherOutgoingCallsRecursive', () => {
       0
     );
 
-    expect(result).toHaveLength(2);
-    expect(result).toContain(calleeCall);
-    expect(result).toContain(deepCall);
+    expect(result.calls).toHaveLength(2);
+    expect(result.calls).toContain(calleeCall);
+    expect(result.calls).toContain(deepCall);
   });
 
-  it('skips already-visited callees', async () => {
+  it('counts cycleCount when a visited callee would have been recursed', async () => {
     const callee = makeItem('callee', '/b.ts', 5);
     const call = { to: callee, fromRanges: [] };
     mockClient.getOutgoingCalls.mockResolvedValue([call]);
@@ -283,11 +323,12 @@ describe('gatherOutgoingCallsRecursive', () => {
       0
     );
 
-    expect(result).toContain(call);
+    expect(result.calls).toContain(call);
+    expect(result.cycleCount).toBe(1);
     expect(mockClient.getOutgoingCalls).toHaveBeenCalledTimes(1);
   });
 
-  it('returns [] when getOutgoingCalls throws', async () => {
+  it('counts failedRequestCount and returns empty on getOutgoingCalls throw', async () => {
     mockClient.getOutgoingCalls.mockRejectedValue(new Error('LSP error'));
     const item = makeItem('fn', '/a.ts');
     const result = await gatherOutgoingCallsRecursive(
@@ -297,6 +338,8 @@ describe('gatherOutgoingCallsRecursive', () => {
       new Set(),
       0
     );
-    expect(result).toEqual([]);
+    expect(result.calls).toEqual([]);
+    expect(result.failedRequestCount).toBe(1);
+    expect(result.truncatedByDepth).toBe(false);
   });
 });

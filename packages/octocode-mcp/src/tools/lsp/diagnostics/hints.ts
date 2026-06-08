@@ -19,11 +19,23 @@ export const hints: ToolHintGenerators = {
   },
 };
 
-export function diagnosticHints(source: string, empty: boolean): string[] {
-  return [
+export function diagnosticHints(
+  source: string,
+  empty: boolean,
+  errorCount = 0
+): string[] {
+  const base = [
     empty
       ? `No diagnostics returned from ${source}.`
       : `Diagnostics returned from ${source}.`,
     'Diagnostics are fast semantic evidence; still run project lint/typecheck/tests before claiming a risky change is fully verified.',
   ];
+
+  if (!empty && errorCount > 0) {
+    base.push(
+      'Use lspGetSemanticContent with type="definition" on impacted symbols to trace the source of errors.'
+    );
+  }
+
+  return base;
 }

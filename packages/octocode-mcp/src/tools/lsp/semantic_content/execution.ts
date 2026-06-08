@@ -302,7 +302,9 @@ async function getDocumentSymbols(
       complete,
       reason: complete
         ? undefined
-        : documentSymbolFailureReason(serverAvailable),
+        : serverAvailable
+          ? 'documentSymbolProvider unsupported'
+          : 'Language server unavailable',
     },
     summary: {
       totalSymbols: compactSymbols.length,
@@ -319,7 +321,11 @@ async function getDocumentSymbols(
     pagination,
     warnings: complete
       ? undefined
-      : [documentSymbolFailureReason(serverAvailable)],
+      : [
+          serverAvailable
+            ? 'documentSymbolProvider unsupported'
+            : 'Language server unavailable',
+        ],
     hints: semanticHints('documentSymbols', complete),
   };
 }
@@ -371,7 +377,7 @@ function referencesEnvelope(
     lsp: { serverAvailable: true, provider: 'referencesProvider' },
     evidence: {
       confidence: refs.length > 0 ? 'high' : 'medium',
-      complete: refs.length > 0,
+      complete: true,
       reason:
         refs.length > 0
           ? undefined
@@ -384,7 +390,7 @@ function referencesEnvelope(
       totalReferences: refs.length,
       totalFiles: new Set(refs.map(ref => ref.uri)).size,
     },
-    hints: semanticHints('references', refs.length > 0),
+    hints: semanticHints('references', true),
   };
 }
 
@@ -429,30 +435,42 @@ async function callsEnvelope(
   }
 
   const depth = query.depth ?? 1;
-  const incoming =
+  const emptyTraversal = {
+    calls: [],
+    truncatedByDepth: false,
+    cycleCount: 0,
+    failedRequestCount: 0,
+  } as const;
+  const incomingResult =
     query.type === 'callers' || query.type === 'callHierarchy'
       ? await gatherIncomingCallsRecursive(
           client,
           root,
           depth,
           new Set([createCallItemKey(root)]),
-          query.contextLines ?? 2
+          query.contextLines ?? 0
         )
-      : [];
-  const outgoing =
+      : emptyTraversal;
+  const outgoingResult =
     query.type === 'callees' || query.type === 'callHierarchy'
       ? await gatherOutgoingCallsRecursive(
           client,
           root,
           depth,
           new Set([createCallItemKey(root)]),
-          query.contextLines ?? 2
+          query.contextLines ?? 0
         )
-      : [];
+      : emptyTraversal;
 
   const calls = [
-    ...incoming.map(call => ({ direction: 'incoming' as const, ...call })),
-    ...outgoing.map(call => ({ direction: 'outgoing' as const, ...call })),
+    ...incomingResult.calls.map(call => ({
+      direction: 'incoming' as const,
+      ...call,
+    })),
+    ...outgoingResult.calls.map(call => ({
+      direction: 'outgoing' as const,
+      ...call,
+    })),
   ];
   const compactCalls = calls.map(call =>
     call.direction === 'incoming'
@@ -478,7 +496,7 @@ async function callsEnvelope(
     lsp: { serverAvailable: true, provider: 'callHierarchyProvider' },
     evidence: {
       confidence: calls.length > 0 ? 'high' : 'medium',
-      complete: calls.length > 0,
+      complete: true,
       reason:
         calls.length > 0
           ? undefined
@@ -492,9 +510,11 @@ async function callsEnvelope(
       totalCalls: compactCalls.length,
       completeness: {
         complete: compactCalls.length > 0,
-        truncatedByDepth: depth > 1,
-        cycleCount: 0,
-        failedRequestCount: 0,
+        truncatedByDepth:
+          incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
+        cycleCount: incomingResult.cycleCount + outgoingResult.cycleCount,
+        failedRequestCount:
+          incomingResult.failedRequestCount + outgoingResult.failedRequestCount,
         dynamicCallsExcluded: true,
       },
     },
@@ -502,12 +522,12 @@ async function callsEnvelope(
       totalCalls: compactCalls.length,
       returnedCalls: pageItems.length,
       direction,
-      incomingCalls: incoming.length,
-      outgoingCalls: outgoing.length,
+      incomingCalls: incomingResult.calls.length,
+      outgoingCalls: outgoingResult.calls.length,
     },
     pagination,
     hints: [
-      ...semanticHints(query.type, compactCalls.length > 0),
+      ...semanticHints(query.type, true),
       ...(pagination.hasMore
         ? [`More calls available — retry with page=${pagination.nextPage}.`]
         : []),
@@ -518,12 +538,6 @@ async function callsEnvelope(
           ]),
     ],
   };
-}
-
-function documentSymbolFailureReason(serverAvailable: boolean): string {
-  return serverAvailable
-    ? 'documentSymbolProvider unsupported'
-    : 'Language server unavailable';
 }
 
 function paginateItems<T>(

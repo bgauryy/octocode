@@ -6979,6 +6979,7 @@ __metadata:
     "@octokit/request": "npm:^10.0.7"
     "@types/node": "npm:^22.15.29"
     "@vitest/coverage-v8": "npm:^4.0.16"
+    "@vscode/ripgrep": "npm:^1.18.0"
     esbuild: "npm:^0.27.2"
     eslint: "npm:^9.18.0"
     octocode-mcp: "workspace:^"
@@ -6986,6 +6987,7 @@ __metadata:
     open: "npm:^11.0.0"
     tsx: "npm:^4.21.0"
     typescript: "npm:^5.9.3"
+    typescript-language-server: "npm:^5.1.3"
     vitest: "npm:^4.0.16"
   bin:
     octocode: ./out/octocode-cli.js

@@ -10,6 +10,18 @@ const nodeExternals = [
   ...builtinModules.map((m) => `node:${m}`),
 ];
 
+// Every runtime `dependency` MUST stay external — never inlined into the bundle.
+// They are installed in the consumer's node_modules, so dist/ should `require()`
+// them at runtime. This is critical for `@vscode/ripgrep`, which resolves its
+// platform binary via `require.resolve('@vscode/ripgrep-<os>-<arch>/bin/rg')`
+// relative to its OWN install dir — inlining that resolver breaks it under pnpm.
+// Workspace packages (octocode-mcp, octocode-shared) live in devDependencies and
+// are deliberately bundled, because consumers never install them.
+// Derived from package.json so it can never drift.
+const runtimeExternals = Object.keys(pkg.dependencies ?? {});
+
+const external = [...nodeExternals, ...runtimeExternals];
+
 const shimBanner = [
   '#!/usr/bin/env node',
   "import { createRequire as __createRequire } from 'module';",
@@ -35,7 +47,7 @@ await esbuild.build({
   minify: true,
   treeShaking: true,
   banner: { js: shimBanner },
-  external: nodeExternals,
+  external,
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

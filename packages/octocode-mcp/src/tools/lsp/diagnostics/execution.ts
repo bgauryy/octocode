@@ -104,7 +104,11 @@ async function getDiagnostics(query: LspDiagnosticsQuery) {
             'Diagnostics unavailable; server did not advertise pull diagnostics and no publishDiagnostics buffer was available.',
           ]
         : undefined,
-    hints: diagnosticHints(result.source, diagnostics.length === 0),
+    hints: diagnosticHints(
+      result.source,
+      diagnostics.length === 0,
+      diagnostics.filter(d => d.severity === 'error').length
+    ),
   };
 }
 

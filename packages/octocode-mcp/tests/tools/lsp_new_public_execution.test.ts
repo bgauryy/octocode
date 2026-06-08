@@ -178,12 +178,18 @@ describe('new public LSP tool execution', () => {
   });
 
   it('returns document symbols and call-flow payloads', async () => {
-    vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue([
-      { from: callItem('caller'), fromRanges: [range] },
-    ] as never);
-    vi.mocked(gatherOutgoingCallsRecursive).mockResolvedValue([
-      { to: callItem('callee'), fromRanges: [range] },
-    ] as never);
+    vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
+      calls: [{ from: callItem('caller'), fromRanges: [range] }],
+      truncatedByDepth: true,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    vi.mocked(gatherOutgoingCallsRecursive).mockResolvedValue({
+      calls: [{ to: callItem('callee'), fromRanges: [range] }],
+      truncatedByDepth: false,
+      cycleCount: 1,
+      failedRequestCount: 0,
+    } as never);
 
     const result = await executeLspGetSemanticContent({
       queries: [
@@ -199,6 +205,39 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('direction: "incoming"');
     expect(text).toContain('direction: "outgoing"');
     expect(text).toContain('dynamicCallsExcluded: true');
+    expect(text).toContain('truncatedByDepth: true');
+    expect(text).toContain('cycleCount: 1');
+  });
+
+  it('marks evidence.complete=true even when references or calls return zero results', async () => {
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        findReferences: vi.fn().mockResolvedValue([]),
+        prepareCallHierarchy: vi.fn().mockResolvedValue([callItem('target')]),
+      }) as never
+    );
+    vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    vi.mocked(gatherOutgoingCallsRecursive).mockResolvedValue({
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+
+    const result = await executeLspGetSemanticContent({
+      queries: [anchored('references'), anchored('callers')],
+    } as never);
+    const text = textOf(result);
+
+    expect(text).not.toContain('status: "error"');
+    expect(text).not.toContain('Semantic evidence is incomplete');
+    expect(text).toContain('kind: "references"');
+    expect(text).toContain('kind: "calls"');
   });
 
   it('reports unsupported semantic capabilities explicitly', async () => {
@@ -333,6 +372,219 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('two');
     expect(text).toContain('typed hover');
     expect(text).toContain('hoverProvider returned no hover content');
+  });
+
+  it('handles serverAvailable=false for symbol-anchored queries', async () => {
+    vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
+    const result = await executeLspGetSemanticContent({
+      queries: [anchored('definition'), anchored('references')],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('Language server unavailable');
+  });
+
+  it('handles acquirePooledClient returning null for symbol queries', async () => {
+    vi.mocked(acquirePooledClient).mockResolvedValue(null);
+    const result = await executeLspGetSemanticContent({
+      queries: [anchored('definition')],
+    } as never);
+    expect(textOf(result)).toContain('Language server unavailable');
+  });
+
+  it('handles documentSymbols with an invalid/missing path', async () => {
+    const result = await executeLspGetSemanticContent({
+      queries: [{ uri: join(tempDir, 'missing.ts'), type: 'documentSymbols' }],
+    } as never);
+    expect(textOf(result)).toContain('file_not_found');
+  });
+
+  it('handles documentSymbols when language server is unavailable', async () => {
+    vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
+    const result = await executeLspGetSemanticContent({
+      queries: [{ uri: filePath, type: 'documentSymbols' }],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('Language server unavailable');
+    expect(text).toContain('kind: "documentSymbols"');
+  });
+
+  it('paginates document symbols across pages', async () => {
+    const manySymbols = Array.from({ length: 50 }, (_, i) => ({
+      name: `sym${i}`,
+      kind: 12,
+      range: {
+        start: { line: i, character: 0 },
+        end: { line: i, character: 10 },
+      },
+    }));
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        documentSymbols: vi.fn().mockResolvedValue(manySymbols),
+      }) as never
+    );
+    const result = await executeLspGetSemanticContent({
+      queries: [{ uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 }],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('hasMore: true');
+    expect(text).toContain('nextPage: 2');
+  });
+
+  it('paginates call results and includes compact hint when contextLines=0', async () => {
+    const manyCalls = Array.from({ length: 15 }, (_, i) =>
+      callItem(`fn${i}`)
+    );
+    vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
+      calls: manyCalls.map(c => ({ from: c, fromRanges: [range, range] })),
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    vi.mocked(gatherOutgoingCallsRecursive).mockResolvedValue({
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    const result = await executeLspGetSemanticContent({
+      queries: [anchored('callers', { page: 1, itemsPerPage: 5 })],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('hasMore: true');
+    expect(text).toContain('compact by default');
+  });
+
+  it('renders contentPreview and deduplicates ranges when contextLines>0', async () => {
+    vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
+      calls: [
+        {
+          from: { ...callItem('callerFn'), content: 'function callerFn() {}' },
+          fromRanges: [range, range, range],
+        },
+      ],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    vi.mocked(gatherOutgoingCallsRecursive).mockResolvedValue({
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    const result = await executeLspGetSemanticContent({
+      queries: [anchored('callers', { contextLines: 2 })],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('callerFn');
+    expect(text).toContain('rangeCount: 3');
+    expect(text).toContain('rangeSampleCount: 1');
+  });
+
+  it('renders nested document symbols (children structure)', async () => {
+    const nestedSymbols = [
+      {
+        name: 'MyClass',
+        kind: 5,
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 20, character: 1 },
+        },
+        children: [
+          {
+            name: 'myMethod',
+            kind: 6,
+            range: {
+              start: { line: 2, character: 2 },
+              end: { line: 5, character: 3 },
+            },
+          },
+          { notASymbol: true },
+        ],
+      },
+      {
+        name: undefined,
+        kind: 12,
+        location: {
+          range: {
+            start: { line: 10, character: 0 },
+            end: { line: 10, character: 5 },
+          },
+        },
+      },
+    ];
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        documentSymbols: vi.fn().mockResolvedValue(nestedSymbols),
+      }) as never
+    );
+    const result = await executeLspGetSemanticContent({
+      queries: [{ uri: filePath, type: 'documentSymbols' }],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('MyClass');
+    expect(text).toContain('myMethod');
+    expect(text).toContain('containerName: "MyClass"');
+  });
+
+  it('renders various symbolKindName values covering all switch cases', async () => {
+    const allKinds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 999];
+    const kindSymbols = allKinds.map((kind, i) => ({
+      name: `sym${i}`,
+      kind,
+      range: {
+        start: { line: i, character: 0 },
+        end: { line: i, character: 5 },
+      },
+    }));
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        documentSymbols: vi.fn().mockResolvedValue(kindSymbols),
+      }) as never
+    );
+    const result = await executeLspGetSemanticContent({
+      queries: [{ uri: filePath, type: 'documentSymbols' }],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('file');
+    expect(text).toContain('module');
+    expect(text).toContain('class');
+    expect(text).toContain('array');
+    expect(text).toContain('operator');
+    expect(text).toContain('unknown');
+  });
+
+  it('buildReferencesByFile handles same-file multi-location with isDefinition', async () => {
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        findReferences: vi.fn().mockResolvedValue([
+          {
+            uri: filePath,
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
+            content: 'export',
+            isDefinition: true,
+          },
+          {
+            uri: filePath,
+            range: { start: { line: 2, character: 0 }, end: { line: 2, character: 6 } },
+            content: 'usage',
+          },
+        ]),
+      }) as never
+    );
+    const result = await executeLspGetSemanticContent({
+      queries: [anchored('references', { groupByFile: true })],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('hasDefinition: true');
+    expect(text).toContain('count: 2');
+  });
+
+  it('handles empty queries array', async () => {
+    const result = await executeLspGetSemanticContent({
+      queries: [],
+    } as never);
+    expect(result).toBeDefined();
   });
 
   it('exposes direct hint branches for the new public LSP tools', () => {

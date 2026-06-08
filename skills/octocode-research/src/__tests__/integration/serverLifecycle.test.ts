@@ -36,9 +36,8 @@ vi.mock('../../index.js', () => {
     githubViewRepoStructure: vi.fn().mockResolvedValue(r),
     githubSearchRepositories: vi.fn().mockResolvedValue(r),
     githubSearchPullRequests: vi.fn().mockResolvedValue(r),
-    lspGotoDefinition: vi.fn().mockResolvedValue(r),
-    lspFindReferences: vi.fn().mockResolvedValue(r),
-    lspCallHierarchy: vi.fn().mockResolvedValue(r),
+    lspGetSemanticContent: vi.fn().mockResolvedValue(r),
+    lspGetDiagnostics: vi.fn().mockResolvedValue(r),
     packageSearch: vi.fn().mockResolvedValue(r),
   };
 });

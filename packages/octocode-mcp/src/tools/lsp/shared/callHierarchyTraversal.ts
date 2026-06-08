@@ -6,6 +6,19 @@ import type {
 } from '../../../lsp/types.js';
 import { safeReadFile } from '../../../lsp/validation.js';
 
+export type TraversalResult<T> = {
+  calls: T[];
+  truncatedByDepth: boolean;
+  cycleCount: number;
+  failedRequestCount: number;
+};
+
+const EMPTY_TRAVERSAL_RESULT = {
+  truncatedByDepth: false,
+  cycleCount: 0,
+  failedRequestCount: 0,
+} as const;
+
 export function createCallItemKey(item: CallHierarchyItem): string {
   return `${item.uri}:${item.range.start.line}:${item.name}`;
 }
@@ -76,8 +89,10 @@ export async function gatherIncomingCallsRecursive(
   remainingDepth: number,
   visited: Set<string>,
   contextLines: number
-): Promise<IncomingCall[]> {
-  if (remainingDepth <= 0 || !client) return [];
+): Promise<TraversalResult<IncomingCall>> {
+  if (remainingDepth <= 0 || !client) {
+    return { calls: [], ...EMPTY_TRAVERSAL_RESULT };
+  }
 
   try {
     const directCalls = await client.getIncomingCalls(item);
@@ -87,13 +102,25 @@ export async function gatherIncomingCallsRecursive(
         : directCalls;
 
     if (remainingDepth === 1) {
-      return enhancedCalls;
+      return {
+        calls: enhancedCalls,
+        truncatedByDepth: enhancedCalls.length > 0,
+        cycleCount: 0,
+        failedRequestCount: 0,
+      };
     }
 
-    const nestedCallGroups = await Promise.all(
+    const nestedResults = await Promise.all(
       enhancedCalls.map(async call => {
         const key = createCallItemKey(call.from);
-        if (visited.has(key)) return [];
+        if (visited.has(key)) {
+          return {
+            calls: [] as IncomingCall[],
+            truncatedByDepth: false,
+            cycleCount: 1,
+            failedRequestCount: 0,
+          };
+        }
         visited.add(key);
         return gatherIncomingCallsRecursive(
           client,
@@ -105,9 +132,22 @@ export async function gatherIncomingCallsRecursive(
       })
     );
 
-    return [...enhancedCalls, ...nestedCallGroups.flat()];
+    return {
+      calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
+      truncatedByDepth: nestedResults.some(r => r.truncatedByDepth),
+      cycleCount: nestedResults.reduce((sum, r) => sum + r.cycleCount, 0),
+      failedRequestCount: nestedResults.reduce(
+        (sum, r) => sum + r.failedRequestCount,
+        0
+      ),
+    };
   } catch {
-    return [];
+    return {
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 1,
+    };
   }
 }
 
@@ -117,8 +157,10 @@ export async function gatherOutgoingCallsRecursive(
   remainingDepth: number,
   visited: Set<string>,
   contextLines: number
-): Promise<OutgoingCall[]> {
-  if (remainingDepth <= 0 || !client) return [];
+): Promise<TraversalResult<OutgoingCall>> {
+  if (remainingDepth <= 0 || !client) {
+    return { calls: [], ...EMPTY_TRAVERSAL_RESULT };
+  }
 
   try {
     const directCalls = await client.getOutgoingCalls(item);
@@ -128,13 +170,25 @@ export async function gatherOutgoingCallsRecursive(
         : directCalls;
 
     if (remainingDepth === 1) {
-      return enhancedCalls;
+      return {
+        calls: enhancedCalls,
+        truncatedByDepth: enhancedCalls.length > 0,
+        cycleCount: 0,
+        failedRequestCount: 0,
+      };
     }
 
-    const nestedCallGroups = await Promise.all(
+    const nestedResults = await Promise.all(
       enhancedCalls.map(async call => {
         const key = createCallItemKey(call.to);
-        if (visited.has(key)) return [];
+        if (visited.has(key)) {
+          return {
+            calls: [] as OutgoingCall[],
+            truncatedByDepth: false,
+            cycleCount: 1,
+            failedRequestCount: 0,
+          };
+        }
         visited.add(key);
         return gatherOutgoingCallsRecursive(
           client,
@@ -146,8 +200,21 @@ export async function gatherOutgoingCallsRecursive(
       })
     );
 
-    return [...enhancedCalls, ...nestedCallGroups.flat()];
+    return {
+      calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
+      truncatedByDepth: nestedResults.some(r => r.truncatedByDepth),
+      cycleCount: nestedResults.reduce((sum, r) => sum + r.cycleCount, 0),
+      failedRequestCount: nestedResults.reduce(
+        (sum, r) => sum + r.failedRequestCount,
+        0
+      ),
+    };
   } catch {
-    return [];
+    return {
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 1,
+    };
   }
 }
