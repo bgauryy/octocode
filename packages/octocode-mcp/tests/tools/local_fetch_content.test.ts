@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
 import { extractSignatures } from '../../src/utils/minifier/applyMinification.js';
+import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
 
@@ -126,24 +127,7 @@ describe('localGetFileContent', () => {
     });
 
     it('signaturesOnly returns the extracted skeleton, aligned with the GitHub path', async () => {
-      // Same canonical source as the GitHub terminal test
-      // (fileOperations.processContent.test.ts). Both must equal
-      // extractSignatures(SOURCE) — that equality IS the alignment contract.
-      const SOURCE = [
-        "import { A } from './a';",
-        '',
-        'export interface Foo {',
-        '  id: string;',
-        '}',
-        '',
-        'export async function doThing(',
-        '  a: string,',
-        '): Promise<void> {',
-        '  const secretLocal = 1;',
-        '  return use(secretLocal);',
-        '}',
-        '',
-      ].join('\n');
+      const SOURCE = SIGNATURE_SOURCE;
       mockReadFile.mockResolvedValue(SOURCE);
 
       const result = await fetchContent({

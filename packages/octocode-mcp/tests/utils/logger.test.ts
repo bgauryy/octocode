@@ -379,7 +379,9 @@ describe('Logger', () => {
       await logger.info('array test', {
         paths: ['/Users/dev/a', '/Users/dev/b'],
       });
-      const call = vi.mocked(mockServer.sendLoggingMessage!).mock.calls.at(-1)?.[0];
+      const call = vi
+        .mocked(mockServer.sendLoggingMessage!)
+        .mock.calls.at(-1)?.[0];
       expect(call?.data).toBeDefined();
     });
 
@@ -388,22 +390,32 @@ describe('Logger', () => {
       const circ: Record<string, unknown> = { a: 1 };
       circ['self'] = circ;
       await logger.info('circ test', circ);
-      const call = vi.mocked(mockServer.sendLoggingMessage!).mock.calls.at(-1)?.[0];
+      const call = vi
+        .mocked(mockServer.sendLoggingMessage!)
+        .mock.calls.at(-1)?.[0];
       expect(JSON.stringify(call?.data)).toContain('CIRCULAR');
     });
 
     it('passes through empty string without path redaction (line 110)', async () => {
       const logger = new OctocodeLogger(mockServer as McpServer, 'test');
       await logger.info('empty-string field', { tag: '' });
-      const call = vi.mocked(mockServer.sendLoggingMessage!).mock.calls.at(-1)?.[0];
+      const call = vi
+        .mocked(mockServer.sendLoggingMessage!)
+        .mock.calls.at(-1)?.[0];
       expect((call?.data as Record<string, unknown>)?.tag).toBe('');
     });
 
     it('does not redact URL strings in log data (line 123 — URL_PATTERN branch)', async () => {
       const logger = new OctocodeLogger(mockServer as McpServer, 'test');
-      await logger.info('url field', { endpoint: 'https://api.github.com/repos' });
-      const call = vi.mocked(mockServer.sendLoggingMessage!).mock.calls.at(-1)?.[0];
-      expect((call?.data as Record<string, unknown>)?.endpoint).toBe('https://api.github.com/repos');
+      await logger.info('url field', {
+        endpoint: 'https://api.github.com/repos',
+      });
+      const call = vi
+        .mocked(mockServer.sendLoggingMessage!)
+        .mock.calls.at(-1)?.[0];
+      expect((call?.data as Record<string, unknown>)?.endpoint).toBe(
+        'https://api.github.com/repos'
+      );
     });
   });
 });

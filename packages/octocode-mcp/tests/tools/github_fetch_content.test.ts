@@ -171,16 +171,19 @@ describe('GitHub Fetch Content Tool', () => {
         provider: 'github',
       });
 
-      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
-        queries: [
-          {
-            owner: 'test',
-            repo: 'repo',
-            path: 'src/app.ts',
-            signaturesOnly: true,
-          },
-        ],
-      });
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              path: 'src/app.ts',
+              signaturesOnly: true,
+            },
+          ],
+        }
+      );
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('Signatures only');

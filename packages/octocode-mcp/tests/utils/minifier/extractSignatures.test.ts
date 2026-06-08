@@ -88,6 +88,8 @@ describe('extractSignatures', () => {
   });
 
   it('returns null when no signatures are present (plain assignments only)', () => {
-    expect(extractSignatures('const x = 1;\nconst y = 2;\n', 'plain.ts')).toBeNull();
+    expect(
+      extractSignatures('const x = 1;\nconst y = 2;\n', 'plain.ts')
+    ).toBeNull();
   });
 });

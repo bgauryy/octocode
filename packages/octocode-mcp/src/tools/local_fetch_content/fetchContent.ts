@@ -575,11 +575,13 @@ function buildSuccessResult(
     );
   }
 
+  const queryPath = String(query.path);
+
   return {
-    path: query.path,
+    path: queryPath,
     content: applyContentViewMinification(
       pagination.paginatedContent,
-      query.path
+      queryPath
     ),
     isPartial,
     totalLines,
@@ -622,6 +624,7 @@ export async function fetchContent(
     }
 
     const absolutePath = pathValidation.sanitizedPath!;
+    const queryPath = String(query.path);
 
     const { fileStats, errorResult: fileStatsError } =
       await getFileStatsOrError(query, absolutePath);
@@ -657,10 +660,9 @@ export async function fetchContent(
     }
 
     if ((query as unknown as { signaturesOnly?: boolean }).signaturesOnly) {
-      const sigs = extractSignatures(content, query.path);
+      const sigs = extractSignatures(content, queryPath);
       if (sigs !== null) {
         const totalLinesOrig = content.split('\n').length;
-        const sigHint = SIGNATURES_ONLY_HINT;
 
         // Char-paginate the skeleton at the output budget, mirroring the
         // GitHub path (applyContentPagination) so a large export index stays
@@ -681,7 +683,7 @@ export async function fetchContent(
               totalLines: totalLinesOrig,
               pagination: createPaginationInfo(sigPagination),
               hints: [
-                sigHint,
+                SIGNATURES_ONLY_HINT,
                 ...generatePaginationHints(sigPagination, {
                   toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
                 }),
@@ -697,7 +699,7 @@ export async function fetchContent(
             content: sigs,
             isPartial: true,
             totalLines: totalLinesOrig,
-            hints: [sigHint],
+            hints: [SIGNATURES_ONLY_HINT],
           },
           content.length
         );

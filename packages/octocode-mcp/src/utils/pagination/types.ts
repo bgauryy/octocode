@@ -35,13 +35,6 @@ export interface GeneratePaginationHintsOptions {
   toolName?: string;
 }
 
-export interface GitHubFileContentHintContext {
-  owner: string;
-  repo: string;
-  path: string;
-  branch?: string;
-}
-
 export interface StructurePaginationInfo {
   currentPage: number;
   totalPages: number;

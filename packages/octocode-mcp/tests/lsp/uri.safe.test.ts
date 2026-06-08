@@ -33,7 +33,9 @@ describe('fromUriSafe — uncovered branches', () => {
   });
 
   it('throws UnsafeUriError when throwOnInvalid is set', () => {
-    expect(() => fromUriSafe('', { throwOnInvalid: true })).toThrow(UnsafeUriError);
+    expect(() => fromUriSafe('', { throwOnInvalid: true })).toThrow(
+      UnsafeUriError
+    );
   });
 
   it('accepts a valid file URI', () => {

@@ -10,7 +10,6 @@ import {
   applyPagination,
   createPaginationInfo,
 } from '../utils/pagination/core.js';
-import { generateGitHubPaginationHints } from '../utils/pagination/hints.js';
 import { OctokitWithThrottling } from './client.js';
 
 function getDefaultContentPageSize(): number {
@@ -40,21 +39,14 @@ export function applyContentPagination(
   });
   const paginationInfo = createPaginationInfo(paginationMeta);
 
-  const paginationHints = generateGitHubPaginationHints(paginationInfo, {
-    owner: data.owner ?? '',
-    repo: data.repo ?? '',
-    path: data.path ?? '',
-    branch: data.branch,
-  });
-
+  // Tool-level pagination hints are emitted by the github_fetch_content
+  // finalizer (buildRuntimeHints) from `pagination`; the provider boundary
+  // (transformFileContentResult) does not carry per-file `hints`, so none are
+  // attached here.
   return {
     ...data,
     content: paginationMeta.paginatedContent,
     pagination: paginationInfo,
-    // Keep any hint the producer already set (e.g. the signaturesOnly note)
-    // and append the pagination cursor — matches the local path, which
-    // surfaces both.
-    hints: [...(data.hints ?? []), ...paginationHints],
   };
 }
 

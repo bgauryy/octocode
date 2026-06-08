@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPaginationHints } from '../../src/tools/providerMappers.js';
 import {
-  generateGitHubPaginationHints,
   generatePaginationHints,
   generateStructurePaginationHints,
 } from '../../src/utils/pagination/hints.js';
@@ -45,35 +44,6 @@ describe('pagination cursor uniformity', () => {
       /Page 1\/3.*charOffset=10/
     );
     expect(generatePaginationHints(meta(false))).toEqual([]);
-  });
-
-  it('GitHub file-content cursor: byte-offset based; final page silent', () => {
-    expect(
-      generateGitHubPaginationHints(
-        {
-          currentPage: 1,
-          totalPages: 3,
-          hasMore: true,
-          byteOffset: 0,
-          byteLength: 20000,
-          totalBytes: 60000,
-        },
-        { owner: 'o', repo: 'r', path: 'a.ts' }
-      )[0]
-    ).toMatch(/Page 1\/3.*charOffset=20000/);
-    expect(
-      generateGitHubPaginationHints(
-        {
-          currentPage: 3,
-          totalPages: 3,
-          hasMore: false,
-          byteOffset: 40000,
-          byteLength: 20000,
-          totalBytes: 60000,
-        },
-        { owner: 'o', repo: 'r', path: 'a.ts' }
-      )
-    ).toEqual([]);
   });
 
   it('Structure cursor uses entryPageNumber; final page silent', () => {

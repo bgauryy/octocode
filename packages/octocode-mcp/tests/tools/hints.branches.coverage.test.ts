@@ -299,13 +299,15 @@ describe('local_view_structure hints — uncovered branches', () => {
   >['hints'];
 
   beforeAll(async () => {
-    ({ hints: lvsHints } = await import(
-      '../../src/tools/local_view_structure/hints.js'
-    ));
+    ({ hints: lvsHints } =
+      await import('../../src/tools/local_view_structure/hints.js'));
   });
 
   it('error() not_found — with path', () => {
-    const result = lvsHints.error({ errorType: 'not_found', path: '/src' } as never);
+    const result = lvsHints.error({
+      errorType: 'not_found',
+      path: '/src',
+    } as never);
     expect(result[0]).toContain('/src');
   });
 
@@ -338,9 +340,8 @@ describe('github_search_code hints — test infrastructure query detection', () 
   >['hints'];
 
   beforeAll(async () => {
-    ({ hints: scHints } = await import(
-      '../../src/tools/github_search_code/hints.js'
-    ));
+    ({ hints: scHints } =
+      await import('../../src/tools/github_search_code/hints.js'));
   });
 
   it('empty() flags test-infrastructure keywords (jest/vitest) in the suggestion', () => {

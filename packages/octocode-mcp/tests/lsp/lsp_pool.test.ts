@@ -259,7 +259,10 @@ describe('T3.2 — LspClientPool', () => {
       factory,
     });
 
-    await acquireNonNull(pool, { workspaceRoot: '/r', languageId: 'typescript' });
+    await acquireNonNull(pool, {
+      workspaceRoot: '/r',
+      languageId: 'typescript',
+    });
 
     // clearAll() calls safeStop() which calls client.stop() — error is swallowed
     await expect(pool.clearAll()).resolves.not.toThrow();

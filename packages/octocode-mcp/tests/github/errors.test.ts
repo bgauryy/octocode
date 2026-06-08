@@ -528,11 +528,7 @@ describe('isNoResultsSearchError', () => {
   });
 
   it('treats an entry whose message is NOT a string as a non-match (covers the : "" fallback)', () => {
-    const error = makeSearch422([
-      { message: 42 },
-      { message: null },
-      {},
-    ]);
+    const error = makeSearch422([{ message: 42 }, { message: null }, {}]);
     expect(isNoResultsSearchError(error)).toBe(false);
   });
 });

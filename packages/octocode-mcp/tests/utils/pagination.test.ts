@@ -6,7 +6,6 @@ import {
 } from '../../src/utils/pagination/core.js';
 import {
   generatePaginationHints,
-  generateGitHubPaginationHints,
   generateStructurePaginationHints,
 } from '../../src/utils/pagination/hints.js';
 import type { PaginationMetadata } from '../../src/utils/pagination/types.js';
@@ -653,70 +652,6 @@ describe('pagination utility', () => {
       expect(info.currentPage).toBe(1);
       expect(info.totalPages).toBe(1);
       expect(info.hasMore).toBe(false);
-    });
-  });
-
-  describe('generateGitHubPaginationHints', () => {
-    it('emits NO hints on final page (no "Complete content retrieved" tautology)', () => {
-      const pagination = {
-        currentPage: 1,
-        totalPages: 1,
-        hasMore: false,
-        charOffset: 0,
-        charLength: 100,
-        totalChars: 100,
-      };
-      const query = {
-        owner: 'test-owner',
-        repo: 'test-repo',
-        path: 'src/index.ts',
-        branch: 'main',
-      };
-
-      expect(generateGitHubPaginationHints(pagination, query)).toEqual([]);
-    });
-
-    it('emits a single cursor line when hasMore is true', () => {
-      const pagination = {
-        currentPage: 1,
-        totalPages: 3,
-        hasMore: true,
-        byteOffset: 0,
-        byteLength: 20000,
-        totalBytes: 60000,
-      };
-      const query = {
-        owner: 'test-owner',
-        repo: 'test-repo',
-        path: 'src/index.ts',
-        branch: 'main',
-      };
-
-      const hints = generateGitHubPaginationHints(pagination, query);
-
-      expect(hints).toHaveLength(1);
-      expect(hints[0]).toContain('Page 1/3');
-      expect(hints[0]).toContain('charOffset=20000');
-      expect(hints[0]).not.toContain('owner=');
-      expect(hints[0]).not.toContain('TO GET NEXT PAGE');
-    });
-
-    it('emits no hint on the final page even with branch provided', () => {
-      const pagination = {
-        currentPage: 2,
-        totalPages: 3,
-        hasMore: false,
-        charOffset: 40000,
-        charLength: 20000,
-        totalChars: 60000,
-      };
-      const query = {
-        owner: 'test-owner',
-        repo: 'test-repo',
-        path: 'src/index.ts',
-      };
-
-      expect(generateGitHubPaginationHints(pagination, query)).toEqual([]);
     });
   });
 

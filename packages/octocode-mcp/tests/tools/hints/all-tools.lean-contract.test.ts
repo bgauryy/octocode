@@ -18,7 +18,6 @@ import { hints as callHints } from '../../../src/tools/lsp_call_hierarchy/hints.
 import { buildPaginationHints } from '../../../src/tools/providerMappers.js';
 import {
   generatePaginationHints,
-  generateGitHubPaginationHints,
   generateStructurePaginationHints,
 } from '../../../src/utils/pagination/hints.js';
 
@@ -320,7 +319,9 @@ describe('githubGetFileContent — error', () => {
       fileSize: 400,
       totalLines: 1000,
     } as never);
-    expect(h.some(s => s.includes('1000') && s.includes('total lines'))).toBe(true);
+    expect(h.some(s => s.includes('1000') && s.includes('total lines'))).toBe(
+      true
+    );
   });
 
   it('not_found with path + branch', () => {
@@ -749,34 +750,6 @@ describe('pagination hints — fire only on hasMore=true', () => {
         estimatedTokens: 5_000,
       });
       expect(h.some(s => s.includes('tokens'))).toBe(false);
-    });
-  });
-
-  describe('generateGitHubPaginationHints (file content)', () => {
-    it('emits charOffset cursor when hasMore', () => {
-      const h = generateGitHubPaginationHints(
-        {
-          currentPage: 1,
-          totalPages: 5,
-          hasMore: true,
-          byteOffset: 1000,
-          byteLength: 500,
-        },
-        {} as never
-      );
-      expect(h[0]).toContain('charOffset=1500');
-    });
-
-    it('stays silent on final page', () => {
-      const h = generateGitHubPaginationHints(
-        {
-          currentPage: 5,
-          totalPages: 5,
-          hasMore: false,
-        },
-        {} as never
-      );
-      expect(h).toEqual([]);
     });
   });
 

@@ -1,8 +1,6 @@
-import type { PaginationInfo } from '../../types/toolResults.js';
 import type {
   PaginationMetadata,
   GeneratePaginationHintsOptions,
-  GitHubFileContentHintContext,
   StructurePaginationInfo,
   StructurePaginationHintContext,
 } from './types.js';
@@ -51,38 +49,6 @@ export function generatePaginationHints(
   }
 
   hints.push(...generateNavigationHints(metadata));
-
-  return hints;
-}
-
-export function generateGitHubPaginationHints(
-  pagination: PaginationInfo,
-  _query: GitHubFileContentHintContext
-): string[] {
-  if (!pagination.hasMore) return [];
-
-  const nextOffset =
-    (pagination.byteOffset ?? 0) + (pagination.byteLength ?? 0);
-
-  const hints: string[] = [
-    `Page ${pagination.currentPage}/${pagination.totalPages}. Next: charOffset=${nextOffset}`,
-  ];
-
-  const totalChars = pagination.totalChars;
-  if (pagination.totalPages > 2 && totalChars != null && totalChars > 0) {
-    // Surface a tail-seek hint so the agent can jump to the end without
-    // iterating forward through every page.
-    const pageSize = pagination.charLength ?? 8000;
-    const tailOffset = Math.max(0, totalChars - pageSize);
-    hints.push(
-      `File has ${totalChars} total chars. To read the tail directly: charOffset=${tailOffset}`
-    );
-    // Promote signaturesOnly for large multi-page files so the agent can
-    // get a function/export index in a single cheap call instead of paginating.
-    hints.push(
-      `Large file — signaturesOnly=true for an export index (80–95% fewer chars), then startLine/endLine for a body.`
-    );
-  }
 
   return hints;
 }

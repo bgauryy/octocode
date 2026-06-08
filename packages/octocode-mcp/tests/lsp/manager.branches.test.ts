@@ -13,9 +13,8 @@ vi.mock('../../src/session.js', () => ({
 
 describe('manager — releasePooledClientForFile (lines 130-131)', () => {
   it('returns true for a recognised file extension (.ts)', async () => {
-    const { releasePooledClientForFile } = await import(
-      '../../src/lsp/manager.js'
-    );
+    const { releasePooledClientForFile } =
+      await import('../../src/lsp/manager.js');
     // .ts has a registered language server — languageIdForFile returns non-null.
     // sharedPool.clear() is called even when no client exists (no-op), then returns true.
     const released = await releasePooledClientForFile(
@@ -26,9 +25,8 @@ describe('manager — releasePooledClientForFile (lines 130-131)', () => {
   });
 
   it('returns false for an unrecognised file extension', async () => {
-    const { releasePooledClientForFile } = await import(
-      '../../src/lsp/manager.js'
-    );
+    const { releasePooledClientForFile } =
+      await import('../../src/lsp/manager.js');
     const released = await releasePooledClientForFile(
       '/workspace',
       '/workspace/foo.unknownxyz'
