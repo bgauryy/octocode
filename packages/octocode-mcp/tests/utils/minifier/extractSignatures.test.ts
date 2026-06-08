@@ -33,9 +33,39 @@ export const arrow = (x: number): string => {
 };
 `;
 
+const GENERIC_SOURCE = `export type Params<
+  T extends Base,
+  K extends keyof T = never,
+> = Flatten<Omit<T, K>>;
+
+export function generic<
+  A,
+  B,
+>(a: A, b: B): [A, B] {
+  return [a, b];
+}
+`;
+
 describe('extractSignatures', () => {
   it('returns null for unrecognised extensions', () => {
     expect(extractSignatures('hello world', 'notes.unknownext')).toBeNull();
+  });
+
+  it('keeps multi-line generic type-alias declarations whole (params + RHS)', () => {
+    const sigs = extractSignatures(GENERIC_SOURCE, 'g.ts')!;
+    expect(sigs).toContain('export type Params<');
+    expect(sigs).toContain('T extends Base,');
+    expect(sigs).toContain('K extends keyof T = never,');
+    expect(sigs).toContain('> = Flatten<Omit<T, K>>;');
+  });
+
+  it('keeps multi-line generic function signatures (generics + params + return)', () => {
+    const sigs = extractSignatures(GENERIC_SOURCE, 'g.ts')!;
+    expect(sigs).toContain('export function generic<');
+    expect(sigs).toContain('A,');
+    expect(sigs).toContain('B,');
+    expect(sigs).toContain('(a: A, b: B): [A, B]');
+    expect(sigs).not.toContain('return [a, b];');
   });
 
   it('returns a non-null skeleton shorter than the source for code files', () => {

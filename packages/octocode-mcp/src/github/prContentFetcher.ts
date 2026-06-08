@@ -315,6 +315,27 @@ export async function transformPullRequestItemFromSearch(
   return attachRawResponseChars(result, rawResponseChars);
 }
 
+// Fetch every page of a 100-per-page Octokit list endpoint, accumulating the
+// items and the serialized-char count. Shared by the PR file/commit fetchers.
+async function fetchAllPaginated<T>(
+  fetchPage: (page: number) => Promise<{ data: T[] }>
+): Promise<{ items: T[]; rawResponseChars: number }> {
+  const items: T[] = [];
+  let rawResponseChars = 0;
+  let page = 1;
+  let keepFetching = true;
+
+  do {
+    const result = await fetchPage(page);
+    rawResponseChars += countSerializedChars(result.data);
+    items.push(...result.data);
+    keepFetching = result.data.length === 100;
+    page++;
+  } while (keepFetching);
+
+  return { items, rawResponseChars };
+}
+
 async function fetchPRFileChangesAPI(
   owner: string,
   repo: string,
@@ -322,30 +343,21 @@ async function fetchPRFileChangesAPI(
   authInfo?: AuthInfo
 ): Promise<{ total_count: number; files: DiffEntry[] } | null> {
   const octokit = await getOctokit(authInfo);
-  const allFiles: DiffEntry[] = [];
-  let rawResponseChars = 0;
-  let page = 1;
-  let keepFetching = true;
-
-  do {
-    const result = await octokit.rest.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-      page: page,
-    });
-
-    rawResponseChars += countSerializedChars(result.data);
-    allFiles.push(...result.data);
-    keepFetching = result.data.length === 100;
-    page++;
-  } while (keepFetching);
+  const { items, rawResponseChars } = await fetchAllPaginated<DiffEntry>(
+    page =>
+      octokit.rest.pulls.listFiles({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+        page,
+      }) as Promise<{ data: DiffEntry[] }>
+  );
 
   return attachRawResponseChars(
     {
-      total_count: allFiles.length,
-      files: allFiles,
+      total_count: items.length,
+      files: items,
     },
     rawResponseChars
   );
@@ -369,26 +381,18 @@ async function fetchPRCommitsAPI(
   authInfo?: AuthInfo
 ): Promise<CommitListItem[] | null> {
   const octokit = await getOctokit(authInfo);
-  const all: CommitListItem[] = [];
-  let rawResponseChars = 0;
-  let page = 1;
-  let keepFetching = true;
+  const { items, rawResponseChars } = await fetchAllPaginated<CommitListItem>(
+    page =>
+      octokit.rest.pulls.listCommits({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+        page,
+      }) as Promise<{ data: CommitListItem[] }>
+  );
 
-  do {
-    const result = await octokit.rest.pulls.listCommits({
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-      page,
-    });
-    rawResponseChars += countSerializedChars(result.data);
-    all.push(...(result.data as CommitListItem[]));
-    keepFetching = result.data.length === 100;
-    page++;
-  } while (keepFetching);
-
-  return attachRawResponseChars(all, rawResponseChars);
+  return attachRawResponseChars(items, rawResponseChars);
 }
 
 async function fetchCommitFilesAPI(

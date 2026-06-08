@@ -16,6 +16,19 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
     );
   });
 
+  it('warns that a scoped zero is unreliable for archived AND renamed/redirected repos', () => {
+    const out = hints.empty({
+      hasOwnerRepo: true,
+      owner: 'bgauryy',
+      repo: 'octocode-mcp', // redirects to bgauryy/octocode
+      keywords: ['signaturesOnly'],
+    });
+    const joined = out.join(' ');
+    expect(joined).toMatch(/archived/i);
+    expect(joined).toMatch(/renamed|redirect/i);
+    expect(joined).toMatch(/githubGetFileContent/);
+  });
+
   it('explains that path: matches a directory and points to filename:', () => {
     const out = hints.empty({
       hasOwnerRepo: true,

@@ -750,6 +750,47 @@ describe('mapToResult - extended metadata coverage', () => {
     }
   });
 
+  it('should extract repository directory and entrypoint research fields', async () => {
+    mockFetchWithRetries.mockResolvedValue({
+      name: '@scope/pkg',
+      version: '1.0.0',
+      repository: {
+        type: 'git',
+        url: 'git+https://github.com/owner/repo.git',
+        directory: 'packages/pkg',
+      },
+      main: 'dist/index.cjs',
+      module: 'dist/index.mjs',
+      types: 'dist/index.d.ts',
+      type: 'module',
+      exports: {
+        '.': {
+          import: './dist/index.mjs',
+          require: './dist/index.cjs',
+          types: './dist/index.d.ts',
+        },
+      },
+    });
+
+    const result = await searchNpmPackage('@scope/pkg', 1, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      const pkg = result.packages[0] as NpmPackageResult;
+      expect(pkg.repoUrl).toBe('https://github.com/owner/repo');
+      expect(pkg.repositoryDirectory).toBe('packages/pkg');
+      expect(pkg.mainEntry).toBe('dist/index.cjs');
+      expect(pkg.moduleEntry).toBe('dist/index.mjs');
+      expect(pkg.typeDefinitions).toBe('dist/index.d.ts');
+      expect(pkg.packageType).toBe('module');
+      expect(pkg.exports).toEqual([
+        '.:import:./dist/index.mjs',
+        '.:require:./dist/index.cjs',
+        '.:types:./dist/index.d.ts',
+      ]);
+    }
+  });
+
   it('should extract all extended metadata fields', async () => {
     mockFetchWithRetries.mockResolvedValue({
       name: 'full-pkg',

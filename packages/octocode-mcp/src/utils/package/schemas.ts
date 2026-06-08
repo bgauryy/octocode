@@ -6,10 +6,17 @@ export const NpmViewResultSchema = z.looseObject({
   repository: z
     .union([
       z.string(),
-      z.object({ url: z.string().optional(), type: z.string().optional() }),
+      z.object({
+        url: z.string().optional(),
+        type: z.string().optional(),
+        directory: z.string().optional(),
+      }),
     ])
     .optional(),
   main: z.string().optional(),
+  module: z.string().optional(),
+  type: z.string().optional(),
+  exports: z.unknown().optional(),
   types: z.string().optional(),
   typings: z.string().optional(),
   description: z.string().optional(),

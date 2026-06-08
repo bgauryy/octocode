@@ -101,15 +101,24 @@ export async function processFileContentAPI(
   if (signaturesOnly) {
     const sigs = extractSignatures(decodedContent, filePath);
     if (sigs !== null) {
+      // Redact secrets in the skeleton too (a top-level `const KEY = "…"`
+      // matches a signature pattern) — same ContentSanitizer pass the normal
+      // content path runs below, keeping local and GitHub aligned.
+      const sanitized = ContentSanitizer.sanitizeContent(sigs, filePath);
       return {
         owner,
         repo,
         path: filePath,
-        content: sigs,
+        content: sanitized.content,
         branch,
         totalLines: decodedContent.split('\n').length,
         isPartial: true,
-        hints: [SIGNATURES_ONLY_HINT],
+        hints: sanitized.hasSecrets
+          ? [
+              SIGNATURES_ONLY_HINT,
+              `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`,
+            ]
+          : [SIGNATURES_ONLY_HINT],
       };
     }
   }

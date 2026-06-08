@@ -42,6 +42,15 @@ function getPackageRepo(pkg: PackageResult): string | null {
   return pkg.repository;
 }
 
+function truncateText(
+  value: string | undefined,
+  maxLength = 200
+): string | undefined {
+  if (!value) return undefined;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
 function parseRepoInfo(repoUrl: string | null | undefined): {
   owner?: string;
   repo?: string;
@@ -55,6 +64,146 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
     return { owner, repo: cleanRepo };
   }
   return {};
+}
+
+type ShapedPackage = Record<string, unknown> & { name: string };
+
+function getPackageField<T>(pkg: PackageResult, field: string): T | undefined {
+  return (pkg as unknown as Record<string, unknown>)[field] as T | undefined;
+}
+
+function cleanRelativePath(
+  path: string | null | undefined
+): string | undefined {
+  if (!path) return undefined;
+  const clean = path.replace(/^\.\//, '').replace(/^\//, '');
+  return clean.length > 0 ? clean : undefined;
+}
+
+function joinRepoPath(
+  root: string | undefined,
+  entry: string | null | undefined
+): string | undefined {
+  const cleanEntry = cleanRelativePath(entry ?? undefined);
+  if (!cleanEntry) return undefined;
+  const cleanRoot = cleanRelativePath(root);
+  return cleanRoot
+    ? `${cleanRoot.replace(/\/$/, '')}/${cleanEntry}`
+    : cleanEntry;
+}
+
+function compactExports(
+  exportsList: string[] | undefined
+): string[] | undefined {
+  if (!exportsList || exportsList.length === 0) return undefined;
+  return exportsList.slice(0, 12);
+}
+
+function buildPackageType(pkg: PackageResult): string {
+  return getPackageField<string>(pkg, 'packageType') ?? 'unknown';
+}
+
+function buildEntrypoints(pkg: PackageResult) {
+  const main = getPackageField<string | null>(pkg, 'mainEntry') ?? null;
+  const module = getPackageField<string | null>(pkg, 'moduleEntry') ?? null;
+  const types = getPackageField<string | null>(pkg, 'typeDefinitions') ?? null;
+  const exportsList = compactExports(getPackageField<string[]>(pkg, 'exports'));
+  if (!main && !module && !types && !exportsList) return undefined;
+  return {
+    ...(main ? { main } : {}),
+    ...(module ? { module } : {}),
+    ...(types ? { types } : {}),
+    ...(exportsList ? { exports: exportsList } : {}),
+  };
+}
+
+function buildResearchTargets(
+  pkg: PackageResult,
+  owner?: string,
+  repo?: string
+) {
+  if (!owner || !repo) return undefined;
+  const sourceRoot =
+    cleanRelativePath(getPackageField<string>(pkg, 'repositoryDirectory')) ??
+    '';
+  const name = getPackageName(pkg);
+  const entrypoints = buildEntrypoints(pkg);
+  const fileContent = [
+    {
+      path: joinRepoPath(sourceRoot, entrypoints?.main),
+      purpose: 'runtime' as const,
+    },
+    {
+      path: joinRepoPath(sourceRoot, entrypoints?.module),
+      purpose: 'module' as const,
+    },
+    {
+      path: joinRepoPath(sourceRoot, entrypoints?.types),
+      purpose: 'types' as const,
+    },
+  ]
+    .filter(
+      (
+        entry
+      ): entry is {
+        path: string;
+        purpose: 'runtime' | 'module' | 'types';
+      } => Boolean(entry.path)
+    )
+    .map(entry => ({ owner, repo, ...entry }));
+
+  return {
+    repoStructure: { owner, repo, path: sourceRoot },
+    codeSearch: {
+      owner,
+      repo,
+      ...(sourceRoot ? { path: sourceRoot } : {}),
+      keywordsToSearch: [name],
+    },
+    ...(fileContent.length > 0 ? { fileContent } : {}),
+  };
+}
+
+function shapePackage(pkg: PackageResult): ShapedPackage {
+  const repoUrl = getPackageRepo(pkg);
+  const { owner, repo } = parseRepoInfo(repoUrl);
+  const name = getPackageName(pkg);
+  const repositoryDirectory = cleanRelativePath(
+    getPackageField<string>(pkg, 'repositoryDirectory')
+  );
+  const description = truncateText(getPackageField<string>(pkg, 'description'));
+  const entrypoints = buildEntrypoints(pkg);
+  const researchTargets = buildResearchTargets(pkg, owner, repo);
+  const {
+    path: _path,
+    dependencies: _dependencies,
+    peerDependencies: _peerDependencies,
+    ...pkgRest
+  } = pkg as PackageResult & {
+    path?: string;
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+
+  return {
+    ...pkgRest,
+    name,
+    ...(description ? { description } : {}),
+    packageType: buildPackageType(pkg),
+    ...(owner && repo ? { owner, repo } : {}),
+    ...(repoUrl
+      ? {
+          repository: {
+            url: repoUrl,
+            ...(owner && repo ? { owner, repo } : {}),
+            ...(repositoryDirectory ? { directory: repositoryDirectory } : {}),
+            sourceRoot: repositoryDirectory ?? '',
+          },
+        }
+      : {}),
+    ...(entrypoints ? { entrypoints } : {}),
+    ...(researchTargets ? { researchTargets } : {}),
+  };
 }
 
 export async function searchPackages(
@@ -90,19 +239,8 @@ export async function searchPackages(
           });
         }
 
-        const packages = (apiResult.packages as PackageResult[]).map(pkg => {
-          const repoUrl = getPackageRepo(pkg);
-          const { owner, repo } = parseRepoInfo(repoUrl);
-          const name = getPackageName(pkg);
-          const { path: _path, ...pkgRest } = pkg as PackageResult & {
-            path?: string;
-          };
-          return {
-            ...pkgRest,
-            name,
-            ...(owner && repo ? { owner, repo } : {}),
-          };
-        });
+        const rawPackages = apiResult.packages as PackageResult[];
+        const packages = rawPackages.map(pkg => shapePackage(pkg));
 
         const result = {
           packages,
@@ -112,14 +250,17 @@ export async function searchPackages(
         const hasContent = result.packages.length > 0;
 
         let deprecationInfo: DeprecationInfo | null = null;
-        if (hasContent && result.packages[0]) {
+        if (hasContent && rawPackages[0]) {
           deprecationInfo = await checkNpmDeprecation(
-            getPackageName(result.packages[0])
+            getPackageName(rawPackages[0])
           );
         }
 
         const extraHints = hasContent
-          ? generateSuccessHints(result, deprecationInfo)
+          ? generateSuccessHints(
+              { packages: rawPackages, shapedPackages: packages },
+              deprecationInfo
+            )
           : generateEmptyHints(validatedQuery);
 
         const shaped = { data: result, extraHints };
@@ -180,6 +321,7 @@ export async function searchPackages(
 function generateSuccessHints(
   result: {
     packages: PackageResult[];
+    shapedPackages?: ShapedPackage[];
   },
   deprecationInfo?: DeprecationInfo | null
 ): string[] {
@@ -198,10 +340,24 @@ function generateSuccessHints(
 
   const repoUrl = getPackageRepo(pkg);
   const { owner, repo } = parseRepoInfo(repoUrl);
+  const shaped = result.shapedPackages?.[0];
+  const targets = shaped?.researchTargets as
+    | {
+        repoStructure?: { path?: string };
+        fileContent?: Array<{ path: string }>;
+      }
+    | undefined;
   if (owner && repo) {
+    const sourceRoot = targets?.repoStructure?.path ?? '';
     hints.push(
-      `Source: github.com/${owner}/${repo} — use githubViewRepoStructure or githubSearchCode to explore the implementation.`
+      `Source: github.com/${owner}/${repo}${sourceRoot ? ` (sourceRoot=${sourceRoot})` : ''} — use githubViewRepoStructure or githubSearchCode to explore the implementation.`
     );
+    const firstFile = targets?.fileContent?.[0]?.path;
+    if (firstFile) {
+      hints.push(
+        `Entrypoint: use githubGetFileContent owner=${owner} repo=${repo} path=${firstFile}.`
+      );
+    }
   } else if (repoUrl) {
     hints.push(
       `Repository: ${repoUrl} — use githubSearchRepositories to find it on GitHub.`

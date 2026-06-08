@@ -168,6 +168,13 @@ function netDelta(line: string, open: string, close: string): number {
 const braceDelta = (line: string): number => netDelta(line, '{', '}');
 const roundDelta = (line: string): number =>
   netDelta(line, '(', ')') + netDelta(line, '[', ']');
+// Net generic-angle depth, after stripping operators that contain `<`/`>` but
+// are not generics (`=>`, `<=`, `>=`, `<<`, `>>`, `->`). Used to keep multi-line
+// generic parameter lists (`Foo<\n  T,\n>`) intact.
+const angleDelta = (line: string): number => {
+  const code = line.replace(/\/\/.*$/, '').replace(/=>|<=|>=|<<|>>|->/g, '');
+  return netDelta(code, '<', '>');
+};
 
 /**
  * Extract only the structural skeleton of a source file:
@@ -238,15 +245,36 @@ export function extractSignatures(
           continue;
         }
 
-        // Multi-line function/method signature head: keep params + return type
-        // (everything until the parameter list closes). The body that follows
-        // is not matched by any pattern, so it is dropped as usual.
-        if (roundDelta(line) > 0) {
-          let depth = roundDelta(line);
+        // Multi-line type alias (non-object): keep the whole declaration —
+        // generic params + RHS — until the statement terminator `;`. Object
+        // type aliases (`type X = {`) are handled by the block branch above.
+        const isTypeAlias = /^\s*(export\s+)?(declare\s+)?type\s+\w/.test(line);
+        if (isTypeAlias && !/;\s*$/.test(line)) {
           i++;
-          while (i < lines.length && depth > 0) {
+          let guard = 0;
+          while (i < lines.length && guard < 200) {
+            const aliasLine = lines[i]!;
+            kept.push(aliasLine.trimEnd());
+            i++;
+            guard++;
+            if (/;\s*$/.test(aliasLine)) break;
+          }
+          continue;
+        }
+
+        // Multi-line function/method signature head: keep generic params,
+        // value params, and return type (everything until both the generic
+        // `<…>` and parameter `(…)` lists close). A line ending in `<` signals
+        // a multi-line generic list; `roundDelta > 0` signals multi-line
+        // params. The body that follows is dropped as usual.
+        if (roundDelta(line) > 0 || /<\s*$/.test(line)) {
+          let round = roundDelta(line);
+          let angle = angleDelta(line);
+          i++;
+          while (i < lines.length && (round > 0 || angle > 0)) {
             kept.push(lines[i]!.trimEnd());
-            depth += roundDelta(lines[i]!);
+            round += roundDelta(lines[i]!);
+            angle += angleDelta(lines[i]!);
             i++;
           }
           continue;

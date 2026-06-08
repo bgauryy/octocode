@@ -78,7 +78,7 @@ export const hints: ToolHintGenerators = {
         );
       }
       out.push(
-        'For archived repos a zero isn\'t proof — code search is unindexed; confirm via githubGetFileContent before "not found".'
+        'A zero here isn\'t proof — code search misses archived repos and is stale for renamed/redirected ones; confirm via githubGetFileContent (it follows redirects) before "not found".'
       );
     }
 

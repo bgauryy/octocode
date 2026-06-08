@@ -219,6 +219,72 @@ describe('package_search execution branches', () => {
     });
   });
 
+  describe('research handoff output', () => {
+    it('adds repository, entrypoints, researchTargets, and truncates descriptions', async () => {
+      mockSearchPackage.mockResolvedValue({
+        packages: [
+          {
+            name: '@scope/pkg',
+            version: '1.0.0',
+            description: 'D'.repeat(250),
+            repoUrl: 'https://github.com/owner/repo',
+            mainEntry: 'dist/index.cjs',
+            moduleEntry: 'dist/index.mjs',
+            typeDefinitions: 'dist/index.d.ts',
+            packageType: 'module',
+            repositoryDirectory: 'packages/pkg',
+            exports: ['./dist/index.mjs', './dist/index.d.ts'],
+            dependencies: { leftpad: '^1.0.0' },
+            peerDependencies: { react: '^18.0.0' },
+          },
+        ],
+        totalFound: 1,
+      });
+
+      const result = await searchPackages({
+        queries: [
+          { ...baseQuery, id: 'handoff:1', name: '@scope/pkg' } as never,
+        ],
+      });
+
+      expect(result.isError).not.toBe(true);
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('repository:');
+      expect(text).toContain('sourceRoot: "packages/pkg"');
+      expect(text).toContain('entrypoints:');
+      expect(text).toContain('researchTargets:');
+      expect(text).toContain('githubGetFileContent');
+      expect(text).toContain('packages/pkg/dist/index.cjs');
+      expect(text).not.toContain('leftpad');
+      expect(text).not.toContain('peerDependencies');
+      expect(text).toContain(`${'D'.repeat(197)}...`);
+    });
+
+    it('keeps non-GitHub repository URLs without GitHub research targets', async () => {
+      mockSearchPackage.mockResolvedValue({
+        packages: [
+          {
+            name: 'non-gh',
+            version: '1.0.0',
+            repoUrl: 'https://example.com/owner/repo',
+            mainEntry: 'index.js',
+            typeDefinitions: null,
+          },
+        ],
+        totalFound: 1,
+      });
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, id: 'handoff:2', name: 'non-gh' } as never],
+      });
+
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(text).toContain('url: "https://example.com/owner/repo"');
+      expect(text).not.toContain('researchTargets');
+      expect(text).not.toContain('owner: "owner"');
+    });
+  });
+
   describe('generateSuccessHints — null repoUrl branch', () => {
     it('emits githubSearchRepositories hint when repoUrl is null in npm manifest', async () => {
       mockSearchPackage.mockResolvedValue({

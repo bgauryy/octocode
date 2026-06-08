@@ -28,8 +28,12 @@ export interface NpmPackageResult {
   source?: 'cli' | 'registry' | 'web';
 
   mainEntry?: string | null;
+  moduleEntry?: string | null;
 
   typeDefinitions?: string | null;
+  packageType?: 'module' | 'commonjs' | 'types-only' | 'unknown';
+  exports?: string[];
+  repositoryDirectory?: string;
   lastPublished?: string;
   owner?: string;
   repo?: string;

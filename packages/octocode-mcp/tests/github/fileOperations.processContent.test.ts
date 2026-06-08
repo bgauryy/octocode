@@ -201,6 +201,44 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       expect(result.data.content).not.toContain('doStuff');
     });
 
+    it('redacts secrets inside signaturesOnly output (aligned with local)', async () => {
+      const src =
+        'export function connect(token = "AKIAIOSFODNN7EXAMPLE"): void {\n  doThing();\n}\n';
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi.fn().mockResolvedValue({
+              data: {
+                type: 'file',
+                content: Buffer.from(src).toString('base64'),
+                size: src.length,
+                sha: 'sec123',
+                name: 'svc.ts',
+                path: 'svc.ts',
+              },
+            }),
+            listCommits: vi.fn().mockResolvedValue({ data: [] }),
+          },
+        },
+      };
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+
+      const result = (await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'svc.ts',
+        signaturesOnly: true,
+      } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
+        data: { content: string };
+      };
+
+      expect(result.data.content).toContain('connect(');
+      expect(result.data.content).toContain('[REDACTED');
+      expect(result.data.content).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    });
+
     it('should detect and reject binary files', async () => {
       const binaryBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00]);
 

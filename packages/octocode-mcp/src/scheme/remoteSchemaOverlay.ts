@@ -48,8 +48,16 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
     startLine: lineNumberField,
     endLine: lineNumberField,
     matchStringContextLines: contextLinesField,
-    charOffset: clampedInt(0, 100_000_000).optional(),
-    charLength: clampedInt(1, 50_000).optional(),
+    charOffset: clampedInt(0, 100_000_000)
+      .optional()
+      .describe(
+        'Character offset for file-content pagination. Use the returned pagination charOffset+charLength hint to continue, or jump near the tail for large files.'
+      ),
+    charLength: clampedInt(1, 50_000)
+      .optional()
+      .describe(
+        'Character page size for file-content pagination. Lower it for compact previews; raise it up to 50k when you need a larger contiguous chunk.'
+      ),
     signaturesOnly: z
       .boolean()
       .optional()
@@ -161,7 +169,7 @@ export const GitHubCodeSearchQueryLocalSchema = withCoreSchemaDescriptions(
     ...optionalMetaFields,
     keywordsToSearch: describeField(
       UpstreamGitHubCodeSearchQuerySchema.shape.keywordsToSearch,
-      'Search terms AND-combined by GitHub. Each array element is a separate required term — do NOT put multi-word phrases in one element (split them: ["foo","bar"] not ["foo bar"]). Use a small set of distinctive identifiers.'
+      'Search terms AND-combined by GitHub. Each array element is a separate required term — do NOT put multi-word phrases in one element (split them: ["foo","bar"] not ["foo bar"]). Use a small set of distinctive identifiers; scope-only searches are usually low-signal.'
     ),
     owner: describeField(
       UpstreamGitHubCodeSearchQuerySchema.shape.owner,
@@ -470,7 +478,11 @@ const npmPackageQueryWithLimit = withCoreSchemaDescriptions(
     ...optionalMetaFields,
     name: describeField(
       NpmPackageQuerySchema.shape.name,
-      'Package name to resolve through the npm registry before using GitHub tools.'
+      'Exact npm package name or npm keyword query. Output is compact and includes GitHub owner/repo, sourceRoot, entrypoints, and researchTargets when available.'
+    ),
+    npmFetchMetadata: describeField(
+      NpmPackageQuerySchema.shape.npmFetchMetadata,
+      'Fetch heavier npm metadata when needed; response still summarizes descriptions and exposes research handoff fields instead of dumping dependency trees.'
     ),
     page: relaxedPageNumberField.describe(
       `Result page (1-based). Exact package-name lookups return one canonical package; keyword searches use page to walk registry results (up to ${DEFAULT_PAGE_SIZE} per page).`

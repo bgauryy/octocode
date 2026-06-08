@@ -163,6 +163,33 @@ describe('localGetFileContent', () => {
       expect(result.isPartial).toBe(true);
     });
 
+    it('redacts secrets in normal content (aligned with GitHub ContentSanitizer)', async () => {
+      mockReadFile.mockResolvedValue('const a = "AKIAIOSFODNN7EXAMPLE";\n');
+
+      const result = await fetchContent({
+        path: 'cfg.ts',
+        fullContent: true,
+      } as Parameters<typeof fetchContent>[0]);
+
+      expect(result.content).toContain('[REDACTED-AWSACCESSKEYID]');
+      expect(result.content).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    });
+
+    it('redacts secrets inside signaturesOnly output', async () => {
+      mockReadFile.mockResolvedValue(
+        'export function connect(token = "AKIAIOSFODNN7EXAMPLE"): void {\n  doThing();\n}\n'
+      );
+
+      const result = await fetchContent({
+        path: 'svc.ts',
+        signaturesOnly: true,
+      } as Parameters<typeof fetchContent>[0]);
+
+      expect(result.content).toContain('connect(');
+      expect(result.content).toContain('[REDACTED');
+      expect(result.content).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    });
+
     it('should return empty when pattern not found', async () => {
       const testContent = 'line 1\nline 2\nline 3';
       mockReadFile.mockResolvedValue(testContent);

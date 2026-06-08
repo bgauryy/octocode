@@ -65,8 +65,11 @@ export async function checkNpmRegistryReachable(): Promise<boolean> {
 interface NpmViewResult {
   name: string;
   version: string;
-  repository?: string | { url?: string; type?: string };
+  repository?: string | { url?: string; type?: string; directory?: string };
   main?: string;
+  module?: string;
+  type?: string;
+  exports?: unknown;
   types?: string;
   typings?: string;
   description?: string;
@@ -195,17 +198,50 @@ function parseRegistrySearchTotal(
   return fallback;
 }
 
+function mapExports(value: unknown): string[] | undefined {
+  if (typeof value === 'string') return [value];
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const entries = Object.entries(record)
+    .flatMap(([key, entry]) => {
+      if (typeof entry === 'string') return [`${key}:${entry}`];
+      if (entry && typeof entry === 'object') {
+        return Object.entries(entry as Record<string, unknown>)
+          .filter(([, target]) => typeof target === 'string')
+          .map(([condition, target]) => `${key}:${condition}:${target}`);
+      }
+      return [];
+    })
+    .slice(0, 12);
+  return entries.length > 0 ? entries : undefined;
+}
+
+function inferPackageType(
+  data: NpmViewResult
+): NpmPackageResult['packageType'] {
+  if (data.type === 'module' || data.module) return 'module';
+  if (data.main) return 'commonjs';
+  if (data.types || data.typings) return 'types-only';
+  return 'unknown';
+}
+
 function mapToResult(
   data: NpmViewResult,
   includeExtendedMetadata: boolean = false,
   source: 'cli' | 'registry' = 'cli'
 ): NpmPackageResult {
   let repoUrl: string | null = null;
+  let repositoryDirectory: string | undefined;
   if (data.repository) {
     if (typeof data.repository === 'string') {
       repoUrl = cleanRepoUrl(data.repository);
-    } else if (data.repository.url) {
-      repoUrl = cleanRepoUrl(data.repository.url);
+    } else {
+      if (data.repository.url) {
+        repoUrl = cleanRepoUrl(data.repository.url);
+      }
+      if (data.repository.directory) {
+        repositoryDirectory = data.repository.directory.replace(/^\.\//, '');
+      }
     }
   }
 
@@ -224,7 +260,11 @@ function mapToResult(
     repoUrl,
     version: data.version || 'latest',
     mainEntry: data.main || null,
+    moduleEntry: data.module || null,
     typeDefinitions: data.types || data.typings || null,
+    packageType: inferPackageType(data),
+    ...(repositoryDirectory ? { repositoryDirectory } : {}),
+    ...(mapExports(data.exports) ? { exports: mapExports(data.exports) } : {}),
     lastPublished,
     source,
   };

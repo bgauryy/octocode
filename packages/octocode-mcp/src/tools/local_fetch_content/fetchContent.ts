@@ -6,6 +6,7 @@ import {
   extractSignatures,
   SIGNATURES_ONLY_HINT,
 } from '../../utils/minifier/applyMinification.js';
+import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import {
   applyPagination,
   createPaginationInfo,
@@ -651,13 +652,20 @@ export async function fetchContent(
       );
     }
 
-    const { content, errorResult: readError } = await readFileContentOrError(
-      query,
-      absolutePath
-    );
-    if (readError || content === undefined) {
+    const { content: rawContent, errorResult: readError } =
+      await readFileContentOrError(query, absolutePath);
+    if (readError || rawContent === undefined) {
       return readError as LocalGetFileContentToolResult;
     }
+
+    // Redact secrets once at read so every downstream output (signatures,
+    // match/range slices, full content) is sanitized — mirrors the GitHub
+    // path's ContentSanitizer pass.
+    const sanitized = ContentSanitizer.sanitizeContent(rawContent, queryPath);
+    const content = sanitized.content;
+    const secretWarning = sanitized.hasSecrets
+      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
+      : undefined;
 
     if ((query as unknown as { signaturesOnly?: boolean }).signaturesOnly) {
       const sigs = extractSignatures(content, queryPath);
@@ -687,6 +695,7 @@ export async function fetchContent(
                 ...generatePaginationHints(sigPagination, {
                   toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
                 }),
+                ...(secretWarning ? [secretWarning] : []),
               ],
             },
             content.length
@@ -699,7 +708,10 @@ export async function fetchContent(
             content: sigs,
             isPartial: true,
             totalLines: totalLinesOrig,
-            hints: [SIGNATURES_ONLY_HINT],
+            hints: [
+              SIGNATURES_ONLY_HINT,
+              ...(secretWarning ? [secretWarning] : []),
+            ],
           },
           content.length
         );
@@ -713,9 +725,21 @@ export async function fetchContent(
       defaultOutputCharLength
     );
 
+    // Surface the redaction warning alongside whatever warnings each path
+    // already produced (content is already sanitized above).
+    const withSecretWarning = (
+      r: LocalGetFileContentToolResult
+    ): LocalGetFileContentToolResult => {
+      if (!secretWarning) return r;
+      const existing = (r as { warnings?: string[] }).warnings ?? [];
+      return { ...r, warnings: [...existing, secretWarning] };
+    };
+
     if (extraction.earlyResult) {
       return attachRawResponseChars(
-        finalizeFetchContentResult(extraction.earlyResult, query, totalLines),
+        withSecretWarning(
+          finalizeFetchContentResult(extraction.earlyResult, query, totalLines)
+        ),
         content.length
       );
     }
@@ -728,7 +752,9 @@ export async function fetchContent(
       defaultOutputCharLength
     );
     return attachRawResponseChars(
-      finalizeFetchContentResult(fullResult, query, totalLines),
+      withSecretWarning(
+        finalizeFetchContentResult(fullResult, query, totalLines)
+      ),
       content.length
     );
   } catch (error) {
