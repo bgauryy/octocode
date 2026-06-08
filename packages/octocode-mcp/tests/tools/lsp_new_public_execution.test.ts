@@ -611,7 +611,10 @@ describe('new public LSP tool execution', () => {
     const parsed = LspGetSemanticContentOutputSchema.safeParse(
       result.structuredContent
     );
-    expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues, null, 2)).toBe(true);
+    expect(
+      parsed.success,
+      parsed.success ? '' : JSON.stringify(parsed.error.issues, null, 2)
+    ).toBe(true);
     if (!parsed.success) return;
 
     const firstResult = parsed.data.results[0];

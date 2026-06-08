@@ -612,45 +612,45 @@ import {
 import { EvidenceSchema, responseEnvelopeFields } from './responseEnvelope.js';
 import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core/schemas/outputs';
 
-        const peerEnvelopeFields = responseEnvelopeFields;
+const peerEnvelopeFields = responseEnvelopeFields;
 
-        const LocalRepositoryDetailSchema = z
+const LocalRepositoryDetailSchema = z
+  .object({
+    owner: z.string(),
+    repo: z.string(),
+    fullName: z.string(),
+    stars: z.number().optional(),
+    forks: z.number().optional(),
+    openIssues: z.number().optional(),
+    language: z.string().optional(),
+    description: z.string().optional(),
+    pushedAt: z.string().optional(),
+    createdAt: z.string().optional(),
+    defaultBranch: z.string().optional(),
+    topics: z.array(z.string()).optional(),
+    visibility: z.string().optional(),
+  })
+  .passthrough();
+
+export const GitHubSearchRepositoriesOutputLocalSchema =
+  UpstreamReposOutput.extend({
+    ...peerEnvelopeFields,
+    data: z
+      .object({
+        repositories: z.array(z.string()),
+        repositoryDetails: z.array(LocalRepositoryDetailSchema),
+        pagination: z
           .object({
-            owner: z.string(),
-            repo: z.string(),
-            fullName: z.string(),
-            stars: z.number().optional(),
-            forks: z.number().optional(),
-            openIssues: z.number().optional(),
-            language: z.string().optional(),
-            description: z.string().optional(),
-            pushedAt: z.string().optional(),
-            createdAt: z.string().optional(),
-            defaultBranch: z.string().optional(),
-            topics: z.array(z.string()).optional(),
-            visibility: z.string().optional(),
+            currentPage: z.number(),
+            totalPages: z.number(),
+            hasMore: z.boolean(),
+            perPage: z.number().optional(),
+            totalMatches: z.number().optional(),
           })
-          .passthrough();
-
-        export const GitHubSearchRepositoriesOutputLocalSchema =
-          UpstreamReposOutput.extend({
-            ...peerEnvelopeFields,
-            data: z
-              .object({
-                repositories: z.array(z.string()),
-                repositoryDetails: z.array(LocalRepositoryDetailSchema),
-                pagination: z
-                  .object({
-                    currentPage: z.number(),
-                    totalPages: z.number(),
-                    hasMore: z.boolean(),
-                    perPage: z.number().optional(),
-                    totalMatches: z.number().optional(),
-                  })
-                  .optional(),
-              })
-              .optional(),
-          });
+          .optional(),
+      })
+      .optional(),
+  });
 
 export const GitHubSearchPullRequestsOutputLocalSchema =
   UpstreamPRsOutput.extend(peerEnvelopeFields);

@@ -742,9 +742,21 @@ export async function fetchContent(
     };
 
     if (extraction.earlyResult) {
+      // Apply minification to the overflow match-pagination earlyResult (has
+      // a content string) — no-matches and line-range error earlyResults have
+      // no content so the typeof guard makes this a no-op for those cases.
+      const earlyContent = (extraction.earlyResult as { content?: string })
+        .content;
+      const minifiedEarlyResult =
+        shouldMinify && typeof earlyContent === 'string'
+          ? {
+              ...extraction.earlyResult,
+              content: applyContentViewMinification(earlyContent, queryPath),
+            }
+          : extraction.earlyResult;
       return attachRawResponseChars(
         withSecretWarning(
-          finalizeFetchContentResult(extraction.earlyResult, query, totalLines)
+          finalizeFetchContentResult(minifiedEarlyResult, query, totalLines)
         ),
         content.length
       );

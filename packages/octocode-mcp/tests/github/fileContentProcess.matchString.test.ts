@@ -84,7 +84,10 @@ describe('processFileContentAPI — matchStringIsRegex', () => {
   });
 
   it('regex is case-sensitive when matchStringCaseSensitive=true', async () => {
-    const result = await run('constant', { isRegex: true, caseSensitive: true });
+    const result = await run('constant', {
+      isRegex: true,
+      caseSensitive: true,
+    });
     expect(result.matchNotFound).toBe(true);
   });
 });
