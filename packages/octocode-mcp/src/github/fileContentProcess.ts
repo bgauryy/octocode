@@ -29,14 +29,11 @@ export function applyContentPagination(
   const content = data.content ?? '';
   const maxChars = charLength ?? getDefaultContentPageSize();
 
-  const totalBytes = Buffer.byteLength(content, 'utf-8');
-  if (totalBytes <= maxChars && charOffset === 0) {
+  if (content.length <= maxChars && charOffset === 0) {
     return data;
   }
 
-  const paginationMeta = applyPagination(content, charOffset, maxChars, {
-    mode: 'bytes',
-  });
+  const paginationMeta = applyPagination(content, charOffset, maxChars);
   const paginationInfo = createPaginationInfo(paginationMeta);
 
   // Tool-level pagination hints are emitted by the github_fetch_content

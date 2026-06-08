@@ -45,6 +45,10 @@ export interface FileContentQuery extends BaseProviderQuery {
 
   matchStringContextLines?: number;
 
+  matchStringIsRegex?: boolean;
+
+  matchStringCaseSensitive?: boolean;
+
   charOffset?: number;
 
   charLength?: number;
@@ -52,6 +56,8 @@ export interface FileContentQuery extends BaseProviderQuery {
   fullContent?: boolean;
 
   signaturesOnly?: boolean;
+
+  minify?: boolean;
 }
 
 export interface RepoSearchQuery extends BaseProviderQuery {

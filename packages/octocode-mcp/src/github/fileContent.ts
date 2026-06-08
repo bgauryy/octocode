@@ -51,7 +51,6 @@ export async function fetchGitHubFileContentAPI(
   const branchForProcessing =
     rawResult.data.branch || rawResult.data.resolvedRef || params.branch || '';
 
-  const minifyParam = (params as unknown as { minify?: boolean }).minify;
   const processedResult = await processFileContentAPI(
     rawResult.data.rawContent,
     params.owner,
@@ -63,11 +62,10 @@ export async function fetchGitHubFileContentAPI(
     params.endLine,
     params.matchStringContextLines ?? 15,
     params.matchString,
-    (params as unknown as { signaturesOnly?: boolean }).signaturesOnly,
-    (params as unknown as { matchStringIsRegex?: boolean }).matchStringIsRegex,
-    (params as unknown as { matchStringCaseSensitive?: boolean })
-      .matchStringCaseSensitive,
-    minifyParam !== false
+    params.signaturesOnly,
+    params.matchStringIsRegex,
+    params.matchStringCaseSensitive,
+    params.minify !== false
   );
 
   if ('error' in processedResult) {
@@ -80,8 +78,8 @@ export async function fetchGitHubFileContentAPI(
 
   // Always paginate: if the content exceeds the output char budget, truncate
   // and attach pagination info so the caller can continue with charOffset.
-  const charOffset = (params as { charOffset?: number }).charOffset ?? 0;
-  const charLength = (params as { charLength?: number }).charLength;
+  const charOffset = params.charOffset ?? 0;
+  const charLength = params.charLength;
   const paginatedResult = applyContentPagination(
     processedResult,
     charOffset,

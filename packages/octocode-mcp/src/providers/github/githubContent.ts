@@ -7,10 +7,6 @@ import type {
 
 import { fetchGitHubFileContentAPI } from '../../github/fileContent.js';
 
-import type { z } from 'zod';
-import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type GHFileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { GitHubFileContentApiData } from '../../tools/github_fetch_content/types.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
@@ -62,8 +58,7 @@ function buildContentWarnings(
       typeof data.totalLines === 'number'
         ? ` (${data.totalLines} lines scanned)`
         : '';
-    const extQuery = query as { matchStringIsRegex?: boolean };
-    const regexAlreadyTried = extQuery.matchStringIsRegex === true;
+    const regexAlreadyTried = query.matchStringIsRegex === true;
     const suggestion = regexAlreadyTried
       ? 'Try a different pattern, widen the anchor, or use fullContent=true to inspect the file.'
       : 'Try matchStringIsRegex=true for pattern matching, a different anchor, or fullContent=true.';
@@ -99,19 +94,17 @@ export async function getFileContent(
     endLine: query.endLine,
     matchString: query.matchString,
     matchStringContextLines: query.matchStringContextLines,
-    matchStringIsRegex: (query as { matchStringIsRegex?: boolean })
-      .matchStringIsRegex,
-    matchStringCaseSensitive: (query as { matchStringCaseSensitive?: boolean })
-      .matchStringCaseSensitive,
+    matchStringIsRegex: query.matchStringIsRegex,
+    matchStringCaseSensitive: query.matchStringCaseSensitive,
     charOffset: query.charOffset,
     charLength: query.charLength,
     fullContent: query.fullContent,
     signaturesOnly: query.signaturesOnly,
-    minify: (query as { minify?: boolean }).minify,
+    minify: query.minify,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
-  } as GHFileContentQuery;
+  };
 
   const result = await fetchGitHubFileContentAPI(githubQuery, authInfo);
 

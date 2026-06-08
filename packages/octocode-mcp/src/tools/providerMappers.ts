@@ -7,7 +7,6 @@ import type {
 } from '../providers/types.js';
 import type { z } from 'zod';
 import type {
-  FileContentQuerySchema,
   GitHubCodeSearchQuerySchema,
   GitHubPullRequestSearchQuerySchema,
   GitHubReposSearchSingleQuerySchema,
@@ -17,9 +16,10 @@ import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-typ
 import type { WithOptionalMeta } from '../types/execution.js';
 import { DEFAULT_PAGE_SIZE } from '../scheme/localSchemaOverlay.js';
 import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constants.js';
+import { FileContentQueryLocalSchema } from '../scheme/remoteSchemaOverlay.js';
 
-type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
+type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema>;
 type GitHubPullRequestSearchQuery = z.infer<
   typeof GitHubPullRequestSearchQuerySchema
 >;
@@ -496,9 +496,7 @@ export function mapPullRequestProviderResultData(
   };
 }
 
-export function mapFileContentToolQuery(
-  query: WithOptionalMeta<FileContentQuery>
-) {
+export function mapFileContentToolQuery(query: LocalFileContentQuery) {
   const fullContent = Boolean(query.fullContent);
 
   return {
@@ -511,14 +509,12 @@ export function mapFileContentToolQuery(
       fullContent || !query.matchString ? undefined : String(query.matchString),
     matchStringContextLines: query.matchStringContextLines ?? 5,
     fullContent,
-    charOffset: (query as { charOffset?: number }).charOffset,
-    charLength: (query as { charLength?: number }).charLength,
-    signaturesOnly: (query as { signaturesOnly?: boolean }).signaturesOnly,
-    minify: (query as { minify?: boolean }).minify,
-    matchStringIsRegex: (query as { matchStringIsRegex?: boolean })
-      .matchStringIsRegex,
-    matchStringCaseSensitive: (query as { matchStringCaseSensitive?: boolean })
-      .matchStringCaseSensitive,
+    charOffset: query.charOffset,
+    charLength: query.charLength,
+    signaturesOnly: query.signaturesOnly,
+    minify: query.minify,
+    matchStringIsRegex: query.matchStringIsRegex,
+    matchStringCaseSensitive: query.matchStringCaseSensitive,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
@@ -527,7 +523,7 @@ export function mapFileContentToolQuery(
 
 export function mapFileContentProviderResult(
   data: ProviderFileContentResult,
-  query: WithOptionalMeta<FileContentQuery>
+  query: WithOptionalMeta<LocalFileContentQuery>
 ): Record<string, unknown> {
   return {
     path: data.path,

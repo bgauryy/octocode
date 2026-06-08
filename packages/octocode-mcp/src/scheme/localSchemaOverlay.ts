@@ -440,9 +440,7 @@ export const FetchContentQuerySchema = FetchContentQueryBaseSchema.superRefine(
   validateFileContentExtractionMode
 );
 
-export type FetchContentQuery = WithLocalOverlay<
-  z.infer<typeof UpstreamFetchContentQuerySchema>
->;
+export type FetchContentQuery = z.infer<typeof FetchContentQueryBaseSchema>;
 
 export const BulkFetchContentQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,

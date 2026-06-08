@@ -6,6 +6,12 @@ import type { PaginationInfo } from '../../utils/core/types.js';
 
 export type FileContentExecutionQuery = FileContentQuery & {
   noTimestamp?: boolean;
+  signaturesOnly?: boolean;
+  minify?: boolean;
+  matchStringIsRegex?: boolean;
+  matchStringCaseSensitive?: boolean;
+  charOffset?: number;
+  charLength?: number;
 };
 
 export interface GitHubFileContentApiData {

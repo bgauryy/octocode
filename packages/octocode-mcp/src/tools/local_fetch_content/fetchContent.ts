@@ -19,18 +19,12 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import type { z } from 'zod';
-import type { FetchContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalGetFileContentToolResult } from '@octocodeai/octocode-core/extra-types';
-
-type UpstreamFetchContentQuery = z.infer<typeof FetchContentQuerySchema>;
-import type { WithOptionalMeta } from '../../types/execution.js';
+import type { FetchContentQuery } from '../../scheme/localSchemaOverlay.js';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
-
-type FetchContentQuery = WithOptionalMeta<UpstreamFetchContentQuery>;
 
 type FileStats = Awaited<ReturnType<typeof stat>>;
 
@@ -336,8 +330,7 @@ function buildMatchExtractionState(
 
   if (resultContent.length > defaultOutputCharLength) {
     // Content is char-paginated via charOffset (page is the list cursor).
-    const charOffset =
-      (query as unknown as { charOffset?: number }).charOffset ?? 0;
+    const charOffset = query.charOffset ?? 0;
     const autoPagination = applyPagination(
       resultContent,
       charOffset,
@@ -513,10 +506,8 @@ function buildSuccessResult(
   }
 
   const warnings = [...(extraction.warnings ?? [])];
-  const explicitCharLength = (query as unknown as { charLength?: number })
-    .charLength;
-  const explicitCharOffset =
-    (query as unknown as { charOffset?: number }).charOffset ?? 0;
+  const explicitCharLength = query.charLength;
+  const explicitCharOffset = query.charOffset ?? 0;
   let effectiveCharLength: number | undefined = explicitCharLength;
   let autoPaginated = false;
   const charOffset = explicitCharOffset;
@@ -560,8 +551,7 @@ function buildSuccessResult(
   // requested, guide agents to use startLine for tail access and signaturesOnly
   // for an export index — prevents agents giving up on navigable large files.
   const largeFileHints: string[] = [];
-  const querySignaturesOnly = (query as unknown as { signaturesOnly?: boolean })
-    .signaturesOnly;
+  const querySignaturesOnly = query.signaturesOnly;
   if (
     totalLines > 2000 &&
     !querySignaturesOnly &&
@@ -667,10 +657,9 @@ export async function fetchContent(
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
 
-    const shouldMinify =
-      (query as unknown as { minify?: boolean }).minify !== false;
+    const shouldMinify = query.minify !== false;
 
-    if ((query as unknown as { signaturesOnly?: boolean }).signaturesOnly) {
+    if (query.signaturesOnly) {
       const sigs = extractSignatures(content, queryPath);
       if (sigs !== null) {
         const totalLinesOrig = content.split('\n').length;
@@ -682,8 +671,7 @@ export async function fetchContent(
         // GitHub path (applyContentPagination) so a large export index stays
         // navigable instead of overflowing the response.
         if (sigsProcessed.length > defaultOutputCharLength) {
-          const charOffset =
-            (query as unknown as { charOffset?: number }).charOffset ?? 0;
+          const charOffset = query.charOffset ?? 0;
           const sigPagination = applyPagination(
             sigsProcessed,
             charOffset,

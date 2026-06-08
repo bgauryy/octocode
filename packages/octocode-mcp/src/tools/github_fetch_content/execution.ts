@@ -1,12 +1,6 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
-import type { WithOptionalMeta } from '../../types/execution.js';
-
-type PartialFileContentQuery = WithOptionalMeta<FileContentQuery>;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
@@ -31,6 +25,8 @@ import {
   providerSupports,
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
+
+type PartialFileContentQuery = z.infer<typeof FileContentQueryLocalSchema>;
 
 export async function fetchMultipleGitHubFileContents(
   args: ToolExecutionArgs<PartialFileContentQuery>
