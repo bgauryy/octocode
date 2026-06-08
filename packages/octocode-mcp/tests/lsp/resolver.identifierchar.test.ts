@@ -74,3 +74,48 @@ describe('SymbolResolver - isIdentifierChar optimization', () => {
     expect(result2.position.character).toBe(10);
   });
 });
+
+describe('SymbolResolver — Unicode identifier support', () => {
+  it('resolves a symbol whose name contains accented characters (é)', () => {
+    const resolver = new SymbolResolver();
+    const content = `const héros = 1; const héros2 = héros + 1;`;
+    const result = resolver.resolvePositionFromContent(content, {
+      symbolName: 'héros',
+      lineHint: 1,
+    });
+    expect(result.position.character).toBe(6);
+  });
+
+  it('resolves a symbol whose name contains CJK characters', () => {
+    const resolver = new SymbolResolver();
+    const content = `const 変数 = 42;`;
+    const result = resolver.resolvePositionFromContent(content, {
+      symbolName: '変数',
+      lineHint: 1,
+    });
+    expect(result.position.character).toBe(6);
+  });
+
+  it('treats a non-identifier Unicode char (space, punctuation) as a word boundary', () => {
+    const resolver = new SymbolResolver();
+    // 'foo' surrounded by non-identifier Unicode (e.g. «foo»)
+    const content = `«foo» = 1;`;
+    const result = resolver.resolvePositionFromContent(content, {
+      symbolName: 'foo',
+      lineHint: 1,
+    });
+    expect(result.position.character).toBe(1);
+  });
+
+  it('does not match a symbol that is part of a longer Unicode identifier', () => {
+    const resolver = new SymbolResolver();
+    // 'foo' appears inside 'fooBar'; should not match as word boundary
+    const content = `const fooBar = 1;`;
+    expect(() =>
+      resolver.resolvePositionFromContent(content, {
+        symbolName: 'foo',
+        lineHint: 1,
+      })
+    ).toThrow();
+  });
+});

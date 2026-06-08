@@ -314,6 +314,15 @@ describe('githubGetFileContent — error', () => {
     expect(h[0]).toContain('400KB');
   });
 
+  it('size_limit with totalLines pushes tail-read hint (line 27)', () => {
+    const h = ghFetchHints.error({
+      errorType: 'size_limit',
+      fileSize: 400,
+      totalLines: 1000,
+    } as never);
+    expect(h.some(s => s.includes('1000') && s.includes('total lines'))).toBe(true);
+  });
+
   it('not_found with path + branch', () => {
     const h = ghFetchHints.error({
       errorType: 'not_found',

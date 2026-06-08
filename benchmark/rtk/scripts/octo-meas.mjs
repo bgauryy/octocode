@@ -45,13 +45,22 @@ if (!toolName || !queriesJson) {
 // in_chars: payload ruler — queries JSON string only (the meaningful input payload)
 const inChars = cps(queriesJson);
 
-// Run `octocode tools <tool-name> --queries '<queries-json>'`
+// Run `node <octocode-cli.js> tools <tool-name> --queries '<queries-json>'`
+// Use local CLI binary. ALLOWED_PATHS lets local tools access the rtk-bench clone.
 // stdout is captured as the tool result; stderr forwarded but not counted.
+const CLI_BIN = process.env.OCTOCODE_CLI_BIN || 'octocode';
+const CLI_ARGS = CLI_BIN === 'octocode'
+  ? ['tools', toolName, '--queries', queriesJson]
+  : ['tools', toolName, '--queries', queriesJson];
+const CLI_CMD = CLI_BIN.endsWith('.js') ? 'node' : CLI_BIN;
+const CLI_ARGV = CLI_BIN.endsWith('.js') ? [CLI_BIN, ...CLI_ARGS] : CLI_ARGS;
+
 const t0 = Date.now();
-const result = spawnSync('octocode', ['tools', toolName, '--queries', queriesJson], {
+const result = spawnSync(CLI_CMD, CLI_ARGV, {
   encoding: 'buffer',
   stdio: ['inherit', 'pipe', 'pipe'],
   maxBuffer: 50 * 1024 * 1024,
+  env: { ...process.env },
 });
 const elapsed = Date.now() - t0;
 

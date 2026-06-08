@@ -4,6 +4,7 @@ import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { RequestError } from 'octokit';
 import * as minifierModule from '../../src/utils/minifier/minifier.js';
+import { extractSignatures } from '../../src/utils/minifier/applyMinification.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 
 function createRequestError(message: string, status: number) {
@@ -110,6 +111,110 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
 
       expect(result).toHaveProperty('data');
       expect('error' in result).toBe(false);
+    });
+
+    it('signaturesOnly returns the extracted skeleton, aligned with the local path', async () => {
+      // Shared canonical source — both the GitHub terminal (here) and the
+      // local terminal (local_fetch_content.test.ts) must return exactly
+      // extractSignatures(SOURCE). That equality IS the alignment contract.
+      const SOURCE = [
+        "import { A } from './a';",
+        '',
+        'export interface Foo {',
+        '  id: string;',
+        '}',
+        '',
+        'export async function doThing(',
+        '  a: string,',
+        '): Promise<void> {',
+        '  const secretLocal = 1;',
+        '  return use(secretLocal);',
+        '}',
+        '',
+      ].join('\n');
+
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi.fn().mockResolvedValue({
+              data: {
+                type: 'file',
+                content: Buffer.from(SOURCE).toString('base64'),
+                size: SOURCE.length,
+                sha: 'sig123',
+                name: 'sample.ts',
+                path: 'sample.ts',
+              },
+            }),
+            listCommits: vi.fn().mockResolvedValue({ data: [] }),
+          },
+        },
+      };
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+
+      const result = (await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'sample.ts',
+        signaturesOnly: true,
+      } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
+        data: { content: string };
+      };
+
+      expect('error' in result).toBe(false);
+      const content = result.data.content;
+      expect(content).toBe(extractSignatures(SOURCE, 'sample.ts'));
+      // Signatures present, body dropped.
+      expect(content).toContain('interface Foo');
+      expect(content).toContain('id: string;');
+      expect(content).toContain('a: string,');
+      expect(content).toContain('Promise<void>');
+      expect(content).not.toContain('secretLocal');
+    });
+
+    it('paginates a large signaturesOnly skeleton and keeps both the sig + cursor hints', async () => {
+      let src = '';
+      for (let i = 0; i < 400; i++) {
+        src += `export function fn${i}(argOne: string, argTwo: number): Promise<void> {\n  return doStuff(${i});\n}\n`;
+      }
+      const mockOctokit = {
+        rest: {
+          repos: {
+            getContent: vi.fn().mockResolvedValue({
+              data: {
+                type: 'file',
+                content: Buffer.from(src).toString('base64'),
+                size: src.length,
+                sha: 'big123',
+                name: 'big.ts',
+                path: 'big.ts',
+              },
+            }),
+            listCommits: vi.fn().mockResolvedValue({ data: [] }),
+          },
+        },
+      };
+      vi.mocked(getOctokit).mockResolvedValue(
+        mockOctokit as unknown as ReturnType<typeof getOctokit>
+      );
+
+      const result = (await fetchGitHubFileContentAPI({
+        owner: 'test',
+        repo: 'repo',
+        path: 'big.ts',
+        signaturesOnly: true,
+      } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
+        data: { content: string; pagination?: { hasMore: boolean }; hints?: string[] };
+      };
+
+      expect('error' in result).toBe(false);
+      expect(result.data.pagination?.hasMore).toBe(true);
+      expect(result.data.content.length).toBeLessThan(src.length);
+      const hints = result.data.hints ?? [];
+      expect(hints.some(h => h.startsWith('Signatures only'))).toBe(true);
+      expect(hints.some(h => h.includes('charOffset'))).toBe(true);
     });
 
     it('should detect and reject binary files', async () => {

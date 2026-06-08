@@ -4,6 +4,7 @@ import { extractMatchingLines } from './contentExtractor.js';
 import {
   applyContentViewMinification,
   extractSignatures,
+  SIGNATURES_ONLY_HINT,
 } from '../../utils/minifier/applyMinification.js';
 import {
   applyPagination,
@@ -553,6 +554,27 @@ function buildSuccessResult(
         })
       : [];
 
+  // Large-file navigation hints: when the file is large and no narrowing was
+  // requested, guide agents to use startLine for tail access and signaturesOnly
+  // for an export index — prevents agents giving up on navigable large files.
+  const largeFileHints: string[] = [];
+  const querySignaturesOnly = (query as unknown as { signaturesOnly?: boolean })
+    .signaturesOnly;
+  if (
+    totalLines > 2000 &&
+    !querySignaturesOnly &&
+    !query.matchString &&
+    !query.startLine &&
+    !query.endLine &&
+    !query.fullContent &&
+    pagination.hasMore
+  ) {
+    const tailLine = Math.max(1, totalLines - 200);
+    largeFileHints.push(
+      `Large file (${totalLines} lines) — signaturesOnly=true for an export index, or startLine=${tailLine} for the tail.`
+    );
+  }
+
   return {
     path: query.path,
     content: applyContentViewMinification(
@@ -576,7 +598,7 @@ function buildSuccessResult(
       pagination: createPaginationInfo(pagination),
     }),
     ...(warnings.length > 0 && { warnings }),
-    hints: [...baseHints, ...paginationHints],
+    hints: [...baseHints, ...paginationHints, ...largeFileHints],
   };
 }
 
@@ -638,15 +660,44 @@ export async function fetchContent(
       const sigs = extractSignatures(content, query.path);
       if (sigs !== null) {
         const totalLinesOrig = content.split('\n').length;
+        const sigHint = SIGNATURES_ONLY_HINT;
+
+        // Char-paginate the skeleton at the output budget, mirroring the
+        // GitHub path (applyContentPagination) so a large export index stays
+        // navigable instead of overflowing the response.
+        if (sigs.length > defaultOutputCharLength) {
+          const page = (query as unknown as { page?: number }).page ?? 1;
+          const charOffset = (page - 1) * defaultOutputCharLength;
+          const sigPagination = applyPagination(
+            sigs,
+            charOffset,
+            defaultOutputCharLength
+          );
+          return attachRawResponseChars(
+            {
+              path: query.path,
+              content: sigPagination.paginatedContent,
+              isPartial: true,
+              totalLines: totalLinesOrig,
+              pagination: createPaginationInfo(sigPagination),
+              hints: [
+                sigHint,
+                ...generatePaginationHints(sigPagination, {
+                  toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
+                }),
+              ],
+            },
+            content.length
+          );
+        }
+
         return attachRawResponseChars(
           {
             path: query.path,
             content: sigs,
             isPartial: true,
             totalLines: totalLinesOrig,
-            hints: [
-              'signaturesOnly=true: imports + function/class/interface/type signatures extracted. Function bodies omitted. Use startLine/endLine to read specific bodies.',
-            ],
+            hints: [sigHint],
           },
           content.length
         );

@@ -1,5 +1,42 @@
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
+const TEST_INFRA_KEYWORDS = new Set([
+  'jest',
+  'vitest',
+  'mocha',
+  'jasmine',
+  'karma',
+  'playwright',
+  'cypress',
+  'testing-library',
+  'test-runner',
+  'test-utils',
+  '__tests__',
+  '__mocks__',
+  'setupTests',
+  'setupFilesAfterFramework',
+  'testEnvironment',
+  'testMatch',
+  'coverageThreshold',
+  'spec',
+  'e2e',
+  'fixture',
+  'mock',
+  'stub',
+  'spy',
+]);
+
+function looksLikeTestInfrastructureQuery(
+  keywords: unknown[] | undefined
+): boolean {
+  if (!keywords) return false;
+  return keywords.some(
+    k =>
+      typeof k === 'string' &&
+      TEST_INFRA_KEYWORDS.has(k.toLowerCase().replace(/[-_.]/g, ''))
+  );
+}
+
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const out: string[] = [];
@@ -71,6 +108,14 @@ export const hints: ToolHintGenerators = {
           'GitHub path: matches a directory prefix, not a full path — broaden or omit path to search the whole repo.'
         );
       }
+    }
+
+    // Test infrastructure queries often fail because agents filter to src/.
+    // Surface direct test-directory searches when keywords imply testing topics.
+    if (looksLikeTestInfrastructureQuery(keywords)) {
+      out.push(
+        'Testing infrastructure query detected — search directly in test directories: use path=__tests__, filename=jest.config, filename=vitest.config, or filename=jest.setup. Do NOT restrict to path=src when looking for test runner setup.'
+      );
     }
 
     return out;

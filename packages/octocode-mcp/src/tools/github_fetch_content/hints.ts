@@ -16,9 +16,19 @@ export const hints: ToolHintGenerators = {
     if (ctx.errorType === 'size_limit') {
       const c = ctx as Record<string, unknown>;
       const size = typeof c.fileSize === 'number' ? `${c.fileSize}KB ` : '';
-      return [
-        `File ${size}exceeds the 300KB cap — use startLine+endLine or matchString for a focused section.`,
+      const totalLines =
+        typeof c.totalLines === 'number' ? c.totalLines : undefined;
+      const tailLine = totalLines ? Math.max(1, totalLines - 200) : undefined;
+      const hints: string[] = [
+        `Large file ${size}(Git Blob API, up to 100 MB). Use startLine+endLine or matchString for a focused section.`,
+        `Or signaturesOnly=true for an export index (80–95% fewer chars), then startLine/endLine for a body.`,
       ];
+      if (tailLine && totalLines) {
+        hints.push(
+          `File has ${totalLines} total lines. To read the tail: startLine=${tailLine}, endLine=${totalLines}.`
+        );
+      }
+      return hints;
     }
     if (ctx.errorType === 'not_found') {
       const c = ctx as Record<string, unknown>;

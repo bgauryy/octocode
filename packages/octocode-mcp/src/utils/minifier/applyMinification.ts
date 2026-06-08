@@ -148,9 +148,35 @@ const EXT_TO_SIG_FAMILY: Record<string, keyof typeof SIG_PATTERNS> = {
   rs: 'rust',
 };
 
+/** Concise hint emitted whenever signaturesOnly extraction succeeds. */
+export const SIGNATURES_ONLY_HINT =
+  'Signatures only — bodies omitted. Use startLine/endLine to read a body.';
+
+// Net `{`/`}` (and `(`/`[`) depth a line contributes, ignoring line comments.
+// Used to keep multi-line declaration heads/blocks intact rather than just
+// their opening line. Best-effort — braces inside strings are not excluded,
+// consistent with the tool's stated LOSSY contract.
+function netDelta(line: string, open: string, close: string): number {
+  const code = line.replace(/\/\/.*$/, '');
+  let depth = 0;
+  for (const ch of code) {
+    if (ch === open) depth++;
+    else if (ch === close) depth--;
+  }
+  return depth;
+}
+const braceDelta = (line: string): number => netDelta(line, '{', '}');
+const roundDelta = (line: string): number =>
+  netDelta(line, '(', ')') + netDelta(line, '[', ']');
+
 /**
  * Extract only the structural skeleton of a source file:
  * imports, function/class/interface/type signatures — bodies dropped.
+ *
+ * For the ts/js family, multi-line constructs are kept whole: a multi-line
+ * import keeps its names, an interface/type/enum keeps its body, and a
+ * multi-line function signature keeps its params + return type (function
+ * bodies are still dropped). Other families keep the single matched line.
  *
  * Returns null when the file extension is not recognised or when
  * extraction produces an empty result (caller should use original content).
@@ -170,16 +196,64 @@ export function extractSignatures(
     const patterns = SIG_PATTERNS[family];
     if (!patterns) return null;
 
+    const isTsJs = family === 'ts-js';
     const lines = content.split('\n');
     const kept: string[] = [];
 
-    for (const line of lines) {
-      for (const pattern of patterns) {
-        if (pattern.test(line)) {
-          kept.push(line.trimEnd());
-          break;
+    // Keep every line of an open `{...}` block (import names / interface /
+    // type / enum body) starting from a line with positive brace depth.
+    const keepBraceBlock = (start: number): number => {
+      let depth = braceDelta(lines[start]!);
+      let i = start + 1;
+      while (i < lines.length && depth > 0) {
+        kept.push(lines[i]!.trimEnd());
+        depth += braceDelta(lines[i]!);
+        i++;
+      }
+      return i;
+    };
+
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i]!;
+      const matched = patterns.some(pattern => pattern.test(line));
+      if (!matched) {
+        i++;
+        continue;
+      }
+
+      kept.push(line.trimEnd());
+
+      if (isTsJs) {
+        const opensBlock =
+          /\b(interface|enum)\b/.test(line) || // interface / enum body
+          /[:=]\s*\{[^}]*$/.test(line); // `type X = {` / `: {` object opener
+        const isMultiImport =
+          (/^\s*import\b/.test(line) ||
+            /^\s*export\s+(type\s+)?\{/.test(line)) &&
+          braceDelta(line) > 0;
+
+        if ((opensBlock && braceDelta(line) > 0) || isMultiImport) {
+          i = keepBraceBlock(i);
+          continue;
+        }
+
+        // Multi-line function/method signature head: keep params + return type
+        // (everything until the parameter list closes). The body that follows
+        // is not matched by any pattern, so it is dropped as usual.
+        if (roundDelta(line) > 0) {
+          let depth = roundDelta(line);
+          i++;
+          while (i < lines.length && depth > 0) {
+            kept.push(lines[i]!.trimEnd());
+            depth += roundDelta(lines[i]!);
+            i++;
+          }
+          continue;
         }
       }
+
+      i++;
     }
 
     if (kept.length === 0) return null;

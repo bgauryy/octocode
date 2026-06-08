@@ -54,6 +54,9 @@ describe('LSPClient Coverage', () => {
   };
 
   beforeEach(() => {
+    // Fake only the timer APIs used by readyFallbackTimer/waitForReady;
+    // leave setImmediate real so commandExists spawn callbacks still fire.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     vi.clearAllMocks();
 
     mockProcess = new EventEmitter();
@@ -86,7 +89,9 @@ describe('LSPClient Coverage', () => {
     client = new LSPClient(config);
   });
 
-  afterEach(async () => {});
+  afterEach(async () => {
+    vi.useRealTimers();
+  });
 
   describe('start()', () => {
     it('should spawn process and initialize connection', async () => {
@@ -311,6 +316,7 @@ describe('LSPClient Coverage', () => {
     beforeEach(async () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
+      await vi.advanceTimersByTimeAsync(2100);
     });
 
     it('should return snippets from location result', async () => {
@@ -420,6 +426,7 @@ describe('LSPClient Coverage', () => {
     beforeEach(async () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
+      await vi.advanceTimersByTimeAsync(2100);
     });
 
     it('findReferences should throw if not initialized', async () => {
@@ -462,6 +469,7 @@ describe('LSPClient Coverage', () => {
     beforeEach(async () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
+      await vi.advanceTimersByTimeAsync(2100);
     });
 
     it('prepareCallHierarchy should throw if not initialized', async () => {
@@ -600,6 +608,25 @@ describe('LSPClient Coverage', () => {
       mockConnection.sendRequest.mockResolvedValueOnce(null);
 
       const result = await client.getIncomingCalls(item);
+      expect(result).toEqual([]);
+    });
+
+    it('getIncomingCalls with item missing selectionRange (covers toProtocol selectionRange false branch)', async () => {
+      const itemNoSel = {
+        name: 'func',
+        kind: 'function' as any,
+        uri: '/workspace/file.ts',
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 1, character: 0 },
+        },
+        // selectionRange intentionally omitted
+        displayRange: { startLine: 1, endLine: 2 },
+      };
+
+      mockConnection.sendRequest.mockResolvedValueOnce([]);
+
+      const result = await client.getIncomingCalls(itemNoSel as any);
       expect(result).toEqual([]);
     });
 

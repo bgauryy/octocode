@@ -19,9 +19,10 @@ describe('pagination cursor uniformity', () => {
       'matches'
     );
 
-  it('providerMappers.buildPaginationHints: 1 line on hasMore, [] on final', () => {
-    expect(buildPagination(true)).toHaveLength(1);
+  it('providerMappers.buildPaginationHints: cursor + enumeration hint on hasMore, [] on final', () => {
+    expect(buildPagination(true).length).toBeGreaterThanOrEqual(1);
     expect(buildPagination(true)[0]).toMatch(/Page 2\/5.*page=3/);
+    expect(buildPagination(true).some(h => h.includes('paginated'))).toBe(true);
     expect(buildPagination(false)).toEqual([]);
   });
 

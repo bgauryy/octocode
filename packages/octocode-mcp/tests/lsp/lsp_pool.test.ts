@@ -248,4 +248,21 @@ describe('T3.2 — LspClientPool', () => {
       vi.useRealTimers();
     }
   });
+
+  it('safeStop swallows errors thrown by client.stop() (covers line 117 catch branch)', async () => {
+    const throwingClient = {
+      stop: vi.fn().mockRejectedValue(new Error('stop exploded')),
+    };
+    const factory = vi.fn().mockResolvedValue(throwingClient);
+    const pool = new LspClientPool<typeof throwingClient>({
+      idleTimeoutMs: 60_000,
+      factory,
+    });
+
+    await acquireNonNull(pool, { workspaceRoot: '/r', languageId: 'typescript' });
+
+    // clearAll() calls safeStop() which calls client.stop() — error is swallowed
+    await expect(pool.clearAll()).resolves.not.toThrow();
+    expect(pool.size()).toBe(0);
+  });
 });

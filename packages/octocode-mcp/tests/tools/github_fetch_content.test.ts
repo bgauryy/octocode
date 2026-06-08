@@ -157,6 +157,35 @@ describe('GitHub Fetch Content Tool', () => {
       expect(responseText).not.toContain("Follow 'mainResearchGoal'");
     });
 
+    it('surfaces the signaturesOnly hint at the tool level (aligned with local)', async () => {
+      mockProvider.getFileContent.mockResolvedValue({
+        data: {
+          path: 'src/app.ts',
+          content: 'export function f(): void',
+          encoding: 'utf-8',
+          totalLines: 1,
+          isPartial: true,
+          ref: 'main',
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
+        queries: [
+          {
+            owner: 'test',
+            repo: 'repo',
+            path: 'src/app.ts',
+            signaturesOnly: true,
+          },
+        ],
+      });
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain('Signatures only');
+    });
+
     it('should pass authInfo to provider', async () => {
       mockProvider.getFileContent.mockResolvedValue({
         data: {

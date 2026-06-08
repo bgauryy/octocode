@@ -86,6 +86,7 @@ export async function getFileContent(
     charOffset: query.charOffset,
     charLength: query.charLength,
     fullContent: query.fullContent,
+    signaturesOnly: query.signaturesOnly,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,

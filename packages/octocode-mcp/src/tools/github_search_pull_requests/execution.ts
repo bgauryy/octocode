@@ -127,8 +127,9 @@ export async function searchMultipleGitHubPullRequests(
 
         const resultHints: string[] = hasContent
           ? [
-              `Found ${pullRequests.length} PR${pullRequests.length === 1 ? '' : 's'} — use prNumber=<n> with type="fullContent" to read a specific PR's full diff, or type="partialContent" + partialContentMetadata for targeted file patches.`,
-              `To read inline review comments and discussion threads, re-call with prNumber=<n> + type="fullContent" + withComments=true. Comments are in result.comments[].`,
+              `Found ${pullRequests.length} PR${pullRequests.length === 1 ? '' : 's'}.`,
+              `To read file diffs: re-call with prNumber=<n> + type="partialContent" + partialContentMetadata=[{file:"path/to/file"}] (targeted, efficient) or type="fullContent" (small PRs only).`,
+              `To read ALL comments: re-call with prNumber=<n> + withComments=true. Returns both discussion comments (commentType="discussion") AND inline code-review annotations (commentType="review_inline", includes path+line). Both endpoints are fetched automatically — no separate calls needed.`,
             ]
           : [];
 

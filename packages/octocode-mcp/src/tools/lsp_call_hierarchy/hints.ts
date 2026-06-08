@@ -1,7 +1,20 @@
 import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 export const hints: ToolHintGenerators = {
-  empty: (_ctx: HintContext = {}) => [],
+  empty: (ctx: HintContext = {}) => {
+    const c = ctx as Record<string, unknown>;
+    const symbolName =
+      typeof c.symbolName === 'string' ? c.symbolName : undefined;
+    const direction = typeof c.direction === 'string' ? c.direction : undefined;
+    if (!symbolName) return [];
+    const dirLabel = direction === 'outgoing' ? 'calls made by' : 'callers of';
+    return [
+      `No call hierarchy found for ${dirLabel} "${symbolName}".`,
+      direction === 'outgoing'
+        ? `"${symbolName}" may make no calls, or the LSP couldn't resolve its body — try lspFindReferences to locate usages instead.`
+        : `"${symbolName}" is not called anywhere in the indexed workspace. It may be an entry point, exported API, or only called dynamically. Use localSearchCode with pattern="${symbolName}" to confirm.`,
+    ];
+  },
 
   error: (ctx: HintContext = {}) => {
     const { depth, errorType, symbolName } = ctx;

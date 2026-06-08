@@ -147,6 +147,7 @@ function buildFindFilesHints(ctx: {
     ...(filePageNumber < totalPages
       ? [
           `Page ${filePageNumber}/${totalPages} (showing ${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
+          `Results are paginated — use page=2, page=3 … to retrieve all files before reporting a total count or enumerating exhaustively.`,
         ]
       : []),
     ...(totalPages > 0 && filePageNumber > totalPages
@@ -316,6 +317,7 @@ export async function findFiles(
         filesPerPage,
         totalFiles,
         hasMore: filePageNumber < totalPages,
+        ...(wasFileCapped ? { totalFilesFound: discoveredFileCount } : {}),
       },
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
       hints: buildFindFilesHints({

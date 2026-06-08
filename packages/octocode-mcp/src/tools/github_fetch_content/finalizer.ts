@@ -15,6 +15,7 @@ import {
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubFetchContentOutputLocal } from '../../scheme/remoteSchemaOverlay.js';
 import { buildEvidenceMetadata } from '../evidence.js';
+import { SIGNATURES_ONLY_HINT } from '../../utils/minifier/applyMinification.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
@@ -348,8 +349,14 @@ export function buildGithubFetchContentFinalizer<
   return ({ queries, results, config }) => {
     const groups = buildGroups(results, queries);
 
+    const hasFiles = groups.some(group => (group.files?.length ?? 0) > 0);
+    const signaturesRequested = queries.some(
+      query => (query as { signaturesOnly?: boolean }).signaturesOnly
+    );
+
     const errors = collectFileErrors(results, queries);
     const hints = dedupeHints([
+      ...(hasFiles && signaturesRequested ? [SIGNATURES_ONLY_HINT] : []),
       ...(config.peerHints ? collectPeerHints(results) : []),
       ...buildRuntimeHints(groups),
     ]);

@@ -376,7 +376,7 @@ const FetchContentQueryBaseSchema = withCoreSchemaDescriptions(
     ...optionalMetaFields,
     path: describeField(
       UpstreamFetchContentQuerySchema.shape.path,
-      "File path to read. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
+      "File path to read. This tool reads file content only — for listing directory contents (file names, sizes, counts), use localViewStructure instead. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
     ),
     fullContent: describeField(
       UpstreamFetchContentQuerySchema.shape.fullContent,

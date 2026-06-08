@@ -60,13 +60,48 @@ export class LSPClient {
   private operations: LSPOperations;
   private stderrBuffer: string[] = [];
 
+  // Indexing-wait: resolved once all $/progress tokens have ended (or fallback fires).
+  private readyPromise: Promise<void>;
+  private readyResolve!: () => void;
+  private readyResolved = false;
+  private activeProgressTokens = new Set<string | number>();
+  private readyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(config: LanguageServerConfig) {
     this.config = config;
+    this.readyPromise = new Promise<void>(resolve => {
+      this.readyResolve = resolve;
+    });
     this.documentManager = new LSPDocumentManager(config);
     this.operations = new LSPOperations(
       this.documentManager,
       config.workspaceRoot
     );
+  }
+
+  private resolveReady(): void {
+    if (this.readyResolved) return;
+    this.readyResolved = true;
+    // clearTimeout is a no-op for null/undefined — safe without an explicit null check.
+    clearTimeout(this.readyFallbackTimer ?? undefined);
+    this.readyFallbackTimer = null;
+    this.readyResolve();
+  }
+
+  /**
+   * Waits until the language server has finished its initial project indexing,
+   * or until timeoutMs elapses (whichever comes first). Never throws — callers
+   * proceed even on timeout so a slow server does not block the tool forever.
+   */
+  async waitForReady(timeoutMs = 45_000): Promise<void> {
+    if (this.readyResolved) return;
+    // If the client was never started, skip the wait and let requireConnection()
+    // throw "LSP client not initialized" immediately.
+    if (!this.initialized) return;
+    await Promise.race([
+      this.readyPromise,
+      new Promise<void>(resolve => setTimeout(resolve, timeoutMs)),
+    ]);
   }
 
   async start(): Promise<void> {
@@ -144,7 +179,20 @@ export class LSPClient {
 
     connection.onNotification('window/logMessage', () => undefined);
     connection.onNotification('window/showMessage', () => undefined);
-    connection.onNotification('$/progress', () => undefined);
+
+    connection.onNotification(
+      '$/progress',
+      (params: { token: string | number; value: { kind: string } }) => {
+        if (params.value.kind === 'begin') {
+          this.activeProgressTokens.add(params.token);
+        } else if (params.value.kind === 'end') {
+          this.activeProgressTokens.delete(params.token);
+          if (this.activeProgressTokens.size === 0) {
+            this.resolveReady();
+          }
+        }
+      }
+    );
   }
 
   private async initialize(): Promise<void> {
@@ -167,6 +215,10 @@ export class LSPClient {
 
     this.documentManager.setConnection(this.connection, this.initialized);
     this.operations.setConnection(this.connection, this.initialized);
+
+    // Servers that don't use workDoneProgress never send $/progress begin/end.
+    // After 2 s with no active tokens we assume they're ready.
+    this.readyFallbackTimer = setTimeout(() => this.resolveReady(), 2_000);
   }
 
   async openDocument(filePath: string): Promise<void> {
@@ -181,6 +233,7 @@ export class LSPClient {
     filePath: string,
     position: ExactPosition
   ): Promise<CodeSnippet[]> {
+    await this.waitForReady();
     return this.operations.gotoDefinition(filePath, position);
   }
 
@@ -189,6 +242,7 @@ export class LSPClient {
     position: ExactPosition,
     includeDeclaration = true
   ): Promise<CodeSnippet[]> {
+    await this.waitForReady();
     return this.operations.findReferences(
       filePath,
       position,
@@ -200,14 +254,17 @@ export class LSPClient {
     filePath: string,
     position: ExactPosition
   ): Promise<CallHierarchyItem[]> {
+    await this.waitForReady();
     return this.operations.prepareCallHierarchy(filePath, position);
   }
 
   async getIncomingCalls(item: CallHierarchyItem): Promise<IncomingCall[]> {
+    await this.waitForReady();
     return this.operations.getIncomingCalls(item);
   }
 
   async getOutgoingCalls(item: CallHierarchyItem): Promise<OutgoingCall[]> {
+    await this.waitForReady();
     return this.operations.getOutgoingCalls(item);
   }
 
@@ -222,6 +279,7 @@ export class LSPClient {
   }
 
   async stop(): Promise<void> {
+    this.resolveReady();
     try {
       if (this.connection) {
         await this.documentManager.closeAllDocuments();

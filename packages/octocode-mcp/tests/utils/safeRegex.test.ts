@@ -69,4 +69,31 @@ describe('safeRegex', () => {
       expect(() => createSafeRegExp('(?P<name>')).toThrow();
     });
   });
+
+  describe('uncovered branches', () => {
+    it('multiple quantifiers inside the same group trigger unsafe (line 53)', () => {
+      const result = checkRegexSafety('(a+b+)');
+      expect(result.safe).toBe(false);
+    });
+
+    it('lazy {n,m}? quantifier is accepted and covers skipQuantifier line 129', () => {
+      expect(checkRegexSafety('a{2,3}?').safe).toBe(true);
+    });
+
+    it('escaped char inside character class is handled (line 10)', () => {
+      expect(checkRegexSafety('[\\\\.]').safe).toBe(true);
+    });
+
+    it('group without trailing quantifier covers isQuantifierAt(undefined) branch (line 18)', () => {
+      expect(checkRegexSafety('(abc)').safe).toBe(true);
+    });
+
+    it('unmatched ) with empty stack covers ?? false fallback (line 30)', () => {
+      expect(checkRegexSafety('a)+').safe).toBe(true);
+    });
+
+    it('{n,m with no closing brace is not a repetition quantifier (line 117)', () => {
+      expect(checkRegexSafety('a{2,').safe).toBe(true);
+    });
+  });
 });

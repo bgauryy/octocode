@@ -18,9 +18,19 @@ export const hints: ToolHintGenerators = {
         typeof c.fileSize === 'number'
           ? ` (~${Math.round((c.fileSize as number) / 1024)}KB)`
           : '';
-      return [
+      const totalLines =
+        typeof c.totalLines === 'number' ? c.totalLines : undefined;
+      const tailLine = totalLines ? Math.max(1, totalLines - 200) : undefined;
+      const hints: string[] = [
         `File${kb} exceeds the read budget — use matchString or startLine+endLine for a focused section.`,
+        `Or signaturesOnly=true for an export index (80–95% fewer chars), then startLine/endLine for a body.`,
       ];
+      if (tailLine && totalLines) {
+        hints.push(
+          `File has ${totalLines} total lines. To read the tail: startLine=${tailLine}, endLine=${totalLines}.`
+        );
+      }
+      return hints;
     }
     if (ctx.errorType === 'not_found') {
       const c = ctx as Record<string, unknown>;

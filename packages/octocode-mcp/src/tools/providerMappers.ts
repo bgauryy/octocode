@@ -75,6 +75,9 @@ export function buildPaginationHints(
     hints.push(
       `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label}). Next: page=${pagination.currentPage + 1}`
     );
+    hints.push(
+      `Results are paginated — use page=2, page=3 … to retrieve all ${label} before reporting a total count or enumerating exhaustively.`
+    );
   }
 
   return hints;
@@ -282,11 +285,15 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     mentions: query.mentions,
     reviewRequested: query['review-requested'],
     reviewedBy: query['reviewed-by'],
-    labels: query.label
-      ? Array.isArray(query.label)
-        ? query.label
-        : [query.label]
-      : undefined,
+    labels: (() => {
+      // Accept both `label` (canonical) and `labels` (alias) to prevent
+      // silent parameter ignore when agents use the plural form.
+      const labelValue =
+        query.label ??
+        (query as unknown as { labels?: typeof query.label }).labels;
+      if (!labelValue) return undefined;
+      return Array.isArray(labelValue) ? labelValue : [labelValue];
+    })(),
     noLabel: query['no-label'],
     noMilestone: query['no-milestone'],
     noProject: query['no-project'],
@@ -494,6 +501,7 @@ export function mapFileContentToolQuery(
     fullContent,
     charOffset: (query as { charOffset?: number }).charOffset,
     charLength: (query as { charLength?: number }).charLength,
+    signaturesOnly: (query as { signaturesOnly?: boolean }).signaturesOnly,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,

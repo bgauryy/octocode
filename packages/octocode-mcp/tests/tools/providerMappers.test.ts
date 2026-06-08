@@ -3,6 +3,7 @@ import {
   buildPaginationHints,
   mapCodeSearchProviderResult,
   mapCodeSearchToolQuery,
+  mapFileContentToolQuery,
   mapPullRequestProviderResultData,
   mapPullRequestToolQuery,
   mapRepoSearchProviderRepositories,
@@ -10,6 +11,27 @@ import {
 } from '../../src/tools/providerMappers.js';
 
 describe('providerMappers', () => {
+  it('forwards signaturesOnly through the file-content tool→provider mapper', () => {
+    const mapped = mapFileContentToolQuery({
+      owner: 'facebook',
+      repo: 'react',
+      path: 'packages/react/index.js',
+      signaturesOnly: true,
+    } as Parameters<typeof mapFileContentToolQuery>[0]);
+
+    expect(mapped.signaturesOnly).toBe(true);
+  });
+
+  it('leaves signaturesOnly undefined when not requested', () => {
+    const mapped = mapFileContentToolQuery({
+      owner: 'facebook',
+      repo: 'react',
+      path: 'packages/react/index.js',
+    } as Parameters<typeof mapFileContentToolQuery>[0]);
+
+    expect(mapped.signaturesOnly).toBeUndefined();
+  });
+
   it('should map code search tool queries to provider queries', () => {
     expect(
       mapCodeSearchToolQuery({
@@ -367,7 +389,7 @@ describe('providerMappers', () => {
     expect((pr!.fileChanges as unknown[]).length).toBe(1);
   });
 
-  it('emits a single combined cursor line when hasMore', () => {
+  it('emits cursor + enumeration hint when hasMore', () => {
     const hints = buildPaginationHints(
       {
         currentPage: 2,
@@ -378,9 +400,10 @@ describe('providerMappers', () => {
       },
       'matches'
     );
-    expect(hints).toHaveLength(1);
+    expect(hints.length).toBeGreaterThanOrEqual(1);
     expect(hints[0]).toContain('Page 2/3');
     expect(hints[0]).toContain('Next: page=3');
+    expect(hints.some(h => h.includes('paginated'))).toBe(true);
   });
 
   it('emits no hint on the final page (no tautology)', () => {

@@ -166,6 +166,40 @@ Supported install targets: Cursor, Claude Code, Claude Desktop, Windsurf, Zed, T
 
 ---
 
+## Benchmark
+
+> How does Octocode compare to using the `gh` CLI directly for GitHub research?
+
+We ran a blind 17-question benchmark across five capability categories (code search, file content, repo structure, PR intelligence, repository search). Each agent answered independently using only its own tools; a separate judge scored every answer 0–3 and measured character usage.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│            GITHUB RESEARCH BENCHMARK · FINAL SCORECARD                  │
+│                   17 questions · 5 categories · Jun 2026                │
+├──────────────────────────┬──────────────────┬───────────────────────────┤
+│ Metric                   │   octocode       │        gh CLI             │
+├──────────────────────────┼──────────────────┼───────────────────────────┤
+│ Quality score (non-drift)│   36 / 42  ████  │   32 / 42  ████           │
+│ Quality score (all 17)   │   43 / 51  ████  │   38 / 51  ████           │
+│ API calls                │     108    ██    │     407    ████████████   │
+│ Total chars used         │    1.08M   █     │   13.20M   ████████████   │
+│ Token-score wins         │      11    ████  │       2    █              │
+│ Quality per 1k chars     │   0.0381         │   0.0027                  │
+│ Efficiency advantage     │  14.2×  BETTER   │  baseline                 │
+├──────────────────────────┼──────────────────┼───────────────────────────┤
+│ Category wins            │  SEARCH ✅       │  CONTENT (Q7 blob read)   │
+│                          │  STRUCTURE ✅    │                           │
+│                          │  PR ✅           │                           │
+│                          │  REPOS (tie) ≈   │  REPOS (tie) ≈            │
+├──────────────────────────┼──────────────────┼───────────────────────────┤
+│ OVERALL WINNER           │  ✅  octocode    │                           │
+└──────────────────────────┴──────────────────┴───────────────────────────┘
+```
+
+Full benchmark — questions, raw answers, and judge scoring — lives in [`benchmark/github/`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github).
+
+---
+
 ## Packages
 
 This is a yarn-workspaces monorepo. Each package has its own `README.md`; all setup/reference docs live in [`docs/`](https://github.com/bgauryy/octocode-mcp/tree/main/docs), and all AI agent guidance lives in the root [`AGENTS.md`](https://github.com/bgauryy/octocode-mcp/blob/main/AGENTS.md).

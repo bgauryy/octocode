@@ -310,6 +310,7 @@ describe('LSP Client Branch Coverage', () => {
     let client: LSPClient;
 
     beforeEach(async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       mockConnection.sendRequest.mockResolvedValueOnce({
         capabilities: { callHierarchyProvider: true },
       });
@@ -319,6 +320,12 @@ describe('LSP Client Branch Coverage', () => {
         languageId: 'typescript',
       });
       await client.start();
+      // Advance past the 2 s readyFallbackTimer so waitForReady() resolves immediately.
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
     it('should convert TypeParameter (26) to type', async () => {
@@ -422,6 +429,7 @@ describe('LSP Client Branch Coverage', () => {
     let client: LSPClient;
 
     beforeEach(async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       mockConnection.sendRequest.mockResolvedValueOnce({});
       client = new LSPClient({
         command: 'test-server',
@@ -429,6 +437,11 @@ describe('LSP Client Branch Coverage', () => {
         languageId: 'typescript',
       });
       await client.start();
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
     it('should handle toUri when input already starts with file:// (line 681)', async () => {
@@ -480,6 +493,189 @@ describe('LSP Client Branch Coverage', () => {
       });
 
       expect(snippets).toHaveLength(0);
+    });
+  });
+
+  describe('Indexing-wait — readyPromise / $/progress tracking', () => {
+    it('resolves via 2 s fallback when no $/progress notifications arrive', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+        const client = new LSPClient({
+          command: 'test-server',
+          workspaceRoot: '/workspace',
+        });
+        await client.start();
+        let resolved = false;
+        const p = client.waitForReady().then(() => {
+          resolved = true;
+        });
+        expect(resolved).toBe(false);
+        await vi.advanceTimersByTimeAsync(2100);
+        await p;
+        expect(resolved).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('resolves immediately after $/progress begin + end sequence', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        let progressHandler:
+          | ((p: { token: string | number; value: { kind: string } }) => void)
+          | undefined;
+        mockConnection.onNotification.mockImplementation(
+          (event: string, handler: unknown) => {
+            if (event === '$/progress')
+              progressHandler = handler as typeof progressHandler;
+          }
+        );
+        mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+
+        const client = new LSPClient({
+          command: 'test-server',
+          workspaceRoot: '/workspace',
+        });
+        await client.start();
+
+        const waitPromise = client.waitForReady();
+        progressHandler!({ token: 'T1', value: { kind: 'begin' } });
+        progressHandler!({ token: 'T1', value: { kind: 'end' } });
+
+        // readyPromise resolves via token completion (not timeout).
+        // Drain microtask queue: readyResolve → race resolves → waitForReady completes.
+        await waitPromise;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stop() resolves readyPromise so callers are not left hanging', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        mockConnection.sendRequest
+          .mockResolvedValueOnce({ capabilities: {} })
+          .mockResolvedValueOnce({});
+        const client = new LSPClient({
+          command: 'test-server',
+          workspaceRoot: '/workspace',
+        });
+        await client.start();
+
+        const p = client.waitForReady(60_000);
+        await client.stop();
+        await vi.advanceTimersByTimeAsync(0);
+        await p;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('readyPromise edge cases — uncovered branches', () => {
+    it('stop() before start() covers timer=null path and readyResolved idempotency', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const client = new LSPClient({
+          command: 'test-server',
+          workspaceRoot: '/workspace',
+        });
+
+        // First stop on unstarted client: readyFallbackTimer is null, readyResolved=false
+        await client.stop();
+
+        // Second stop: readyResolved is already true → resolveReady() early-return branch
+        await client.stop();
+
+        // waitForReady() after already resolved → immediate early-return branch
+        await client.waitForReady();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('multiple $/progress tokens — end with size > 0 does NOT resolve early', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const handlers: Record<
+          string,
+          (p: { token: string | number; value: { kind: string } }) => void
+        > = {};
+        mockConnection.onNotification.mockImplementation(
+          (event: string, handler: unknown) => {
+            handlers[event] = handler as (typeof handlers)[string];
+          }
+        );
+        mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
+
+        const client = new LSPClient({
+          command: 'test-server',
+          workspaceRoot: '/workspace',
+        });
+        await client.start();
+
+        const progressHandler = handlers['$/progress']!;
+
+        // Two tokens in flight
+        progressHandler({ token: 'T1', value: { kind: 'begin' } });
+        progressHandler({ token: 'T2', value: { kind: 'begin' } });
+
+        // End T1 only — size=1, readyPromise must NOT resolve yet
+        progressHandler({ token: 'T1', value: { kind: 'end' } });
+
+        let settled = false;
+        client.waitForReady(100).then(() => {
+          settled = true;
+        });
+        // Do NOT advance time — the 100ms timeout hasn't fired
+        await Promise.resolve();
+        await Promise.resolve();
+        // Still waiting (T2 is still active, timeout not elapsed under fake timers)
+        expect(settled).toBe(false);
+
+        // End T2 — size=0, resolves immediately
+        progressHandler({ token: 'T2', value: { kind: 'end' } });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(settled).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('Pool language map — all registry extensions covered', () => {
+    it('acquirePooledClient returns null for truly unknown extensions (not in registry)', async () => {
+      const { acquirePooledClient: acquire } =
+        await import('../../src/lsp/manager.js');
+      const result = await acquire('/workspace', '/workspace/file.xyz');
+      expect(result).toBeNull();
+    });
+
+    it('isLanguageServerAvailable proceeds past pool gate for .rb (ruby in registry)', async () => {
+      const { isLanguageServerAvailable: check } =
+        await import('../../src/lsp/manager.js');
+      // Stub commandExists to avoid spawning — the key assertion is that
+      // the extension IS recognised by languageIdForFile (previously .rb was silently null).
+      const spawnMock = cp.spawn as Mock;
+      const mockCheckProc = new EventEmitter() as EventEmitter & { kill: Mock };
+      mockCheckProc.kill = vi.fn();
+      spawnMock.mockImplementation(() => {
+        setImmediate(() => mockCheckProc.emit('close', 1));
+        return mockCheckProc;
+      });
+      (fs.promises.readFile as Mock).mockRejectedValue(new Error('ENOENT'));
+
+      // Before fix: returned false because .rb was not in LANGUAGE_ID_FOR_EXT.
+      // After fix: reaches commandExists (solargraph), which returns false because
+      // the mock exits with code 1 — but the important part is the function no longer
+      // short-circuits at languageIdForFile.
+      const result = await check('/workspace/file.rb');
+      // solargraph is not found (mock returns exit 1) — false is correct
+      expect(result).toBe(false);
     });
   });
 

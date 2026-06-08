@@ -526,4 +526,58 @@ describe('isNoResultsSearchError', () => {
     expect(apiError.status).toBe(422);
     expect(apiError.type).toBe('http');
   });
+
+  it('treats an entry whose message is NOT a string as a non-match (covers the : "" fallback)', () => {
+    const error = makeSearch422([
+      { message: 42 },
+      { message: null },
+      {},
+    ]);
+    expect(isNoResultsSearchError(error)).toBe(false);
+  });
+});
+
+describe('handleGitHubAPIError — 429 branches without retry-after header', () => {
+  it('computes retryAfter from x-ratelimit-reset when retry-after is absent', () => {
+    const resetTimestamp = Math.floor(Date.now() / 1000) + 300;
+    const error = new RequestError('Too many requests', 429, {
+      response: {
+        status: 429,
+        headers: {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': String(resetTimestamp),
+        },
+        data: {},
+        url: 'https://api.github.com',
+        retryCount: 0,
+      },
+      request: { method: 'GET', url: 'https://api.github.com', headers: {} },
+    });
+
+    const result = handleGitHubAPIError(error);
+    expect(result.type).toBe('http');
+    expect(result.status).toBe(429);
+    expect(result.rateLimitReset).toBe(resetTimestamp * 1000);
+    expect(typeof result.retryAfter).toBe('number');
+  });
+
+  it('produces undefined retryAfter and rateLimitReset when all headers absent', () => {
+    const error = new RequestError('', 429, {
+      response: {
+        status: 429,
+        headers: {},
+        data: {},
+        url: 'https://api.github.com',
+        retryCount: 0,
+      },
+      request: { method: 'GET', url: 'https://api.github.com', headers: {} },
+    });
+
+    const result = handleGitHubAPIError(error);
+    expect(result.type).toBe('http');
+    expect(result.status).toBe(429);
+    expect(result.retryAfter).toBeUndefined();
+    expect(result.rateLimitReset).toBeUndefined();
+    expect(result.error).toBeTruthy();
+  });
 });

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
+import {
+  buildFindReferencesPageResult,
+  buildFindReferencesPageOutOfRangeResult,
+} from '../../src/tools/lsp_find_references/referenceResultHelpers.js';
 
 describe('LSP Find References Coverage Tests', () => {
   beforeEach(() => {
@@ -290,5 +294,33 @@ describe('LSP Find References Coverage Tests', () => {
       expect(sortFn(fileA, fileZ)).toBeLessThan(0);
       expect(sortFn(fileZ, fileA)).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('referenceResultHelpers — MAX_SAFE_INTEGER branch', () => {
+  it('buildFindReferencesPageResult omits resultsPerPage when referencesPerPage === MAX_SAFE_INTEGER', () => {
+    const result = buildFindReferencesPageResult({
+      locations: [],
+      filteredReferences: [],
+      page: 1,
+      totalPages: 1,
+      totalReferences: 0,
+      referencesPerPage: Number.MAX_SAFE_INTEGER,
+      hasFilters: false,
+      totalUnfiltered: 0,
+    });
+    expect(result.pagination).not.toHaveProperty('resultsPerPage');
+  });
+
+  it('buildFindReferencesPageOutOfRangeResult omits resultsPerPage when referencesPerPage === MAX_SAFE_INTEGER', () => {
+    const result = buildFindReferencesPageOutOfRangeResult(
+      [],
+      5,
+      3,
+      60,
+      Number.MAX_SAFE_INTEGER
+    );
+    expect(result.pagination).not.toHaveProperty('resultsPerPage');
+    expect(result.status).toBe('empty');
   });
 });

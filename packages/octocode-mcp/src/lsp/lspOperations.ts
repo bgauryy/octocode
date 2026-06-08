@@ -60,12 +60,11 @@ export class LSPOperations {
     fn: (connection: MessageConnection) => Promise<T>
   ): Promise<T> {
     const connection = this.requireConnection();
+    // Open increments refCount; documents stay open across repeated queries on
+    // the same pooled client, saving the server a re-parse on every call.
+    // closeAllDocuments() is called when the pool evicts the client (stop()).
     await this.documentManager.openDocument(filePath);
-    try {
-      return await fn(connection);
-    } finally {
-      await this.documentManager.closeDocument(filePath);
-    }
+    return fn(connection);
   }
 
   async gotoDefinition(

@@ -183,6 +183,72 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(result.hints?.some(h => h.includes('lengthen pattern'))).toBe(false);
   });
 
+  it('exposes totalFilesFound in pagination when results are capped by maxFiles', async () => {
+    // 20 real files but maxFiles=5 → wasLimited=true
+    const files = makeFiles(20, 2);
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      maxFiles: 5,
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+
+    expect(result.pagination?.totalFiles).toBe(5);
+    expect((result.pagination as any).totalFilesFound).toBe(20);
+  });
+
+  it('does NOT add totalFilesFound when results are not limited', async () => {
+    const files = makeFiles(3, 2);
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+
+    expect((result.pagination as any).totalFilesFound).toBeUndefined();
+  });
+
+  it('emits enumeration hint when results span multiple pages', async () => {
+    const files = makeFiles(5, 2);
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      itemsPerPage: 2,
+      page: 1,
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+
+    const hintsStr = (result.hints ?? []).join('\n');
+    expect(hintsStr).toContain('paginated');
+    expect(hintsStr).toContain('page=2');
+  });
+
+  it('does NOT emit enumeration hint on the last page', async () => {
+    const files = makeFiles(4, 2);
+    const query = {
+      path: '/test',
+      pattern: 'match',
+      itemsPerPage: 2,
+      page: 2, // last page
+      researchGoal: 'test',
+      reasoning: 'test',
+    } as any;
+
+    const result = await buildSearchResult(files, query, 'rg', []);
+
+    const hintsStr = (result.hints ?? []).join('\n');
+    expect(hintsStr).not.toContain('paginated — use page=2');
+  });
+
   it('orders files by match count before path for relevance-first search results', async () => {
     const files = [
       ...makeFiles(1, 1).map(file => ({ ...file, path: '/test/a.ts' })),

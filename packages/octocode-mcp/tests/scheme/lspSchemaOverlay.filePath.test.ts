@@ -4,6 +4,7 @@ import {
   LSPFindReferencesQuerySchema,
   LSPCallHierarchyQuerySchema,
 } from '../../src/scheme/lspSchemaOverlay.js';
+import { FetchContentQuerySchema } from '../../src/scheme/localSchemaOverlay.js';
 
 const baseMeta = {
   id: 'q:1',
@@ -62,6 +63,21 @@ describe('lspFindReferences — filePath alias', () => {
   it('rejects input with neither uri nor filePath', () => {
     const result = LSPFindReferencesQuerySchema.safeParse({ ...baseMeta });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('localGetFileContent — path field description steers away from directories', () => {
+  it('path description mentions localViewStructure for directory listing', () => {
+    const pathField = FetchContentQuerySchema.shape.path;
+    const description = pathField.description ?? '';
+    expect(description).toContain('localViewStructure');
+    expect(description).toContain('directory');
+  });
+
+  it('path description clarifies this tool is for file content only', () => {
+    const pathField = FetchContentQuerySchema.shape.path;
+    const description = pathField.description ?? '';
+    expect(description.toLowerCase()).toContain('file content only');
   });
 });
 

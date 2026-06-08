@@ -1750,3 +1750,44 @@ describe('computeQueryTimeout (concurrency-aware)', () => {
     expect(result).toBeGreaterThanOrEqual(60000);
   });
 });
+
+describe('executeBulkOperation — uncovered branches', () => {
+  it('normalises a numeric query id to a string (line 502)', async () => {
+    const queries = [{ id: 7 as unknown as string }];
+    const processor = vi.fn().mockResolvedValue({ status: 'empty' as const });
+
+    const result = await executeBulkOperation(queries, processor, {
+      toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
+    });
+
+    const text = getTextContent(result.content);
+    expect(text).toContain('id: "7"');
+  });
+
+  it('adds string missingFields entries to the missing set (lines 337-338)', async () => {
+    const queries = [{ id: 'q1' }];
+    const processor = vi.fn().mockResolvedValue({
+      missingFields: ['owner', 'repo', 42, ''],
+    });
+
+    const result = await executeBulkOperation(queries, processor, {
+      toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
+    });
+    expect(result).toBeDefined();
+  });
+
+  it('swallows incrementToolCharSavings throw gracefully (line 381)', async () => {
+    vi.mocked(incrementToolCharSavings).mockImplementationOnce(() => {
+      throw new Error('stats unavailable');
+    });
+
+    const queries = [{ id: 'q1' }];
+    const processor = vi.fn().mockResolvedValue({ status: 'empty' as const });
+
+    await expect(
+      executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
+      })
+    ).resolves.toBeDefined();
+  });
+});

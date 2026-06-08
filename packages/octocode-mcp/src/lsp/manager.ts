@@ -189,18 +189,14 @@ export function pooledClientCount(): number {
   return sharedPool.size();
 }
 
-const LANGUAGE_ID_FOR_EXT: Record<string, string> = {
-  '.ts': 'typescript',
-  '.tsx': 'typescriptreact',
-  '.js': 'javascript',
-  '.jsx': 'javascriptreact',
-  '.mjs': 'javascript',
-  '.cjs': 'javascript',
-  '.py': 'python',
-  '.rs': 'rust',
-  '.go': 'go',
-  '.java': 'java',
-};
+// Derived from LANGUAGE_SERVER_COMMANDS — single source of truth so this map
+// never drifts out of sync with the server registry.
+const LANGUAGE_ID_FOR_EXT: Record<string, string> = Object.fromEntries(
+  Object.entries(LANGUAGE_SERVER_COMMANDS).map(([ext, cfg]) => [
+    ext,
+    cfg.languageId,
+  ])
+);
 
 function languageIdForFile(filePath: string): string | null {
   return LANGUAGE_ID_FOR_EXT[path.extname(filePath).toLowerCase()] ?? null;

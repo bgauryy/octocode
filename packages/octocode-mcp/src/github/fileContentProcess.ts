@@ -4,6 +4,7 @@ import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import {
   applyContentViewMinification,
   extractSignatures,
+  SIGNATURES_ONLY_HINT,
 } from '../utils/minifier/applyMinification.js';
 import {
   applyPagination,
@@ -50,7 +51,10 @@ export function applyContentPagination(
     ...data,
     content: paginationMeta.paginatedContent,
     pagination: paginationInfo,
-    hints: paginationHints,
+    // Keep any hint the producer already set (e.g. the signaturesOnly note)
+    // and append the pagination cursor — matches the local path, which
+    // surfaces both.
+    hints: [...(data.hints ?? []), ...paginationHints],
   };
 }
 
@@ -113,9 +117,7 @@ export async function processFileContentAPI(
         branch,
         totalLines: decodedContent.split('\n').length,
         isPartial: true,
-        hints: [
-          'signaturesOnly=true: imports + function/class/interface/type signatures extracted. Function bodies omitted. Use startLine/endLine to read specific bodies.',
-        ],
+        hints: [SIGNATURES_ONLY_HINT],
       };
     }
   }
@@ -248,6 +250,23 @@ export async function processFileContentAPI(
   if (sanitizationResult.warnings.length > 0) {
     sanitizationResult.warnings.forEach((warning: string) =>
       matchLocationsSet.add(warning)
+    );
+  }
+
+  // Large-file navigation: when no narrowing was requested and the file is big,
+  // guide the agent to use startLine for tail access and signaturesOnly for an
+  // export index — avoids agents giving up on large files they can already read.
+  if (
+    totalLines > 2000 &&
+    !signaturesOnly &&
+    !matchString &&
+    !startLine &&
+    !endLine &&
+    !fullContent
+  ) {
+    const tailLine = Math.max(1, totalLines - 200);
+    matchLocationsSet.add(
+      `Large file (${totalLines} lines) — signaturesOnly=true for an export index, or startLine=${tailLine} for the tail.`
     );
   }
 

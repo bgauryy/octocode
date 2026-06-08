@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
+import { extractSignatures } from '../../src/utils/minifier/applyMinification.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
 
@@ -122,6 +123,60 @@ describe('localGetFileContent', () => {
       expect(result.content).toBe(def.content);
       expect(result.content).not.toContain('// keep this comment');
       expect(result.content).toContain('const x = 1');
+    });
+
+    it('signaturesOnly returns the extracted skeleton, aligned with the GitHub path', async () => {
+      // Same canonical source as the GitHub terminal test
+      // (fileOperations.processContent.test.ts). Both must equal
+      // extractSignatures(SOURCE) — that equality IS the alignment contract.
+      const SOURCE = [
+        "import { A } from './a';",
+        '',
+        'export interface Foo {',
+        '  id: string;',
+        '}',
+        '',
+        'export async function doThing(',
+        '  a: string,',
+        '): Promise<void> {',
+        '  const secretLocal = 1;',
+        '  return use(secretLocal);',
+        '}',
+        '',
+      ].join('\n');
+      mockReadFile.mockResolvedValue(SOURCE);
+
+      const result = await fetchContent({
+        path: 'sample.ts',
+        signaturesOnly: true,
+      } as Parameters<typeof fetchContent>[0]);
+
+      expect(result.status).toBeUndefined();
+      expect(result.content).toBe(extractSignatures(SOURCE, 'sample.ts'));
+      expect(result.content).toContain('interface Foo');
+      expect(result.content).toContain('a: string,');
+      expect(result.content).toContain('Promise<void>');
+      expect(result.content).not.toContain('secretLocal');
+    });
+
+    it('paginates a large signaturesOnly skeleton (aligned with the GitHub char pagination)', async () => {
+      let src = '';
+      for (let i = 0; i < 800; i++) {
+        src += `export function fn${i}(argumentOne: string, argumentTwo: number): Promise<void> {\n  return doStuff(${i});\n}\n`;
+      }
+      mockReadFile.mockResolvedValue(src);
+
+      const result = await fetchContent({
+        path: 'big.ts',
+        signaturesOnly: true,
+      } as Parameters<typeof fetchContent>[0]);
+
+      expect(result.status).toBeUndefined();
+      // Large skeleton must be char-paginated, not returned whole.
+      expect(result.pagination).toBeDefined();
+      expect(result.pagination?.hasMore).toBe(true);
+      expect(result.content.length).toBeLessThan(src.length);
+      expect(result.isPartial).toBe(true);
     });
 
     it('should return empty when pattern not found', async () => {

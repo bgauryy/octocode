@@ -556,6 +556,30 @@ describe('GitHubProvider', () => {
         );
       });
 
+      it('should forward signaturesOnly to fetchGitHubFileContentAPI', async () => {
+        mockFetchGitHubFileContentAPI.mockResolvedValue({
+          data: {
+            path: 'src/index.ts',
+            content: 'export function f(): void',
+            branch: 'main',
+            owner: 'owner',
+            repo: 'repo',
+          },
+          status: 200,
+        });
+
+        await provider.getFileContent({
+          projectId: 'owner/repo',
+          path: 'src/index.ts',
+          signaturesOnly: true,
+        });
+
+        expect(mockFetchGitHubFileContentAPI).toHaveBeenCalledWith(
+          expect.objectContaining({ signaturesOnly: true }),
+          undefined
+        );
+      });
+
       it('should handle file with empty content', async () => {
         mockFetchGitHubFileContentAPI.mockResolvedValue({
           data: {

@@ -117,6 +117,7 @@ export async function buildSearchResult(
     filePageNumber < totalFilePages
       ? [
           `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: page=${filePageNumber + 1}`,
+          `Results are paginated — use page=2, page=3 … to retrieve all matches before reporting a total count or enumerating exhaustively.`,
         ]
       : totalFilePages > 0 && filePageNumber > totalFilePages
         ? [
@@ -172,7 +173,9 @@ export async function buildSearchResult(
       totalPages: totalFilePages,
       filesPerPage,
       totalFiles,
+      totalMatches,
       hasMore: filePageNumber < totalFilePages,
+      ...(wasLimited ? { totalFilesFound: filesWithMetadata.length } : {}),
     },
     ...(warnings.length > 0 ? { warnings } : {}),
     hints: [

@@ -598,6 +598,40 @@ Demonstrates progressive research workflow:
 
 ---
 
+## Benchmark
+
+> How does Octocode MCP compare to using the `gh` CLI directly for GitHub research?
+
+Blind 17-question benchmark — five capability categories, answers scored 0–3 by an independent judge, character usage measured symmetrically.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│            GITHUB RESEARCH BENCHMARK · FINAL SCORECARD                  │
+│                   17 questions · 5 categories · Jun 2026                │
+├──────────────────────────┬──────────────────┬───────────────────────────┤
+│ Metric                   │   octocode       │        gh CLI             │
+├──────────────────────────┼──────────────────┼───────────────────────────┤
+│ Quality score (non-drift)│   36 / 42  ████  │   32 / 42  ████           │
+│ Quality score (all 17)   │   43 / 51  ████  │   38 / 51  ████           │
+│ API calls                │     108    ██    │     407    ████████████   │
+│ Total chars used         │    1.08M   █     │   13.20M   ████████████   │
+│ Token-score wins         │      11    ████  │       2    █              │
+│ Quality per 1k chars     │   0.0381         │   0.0027                  │
+│ Efficiency advantage     │  14.2×  BETTER   │  baseline                 │
+├──────────────────────────┼──────────────────┼───────────────────────────┤
+│ Category wins            │  SEARCH ✅       │  CONTENT (Q7 blob read)   │
+│                          │  STRUCTURE ✅    │                           │
+│                          │  PR ✅           │                           │
+│                          │  REPOS (tie) ≈   │  REPOS (tie) ≈            │
+├──────────────────────────┼──────────────────┼───────────────────────────┤
+│ OVERALL WINNER           │  ✅  octocode    │                           │
+└──────────────────────────┴──────────────────┴───────────────────────────┘
+```
+
+Full details — questions, raw agent answers, per-question scoring, and methodology — in [`benchmark/github/`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github).
+
+---
+
 ## Community
 
 ### Get Support

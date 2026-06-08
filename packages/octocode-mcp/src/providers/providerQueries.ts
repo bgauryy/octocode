@@ -50,6 +50,8 @@ export interface FileContentQuery extends BaseProviderQuery {
   charLength?: number;
 
   fullContent?: boolean;
+
+  signaturesOnly?: boolean;
 }
 
 export interface RepoSearchQuery extends BaseProviderQuery {

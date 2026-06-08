@@ -396,6 +396,36 @@ export const GitHubPullRequestSearchQueryLocalSchema =
         .describe(
           'Character page size for PR bodies/comment bodies in search results. Broad PR searches default to compact body/comment windows; direct prNumber lookups return full details.'
         ),
+      label: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe(
+          'Filter PRs by GitHub label name(s). String for one label, array for multiple. Labels with spaces are quoted automatically — e.g. label: "Pages Router" or label: ["bug", "enhancement"]. Use the exact label name as it appears on GitHub.'
+        ),
+      labels: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe(
+          'Alias for `label` (singular). Prefer using `label` directly. Both are accepted to avoid silent parameter ignore.'
+        ),
+      withComments: z
+        .boolean()
+        .optional()
+        .describe(
+          'Fetch all comments for the PR. Returns BOTH discussion-level comments (commentType="discussion") AND inline code-review annotations (commentType="review_inline", includes file path and line number). Both /issues/comments and /pulls/comments endpoints are called automatically. Use with prNumber for a specific PR.'
+        ),
+      withCommits: z
+        .boolean()
+        .optional()
+        .describe(
+          'Fetch the commit list for the PR, each with file-level diffs. Use with prNumber for targeted retrieval.'
+        ),
+      includeBots: z
+        .boolean()
+        .optional()
+        .describe(
+          'Include bot-authored comments (e.g. CI bots, Vercel, CodeRabbit). Default false — bot comments are filtered to reduce noise.'
+        ),
       partialContentMetadata: z
         .array(
           z.object({

@@ -59,6 +59,9 @@
     "validate:skills:json": "npx tsx scripts/validate-skills-marketplace.ts --json",
     "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp && yarn validate:skills"
   },
+  "dependencies": {
+    "@vscode/ripgrep": "^1.18.0"
+  },
   "devDependencies": {
     "@inquirer/prompts": "^8.1.0",
     "@octokit/auth-oauth-device": "^8.0.3",

@@ -234,13 +234,18 @@ export class SymbolResolver {
 
   private isIdentifierChar(char: string): boolean {
     const c = char.charCodeAt(0);
-    return (
-      (c >= 48 && c <= 57) ||
-      (c >= 65 && c <= 90) ||
-      (c >= 97 && c <= 122) ||
-      c === 95 ||
-      c === 36
-    );
+    // Fast ASCII path covers the common case with no allocations.
+    if (c < 128) {
+      return (
+        (c >= 48 && c <= 57) ||
+        (c >= 65 && c <= 90) ||
+        (c >= 97 && c <= 122) ||
+        c === 95 ||
+        c === 36
+      );
+    }
+    // Unicode identifiers: é, α, 日, etc. are valid JS/TS identifier chars.
+    return /\p{ID_Continue}/u.test(char);
   }
 
   extractContext(
