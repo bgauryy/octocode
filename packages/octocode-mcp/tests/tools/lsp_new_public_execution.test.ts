@@ -423,7 +423,9 @@ describe('new public LSP tool execution', () => {
       }) as never
     );
     const result = await executeLspGetSemanticContent({
-      queries: [{ uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 }],
+      queries: [
+        { uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 },
+      ],
     } as never);
     const text = textOf(result);
     expect(text).toContain('hasMore: true');
@@ -431,9 +433,7 @@ describe('new public LSP tool execution', () => {
   });
 
   it('paginates call results and includes compact hint when contextLines=0', async () => {
-    const manyCalls = Array.from({ length: 15 }, (_, i) =>
-      callItem(`fn${i}`)
-    );
+    const manyCalls = Array.from({ length: 15 }, (_, i) => callItem(`fn${i}`));
     vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
       calls: manyCalls.map(c => ({ from: c, fromRanges: [range, range] })),
       truncatedByDepth: false,
@@ -528,7 +528,10 @@ describe('new public LSP tool execution', () => {
   });
 
   it('renders various symbolKindName values covering all switch cases', async () => {
-    const allKinds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 999];
+    const allKinds = [
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 24, 25, 26, 999,
+    ];
     const kindSymbols = allKinds.map((kind, i) => ({
       name: `sym${i}`,
       kind,
@@ -560,13 +563,19 @@ describe('new public LSP tool execution', () => {
         findReferences: vi.fn().mockResolvedValue([
           {
             uri: filePath,
-            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 6 },
+            },
             content: 'export',
             isDefinition: true,
           },
           {
             uri: filePath,
-            range: { start: { line: 2, character: 0 }, end: { line: 2, character: 6 } },
+            range: {
+              start: { line: 2, character: 0 },
+              end: { line: 2, character: 6 },
+            },
             content: 'usage',
           },
         ]),

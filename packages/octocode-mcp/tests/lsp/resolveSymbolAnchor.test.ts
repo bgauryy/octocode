@@ -71,7 +71,12 @@ describe('resolveSymbolAnchor', () => {
 
   it('resolves symbol anchor using filePath fallback (no uri)', async () => {
     const result = await resolveSymbolAnchor(
-      { filePath, type: 'definition', symbolName: 'target', lineHint: 1 } as never,
+      {
+        filePath,
+        type: 'definition',
+        symbolName: 'target',
+        lineHint: 1,
+      } as never,
       TOOL_NAME
     );
     expect(result.ok).toBe(true);
@@ -92,7 +97,12 @@ describe('resolveSymbolAnchor', () => {
 
   it('returns ok:false with error for documentSymbols type', async () => {
     const result = await resolveSymbolAnchor(
-      { uri: filePath, type: 'documentSymbols', symbolName: 'target', lineHint: 1 },
+      {
+        uri: filePath,
+        type: 'documentSymbols',
+        symbolName: 'target',
+        lineHint: 1,
+      },
       TOOL_NAME
     );
     expect(result.ok).toBe(false);
@@ -119,7 +129,13 @@ describe('resolveSymbolAnchor', () => {
 
   it('includes orderHint in resolved symbol when provided', async () => {
     const result = await resolveSymbolAnchor(
-      { uri: filePath, type: 'definition', symbolName: 'target', lineHint: 1, orderHint: 1 },
+      {
+        uri: filePath,
+        type: 'definition',
+        symbolName: 'target',
+        lineHint: 1,
+        orderHint: 1,
+      },
       TOOL_NAME
     );
     expect(result.ok).toBe(true);

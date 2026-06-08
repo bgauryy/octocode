@@ -253,9 +253,9 @@ describe('Tools Routes', () => {
       expect(res.body.data).toHaveProperty('schemas');
     });
 
-    it('has 13 schemas (one per tool)', async () => {
+    it('has 12 schemas (one per tool)', async () => {
       const res = await request(app).get('/tools/schemas');
-      expect(res.body.data.totalTools).toBe(13);
+      expect(res.body.data.totalTools).toBe(12);
     });
 
     it('each schema is a valid JSON Schema (has properties or anyOf)', async () => {
@@ -304,13 +304,13 @@ describe('Tools Routes', () => {
     it('tools_schema has all tool schemas', async () => {
       const res = await request(app).get('/tools/initContext');
       const schemaNames = Object.keys(res.body.tools_schema);
-      expect(schemaNames.length).toBe(13);
+      expect(schemaNames.length).toBe(12);
     });
 
     it('_meta includes prompt char count and tools count', async () => {
       const res = await request(app).get('/tools/initContext');
       expect(res.body._meta.promptCharCount).toBeGreaterThan(0);
-      expect(res.body._meta.toolsCount).toBe(13);
+      expect(res.body._meta.toolsCount).toBe(12);
       expect(res.body._meta).toHaveProperty('version');
     });
   });
