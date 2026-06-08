@@ -128,6 +128,8 @@ export async function searchMultipleGitHubPullRequests(
           !hasPrNumber &&
           (Boolean((query as { content?: unknown }).content) ||
             Boolean((query as { reviewMode?: unknown }).reviewMode));
+        const prMinify =
+          (effectiveQuery as { minify?: boolean }).minify !== false;
         const shapedPullRequests = pullRequests.map(pr =>
           shapePullRequestForContent(
             pr,
@@ -141,7 +143,8 @@ export async function searchMultipleGitHubPullRequests(
                   comments: false,
                   commits: false,
                 }
-              : contentRequest
+              : contentRequest,
+            prMinify
           )
         );
         resultData.pull_requests = shapedPullRequests;

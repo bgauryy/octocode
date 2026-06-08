@@ -77,7 +77,7 @@ export function detectDeadExports(
         tags: ['dead-code', 'api-surface', 'cleanup'],
         lspHints: [
           {
-            tool: 'lspFindReferences',
+            tool: 'lspGetSemanticContent', semanticType: 'references',
             symbolName: exported.name,
             lineHint: exported.lineStart || 1,
             file,

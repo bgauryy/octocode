@@ -184,7 +184,7 @@ If the same class fails twice, read `references/RECOVERY.md`.
 
 ## Source Trace
 
-If Octocode MCP tools are installed, use them after browser evidence points to source. Local app route: `localSearchCode` -> `lspGotoDefinition` / `lspFindReferences` -> `localGetFileContent`. External package route: `githubSearchCode` -> `githubGetFileContent`. Without Octocode tools, stop at browser evidence and use ordinary local search.
+If Octocode MCP tools are installed, use them after browser evidence points to source. Local app route: `localSearchCode` -> `lspGetSemanticContent(type=definition)` / `lspGetSemanticContent(type=references)` -> `localGetFileContent`. External package route: `githubSearchCode` -> `githubGetFileContent`. Without Octocode tools, stop at browser evidence and use ordinary local search.
 
 ## CDP Constraints
 

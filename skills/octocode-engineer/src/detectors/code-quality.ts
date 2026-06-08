@@ -52,7 +52,7 @@ export function detectDuplicateFunctionBodies(
       tags: ['duplication', 'maintainability', 'dryness'],
       lspHints: [
         {
-          tool: 'lspGotoDefinition',
+          tool: 'lspGetSemanticContent', semanticType: 'definition',
           symbolName: group.signature,
           lineHint: sample.lineStart,
           file: sample.file,
@@ -149,7 +149,7 @@ export function detectFunctionOptimization(
         tags: ['complexity', 'readability', 'refactor'],
         lspHints: [
           {
-            tool: 'lspCallHierarchy',
+            tool: 'lspGetSemanticContent', semanticType: 'callers',
             symbolName: fn.name,
             lineHint: fn.lineStart,
             file: fn.file,
@@ -254,7 +254,7 @@ export function detectCognitiveComplexity(
           tags: ['complexity', 'readability', 'nesting'],
           lspHints: [
             {
-              tool: 'lspCallHierarchy',
+              tool: 'lspGetSemanticContent', semanticType: 'callers',
               symbolName: fn.name,
               lineHint: fn.lineStart,
               file: entry.file,
@@ -590,7 +590,7 @@ export function detectMissingErrorBoundary(
         tags: ['error-handling', 'async', 'reliability'],
         lspHints: [
           {
-            tool: 'lspCallHierarchy',
+            tool: 'lspGetSemanticContent', semanticType: 'callers',
             symbolName: fn.name,
             lineHint: fn.lineStart,
             file: entry.file,
@@ -670,7 +670,7 @@ export function detectAwaitInLoop(fileSummaries: FileEntry[]): FindingDraft[] {
         tags: ['performance', 'async', 'n-plus-one'],
         lspHints: [
           {
-            tool: 'lspGotoDefinition',
+            tool: 'lspGetSemanticContent', semanticType: 'definition',
             symbolName: 'await',
             lineHint: loc.lineStart,
             file: entry.file,
@@ -709,7 +709,7 @@ export function detectSyncIo(fileSummaries: FileEntry[]): FindingDraft[] {
         tags: ['performance', 'blocking', 'io'],
         lspHints: [
           {
-            tool: 'lspCallHierarchy',
+            tool: 'lspGetSemanticContent', semanticType: 'callers',
             symbolName: call.name,
             lineHint: call.lineStart,
             file: entry.file,
@@ -953,7 +953,7 @@ export function detectMessageChains(fileSummaries: FileEntry[]): FindingDraft[] 
         tags: ['coupling', 'law-of-demeter', 'maintainability'],
         lspHints: [
           {
-            tool: 'lspGotoDefinition',
+            tool: 'lspGetSemanticContent', semanticType: 'definition',
             symbolName: chain.chain.split('.')[0],
             lineHint: chain.lineStart,
             file: entry.file,

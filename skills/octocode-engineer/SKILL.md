@@ -27,16 +27,16 @@ Use this first to pick the cheapest proof path. Every LSP call needs a `lineHint
 
 | Question | Tool chain |
 |---|---|
-| Where is X defined? | `localSearchCode(X)` → `lspGotoDefinition(lineHint=N)` |
-| Who calls function X? | `localSearchCode(X)` → `lspCallHierarchy(incoming, lineHint=N)` |
-| What does X call? | `localSearchCode(X)` → `lspCallHierarchy(outgoing, lineHint=N)` |
-| All usages of a type / var / non-function X? | `localSearchCode(X)` → `lspFindReferences(lineHint=N)` |
+| Where is X defined? | `localSearchCode(X)` → `lspGetSemanticContent(type=definition, lineHint=N)` |
+| Who calls function X? | `localSearchCode(X)` → `lspGetSemanticContent(type=callers, lineHint=N)` |
+| What does X call? | `localSearchCode(X)` → `lspGetSemanticContent(type=callees, lineHint=N)` |
+| All usages of a type / var / non-function X? | `localSearchCode(X)` → `lspGetSemanticContent(type=references, lineHint=N)` |
 | Is this pattern duplicated? | `scripts/ast/search.js --pattern` → scanner `duplicate-*` findings |
 | Is this shape an antipattern? | `scripts/ast/search.js --preset <name>` (list: `--list-presets`) |
 | Is this module structurally unhealthy? | `scripts/run.js --graph --scope=<path>` → read `scan.json` |
 | Is the project structure healthy? | `localViewStructure` + `localFindFiles` → `scripts/run.js --scope=<path> --graph` → inspect `qualityRating` folder/naming/consistency signals + `mega-folder` findings |
-| Which layer/boundary does this cross? | Scanner layer output + `lspGotoDefinition` across packages |
-| What breaks if I change Y? | `lspFindReferences(Y)` → label consumers by layer |
+| Which layer/boundary does this cross? | Scanner layer output + `lspGetSemanticContent(type=definition)` across packages |
+| What breaks if I change Y? | `lspGetSemanticContent(type=references, symbolName=Y)` → label consumers by layer |
 | Find files by name / churn / size | `localFindFiles` |
 | Read implementation (last resort) | `localGetFileContent` with `matchString` |
 
@@ -72,7 +72,7 @@ Use when the user asks to **understand** a codebase/feature end-to-end, **change
 
 ## Trivial vs. non-trivial — when the contract binds
 
-The contract, lenses, and artifact apply to **non-trivial** tasks. A task is **trivial** only when ALL hold: single file; no public/exported symbol touched; 0 consumers (per `lspFindReferences`) or behavior-preserving for all; no contract/schema/protocol/config/migration touched; ≤ ~20 lines; no cross-layer/cross-package edit. Otherwise non-trivial (default on doubt). Trivial tasks: deliver the one-line next step + verification only.
+The contract, lenses, and artifact apply to **non-trivial** tasks. A task is **trivial** only when ALL hold: single file; no public/exported symbol touched; 0 consumers (per `lspGetSemanticContent(type=references)`) or behavior-preserving for all; no contract/schema/protocol/config/migration touched; ≤ ~20 lines; no cross-layer/cross-package edit. Otherwise non-trivial (default on doubt). Trivial tasks: deliver the one-line next step + verification only.
 
 ## Clean Architecture & Clean Code (Required Lenses)
 
@@ -88,10 +88,10 @@ Non-trivial investigations MUST go through both lenses. Prove every claim with t
 
 | Principle | Tool | Evidence to collect |
 |-----------|------|---------------------|
-| Dependency rule | `scripts/run.js --graph` + `lspFindReferences` | layer-violation / SDP findings; inward-pointing edges only |
+| Dependency rule | `scripts/run.js --graph` + `lspGetSemanticContent(type=references)` | layer-violation / SDP findings; inward-pointing edges only |
 | Layer boundaries | `localSearchCode` on import lines + scanner layer output | UI→DB, domain→HTTP, adapter→framework leaks |
 | Stable abstractions | scanner `distance-from-main-sequence` | concrete high-fan-in modules, unstable abstractions |
-| Boundary ownership | `lspGotoDefinition` across package boundaries | types crossing boundaries without a port |
+| Boundary ownership | `lspGetSemanticContent(type=definition)` across package boundaries | types crossing boundaries without a port |
 | Single responsibility | scanner + `scripts/ast/search.js` (`--preset class-declaration`, `god-function`) | god modules, multi-purpose classes, wide exports |
 
 ### Architect's analytic dimensions
@@ -100,12 +100,12 @@ Cover all six on a full review; on a scoped task, cover those the change touches
 
 | # | Dimension | Verify | Anti-patterns |
 |---|-----------|--------|---------------|
-| 1 | **Flows** — entry → collaborators → side effects → return/emit | `localSearchCode`(entry,lineHint) → `lspCallHierarchy` incoming/outgoing → `scripts/run.js` flow/graph on hot paths | hidden event jumps; unenumerable middleware chains; untested error branches |
-| 2 | **Duplication** — same logic in two places drifts | scanner (`duplicate-function-body`, `duplicate-flow-structure`, `similar-function-body`) → `scripts/ast/search.js --pattern` → `lspFindReferences` on canonical version | two sources of truth; drifting copies; per-caller reinvention |
-| 3 | **Types** — in-process contracts | `lspGotoDefinition` on boundary params → `lspFindReferences` on type → `scripts/ast/search.js` presets (`any-type`, `type-assertion`, `non-null-assertion`) → scanner (`unsafe-any`, `type-assertion-escape`, `narrowable-type`) | `any`/`unknown` at public boundary; casts silencing compiler; always-populated "optional" fields |
-| 4 | **Protocols & schemas** — wire contracts (HTTP/gRPC/GraphQL/SQL/events/config) | `localFindFiles` on `*.proto`, `*.graphql`, `*.sql`, `openapi*`, `schema*`, `migrations/*` → `localGetFileContent` → `lspFindReferences` on generated types → `githubSearchPullRequests` for external changes | schema drift; implicit required fields; defaults in code not schema; version bumps without compat windows; null/missing/empty ambiguity |
-| 5 | **Data flows** — state, ownership, mutation | schema + repository/DAO → `lspFindReferences` on write fns (`save`, `update`, `insert`, `publish`) → `scripts/run.js` graph/flow on write paths → `scripts/ast/search.js --kind` on mutations | multi-writers on one field; read-your-writes across async; cache/write races; write paths bypassing validator; projections without consistency guarantees |
-| 6 | **Execution** — runtime (sync/async, I/O, retries, timeouts, startup/shutdown, lifecycles) | `scripts/ast/search.js` presets (`async-function`, `await-in-loop`, `sync-io`, `promise-all`) → scanner (`await-in-loop`, `sync-io`, `uncleared-timer`, `unbounded-collection`, `startup-risk-hub`, `listener-leak-risk`) → `lspCallHierarchy` on hot path → tests/benchmarks | `await` in tight loops; sync I/O on request path; timers/listeners without lifecycle; startup assuming init order; retries without backoff/idempotency |
+| 1 | **Flows** — entry → collaborators → side effects → return/emit | `localSearchCode`(entry,lineHint) → `lspGetSemanticContent(type=callers/callees)` incoming/outgoing → `scripts/run.js` flow/graph on hot paths | hidden event jumps; unenumerable middleware chains; untested error branches |
+| 2 | **Duplication** — same logic in two places drifts | scanner (`duplicate-function-body`, `duplicate-flow-structure`, `similar-function-body`) → `scripts/ast/search.js --pattern` → `lspGetSemanticContent(type=references)` on canonical version | two sources of truth; drifting copies; per-caller reinvention |
+| 3 | **Types** — in-process contracts | `lspGetSemanticContent(type=definition)` on boundary params → `lspGetSemanticContent(type=references)` on type → `scripts/ast/search.js` presets (`any-type`, `type-assertion`, `non-null-assertion`) → scanner (`unsafe-any`, `type-assertion-escape`, `narrowable-type`) | `any`/`unknown` at public boundary; casts silencing compiler; always-populated "optional" fields |
+| 4 | **Protocols & schemas** — wire contracts (HTTP/gRPC/GraphQL/SQL/events/config) | `localFindFiles` on `*.proto`, `*.graphql`, `*.sql`, `openapi*`, `schema*`, `migrations/*` → `localGetFileContent` → `lspGetSemanticContent(type=references)` on generated types → `githubSearchPullRequests` for external changes | schema drift; implicit required fields; defaults in code not schema; version bumps without compat windows; null/missing/empty ambiguity |
+| 5 | **Data flows** — state, ownership, mutation | schema + repository/DAO → `lspGetSemanticContent(type=references)` on write fns (`save`, `update`, `insert`, `publish`) → `scripts/run.js` graph/flow on write paths → `scripts/ast/search.js --kind` on mutations | multi-writers on one field; read-your-writes across async; cache/write races; write paths bypassing validator; projections without consistency guarantees |
+| 6 | **Execution** — runtime (sync/async, I/O, retries, timeouts, startup/shutdown, lifecycles) | `scripts/ast/search.js` presets (`async-function`, `await-in-loop`, `sync-io`, `promise-all`) → scanner (`await-in-loop`, `sync-io`, `uncleared-timer`, `unbounded-collection`, `startup-risk-hub`, `listener-leak-risk`) → `lspGetSemanticContent(type=callers/callees)` on hot path → tests/benchmarks | `await` in tight loops; sync I/O on request path; timers/listeners without lifecycle; startup assuming init order; retries without backoff/idempotency |
 
 ### Clean Code — what to enforce, how to verify
 
@@ -122,7 +122,7 @@ Cover all six on a full review; on a scoped task, cover those the change touches
 | Duplication | `scripts/run.js` | `duplicate-function-body`, `duplicate-flow-structure`, `similar-function-body` |
 | Silent failures | `scripts/ast/search.js` | `--preset empty-catch`, `--preset py-bare-except`, `--preset catch-rethrow` |
 | Loose types | `scripts/ast/search.js` | `--preset any-type`, `--preset type-assertion`, `--preset non-null-assertion` |
-| Intent-revealing names | code read + `lspFindReferences` | widely-used cryptic symbols, abbreviations that spread |
+| Intent-revealing names | code read + `lspGetSemanticContent(type=references)` | widely-used cryptic symbols, abbreviations that spread |
 | Dead / unreachable | scanner + `knip` | `dead-export`, `dead-file`, `unused-import`, `unused-npm-dependency` |
 
 Full detector catalog, metric definitions, and severity rubric: [quality-indicators.md](./references/quality-indicators.md).
@@ -150,7 +150,7 @@ If the task involves a change, also include:
 - **Change flow** — the specific call path the change traverses. *(required for any change)*
 - **Data-flow impact** — entities read/written and how transaction/cache semantics are preserved. *(required if section 3 applied)*
 - **Contract impact** — types/schemas/protocols touched and compatibility posture (backwards-compatible / breaking-with-migration / additive-only). *(required if section 4 applied)*
-- **Blast radius** — callers and consumers touched, from `lspFindReferences`, labeled by layer. *(required for any change with consumers)*
+- **Blast radius** — callers and consumers touched, from `lspGetSemanticContent(type=references)`, labeled by layer. *(required for any change with consumers)*
 - **Risk vector** — which clean-architecture principles and which analytic dimensions the change stresses, and how each is preserved. *(required for any change)*
 
 #### Artifact self-check — before closing
@@ -180,9 +180,9 @@ Use LSP tools to understand real semantic relationships. `lineHint` rule stated 
 
 | Tool | Use it for |
 |------|------------|
-| `lspGotoDefinition` | What symbol is this really? |
-| `lspFindReferences` | Blast radius, all usages, dead-code checks (types, vars, anything) |
-| `lspCallHierarchy` | Function call flow only: incoming callers and outgoing callees |
+| `lspGetSemanticContent` (type=definition) | What symbol is this really? |
+| `lspGetSemanticContent` (type=references) | Blast radius, all usages, dead-code checks (types, vars, anything) |
+| `lspGetSemanticContent` (type=callers/callees) | Function call flow only: incoming callers and outgoing callees |
 
 ### 3. AST tools — structural proof
 
@@ -260,7 +260,7 @@ Non-trivial tasks follow this arc (recommended, not mandatory): clarify the ques
 
 ## Task shapes
 
-Same working order; emphasis differs. **Code understanding**: steps 3–8 (layout → LSP → AST → scanner → read), deliverable is the artifact. **Bug fixing**: Flows + Execution from failing behavior inward; fix the smallest responsible layer; escalate at the Smallest-fix gate if systemic. **Refactor**: blast radius first (`lspFindReferences`), then scoped scan + duplication inventory; prefer extracting modules and clarifying contracts over cosmetic reshuffling; verify per batch. **Architecture review**: scanner `--graph` first, then LSP on candidates; report local and system-level causes. **RFC/design validation**: map each claim to code ownership; verify flow, contract, and architecture alignment; mark `confirmed|likely|uncertain`.
+Same working order; emphasis differs. **Code understanding**: steps 3–8 (layout → LSP → AST → scanner → read), deliverable is the artifact. **Bug fixing**: Flows + Execution from failing behavior inward; fix the smallest responsible layer; escalate at the Smallest-fix gate if systemic. **Refactor**: blast radius first (`lspGetSemanticContent(type=references)`), then scoped scan + duplication inventory; prefer extracting modules and clarifying contracts over cosmetic reshuffling; verify per batch. **Architecture review**: scanner `--graph` first, then LSP on candidates; report local and system-level causes. **RFC/design validation**: map each claim to code ownership; verify flow, contract, and architecture alignment; mark `confirmed|likely|uncertain`.
 
 ## Before / During / After A Change
 
@@ -284,11 +284,11 @@ When sources disagree on a claim that affects a decision, prefer the source whos
 
 | Claim type | Authoritative source | Corroborator |
 |-----------|----------------------|--------------|
-| Symbol identity, references, callers/callees | LSP (`lspGotoDefinition`, `lspFindReferences`, `lspCallHierarchy`) | AST + code read |
+| Symbol identity, references, callers/callees | LSP (`lspGetSemanticContent(type=definition)`, `lspGetSemanticContent(type=references)`, `lspGetSemanticContent(type=callers/callees)`) | AST + code read |
 | Structural shape (empty catch, `any` usage, nested ternary, preset match) | AST (`scripts/ast/search.js`) | scanner + code read |
 | Runtime behavior and side effects | targeted code read + tests | AST + scanner |
 | Architecture pressure (coupling, cycles, SDP, hot paths) | scanner (`scripts/run.js`) | LSP references + code read |
-| Contract/schema shape at a boundary | the schema/IDL file itself + `lspGotoDefinition` | references to generated types |
+| Contract/schema shape at a boundary | the schema/IDL file itself + `lspGetSemanticContent(type=definition)` | references to generated types |
 
 If the authoritative source contradicts a weaker one, mark the weaker one as "re-verify" in the artifact and note the resolution. Never present conflicting evidence as resolved without a recorded tiebreak.
 
@@ -312,7 +312,7 @@ State situation in ≤3 lines, list options, name tradeoff, recommend one.
    _Fires:_ domain module would need to import the HTTP adapter. _Does not fire:_ adapter importing domain (correct direction).
 5. **Destructive or irreversible action** — delete/rename shared files, drop tables, reset branches, force-push, publish packages, send messages/PRs on the user's behalf.
    _Fires:_ `git reset --hard`, `rm -rf`, publishing an npm version. _Does not fire:_ local file edits on a feature branch.
-6. **Blast radius > ~5 consumers** — `lspFindReferences` returns many callers and the change alters their behavior.
+6. **Blast radius > ~5 consumers** — `lspGetSemanticContent(type=references)` returns many callers and the change alters their behavior.
    _Fires:_ changing a utility called by 20 files. _Does not fire:_ changing a helper with 2 callers, both of which are co-edited.
 7. **Two refinement attempts failed** — same approach tried twice and the evidence still doesn't line up.
    _Fires:_ two different search patterns both return empty for a symbol you expected. _Does not fire:_ one failed attempt with a clear next angle.
@@ -357,7 +357,7 @@ Keep it short. The user should be able to respond in one sentence. If the user p
 Non-negotiable guardrails beyond the §Operating contract (which already binds gates and tool universe):
 
 - Do not present raw detector output as unquestioned fact.
-- Do not use `lspCallHierarchy` on non-function symbols — use `lspFindReferences` instead.
+- Do not use `lspGetSemanticContent(type=callers/callees)` on non-function symbols — use `lspGetSemanticContent(type=references)` instead.
 - Do not judge shared modules from one file read alone.
 - Do not claim design/RFC compliance without claim-by-claim evidence.
 - Do not ignore build/config evidence when runtime behavior may depend on it.

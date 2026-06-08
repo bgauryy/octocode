@@ -178,8 +178,8 @@ export const ResearchResponse = {
     const hints: string[] = [...mcpHints];
     if (locations.length > 0) {
       hints.push('Use returned line numbers for further navigation');
-      if (type === 'definition') hints.push('Use lspFindReferences to find all usages');
-      if (type === 'references') hints.push('Use lspCallHierarchy for call relationships');
+        if (type === 'definition') hints.push('Use lspGetSemanticContent type=references to find all usages');
+        if (type === 'references') hints.push('Use lspGetSemanticContent type=callers for call relationships');
     } else if (mcpHints.length === 0) {
       hints.push('Symbol may be external or unindexed');
       hints.push('Try localSearchCode as fallback');

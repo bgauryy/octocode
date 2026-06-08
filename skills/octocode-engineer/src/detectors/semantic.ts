@@ -38,7 +38,7 @@ export function detectSemanticDeadExports(
           tags: ['architecture', 'dead-code', 'semantic'],
           lspHints: [
             {
-              tool: 'lspFindReferences',
+              tool: 'lspGetSemanticContent', semanticType: 'references',
               symbolName: name,
               lineHint: info.lineStart,
               file: profile.file,
@@ -136,7 +136,7 @@ export function detectOverAbstraction(
         tags: ['architecture', 'abstraction', 'semantic'],
         lspHints: [
           {
-            tool: 'lspFindReferences',
+            tool: 'lspGetSemanticContent', semanticType: 'references',
             symbolName: name,
             lineHint: info.line,
             file: info.file,
@@ -181,7 +181,7 @@ export function detectConcreteDependency(
         tags: ['architecture', 'dip', 'coupling', 'semantic'],
         lspHints: [
           {
-            tool: 'lspGotoDefinition',
+            tool: 'lspGetSemanticContent', semanticType: 'definition',
             symbolName: imp.name,
             lineHint: imp.lineStart,
             file: profile.file,
@@ -343,7 +343,7 @@ export function detectUnusedParameters(
         tags: ['code-quality', 'parameters', 'semantic'],
         lspHints: [
           {
-            tool: 'lspFindReferences',
+            tool: 'lspGetSemanticContent', semanticType: 'references',
             symbolName: param.paramName,
             lineHint: param.lineStart,
             file: profile.file,
@@ -442,7 +442,7 @@ export function detectInterfaceCompliance(
           tags: ['code-quality', 'types', 'interface', 'semantic'],
           lspHints: [
             {
-              tool: 'lspGotoDefinition',
+              tool: 'lspGetSemanticContent', semanticType: 'definition',
               symbolName: impl.interfaceName,
               lineHint: impl.classLine,
               file: impl.classFile,
@@ -486,7 +486,7 @@ export function detectUnusedImports(
         tags: ['dead-code', 'imports', 'semantic'],
         lspHints: [
           {
-            tool: 'lspFindReferences',
+            tool: 'lspGetSemanticContent', semanticType: 'references',
             symbolName: imp.name,
             lineHint: imp.lineStart,
             file: profile.file,
@@ -576,7 +576,7 @@ export function detectOrphanImplementation(
             tags: ['dead-code', 'class', 'orphan', 'semantic'],
             lspHints: [
               {
-                tool: 'lspFindReferences',
+                tool: 'lspGetSemanticContent', semanticType: 'references',
                 symbolName: node.name.text,
                 lineHint: line,
                 file: profile.file,
@@ -627,7 +627,7 @@ export function detectShotgunSurgery(
           tags: ['architecture', 'coupling', 'change-risk', 'semantic'],
           lspHints: [
             {
-              tool: 'lspFindReferences',
+              tool: 'lspGetSemanticContent', semanticType: 'references',
               symbolName: name,
               lineHint: info.lineStart,
               file: profile.file,
@@ -673,7 +673,7 @@ export function detectMoveToCaller(
           tags: ['dead-code', 'module-surface', 'refactoring', 'semantic'],
           lspHints: [
             {
-              tool: 'lspFindReferences',
+              tool: 'lspGetSemanticContent', semanticType: 'references',
               symbolName: name,
               lineHint: info.lineStart,
               file: profile.file,
@@ -718,7 +718,7 @@ export function detectNarrowableType(
         tags: ['code-quality', 'types', 'refactoring', 'semantic'],
         lspHints: [
           {
-            tool: 'lspCallHierarchy',
+            tool: 'lspGetSemanticContent', semanticType: 'callers',
             symbolName: param.functionName,
             lineHint: param.lineStart,
             file: profile.file,

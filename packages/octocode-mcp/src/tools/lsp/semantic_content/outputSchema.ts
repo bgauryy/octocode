@@ -34,7 +34,7 @@ const ResolvedSymbolSchema = z.object({
 });
 
 const LspSchema = z.object({
-  serverAvailable: z.boolean(),
+  serverAvailable: z.boolean().optional(),
   provider: z.string().optional(),
   source: z.string().optional(),
 });
@@ -119,14 +119,16 @@ const PayloadSchema = z.discriminatedUnion('kind', [
     totalReferences: z.number(),
     totalFiles: z.number(),
   }),
-  z.object({
-    kind: z.literal('calls'),
-    root: CompactCallTargetSchema.optional(),
-    direction: z.enum(['incoming', 'outgoing', 'both']),
-    calls: z.array(CompactCallSchema),
-    totalCalls: z.number(),
-    completeness: CompletenessSchema,
-  }),
+  ...(['callers', 'callees', 'callHierarchy'] as const).map(k =>
+    z.object({
+      kind: z.literal(k),
+      root: CompactCallTargetSchema.optional(),
+      direction: z.enum(['incoming', 'outgoing', 'both']),
+      calls: z.array(CompactCallSchema),
+      totalCalls: z.number(),
+      completeness: CompletenessSchema,
+    })
+  ),
   z.object({
     kind: z.literal('hover'),
     markdown: z.string().optional(),
@@ -147,7 +149,7 @@ const SemanticDataSchema = z.object({
   uri: z.string(),
   resolvedSymbol: ResolvedSymbolSchema.optional(),
   lsp: LspSchema,
-  evidence: EvidenceSchema,
+  evidence: EvidenceSchema.optional(),
   payload: PayloadSchema,
   pagination: PaginationSchema.optional(),
   summary: z.record(z.string(), z.unknown()).optional(),

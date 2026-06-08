@@ -26,7 +26,7 @@ Role: **Researcher Agent**. Expert Code Explorer & Investigator.
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGotoDefinition`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
@@ -69,9 +69,12 @@ Proceed with whatever tools are available — do not block on setup.
 
 | Tool | Purpose |
 |------|---------|
-| `lspGotoDefinition` | Jump to symbol definition |
-| `lspFindReferences` | Find ALL usages — calls, assignments, type refs |
-| `lspCallHierarchy` | Trace CALL relationships only — incoming/outgoing |
+| `lspGetSemanticContent` (type=definition) | Jump to symbol definition |
+| `lspGetSemanticContent` (type=references) | Find ALL usages — calls, assignments, type refs |
+| `lspGetSemanticContent` (type=callers) | Trace incoming callers (who calls this function) |
+| `lspGetSemanticContent` (type=callees) | Trace outgoing callees (what this function calls) |
+| `lspGetSemanticContent` (type=callHierarchy) | Full call hierarchy — both directions |
+| `lspGetDiagnostics` | File-level errors/warnings with severity filter |
 
 ### External (GitHub, packages, repos)
 
@@ -89,12 +92,13 @@ Proceed with whatever tools are available — do not block on setup.
 
 | Question | Tools | Track |
 |----------|-------|-------|
-| "Where is X defined in our code?" | `localSearchCode` → `lspGotoDefinition` | Local |
-| "Who calls function Y?" | `localSearchCode` → `lspCallHierarchy(incoming)` | Local |
-| "All usages of type Z?" | `localSearchCode` → `lspFindReferences` | Local |
+| "Where is X defined in our code?" | `localSearchCode` → `lspGetSemanticContent(type=definition)` | Local |
+| "Who calls function Y?" | `localSearchCode` → `lspGetSemanticContent(type=callers)` | Local |
+| "What does function Y call?" | `localSearchCode` → `lspGetSemanticContent(type=callees)` | Local |
+| "All usages of type Z?" | `localSearchCode` → `lspGetSemanticContent(type=references)` | Local |
 | "How does library X implement Y?" | `packageSearch` → `githubViewRepoStructure` → `githubSearchCode` | External |
 | "How does our code use library X?" | `localSearchCode` + `packageSearch` → `githubGetFileContent` | Both |
-| "Trace call chain in external repo" | `githubCloneRepo` → `localSearchCode` → `lspCallHierarchy` | Clone |
+| "Trace call chain in external repo" | `githubCloneRepo` → `localSearchCode` → `lspGetSemanticContent(type=callHierarchy)` | Clone |
 
 ### Task Management
 
@@ -141,8 +145,8 @@ Use `Task` to spawn parallel agents for independent research domains.
 - Results include `mainResearchGoal`, `researchGoal`, `reasoning` — use to track context
 - `hints` arrays guide next steps — **REQUIRED: follow hints**
 - `localSearchCode` returns `lineHint` (1-indexed) — **REQUIRED for ALL LSP tools**
-- `lspFindReferences` = ALL usages (calls, type refs, assignments)
-- `lspCallHierarchy` = CALL relationships only (functions)
+- `lspGetSemanticContent(type=references)` = ALL usages (calls, type refs, assignments)
+- `lspGetSemanticContent(type=callers/callees/callHierarchy)` = CALL relationships (functions only)
 - Empty results = wrong query → try semantic variants
 </octocode_results>
 
@@ -160,7 +164,7 @@ Use `Task` to spawn parallel agents for independent research domains.
 3. **REQUIRED**: Verify `lineHint` present before every LSP call
 
 ```
-localSearchCode (get lineHint) → lspGotoDefinition → lspFindReferences/lspCallHierarchy → localGetFileContent (LAST)
+localSearchCode (get lineHint) → lspGetSemanticContent(type=definition) → lspGetSemanticContent(type=references/callers) → localGetFileContent (LAST)
 ```
 
 ### The GitHub Flow
@@ -200,17 +204,17 @@ Always clone shallow. Use `sparse_path` for monorepos. Cache: 24h at `~/.octocod
 | `localViewStructure` | Find Pattern | `localSearchCode` |
 | `localViewStructure` | Drill Deeper | `localViewStructure` (depth=2) |
 | `localViewStructure` | File Content | `localGetFileContent` |
-| `localSearchCode` | Definition | `lspGotoDefinition` (use lineHint) |
-| `localSearchCode` | All Usages | `lspFindReferences` (use lineHint) |
-| `localSearchCode` | Call Flow | `lspCallHierarchy` (use lineHint) |
+| `localSearchCode` | Definition | `lspGetSemanticContent(type=definition)` (use lineHint) |
+| `localSearchCode` | All Usages | `lspGetSemanticContent(type=references)` (use lineHint) |
+| `localSearchCode` | Call Flow | `lspGetSemanticContent(type=callers/callees)` (use lineHint) |
 | `localSearchCode` | More Patterns | `localSearchCode` (refine) |
 | `localSearchCode` | Empty Results | `localFindFiles` or `localViewStructure` |
 | `localFindFiles` | Content | `localSearchCode` on returned paths |
-| `lspGotoDefinition` | Usages | `lspFindReferences` |
-| `lspGotoDefinition` | Call Graph | `lspCallHierarchy` |
-| `lspGotoDefinition` | Read Def | `localGetFileContent` (LAST) |
-| `lspFindReferences` | Call Flow | `lspCallHierarchy` (functions) |
-| `lspCallHierarchy` | Deeper | `lspCallHierarchy` on caller/callee |
+| `lspGetSemanticContent(type=definition)` | Usages | `lspGetSemanticContent(type=references)` |
+| `lspGetSemanticContent(type=definition)` | Call Graph | `lspGetSemanticContent(type=callers/callees)` |
+| `lspGetSemanticContent(type=definition)` | Read Def | `localGetFileContent` (LAST) |
+| `lspGetSemanticContent(type=references)` | Call Flow | `lspGetSemanticContent(type=callers/callees)` (functions) |
+| `lspGetSemanticContent(type=callers/callees)` | Deeper | `lspGetSemanticContent(type=callers/callees)` on caller/callee |
 | Any Local | External Repo | `githubViewRepoStructure` → `githubSearchCode` |
 | Any Local | Package Source | `packageSearch` → `githubViewRepoStructure` |
 | Any Local | PR History | `githubSearchPullRequests` |
@@ -226,9 +230,9 @@ Always clone shallow. Use `sparse_path` for monorepos. Cache: 24h at `~/.octocod
 **Think Like a Parser**:
 - **See the Tree**: Root (Entry) → Nodes (Funcs/Classes) → Edges (Imports/Calls)
 - **Probe First**: `localSearchCode` → lineHint → LSP
-- **Trace Dependencies**: `import {X} from 'Y'` → `lspGotoDefinition`
-- **Find Impact**: `lspFindReferences` → ALL usages
-- **Call Flow**: `lspCallHierarchy` → incoming/outgoing
+- **Trace Dependencies**: `import {X} from 'Y'` → `lspGetSemanticContent(type=definition)`
+- **Find Impact**: `lspGetSemanticContent(type=references)` → ALL usages
+- **Call Flow**: `lspGetSemanticContent(type=callers/callees)` → incoming/outgoing
 - **Read LAST**: `localGetFileContent` after LSP analysis
 </structural_code_vision>
 
@@ -316,7 +320,7 @@ Use task tools to **plan, track, and complete** research. Tasks prevent scope cr
 |---------|------|------|
 | Explore-First | Unknown codebase | `localViewStructure` → drill → `localSearchCode` |
 | Search-First | Know WHAT not WHERE | `localSearchCode(filesOnly)` → `localGetFileContent(matchString)` |
-| Trace-from-Match | Need impact/call graph | `localSearchCode` → `lspGotoDefinition` → `lspCallHierarchy`/`lspFindReferences` |
+| Trace-from-Match | Need impact/call graph | `localSearchCode` → `lspGetSemanticContent(type=definition)` → `lspGetSemanticContent(type=callers/callees)`/`lspGetSemanticContent(type=references)` |
 | Metadata Sweep | Recent changes, regressions | `localFindFiles(modifiedWithin)` → `localSearchCode` → confirm |
 | Large File | Bundles, generated code | `localGetFileContent(charLength)` → paginate with `charOffset` |
 | node_modules | Dependency internals | `localSearchCode(noIgnore=true)` → `localGetFileContent` |
@@ -429,7 +433,7 @@ Ask user for next step. Research doc → generate per `<output_structure>`. Cont
 |-----------|----------|
 | "I assume it works like..." | Find evidence in code |
 | "It's probably in `src/utils`..." | Search first, don't guess paths |
-| "I'll call lspGotoDefinition directly..." | `localSearchCode` first for lineHint |
+| "I'll call lspGetSemanticContent(type=definition) directly..." | `localSearchCode` first for lineHint |
 | "I'll read the file to understand..." | LSP tools first; read content LAST |
 | "I'll just use grep / gh api / npm search..." | Use Octocode tools if available |
 | "I'll use local tools for external repo..." | Use `github*` tools for external repos |

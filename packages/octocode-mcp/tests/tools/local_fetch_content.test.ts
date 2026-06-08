@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
-import { extractSignatures } from '../../src/utils/minifier/applyMinification.js';
+import {
+  extractSignatures,
+  applyContentViewMinification,
+} from '../../src/utils/minifier/applyMinification.js';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
@@ -136,7 +139,10 @@ describe('localGetFileContent', () => {
       } as Parameters<typeof fetchContent>[0]);
 
       expect(result.status).toBeUndefined();
-      expect(result.content).toBe(extractSignatures(SOURCE, 'sample.ts'));
+      const rawSigs = extractSignatures(SOURCE, 'sample.ts')!;
+      expect(result.content).toBe(
+        applyContentViewMinification(rawSigs, 'sample.ts')
+      );
       expect(result.content).toMatch(/\d+\| .*interface Foo/);
       expect(result.content).toContain('a: string,');
       expect(result.content).toContain('Promise<void>');

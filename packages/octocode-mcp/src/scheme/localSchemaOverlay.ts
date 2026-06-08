@@ -427,6 +427,12 @@ const FetchContentQueryBaseSchema = withCoreSchemaDescriptions(
       .describe(
         'Extract only the structural skeleton of the file: imports, function/class/interface/type signatures — bodies are dropped. Saves many tokens. Use for structure exploration; follow up with startLine/endLine to read specific bodies.'
       ),
+    minify: z
+      .boolean()
+      .optional()
+      .describe(
+        'Control minification of returned content. Default true — comments and redundant whitespace are stripped for token efficiency. Pass false to get the raw unprocessed content (useful for debugging or when exact formatting matters).'
+      ),
   })
 );
 

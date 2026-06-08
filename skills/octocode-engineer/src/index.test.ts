@@ -2875,7 +2875,7 @@ describe('writeMultiFileReport (additional)', () => {
         },
         recommendedValidation: {
           summary: 'Validate with LSP',
-          tools: ['lspFindReferences', 'lspGotoDefinition'],
+          tools: ['lspGetSemanticContent(type=references)', 'lspGetSemanticContent(type=definition)'],
         },
         investigationPrompts: ['Check cycle impact'],
       };
@@ -3880,7 +3880,7 @@ describe('generateSummaryMd comprehensive', () => {
         },
         recommendedValidation: {
           summary: 'Validate with LSP',
-          tools: ['lspFindReferences', 'lspGotoDefinition'],
+          tools: ['lspGetSemanticContent(type=references)', 'lspGetSemanticContent(type=definition)'],
         },
         investigationPrompts: ['Check cycle impact', 'Verify complexity'],
       };

@@ -294,14 +294,14 @@ function buildRecommendedValidation(finding: Finding): RecommendedValidation {
     return {
       summary:
         'Confirm the dependency edge or hub behavior with localSearchCode and an LSP navigation step.',
-      tools: ['localSearchCode', 'lspGotoDefinition'],
+      tools: ['localSearchCode', 'lspGetSemanticContent(type=definition)'],
     };
   }
   if (finding.analysisLens === 'hybrid') {
     return {
       summary:
         'Validate both the structural location and the behavioral path before presenting the claim as fact.',
-      tools: ['localSearchCode', 'lspCallHierarchy'],
+      tools: ['localSearchCode', 'lspGetSemanticContent(type=callers)'],
     };
   }
   return {

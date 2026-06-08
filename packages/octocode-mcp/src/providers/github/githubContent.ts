@@ -46,14 +46,28 @@ function buildContentWarnings(
   query: FileContentQuery
 ): string[] | undefined {
   if (data.matchNotFound === true) {
+    const result = data as { hints?: string[] };
+    // If processFileContentAPI already generated specific not-found hints, use them.
+    if (Array.isArray(result.hints) && result.hints.length > 0) {
+      const scanned =
+        typeof data.totalLines === 'number'
+          ? ` (${data.totalLines} lines scanned)`
+          : '';
+      return result.hints.map((h: string) =>
+        h.replace(' in file', ` in file${scanned}`)
+      );
+    }
     const anchor = data.searchedFor ?? query.matchString ?? '';
     const scanned =
       typeof data.totalLines === 'number'
         ? ` (${data.totalLines} lines scanned)`
         : '';
-    return [
-      `No matches for "${anchor}" in file${scanned}. Try matchStringIsRegex=true, a different anchor, or fullContent=true.`,
-    ];
+    const extQuery = query as { matchStringIsRegex?: boolean };
+    const regexAlreadyTried = extQuery.matchStringIsRegex === true;
+    const suggestion = regexAlreadyTried
+      ? 'Try a different pattern, widen the anchor, or use fullContent=true to inspect the file.'
+      : 'Try matchStringIsRegex=true for pattern matching, a different anchor, or fullContent=true.';
+    return [`No matches for "${anchor}" in file${scanned}. ${suggestion}`];
   }
   return data.warnings ?? data.matchLocations;
 }
@@ -85,10 +99,15 @@ export async function getFileContent(
     endLine: query.endLine,
     matchString: query.matchString,
     matchStringContextLines: query.matchStringContextLines,
+    matchStringIsRegex: (query as { matchStringIsRegex?: boolean })
+      .matchStringIsRegex,
+    matchStringCaseSensitive: (query as { matchStringCaseSensitive?: boolean })
+      .matchStringCaseSensitive,
     charOffset: query.charOffset,
     charLength: query.charLength,
     fullContent: query.fullContent,
     signaturesOnly: query.signaturesOnly,
+    minify: (query as { minify?: boolean }).minify,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,

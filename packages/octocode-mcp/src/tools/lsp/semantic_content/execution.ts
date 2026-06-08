@@ -124,7 +124,16 @@ async function getSemanticContent(
     query,
     LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
   );
-  if (anchor.ok === false) return anchor.error;
+  if (anchor.ok === false) {
+    const message =
+      typeof anchor.error.error === 'string'
+        ? anchor.error.error
+        : 'Symbol anchor resolution failed';
+    const anchorHints = Array.isArray(anchor.error.hints)
+      ? (anchor.error.hints as string[])
+      : undefined;
+    return failedAnchorEnvelope(query, message, anchorHints);
+  }
 
   const workspaceRoot =
     query.workspaceRoot ??
@@ -156,7 +165,8 @@ async function getSemanticContent(
         return emptyEnvelope(
           query.type,
           anchor.value,
-          'definitionProvider unsupported'
+          'definitionProvider unsupported',
+          true
         );
       }
       return locationsEnvelope(
@@ -175,7 +185,8 @@ async function getSemanticContent(
         return emptyEnvelope(
           query.type,
           anchor.value,
-          'typeDefinitionProvider unsupported'
+          'typeDefinitionProvider unsupported',
+          true
         );
       }
       return locationsEnvelope(
@@ -194,7 +205,8 @@ async function getSemanticContent(
         return emptyEnvelope(
           query.type,
           anchor.value,
-          'implementationProvider unsupported'
+          'implementationProvider unsupported',
+          true
         );
       }
       return locationsEnvelope(
@@ -213,7 +225,8 @@ async function getSemanticContent(
         return emptyEnvelope(
           query.type,
           anchor.value,
-          'referencesProvider unsupported'
+          'referencesProvider unsupported',
+          true
         );
       }
       return referencesEnvelope(
@@ -231,7 +244,8 @@ async function getSemanticContent(
         return emptyEnvelope(
           query.type,
           anchor.value,
-          'hoverProvider unsupported'
+          'hoverProvider unsupported',
+          true
         );
       }
       return hoverEnvelope(
@@ -250,7 +264,8 @@ async function getSemanticContent(
         return emptyEnvelope(
           query.type,
           anchor.value,
-          'callHierarchyProvider unsupported'
+          'callHierarchyProvider unsupported',
+          true
         );
       }
       return callsEnvelope(query, anchor.value, client);
@@ -431,7 +446,7 @@ async function callsEnvelope(
   );
   const root = items[0];
   if (!root) {
-    return emptyEnvelope(query.type, anchor, 'No callable symbol found');
+    return emptyEnvelope(query.type, anchor, 'No callable symbol found', true);
   }
 
   const depth = query.depth ?? 1;
@@ -503,7 +518,7 @@ async function callsEnvelope(
           : 'callHierarchyProvider returned no calls',
     },
     payload: {
-      kind: 'calls',
+      kind: query.type as 'callers' | 'callees' | 'callHierarchy',
       root: compactCallItem(root),
       direction,
       calls: pageItems,
@@ -779,16 +794,36 @@ function symbolKindName(kind: unknown): string {
   }
 }
 
+function failedAnchorEnvelope(
+  query: LspGetSemanticContentQuery,
+  reason: string,
+  hints?: string[]
+): LspSemanticEnvelope {
+  const uri = query.uri ?? query.filePath ?? '';
+  return {
+    type: query.type,
+    uri,
+    // serverAvailable is omitted: symbol resolution failed before reaching the LSP server,
+    // so server availability is unknown. Presence of reason/warnings conveys the real issue.
+    lsp: {},
+    evidence: { confidence: 'low', complete: false, reason },
+    payload: { kind: 'empty', reason },
+    warnings: [reason],
+    hints: [...semanticHints(query.type, false), ...(hints ?? [])],
+  };
+}
+
 function emptyEnvelope(
   type: SemanticContentType,
   anchor: SymbolAnchor,
-  reason: string
+  reason: string,
+  serverAvailable = false
 ): LspSemanticEnvelope {
   return {
     type,
     uri: anchor.uri,
     resolvedSymbol: anchor.resolvedSymbol,
-    lsp: { serverAvailable: false },
+    lsp: { serverAvailable },
     evidence: { confidence: 'low', complete: false, reason },
     payload: { kind: 'empty', reason },
     warnings: [reason],

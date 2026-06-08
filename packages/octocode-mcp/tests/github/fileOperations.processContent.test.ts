@@ -4,7 +4,10 @@ import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { RequestError } from 'octokit';
 import * as minifierModule from '../../src/utils/minifier/minifier.js';
-import { extractSignatures } from '../../src/utils/minifier/applyMinification.js';
+import {
+  extractSignatures,
+  applyContentViewMinification,
+} from '../../src/utils/minifier/applyMinification.js';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 
@@ -149,7 +152,8 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
 
       expect('error' in result).toBe(false);
       const content = result.data.content;
-      expect(content).toBe(extractSignatures(SOURCE, 'sample.ts'));
+      const rawSigs = extractSignatures(SOURCE, 'sample.ts')!;
+      expect(content).toBe(applyContentViewMinification(rawSigs, 'sample.ts'));
       // Signatures present, body dropped.
       expect(content).toContain('interface Foo');
       expect(content).toContain('id: string;');

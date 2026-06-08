@@ -40,7 +40,7 @@ export function semanticHints(
   type: SemanticContentType,
   complete: boolean
 ): string[] {
-  const next: Record<SemanticContentType, string[]> = {
+  const found: Record<SemanticContentType, string[]> = {
     definition: [
       'Definition found — use type="references", type="callers", or type="callees" next to inspect impact and flow.',
     ],
@@ -76,10 +76,42 @@ export function semanticHints(
     ],
   };
 
-  return complete
-    ? next[type]
-    : [
-        'Semantic evidence is incomplete; combine this result with localSearchCode and project verification.',
-        ...next[type],
-      ];
+  const notFound: Partial<Record<SemanticContentType, string[]>> = {
+    definition: [
+      'No definition found. Verify the symbol name and lineHint are correct (rerun localSearchCode); ensure project dependencies are installed so the language server can resolve imports.',
+    ],
+    hover: [
+      'No hover content returned. Try type="definition" to locate the symbol, or verify the language server supports this file type.',
+    ],
+    typeDefinition: [
+      'No type definition found. The expression may have an inferred or primitive type with no explicit declaration; try type="hover" for the inferred type signature.',
+    ],
+    callers: [
+      'No callers found. The function may be an entry point, an exported API called externally, or invoked through dynamic dispatch (events, callbacks, framework injection).',
+      'Use localSearchCode with the function name as a pattern to find string-based or dynamic references.',
+    ],
+    callees: [
+      'No callees found. The function may contain only direct property access or primitive operations with no trackable call sites.',
+      'Use localSearchCode for pattern-based search if the function uses dynamic method calls.',
+    ],
+    callHierarchy: [
+      'No calls found in either direction. The function may be isolated or all call sites are dynamic.',
+      'Use localSearchCode with the function name to find string-based references and cross-check.',
+    ],
+    documentSymbols: [
+      'No symbols returned. The language server may be unavailable for this file type.',
+      'Use localSearchCode with patterns like "export|function|class|const" as a fallback outline.',
+    ],
+    implementation: [
+      'No implementations found. symbolName must be a method or property declared inside an interface or abstract class — not the interface/class name itself.',
+      'Use type="documentSymbols" to list the interface members, then retry with a member name as symbolName.',
+    ],
+  };
+
+  if (complete) return found[type];
+
+  return [
+    'Semantic evidence is incomplete; combine this result with localSearchCode and project verification.',
+    ...(notFound[type] ?? found[type]),
+  ];
 }

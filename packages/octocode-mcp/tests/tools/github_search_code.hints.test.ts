@@ -67,3 +67,69 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
     expect(out.join(' ')).toMatch(/archived/i);
   });
 });
+
+describe('githubSearchCode empty hints — path looks like a file path', () => {
+  it('fires auto-extraction hint when path ends with a file extension', () => {
+    const out = hints.empty({
+      hasOwnerRepo: true,
+      owner: 'mastra-ai',
+      repo: 'mastra',
+      path: 'packages/core/src/agent/agent.ts',
+      keywords: ['createAgent'],
+    });
+    const joined = out.join(' ');
+    expect(joined).toMatch(/auto-extracted/i);
+    expect(joined).toMatch(/agent\.ts/);
+  });
+
+  it('includes extracted filename and directory in the hint', () => {
+    const out = hints.empty({
+      hasOwnerRepo: true,
+      owner: 'facebook',
+      repo: 'react',
+      path: 'packages/react/src/ReactHooks.js',
+      keywords: ['useState'],
+    });
+    const joined = out.join(' ');
+    expect(joined).toMatch(/filename="ReactHooks\.js"/);
+    expect(joined).toMatch(/path="packages\/react\/src"/);
+  });
+
+  it('does NOT fire the generic directory hint when path looks like a file', () => {
+    const out = hints.empty({
+      hasOwnerRepo: true,
+      owner: 'mastra-ai',
+      repo: 'mastra',
+      path: 'packages/core/src/agent/agent.ts',
+      keywords: ['createAgent'],
+    });
+    const joined = out.join(' ');
+    expect(joined).not.toMatch(/matches a directory, not a file/i);
+  });
+
+  it('still fires directory hint for paths without file extension', () => {
+    const out = hints.empty({
+      hasOwnerRepo: true,
+      owner: 'mastra-ai',
+      repo: 'mastra',
+      path: 'packages/core/src/agent',
+      keywords: ['createAgent'],
+    });
+    const joined = out.join(' ');
+    expect(joined).toMatch(/matches a directory, not a file/i);
+    expect(joined).not.toMatch(/auto-extracted/i);
+  });
+
+  it('does NOT fire auto-extraction hint when explicit filename is provided', () => {
+    const out = hints.empty({
+      hasOwnerRepo: true,
+      owner: 'mastra-ai',
+      repo: 'mastra',
+      path: 'packages/core/src/agent',
+      filename: 'agent.ts',
+      keywords: ['createAgent'],
+    });
+    const joined = out.join(' ');
+    expect(joined).not.toMatch(/auto-extracted/i);
+  });
+});

@@ -1063,9 +1063,9 @@ describe('generateSummaryMd', () => {
     expect(md).toContain('## Agent Instructions');
     expect(md).toContain('Validate Before Presenting');
     expect(md).toContain('localSearchCode');
-    expect(md).toContain('lspGotoDefinition');
-    expect(md).toContain('lspFindReferences');
-    expect(md).toContain('lspCallHierarchy');
+    expect(md).toContain('lspGetSemanticContent');
+    expect(md).toContain('lspGetSemanticContent');
+    expect(md).toContain('callers');
     expect(md).toContain('False Positive Checklist');
     expect(md).toContain('ast/search.js');
   });

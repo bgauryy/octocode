@@ -96,7 +96,10 @@ export async function processFileContentAPI(
   endLine?: number,
   matchStringContextLines: number = 5,
   matchString?: string,
-  signaturesOnly?: boolean
+  signaturesOnly?: boolean,
+  matchStringIsRegex?: boolean,
+  matchStringCaseSensitive?: boolean,
+  minify: boolean = true
 ): Promise<GitHubFileContentApiResult> {
   if (signaturesOnly) {
     const sigs = extractSignatures(decodedContent, filePath);
@@ -105,11 +108,14 @@ export async function processFileContentAPI(
       // matches a signature pattern) — same ContentSanitizer pass the normal
       // content path runs below, keeping local and GitHub aligned.
       const sanitized = ContentSanitizer.sanitizeContent(sigs, filePath);
+      const sigContent = minify
+        ? applyContentViewMinification(sanitized.content, filePath)
+        : sanitized.content;
       return {
         owner,
         repo,
         path: filePath,
-        content: sanitized.content,
+        content: sigContent,
         branch,
         totalLines: decodedContent.split('\n').length,
         isPartial: true,
@@ -138,29 +144,67 @@ export async function processFileContentAPI(
     finalContent = decodedContent;
   } else if (matchString) {
     const matchingLines: number[] = [];
+    const isCaseSensitive = matchStringCaseSensitive === true;
 
-    const searchLower = matchString.toLowerCase();
-    for (let i = 0; i < originalLines.length; i++) {
-      if (originalLines[i]?.toLowerCase().includes(searchLower)) {
-        matchingLines.push(i + 1);
+    if (matchStringIsRegex) {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(matchString, isCaseSensitive ? '' : 'i');
+      } catch {
+        return {
+          owner,
+          repo,
+          path: filePath,
+          content: '',
+          branch,
+          totalLines,
+          matchNotFound: true,
+          searchedFor: matchString,
+          hints: [
+            `Invalid regex "${matchString}". Check syntax (e.g. escape backslashes: "\\\\w+" not "\\w+") or disable matchStringIsRegex=false for a literal search.`,
+          ],
+        } as GitHubFileContentApiResult;
       }
-    }
+      for (let i = 0; i < originalLines.length; i++) {
+        if (regex.test(originalLines[i] ?? '')) {
+          matchingLines.push(i + 1);
+        }
+      }
+    } else {
+      const needle = isCaseSensitive ? matchString : matchString.toLowerCase();
+      for (let i = 0; i < originalLines.length; i++) {
+        const hay = isCaseSensitive
+          ? (originalLines[i] ?? '')
+          : (originalLines[i] ?? '').toLowerCase();
+        if (hay.includes(needle)) {
+          matchingLines.push(i + 1);
+        }
+      }
 
-    if (matchingLines.length === 0) {
-      const needle = searchLower.replace(/\s+/g, '');
-      if (needle.length > 0) {
-        for (let i = 0; i < originalLines.length; i++) {
-          const haystack = (originalLines[i] ?? '')
-            .toLowerCase()
-            .replace(/\s+/g, '');
-          if (haystack.includes(needle)) {
-            matchingLines.push(i + 1);
+      // Whitespace-stripped fallback for literal search only
+      if (matchingLines.length === 0) {
+        const needleStripped = needle.replace(/\s+/g, '');
+        if (needleStripped.length > 0) {
+          for (let i = 0; i < originalLines.length; i++) {
+            const hay = isCaseSensitive
+              ? (originalLines[i] ?? '').replace(/\s+/g, '')
+              : (originalLines[i] ?? '').toLowerCase().replace(/\s+/g, '');
+            if (hay.includes(needleStripped)) {
+              matchingLines.push(i + 1);
+            }
           }
         }
       }
     }
 
     if (matchingLines.length === 0) {
+      const notFoundHints = matchStringIsRegex
+        ? [
+            `Regex "${matchString}" matched no lines. Verify the pattern, check flags (case-${isCaseSensitive ? 'sensitive' : 'insensitive'}), or use fullContent=true to inspect the file.`,
+          ]
+        : [
+            `"${matchString}" not found in file${isCaseSensitive ? ' (case-sensitive)' : ''}. Try matchStringIsRegex=true for pattern matching, broaden the search, or use fullContent=true.`,
+          ];
       return {
         owner,
         repo,
@@ -170,9 +214,7 @@ export async function processFileContentAPI(
         totalLines,
         matchNotFound: true,
         searchedFor: matchString,
-        hints: [
-          `Pattern "${matchString}" not found in file. Try broader search or verify path.`,
-        ],
+        hints: notFoundHints,
       } as GitHubFileContentApiResult;
     }
 
@@ -238,10 +280,9 @@ export async function processFileContentAPI(
     finalContent,
     filePath
   );
-  finalContent = applyContentViewMinification(
-    sanitizationResult.content,
-    filePath
-  );
+  finalContent = minify
+    ? applyContentViewMinification(sanitizationResult.content, filePath)
+    : sanitizationResult.content;
 
   if (sanitizationResult.hasSecrets) {
     matchLocationsSet.add(

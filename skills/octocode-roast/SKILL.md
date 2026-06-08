@@ -48,7 +48,7 @@ TARGET → OBLITERATE → INVENTORY → AUTOPSY → [USER PICKS] → RESURRECT
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGotoDefinition`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
@@ -84,9 +84,9 @@ Proceed with whatever tools are available — do not block on setup.
 **Octocode LSP** (Semantic Code Intelligence):
 | Tool | Purpose |
 |------|---------|
-| `lspGotoDefinition` | Trace imports to their shameful origins |
-| `lspFindReferences` | Find all the places infected by bad code |
-| `lspCallHierarchy` | Map the blast radius of dysfunction |
+| `lspGetSemanticContent(type=definition)` | Trace imports to their shameful origins |
+| `lspGetSemanticContent(type=references)` | Find all the places infected by bad code |
+| `lspGetSemanticContent(type=callers/callees)` | Map the blast radius of dysfunction |
 
 ---
 
@@ -120,8 +120,8 @@ Auto-detect scope in order:
 **Tactical Scan**:
 - Run `localViewStructure` to identify "God Files" (large size) and "Dumpster Directories" (too many files).
 - Use `localSearchCode` with `filesOnly=true` to map the blast radius.
-- Use `lspFindReferences` to find how far bad patterns have spread.
-- Use `lspCallHierarchy` to trace the infection path of dysfunction.
+- Use `lspGetSemanticContent(type=references)` to find how far bad patterns have spread.
+- Use `lspGetSemanticContent(type=callers/callees)` to trace the infection path of dysfunction.
 
 **Output**:
 ```
@@ -429,12 +429,12 @@ Before delivering:
   - Agent 3: Hunt CRIMES + SLOP (magic numbers, AI hallucinations)
 - **Phase 4-6 (Autopsy + Redemption)**: Keep sequential - needs unified prioritization
 - Use the host's task tracker to track sins found per agent
-- Each agent uses: `localViewStructure` → `localSearchCode` → `lspFindReferences` → `localGetFileContent`
+- Each agent uses: `localViewStructure` → `localSearchCode` → `lspGetSemanticContent(type=references)` → `localGetFileContent`
 
 **Example**:
 - Goal: "Roast entire repo with 50+ files"
 - Agent 1: Hunt security sins across all files (`localSearchCode` for credentials, secrets)
-- Agent 2: Hunt architectural sins (`localViewStructure` for God files, `lspCallHierarchy` for spaghetti)
+- Agent 2: Hunt architectural sins (`localViewStructure` for God files, `lspGetSemanticContent(type=callers/callees)` for spaghetti)
 - Agent 3: Hunt performance sins (`localSearchCode` for N+1 patterns, blocking calls)
 - Merge: Combine into unified Hall of Shame, sort by severity
 

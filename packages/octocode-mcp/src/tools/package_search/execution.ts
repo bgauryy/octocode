@@ -320,7 +320,16 @@ export async function searchPackages(
           const errorHints = getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
             originalError: apiResult.error,
           });
-          const mergedHints = [...(apiResult.hints ?? []), ...errorHints];
+          const nameVariations = generateNameVariations(validatedQuery.name);
+          const variationHint =
+            nameVariations.length > 0
+              ? [`Try: ${nameVariations.join(', ')}`]
+              : [];
+          const mergedHints = [
+            ...(apiResult.hints ?? []),
+            ...errorHints,
+            ...variationHint,
+          ];
           return createErrorResult(apiResult.error, query, {
             rawResponse: apiResult,
             customHints: mergedHints,

@@ -129,23 +129,23 @@ describe('Resilience Wrappers', () => {
     it('executes LSP operations', async () => {
       const result = await withLspResilience(
         async () => ({ definition: 'found' }),
-        'lspGotoDefinition'
+        'lspGetSemanticContent'
       );
       expect(result).toEqual({ definition: 'found' });
     });
 
-    it('maps navigation tools to lsp:navigation circuit', async () => {
-      await withLspResilience(async () => 'ok', 'lspGotoDefinition');
+    it('maps lspGetSemanticContent to lsp:navigation circuit', async () => {
+      await withLspResilience(async () => 'ok', 'lspGetSemanticContent');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
         'lsp:navigation',
         expect.any(Function)
       );
     });
 
-    it('maps hierarchy tools to lsp:hierarchy circuit', async () => {
-      await withLspResilience(async () => 'ok', 'lspCallHierarchy');
+    it('maps lspGetDiagnostics to lsp:navigation circuit', async () => {
+      await withLspResilience(async () => 'ok', 'lspGetDiagnostics');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
-        'lsp:hierarchy',
+        'lsp:navigation',
         expect.any(Function)
       );
     });

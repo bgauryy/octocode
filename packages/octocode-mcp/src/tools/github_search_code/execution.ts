@@ -109,23 +109,40 @@ export async function searchMultipleGitHubCode(
             group.matches.map(m => m.path)
           ),
         };
-        const fileCount = flat.results.flatMap(r => r.matches).length;
-        return createSuccessResult(
-          query,
-          flat as unknown as GitHubSearchCodeData,
-          flat.results.length > 0,
-          TOOL_NAMES.GITHUB_SEARCH_CODE,
-          {
-            hintContext,
-            rawResponse: providerResult.response.rawResponseChars,
-            extraHints:
-              flat.results.length > 0
-                ? [
-                    `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — use githubGetFileContent(owner, repo, branch, path) to read specific files.`,
-                  ]
-                : [],
-          }
-        );
+         const fileCount = flat.results.flatMap(r => r.matches).length;
+         const successHints: string[] = [];
+         if (flat.results.length > 0) {
+         successHints.push(
+         `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — use githubGetFileContent(owner, repo, branch, path) to read specific files.`
+         );
+         successHints.push(
+         'matchIndices are character offsets inside the snippet `value` string — they are NOT line numbers. Use githubGetFileContent with matchString to get exact line positions.'
+         );
+         }
+         const pathLooksLikeFile =
+         typeof query.path === 'string' &&
+         !query.filename &&
+         /(?:^|\/)([^/]+\.[A-Za-z][A-Za-z0-9]{0,9})$/.test(query.path);
+         if (pathLooksLikeFile) {
+         const extracted = query.path!.match(
+         /(?:^|\/)([^/]+\.[A-Za-z][A-Za-z0-9]{0,9})$/
+         );
+         const fname = extracted ? extracted[1] : query.path;
+         successHints.push(
+         `path="${query.path}" looks like a file path — auto-extracted filename="${fname}" for the query. Use explicit filename="${fname}" + path="<dir>" for clarity.`
+         );
+         }
+         return createSuccessResult(
+         query,
+         flat as unknown as GitHubSearchCodeData,
+         flat.results.length > 0,
+         TOOL_NAMES.GITHUB_SEARCH_CODE,
+         {
+         hintContext,
+         rawResponse: providerResult.response.rawResponseChars,
+         extraHints: successHints,
+         }
+         );
       } catch (error) {
         return handleCatchError(error, query);
       }

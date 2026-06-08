@@ -498,7 +498,8 @@ function buildSuccessResult(
   extraction: ExtractionState,
   fileStats: FileStats,
   totalLines: number,
-  defaultOutputCharLength: number
+  defaultOutputCharLength: number,
+  shouldMinify = true
 ): LocalGetFileContentToolResult {
   if (
     !extraction.resultContent ||
@@ -580,10 +581,9 @@ function buildSuccessResult(
 
   return {
     path: queryPath,
-    content: applyContentViewMinification(
-      pagination.paginatedContent,
-      queryPath
-    ),
+    content: shouldMinify
+      ? applyContentViewMinification(pagination.paginatedContent, queryPath)
+      : pagination.paginatedContent,
     isPartial,
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
@@ -667,19 +667,25 @@ export async function fetchContent(
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
 
+    const shouldMinify =
+      (query as unknown as { minify?: boolean }).minify !== false;
+
     if ((query as unknown as { signaturesOnly?: boolean }).signaturesOnly) {
       const sigs = extractSignatures(content, queryPath);
       if (sigs !== null) {
         const totalLinesOrig = content.split('\n').length;
+        const sigsProcessed = shouldMinify
+          ? applyContentViewMinification(sigs, queryPath)
+          : sigs;
 
         // Char-paginate the skeleton at the output budget, mirroring the
         // GitHub path (applyContentPagination) so a large export index stays
         // navigable instead of overflowing the response.
-        if (sigs.length > defaultOutputCharLength) {
+        if (sigsProcessed.length > defaultOutputCharLength) {
           const charOffset =
             (query as unknown as { charOffset?: number }).charOffset ?? 0;
           const sigPagination = applyPagination(
-            sigs,
+            sigsProcessed,
             charOffset,
             defaultOutputCharLength
           );
@@ -705,7 +711,7 @@ export async function fetchContent(
         return attachRawResponseChars(
           {
             path: query.path,
-            content: sigs,
+            content: sigsProcessed,
             isPartial: true,
             totalLines: totalLinesOrig,
             hints: [
@@ -749,7 +755,8 @@ export async function fetchContent(
       extraction,
       fileStats,
       totalLines,
-      defaultOutputCharLength
+      defaultOutputCharLength,
+      shouldMinify
     );
     return attachRawResponseChars(
       withSecretWarning(

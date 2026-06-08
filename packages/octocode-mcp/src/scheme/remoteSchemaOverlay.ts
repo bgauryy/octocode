@@ -64,6 +64,12 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
       .describe(
         'Extract only the structural skeleton of the file: imports, function/class/interface/type signatures — bodies are dropped. Saves 80–95% tokens. Use for structure exploration; follow up with startLine/endLine to read specific bodies.'
       ),
+    minify: z
+      .boolean()
+      .optional()
+      .describe(
+        'Control minification of returned content. Default true — comments and redundant whitespace are stripped for token efficiency. Pass false to get the raw unprocessed content (useful for debugging or when exact formatting matters).'
+      ),
   })
 );
 
@@ -186,9 +192,17 @@ export const GitHubCodeSearchQueryLocalSchema = withCoreSchemaDescriptions(
       UpstreamGitHubCodeSearchQuerySchema.shape.extension,
       'Optional extension filter. Pass without a dot for clarity, e.g. "ts"; a leading dot is tolerated.'
     ),
+    filename: describeField(
+      UpstreamGitHubCodeSearchQuerySchema.shape.filename,
+      'Optional filename filter (GitHub `filename:` qualifier). Matches files whose name equals or contains this value — e.g. "Button.tsx" or "jest.config". Use this to target a specific file. Combine with `path` to restrict to a directory.'
+    ),
+    path: describeField(
+      UpstreamGitHubCodeSearchQuerySchema.shape.path,
+      'Optional directory prefix filter (GitHub `path:` qualifier). Matches any file whose full repo path starts with this prefix — it is NOT a file path. Use `filename` to target one file; combine both to narrow to a directory. Passing a file-like path (e.g. "src/agent.ts") auto-extracts the filename part — but explicit `filename` is clearer and more reliable.'
+    ),
     match: describeField(
       UpstreamGitHubCodeSearchQuerySchema.shape.match,
-      'Search target: "file" searches contents, "path" searches path/name metadata.'
+      'Where to search: "file" (default) searches file contents; "path" searches the file path/name only — useful for finding files by name pattern without any keyword. When omitted, GitHub searches content.'
     ),
     page: z
       .number()
@@ -224,12 +238,31 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
       repo: z.string(),
       matches: z.array(
         z.object({
-          path: z.string(),
-          value: z.string().optional(),
-          pathOnly: z.boolean().optional(),
+          path: z.string().describe('Repo-relative file path of the match.'),
+          value: z
+            .string()
+            .optional()
+            .describe(
+              'Code snippet returned by GitHub for this match. NOT the full file — use githubGetFileContent to read the full file.'
+            ),
+          pathOnly: z
+            .boolean()
+            .optional()
+            .describe(
+              'True when GitHub returned a path match but no text snippet. Use githubGetFileContent with matchString to inspect content.'
+            ),
           matchIndices: z
-            .array(z.object({ start: z.number(), end: z.number() }))
-            .optional(),
+            .array(
+              z
+                .object({ start: z.number(), end: z.number() })
+                .describe(
+                  'Character offsets within the `value` snippet string (not line numbers in the file).'
+                )
+            )
+            .optional()
+            .describe(
+              'Character-offset spans inside the `value` snippet that highlight the matched terms. These are NOT line numbers — use githubGetFileContent with matchString to get exact line positions.'
+            ),
         })
       ),
     })
@@ -510,6 +543,12 @@ export const GitHubPullRequestSearchQueryLocalSchema =
         .describe(
           'Include bot-authored comments (e.g. CI bots, Vercel, CodeRabbit). Default false — bot comments are filtered to reduce noise.'
         ),
+      minify: z
+        .boolean()
+        .optional()
+        .describe(
+          'Control minification of PR content (patches, body, comments). Default true — comments and redundant whitespace are stripped from code patches for token efficiency. Pass false to get raw unprocessed diffs.'
+        ),
     })
   );
 
@@ -573,10 +612,45 @@ import {
 import { EvidenceSchema, responseEnvelopeFields } from './responseEnvelope.js';
 import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core/schemas/outputs';
 
-const peerEnvelopeFields = responseEnvelopeFields;
+        const peerEnvelopeFields = responseEnvelopeFields;
 
-export const GitHubSearchRepositoriesOutputLocalSchema =
-  UpstreamReposOutput.extend(peerEnvelopeFields);
+        const LocalRepositoryDetailSchema = z
+          .object({
+            owner: z.string(),
+            repo: z.string(),
+            fullName: z.string(),
+            stars: z.number().optional(),
+            forks: z.number().optional(),
+            openIssues: z.number().optional(),
+            language: z.string().optional(),
+            description: z.string().optional(),
+            pushedAt: z.string().optional(),
+            createdAt: z.string().optional(),
+            defaultBranch: z.string().optional(),
+            topics: z.array(z.string()).optional(),
+            visibility: z.string().optional(),
+          })
+          .passthrough();
+
+        export const GitHubSearchRepositoriesOutputLocalSchema =
+          UpstreamReposOutput.extend({
+            ...peerEnvelopeFields,
+            data: z
+              .object({
+                repositories: z.array(z.string()),
+                repositoryDetails: z.array(LocalRepositoryDetailSchema),
+                pagination: z
+                  .object({
+                    currentPage: z.number(),
+                    totalPages: z.number(),
+                    hasMore: z.boolean(),
+                    perPage: z.number().optional(),
+                    totalMatches: z.number().optional(),
+                  })
+                  .optional(),
+              })
+              .optional(),
+          });
 
 export const GitHubSearchPullRequestsOutputLocalSchema =
   UpstreamPRsOutput.extend(peerEnvelopeFields);

@@ -1423,9 +1423,9 @@ function renderAgentInstructions(
   lines.push('| Step | Tool | Purpose |');
   lines.push('|------|------|---------|');
   lines.push('| 1. Search | `localSearchCode(pattern, path)` | **Always first** — get `lineHint` for LSP. Never guess lineHint. |');
-  lines.push('| 2. Locate | `lspGotoDefinition(lineHint)` | Jump to definition across files |');
-  lines.push('| 3. Consumers | `lspFindReferences(lineHint)` | Count usages, split test/prod with `includePattern`/`excludePattern` |');
-  lines.push('| 4. Call flow | `lspCallHierarchy(lineHint, incoming/outgoing)` | Trace call chains — **functions only**, fails on types/vars |');
+  lines.push('| 2. Locate | `lspGetSemanticContent(type=definition, lineHint)` | Jump to definition across files |');
+  lines.push('| 3. Consumers | `lspGetSemanticContent(type=references, lineHint)` | Count usages, split test/prod with `includePattern`/`excludePattern` |');
+  lines.push('| 4. Call flow | `lspGetSemanticContent(type=callers/callees, lineHint)` | Trace call chains — **functions only**, fails on types/vars |');
   lines.push('| 5. Read code | `localGetFileContent(path, matchString=...)` | Confirm code at reported location |');
   lines.push('| 6. AST proof | `ast/search.js -p <pattern> --root <path>` | Structural proof on **live source** — zero false positives |');
   if (outputFiles.astTrees) {
@@ -1440,7 +1440,7 @@ function renderAgentInstructions(
   lines.push('- [ ] Pattern confirmed in live source — `ast/search.js -p` or `localSearchCode`?');
   lines.push('- [ ] Not in generated, vendored, or test-only code?');
   lines.push('- [ ] `correlatedSignals[]` — multiple signals on same file strengthen confidence');
-  lines.push('- [ ] Consumer count verified with `lspFindReferences` — matches claimed impact?');
+  lines.push('- [ ] Consumer count verified with `lspGetSemanticContent(type=references)` — matches claimed impact?');
   lines.push('');
   lines.push('**Rate each finding**: `confirmed` (evidence supports) · `dismissed` (explain why) · `uncertain` (state what\'s missing)\n');
 }

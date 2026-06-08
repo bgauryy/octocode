@@ -514,6 +514,11 @@ export function mapFileContentToolQuery(
     charOffset: (query as { charOffset?: number }).charOffset,
     charLength: (query as { charLength?: number }).charLength,
     signaturesOnly: (query as { signaturesOnly?: boolean }).signaturesOnly,
+    minify: (query as { minify?: boolean }).minify,
+    matchStringIsRegex: (query as { matchStringIsRegex?: boolean })
+      .matchStringIsRegex,
+    matchStringCaseSensitive: (query as { matchStringCaseSensitive?: boolean })
+      .matchStringCaseSensitive,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,

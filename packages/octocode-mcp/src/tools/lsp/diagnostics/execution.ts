@@ -60,7 +60,23 @@ function attachDiagnosticsRawEvidence<T extends object>(result: T): T {
 
 async function getDiagnostics(query: LspDiagnosticsQuery) {
   const anchor = await resolveFileAnchor(query, LSP_GET_DIAGNOSTICS_TOOL_NAME);
-  if (anchor.ok === false) return anchor.error;
+  if (anchor.ok === false) {
+    const message =
+      typeof anchor.error.error === 'string'
+        ? anchor.error.error
+        : 'File resolution failed';
+    const hints = Array.isArray(anchor.error.hints)
+      ? (anchor.error.hints as string[])
+      : [`File could not be resolved: ${query.uri ?? query.filePath ?? ''}`];
+    return {
+      uri: query.uri ?? query.filePath ?? '',
+      lsp: { serverAvailable: false, source: 'unavailable' as const },
+      diagnostics: [] as DiagnosticEntry[],
+      summary: { errors: 0, warnings: 0, information: 0, hints: 0 },
+      warnings: [message],
+      hints,
+    };
+  }
 
   const workspaceRoot =
     query.workspaceRoot ??

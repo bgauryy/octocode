@@ -1,4 +1,5 @@
 import type { NormalizedPrContentRequest } from './contentRequest.js';
+import { applyContentViewMinification } from '../../utils/minifier/applyMinification.js';
 
 type QueryLike = {
   owner?: string;
@@ -248,7 +249,8 @@ function shapeCommits(
 function shapeFileSurfaces(
   pr: Record<string, unknown>,
   query: QueryLike,
-  request: NormalizedPrContentRequest
+  request: NormalizedPrContentRequest,
+  shouldMinify = true
 ) {
   const allChanges = Array.isArray(pr.fileChanges)
     ? (pr.fileChanges as Array<Record<string, unknown>>)
@@ -268,8 +270,13 @@ function shapeFileSurfaces(
   const shaped = items.map(change => {
     const base = shapeFileChange(change, false);
     if (!includePatch || typeof change.patch !== 'string') return base;
+    const rawPatch = change.patch;
+    const processedPatch =
+      shouldMinify && typeof rawPatch === 'string'
+        ? applyContentViewMinification(rawPatch, filePathOf(change))
+        : rawPatch;
     const patch = paginateText(
-      change.patch,
+      processedPatch,
       query.charOffset ?? 0,
       query.charLength ?? 12_000
     );
@@ -301,7 +308,8 @@ function shapeFileSurfaces(
 export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
-  request: NormalizedPrContentRequest
+  request: NormalizedPrContentRequest,
+  shouldMinify = true
 ): Record<string, unknown> {
   const prNumber = Number(pr.number);
   const body = request.body
@@ -340,7 +348,7 @@ export function shapePullRequestForContent(
   return {
     ...metadata,
     ...(body ? { body: body.content, bodyPagination: body.pagination } : {}),
-    ...shapeFileSurfaces(pr, query, request),
+    ...shapeFileSurfaces(pr, query, request, shouldMinify),
     ...shapeComments(pr, query, request),
     ...shapeReviews(pr, request),
     ...shapeCommits(pr, query, request),

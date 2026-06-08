@@ -60,7 +60,7 @@ export function detectGodModules(
       tags: ['complexity', 'responsibility', 'size'],
       lspHints: [
         {
-          tool: 'lspFindReferences',
+          tool: 'lspGetSemanticContent', semanticType: 'references',
           symbolName: entry.file.split('/').pop() || entry.file,
           lineHint: 1,
           file: entry.file,
@@ -153,7 +153,7 @@ export function detectMegaFolders(
       },
       lspHints: [
         {
-          tool: 'lspGotoDefinition',
+          tool: 'lspGetSemanticContent', semanticType: 'definition',
           symbolName: candidate.folder,
           lineHint: 1,
           file: representativeFile,
@@ -214,7 +214,7 @@ export function detectGodFunctions(
           tags: ['complexity', 'responsibility', 'size'],
           lspHints: [
             {
-              tool: 'lspCallHierarchy',
+              tool: 'lspGetSemanticContent', semanticType: 'callers',
               symbolName: fn.name,
               lineHint: fn.lineStart,
               file: entry.file,
@@ -516,14 +516,14 @@ export function detectFeatureEnvy(
           tags: ['coupling', 'responsibility', 'misplaced-logic'],
           lspHints: [
             {
-              tool: 'lspCallHierarchy',
+              tool: 'lspGetSemanticContent', semanticType: 'callers',
               symbolName: file.split('/').pop() || file,
               lineHint: importRef.lineStart,
               file,
               expectedResult: `trace which functions use imports from ${target} to decide what to move`,
             },
             {
-              tool: 'lspGotoDefinition',
+              tool: 'lspGetSemanticContent', semanticType: 'definition',
               symbolName: target.split('/').pop() || target,
               lineHint: importRef.lineStart,
               file,

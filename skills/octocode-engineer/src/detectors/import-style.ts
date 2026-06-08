@@ -196,7 +196,7 @@ export function detectImportSideEffectRisk(
       tags: ['import-side-effect', 'startup', 'architecture', 'performance'],
       lspHints: [
         {
-          tool: 'lspFindReferences',
+          tool: 'lspGetSemanticContent', semanticType: 'references',
           symbolName:
             entry.file
               .split('/')

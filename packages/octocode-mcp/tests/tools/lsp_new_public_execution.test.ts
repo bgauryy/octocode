@@ -32,6 +32,7 @@ import { executeLspGetSemanticContent } from '../../src/tools/lsp/semantic_conte
 import { hints as semanticToolHints } from '../../src/tools/lsp/semantic_content/hints.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
 import { LspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
+import { LspGetSemanticContentOutputSchema } from '../../src/tools/lsp/semantic_content/outputSchema.js';
 import {
   gatherIncomingCallsRecursive,
   gatherOutgoingCallsRecursive,
@@ -154,7 +155,11 @@ describe('new public LSP tool execution', () => {
       queries: [{ uri: missingFile, severity: 'all' }],
     } as never);
 
-    expect(textOf(result)).toContain('file_not_found');
+    const text = textOf(result);
+    // File-not-found errors are returned as a schema-conformant result with
+    // serverAvailable: false and the ENOENT message in warnings
+    expect(text).toContain('serverAvailable: false');
+    expect(text).toMatch(/no such file|missing\.ts|Could not read/);
   });
 
   it('returns semantic locations, references, hover, type, and implementation content', async () => {
@@ -237,7 +242,7 @@ describe('new public LSP tool execution', () => {
     expect(text).not.toContain('status: "error"');
     expect(text).not.toContain('Semantic evidence is incomplete');
     expect(text).toContain('kind: "references"');
-    expect(text).toContain('kind: "calls"');
+    expect(text).toContain('kind: "callers"');
   });
 
   it('reports unsupported semantic capabilities explicitly', async () => {
@@ -282,7 +287,7 @@ describe('new public LSP tool execution', () => {
 
     expect(text).toContain('definitionProvider returned no locations');
     expect(text).toContain('callHierarchyProvider unsupported');
-    expect(text).toContain('symbol_not_found');
+    expect(text).toContain('Could not find symbol');
     expect(text).toContain('Language server unavailable');
   });
 
@@ -336,7 +341,9 @@ describe('new public LSP tool execution', () => {
       queries: [{ severity: 'all' }],
     } as never);
 
-    expect(textOf(result)).toContain('pathValidationFailed');
+    // Path validation errors are now returned as schema-conformant results with
+    // serverAvailable: false and the validation message in warnings
+    expect(textOf(result)).toContain('serverAvailable: false');
   });
 
   it('normalizes hover content variants', async () => {
@@ -587,6 +594,39 @@ describe('new public LSP tool execution', () => {
     const text = textOf(result);
     expect(text).toContain('hasDefinition: true');
     expect(text).toContain('count: 2');
+  });
+
+  it('returns a schema-valid empty envelope when the symbol is not found near lineHint', async () => {
+    const result = await executeLspGetSemanticContent({
+      queries: [
+        {
+          uri: filePath,
+          type: 'definition',
+          symbolName: 'nonExistentSymbol',
+          lineHint: 99,
+        },
+      ],
+    } as never);
+
+    const parsed = LspGetSemanticContentOutputSchema.safeParse(
+      result.structuredContent
+    );
+    expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues, null, 2)).toBe(true);
+    if (!parsed.success) return;
+
+    const firstResult = parsed.data.results[0];
+    // no status field — failedAnchorEnvelope produces a no-status result with payload.kind='empty'
+    expect(firstResult).not.toHaveProperty('status');
+    // evidence is hoisted to top-level by aggregatePeerEvidence — not present in individual data
+    expect(firstResult.data).toMatchObject({
+      type: 'definition',
+      uri: expect.stringContaining(filePath),
+      // serverAvailable is intentionally omitted: symbol resolution fails before reaching the LSP
+      // server so we cannot report server status — lsp object is present but serverAvailable is undefined
+      lsp: {},
+      payload: expect.objectContaining({ kind: 'empty' }),
+    });
+    expect(firstResult.data.lsp).not.toHaveProperty('serverAvailable');
   });
 
   it('handles empty queries array', async () => {

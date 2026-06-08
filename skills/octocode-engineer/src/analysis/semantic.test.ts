@@ -159,7 +159,7 @@ describe('detectConcreteDependency', () => {
     expect(findings.length).toBe(1);
     expect(findings[0].category).toBe('concrete-dependency');
     expect(findings[0].title).toContain('MyService');
-    expect(findings[0].lspHints?.[0]?.tool).toBe('lspGotoDefinition');
+    expect(findings[0].lspHints?.[0]?.tool).toBe('lspGetSemanticContent');
   });
 
   it('produces no findings when no concrete imports', () => {
@@ -185,7 +185,7 @@ describe('detectUnusedParameters', () => {
     expect(findings[0].category).toBe('unused-parameter');
     expect(findings[0].title).toContain('ctx');
     expect(findings[0].title).toContain('handleRequest');
-    expect(findings[0].lspHints?.[0]?.tool).toBe('lspFindReferences');
+    expect(findings[0].lspHints?.[0]?.tool).toBe('lspGetSemanticContent');
   });
 
   it('produces no findings when all params used', () => {
@@ -1038,7 +1038,7 @@ describe('integration: shotgun-surgery', () => {
     expect(findings[0].category).toBe('shotgun-surgery');
     expect(findings[0].title).toContain('widelyUsed');
     expect(findings[0].title).toContain('10 files');
-    expect(findings[0].lspHints![0].tool).toBe('lspFindReferences');
+    expect(findings[0].lspHints![0].tool).toBe('lspGetSemanticContent');
   });
 
   it('does not flag exports below threshold', () => {
@@ -1095,7 +1095,7 @@ describe('integration: narrowable-type', () => {
     expect(findings[0].category).toBe('narrowable-type');
     expect(findings[0].title).toContain('string | number');
     expect(findings[0].title).toContain('string');
-    expect(findings[0].lspHints![0].tool).toBe('lspCallHierarchy');
+    expect(findings[0].lspHints![0].tool).toBe('lspGetSemanticContent');
   });
 
   it('returns empty when no narrowable params', () => {

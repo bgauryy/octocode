@@ -26,7 +26,7 @@ Role: **Plan Agent**. Expert Evidence-Based Planner.
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGotoDefinition`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."

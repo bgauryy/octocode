@@ -13,7 +13,7 @@
 - [Key References](#key-references)
 
 **Packages**
-- [`octocode-mcp`](#package-octocode-mcp) — MCP server (14 tools)
+- [`octocode-mcp`](#package-octocode-mcp) — MCP server (13 tools)
 - [`octocode-cli`](#package-octocode-cli) — CLI installer + tool runner
 - [`octocode-shared`](#package-octocode-shared) — Credentials, sessions, platform
 - [`octocode-vscode`](#package-octocode-vscode) — VS Code extension
@@ -134,7 +134,7 @@ src/
 ├── index.ts, serverConfig.ts, session.ts, responses.ts, errorCodes.ts, types.ts, public.ts
 ├── hints/        # Dynamic + static hint generation
 ├── scheme/       # Shared schema utilities (baseSchema.ts)
-├── tools/        # 14 tool modules, each: execution.ts, scheme.ts, types.ts, register.ts, index.ts
+├── tools/        # 13 tool modules, each: execution.ts, scheme.ts, types.ts, register.ts, index.ts
 │                 # toolsManager.ts, toolRegistry.ts, toolConfig.ts, toolMetadata.ts, toolNames.ts
 ├── github/       # Octokit client, code/repo/PR/file search, query builders, errors
 ├── providers/    # Provider abstraction (github) via factory
@@ -152,7 +152,7 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
           scheme/, hints/, tools/ (54), utils/ (37), integration/, helpers/, fixtures/
 ```
 
-### Tools (14)
+### Tools (13)
 
 | Tool | Type | Local | Description |
 |------|------|-------|-------------|
@@ -167,9 +167,8 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
 | `localViewStructure` | content | ✅ | Browse local directories |
 | `localFindFiles` | search | ✅ | Find files by metadata |
 | `localGetFileContent` | content | ✅ | Read local file content |
-| `lspGotoDefinition` | LSP | ✅ | Jump to symbol definition |
-| `lspFindReferences` | LSP | ✅ | Find all usages of a symbol |
-| `lspCallHierarchy` | LSP | ✅ | Trace function call relationships |
+| `lspGetSemanticContent` | LSP | ✅ | Unified semantic navigation: definition, references, callers, callees, callHierarchy, hover, documentSymbols, typeDefinition, implementation (8 types via `type` param) |
+| `lspGetDiagnostics` | LSP | ✅ | File-level error/warning counts with severity filter and relatedInformation |
 
 LSP tools are standalone (no IDE required); TS/JS bundled, 30+ other langs via installed servers; cross-platform.
 
@@ -249,7 +248,7 @@ Run commands from `packages/octocode-cli/`.
 ### Using the CLI
 
 ```
-octocode-cli --help                          # all commands + all 14 tools
+octocode-cli --help                          # all commands + all 13 tools
 octocode-cli --tool <name> --help            # input/output schema for one tool
 octocode-cli --tools-context                 # full MCP instructions + all schemas (~2200 lines)
 octocode-cli --tool <name> --queries '<json>' [--json]

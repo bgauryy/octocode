@@ -73,7 +73,7 @@ export type LspSemanticEnvelope = {
   uri: string;
   resolvedSymbol?: ResolvedSymbol;
   lsp: {
-    serverAvailable: boolean;
+    serverAvailable?: boolean;
     provider?: string;
     source?: string;
   };
@@ -89,7 +89,7 @@ export type LspSemanticEnvelope = {
         totalFiles: number;
       }
     | {
-        kind: 'calls';
+        kind: 'callers' | 'callees' | 'callHierarchy';
         direction: 'incoming' | 'outgoing' | 'both';
         root?: unknown;
         calls: unknown[];

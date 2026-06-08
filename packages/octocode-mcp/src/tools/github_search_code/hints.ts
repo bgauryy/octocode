@@ -61,6 +61,24 @@ export const hints: ToolHintGenerators = {
       const filterList = filters.length > 0 ? ` (${filters.join('+')})` : '';
       out.push(`No matches in ${owner}/${repo}${filterList}.`);
 
+      const rawPath = typeof c.path === 'string' ? c.path : undefined;
+      const pathLooksLikeFile =
+        rawPath &&
+        !c.filename &&
+        /(?:^|\/)([^/]+\.[A-Za-z][A-Za-z0-9]{0,9})$/.test(rawPath);
+      if (pathLooksLikeFile) {
+        const extracted = rawPath.match(
+          /(?:^|\/)([^/]+\.[A-Za-z][A-Za-z0-9]{0,9})$/
+        );
+        const fname = extracted ? extracted[1] : rawPath;
+        const dir = extracted
+          ? rawPath.slice(0, extracted.index) || undefined
+          : undefined;
+        out.push(
+          `path="${rawPath}" looks like a file path — GitHub auto-extracted filename="${fname}"${dir ? ` + path="${dir}"` : ''} for the query, but the file was not found. Try: (1) use explicit filename="${fname}" without path; (2) broaden to path="${dir ?? rawPath.split('/').slice(0, -1).join('/')}".`
+        );
+      }
+
       const hasPhrase =
         Array.isArray(keywords) &&
         keywords.some(k => typeof k === 'string' && /\s/.test(k));
@@ -68,7 +86,7 @@ export const hints: ToolHintGenerators = {
         out.push(
           'extension: and filename: filters stack with AND and silently zero out results — remove them and search with keywords only, then re-add once you have hits.'
         );
-      } else if (filters.includes('path')) {
+      } else if (filters.includes('path') && !pathLooksLikeFile) {
         out.push(
           'GitHub path: matches a directory, not a file — broaden path: to a parent directory (use filename: to target one file).'
         );

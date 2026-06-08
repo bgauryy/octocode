@@ -7,7 +7,12 @@ export const LspGetDiagnosticsQuerySchema = z.preprocess(
   z
     .object({
       id: z.string().optional().describe('Stable query identifier.'),
-      uri: z.string().optional(),
+      uri: z
+        .string()
+        .optional()
+        .describe(
+          'Absolute file URI in the format file:///absolute/path/to/file.ts. Use this to check a specific file for errors after editing it.'
+        ),
       filePath: z
         .string()
         .optional()
@@ -16,8 +21,16 @@ export const LspGetDiagnosticsQuerySchema = z.preprocess(
       severity: z
         .enum(['error', 'warning', 'information', 'hint', 'all'])
         .optional()
-        .default('all'),
-      source: z.string().optional(),
+        .default('all')
+        .describe(
+          'Filter by severity level. Use "error" to check only blocking errors after an edit. Defaults to "all".'
+        ),
+      source: z
+        .string()
+        .optional()
+        .describe(
+          'Filter diagnostics by their source (e.g. "typescript", "eslint"). Omit to get all sources.'
+        ),
       mainResearchGoal: z.string().optional(),
       researchGoal: z.string().optional(),
       reasoning: z.string().optional(),

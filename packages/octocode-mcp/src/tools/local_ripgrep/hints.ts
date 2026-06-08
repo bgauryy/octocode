@@ -37,6 +37,19 @@ export const hints: ToolHintGenerators = {
       );
     } else {
       out.push(`No matches for "${pattern}" in ${path ?? 'this scope'}.`);
+      if (
+        pattern &&
+        (pattern.includes('\\n') ||
+          /\[[\^]?[^\]]*\]/.test(pattern) ||
+          pattern.includes('[\\s\\S]') ||
+          pattern.includes('(.|\n)'))
+      ) {
+        out.push(
+          'Multiline pattern detected — ripgrep runs in single-line mode by default, so patterns ' +
+            'spanning newlines (e.g. [^}], [\\s\\S], \\n) will never match. ' +
+            'Split into two separate single-line queries and post-filter results instead.'
+        );
+      }
       out.push(
         'Broaden: (1) use fixedString=true for a literal match; (2) drop regex meta-chars; ' +
           '(3) try a shorter/partial term; (4) run separate queries scoped to different subdirectories.'
