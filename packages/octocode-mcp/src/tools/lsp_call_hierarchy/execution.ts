@@ -42,7 +42,8 @@ export async function executeCallHierarchy(
       peerHints: true,
       peerEvidence: true,
       minQueryTimeoutMs: 30_000,
-    }
+    },
+    args
   );
 }
 

@@ -104,10 +104,12 @@ export async function searchGitHubPullRequestsAPI(
       order: params.order,
       limit: params.limit,
       page: params.page,
-      withComments: params.withComments,
-      withCommits: params.withCommits,
-      type: params.type,
-      partialContentMetadata: params.partialContentMetadata,
+      content: params.content,
+      reviewMode: params.reviewMode,
+      filePage: params.filePage,
+      commentPage: params.commentPage,
+      commitPage: params.commitPage,
+      itemsPerPage: params.itemsPerPage,
     },
     sessionId
   );

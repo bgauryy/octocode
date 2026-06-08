@@ -1,0 +1,299 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildContentHints,
+  shapePullRequestForContent,
+} from '../../src/tools/github_search_pull_requests/contentResponse.js';
+import type { NormalizedPrContentRequest } from '../../src/tools/github_search_pull_requests/contentRequest.js';
+
+const baseRequest: NormalizedPrContentRequest = {
+  metadata: true,
+  body: false,
+  changedFiles: false,
+  patches: { mode: 'none' },
+  comments: false,
+  reviews: false,
+  commits: false,
+};
+
+const query = {
+  owner: 'owner',
+  repo: 'repo',
+  prNumber: 123,
+  itemsPerPage: 1,
+  charLength: 5,
+};
+
+const pr = {
+  number: 123,
+  title: 'Test PR',
+  body: 'abcdefghijklmnopqrstuvwxyz',
+  url: 'https://github.com/owner/repo/pull/123',
+  state: 'merged',
+  draft: false,
+  author: 'alice',
+  fileChanges: [
+    {
+      path: 'src/a.ts',
+      status: 'modified',
+      additions: 1,
+      deletions: 1,
+      patch: 'abcdef',
+    },
+    {
+      path: 'src/b.ts',
+      status: 'added',
+      additions: 2,
+      deletions: 0,
+      patch: 'ghijkl',
+    },
+  ],
+  comments: [
+    {
+      id: 'd1',
+      author: 'bob',
+      body: 'discussion-body',
+      commentType: 'discussion',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+    },
+    {
+      id: 'i1',
+      author: 'carol',
+      body: 'inline-body',
+      commentType: 'review_inline',
+      path: 'src/a.ts',
+      line: 10,
+      createdAt: '2024-01-02T00:00:00Z',
+      updatedAt: '2024-01-02T00:00:00Z',
+    },
+  ],
+  reviews: [
+    {
+      id: 'r1',
+      user: 'reviewer',
+      state: 'APPROVED',
+      body: 'approval-body',
+      submittedAt: '2024-01-03T00:00:00Z',
+      commitId: 'abc',
+    },
+  ],
+  commits: [
+    {
+      sha: 'abc',
+      message: 'commit message',
+      author: 'dev',
+      date: '2024-01-04T00:00:00Z',
+      files: [{ filename: 'src/a.ts', status: 'modified' }],
+    },
+  ],
+};
+
+describe('githubSearchPullRequests content response shaping', () => {
+  it('returns previews and next calls for lean metadata', () => {
+    const shaped = shapePullRequestForContent(pr, query, baseRequest);
+    expect(shaped.body).toBeUndefined();
+    expect(shaped.bodyPreview).toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(shaped.availableContent).toBeDefined();
+    expect(
+      (shaped.next as Record<string, unknown>).getChangedFiles
+    ).toBeDefined();
+    expect(shaped.filePathsPreview).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('paginates body, selected patches, file comments, reviews, and commits', () => {
+    const shaped = shapePullRequestForContent(pr, query, {
+      ...baseRequest,
+      body: true,
+      changedFiles: true,
+      patches: { mode: 'selected', files: ['src/a.ts'] },
+      comments: {
+        discussion: false,
+        reviewInline: true,
+        includeBots: false,
+        file: 'src/a.ts',
+      },
+      reviews: true,
+      commits: { list: true, includeFiles: true },
+    });
+
+    expect(shaped.body).toBe('abcde');
+    expect(shaped.bodyPagination).toMatchObject({
+      hasMore: true,
+      nextCharOffset: 5,
+    });
+    expect(shaped.changedFiles).toHaveLength(1);
+    expect(shaped).not.toHaveProperty('fileChanges');
+    expect(shaped.filePagination).toMatchObject({
+      totalItems: 1,
+      hasMore: false,
+    });
+    expect(shaped.comments).toHaveLength(1);
+    expect(shaped.commentPagination).toMatchObject({ totalItems: 1 });
+    expect(shaped.reviews).toHaveLength(1);
+    expect(shaped.commits).toHaveLength(1);
+    expect(
+      (shaped.commits as Array<Record<string, unknown>>)[0]?.files
+    ).toBeDefined();
+  });
+
+  it('omits commit files unless requested', () => {
+    const shaped = shapePullRequestForContent(pr, query, {
+      ...baseRequest,
+      commits: { list: true, includeFiles: false },
+    });
+    expect(
+      (shaped.commits as Array<Record<string, unknown>>)[0]?.files
+    ).toBeUndefined();
+  });
+
+  it('builds content hints for missing patches and comments', () => {
+    const hints = buildContentHints([pr], baseRequest);
+    expect(hints.some(hint => hint.includes('Diffs are not included'))).toBe(
+      true
+    );
+    expect(hints.some(hint => hint.includes('Comments are not included'))).toBe(
+      true
+    );
+  });
+
+  it('handles empty content surfaces without crashing', () => {
+    const shaped = shapePullRequestForContent(
+      { number: 9, title: 'empty', body: undefined },
+      { owner: 'o', repo: 'r', prNumber: 9 },
+      {
+        ...baseRequest,
+        body: true,
+        changedFiles: true,
+        patches: { mode: 'all' },
+        comments: {
+          discussion: true,
+          reviewInline: true,
+          includeBots: false,
+        },
+        reviews: true,
+        commits: { list: true, includeFiles: false },
+      }
+    );
+
+    expect(shaped.body).toBeUndefined();
+    expect(shaped.changedFiles).toEqual([]);
+    expect(shaped.comments).toEqual([]);
+    expect(shaped.reviews).toEqual([]);
+    expect(shaped.commits).toEqual([]);
+  });
+
+  it('omits optional hint branches when data is absent or already requested', () => {
+    expect(buildContentHints([], baseRequest)).toEqual([]);
+    const hints = buildContentHints([pr], {
+      ...baseRequest,
+      patches: { mode: 'all' },
+      comments: {
+        discussion: true,
+        reviewInline: true,
+        includeBots: false,
+      },
+    });
+    expect(hints.some(hint => hint.includes('Diffs are not included'))).toBe(
+      false
+    );
+    expect(hints.some(hint => hint.includes('Comments are not included'))).toBe(
+      false
+    );
+  });
+
+  it('covers large file preview pagination and non-string metadata body', () => {
+    const shaped = shapePullRequestForContent(
+      {
+        number: 11,
+        title: 'large-preview',
+        body: 123,
+        fileChanges: Array.from({ length: 21 }, (_, i) => ({
+          path: `src/${i}.ts`,
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+        })),
+      },
+      { prNumber: 11 },
+      baseRequest
+    );
+
+    expect(shaped.bodyPreview).toBeUndefined();
+    expect(shaped.filePathsPreview).toHaveLength(20);
+    expect(shaped.filePathsPagination).toMatchObject({
+      totalFiles: 21,
+      hasMore: true,
+      nextFilePage: 2,
+    });
+  });
+
+  it('covers fallback path fields and unpaginated text branches', () => {
+    const shaped = shapePullRequestForContent(
+      {
+        number: 10,
+        title: 'fallbacks',
+        body: 'short',
+        fileChanges: [
+          {
+            filename: 'fallback.ts',
+            status: 'removed',
+            additions: 0,
+            deletions: 3,
+          },
+        ],
+        comments: [
+          {
+            id: 'd1',
+            author: 'bob',
+            body: 123,
+            commentType: undefined,
+          },
+        ],
+        reviews: [
+          {
+            id: 'r2',
+            user: 'reviewer',
+            state: 'COMMENTED',
+            body: 123,
+            submitted_at: '2024-01-05T00:00:00Z',
+            commit_id: 'def',
+          },
+        ],
+      },
+      { prNumber: 10, itemsPerPage: 5, charLength: 100 },
+      {
+        ...baseRequest,
+        body: true,
+        changedFiles: true,
+        comments: {
+          discussion: true,
+          reviewInline: false,
+          includeBots: false,
+        },
+        reviews: true,
+      }
+    );
+
+    expect(shaped.body).toBe('short');
+    expect(shaped.bodyPagination).toMatchObject({ hasMore: false });
+    expect(shaped.changedFiles).toEqual([
+      { path: 'fallback.ts', status: 'removed', additions: 0, deletions: 3 },
+    ]);
+    expect(shaped.comments).toHaveLength(1);
+    expect(
+      (shaped.comments as Array<Record<string, unknown>>)[0]
+    ).toMatchObject({
+      commentType: 'discussion',
+      body: '',
+    });
+    expect(shaped.reviews).toEqual([
+      {
+        id: 'r2',
+        user: 'reviewer',
+        state: 'COMMENTED',
+        submittedAt: '2024-01-05T00:00:00Z',
+        commitId: 'def',
+      },
+    ]);
+  });
+});

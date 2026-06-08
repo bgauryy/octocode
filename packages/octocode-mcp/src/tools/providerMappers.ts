@@ -314,17 +314,22 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     archived: (query as Record<string, unknown>).archived as
       | boolean
       | undefined,
-    withComments: query.withComments,
-    withCommits: query.withCommits,
-    type: query.type as
-      | 'metadata'
-      | 'fullContent'
-      | 'partialContent'
+    content: (query as { content?: unknown }).content,
+    reviewMode: (query as { reviewMode?: 'summary' | 'full' }).reviewMode,
+    filePage: (query as { filePage?: number }).filePage,
+    commentPage: (query as { commentPage?: number }).commentPage,
+    commitPage: (query as { commitPage?: number }).commitPage,
+    itemsPerPage: (query as { itemsPerPage?: number }).itemsPerPage,
+    sort: query.sort as
+      | 'created'
+      | 'updated'
+      | 'best-match'
+      | 'comments'
+      | 'reactions'
       | undefined,
-    partialContentMetadata: query.partialContentMetadata,
-    sort: query.sort as 'created' | 'updated' | 'best-match' | undefined,
     order: query.order as 'asc' | 'desc' | undefined,
-    limit: DEFAULT_PAGE_SIZE,
+    limit:
+      (query as { itemsPerPage?: number }).itemsPerPage ?? DEFAULT_PAGE_SIZE,
     page: query.page,
     charOffset: (query as { charOffset?: number }).charOffset,
     charLength: (query as { charLength?: number }).charLength,
@@ -455,6 +460,7 @@ export function mapPullRequestProviderResultData(
             }),
           })),
         }),
+      ...(pr.reviews && { reviews: pr.reviews }),
       ...(pr.commits && { commits: pr.commits }),
       ...(reviewSummary && { reviewSummary }),
       ...(cappedFileChanges && includeFileChanges

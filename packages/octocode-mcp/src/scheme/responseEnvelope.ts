@@ -31,6 +31,18 @@ export const EvidenceSchema = z
   })
   .optional();
 
+export const ResponsePaginationSchema = z
+  .object({
+    currentPage: z.number(),
+    totalPages: z.number(),
+    hasMore: z.boolean(),
+    charOffset: z.number(),
+    charLength: z.number(),
+    totalChars: z.number(),
+    nextCharOffset: z.number().optional(),
+  })
+  .optional();
+
 export const responseEnvelopeFields = {
   hints: z.array(z.string()).optional(),
 
@@ -41,6 +53,8 @@ export const responseEnvelopeFields = {
     .optional(),
 
   evidence: EvidenceSchema,
+
+  responsePagination: ResponsePaginationSchema,
 } as const;
 
 export function withResponseEnvelope<S extends z.ZodObject>(schema: S): S {

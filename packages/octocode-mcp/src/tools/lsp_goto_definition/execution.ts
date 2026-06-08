@@ -12,6 +12,7 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 type LSPGotoDefinitionQuery =
   WithOptionalMeta<UpstreamLSPGotoDefinitionQuery> & {
     orderHint?: number;
+    page?: number;
   };
 import { SymbolResolver, SymbolResolutionError } from '../../lsp/resolver.js';
 import {
@@ -63,7 +64,8 @@ export async function executeGotoDefinition(
       peerHints: true,
       peerEvidence: true,
       minQueryTimeoutMs: 30_000,
-    }
+    },
+    args
   );
 }
 
@@ -381,8 +383,15 @@ async function gotoDefinitionWithLSP(
   const followedImport = chained.followedImport;
 
   const contextLines = query.contextLines ?? 5;
+  const page = Math.max(1, query.page ?? 1);
+  const locationsPerPage = 20;
+  const totalLocations = locations.length;
+  const totalPages = Math.max(1, Math.ceil(totalLocations / locationsPerPage));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * locationsPerPage;
+  const pagedLocations = locations.slice(start, start + locationsPerPage);
   const enhancedLocations = await Promise.all(
-    locations.map(loc => enhanceLocationWithSnippet(loc, contextLines))
+    pagedLocations.map(loc => enhanceLocationWithSnippet(loc, contextLines))
   );
 
   const strippedLocations = enhancedLocations.map(
@@ -392,10 +401,20 @@ async function gotoDefinitionWithLSP(
     locations: strippedLocations,
     resolvedPosition: _position,
     searchRadius: 5,
+    pagination: {
+      currentPage,
+      totalPages,
+      hasMore: currentPage < totalPages,
+      totalLocations,
+      locationsPerPage,
+    },
     hints: [
       followedImport ? 'Followed import chain to source definition' : undefined,
       locations.length > 1
         ? 'Multiple definitions - check overloads or re-exports'
+        : undefined,
+      currentPage < totalPages
+        ? `More definitions: use page=${currentPage + 1}`
         : undefined,
       'Definition found — use lspFindReferences with the same symbolName+lineHint to find all usages, or lspCallHierarchy to trace call flow.',
       'Need more code than the returned context window? Use localGetFileContent on the returned uri with startLine/endLine, or fullContent=true with charOffset/charLength for paginated file content.',

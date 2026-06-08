@@ -46,9 +46,12 @@ export async function fetchGitHubPullRequestByNumberAPI(
       owner: params.owner,
       repo: params.repo,
       prNumber: params.prNumber,
-      type: params.type,
-      partialContentMetadata: params.partialContentMetadata,
-      withComments: params.withComments,
+      content: params.content,
+      reviewMode: params.reviewMode,
+      filePage: params.filePage,
+      commentPage: params.commentPage,
+      commitPage: params.commitPage,
+      itemsPerPage: params.itemsPerPage,
     },
     sessionId
   );

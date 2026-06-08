@@ -181,7 +181,7 @@ export function formatPRForResponse(
       : []),
     ...(commentDetailsPaginated
       ? [
-          `PR comments are paginated/summarized to ${SEARCH_RESULT_MAX_COMMENT_DETAILS} comment(s) per search result with ${commentCharLength} chars each. Use prNumber with withComments=true and charOffset to continue specific comment bodies.`,
+          `PR comments are paginated/summarized to ${SEARCH_RESULT_MAX_COMMENT_DETAILS} comment(s) per search result with ${commentCharLength} chars each. Use prNumber with content.comments={discussion:true,reviewInline:true} and charOffset to continue specific comment bodies.`,
         ]
       : []),
   ];
@@ -219,9 +219,11 @@ export function formatPRForResponse(
     commits: pr.commits?.length || 0,
     additions:
       pr.file_changes?.files.reduce((sum, file) => sum + file.additions, 0) ||
+      pr.additions ||
       0,
     deletions:
       pr.file_changes?.files.reduce((sum, file) => sum + file.deletions, 0) ||
+      pr.deletions ||
       0,
     changed_files: pr.file_changes?.total_count || 0,
     ...(pr.file_changes && {
@@ -232,6 +234,9 @@ export function formatPRForResponse(
         deletions: file.deletions,
         patch: file.patch,
       })),
+    }),
+    ...(pr.reviews && {
+      reviews: pr.reviews,
     }),
     ...(pr.commits && {
       commit_details: pr.commits,
@@ -268,19 +273,36 @@ export function applyPartialContentFilter(
   files: (DiffEntry | CommitFileInfo)[],
   params: GitHubPullRequestsSearchParams
 ): (DiffEntry | CommitFileInfo)[] {
-  const type = params.type || 'metadata';
+  const content = params.content as
+    | {
+        patches?: {
+          mode?: 'none' | 'selected' | 'all';
+          files?: string[];
+          ranges?: Array<{
+            file: string;
+            additions?: number[];
+            deletions?: number[];
+          }>;
+        };
+      }
+    | undefined;
+  const patches = content?.patches;
+  const mode = patches?.mode ?? 'none';
   const metadataMap = new Map(
-    params.partialContentMetadata?.map(m => [m.file, m]) || []
+    patches?.ranges?.map(range => [range.file, range]) || []
   );
+  const selectedFiles = new Set([
+    ...(patches?.files ?? []),
+    ...metadataMap.keys(),
+  ]);
 
-  if (type === 'metadata') {
-    return files.map(file => ({
-      ...file,
-      patch: undefined,
-    }));
-  } else if (type === 'partialContent') {
+  if (mode === 'none') {
+    return files.map(file => ({ ...file, patch: undefined }));
+  }
+
+  if (mode === 'selected') {
     return files
-      .filter(file => metadataMap.has(file.filename))
+      .filter(file => selectedFiles.has(file.filename))
       .map(file => {
         const meta = metadataMap.get(file.filename);
         return {
@@ -291,6 +313,7 @@ export function applyPartialContentFilter(
         };
       });
   }
+
   return files.map(file => ({
     ...file,
     patch: file.patch ? trimDiffContext(file.patch) : file.patch,

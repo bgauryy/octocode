@@ -52,6 +52,23 @@ describe('LSPDocumentManager document ref-counting', () => {
     expect(manager.getOpenDocumentRefCount(filePath)).toBe(2);
   });
 
+  it('uses the opened file extension language ID instead of the pooled client language ID', async () => {
+    const tsxPath = path.join(tempDir, 'component.tsx');
+    await writeFile(tsxPath, 'export const Component = () => null;\n', 'utf8');
+
+    await manager.openDocument(tsxPath);
+
+    expect(connection.sendNotification).toHaveBeenCalledWith(
+      'textDocument/didOpen',
+      expect.objectContaining({
+        textDocument: expect.objectContaining({
+          uri: toUri(tsxPath),
+          languageId: 'typescriptreact',
+        }),
+      })
+    );
+  });
+
   it('does not send didClose while another reference is still active', async () => {
     await manager.openDocument(filePath);
     await manager.openDocument(filePath);

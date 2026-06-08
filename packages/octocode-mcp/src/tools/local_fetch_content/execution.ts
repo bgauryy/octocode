@@ -78,6 +78,7 @@ export async function executeFetchContent(
       toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }

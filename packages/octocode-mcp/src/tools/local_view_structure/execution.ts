@@ -59,6 +59,7 @@ export async function executeViewStructure(
       toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }

@@ -67,7 +67,7 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
       owner: 'facebook',
       repo: 'react',
       prNumber: 35234,
-      type: 'metadata',
+      content: { changedFiles: true },
     });
 
     expect(result.error).toBeUndefined();
@@ -90,7 +90,7 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
       owner: 'facebook',
       repo: 'react',
       prNumber: 35234,
-      type: 'fullContent',
+      content: { changedFiles: true, patches: { mode: 'all' } },
     });
 
     expect(result.error).toBeUndefined();
@@ -103,7 +103,7 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
     expect(pr.file_changes![1]!.patch).toBeDefined();
   });
 
-  it('should support type="partialContent" and return filtered patch', async () => {
+  it('should support selected patch content and return filtered patch', async () => {
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: mockPRData });
     mockOctokit.rest.pulls.listFiles.mockResolvedValue({ data: mockFilesData });
 
@@ -114,13 +114,17 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
       owner: 'facebook',
       repo: 'react',
       prNumber: 35234,
-      type: 'partialContent',
-      partialContentMetadata: [
-        {
-          file: filename,
-          additions: [756],
+      content: {
+        patches: {
+          mode: 'selected',
+          ranges: [
+            {
+              file: filename,
+              additions: [756],
+            },
+          ],
         },
-      ],
+      },
     });
 
     expect(result.error).toBeUndefined();

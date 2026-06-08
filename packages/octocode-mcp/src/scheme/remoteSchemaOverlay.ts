@@ -134,6 +134,7 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
     .optional(),
   evidence: EvidenceSchema,
+  responsePagination: responseEnvelopeFields.responsePagination,
   results: z.array(
     z.object({
       id: z.string(),
@@ -203,6 +204,7 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
     .optional(),
   evidence: EvidenceSchema,
+  responsePagination: responseEnvelopeFields.responsePagination,
   results: z.array(
     z.object({
       id: z.string(),
@@ -342,10 +344,65 @@ export const GitHubReposSearchBulkQueryLocalSchema =
     GitHubReposSearchSingleQueryLocalSchema
   );
 
+const PrPartialContentMetadataLocalSchema = z.object({
+  file: z
+    .string()
+    .describe(
+      'File path relative to repo root, exactly as returned in metadata/changedFiles output (e.g. "src/utils/foo.ts").'
+    ),
+  additions: z
+    .array(clampedInt(1, 1_000_000_000))
+    .optional()
+    .describe('New-file line numbers to keep from the patch.'),
+  deletions: z
+    .array(clampedInt(1, 1_000_000_000))
+    .optional()
+    .describe('Original-file line numbers to keep from the patch.'),
+});
+
+const PrContentSelectorLocalSchema = z
+  .object({
+    metadata: z.boolean().optional(),
+    body: z.boolean().optional(),
+    changedFiles: z.boolean().optional(),
+    patches: z
+      .object({
+        mode: z.enum(['none', 'selected', 'all']).optional(),
+        files: z.array(z.string()).optional(),
+        ranges: z.array(PrPartialContentMetadataLocalSchema).optional(),
+      })
+      .optional(),
+    comments: z
+      .object({
+        discussion: z.boolean().optional(),
+        reviewInline: z.boolean().optional(),
+        includeBots: z.boolean().optional(),
+        file: z.string().optional(),
+      })
+      .optional(),
+    reviews: z.boolean().optional(),
+    commits: z
+      .object({
+        list: z.boolean().optional(),
+        includeFiles: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .optional()
+  .describe(
+    'Explicit PR content selector. Use for smart, paginated PR review: request body, changedFiles, selected/all patches, comments, reviews, or commits by need. Broad searches still return metadata only; re-call with prNumber for content.'
+  );
+
 export const GitHubPullRequestSearchQueryLocalSchema =
   withCoreSchemaDescriptions(
     STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-    GitHubPullRequestSearchQuerySchema.omit({ limit: true }).extend({
+    GitHubPullRequestSearchQuerySchema.omit({
+      limit: true,
+      type: true,
+      withComments: true,
+      withCommits: true,
+      partialContentMetadata: true,
+    }).extend({
       ...optionalMetaFields,
       query: describeField(
         GitHubPullRequestSearchQuerySchema.shape.query,
@@ -370,19 +427,15 @@ export const GitHubPullRequestSearchQueryLocalSchema =
         .describe(
           'PR state filter. "merged" emits is:merged in GitHub search (merged PRs only). "closed" returns all closed PRs (merged + unmerged). "open" for active PRs. Omit to search across all states.'
         ),
-      type: z
-        .enum(['metadata', 'partialContent', 'fullContent'])
-        .optional()
-        .describe(
-          'Gradual data mode — always start with "metadata" (default: titles, authors, file counts, no diffs) for triage. Step up to "partialContent" (targeted patches for specific files via partialContentMetadata) once candidate PRs are identified. Use "fullContent" only with a specific prNumber to avoid large payloads.'
-        ),
       matchScope: z
         .array(z.enum(['title', 'body', 'comments']))
         .optional()
         .describe(
           'Text fields searched by query. Use ["title"] first for PR archaeology; comments are slower/noisier.'
         ),
-      sort: z.enum(['created', 'updated', 'best-match']).optional(),
+      sort: z
+        .enum(['created', 'updated', 'best-match', 'comments', 'reactions'])
+        .optional(),
       archived: z
         .boolean()
         .optional()
@@ -392,8 +445,29 @@ export const GitHubPullRequestSearchQueryLocalSchema =
       page: relaxedPageNumberField
         .default(1)
         .describe(
-          `Result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} pull requests.`
+          `PR search result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} pull requests.`
         ),
+      filePage: relaxedPageNumberField
+        .optional()
+        .describe(
+          'Changed-file / patch file page for direct prNumber content requests.'
+        ),
+      commentPage: relaxedPageNumberField
+        .optional()
+        .describe('Comment page for direct prNumber content.requests.'),
+      commitPage: relaxedPageNumberField
+        .optional()
+        .describe('Commit page for direct prNumber commit requests.'),
+      itemsPerPage: clampedInt(1, 100)
+        .optional()
+        .describe('Items per page for changed files, comments, or commits.'),
+      reviewMode: z
+        .enum(['summary', 'full'])
+        .optional()
+        .describe(
+          'Convenience mode for PR review. "full" requests metadata, body, changed files, patches, comments, reviews, and commits as a paginated review packet.'
+        ),
+      content: PrContentSelectorLocalSchema,
       charOffset: clampedInt(0, 100_000_000)
         .optional()
         .describe(
@@ -416,49 +490,11 @@ export const GitHubPullRequestSearchQueryLocalSchema =
         .describe(
           'Alias for `label` (singular). Prefer using `label` directly. Both are accepted to avoid silent parameter ignore.'
         ),
-      withComments: z
-        .boolean()
-        .optional()
-        .describe(
-          'Fetch all comments for the PR. Returns BOTH discussion-level comments (commentType="discussion") AND inline code-review annotations (commentType="review_inline", includes file path and line number). Both /issues/comments and /pulls/comments endpoints are called automatically. Use with prNumber for a specific PR.'
-        ),
-      withCommits: z
-        .boolean()
-        .optional()
-        .describe(
-          'Fetch the commit list for the PR, each with file-level diffs. Use with prNumber for targeted retrieval.'
-        ),
       includeBots: z
         .boolean()
         .optional()
         .describe(
           'Include bot-authored comments (e.g. CI bots, Vercel, CodeRabbit). Default false — bot comments are filtered to reduce noise.'
-        ),
-      partialContentMetadata: z
-        .array(
-          z.object({
-            file: z
-              .string()
-              .describe(
-                'File path relative to repo root, exactly as returned in the metadata-mode file list (e.g. "src/utils/foo.ts").'
-              ),
-            additions: z
-              .array(clampedInt(1, 1_000_000_000))
-              .optional()
-              .describe(
-                'New-file line numbers to keep from the patch (e.g. [12,13,14]). Omit to include all additions.'
-              ),
-            deletions: z
-              .array(clampedInt(1, 1_000_000_000))
-              .optional()
-              .describe(
-                'Original-file line numbers to keep from the patch. Omit to include all deletions.'
-              ),
-          })
-        )
-        .optional()
-        .describe(
-          'Gradual per-file patch access for type="partialContent". Array of files to fetch patches for. Workflow: (1) call with type="metadata" to get the file list; (2) call again with type="partialContent" and list the target files here — batch multiple files in one array to minimize round-trips. Optionally scope to specific line numbers via additions/deletions.'
         ),
     })
   );

@@ -128,7 +128,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
         owner: 'test',
         repo: 'repo',
         state: 'open',
-        type: 'fullContent',
+        content: { changedFiles: true, patches: { mode: 'all' } },
         partialContentMetadata: { foo: 'bar' },
       };
 
@@ -183,7 +183,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
               owner: 'test',
               repo: 'repo',
               prNumber: 456,
-              type: 'fullContent',
+              content: { changedFiles: true, patches: { mode: 'all' } },
             },
           ],
         }
@@ -329,7 +329,7 @@ describe('github_search_pull_requests execution — branch coverage', () => {
       expect(getTextContent(result.content)).toContain('Metadata mode');
     });
 
-    it('keeps the file list when type="fullContent"', async () => {
+    it('keeps the changedFiles list when all patches are requested', async () => {
       const fileChanges = Array.from({ length: 5 }, (_, i) => ({
         filename: `src/file${i}.ts`,
         status: 'modified',
@@ -344,7 +344,13 @@ describe('github_search_pull_requests execution — branch coverage', () => {
         TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
         {
           queries: [
-            { owner: 'test', repo: 'repo', state: 'open', type: 'fullContent' },
+            {
+              owner: 'test',
+              repo: 'repo',
+              state: 'open',
+              prNumber: 45,
+              content: { changedFiles: true, patches: { mode: 'all' } },
+            },
           ],
         }
       );
@@ -360,7 +366,8 @@ describe('github_search_pull_requests execution — branch coverage', () => {
             Record<string, unknown>
           >) ?? []
       );
-      expect(Array.isArray(prs?.[0]?.fileChanges)).toBe(true);
+      expect(Array.isArray(prs?.[0]?.changedFiles)).toBe(true);
+      expect(prs?.[0]).not.toHaveProperty('fileChanges');
     });
 
     it('omits the pagination block on a prNumber lookup (#A3b)', async () => {

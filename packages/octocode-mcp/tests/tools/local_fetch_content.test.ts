@@ -137,7 +137,7 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBe(extractSignatures(SOURCE, 'sample.ts'));
-      expect(result.content).toContain('interface Foo');
+      expect(result.content).toMatch(/\d+\| .*interface Foo/);
       expect(result.content).toContain('a: string,');
       expect(result.content).toContain('Promise<void>');
       expect(result.content).not.toContain('secretLocal');
@@ -1047,7 +1047,7 @@ describe('localGetFileContent', () => {
       }
     });
 
-    it('should navigate to page 2 via the page field (full-file read)', async () => {
+    it('should navigate content via the charOffset cursor (full-file read)', async () => {
       // Content where each line is unique so pages are distinguishable
       const largeContent = Array.from(
         { length: 500 },
@@ -1059,19 +1059,22 @@ describe('localGetFileContent', () => {
       mockReadFile.mockResolvedValue(largeContent);
 
       const page1 = await fetchContent({ path: 'large.txt' });
+      const nextOffset =
+        (page1.pagination?.charOffset ?? 0) +
+        (page1.pagination?.charLength ?? 0);
       const page2 = await fetchContent({
         path: 'large.txt',
-        page: 2,
-      } as Parameters<typeof fetchContent>[0] & { page: number });
+        charOffset: nextOffset,
+      } as Parameters<typeof fetchContent>[0] & { charOffset: number });
 
       expect(page1.pagination?.hasMore).toBe(true);
       expect(page1.pagination?.currentPage).toBe(1);
-      // page 2 starts at a different offset so content is genuinely different
+      // a later charOffset yields a genuinely different chunk
       expect(page2.content).not.toBe(page1.content);
       expect(page2.pagination?.currentPage).toBe(2);
     });
 
-    it('should navigate matchString pages via the page field', async () => {
+    it('should navigate matchString results via the charOffset cursor', async () => {
       const manyMatches = Array.from(
         { length: 2000 },
         () => 'MATCH\n' + 'x'.repeat(20)
@@ -1085,11 +1088,14 @@ describe('localGetFileContent', () => {
         path: 'huge.txt',
         matchString: 'MATCH',
       });
+      const nextOffset =
+        (page1.pagination?.charOffset ?? 0) +
+        (page1.pagination?.charLength ?? 0);
       const page2 = await fetchContent({
         path: 'huge.txt',
         matchString: 'MATCH',
-        page: 2,
-      } as Parameters<typeof fetchContent>[0] & { page: number });
+        charOffset: nextOffset,
+      } as Parameters<typeof fetchContent>[0] & { charOffset: number });
 
       expect(page1.pagination?.hasMore).toBe(true);
       expect(page2.content).not.toBe(page1.content);

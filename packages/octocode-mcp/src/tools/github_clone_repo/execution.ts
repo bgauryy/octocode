@@ -92,6 +92,7 @@ export async function executeCloneRepo(
       keysPriority: ['resolvedBranch', 'localPath', 'cached', 'error'],
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }

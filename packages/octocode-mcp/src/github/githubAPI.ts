@@ -23,6 +23,15 @@ export type PullRequestSimple = components['schemas']['pull-request-simple'];
 
 export type IssueComment = components['schemas']['issue-comment'];
 
+export interface PRReviewInfo {
+  id: string;
+  user: string;
+  state: string;
+  body: string;
+  submitted_at?: string;
+  commit_id?: string;
+}
+
 export interface CommitFileInfo {
   filename: string;
   status: string;
@@ -152,11 +161,14 @@ export type GitHubPullRequestItem = Pick<
   base?: string;
   head_sha?: string;
   base_sha?: string;
+  additions?: number;
+  deletions?: number;
   file_changes?: {
     total_count: number;
     files: DiffEntry[];
   };
   commits?: CommitInfo[];
+  reviews?: PRReviewInfo[];
   _sanitization_warnings?: string[];
 };
 
@@ -192,25 +204,21 @@ export interface GitHubPullRequestsSearchParams {
   match?: ('title' | 'body' | 'comments')[];
 
   archived?: boolean;
-  sort?: 'created' | 'updated' | 'best-match';
+  sort?: 'created' | 'updated' | 'best-match' | 'comments' | 'reactions';
   order?: 'asc' | 'desc';
   limit?: number;
-  withComments?: boolean;
-  withCommits?: boolean;
-
-  includeBots?: boolean;
-  type?: 'metadata' | 'fullContent' | 'partialContent';
-  partialContentMetadata?: {
-    file: string;
-    additions?: number[];
-    deletions?: number[];
-  }[];
   exhaustive?: boolean;
   maxPages?: number;
   pageSize?: number;
   page?: number;
   charOffset?: number;
   charLength?: number;
+  content?: unknown;
+  reviewMode?: 'summary' | 'full';
+  filePage?: number;
+  commentPage?: number;
+  commitPage?: number;
+  itemsPerPage?: number;
 }
 
 export function isGitHubAPIError(obj: unknown): obj is GitHubAPIError {

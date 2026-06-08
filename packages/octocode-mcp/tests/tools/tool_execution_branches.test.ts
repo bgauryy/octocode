@@ -285,7 +285,8 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: expect.any(String) })
+        expect.objectContaining({ toolName: expect.any(String) }),
+        expect.any(Object)
       );
       expect(result).toBeDefined();
     });
@@ -296,7 +297,8 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: expect.any(String) })
+        expect.objectContaining({ toolName: expect.any(String) }),
+        expect.any(Object)
       );
       expect(result).toBeDefined();
     });
@@ -309,7 +311,8 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: expect.any(String) })
+        expect.objectContaining({ toolName: expect.any(String) }),
+        expect.any(Object)
       );
       expect(result).toBeDefined();
     });
@@ -320,7 +323,8 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: expect.any(String) })
+        expect.objectContaining({ toolName: expect.any(String) }),
+        expect.any(Object)
       );
       expect(result).toBeDefined();
     });
@@ -353,7 +357,8 @@ describe('Tool Execution Branch Coverage Tests', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: expect.any(String) })
+        expect.objectContaining({ toolName: expect.any(String) }),
+        expect.any(Object)
       );
       expect(result).toBeDefined();
     });

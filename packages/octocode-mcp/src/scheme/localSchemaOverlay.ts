@@ -108,6 +108,19 @@ export const relaxedPageNumberField = clampedInt(
 export const DEFAULT_PAGE_SIZE = 20;
 export const STRUCTURE_PAGE_SIZE = 100;
 
+export const responsePaginationFields = {
+  responseCharOffset: clampedInt(0, 100_000_000)
+    .optional()
+    .describe(
+      'Top-level response character offset. Use when the entire formatted tool response is larger than the responseCharLength window.'
+    ),
+  responseCharLength: clampedInt(1, 50_000)
+    .optional()
+    .describe(
+      'Top-level response character page size. Works for every tool as a final formatted-response window; content-specific tools also expose per-query charOffset/charLength.'
+    ),
+} as const;
+
 export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
   .optional()
   .describe(
@@ -137,8 +150,9 @@ export function createRelaxedBulkQuerySchema(
         .max(maxQueries)
         .describe(
           `Array of queries for ${toolName}. Maximum is ${maxQueries} queries per call. ` +
-            'Multiple queries run in parallel. Use the per-query `page` field to navigate through results.'
+            'Multiple queries run in parallel. Use the per-query `page` field to navigate through result lists and responseCharOffset/responseCharLength to page the final formatted response.'
         ),
+      ...responsePaginationFields,
     })
     .superRefine((data, ctx) => {
       const ids = new Set<string>();
@@ -401,13 +415,12 @@ const FetchContentQueryBaseSchema = withCoreSchemaDescriptions(
       '1-based last line to include. Use with startLine; mutually exclusive with fullContent and matchString.'
     ),
     matchStringContextLines: contextLinesField.default(5),
-    page: relaxedPageNumberField.describe(
-      '1-based page number for char-based pagination. When a matchString or full-file read is truncated, the response includes pagination.totalPages. Re-call with page=2, page=3, etc. to read subsequent chunks. Ignored when content fits in one page.'
-    ),
+    // Content is char-paginated via charOffset/charLength (NOT page — `page`
+    // is the list cursor). Mirrors githubGetFileContent.
     charOffset: clampedInt(0, 100_000_000)
       .optional()
       .describe(
-        'Character offset for content pagination. Prefer the response pagination.nextCharOffset when present.'
+        'Character offset for content pagination. When a full-file or matchString read is truncated, re-call with the charOffset from the response pagination cursor to read the next chunk.'
       ),
     charLength: clampedInt(1, 50_000)
       .optional()

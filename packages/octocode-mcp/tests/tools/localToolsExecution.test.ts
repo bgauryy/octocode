@@ -89,7 +89,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         queries,
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localGetFileContent' })
+        expect.objectContaining({ toolName: 'localGetFileContent' }),
+        expect.any(Object)
       );
     });
 
@@ -136,7 +137,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localGetFileContent' })
+        expect.objectContaining({ toolName: 'localGetFileContent' }),
+        expect.any(Object)
       );
     });
 
@@ -153,7 +155,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localGetFileContent' })
+        expect.objectContaining({ toolName: 'localGetFileContent' }),
+        expect.any(Object)
       );
     });
 
@@ -202,7 +205,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         queries,
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localFindFiles' })
+        expect.objectContaining({ toolName: 'localFindFiles' }),
+        expect.any(Object)
       );
     });
 
@@ -251,7 +255,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localFindFiles' })
+        expect.objectContaining({ toolName: 'localFindFiles' }),
+        expect.any(Object)
       );
     });
 
@@ -332,7 +337,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         queries,
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localSearchCode' })
+        expect.objectContaining({ toolName: 'localSearchCode' }),
+        expect.any(Object)
       );
     });
 
@@ -384,7 +390,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localSearchCode' })
+        expect.objectContaining({ toolName: 'localSearchCode' }),
+        expect.any(Object)
       );
     });
 
@@ -439,7 +446,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         queries,
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localViewStructure' })
+        expect.objectContaining({ toolName: 'localViewStructure' }),
+        expect.any(Object)
       );
     });
 
@@ -488,7 +496,8 @@ describe('Local Tools Execution', () => {
       expect(executeBulkOperation).toHaveBeenCalledWith(
         [],
         expect.any(Function),
-        expect.objectContaining({ toolName: 'localViewStructure' })
+        expect.objectContaining({ toolName: 'localViewStructure' }),
+        expect.any(Object)
       );
     });
 

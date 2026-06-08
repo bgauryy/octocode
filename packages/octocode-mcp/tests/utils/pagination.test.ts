@@ -701,7 +701,7 @@ describe('pagination utility', () => {
 
       expect(hints).toHaveLength(1);
       expect(hints[0]).toContain('Page 1/3');
-      expect(hints[0]).toContain('entryPageNumber=2');
+      expect(hints[0]).toContain('page=2');
       expect(hints[0]).not.toContain('owner=');
       expect(hints[0]).not.toContain('TO GET NEXT PAGE');
     });

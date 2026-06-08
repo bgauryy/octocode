@@ -802,7 +802,7 @@ describe('pagination hints — fire only on hasMore=true', () => {
         },
         {} as never
       );
-      expect(h[0]).toContain('entryPageNumber=2');
+      expect(h[0]).toContain('page=2');
     });
 
     it('stays silent without hasMore', () => {

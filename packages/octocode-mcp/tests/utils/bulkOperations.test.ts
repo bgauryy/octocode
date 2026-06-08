@@ -39,6 +39,43 @@ describe('executeBulkOperation', () => {
       expect(structured.results[0]?.data.repositories).toHaveLength(3);
     });
 
+    it('paginates the formatted response with top-level responseCharLength', async () => {
+      const queries = [{ id: 'q1' }];
+      const processor = vi.fn().mockResolvedValue({
+        repositories: [{ name: 'alpha' }, { name: 'beta' }],
+      });
+
+      const result = await executeBulkOperation(
+        queries,
+        processor,
+        { toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES },
+        { responseCharLength: 40 }
+      );
+
+      const responseText = getTextContent(result.content);
+      const structured = result.structuredContent as {
+        responsePagination?: {
+          hasMore: boolean;
+          charLength: number;
+          totalChars: number;
+          nextCharOffset?: number;
+        };
+        hints?: string[];
+      };
+
+      expect(responseText).toContain('Next: responseCharOffset=40');
+      expect(responseText.length).toBeGreaterThan(40);
+      expect(structured.responsePagination).toMatchObject({
+        hasMore: true,
+        charLength: 40,
+      });
+      expect(structured.responsePagination?.totalChars).toBeGreaterThan(40);
+      expect(structured.responsePagination?.nextCharOffset).toBe(40);
+      expect(
+        structured.hints?.some(h => h.includes('responseCharOffset=40'))
+      ).toBe(true);
+    });
+
     it('marks peer evidence incomplete when query output pagination has more data', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({

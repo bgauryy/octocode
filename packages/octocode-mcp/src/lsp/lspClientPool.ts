@@ -1,6 +1,7 @@
 export interface PoolKey {
   workspaceRoot: string;
   languageId: string;
+  serverId?: string;
 }
 
 interface PooledClient {
@@ -16,6 +17,7 @@ interface LspClientPoolOptions<T extends PooledClient> {
 interface PoolEntry<T extends PooledClient> {
   client: T;
   timer: ReturnType<typeof setTimeout>;
+  key: PoolKey;
 }
 
 export class LspClientPool<T extends PooledClient> {
@@ -44,7 +46,7 @@ export class LspClientPool<T extends PooledClient> {
         const client = await this.options.factory(key);
         if (!client) return null;
         const timer = this.startIdleTimer(k);
-        this.entries.set(k, { client, timer });
+        this.entries.set(k, { client, timer, key });
         return client;
       } finally {
         this.inflight.delete(k);
@@ -75,7 +77,7 @@ export class LspClientPool<T extends PooledClient> {
   }
 
   keys(): PoolKey[] {
-    return [...this.entries.keys()].map(deserializeKey);
+    return [...this.entries.values()].map(entry => entry.key);
   }
 
   private resetIdleTimer(k: string): void {
@@ -96,18 +98,7 @@ export class LspClientPool<T extends PooledClient> {
 }
 
 function serializeKey(key: PoolKey): string {
-  return `${key.languageId}\u0000${key.workspaceRoot}`;
-}
-
-function deserializeKey(serialized: string): PoolKey {
-  const separatorIndex = serialized.indexOf('\u0000');
-  if (separatorIndex === -1) {
-    return { languageId: serialized, workspaceRoot: '' };
-  }
-  return {
-    languageId: serialized.slice(0, separatorIndex),
-    workspaceRoot: serialized.slice(separatorIndex + 1),
-  };
+  return `${key.serverId ?? key.languageId}\u0000${key.workspaceRoot}`;
 }
 
 async function safeStop(client: PooledClient): Promise<void> {

@@ -586,6 +586,7 @@ export async function searchMultipleGitHubRepos(
       keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }

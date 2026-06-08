@@ -183,7 +183,7 @@ describe('Pull Request Search', () => {
       const result = await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        type: 'metadata',
+        content: { changedFiles: true },
       });
 
       expect(result.rawResponseChars).toBe(
@@ -334,7 +334,7 @@ describe('Pull Request Search', () => {
       const result = await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        withCommits: true,
+        content: { commits: { list: true, includeFiles: true } },
       });
 
       expect(result.pull_requests?.[0]?.commit_details).toBeDefined();
@@ -395,7 +395,7 @@ describe('Pull Request Search', () => {
       const result = await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        withComments: true,
+        content: { comments: { discussion: true, reviewInline: true } },
       });
 
       const pr = result.pull_requests?.[0] as
@@ -458,7 +458,7 @@ describe('Pull Request Search', () => {
       const result = await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        withComments: true,
+        content: { comments: { discussion: true, reviewInline: true } },
       });
 
       const pr = result.pull_requests?.[0] as Record<string, unknown>;
@@ -540,7 +540,7 @@ describe('Pull Request Search', () => {
       const result = await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        withComments: true,
+        content: { comments: { discussion: true, reviewInline: true } },
         charOffset: 10,
         charLength: 25,
       });
@@ -591,7 +591,7 @@ describe('Pull Request Search', () => {
       const result = await searchGitHubPullRequestsAPI({
         owner: 'test',
         repo: 'repo',
-        withCommits: true,
+        content: { commits: { list: true, includeFiles: true } },
       });
 
       expect(result.pull_requests?.[0]?.commit_details).toBeUndefined();
@@ -663,7 +663,7 @@ describe('Pull Request Search', () => {
         owner: 'test',
         repo: 'repo',
         prNumber: 123,
-        type: 'fullContent',
+        content: { changedFiles: true, patches: { mode: 'all' } },
       });
 
       expect(result.pull_requests).toHaveLength(1);
@@ -712,7 +712,7 @@ describe('Pull Request Search', () => {
         owner: 'test',
         repo: 'repo',
         prNumber: 123,
-        withComments: true,
+        content: { comments: { discussion: true, reviewInline: true } },
       });
 
       expect(result.pull_requests).toHaveLength(1);
@@ -759,7 +759,7 @@ describe('Pull Request Search', () => {
         owner: 'test',
         repo: 'repo',
         prNumber: 123,
-        withComments: true,
+        content: { comments: { discussion: true, reviewInline: true } },
       });
 
       expect(result.pull_requests).toHaveLength(1);
@@ -823,7 +823,7 @@ describe('Pull Request Search', () => {
         owner: 'test',
         repo: 'repo',
         prNumber: 124,
-        withComments: true,
+        content: { comments: { discussion: true, reviewInline: true } },
       });
 
       const pr = result.pull_requests[0] as Record<string, unknown>;
@@ -1297,7 +1297,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', type: 'fullContent' },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { changedFiles: true, patches: { mode: 'all' } },
+        },
         mockOctokit
       );
 
@@ -1339,7 +1343,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withComments: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { comments: { discussion: true, reviewInline: true } },
+        },
         mockOctokit
       );
 
@@ -1405,7 +1413,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', type: 'fullContent' },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { changedFiles: true, patches: { mode: 'all' } },
+        },
         mockOctokit
       );
 
@@ -1436,7 +1448,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withComments: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { comments: { discussion: true, reviewInline: true } },
+        },
         mockOctokit
       );
 
@@ -1490,7 +1506,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withCommits: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { commits: { list: true, includeFiles: true } },
+        },
         mockOctokit
       );
 
@@ -1554,7 +1574,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withCommits: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { commits: { list: true, includeFiles: true } },
+        },
         mockOctokit
       );
 
@@ -1605,7 +1629,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withCommits: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { commits: { list: true, includeFiles: true } },
+        },
         mockOctokit
       );
 
@@ -1652,7 +1680,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withCommits: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { commits: { list: true, includeFiles: true } },
+        },
         mockOctokit
       );
 
@@ -1706,7 +1738,11 @@ describe('Pull Request Search', () => {
 
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
-        { owner: 'test', repo: 'repo', withComments: true },
+        {
+          owner: 'test',
+          repo: 'repo',
+          content: { comments: { discussion: true, reviewInline: true } },
+        },
         mockOctokit
       );
 

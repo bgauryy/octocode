@@ -1184,9 +1184,9 @@ describe('GitHubProvider', () => {
           headBranch: 'fix-branch',
           created: '>2024-01-01',
           updated: '<2024-12-31',
-          withComments: true,
-          withCommits: true,
-          type: 'fullContent',
+          content: { comments: { discussion: true, reviewInline: true } },
+          content: { commits: { list: true, includeFiles: true } },
+          content: { changedFiles: true, patches: { mode: 'all' } },
           sort: 'updated',
           order: 'desc',
           limit: 25,
@@ -1208,9 +1208,9 @@ describe('GitHubProvider', () => {
             head: 'fix-branch',
             created: '>2024-01-01',
             updated: '<2024-12-31',
-            withComments: true,
-            withCommits: true,
-            type: 'fullContent',
+            content: { comments: { discussion: true, reviewInline: true } },
+            content: { commits: { list: true, includeFiles: true } },
+            content: { changedFiles: true, patches: { mode: 'all' } },
             sort: 'updated',
             order: 'desc',
             limit: 25,
@@ -1298,7 +1298,7 @@ describe('GitHubProvider', () => {
 
         const result = await provider.searchPullRequests({
           projectId: 'owner/repo',
-          withComments: true,
+          content: { comments: { discussion: true, reviewInline: true } },
         });
 
         expect(result.data!.items[0]!.comments).toHaveLength(1);

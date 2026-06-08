@@ -56,6 +56,11 @@ export const LSPGotoDefinitionQuerySchema = withFilePathAlias(
       lineHint: optionalLineHintField,
       orderHint: orderHintField,
       contextLines: contextLinesField,
+      page: relaxedPageNumberField
+        .default(1)
+        .describe(
+          `Definition result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} definition locations when a symbol resolves to multiple targets.`
+        ),
     })
   )
 );

@@ -13,13 +13,7 @@ import type {
   WithOptionalMeta,
 } from '../../types/execution.js';
 
-type PRDefaultKeys =
-  | 'order'
-  | 'limit'
-  | 'page'
-  | 'withComments'
-  | 'withCommits'
-  | 'type';
+type PRDefaultKeys = 'order' | 'limit' | 'page';
 type PartialPRQuery = WithOptionalMeta<
   Omit<GitHubPullRequestSearchQuery, PRDefaultKeys> &
     Partial<Pick<GitHubPullRequestSearchQuery, PRDefaultKeys>>
@@ -38,6 +32,14 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
+import {
+  hasExpensiveContentRequest,
+  normalizePullRequestContentRequest,
+} from './contentRequest.js';
+import {
+  buildContentHints,
+  shapePullRequestForContent,
+} from './contentResponse.js';
 
 export async function searchMultipleGitHubPullRequests(
   args: ToolExecutionArgs<PartialPRQuery>
@@ -51,7 +53,22 @@ export async function searchMultipleGitHubPullRequests(
       try {
         const currentProviderContext = getProviderContext();
         const effectiveQuery: PartialPRQuery = { ...query };
+        const contentRequest = normalizePullRequestContentRequest(
+          effectiveQuery as never
+        );
         const downgradeHints: string[] = [];
+        const hasPrNumber = effectiveQuery.prNumber !== undefined;
+
+        if (!hasPrNumber && hasExpensiveContentRequest(contentRequest)) {
+          downgradeHints.push(
+            'Broad PR search returns metadata only. Re-call with prNumber and content selectors (body, changedFiles, patches, comments, commits) or reviewMode="full" to fetch PR content.'
+          );
+        }
+
+        if (!hasPrNumber) {
+          (effectiveQuery as { content?: unknown }).content = undefined;
+          (effectiveQuery as { reviewMode?: unknown }).reviewMode = undefined;
+        }
 
         if (effectiveQuery.query && String(effectiveQuery.query).length > 256) {
           return createErrorResult(
@@ -89,9 +106,10 @@ export async function searchMultipleGitHubPullRequests(
           return providerResult.result;
         }
 
-        const prType = (effectiveQuery as { type?: string }).type;
-        const includeFileChanges =
-          prType === 'fullContent' || prType === 'partialContent';
+        const includeFileChanges = hasPrNumber
+          ? contentRequest.changedFiles ||
+            contentRequest.patches.mode !== 'none'
+          : false;
         const {
           pullRequests,
           resultData,
@@ -106,7 +124,29 @@ export async function searchMultipleGitHubPullRequests(
           delete (resultData as Record<string, unknown>).pagination;
         }
 
-        const hasContent = pullRequests.length > 0;
+        const shouldLeanBroadShape =
+          !hasPrNumber &&
+          (Boolean((query as { content?: unknown }).content) ||
+            Boolean((query as { reviewMode?: unknown }).reviewMode));
+        const shapedPullRequests = pullRequests.map(pr =>
+          shapePullRequestForContent(
+            pr,
+            effectiveQuery as never,
+            shouldLeanBroadShape
+              ? {
+                  ...contentRequest,
+                  body: false,
+                  changedFiles: false,
+                  patches: { mode: 'none' },
+                  comments: false,
+                  commits: false,
+                }
+              : contentRequest
+          )
+        );
+        resultData.pull_requests = shapedPullRequests;
+
+        const hasContent = shapedPullRequests.length > 0;
         const totalCount =
           (providerResult.response.data as { total_count?: number })
             .total_count ?? -1;
@@ -127,9 +167,8 @@ export async function searchMultipleGitHubPullRequests(
 
         const resultHints: string[] = hasContent
           ? [
-              `Found ${pullRequests.length} PR${pullRequests.length === 1 ? '' : 's'}.`,
-              `To read file diffs: re-call with prNumber=<n> + type="partialContent" + partialContentMetadata=[{file:"path/to/file"}] (targeted, efficient) or type="fullContent" (small PRs only).`,
-              `To read ALL comments: re-call with prNumber=<n> + withComments=true. Returns both discussion comments (commentType="discussion") AND inline code-review annotations (commentType="review_inline", includes path+line). Both endpoints are fetched automatically — no separate calls needed.`,
+              `Found ${shapedPullRequests.length} PR${shapedPullRequests.length === 1 ? '' : 's'}.`,
+              ...buildContentHints(shapedPullRequests, contentRequest),
             ]
           : [];
 
@@ -170,7 +209,7 @@ export async function searchMultipleGitHubPullRequests(
           ).length;
           if (withChanges > 0) {
             fileChangeHints.push(
-              'Metadata mode: fileChanges omitted (changedFilesCount available). Re-call with type="partialContent" + partialContentMetadata=[{file:"src/foo.ts"}] to fetch targeted diffs. Use type="fullContent" with prNumber only for small PRs.'
+              'Metadata mode: changedFiles details omitted (changedFilesCount available). Re-call with prNumber + content.changedFiles=true for file paths, or content.patches={mode:"selected",files:["src/foo.ts"]} for targeted diffs.'
             );
           }
         }
@@ -198,7 +237,7 @@ export async function searchMultipleGitHubPullRequests(
           TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
           {
             hintContext: {
-              matchCount: pullRequests.length,
+              matchCount: shapedPullRequests.length,
               state: effectiveQuery.state,
               owner: effectiveQuery.owner,
               repo: effectiveQuery.repo,
@@ -240,7 +279,8 @@ export async function searchMultipleGitHubPullRequests(
       ] satisfies Array<keyof GitHubSearchPullRequestsToolResult>,
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }
 

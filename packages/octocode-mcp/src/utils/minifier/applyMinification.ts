@@ -150,7 +150,7 @@ const EXT_TO_SIG_FAMILY: Record<string, keyof typeof SIG_PATTERNS> = {
 
 /** Concise hint emitted whenever signaturesOnly extraction succeeds. */
 export const SIGNATURES_ONLY_HINT =
-  'Signatures only — bodies omitted. Use startLine/endLine to read a body.';
+  'Signatures only — bodies omitted. Left gutter shows original line numbers; use startLine/endLine to read a body.';
 
 // Net `{`/`}` (and `(`/`[`) depth a line contributes, ignoring line comments.
 // Used to keep multi-line declaration heads/blocks intact rather than just
@@ -205,7 +205,13 @@ export function extractSignatures(
 
     const isTsJs = family === 'ts-js';
     const lines = content.split('\n');
-    const kept: string[] = [];
+    const kept: Array<{ lineNumber: number; text: string }> = [];
+    const keepLine = (lineIndex: number): void => {
+      kept.push({
+        lineNumber: lineIndex + 1,
+        text: lines[lineIndex]!.trimEnd(),
+      });
+    };
 
     // Keep every line of an open `{...}` block (import names / interface /
     // type / enum body) starting from a line with positive brace depth.
@@ -213,7 +219,7 @@ export function extractSignatures(
       let depth = braceDelta(lines[start]!);
       let i = start + 1;
       while (i < lines.length && depth > 0) {
-        kept.push(lines[i]!.trimEnd());
+        keepLine(i);
         depth += braceDelta(lines[i]!);
         i++;
       }
@@ -229,7 +235,7 @@ export function extractSignatures(
         continue;
       }
 
-      kept.push(line.trimEnd());
+      keepLine(i);
 
       if (isTsJs) {
         const opensBlock =
@@ -254,7 +260,7 @@ export function extractSignatures(
           let guard = 0;
           while (i < lines.length && guard < 200) {
             const aliasLine = lines[i]!;
-            kept.push(aliasLine.trimEnd());
+            keepLine(i);
             i++;
             guard++;
             if (/;\s*$/.test(aliasLine)) break;
@@ -272,7 +278,7 @@ export function extractSignatures(
           let angle = angleDelta(line);
           i++;
           while (i < lines.length && (round > 0 || angle > 0)) {
-            kept.push(lines[i]!.trimEnd());
+            keepLine(i);
             round += roundDelta(lines[i]!);
             angle += angleDelta(lines[i]!);
             i++;
@@ -286,11 +292,20 @@ export function extractSignatures(
 
     if (kept.length === 0) return null;
 
+    const maxLineNumber = kept.reduce(
+      (max, entry) => Math.max(max, entry.lineNumber),
+      1
+    );
+    const lineWidth = String(maxLineNumber).length;
     const result = kept
+      .map(
+        entry =>
+          `${String(entry.lineNumber).padStart(lineWidth, ' ')}| ${entry.text}`
+      )
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    return result.length < content.length ? result : null;
+    return result;
   } catch {
     return null;
   }

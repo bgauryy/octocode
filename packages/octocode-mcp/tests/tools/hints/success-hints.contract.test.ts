@@ -97,14 +97,14 @@ describe('lspGotoDefinition — success-path extra hint', () => {
 });
 
 describe('githubSearchPullRequests — result hint exists in code', () => {
-  it('execution imports resultHints that include fullContent guidance', async () => {
+  it('execution imports resultHints that include reviewMode guidance', async () => {
     const fs = await import('fs/promises');
     const src = await fs.readFile(
       'src/tools/github_search_pull_requests/execution.ts',
       'utf-8'
     );
     expect(src).toContain('resultHints');
-    expect(src).toContain('fullContent');
+    expect(src).toContain('reviewMode');
   });
 });
 

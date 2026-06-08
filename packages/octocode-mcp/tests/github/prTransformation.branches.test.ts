@@ -91,12 +91,12 @@ describe('applyPartialContentFilter', () => {
     patch,
   });
 
-  it('should strip patches for metadata type', () => {
+  it('should strip patches when no patch content is requested', () => {
     const files = [
       createFile('a.ts', '@@ -1 +1 @@\n+hello'),
       createFile('b.ts', '@@ -1 +1 @@\n+world'),
     ];
-    const params: GitHubPullRequestsSearchParams = { type: 'metadata' };
+    const params: GitHubPullRequestsSearchParams = {};
 
     const result = applyPartialContentFilter(files, params);
 
@@ -114,15 +114,14 @@ describe('applyPartialContentFilter', () => {
     expect(result[0]!.patch).toBeUndefined();
   });
 
-  it('should filter files for partialContent type', () => {
+  it('should filter files for selected patch content', () => {
     const files = [
       createFile('a.ts', '@@ -1,3 +1,5 @@\n+line1\n+line2'),
       createFile('b.ts', '@@ -1,3 +1,5 @@\n+other'),
       createFile('c.ts', '@@ -1 +1 @@\n+excluded'),
     ];
     const params: GitHubPullRequestsSearchParams = {
-      type: 'partialContent',
-      partialContentMetadata: [{ file: 'a.ts' }, { file: 'b.ts' }],
+      content: { patches: { mode: 'selected', files: ['a.ts', 'b.ts'] } },
     };
 
     const result = applyPartialContentFilter(files, params);
@@ -134,8 +133,7 @@ describe('applyPartialContentFilter', () => {
   it('should handle partialContent with no patch', () => {
     const files = [createFile('a.ts', undefined)];
     const params: GitHubPullRequestsSearchParams = {
-      type: 'partialContent',
-      partialContentMetadata: [{ file: 'a.ts' }],
+      content: { patches: { mode: 'selected', files: ['a.ts'] } },
     };
 
     const result = applyPartialContentFilter(files, params);
@@ -144,12 +142,14 @@ describe('applyPartialContentFilter', () => {
     expect(result[0]!.patch).toBeUndefined();
   });
 
-  it('should return all files with patches for fullContent type', () => {
+  it('should return all files with patches for all-patches mode', () => {
     const files = [
       createFile('a.ts', 'patch-a'),
       createFile('b.ts', 'patch-b'),
     ];
-    const params: GitHubPullRequestsSearchParams = { type: 'fullContent' };
+    const params: GitHubPullRequestsSearchParams = {
+      content: { patches: { mode: 'all' } },
+    };
 
     const result = applyPartialContentFilter(files, params);
 
@@ -158,11 +158,10 @@ describe('applyPartialContentFilter', () => {
     expect(result[1]!.patch).toBe('patch-b');
   });
 
-  it('should handle empty partialContentMetadata', () => {
+  it('should handle empty selected patch list', () => {
     const files = [createFile('a.ts', 'patch')];
     const params: GitHubPullRequestsSearchParams = {
-      type: 'partialContent',
-      partialContentMetadata: [],
+      content: { patches: { mode: 'selected', files: [] } },
     };
 
     const result = applyPartialContentFilter(files, params);

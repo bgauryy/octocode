@@ -82,6 +82,7 @@ export async function executeRipgrepSearch(
       toolName: TOOL_NAMES.LOCAL_RIPGREP,
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }

@@ -3,6 +3,7 @@ import {
   GitHubPullRequestItem,
   PRCommentItem,
   CommitInfo,
+  PRReviewInfo,
   DiffEntry,
   CommitFileInfo,
   IssueSearchResultItem,
@@ -26,6 +27,46 @@ import {
   countSerializedChars,
   getRawResponseChars,
 } from '../utils/response/charSavings.js';
+
+function shouldFetchFileChanges(
+  params: GitHubPullRequestsSearchParams
+): boolean {
+  const content = params.content as
+    | {
+        changedFiles?: boolean;
+        patches?: { mode?: 'none' | 'selected' | 'all' };
+      }
+    | undefined;
+  return Boolean(
+    params.reviewMode === 'full' ||
+    content?.changedFiles ||
+    (content?.patches?.mode && content.patches.mode !== 'none')
+  );
+}
+
+function shouldFetchComments(params: GitHubPullRequestsSearchParams): boolean {
+  const content = params.content as { comments?: unknown } | undefined;
+  return Boolean(params.reviewMode === 'full' || content?.comments);
+}
+
+function shouldFetchCommits(params: GitHubPullRequestsSearchParams): boolean {
+  const content = params.content as { commits?: unknown } | undefined;
+  return Boolean(params.reviewMode === 'full' || content?.commits);
+}
+
+function shouldFetchReviews(params: GitHubPullRequestsSearchParams): boolean {
+  const content = params.content as { reviews?: boolean } | undefined;
+  return Boolean(params.reviewMode === 'full' || content?.reviews);
+}
+
+function shouldIncludeBotComments(
+  params: GitHubPullRequestsSearchParams
+): boolean {
+  const content = params.content as
+    | { comments?: { includeBots?: boolean } }
+    | undefined;
+  return Boolean(content?.comments?.includeBots);
+}
 
 const KNOWN_BOT_LOGINS = new Set([
   'vercel',
@@ -118,6 +159,48 @@ async function fetchPRComments(
  * GET /repos/{owner}/{repo}/pulls/{pull_number}/comments and include the
  * file path and line number the reviewer annotated.
  */
+async function fetchPRReviews(
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<PRReviewInfo[]> {
+  try {
+    const { items, rawResponseChars } = await fetchAllPaginated<
+      Awaited<ReturnType<typeof octokit.rest.pulls.listReviews>>['data'][number]
+    >(
+      page =>
+        octokit.rest.pulls.listReviews({
+          owner,
+          repo,
+          pull_number: prNumber,
+          per_page: 100,
+          page,
+        }) as Promise<{
+          data: Awaited<
+            ReturnType<typeof octokit.rest.pulls.listReviews>
+          >['data'];
+        }>
+    );
+
+    return attachRawResponseChars(
+      items.map(review => ({
+        id: String(review.id),
+        user: review.user?.login ?? 'unknown',
+        state: review.state ?? '',
+        body: ContentSanitizer.sanitizeContent(
+          minifyMarkdownCore(stripMachineBlobs(review.body ?? ''))
+        ).content,
+        submitted_at: review.submitted_at ?? undefined,
+        commit_id: review.commit_id ?? undefined,
+      })),
+      rawResponseChars
+    );
+  } catch {
+    return attachRawResponseChars([], 0);
+  }
+}
+
 async function fetchPRInlineComments(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
@@ -199,11 +282,8 @@ export async function transformPullRequestItemFromSearch(
   }
 
   let rawResponseChars = 0;
-  const type = params.type || 'metadata';
-  const shouldFetchContent =
-    type === 'fullContent' || type === 'partialContent' || type === 'metadata';
 
-  if (shouldFetchContent || item.pull_request) {
+  if (item.pull_request) {
     try {
       const { owner, repo } = normalizeOwnerRepo(params);
 
@@ -226,7 +306,17 @@ export async function transformPullRequestItemFromSearch(
             result.merged_at = prDetails.data.merged_at;
           }
 
-          if (shouldFetchContent) {
+          result.additions = prDetails.data.additions ?? 0;
+          result.deletions = prDetails.data.deletions ?? 0;
+
+          if (!shouldFetchFileChanges(params)) {
+            result.file_changes = {
+              total_count: prDetails.data.changed_files ?? 0,
+              files: [],
+            };
+          }
+
+          if (shouldFetchFileChanges(params)) {
             const fileChanges = await fetchPRFileChangesAPI(
               owner,
               repo,
@@ -254,20 +344,26 @@ export async function transformPullRequestItemFromSearch(
     }
   }
 
-  if (params.withComments) {
+  if (shouldFetchComments(params)) {
     const { owner, repo } = normalizeOwnerRepo(params);
     if (owner && repo) {
       const [
         { comments: discussionComments, note: discussionNote },
         { comments: inlineComments, note: inlineNote },
       ] = await Promise.all([
-        fetchPRComments(octokit, owner, repo, item.number, params.includeBots),
+        fetchPRComments(
+          octokit,
+          owner,
+          repo,
+          item.number,
+          shouldIncludeBotComments(params)
+        ),
         fetchPRInlineComments(
           octokit,
           owner,
           repo,
           item.number,
-          params.includeBots
+          shouldIncludeBotComments(params)
         ),
       ]);
 
@@ -288,7 +384,24 @@ export async function transformPullRequestItemFromSearch(
     }
   }
 
-  if (params.withCommits) {
+  if (shouldFetchReviews(params)) {
+    try {
+      const { owner, repo } = normalizeOwnerRepo(params);
+      if (owner && repo) {
+        const reviews = await fetchPRReviews(octokit, owner, repo, item.number);
+        rawResponseChars += getRawResponseChars(reviews) ?? 0;
+        result.reviews = reviews;
+      }
+    } catch (error: unknown) {
+      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
+      result._sanitization_warnings = [
+        ...(result._sanitization_warnings || []),
+        `Partial Data: Failed to fetch reviews: ${error instanceof Error ? error.message : String(error)}`,
+      ];
+    }
+  }
+
+  if (shouldFetchCommits(params)) {
     try {
       const { owner, repo } = normalizeOwnerRepo(params);
       if (owner && repo) {
@@ -485,14 +598,19 @@ export async function transformPullRequestItemFromREST(
   }
 
   let rawResponseChars = 0;
-  const type = params.type || 'metadata';
-  const shouldFetchContent =
-    type === 'fullContent' || type === 'partialContent' || type === 'metadata';
-
   const owner = params.owner as string;
   const repo = params.repo as string;
 
-  if (shouldFetchContent) {
+  result.additions = 'additions' in item ? (item.additions ?? 0) : 0;
+  result.deletions = 'deletions' in item ? (item.deletions ?? 0) : 0;
+  if (!shouldFetchFileChanges(params)) {
+    result.file_changes = {
+      total_count: 'changed_files' in item ? (item.changed_files ?? 0) : 0,
+      files: [],
+    };
+  }
+
+  if (shouldFetchFileChanges(params)) {
     try {
       const fileChanges = await fetchPRFileChangesAPI(
         owner,
@@ -517,18 +635,24 @@ export async function transformPullRequestItemFromREST(
     }
   }
 
-  if (params.withComments) {
+  if (shouldFetchComments(params)) {
     const [
       { comments: discussionComments, note: discussionNote },
       { comments: inlineComments, note: inlineNote },
     ] = await Promise.all([
-      fetchPRComments(octokit, owner, repo, item.number, params.includeBots),
+      fetchPRComments(
+        octokit,
+        owner,
+        repo,
+        item.number,
+        shouldIncludeBotComments(params)
+      ),
       fetchPRInlineComments(
         octokit,
         owner,
         repo,
         item.number,
-        params.includeBots
+        shouldIncludeBotComments(params)
       ),
     ]);
 
@@ -548,7 +672,21 @@ export async function transformPullRequestItemFromREST(
     }
   }
 
-  if (params.withCommits) {
+  if (shouldFetchReviews(params)) {
+    try {
+      const reviews = await fetchPRReviews(octokit, owner, repo, item.number);
+      rawResponseChars += getRawResponseChars(reviews) ?? 0;
+      result.reviews = reviews;
+    } catch (error: unknown) {
+      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
+      result._sanitization_warnings = [
+        ...(result._sanitization_warnings || []),
+        `Partial Data: Failed to fetch reviews: ${error instanceof Error ? error.message : String(error)}`,
+      ];
+    }
+  }
+
+  if (shouldFetchCommits(params)) {
     try {
       const commits = await fetchPRCommitsWithFiles(
         owner,

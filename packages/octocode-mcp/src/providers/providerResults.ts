@@ -183,6 +183,15 @@ export interface PullRequestItem {
     line?: number;
   }>;
 
+  reviews?: Array<{
+    id: string;
+    user: string;
+    state: string;
+    body: string;
+    submittedAt?: string;
+    commitId?: string;
+  }>;
+
   commits?: Array<{
     sha: string;
     message: string;

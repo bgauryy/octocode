@@ -3,6 +3,7 @@ import { LSPClient } from '../../src/lsp/client.js';
 import {
   acquirePooledClient,
   isLanguageServerAvailable,
+  releasePooledClientForFile,
 } from '../../src/lsp/manager.js';
 import * as cp from 'child_process';
 import * as fs from 'fs';
@@ -738,6 +739,31 @@ describe('LSPClient Coverage', () => {
       );
       expect(client2).toBeDefined();
       expect(client2).toBe(client1);
+    });
+
+    it('acquirePooledClient should reuse the TypeScript server for .ts and .tsx files', async () => {
+      mockConnection.sendRequest.mockResolvedValue({});
+      const workspaceRoot = '/workspace-shared-ts-server';
+
+      try {
+        const client1 = await acquirePooledClient(
+          workspaceRoot,
+          `${workspaceRoot}/file.ts`
+        );
+        expect(client1).toBeDefined();
+
+        const client2 = await acquirePooledClient(
+          workspaceRoot,
+          `${workspaceRoot}/component.tsx`
+        );
+        expect(client2).toBe(client1);
+        expect(cp.spawn).toHaveBeenCalledTimes(1);
+      } finally {
+        await releasePooledClientForFile(
+          workspaceRoot,
+          `${workspaceRoot}/file.ts`
+        );
+      }
     });
 
     it('acquirePooledClient should return null for unsupported file', async () => {

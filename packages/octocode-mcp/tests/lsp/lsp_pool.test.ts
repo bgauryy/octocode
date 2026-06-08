@@ -78,6 +78,35 @@ describe('T3.2 — LspClientPool', () => {
     expect(factory).toHaveBeenCalledTimes(3);
   });
 
+  it('returns the SAME client when language IDs share a server identity', async () => {
+    const factory = vi.fn(async () => makeFakeClient());
+    const pool = new LspClientPool<FakeClient>({
+      idleTimeoutMs: 60_000,
+      factory,
+    });
+
+    const a = await pool.acquire({
+      workspaceRoot: '/repo',
+      languageId: 'typescript',
+      serverId: 'typescript-language-server --stdio',
+    });
+    const b = await pool.acquire({
+      workspaceRoot: '/repo',
+      languageId: 'typescriptreact',
+      serverId: 'typescript-language-server --stdio',
+    });
+
+    expect(a).toBe(b);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(pool.keys()).toEqual([
+      {
+        workspaceRoot: '/repo',
+        languageId: 'typescript',
+        serverId: 'typescript-language-server --stdio',
+      },
+    ]);
+  });
+
   it('returns null when the factory returns null (no language server available)', async () => {
     const pool = new LspClientPool<FakeClient>({
       idleTimeoutMs: 60_000,

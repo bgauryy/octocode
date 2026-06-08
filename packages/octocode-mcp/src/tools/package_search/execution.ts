@@ -402,7 +402,8 @@ export async function searchPackages(
       keysPriority: ['packages', 'totalFound', 'error'],
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }
 

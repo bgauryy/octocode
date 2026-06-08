@@ -7,7 +7,7 @@
 
 ## 1. Scheme
 - [ ] Tool is registered and accepts the bulk envelope: `queries[]`, `responseCharOffset`, `responseCharLength`, `format`.
-- [ ] Pagination knob(s) accepted: `entryPageNumber`, `entriesPerPage`.
+- [ ] Pagination knob(s) accepted: `page`, `itemsPerPage`.
 - [ ] `verbosity` accepted: `basic` (default) / `compact` / `concise`.
 - [ ] A minimal valid query parses (see Example).
 
@@ -15,7 +15,7 @@
 - [ ] Run a query that returns a large result with a small `responseCharLength` (e.g. `500`): the response is **bounded** AND `responsePagination.hasMore = true` with a `Page N/M … Next: responseCharOffset=…` hint.
 - [ ] Walk the cursor (`responseCharOffset`) to the end — **every item is reachable**, nothing missing vs. the reported total.
 - [ ] No `… [truncated]` / `… [clipped]` marker appears anywhere in the output.
-- [ ] Per-query knob (`entryPageNumber` / `entriesPerPage`) returns the next page on increment.
+- [ ] Per-query knob (`page` / `itemsPerPage`) returns the next page on increment.
 - [ ] Entry-level page cursor; `limit` is an agent-set page size, not a hard cap.
 
 ## 3. Quality
@@ -26,12 +26,12 @@
 ## 4. Token effectiveness
 - [ ] Output is lean structured YAML — `base` relativizes paths and `shared` hoists constants shared across rows (no per-call `format` knob).
 - [ ] `verbosity:"concise"` yields a **strictly smaller** payload than `basic` for the same query.
-- [ ] The size knob (`entryPageNumber` / `entriesPerPage`) lets you fetch exactly what you need — the tool never over-returns.
+- [ ] The size knob (`page` / `itemsPerPage`) lets you fetch exactly what you need — the tool never over-returns.
 
 ## Known gaps
 - None — fully lossless.
 
 ## Example call
 ```json
-{ "queries": [ {"path":".","depth":1,"entriesPerPage":50,"entryPageNumber":1} ], "responseCharLength": 500 }
+{ "queries": [ {"path":".","depth":1,"itemsPerPage":50,"page":1} ], "responseCharLength": 500 }
 ```

@@ -87,27 +87,38 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
   });
 
-  it('pullRequests: nested partialContentMetadata line arrays are bounded (no sentinel)', () => {
-    const js = z.toJSONSchema(GitHubPullRequestSearchQueryLocalSchema) as {
-      properties?: Record<
-        string,
-        {
-          items?: {
-            properties?: Record<
-              string,
-              { items?: { minimum?: number; maximum?: number } }
-            >;
+  it('pullRequests: content.patches.ranges line arrays are bounded and clamp safely', () => {
+    const r = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+      owner: 'o',
+      repo: 'r',
+      prNumber: 1,
+      content: {
+        patches: {
+          mode: 'selected',
+          ranges: [
+            {
+              file: 'a.ts',
+              additions: [SENTINEL],
+              deletions: [SENTINEL],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      const range = (
+        r.data as never as {
+          content: {
+            patches: {
+              ranges: Array<{ additions: number[]; deletions: number[] }>;
+            };
           };
         }
-      >;
-    };
-    const pcm = js.properties?.partialContentMetadata?.items?.properties ?? {};
-    for (const key of ['additions', 'deletions']) {
-      const itemBounds = pcm[key]?.items;
-      expect(itemBounds, `${key} should be present`).toBeDefined();
-      expect(Math.abs(itemBounds?.minimum ?? 0)).not.toBe(SENTINEL);
-      expect(Math.abs(itemBounds?.maximum ?? 0)).not.toBe(SENTINEL);
-      expect(itemBounds?.maximum).toBe(1_000_000_000);
+      ).content.patches.ranges[0]!;
+      expect(range.additions[0]).toBe(1_000_000_000);
+      expect(range.deletions[0]).toBe(1_000_000_000);
     }
   });
 });

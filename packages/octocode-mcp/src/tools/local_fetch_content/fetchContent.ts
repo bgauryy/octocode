@@ -335,8 +335,9 @@ function buildMatchExtractionState(
   }
 
   if (resultContent.length > defaultOutputCharLength) {
-    const page = (query as unknown as { page?: number }).page ?? 1;
-    const charOffset = (page - 1) * defaultOutputCharLength;
+    // Content is char-paginated via charOffset (page is the list cursor).
+    const charOffset =
+      (query as unknown as { charOffset?: number }).charOffset ?? 0;
     const autoPagination = applyPagination(
       resultContent,
       charOffset,
@@ -358,7 +359,7 @@ function buildMatchExtractionState(
           `Auto-paginated: ${result.matchCount} matches exceeded display limit`,
           ...(matchRanges && matchRanges.length > 0
             ? [
-                'matchRanges covers this page only — use page=N to access further match positions.',
+                'matchRanges covers this chunk only — use the charOffset cursor to read further match positions.',
               ]
             : []),
         ],
@@ -517,7 +518,7 @@ function buildSuccessResult(
     (query as unknown as { charOffset?: number }).charOffset ?? 0;
   let effectiveCharLength: number | undefined = explicitCharLength;
   let autoPaginated = false;
-  let charOffset = explicitCharOffset;
+  const charOffset = explicitCharOffset;
 
   if (
     effectiveCharLength === undefined &&
@@ -525,8 +526,7 @@ function buildSuccessResult(
   ) {
     effectiveCharLength = defaultOutputCharLength;
     autoPaginated = true;
-    const page = (query as unknown as { page?: number }).page ?? 1;
-    charOffset = (page - 1) * defaultOutputCharLength;
+    // charOffset already holds the explicit content cursor (query.charOffset).
     warnings.push(
       `Auto-paginated: Content (${extraction.resultContent.length} chars) exceeds ${defaultOutputCharLength} char limit`
     );
@@ -676,8 +676,8 @@ export async function fetchContent(
         // GitHub path (applyContentPagination) so a large export index stays
         // navigable instead of overflowing the response.
         if (sigs.length > defaultOutputCharLength) {
-          const page = (query as unknown as { page?: number }).page ?? 1;
-          const charOffset = (page - 1) * defaultOutputCharLength;
+          const charOffset =
+            (query as unknown as { charOffset?: number }).charOffset ?? 0;
           const sigPagination = applyPagination(
             sigs,
             charOffset,

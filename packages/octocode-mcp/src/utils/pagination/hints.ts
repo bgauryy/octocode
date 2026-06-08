@@ -60,6 +60,6 @@ export function generateStructurePaginationHints(
   if (!pagination.hasMore) return [];
 
   return [
-    `Page ${pagination.currentPage}/${pagination.totalPages}. Next: entryPageNumber=${pagination.currentPage + 1}`,
+    `Page ${pagination.currentPage}/${pagination.totalPages}. Next: page=${pagination.currentPage + 1}`,
   ];
 }

@@ -147,19 +147,19 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   archived?: boolean;
 
-  withComments?: boolean;
+  content?: unknown;
 
-  withCommits?: boolean;
+  reviewMode?: 'summary' | 'full';
 
-  type?: 'metadata' | 'fullContent' | 'partialContent';
+  filePage?: number;
 
-  partialContentMetadata?: {
-    file: string;
-    additions?: number[];
-    deletions?: number[];
-  }[];
+  commentPage?: number;
 
-  sort?: 'created' | 'updated' | 'best-match';
+  commitPage?: number;
+
+  itemsPerPage?: number;
+
+  sort?: 'created' | 'updated' | 'best-match' | 'comments' | 'reactions';
 
   order?: 'asc' | 'desc';
 

@@ -76,6 +76,8 @@ export function createRemoteToolRegistration<TQuery>(
           async (
             args: {
               queries: TQuery[];
+              responseCharOffset?: number;
+              responseCharLength?: number;
             },
             authInfo,
             sessionId
@@ -86,6 +88,8 @@ export function createRemoteToolRegistration<TQuery>(
 
             return executionFn({
               queries,
+              responseCharOffset: args.responseCharOffset,
+              responseCharLength: args.responseCharLength,
               authInfo,
               sessionId,
             });

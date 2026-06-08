@@ -262,7 +262,7 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
           {
             owner: 'test',
             repo: 'repo',
-            withCommits: true,
+            content: { commits: { list: true, includeFiles: true } },
           },
           mockOctokit as any,
           undefined

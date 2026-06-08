@@ -619,4 +619,143 @@ describe('GitHub Search Pull Requests Tool', () => {
       expect(result.isError).toBe(false);
     });
   });
+
+  describe('Content selector output', () => {
+    it('keeps broad search lean and exposes available content + next calls', async () => {
+      mockProvider.searchPullRequests.mockResolvedValue({
+        data: {
+          items: [
+            {
+              ...createMockPRProviderResponse().data.items[0],
+              body: 'A'.repeat(1200),
+              fileChanges: [
+                {
+                  path: 'src/a.ts',
+                  status: 'modified',
+                  additions: 1,
+                  deletions: 1,
+                  patch: 'HUGE PATCH SHOULD NOT SHOW',
+                },
+              ],
+              comments: [
+                {
+                  id: '1',
+                  author: 'reviewer',
+                  body: 'COMMENT SHOULD NOT SHOW',
+                  createdAt: '2024-01-01T00:00:00Z',
+                  updatedAt: '2024-01-01T00:00:00Z',
+                  commentType: 'discussion',
+                },
+              ],
+            },
+          ],
+          totalCount: 1,
+          pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              query: 'fix bug',
+              content: {
+                comments: { discussion: true },
+                patches: { mode: 'all' },
+              },
+            },
+          ],
+        }
+      );
+
+      const text = getTextContent(result.content);
+      expect(text).toContain('availableContent');
+      expect(text).toContain('getChangedFiles');
+      expect(text).toContain('Broad PR search returns metadata only');
+      expect(text).not.toContain('HUGE PATCH SHOULD NOT SHOW');
+      expect(text).not.toContain('COMMENT SHOULD NOT SHOW');
+    });
+
+    it('returns selected direct PR content with paginated files and comments', async () => {
+      mockProvider.searchPullRequests.mockResolvedValue({
+        data: {
+          items: [
+            {
+              ...createMockPRProviderResponse().data.items[0],
+              body: 'Body text',
+              fileChanges: [
+                {
+                  path: 'src/a.ts',
+                  status: 'modified',
+                  additions: 1,
+                  deletions: 1,
+                  patch: 'patch-a',
+                },
+                {
+                  path: 'src/b.ts',
+                  status: 'modified',
+                  additions: 2,
+                  deletions: 0,
+                  patch: 'patch-b',
+                },
+              ],
+              comments: [
+                {
+                  id: '1',
+                  author: 'reviewer',
+                  body: 'Inline comment',
+                  createdAt: '2024-01-01T00:00:00Z',
+                  updatedAt: '2024-01-01T00:00:00Z',
+                  commentType: 'review_inline',
+                  path: 'src/a.ts',
+                  line: 10,
+                },
+              ],
+            },
+          ],
+          totalCount: 1,
+          pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              prNumber: 456,
+              itemsPerPage: 1,
+              content: {
+                body: true,
+                changedFiles: true,
+                patches: { mode: 'selected', files: ['src/a.ts'] },
+                comments: {
+                  reviewInline: true,
+                  discussion: false,
+                  file: 'src/a.ts',
+                },
+              },
+            },
+          ],
+        }
+      );
+
+      const text = getTextContent(result.content);
+      expect(text).toContain('body: "Body text"');
+      expect(text).toContain('path: "src/a.ts"');
+      expect(text).toContain('patch: "patch-a"');
+      expect(text).not.toContain('patch-b');
+      expect(text).toContain('commentPagination');
+      expect(text).toContain('filePagination');
+    });
+  });
 });

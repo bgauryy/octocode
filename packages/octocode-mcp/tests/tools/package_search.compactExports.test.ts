@@ -31,7 +31,10 @@ describe('compactExports — collapse exports to one line per subpath', () => {
   it('caps at 8 subpaths and returns undefined for empty', () => {
     expect(compactExports([])).toBeUndefined();
     expect(compactExports(undefined)).toBeUndefined();
-    const many = Array.from({ length: 20 }, (_, i) => `./s${i}:import:./s${i}.js`);
+    const many = Array.from(
+      { length: 20 },
+      (_, i) => `./s${i}:import:./s${i}.js`
+    );
     expect(compactExports(many)!.length).toBe(8);
   });
 });

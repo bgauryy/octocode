@@ -226,7 +226,8 @@ export async function exploreMultipleRepositoryStructures(
       ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
       peerHints: true,
       peerEvidence: true,
-    }
+    },
+    args
   );
 }
 

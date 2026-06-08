@@ -116,7 +116,7 @@ describe('pullRequestSearch coverage', () => {
       query: 'test',
       owner: 'owner',
       repo: 'repo',
-      withComments: true,
+      content: { comments: { discussion: true, reviewInline: true } },
     });
 
     expect(result.pull_requests).toBeDefined();
@@ -151,7 +151,7 @@ describe('pullRequestSearch coverage', () => {
       query: 'test',
       owner: 'owner',
       repo: 'repo',
-      type: 'fullContent',
+      content: { changedFiles: true, patches: { mode: 'all' } },
     });
 
     expect(result.pull_requests).toBeDefined();
@@ -318,7 +318,7 @@ describe('pullRequestSearch coverage', () => {
       query: 'test',
       owner: 'owner',
       repo: 'repo',
-      type: 'fullContent',
+      content: { changedFiles: true, patches: { mode: 'all' } },
     });
 
     expect(result.pull_requests).toBeDefined();
@@ -410,7 +410,7 @@ describe('pullRequestSearch coverage', () => {
       query: 'test',
       owner: 'owner',
       repo: 'repo',
-      type: 'fullContent',
+      content: { changedFiles: true, patches: { mode: 'all' } },
     });
 
     expect(result.pull_requests).toBeDefined();

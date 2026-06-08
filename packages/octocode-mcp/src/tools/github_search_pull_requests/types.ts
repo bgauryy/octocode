@@ -68,6 +68,14 @@ export interface GitHubPullRequestApiItem {
     changes?: number;
     patch?: string;
   }>;
+  reviews?: Array<{
+    id: string;
+    user: string;
+    state: string;
+    body: string;
+    submitted_at?: string;
+    commit_id?: string;
+  }>;
   commit_details?: Array<{
     sha: string;
     message: string;

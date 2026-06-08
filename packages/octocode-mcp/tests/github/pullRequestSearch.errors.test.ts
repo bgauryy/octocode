@@ -51,7 +51,7 @@ describe('PR Search - Error Propagation', () => {
       owner: 'test',
       repo: 'repo',
       prNumber: 123,
-      type: 'fullContent',
+      content: { changedFiles: true, patches: { mode: 'all' } },
     });
 
     expect(result.pull_requests?.length).toBe(1);

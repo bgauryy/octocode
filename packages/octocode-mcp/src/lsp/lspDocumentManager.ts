@@ -50,7 +50,11 @@ export class LSPDocumentManager {
     }
 
     const content = await fs.readFile(filePath, 'utf-8');
-    const languageId = this.config.languageId ?? detectLanguageId(filePath);
+    const detectedLanguageId = detectLanguageId(filePath);
+    const languageId =
+      detectedLanguageId === 'plaintext'
+        ? (this.config.languageId ?? detectedLanguageId)
+        : detectedLanguageId;
 
     const params: DidOpenTextDocumentParams = {
       textDocument: {

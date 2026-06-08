@@ -137,7 +137,7 @@ describe('tool stats emission contract', () => {
 
     expect(bulk).toMatch(/createResponseFormat\(/);
     expect(bulk).toMatch(
-      /recordBulkCharSavings\(config\.toolName, results, errors, text\.length\);/
+      /recordBulkCharSavings\(\s*config\.toolName,\s*results,\s*errors,\s*paginated\.text\.length\s*\);/
     );
     expect(bulk).toMatch(
       /incrementToolCharSavings\(toolName, rawChars, responseChars\);/

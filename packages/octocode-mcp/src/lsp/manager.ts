@@ -112,9 +112,9 @@ export async function acquirePooledClient(
   workspaceRoot: string,
   filePath: string
 ): Promise<LSPClient | null> {
-  const languageId = languageIdForFile(filePath);
-  if (!languageId) return null;
-  return sharedPool.acquire({ workspaceRoot, languageId });
+  const key = await poolKeyForFile(workspaceRoot, filePath);
+  if (!key) return null;
+  return sharedPool.acquire(key);
 }
 
 export async function releaseAllPooledClients(): Promise<void> {
@@ -125,9 +125,9 @@ export async function releasePooledClientForFile(
   workspaceRoot: string,
   filePath: string
 ): Promise<boolean> {
-  const languageId = languageIdForFile(filePath);
-  if (!languageId) return false;
-  await sharedPool.clear({ workspaceRoot, languageId });
+  const key = await poolKeyForFile(workspaceRoot, filePath);
+  if (!key) return false;
+  await sharedPool.clear(key);
   return true;
 }
 
@@ -204,8 +204,55 @@ function languageIdForFile(filePath: string): string | null {
 
 function synthesizeFilePathForKey(key: PoolKey): string {
   const ext =
+    Object.entries(LANGUAGE_SERVER_COMMANDS).find(
+      ([, cfg]) => serverIdentityForRegistryCommand(cfg) === key.serverId
+    )?.[0] ??
     Object.entries(LANGUAGE_ID_FOR_EXT).find(
       ([, id]) => id === key.languageId
-    )?.[0] ?? '.ts';
+    )?.[0] ??
+    '.ts';
   return path.join(key.workspaceRoot, `__octocode_pool_probe${ext}`);
+}
+
+async function poolKeyForFile(
+  workspaceRoot: string,
+  filePath: string
+): Promise<PoolKey | null> {
+  const ext = path.extname(filePath).toLowerCase();
+  const userServer = (await loadUserConfig(workspaceRoot))[ext];
+  if (userServer) {
+    return {
+      workspaceRoot,
+      languageId: userServer.languageId,
+      serverId: serverIdentityForCommand(
+        userServer.command,
+        userServer.args ?? []
+      ),
+    };
+  }
+
+  const serverInfo = LANGUAGE_SERVER_COMMANDS[ext];
+  if (!serverInfo) return null;
+
+  return {
+    workspaceRoot,
+    languageId: serverInfo.languageId,
+    serverId: serverIdentityForRegistryCommand(serverInfo),
+  };
+}
+
+function serverIdentityForRegistryCommand(config: {
+  command: string;
+  args: string[];
+  envVar: string;
+}): string {
+  return serverIdentityForCommand(config.command, config.args, config.envVar);
+}
+
+function serverIdentityForCommand(
+  command: string,
+  args: string[],
+  envVar?: string
+): string {
+  return [envVar ?? command, command, ...args].join('\u0000');
 }

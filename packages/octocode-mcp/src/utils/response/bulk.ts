@@ -11,7 +11,11 @@ import type {
   QueryError,
   EvidenceMetadata,
 } from '../../types/toolResults.js';
-import type { BulkResponseConfig, BulkToolResponse } from '../../types/bulk.js';
+import type {
+  BulkResponseConfig,
+  BulkResponsePagination,
+  BulkToolResponse,
+} from '../../types/bulk.js';
 import type { PromiseResult } from '../../types/promise.js';
 import { countSerializedChars, getRawResponseChars } from './charSavings.js';
 import { relativizeResultPaths, hoistSharedFields } from './pathRelativize.js';
@@ -48,7 +52,8 @@ export async function executeBulkOperation<
 >(
   queries: Array<TQuery>,
   processor: (query: TQuery, index: number) => Promise<ProcessedBulkResult>,
-  config: BulkResponseConfig<TQuery, TOutput>
+  config: BulkResponseConfig<TQuery, TOutput>,
+  pagination?: BulkResponsePagination
 ): Promise<CallToolResult> {
   const concurrency = config.concurrency ?? DEFAULT_BULK_CONCURRENCY;
   const { results, errors } = await processBulkQueries<TQuery>(
@@ -57,7 +62,13 @@ export async function executeBulkOperation<
     concurrency,
     config.minQueryTimeoutMs
   );
-  return createBulkResponse<TQuery, TOutput>(config, results, errors, queries);
+  return createBulkResponse<TQuery, TOutput>(
+    config,
+    results,
+    errors,
+    queries,
+    pagination
+  );
 }
 
 function createBulkResponse<
@@ -71,7 +82,8 @@ function createBulkResponse<
     originalQuery: TQuery;
   }>,
   errors: QueryError[],
-  queries: Array<TQuery>
+  queries: Array<TQuery>,
+  pagination?: BulkResponsePagination
 ): CallToolResult {
   const topLevelFields = ['results', 'hints', 'evidence', 'base', 'shared'];
   const resultFields = ['id', 'status', 'data'];
@@ -117,15 +129,21 @@ function createBulkResponse<
       results: flatQueries,
       config,
     });
+    const paginated = paginateBulkText(finalized.text, pagination);
+    const structuredContent = appendResponsePagination(
+      finalized.structuredContent,
+      paginated.pagination
+    );
     recordBulkCharSavings(
       config.toolName,
       results,
       errors,
-      finalized.text.length
+      paginated.text.length
     );
+    const text = paginated.text;
     return {
-      content: [{ type: 'text' as const, text: finalized.text }],
-      structuredContent: finalized.structuredContent,
+      content: [{ type: 'text' as const, text }],
+      structuredContent,
       isError:
         finalized.isError ??
         (flatQueries.length > 0 &&
@@ -180,8 +198,19 @@ function createBulkResponse<
     responseData.evidence = finalEvidence;
   }
 
-  const text = createResponseFormat(responseData, fullKeysPriority);
-  recordBulkCharSavings(config.toolName, results, errors, text.length);
+  const formattedText = createResponseFormat(responseData, fullKeysPriority);
+  const paginated = paginateBulkText(formattedText, pagination);
+  const structuredContent = appendResponsePagination(
+    sanitizeStructuredContent(responseData) as Record<string, unknown>,
+    paginated.pagination
+  );
+  recordBulkCharSavings(
+    config.toolName,
+    results,
+    errors,
+    paginated.text.length
+  );
+  const text = paginated.text;
 
   return {
     content: [
@@ -190,13 +219,69 @@ function createBulkResponse<
         text,
       },
     ],
-    structuredContent: sanitizeStructuredContent(responseData) as Record<
-      string,
-      unknown
-    >,
+    structuredContent,
     isError:
       flatQueries.length > 0 &&
       flatQueries.every(queryResult => queryResult.status === 'error'),
+  };
+}
+
+function paginateBulkText(
+  text: string,
+  pagination?: BulkResponsePagination
+): {
+  text: string;
+  pagination?: NonNullable<BulkToolResponse['responsePagination']>;
+} {
+  const requestedLength = pagination?.responseCharLength;
+  const requestedOffset = pagination?.responseCharOffset ?? 0;
+  if (requestedLength === undefined) {
+    return { text };
+  }
+
+  const totalChars = text.length;
+  const safeLength = Math.max(1, requestedLength);
+  const safeOffset = Math.min(Math.max(0, requestedOffset), totalChars);
+  const endOffset = Math.min(safeOffset + safeLength, totalChars);
+  const hasMore = endOffset < totalChars;
+
+  const pageText = text.slice(safeOffset, endOffset);
+  const header = hasMore
+    ? `# Response page ${Math.floor(safeOffset / safeLength) + 1}/${Math.max(1, Math.ceil(totalChars / safeLength))}. Next: responseCharOffset=${endOffset}\n`
+    : `# Response page ${Math.floor(safeOffset / safeLength) + 1}/${Math.max(1, Math.ceil(totalChars / safeLength))}.\n`;
+
+  return {
+    text: `${header}${pageText}`,
+    pagination: {
+      currentPage: Math.floor(safeOffset / safeLength) + 1,
+      totalPages: Math.max(1, Math.ceil(totalChars / safeLength)),
+      hasMore,
+      charOffset: safeOffset,
+      charLength: endOffset - safeOffset,
+      totalChars,
+      ...(hasMore ? { nextCharOffset: endOffset } : {}),
+    },
+  };
+}
+
+function appendResponsePagination<T extends Record<string, unknown>>(
+  structuredContent: T,
+  pagination?: NonNullable<BulkToolResponse['responsePagination']>
+): T {
+  if (!pagination) return structuredContent;
+  return {
+    ...structuredContent,
+    responsePagination: pagination,
+    hints: [
+      ...(Array.isArray(structuredContent.hints)
+        ? structuredContent.hints.filter(
+            (hint): hint is string => typeof hint === 'string'
+          )
+        : []),
+      pagination.hasMore
+        ? `Response page ${pagination.currentPage}/${pagination.totalPages}. Next: responseCharOffset=${pagination.nextCharOffset}`
+        : `Response page ${pagination.currentPage}/${pagination.totalPages}.`,
+    ],
   };
 }
 

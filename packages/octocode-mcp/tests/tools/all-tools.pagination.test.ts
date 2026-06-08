@@ -46,7 +46,7 @@ describe('pagination cursor uniformity', () => {
     expect(generatePaginationHints(meta(false))).toEqual([]);
   });
 
-  it('Structure cursor uses entryPageNumber; final page silent', () => {
+  it('Structure cursor uses page; final page silent', () => {
     expect(
       generateStructurePaginationHints(
         {
@@ -66,7 +66,7 @@ describe('pagination cursor uniformity', () => {
           allFolders: 1,
         }
       )[0]
-    ).toMatch(/Page 1\/3.*entryPageNumber=2/);
+    ).toMatch(/Page 1\/3.*page=2/);
     expect(
       generateStructurePaginationHints(
         {

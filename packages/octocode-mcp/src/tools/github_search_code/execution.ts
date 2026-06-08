@@ -113,6 +113,7 @@ export async function searchMultipleGitHubCode(
       peerHints: true,
       peerEvidence: true,
       finalize: buildGithubSearchCodeFinalizer<PartialCodeSearchQuery>(),
-    }
+    },
+    args
   );
 }
