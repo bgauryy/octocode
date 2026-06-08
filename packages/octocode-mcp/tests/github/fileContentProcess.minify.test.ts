@@ -70,7 +70,9 @@ describe('processFileContentAPI — minify flag', () => {
       undefined,
       false
     );
-    expect(result.content).toContain('// Top-level comment that should be stripped');
+    expect(result.content).toContain(
+      '// Top-level comment that should be stripped'
+    );
     expect(result.content).toContain('// inline counter init');
   });
 
