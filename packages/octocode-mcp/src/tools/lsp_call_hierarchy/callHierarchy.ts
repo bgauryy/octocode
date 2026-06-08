@@ -63,7 +63,7 @@ async function processCallHierarchyInternal(
     const absolutePath = pathValidation.sanitizedPath!;
     const uri = query.uri!;
     const symbolName = query.symbolName!;
-    const lineHint = query.lineHint!;
+    const lineHint = query.lineHint;
 
     let content: string;
     try {
@@ -97,8 +97,12 @@ async function processCallHierarchyInternal(
             error: error.message,
             hints: [
               ...getHints(TOOL_NAME, 'empty'),
-              `Symbol '${symbolName}' not found at line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
-              'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry.',
+              lineHint === undefined
+                ? `Symbol '${symbolName}' not found anywhere in the file — verify the exact symbol name (case-sensitive); it may be defined in another file.`
+                : `Symbol '${symbolName}' not found at line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
+              lineHint === undefined
+                ? 'Scanned the whole file.'
+                : 'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry (or omit lineHint to auto-locate).',
             ],
           },
           content.length

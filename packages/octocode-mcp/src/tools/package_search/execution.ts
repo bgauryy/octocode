@@ -92,28 +92,104 @@ function joinRepoPath(
     : cleanEntry;
 }
 
-function compactExports(
+const EXPORT_CONDITION_RANK = [
+  'import',
+  'default',
+  'require',
+  'types',
+  'node',
+  'browser',
+];
+function exportConditionRank(condition: string): number {
+  const i = EXPORT_CONDITION_RANK.indexOf(condition);
+  return i === -1 ? 99 : i;
+}
+
+/**
+ * Collapse the exports map to one line per subpath. mapExports emits
+ * `subpath:condition:target` (object exports) or `subpath:target` (string
+ * exports) or a plain path; a package with N subpaths × M conditions would
+ * otherwise spill N×M lines (zod ≈ 12). We keep one entry per subpath using
+ * the most useful condition (import › default › require › …), rendered as
+ * `subpath → target`. No unique subpath is lost; the redundant per-condition
+ * duplicates (already covered by the top-level main/types entrypoints) are.
+ */
+export function compactExports(
   exportsList: string[] | undefined
 ): string[] | undefined {
   if (!exportsList || exportsList.length === 0) return undefined;
-  return exportsList.slice(0, 12);
+
+  const bySubpath = new Map<string, { cond: string; target: string }>();
+  const plain: string[] = [];
+
+  for (const entry of exportsList) {
+    const parts = entry.split(':');
+    if (parts.length >= 3) {
+      const subpath = parts[0]!;
+      const condition = parts[1]!;
+      const target = parts.slice(2).join(':');
+      const current = bySubpath.get(subpath);
+      if (
+        !current ||
+        exportConditionRank(condition) < exportConditionRank(current.cond)
+      ) {
+        bySubpath.set(subpath, { cond: condition, target });
+      }
+    } else if (parts.length === 2) {
+      const subpath = parts[0]!;
+      if (!bySubpath.has(subpath)) {
+        bySubpath.set(subpath, { cond: '', target: parts[1]! });
+      }
+    } else {
+      plain.push(entry);
+    }
+  }
+
+  const grouped = [...bySubpath.entries()].map(
+    ([subpath, { target }]) => `${subpath} → ${target}`
+  );
+  const out = [...grouped, ...plain].slice(0, 8);
+  return out.length > 0 ? out : undefined;
 }
 
 function buildPackageType(pkg: PackageResult): string {
   return getPackageField<string>(pkg, 'packageType') ?? 'unknown';
 }
 
+const EXPORT_ARROW = ' → ';
+const ROOT_EXPORT_PREFIX = `.${EXPORT_ARROW}`;
+
 function buildEntrypoints(pkg: PackageResult) {
-  const main = getPackageField<string | null>(pkg, 'mainEntry') ?? null;
+  const rawMain = getPackageField<string | null>(pkg, 'mainEntry') ?? null;
   const module = getPackageField<string | null>(pkg, 'moduleEntry') ?? null;
   const types = getPackageField<string | null>(pkg, 'typeDefinitions') ?? null;
-  const exportsList = compactExports(getPackageField<string[]>(pkg, 'exports'));
-  if (!main && !module && !types && !exportsList) return undefined;
+  const exportsAll = compactExports(getPackageField<string[]>(pkg, 'exports'));
+  const bin = getPackageField<string[]>(pkg, 'bin');
+
+  // `exports` supersedes `main` (npm spec): when the exports map has a "."
+  // entry, that IS the package entry, so we promote it to `main` and list only
+  // the OTHER subpaths under `exports` — "." is never shown twice. With no
+  // exports map, `main`/`module` stay as the legacy fallback.
+  let main = rawMain;
+  let module2: string | null = module;
+  let subpathExports: string[] | undefined = exportsAll;
+  if (exportsAll) {
+    const root = exportsAll.find(e => e.startsWith(ROOT_EXPORT_PREFIX));
+    if (root) {
+      main = root.slice(ROOT_EXPORT_PREFIX.length);
+      module2 = null; // covered by the resolved entry
+    }
+    const rest = exportsAll.filter(e => !e.startsWith(ROOT_EXPORT_PREFIX));
+    subpathExports = rest.length > 0 ? rest : undefined;
+  }
+
+  if (!main && !module2 && !types && !subpathExports && !bin) return undefined;
   return {
     ...(main ? { main } : {}),
-    ...(module ? { module } : {}),
+    ...(module2 ? { module: module2 } : {}),
     ...(types ? { types } : {}),
-    ...(exportsList ? { exports: exportsList } : {}),
+    ...(bin ? { bin } : {}), // CLI executable location (where the CLI code lives)
+    ...(subpathExports ? { exports: subpathExports } : {}),
   };
 }
 
@@ -178,11 +254,23 @@ function shapePackage(pkg: PackageResult): ShapedPackage {
     path: _path,
     dependencies: _dependencies,
     peerDependencies: _peerDependencies,
+    // All entry indicators (main/module/types/exports/bin) are surfaced inside
+    // `entrypoints`; drop the raw top-level copies so they aren't duplicated.
+    exports: _exports,
+    bin: _bin,
+    mainEntry: _mainEntry,
+    moduleEntry: _moduleEntry,
+    typeDefinitions: _typeDefinitions,
     ...pkgRest
   } = pkg as PackageResult & {
     path?: string;
     dependencies?: Record<string, string>;
     peerDependencies?: Record<string, string>;
+    exports?: unknown;
+    bin?: unknown;
+    mainEntry?: unknown;
+    moduleEntry?: unknown;
+    typeDefinitions?: unknown;
   };
 
   return {

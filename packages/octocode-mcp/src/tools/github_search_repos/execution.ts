@@ -16,6 +16,63 @@ import type {
 
 type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
 
+function truncateDescription(description: string, max = 100): string {
+  const clean = description.replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+function isoDate(value?: string): string | undefined {
+  return typeof value === 'string' && value.length >= 10
+    ? value.slice(0, 10)
+    : undefined;
+}
+
+/**
+ * Render a repository as one compact line for agent scanning. Packs every
+ * meaningful field (stars, forks, open issues, language, push/create dates,
+ * non-default branch, private flag, topics, description) while dropping
+ * redundant data — the URL is derivable as github.com/<owner>/<repo>, and
+ * updatedAt is omitted in favour of pushedAt (true code-activity signal).
+ */
+export function formatRepoLine(repo: GitHubRepositoryOutput): string {
+  const r = repo as GitHubRepositoryOutput & {
+    pushedAt?: string;
+    visibility?: string;
+    topics?: string[];
+    forksCount?: number;
+    openIssuesCount?: number;
+    language?: string;
+    defaultBranch?: string;
+  };
+  const parts: string[] = [`${r.owner ? `${r.owner}/` : ''}${r.repo}`];
+
+  if (typeof r.stars === 'number') parts.push(`★${r.stars}`);
+  if (typeof r.forksCount === 'number' && r.forksCount > 0)
+    parts.push(`⑂${r.forksCount}`);
+  if (typeof r.openIssuesCount === 'number' && r.openIssuesCount > 0)
+    parts.push(`${r.openIssuesCount}i`);
+  if (r.language) parts.push(r.language);
+
+  const pushed = isoDate(r.pushedAt);
+  if (pushed) parts.push(`pushed ${pushed}`);
+  const created = isoDate(r.createdAt);
+  if (created) parts.push(`created ${created}`);
+
+  if (r.visibility && r.visibility !== 'public') parts.push(r.visibility);
+  if (
+    r.defaultBranch &&
+    r.defaultBranch !== 'main' &&
+    r.defaultBranch !== 'master'
+  )
+    parts.push(`@${r.defaultBranch}`);
+  if (Array.isArray(r.topics) && r.topics.length > 0)
+    parts.push(`#${r.topics.slice(0, 3).join(',')}`);
+
+  if (r.description) parts.push(truncateDescription(r.description));
+
+  return parts.join(' · ');
+}
+
 export function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
   _query: PartialReposSearchQuery
@@ -23,7 +80,10 @@ export function buildReposSearchOutput(
   data: { repositories: unknown[]; pagination?: unknown };
   extraHints: string[];
 } {
-  return { data, extraHints: [] };
+  return {
+    data: { ...data, repositories: data.repositories.map(formatRepoLine) },
+    extraHints: [],
+  };
 }
 import {
   handleCatchError,

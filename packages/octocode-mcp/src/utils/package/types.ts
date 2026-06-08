@@ -33,6 +33,7 @@ export interface NpmPackageResult {
   typeDefinitions?: string | null;
   packageType?: 'module' | 'commonjs' | 'types-only' | 'unknown';
   exports?: string[];
+  bin?: string[];
   repositoryDirectory?: string;
   lastPublished?: string;
   owner?: string;

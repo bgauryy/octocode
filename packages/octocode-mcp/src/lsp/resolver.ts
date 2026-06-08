@@ -119,8 +119,22 @@ export class SymbolResolver {
     fuzzy: FuzzyPosition
   ): ResolvedSymbol {
     const lines = content.split(/\r?\n/);
-    const targetLine = fuzzy.lineHint - 1;
     const orderHint = fuzzy.orderHint ?? 0;
+
+    // No lineHint → auto-locate the symbol by scanning the whole file, so the
+    // caller doesn't need a prior localSearchCode to find the line number.
+    if (fuzzy.lineHint === undefined || fuzzy.lineHint <= 0) {
+      const scanned = this.scanWholeFile(lines, fuzzy.symbolName, orderHint);
+      if (scanned !== null) return scanned;
+      throw new SymbolResolutionError(
+        fuzzy.symbolName,
+        0,
+        `Symbol not found anywhere in the file (scanned ${lines.length} lines). Verify the exact symbol name.`,
+        this.lineSearchRadius
+      );
+    }
+
+    const targetLine = fuzzy.lineHint - 1;
 
     if (targetLine < 0 || targetLine >= lines.length) {
       throw new SymbolResolutionError(
@@ -174,6 +188,49 @@ export class SymbolResolver {
       `Symbol not found in target line or within ±${this.lineSearchRadius} lines. Verify the exact symbol name and line number.`,
       this.lineSearchRadius
     );
+  }
+
+  /**
+   * Scan the whole file for the symbol when no lineHint is given. Prefers a
+   * line that looks like a declaration of the symbol (so gotoDefinition /
+   * callHierarchy anchor on the definition); otherwise returns the first
+   * word-boundary occurrence. orderHint applies to the first matched line.
+   */
+  private scanWholeFile(
+    lines: string[],
+    symbolName: string,
+    orderHint: number
+  ): ResolvedSymbol | null {
+    // Keyword must directly introduce the symbol (allowing `*` and whitespace),
+    // so a reference like `const helper = () => sym()` is NOT mistaken for a
+    // declaration of `sym`.
+    const escaped = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const declRe = new RegExp(
+      `\\b(function|class|interface|type|enum|const|let|var|def|struct|fn|trait|impl|func|module|namespace)\\s+\\*?\\s*${escaped}\\b`
+    );
+    let firstMatch: ResolvedSymbol | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const character = this.findSymbolInLine(
+        line,
+        symbolName,
+        firstMatch === null ? orderHint : 0
+      );
+      if (character === null) continue;
+
+      const hit: ResolvedSymbol = {
+        position: { line: i, character },
+        foundAtLine: i + 1,
+        lineOffset: 0,
+        lineContent: line,
+      };
+      // A declaration line is the best anchor — return immediately.
+      if (declRe.test(line)) return hit;
+      if (firstMatch === null) firstMatch = hit;
+    }
+
+    return firstMatch;
   }
 
   private findSymbolInLine(
@@ -272,7 +329,7 @@ export const defaultResolver = new SymbolResolver({ lineSearchRadius: 5 });
 export async function resolveSymbolPosition(
   filePath: string,
   symbolName: string,
-  lineHint: number,
+  lineHint?: number,
   orderHint?: number
 ): Promise<ResolvedSymbol> {
   return defaultResolver.resolvePosition(filePath, {

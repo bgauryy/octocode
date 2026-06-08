@@ -25,7 +25,7 @@ describe('LSP Find References Coverage Tests', () => {
 
     expect(source).not.toContain('TIP: Use localSearchCode');
     expect(source).toContain(
-      'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.'
+      'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint (or omit lineHint to auto-locate).'
     );
   });
 

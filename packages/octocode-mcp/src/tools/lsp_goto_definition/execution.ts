@@ -109,7 +109,7 @@ async function gotoDefinition(
     }
 
     const symbolName = query.symbolName!;
-    const lineHint = query.lineHint!;
+    const lineHint = query.lineHint;
     const resolver = new SymbolResolver({ lineSearchRadius: 5 });
     let resolvedSymbol;
     try {
@@ -129,9 +129,15 @@ async function gotoDefinition(
             searchRadius: error.searchRadius,
             hints: [
               ...getHints(TOOL_NAME, 'empty'),
-              `Symbol "${symbolName}" not found at or near line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
-              `Searched lines ${Math.max(1, lineHint - error.searchRadius)} to ${lineHint + error.searchRadius}`,
-              'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.',
+              lineHint === undefined
+                ? `Symbol "${symbolName}" not found anywhere in the file — verify the exact symbol name (case-sensitive).`
+                : `Symbol "${symbolName}" not found at or near line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
+              lineHint === undefined
+                ? 'Scanned the whole file. If the name is right, it may be defined in another file — search there.'
+                : `Searched lines ${Math.max(1, lineHint - error.searchRadius)} to ${lineHint + error.searchRadius}`,
+              lineHint === undefined
+                ? undefined
+                : 'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint (or omit lineHint to auto-locate).',
               query.orderHint && query.orderHint > 0
                 ? `orderHint=${query.orderHint} targets the ${query.orderHint + 1}th code occurrence on the exact line`
                 : undefined,

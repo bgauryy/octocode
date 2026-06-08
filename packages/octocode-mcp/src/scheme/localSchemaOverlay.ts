@@ -68,6 +68,12 @@ export const lineNumberField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
 
 export const requiredLineHintField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE);
 
+export const optionalLineHintField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE)
+  .optional()
+  .describe(
+    'Optional 1-based line of the symbol. Omit to auto-locate it (the tool scans the file, preferring the declaration). Provide it for speed and to disambiguate when the symbol appears many times — e.g. from a prior localSearchCode hit.'
+  );
+
 export const orderHintField = clampedInt(
   0,
   LOCAL_OVERLAY_MAX_ORDER_HINT

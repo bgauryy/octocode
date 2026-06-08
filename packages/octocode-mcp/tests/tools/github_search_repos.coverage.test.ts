@@ -176,13 +176,12 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
+          data?: { repositories?: Array<string> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'high',
-      });
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
+        /^b\/high /
+      );
     });
 
     it('sorts by updated date when sort=updated', async () => {
@@ -201,13 +200,12 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
+          data?: { repositories?: Array<string> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'new',
-      });
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
+        /^b\/new /
+      );
     });
 
     it('sorts by created date when sort=created, handling missing dates', async () => {
@@ -226,13 +224,12 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
+          data?: { repositories?: Array<string> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'dated',
-      });
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
+        /^b\/dated /
+      );
     });
 
     it('falls back to relevance/stars when sort=best-match', async () => {
@@ -251,13 +248,12 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
+          data?: { repositories?: Array<string> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'high',
-      });
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
+        /^b\/high /
+      );
     });
   });
 
@@ -292,13 +288,12 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
+          data?: { repositories?: Array<string> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'org',
-        repo: 'whale',
-      });
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
+        /^org\/whale /
+      );
     });
   });
 

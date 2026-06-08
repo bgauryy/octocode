@@ -29,7 +29,8 @@ export interface LanguageServerCommand {
 export interface FuzzyPosition {
   symbolName: string;
 
-  lineHint: number;
+  /** Optional — when omitted, the resolver scans the whole file for the symbol. */
+  lineHint?: number;
 
   orderHint?: number;
 }

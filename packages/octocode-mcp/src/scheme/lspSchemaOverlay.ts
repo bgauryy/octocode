@@ -11,7 +11,7 @@ import {
   optionalMetaFields,
   relaxedPageNumberField,
   depthField,
-  requiredLineHintField,
+  optionalLineHintField,
   orderHintField,
   DEFAULT_PAGE_SIZE,
   withCoreSchemaDescriptions,
@@ -53,7 +53,7 @@ export const LSPGotoDefinitionQuerySchema = withFilePathAlias(
         .string()
         .optional()
         .describe('Alias for uri — pass either, not both'),
-      lineHint: requiredLineHintField,
+      lineHint: optionalLineHintField,
       orderHint: orderHintField,
       contextLines: contextLinesField,
     })
@@ -78,7 +78,7 @@ export const LSPFindReferencesQuerySchema = withFilePathAlias(
         .string()
         .optional()
         .describe('Alias for uri — pass either, not both'),
-      lineHint: requiredLineHintField,
+      lineHint: optionalLineHintField,
       orderHint: orderHintField,
       contextLines: contextLinesField,
       page: relaxedPageNumberField
@@ -109,7 +109,7 @@ export const LSPCallHierarchyQuerySchema = withFilePathAlias(
         .string()
         .optional()
         .describe('Alias for uri — pass either, not both'),
-      lineHint: requiredLineHintField,
+      lineHint: optionalLineHintField,
       orderHint: orderHintField,
       contextLines: contextLinesField,
       page: relaxedPageNumberField

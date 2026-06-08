@@ -172,10 +172,10 @@ describe('directToolCatalog', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY)
     ).toEqual(
+      // lineHint is now optional → omitted from the minimal example query
       expect.objectContaining({
         uri: 'uri',
         symbolName: 'symbolName',
-        lineHint: 1,
         direction: 'incoming',
       })
     );

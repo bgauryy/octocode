@@ -511,7 +511,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       expect(result.isError).toBe(false);
     });
 
-    it('returns repositories with complete topics[] — never truncates mid-item', async () => {
+    it('returns each repository as a complete one-liner — never truncates mid-item', async () => {
       const topics = Array.from({ length: 5 }, (_, index) => `topic-${index}`);
       mockProvider.searchRepos.mockResolvedValue({
         data: {
@@ -546,7 +546,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const firstStructured = firstResult.structuredContent as {
         results: Array<{
           data: {
-            repositories?: Array<{ repo: string; topics?: string[] }>;
+            repositories?: Array<string>;
           };
         }>;
       };
@@ -554,7 +554,9 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       expect(firstData.repositories?.length ?? 0).toBeGreaterThan(0);
       for (const r of firstData.repositories ?? []) {
-        expect(r.topics).toEqual(topics);
+        // each repo is an atomic one-liner: complete path + metrics, never cut
+        expect(typeof r).toBe('string');
+        expect(r).toMatch(/^test\/repo-\d+ · ★100/);
       }
     });
   });

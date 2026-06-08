@@ -83,7 +83,7 @@ async function findReferencesInternal(
     const absolutePath = pathValidation.sanitizedPath!;
     const uri = query.uri!;
     const symbolName = query.symbolName!;
-    const lineHint = query.lineHint!;
+    const lineHint = query.lineHint;
 
     try {
       await stat(absolutePath);
@@ -128,11 +128,15 @@ async function findReferencesInternal(
             error: error.message,
             errorType: 'symbol_not_found',
             errorCode: LSP_ERROR_CODES.SYMBOL_NOT_FOUND,
-            hints: [
-              `Symbol '${symbolName}' not found at or near line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
-              `Searched +/-${error.searchRadius} lines from line ${lineHint}`,
-              'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint.',
-            ],
+            hints: (lineHint === undefined
+              ? [
+                  `Symbol '${symbolName}' not found anywhere in the file — verify the exact symbol name (case-sensitive). It may be defined in another file.`,
+                ]
+              : [
+                  `Symbol '${symbolName}' not found at or near line ${lineHint} — lineHint is likely stale (file changed since the line was recorded).`,
+                  `Searched +/-${error.searchRadius} lines from line ${lineHint}`,
+                  'Re-anchor: run localSearchCode with the exact symbol name to get the current line number, then retry with that lineHint (or omit lineHint to auto-locate).',
+                ]) as string[],
           },
           content.length
         );

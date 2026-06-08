@@ -10,6 +10,53 @@ describe('SymbolResolver', () => {
     vi.clearAllMocks();
   });
 
+  describe('resolvePositionFromContent — no lineHint (whole-file scan)', () => {
+    const src = `import { x } from './x';
+
+const helper = () => useThing();
+
+export function useThing(): void {
+  return doStuff();
+}
+`;
+
+    it('auto-locates the symbol when lineHint is omitted', () => {
+      const resolver = new SymbolResolver();
+      const result = resolver.resolvePositionFromContent(src, {
+        symbolName: 'useThing',
+      });
+      expect(result.position.line).toBe(4); // the declaration line (0-indexed)
+      expect(result.lineContent).toContain('export function useThing');
+    });
+
+    it('prefers the declaration line over earlier reference occurrences', () => {
+      const resolver = new SymbolResolver();
+      // useThing is referenced on line 3 (const helper) before its declaration
+      const result = resolver.resolvePositionFromContent(src, {
+        symbolName: 'useThing',
+      });
+      expect(result.foundAtLine).toBe(5); // 1-based declaration line, not line 3
+    });
+
+    it('falls back to first occurrence when no declaration line exists', () => {
+      const resolver = new SymbolResolver();
+      const result = resolver.resolvePositionFromContent(
+        'a();\nb();\nfoo();\nfoo();\n',
+        { symbolName: 'foo' }
+      );
+      expect(result.foundAtLine).toBe(3);
+    });
+
+    it('throws a clear error when the symbol is absent', () => {
+      const resolver = new SymbolResolver();
+      expect(() =>
+        resolver.resolvePositionFromContent('const a = 1;\n', {
+          symbolName: 'missingSym',
+        })
+      ).toThrow(/not found anywhere in the file/);
+    });
+  });
+
   describe('resolvePositionFromContent', () => {
     it('should find symbol on exact line', () => {
       const resolver = new SymbolResolver();

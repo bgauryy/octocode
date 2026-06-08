@@ -70,6 +70,7 @@ interface NpmViewResult {
   module?: string;
   type?: string;
   exports?: unknown;
+  bin?: unknown;
   types?: string;
   typings?: string;
   description?: string;
@@ -216,6 +217,26 @@ function mapExports(value: unknown): string[] | undefined {
   return entries.length > 0 ? entries : undefined;
 }
 
+/**
+ * Normalize package.json `bin` into compact `command → path` lines. `bin` is a
+ * key code-location indicator for CLI packages — it points at the executable
+ * source, which `main`/`exports` (library entry) do not.
+ */
+function mapBin(value: unknown, packageName?: string): string[] | undefined {
+  if (typeof value === 'string') {
+    const cmd = packageName?.replace(/^@[^/]+\//, '') ?? '';
+    return [cmd ? `${cmd} → ${value}` : value];
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, path]) => typeof path === 'string')
+      .map(([cmd, path]) => `${cmd} → ${path}`)
+      .slice(0, 8);
+    return entries.length > 0 ? entries : undefined;
+  }
+  return undefined;
+}
+
 function inferPackageType(
   data: NpmViewResult
 ): NpmPackageResult['packageType'] {
@@ -265,6 +286,9 @@ function mapToResult(
     packageType: inferPackageType(data),
     ...(repositoryDirectory ? { repositoryDirectory } : {}),
     ...(mapExports(data.exports) ? { exports: mapExports(data.exports) } : {}),
+    ...(mapBin(data.bin, data.name)
+      ? { bin: mapBin(data.bin, data.name) }
+      : {}),
     lastPublished,
     source,
   };

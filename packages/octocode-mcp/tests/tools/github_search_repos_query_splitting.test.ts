@@ -357,14 +357,13 @@ describe('GitHub Search Repositories Query Splitting', () => {
       const structured = result.structuredContent as {
         results?: Array<{
           data?: {
-            repositories?: Array<{ owner: string; repo: string }>;
+            repositories?: Array<string>;
           };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'keyword',
-        repo: 'keyword',
-      });
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
+        /^keyword\/keyword /
+      );
     });
   });
 

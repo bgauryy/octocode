@@ -260,6 +260,38 @@ describe('package_search execution branches', () => {
       expect(text).toContain(`${'D'.repeat(197)}...`);
     });
 
+    it('exports supersedes main, surfaces bin, and never duplicates the "." entry', async () => {
+      mockSearchPackage.mockResolvedValue({
+        packages: [
+          {
+            name: 'clitool',
+            version: '2.0.0',
+            repoUrl: 'https://github.com/owner/clitool',
+            mainEntry: './dist/index.cjs', // legacy fallback; should be superseded
+            typeDefinitions: './dist/index.d.ts',
+            // collapsed exports (one per subpath) as produced upstream
+            exports: ['. → ./dist/index.js', './sub → ./dist/sub.js'],
+            bin: ['clitool → ./bin/cli.js'],
+          },
+        ],
+        totalFound: 1,
+      });
+
+      const result = await searchPackages({
+        queries: [{ ...baseQuery, id: 'cli:1', name: 'clitool' } as never],
+      });
+
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      // "." promoted to main from exports (supersedes the legacy ./dist/index.cjs)
+      expect(text).toContain('main: "./dist/index.js"');
+      expect(text).not.toContain('./dist/index.cjs');
+      // exports lists only the OTHER subpaths — "." is not shown twice
+      expect(text).toContain('./sub → ./dist/sub.js');
+      expect(text).not.toContain('". → ./dist/index.js"');
+      // bin (CLI code location) is surfaced
+      expect(text).toContain('clitool → ./bin/cli.js');
+    });
+
     it('keeps non-GitHub repository URLs without GitHub research targets', async () => {
       mockSearchPackage.mockResolvedValue({
         packages: [
