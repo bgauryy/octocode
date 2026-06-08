@@ -6,6 +6,7 @@ import {
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 
 beforeAll(async () => {
   await initializeToolMetadata();
@@ -498,133 +499,6 @@ describe('tool-owned structured pagination', () => {
     expect(data.outputPagination).toBeUndefined();
   });
 
-  it('paginates lspGotoDefinition locations through the location content branch', () => {
-    const fullContent = 'definition-'.repeat(700);
-
-    const result = applyQueryOutputPagination(
-      {
-        id: 'goto_def',
-        data: {
-          locations: [
-            {
-              path: 'src/definition.ts',
-              line: 15,
-              content: fullContent,
-            },
-          ],
-        },
-      },
-      { charLength: 500 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
-    );
-
-    const data = result.data as {
-      locations?: Array<{ content?: string }>;
-      outputPagination?: { hasMore: boolean };
-    };
-
-    expect(data.locations?.[0]?.content?.length).toBeLessThan(
-      fullContent.length
-    );
-    expect(data.outputPagination?.hasMore).toBe(true);
-  });
-
-  it('leaves lspFindReferences query data to its domain pagination contract', () => {
-    const fullContent = 'reference-'.repeat(700);
-
-    const result = applyQueryOutputPagination(
-      {
-        id: 'find_refs',
-        data: {
-          locations: [
-            {
-              path: 'src/reference.ts',
-              line: 22,
-              content: fullContent,
-            },
-          ],
-        },
-      },
-      { charLength: 500 },
-      TOOL_NAMES.LSP_FIND_REFERENCES
-    );
-
-    const data = result.data as {
-      locations?: Array<{ content?: string }>;
-      outputPagination?: { hasMore: boolean };
-    };
-
-    expect(data.locations?.[0]?.content?.length).toBe(fullContent.length);
-    expect(data.outputPagination).toBeUndefined();
-  });
-
-  it('preserves lspFindReferences domain pagination without injecting outputPagination', () => {
-    const fullContent = 'reference-'.repeat(700);
-
-    const response = applyBulkResponsePagination(
-      {
-        results: [
-          {
-            id: 'find_refs',
-            data: {
-              locations: [
-                {
-                  uri: '/workspace/src/reference.ts',
-                  range: { start: { line: 21, character: 0 } },
-                  content: fullContent,
-                },
-              ],
-              pagination: {
-                currentPage: 1,
-                totalPages: 2,
-                totalResults: 2,
-                hasMore: true,
-                resultsPerPage: 1,
-              },
-            },
-          },
-        ],
-      },
-      { length: 500 },
-      TOOL_NAMES.LSP_FIND_REFERENCES
-    );
-
-    const data = response.results[0]?.data as {
-      outputPagination?: unknown;
-      pagination?: unknown;
-    };
-    expect(data.pagination).toBeDefined();
-    expect(data.outputPagination).toBeUndefined();
-  });
-
-  it('paginates lspCallHierarchy call arrays through the hierarchy branch', () => {
-    const incomingCalls = Array.from({ length: 30 }, (_, index) => ({
-      from: `caller-${index}`,
-      filePath: `/workspace/src/caller-${index}.ts`,
-      line: index + 1,
-    }));
-
-    const result = applyQueryOutputPagination(
-      {
-        id: 'call_hierarchy',
-        data: {
-          incomingCalls,
-          outgoingCalls: [],
-        },
-      },
-      { charLength: 500 },
-      TOOL_NAMES.LSP_CALL_HIERARCHY
-    );
-
-    const data = result.data as {
-      incomingCalls?: Array<{ from: string }>;
-      outputPagination?: { hasMore: boolean };
-    };
-
-    expect(data.incomingCalls?.length).toBeLessThan(incomingCalls.length);
-    expect(data.outputPagination?.hasMore).toBe(true);
-  });
-
   it('paginates githubSearchPullRequests through the pull_requests branch', () => {
     const pullRequests = Array.from({ length: 25 }, (_, index) => ({
       number: index + 1,
@@ -663,7 +537,7 @@ describe('tool-owned structured pagination', () => {
         data: { error: longError, hints: ['Retry with lineHint'] },
       },
       { charLength: 1000 },
-      TOOL_NAMES.LSP_CALL_HIERARCHY
+      LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
     );
 
     const data = result.data as Record<string, unknown>;
@@ -679,7 +553,7 @@ describe('tool-owned structured pagination', () => {
         data: { hints: ['No matches'] },
       },
       { charLength: 100 },
-      TOOL_NAMES.LSP_CALL_HIERARCHY
+      LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
     );
 
     const data = result.data as Record<string, unknown>;
@@ -725,7 +599,7 @@ describe('tool-owned structured pagination', () => {
         },
       },
       { charLength: 1000 },
-      TOOL_NAMES.LSP_CALL_HIERARCHY
+      LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
     );
 
     const data = result.data as Record<string, unknown>;

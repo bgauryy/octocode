@@ -13,9 +13,8 @@ import {
   FetchContentQuerySchema,
   FindFilesQuerySchema,
   ViewStructureQuerySchema,
-  LSPGotoDefinitionQuerySchema,
-  LSPFindReferencesQuerySchema,
-  LSPCallHierarchyQuerySchema,
+  LspGetSemanticContentQuerySchema,
+  LspGetDiagnosticsQuerySchema,
   PackageSearchQuerySchema,
 } from 'octocode-mcp/public';
 import {
@@ -29,9 +28,8 @@ import {
   localGetFileContent,
   localFindFiles,
   localViewStructure,
-  lspGotoDefinition,
-  lspFindReferences,
-  lspCallHierarchy,
+  lspGetSemanticContent,
+  lspGetDiagnostics,
   logToolCall,
 } from '../index.js';
 import {
@@ -68,9 +66,8 @@ const TOOL_ZOD_SCHEMAS: Record<string, z.ZodType> = {
   localGetFileContent: FetchContentQuerySchema,
   localFindFiles: FindFilesQuerySchema,
   localViewStructure: ViewStructureQuerySchema,
-  lspGotoDefinition: LSPGotoDefinitionQuerySchema,
-  lspFindReferences: LSPFindReferencesQuerySchema,
-  lspCallHierarchy: LSPCallHierarchyQuerySchema,
+  lspGetSemanticContent: LspGetSemanticContentQuerySchema,
+  lspGetDiagnostics: LspGetDiagnosticsQuerySchema,
   packageSearch: PackageSearchQuerySchema,
 };
 
@@ -103,9 +100,8 @@ toolsRoutes.get('/list', (_req: Request, res: Response) => {
         { name: 'localGetFileContent', description: 'Read local file content' },
         { name: 'localFindFiles', description: 'Find files by pattern/metadata' },
         { name: 'localViewStructure', description: 'View local directory tree' },
-        { name: 'lspGotoDefinition', description: 'Go to symbol definition' },
-        { name: 'lspFindReferences', description: 'Find all symbol references' },
-        { name: 'lspCallHierarchy', description: 'Get call hierarchy' },
+        { name: 'lspGetSemanticContent', description: 'Go to definition, find references, call hierarchy, hover, document symbols' },
+        { name: 'lspGetDiagnostics', description: 'Get LSP diagnostics (errors/warnings) for a file' },
       ],
     },
     hints: ['GET /tools/info/{name} for full schema before calling'],
@@ -357,9 +353,8 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
   localFindFiles: { fn: localFindFiles, resilience: withLocalResilience, category: 'local' },
   localViewStructure: { fn: localViewStructure, resilience: withLocalResilience, category: 'local' },
 
-  lspGotoDefinition: { fn: lspGotoDefinition, resilience: withLspResilience, category: 'lsp' },
-  lspFindReferences: { fn: lspFindReferences, resilience: withLspResilience, category: 'lsp' },
-  lspCallHierarchy: { fn: lspCallHierarchy, resilience: withLspResilience, category: 'lsp' },
+  lspGetSemanticContent: { fn: lspGetSemanticContent, resilience: withLspResilience, category: 'lsp' },
+  lspGetDiagnostics: { fn: lspGetDiagnostics, resilience: withLspResilience, category: 'lsp' },
 
   packageSearch: { fn: packageSearch, resilience: withPackageResilience, category: 'package' },
 };

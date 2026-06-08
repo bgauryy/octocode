@@ -190,6 +190,41 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('useData');
     });
+
+    it('marks file-mode results as path-only when GitHub returns no text matches', async () => {
+      mockProvider.searchCode.mockResolvedValue({
+        data: {
+          items: [
+            {
+              path: 'src/no-snippet.ts',
+              repository: { id: '1', name: 'test/repo', url: '' },
+              matches: [],
+              url: '',
+            },
+          ],
+          totalCount: 1,
+          pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+        queries: [
+          {
+            keywordsToSearch: ['noSnippet'],
+            owner: 'test',
+            repo: 'repo',
+            match: 'file',
+          },
+        ],
+      });
+
+      expect(result.isError).toBe(false);
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain('pathOnly: true');
+      expect(responseText).toContain('GitHub did not return text matches');
+    });
   });
 
   describe('match="path" (filename/directory search mode)', () => {

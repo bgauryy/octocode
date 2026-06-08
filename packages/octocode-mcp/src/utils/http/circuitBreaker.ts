@@ -12,7 +12,7 @@ interface HostCircuit {
 }
 
 export const DEFAULT_CIRCUIT_FAILURE_THRESHOLD = 5;
-export const DEFAULT_CIRCUIT_COOLDOWN_MS = 30_000;
+const DEFAULT_CIRCUIT_COOLDOWN_MS = 30_000;
 
 const circuits = new Map<string, HostCircuit>();
 let failureThreshold = DEFAULT_CIRCUIT_FAILURE_THRESHOLD;

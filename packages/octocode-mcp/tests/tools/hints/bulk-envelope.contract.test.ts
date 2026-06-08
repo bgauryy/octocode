@@ -7,6 +7,7 @@ import type {
 } from '../../../src/types/toolResults.js';
 import { sanitizeStructuredContent } from '../../../src/responses.js';
 import { STATIC_TOOL_NAMES } from '../../../src/tools/toolNames.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../src/tools/lsp/shared/semanticTypes.js';
 
 function payload(
   result: import('@modelcontextprotocol/sdk/types').CallToolResult
@@ -146,7 +147,7 @@ describe('executeBulkOperation — hint envelope', () => {
       async q =>
         ok(q.id, { v: 1 }, ['Showing page 1 of 5. Use page=2 for more.']),
       {
-        toolName: STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
+        toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
         peerHints: true,
       }
     );

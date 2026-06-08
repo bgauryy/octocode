@@ -181,7 +181,7 @@ export async function buildSearchResult(
     hints: [
       ...(totalFiles > 0
         ? [
-            'Results include lineHint values — pass them to lspGotoDefinition / lspFindReferences / lspCallHierarchy to get semantic definitions and references.',
+            'Results include lineHint values — pass them to lspGetSemanticContent for semantic definitions, references, call flow, hover, and related symbols.',
           ]
         : []),
       ...paginationHints,

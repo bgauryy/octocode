@@ -32,11 +32,26 @@ function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
   return Boolean(
     keywords.some(keyword => keyword.trim().length > 0) ||
     query.owner ||
-    query.repo ||
     query.path ||
     query.extension ||
     query.filename
   );
+}
+
+function validateCodeSearchScope(
+  query: PartialCodeSearchQuery
+): { error: string; hints: string[] } | undefined {
+  if (query.repo && !query.owner) {
+    return {
+      error:
+        'Repository scope requires owner. Provide both owner and repo, or omit repo for a broader search.',
+      hints: [
+        'Use owner="<org-or-user>" with repo="<repository>" — GitHub code search cannot scope to a bare repository name.',
+        'If you only know the repo name, first use githubSearchRepositories with keywordsToSearch=["<repo>"] to find its owner.',
+      ],
+    };
+  }
+  return undefined;
 }
 
 export async function searchMultipleGitHubCode(
@@ -49,6 +64,13 @@ export async function searchMultipleGitHubCode(
     queries,
     async (query: PartialCodeSearchQuery, _index: number) => {
       try {
+        const scopeValidation = validateCodeSearchScope(query);
+        if (scopeValidation) {
+          return createErrorResult(scopeValidation.error, query, {
+            customHints: scopeValidation.hints,
+          });
+        }
+
         if (!hasValidCodeSearchParams(query)) {
           return createErrorResult(
             'At least one search term or scope filter is required.',

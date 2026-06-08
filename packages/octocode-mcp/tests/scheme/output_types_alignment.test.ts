@@ -23,14 +23,6 @@ import type {
   LocalSearchCodeMatch,
   LocalViewStructureToolResult,
   LocalViewStructureEntry,
-  LspGotoDefinitionToolResult,
-  LspCodeSnippet,
-  LspFindReferencesToolResult,
-  LspReferenceLocation,
-  LspCallHierarchyToolResult,
-  LspCallHierarchyItem,
-  LspIncomingCall,
-  LspOutgoingCall,
   PackageSearchData,
   PackageSearchPackage,
 } from '@octocodeai/octocode-core';
@@ -53,14 +45,9 @@ import type {
   RipgrepFileMatches,
   RipgrepMatch,
   ViewStructureResult,
-  GotoDefinitionResult,
-  CodeSnippet,
-  FindReferencesResult,
-  ReferenceLocation,
-  CallHierarchyResult,
-  CallHierarchyItem,
-  IncomingCall,
-  OutgoingCall,
+  LspDiagnosticsQuery,
+  LspGetSemanticContentQuery,
+  SemanticContentType,
   PackageSearchResult,
   PackageResultWithRepo,
 } from '../../src/public.js';
@@ -130,27 +117,27 @@ describe('Output type alignment', () => {
     expectTypeOf<ViewStructureResult>().toEqualTypeOf<LocalViewStructureToolResult>();
   });
 
-  it('derives LSP and package output aliases from the output schemas', () => {
-    expectTypeOf<CodeSnippet>().toEqualTypeOf<LspCodeSnippet>();
-    expectTypeOf<GotoDefinitionResult>().toEqualTypeOf<LspGotoDefinitionToolResult>();
-    expectTypeOf<GotoDefinitionResult['locations']>().toEqualTypeOf<
-      LspCodeSnippet[] | undefined
+  it('exports current LSP semantic query aliases', () => {
+    expectTypeOf<SemanticContentType>().toEqualTypeOf<
+      | 'definition'
+      | 'references'
+      | 'callers'
+      | 'callees'
+      | 'callHierarchy'
+      | 'hover'
+      | 'documentSymbols'
+      | 'typeDefinition'
+      | 'implementation'
     >();
-
-    expectTypeOf<ReferenceLocation>().toEqualTypeOf<LspReferenceLocation>();
-    expectTypeOf<FindReferencesResult>().toEqualTypeOf<LspFindReferencesToolResult>();
-    expectTypeOf<FindReferencesResult['locations']>().toEqualTypeOf<
-      LspReferenceLocation[] | undefined
+    expectTypeOf<
+      LspGetSemanticContentQuery['type']
+    >().toEqualTypeOf<SemanticContentType>();
+    expectTypeOf<LspDiagnosticsQuery['severity']>().toEqualTypeOf<
+      'error' | 'warning' | 'information' | 'hint' | 'all' | undefined
     >();
+  });
 
-    expectTypeOf<CallHierarchyItem>().toEqualTypeOf<LspCallHierarchyItem>();
-    expectTypeOf<IncomingCall>().toEqualTypeOf<LspIncomingCall>();
-    expectTypeOf<OutgoingCall>().toEqualTypeOf<LspOutgoingCall>();
-    expectTypeOf<CallHierarchyResult>().toEqualTypeOf<LspCallHierarchyToolResult>();
-    expectTypeOf<CallHierarchyResult['incomingCalls']>().toEqualTypeOf<
-      LspIncomingCall[] | undefined
-    >();
-
+  it('derives package output aliases from the output schemas', () => {
     expectTypeOf<PackageResultWithRepo>().toEqualTypeOf<PackageSearchPackage>();
     expectTypeOf<PackageSearchResult>().toEqualTypeOf<PackageSearchData>();
     expectTypeOf<PackageSearchResult['packages']>().toEqualTypeOf<

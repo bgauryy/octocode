@@ -5,6 +5,13 @@ import {
   ReferenceParams,
   Location,
   LocationLink,
+  HoverParams,
+  Hover,
+  TypeDefinitionParams,
+  ImplementationParams,
+  DocumentSymbolParams,
+  DocumentSymbol,
+  SymbolInformation,
   CallHierarchyPrepareParams,
   CallHierarchyItem as LSPCallHierarchyItem,
   CallHierarchyIncomingCallsParams,
@@ -57,83 +64,189 @@ export class LSPOperations {
 
   private async withDocument<T>(
     filePath: string,
-    fn: (connection: MessageConnection) => Promise<T>
+    fn: (connection: MessageConnection) => Promise<T>,
+    content?: string
   ): Promise<T> {
     const connection = this.requireConnection();
     // Open increments refCount; documents stay open across repeated queries on
     // the same pooled client, saving the server a re-parse on every call.
     // closeAllDocuments() is called when the pool evicts the client (stop()).
-    await this.documentManager.openDocument(filePath);
+    await this.documentManager.openDocument(filePath, content);
     return fn(connection);
   }
 
   async gotoDefinition(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    return this.withDocument(filePath, async connection => {
-      const params: DefinitionParams = {
-        textDocument: { uri: toUri(filePath) },
-        position: {
-          line: position.line,
-          character: position.character,
-        },
-      };
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: DefinitionParams = {
+          textDocument: { uri: toUri(filePath) },
+          position: {
+            line: position.line,
+            character: position.character,
+          },
+        };
 
-      const result = await sendRequestWithCancellationOnTimeout<
-        Location | Location[] | LocationLink[] | null
-      >(connection, 'textDocument/definition', params);
+        const result = await sendRequestWithCancellationOnTimeout<
+          Location | Location[] | LocationLink[] | null
+        >(connection, 'textDocument/definition', params);
 
-      return this.locationsToSnippets(result);
-    });
+        return this.locationsToSnippets(result);
+      },
+      content
+    );
   }
 
   async findReferences(
     filePath: string,
     position: ExactPosition,
-    includeDeclaration = true
+    includeDeclaration = true,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    return this.withDocument(filePath, async connection => {
-      const params: ReferenceParams = {
-        textDocument: { uri: toUri(filePath) },
-        position: {
-          line: position.line,
-          character: position.character,
-        },
-        context: { includeDeclaration },
-      };
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: ReferenceParams = {
+          textDocument: { uri: toUri(filePath) },
+          position: {
+            line: position.line,
+            character: position.character,
+          },
+          context: { includeDeclaration },
+        };
 
-      const result = await sendRequestWithCancellationOnTimeout<
-        Location[] | null
-      >(connection, 'textDocument/references', params);
+        const result = await sendRequestWithCancellationOnTimeout<
+          Location[] | null
+        >(connection, 'textDocument/references', params);
 
-      return this.locationsToSnippets(result);
-    });
+        return this.locationsToSnippets(result);
+      },
+      content
+    );
   }
 
   async prepareCallHierarchy(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CallHierarchyItem[]> {
-    return this.withDocument(filePath, async connection => {
-      const params: CallHierarchyPrepareParams = {
-        textDocument: { uri: toUri(filePath) },
-        position: {
-          line: position.line,
-          character: position.character,
-        },
-      };
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: CallHierarchyPrepareParams = {
+          textDocument: { uri: toUri(filePath) },
+          position: {
+            line: position.line,
+            character: position.character,
+          },
+        };
 
-      const result = await sendRequestWithCancellationOnTimeout<
-        LSPCallHierarchyItem[] | null
-      >(connection, 'textDocument/prepareCallHierarchy', params);
+        const result = await sendRequestWithCancellationOnTimeout<
+          LSPCallHierarchyItem[] | null
+        >(connection, 'textDocument/prepareCallHierarchy', params);
 
-      if (!result || !Array.isArray(result)) {
-        return [];
-      }
+        if (!result || !Array.isArray(result)) {
+          return [];
+        }
 
-      return result.map(item => this.convertCallHierarchyItem(item));
-    });
+        return result.map(item => this.convertCallHierarchyItem(item));
+      },
+      content
+    );
+  }
+
+  async hover(
+    filePath: string,
+    position: ExactPosition,
+    content?: string
+  ): Promise<Hover | null> {
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: HoverParams = {
+          textDocument: { uri: toUri(filePath) },
+          position,
+        };
+
+        return sendRequestWithCancellationOnTimeout<Hover | null>(
+          connection,
+          'textDocument/hover',
+          params
+        );
+      },
+      content
+    );
+  }
+
+  async typeDefinition(
+    filePath: string,
+    position: ExactPosition,
+    content?: string
+  ): Promise<CodeSnippet[]> {
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: TypeDefinitionParams = {
+          textDocument: { uri: toUri(filePath) },
+          position,
+        };
+
+        const result = await sendRequestWithCancellationOnTimeout<
+          Location | Location[] | LocationLink[] | null
+        >(connection, 'textDocument/typeDefinition', params);
+
+        return this.locationsToSnippets(result);
+      },
+      content
+    );
+  }
+
+  async implementation(
+    filePath: string,
+    position: ExactPosition,
+    content?: string
+  ): Promise<CodeSnippet[]> {
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: ImplementationParams = {
+          textDocument: { uri: toUri(filePath) },
+          position,
+        };
+
+        const result = await sendRequestWithCancellationOnTimeout<
+          Location | Location[] | LocationLink[] | null
+        >(connection, 'textDocument/implementation', params);
+
+        return this.locationsToSnippets(result);
+      },
+      content
+    );
+  }
+
+  async documentSymbols(
+    filePath: string,
+    content?: string
+  ): Promise<Array<DocumentSymbol | SymbolInformation>> {
+    return this.withDocument(
+      filePath,
+      async connection => {
+        const params: DocumentSymbolParams = {
+          textDocument: { uri: toUri(filePath) },
+        };
+
+        const result = await sendRequestWithCancellationOnTimeout<Array<
+          DocumentSymbol | SymbolInformation
+        > | null>(connection, 'textDocument/documentSymbol', params);
+
+        return Array.isArray(result) ? result : [];
+      },
+      content
+    );
   }
 
   async getIncomingCalls(item: CallHierarchyItem): Promise<IncomingCall[]> {

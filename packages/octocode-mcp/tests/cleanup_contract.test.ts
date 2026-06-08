@@ -25,6 +25,19 @@ const FILES_THAT_MUST_BE_GONE = [
   'src/tools/lsp_call_hierarchy/callHierarchyPatterns.ts',
   'src/tools/lsp_find_references/lspReferencesPatterns.ts',
   'src/tools/lsp_find_references/lspReferencesProcess.ts',
+  'src/scheme/lspSchemaOverlay.ts',
+  'src/scheme/lspOutputSchemaOverlay.ts',
+  'src/tools/lsp_goto_definition/execution.ts',
+  'src/tools/lsp_goto_definition/hints.ts',
+  'src/tools/lsp_goto_definition/lsp_goto_definition.ts',
+  'src/tools/lsp_find_references/execution.ts',
+  'src/tools/lsp_find_references/hints.ts',
+  'src/tools/lsp_find_references/lsp_find_references.ts',
+  'src/tools/lsp_find_references/lspReferencesCore.ts',
+  'src/tools/lsp_find_references/register.ts',
+  'src/tools/lsp_call_hierarchy/callHierarchy.ts',
+  'src/tools/lsp_call_hierarchy/callHierarchyLsp.ts',
+  'src/tools/lsp_call_hierarchy/register.ts',
 ];
 
 const SOURCE_FILES_THAT_MUST_NOT_REFERENCE: Array<{
@@ -48,17 +61,7 @@ const SOURCE_FILES_THAT_MUST_NOT_REFERENCE: Array<{
     reason: 'grep fallback was removed',
   },
   {
-    file: 'src/tools/lsp_find_references/lspReferencesCore.ts',
-    banned: /\bcreateClient\b/,
-    reason: 'LSP tools must use acquirePooledClient, not createClient',
-  },
-  {
-    file: 'src/tools/lsp_call_hierarchy/callHierarchyLsp.ts',
-    banned: /\bcreateClient\b/,
-    reason: 'LSP tools must use acquirePooledClient, not createClient',
-  },
-  {
-    file: 'src/tools/lsp_goto_definition/execution.ts',
+    file: 'src/tools/lsp/semantic_content/execution.ts',
     banned: /\bcreateClient\b/,
     reason: 'LSP tools must use acquirePooledClient, not createClient',
   },
@@ -105,9 +108,8 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
   it('LSP tools never assign lspMode into result objects (LSP-only, absent ≡ semantic)', async () => {
     const { readFile } = await import('fs/promises');
     const files = [
-      'src/tools/lsp_call_hierarchy/callHierarchy.ts',
-      'src/tools/lsp_goto_definition/execution.ts',
-      'src/tools/lsp_find_references/lsp_find_references.ts',
+      'src/tools/lsp/semantic_content/execution.ts',
+      'src/tools/lsp/diagnostics/execution.ts',
     ];
     for (const file of files) {
       const src = await readFile(`${ROOT}/${file}`, 'utf-8');

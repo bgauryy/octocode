@@ -31,7 +31,7 @@ export const EvidenceSchema = z
   })
   .optional();
 
-export const ResponsePaginationSchema = z
+const ResponsePaginationSchema = z
   .object({
     currentPage: z.number(),
     totalPages: z.number(),

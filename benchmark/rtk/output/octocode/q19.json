@@ -1,1 +1,0 @@
-{"calls":3,"in_chars":401,"out_chars":2555,"elapsed_ms":769,"calls_detail":[{"cmd":"localSearchCode","in_chars":141,"out_chars":766,"elapsed_ms":277,"exit":0},{"cmd":"localSearchCode","in_chars":181,"out_chars":1126,"elapsed_ms":242,"exit":0},{"cmd":"localGetFileContent","in_chars":79,"out_chars":663,"elapsed_ms":250,"exit":0}],"tool_elapsed_ms":769,"q_elapsed_ms":24744}

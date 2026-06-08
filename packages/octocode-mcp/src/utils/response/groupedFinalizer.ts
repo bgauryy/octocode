@@ -15,10 +15,6 @@ export type CharPagination = {
   totalChars: number;
 };
 
-export type PerQueryPagination = CharPagination & {
-  id: string;
-};
-
 export type QueryWithPagination = {
   id?: unknown;
   charLength?: unknown;
@@ -36,22 +32,6 @@ type CharWindowConfig<TGroup, TItem> = {
 
   maxItems?: number;
 };
-
-function readNumber(
-  value: unknown,
-  predicate: (n: number) => boolean
-): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
-  return predicate(value) ? value : undefined;
-}
-
-export function readPositiveNumber(value: unknown): number | undefined {
-  return readNumber(value, n => n > 0);
-}
-
-export function readNonNegativeNumber(value: unknown): number | undefined {
-  return readNumber(value, n => n >= 0);
-}
 
 function buildCharPagination(
   charOffset: number,
@@ -235,8 +215,8 @@ function unwrapProviderError(value: unknown): {
 
 export function collectFlatErrors(
   results: readonly FlatQueryResult[]
-): Array<{ id: string; error: string }> {
-  const errors: Array<{ id: string; error: string }> = [];
+): Array<{ id: string; error: string; hints?: string[] }> {
+  const errors: Array<{ id: string; error: string; hints?: string[] }> = [];
   for (const result of results) {
     if (result.status !== 'error') continue;
     const { message, status } = unwrapProviderError(
@@ -244,7 +224,17 @@ export function collectFlatErrors(
     );
     const errorMessage =
       status !== undefined ? `${message} (HTTP ${status})` : message;
-    errors.push({ id: result.id, error: errorMessage });
+    const hints = Array.isArray(result.data.hints)
+      ? result.data.hints.filter(
+          (hint): hint is string =>
+            typeof hint === 'string' && hint.trim().length > 0
+        )
+      : undefined;
+    errors.push({
+      id: result.id,
+      error: errorMessage,
+      ...(hints && hints.length > 0 ? { hints } : {}),
+    });
   }
   return errors;
 }

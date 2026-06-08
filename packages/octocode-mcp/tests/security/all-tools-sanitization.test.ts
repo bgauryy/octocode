@@ -360,84 +360,16 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
   }),
 
   // LSP tools
-  lspGotoDefinition: () => ({
+  lspGetSemanticContent: () => ({
     content: [
       {
         type: 'text',
         text: [
-          'Definition found:',
+          'Semantic content found:',
           '  File: /workspace/src/config.ts:5',
           `  > export const API_KEY = "${SECRETS.OPENAI_KEY}";`,
           `  > export const DB_PASS = "${SECRETS.STRIPE_KEY}";`,
-        ].join('\n'),
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              locations: [
-                {
-                  uri: '/workspace/src/config.ts',
-                  range: { start: { line: 5 }, end: { line: 5 } },
-                  content: `export const API_KEY = "${SECRETS.OPENAI_KEY}";`,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-  }),
-
-  lspFindReferences: () => ({
-    content: [
-      {
-        type: 'text',
-        text: [
-          'References found: 3',
           `  src/api.ts:10 — fetch(url, { headers: { Authorization: "Bearer ${SECRETS.GITHUB_TOKEN}" }})`,
-          `  src/stripe.ts:5 — stripe(${SECRETS.STRIPE_KEY})`,
-          `  src/aws.ts:3 — new AWS({ key: "${SECRETS.AWS_KEY}" })`,
-        ].join('\n'),
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              references: [
-                {
-                  uri: '/workspace/src/api.ts',
-                  line: 10,
-                  content: `fetch(url, { headers: { Authorization: "Bearer ${SECRETS.GITHUB_TOKEN}" }})`,
-                },
-                {
-                  uri: '/workspace/src/stripe.ts',
-                  line: 5,
-                  content: `stripe("${SECRETS.STRIPE_KEY}")`,
-                },
-              ],
-              totalReferences: 3,
-            },
-          },
-        ],
-      },
-    },
-  }),
-
-  lspCallHierarchy: () => ({
-    content: [
-      {
-        type: 'text',
-        text: [
-          'Call hierarchy for getSecret():',
-          `  target: function getSecret() { return "${SECRETS.STRIPE_KEY}"; }`,
-          `  ← init() calls getSecret() // ${SECRETS.AWS_KEY}`,
           `  ← connect() // token=${SECRETS.ANTHROPIC_KEY}`,
         ].join('\n'),
       },
@@ -448,15 +380,62 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
           {
             id: 'q1',
             data: {
-              target: {
-                name: 'getSecret',
-                uri: '/workspace/src/secrets.ts',
-                content: `function getSecret() { return "${SECRETS.STRIPE_KEY}"; }`,
+              payload: {
+                kind: 'definition',
+                locations: [
+                  {
+                    uri: '/workspace/src/config.ts',
+                    range: { start: { line: 5 }, end: { line: 5 } },
+                    content: `export const API_KEY = "${SECRETS.OPENAI_KEY}";`,
+                  },
+                ],
               },
-              incomingCalls: [
+              callHierarchy: {
+                incomingCalls: [
+                  {
+                    from: { name: 'connect', uri: '/workspace/src/app.ts' },
+                    content: `connect("${SECRETS.ANTHROPIC_KEY}")`,
+                  },
+                ],
+              },
+              references: {
+                locations: [
+                  {
+                    uri: '/workspace/src/api.ts',
+                    content: `Authorization: "Bearer ${SECRETS.GITHUB_TOKEN}"`,
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    },
+  }),
+
+  lspGetDiagnostics: () => ({
+    content: [
+      {
+        type: 'text',
+        text: [
+          'Diagnostics for /workspace/src/config.ts:',
+          `  error: API key literal "${SECRETS.OPENAI_KEY}" should not be committed`,
+          `  warning: token ${SECRETS.GITHUB_TOKEN}`,
+          `  information: stripe secret ${SECRETS.STRIPE_KEY}`,
+        ].join('\n'),
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              diagnostics: [
                 {
-                  from: { name: 'init', uri: '/workspace/src/app.ts' },
-                  content: `const key = getSecret(); // ${SECRETS.AWS_KEY}`,
+                  message: `API key literal "${SECRETS.OPENAI_KEY}" should not be committed`,
+                  source: `security-${SECRETS.STRIPE_KEY}`,
+                  code: SECRETS.GITHUB_TOKEN,
                 },
               ],
             },
@@ -501,7 +480,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
   describe('Cross-cutting: every secret type through every tool', () => {
     for (const [secretName, secretValue] of Object.entries(SECRETS)) {
-      it(`${secretName}: redacted in content[] across all 14 tools`, async () => {
+      it(`${secretName}: redacted in content[] across all 13 tools`, async () => {
         for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
           const { registerAndCall } = createProxyChain();
           const handler = vi.fn().mockResolvedValue({
@@ -518,7 +497,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
         }
       });
 
-      it(`${secretName}: redacted in structuredContent across all 14 tools`, async () => {
+      it(`${secretName}: redacted in structuredContent across all 13 tools`, async () => {
         for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
           const { registerAndCall } = createProxyChain();
           const handler = vi.fn().mockResolvedValue({
@@ -540,14 +519,14 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
   });
 
   describe('Proxy chain integrity', () => {
-    it('all 14 tools register through the proxy', () => {
+    it('all 13 tools register through the proxy', () => {
       const { mockServer, proxy } = createProxyChain();
 
       for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
         proxy.registerTool(toolName, {} as never, (() => {}) as never);
       }
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(14);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(13);
     });
 
     it('tool names are forwarded correctly to the real server', () => {

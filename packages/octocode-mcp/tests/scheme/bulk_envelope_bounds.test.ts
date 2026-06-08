@@ -15,11 +15,8 @@ import {
   PackageSearchBulkQueryLocalSchema,
   BulkCloneRepoLocalSchema,
 } from '../../src/scheme/remoteSchemaOverlay.js';
-import {
-  BulkLSPGotoDefinitionQuerySchema,
-  BulkLSPFindReferencesQuerySchema,
-  BulkLSPCallHierarchyQuerySchema,
-} from '../../src/scheme/lspSchemaOverlay.js';
+import { BulkLspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
+import { BulkLspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 
 const ALL_BULK_SCHEMAS = [
   ['BulkRipgrepQuerySchema', BulkRipgrepQuerySchema],
@@ -45,9 +42,11 @@ const ALL_BULK_SCHEMAS = [
   ],
   ['PackageSearchBulkQueryLocalSchema', PackageSearchBulkQueryLocalSchema],
   ['BulkCloneRepoLocalSchema', BulkCloneRepoLocalSchema],
-  ['BulkLSPGotoDefinitionQuerySchema', BulkLSPGotoDefinitionQuerySchema],
-  ['BulkLSPFindReferencesQuerySchema', BulkLSPFindReferencesQuerySchema],
-  ['BulkLSPCallHierarchyQuerySchema', BulkLSPCallHierarchyQuerySchema],
+  [
+    'BulkLspGetSemanticContentQuerySchema',
+    BulkLspGetSemanticContentQuerySchema,
+  ],
+  ['BulkLspGetDiagnosticsQuerySchema', BulkLspGetDiagnosticsQuerySchema],
 ] as const;
 
 describe('bulk envelope numeric bounds', () => {

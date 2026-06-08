@@ -13,7 +13,7 @@ Octocode MCP has two worlds of tools:
 | World | Tools | Strengths | Limitations |
 |-------|-------|-----------|-------------|
 | **GitHub** | `githubSearchCode`, `githubGetFileContent`, `githubViewRepoStructure` | Fast, no disk usage, works on any repo | No LSP, no semantic analysis, API rate limits |
-| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGotoDefinition`, `lspFindReferences`, `lspCallHierarchy` | Semantic navigation, call tracing, full ripgrep power | Only works on files on disk |
+| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemanticContent`, `lspGetDiagnostics` | Semantic navigation, diagnostics, call tracing, full ripgrep power | Only works on files on disk |
 
 **Two tools bridge these worlds** — they download content to `~/.octocode/repos/` so local and LSP tools can analyze it:
 
@@ -34,9 +34,8 @@ Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) wit
 │  githubViewStructure │       │  (full/sparse clone)       │       │  localViewStructure      │
 │  githubGetFileContent│       │                            │       │  localGetFileContent     │
 │                      │       │  githubGetFileContent      │       │  localFindFiles          │
-│                      │       │  (type: "directory")       │       │  lspGotoDefinition       │
-│                      │       │  (lightweight, no git)     │       │  lspFindReferences       │
-│                      │       │                            │       │  lspCallHierarchy        │
+│                      │       │  (type: "directory")       │       │  lspGetSemanticContent   │
+│                      │       │  (lightweight, no git)     │       │  lspGetDiagnostics       │
 │                      │       │  Both return: localPath    │       │                          │
 └─────────────────────┘       └────────────────────────────┘       └──────────────────────────┘
 ```
@@ -52,9 +51,9 @@ Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) wit
 | Find code pattern across repos | ✅ `githubSearchCode` | Overkill | Overkill |
 | **Read all files in a directory** | ❌ One-by-one | ✅ `type: "directory"` | Overkill |
 | **Search within a directory** | Limited | ✅ Directory fetch → `localSearchCode` | Also works |
-| **Trace function call chains** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspCallHierarchy` |
-| **Jump to symbol definitions** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGotoDefinition` |
-| **Find all usages of a type** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspFindReferences` |
+| **Trace function call chains** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemanticContent(type="callers")` / `type="callees"` |
+| **Jump to symbol definitions** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemanticContent(type="definition")` |
+| **Find all usages of a type** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemanticContent(type="references")` |
 | **Deep code search with regex** | Limited | ✅ If scope is small | ✅ Clone → `localSearchCode` |
 | **Explore monorepo subtree** | Slow (many API calls) | ✅ For small dirs | ✅ Sparse clone for large dirs |
 
@@ -144,11 +143,11 @@ Step 2: Search for the function
   → Get file paths and lineHint values
 
 Step 3: Jump to definition
-  lspGotoDefinition(uri=localPath+"/server/router.ts", symbolName="handleRequest", lineHint=42)
+  lspGetSemanticContent(type="definition", uri=localPath+"/server/router.ts", symbolName="handleRequest", lineHint=42)
   → See the function definition
 
 Step 4: Trace callers
-  lspCallHierarchy(uri=..., symbolName="handleRequest", lineHint=42, direction="incoming")
+  lspGetSemanticContent(type="callers", uri=..., symbolName="handleRequest", lineHint=42)
   → See all functions that call handleRequest
 ```
 
@@ -170,7 +169,7 @@ Step 3: Use full ripgrep power
   → Full regex search, file type filtering, match context
 
 Step 4: Use LSP
-  lspFindReferences(uri=localPath+"/src/flask/app.py", symbolName="route", lineHint=...)
+  lspGetSemanticContent(type="references", uri=localPath+"/src/flask/app.py", symbolName="route", lineHint=...)
   → Find every file that uses the @route decorator
 ```
 
@@ -247,14 +246,15 @@ For TypeScript/JavaScript LSP:
 | Search cloned code | `localSearchCode` | `path` = `localPath` |
 | Read cloned file | `localGetFileContent` | `path` = `localPath + "/file.ts"` |
 | Find files in clone | `localFindFiles` | `path` = `localPath` |
-| Jump to definition | `lspGotoDefinition` | `uri` = file in `localPath` |
-| Find all references | `lspFindReferences` | `uri` = file in `localPath` |
-| Trace call chain | `lspCallHierarchy` | `uri` = file in `localPath` |
+| Jump to definition | `lspGetSemanticContent` with `type="definition"` | `uri` = file in `localPath` |
+| Find all references | `lspGetSemanticContent` with `type="references"` | `uri` = file in `localPath` |
+| Trace callers/callees | `lspGetSemanticContent` with `type="callers"` or `type="callees"` | `uri` = file in `localPath` |
 
 ---
 
 ## Related Documentation
 
 - [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — Full `githubCloneRepo` parameter reference
-- [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Full local + LSP tools documentation
+- [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local filesystem search, structure, metadata, and content tools
+- [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) — Semantic content and diagnostics tools
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — `ENABLE_LOCAL`, `ENABLE_CLONE`, and other settings

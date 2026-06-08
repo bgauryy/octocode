@@ -19,9 +19,8 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   localViewStructure: ['page'],
   localFindFiles: ['page'],
   localGetFileContent: ['startLine', 'endLine'],
-  lspGotoDefinition: ['uri', 'lineHint'],
-  lspFindReferences: ['page'],
-  lspCallHierarchy: ['page'],
+  lspGetSemanticContent: ['uri', 'lineHint', 'type'],
+  lspGetDiagnostics: ['uri', 'severity'],
 };
 
 describe('all-tools pagination contract', () => {

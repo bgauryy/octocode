@@ -7,14 +7,12 @@ How to install, authenticate, and configure Octocode.
 | Doc | When to read |
 |-----|--------------|
 | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) | All env vars and `.octocoderc` flags |
-| [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) | Diagnose install or auth issues |
 
 ## [providers/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/configuration/providers) — Authenticate against GitHub
 
 | Doc | When to read |
 |-----|--------------|
-| [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) | Understand the auth model |
-| [GitHub Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) | Tokens, Enterprise, clone tools |
+| [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) | GitHub login, token priority, Enterprise, clone tools |
 
 ## [clients/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/configuration/clients) — Connect from an MCP host
 

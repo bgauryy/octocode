@@ -31,95 +31,40 @@ describe('LSP workspace root routing', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('passes the inferred root to goto definition LSP checks and client creation', async () => {
-    const managerModule = await import('../../src/lsp/manager.js');
+  it.each([['definition'], ['references'], ['callers']] as const)(
+    'passes the inferred root to lspGetSemanticContent type=%s',
+    async type => {
+      const managerModule = await import('../../src/lsp/manager.js');
 
-    vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
-      true
-    );
-    vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
+      vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
+        true
+      );
+      vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
 
-    const { executeGotoDefinition } =
-      await import('../../src/tools/lsp_goto_definition/execution.js');
+      const { executeLspGetSemanticContent } =
+        await import('../../src/tools/lsp/semantic_content/execution.js');
 
-    await executeGotoDefinition({
-      queries: [
-        {
-          uri: externalFile,
-          symbolName: 'run',
-          lineHint: 1,
-          researchGoal: 'Find bundled definition',
-          reasoning: 'Verify root routing',
-        },
-      ],
-    });
+      await executeLspGetSemanticContent({
+        queries: [
+          {
+            uri: externalFile,
+            type,
+            symbolName: 'run',
+            lineHint: 1,
+            researchGoal: 'Find bundled definition',
+            reasoning: 'Verify root routing',
+          },
+        ],
+      });
 
-    expect(managerModule.isLanguageServerAvailable).toHaveBeenCalledWith(
-      externalFile,
-      inferredWorkspaceRoot
-    );
-    expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
-      inferredWorkspaceRoot,
-      externalFile
-    );
-  });
-
-  it('passes the inferred root through reference lookup (LSP-only path)', async () => {
-    const managerModule = await import('../../src/lsp/manager.js');
-
-    vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
-      true
-    );
-    vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
-
-    const { findReferences } =
-      await import('../../src/tools/lsp_find_references/lsp_find_references.js');
-
-    await findReferences({
-      uri: externalFile,
-      symbolName: 'run',
-      lineHint: 1,
-      researchGoal: 'Find bundled references',
-      reasoning: 'Verify root routing',
-    });
-
-    expect(managerModule.isLanguageServerAvailable).toHaveBeenCalledWith(
-      externalFile,
-      inferredWorkspaceRoot
-    );
-    expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
-      inferredWorkspaceRoot,
-      externalFile
-    );
-  });
-
-  it('passes the inferred root to call hierarchy LSP path', async () => {
-    const managerModule = await import('../../src/lsp/manager.js');
-
-    vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
-      true
-    );
-    vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
-
-    const { processCallHierarchy } =
-      await import('../../src/tools/lsp_call_hierarchy/callHierarchy.js');
-
-    await processCallHierarchy({
-      uri: externalFile,
-      symbolName: 'run',
-      lineHint: 1,
-      direction: 'incoming',
-      researchGoal: 'Find bundled callers',
-      reasoning: 'Verify root routing',
-    });
-
-    expect(managerModule.isLanguageServerAvailable).toHaveBeenCalledWith(
-      externalFile,
-      inferredWorkspaceRoot
-    );
-    expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
-      inferredWorkspaceRoot,
-      externalFile
-    );
-  });
+      expect(managerModule.isLanguageServerAvailable).toHaveBeenCalledWith(
+        externalFile,
+        inferredWorkspaceRoot
+      );
+      expect(managerModule.acquirePooledClient).toHaveBeenCalledWith(
+        inferredWorkspaceRoot,
+        externalFile
+      );
+    }
+  );
 });

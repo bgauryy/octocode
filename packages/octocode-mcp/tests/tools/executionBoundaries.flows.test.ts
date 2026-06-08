@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   fetchContent: vi.fn(),
   searchContentRipgrep: vi.fn(),
-  processCallHierarchy: vi.fn(),
   cloneRepo: vi.fn(),
 }));
 
@@ -58,10 +57,6 @@ vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
 
 vi.mock('../../src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
   searchContentRipgrep: mocks.searchContentRipgrep,
-}));
-
-vi.mock('../../src/tools/lsp_call_hierarchy/callHierarchy.js', () => ({
-  processCallHierarchy: mocks.processCallHierarchy,
 }));
 
 vi.mock('../../src/tools/github_clone_repo/cloneRepo.js', () => ({
@@ -126,25 +121,6 @@ describe('Execution boundary guards in target RFC flows', () => {
     ) => Promise<{ status: string }>;
 
     const result = await callback({ path: '/tmp', pattern: 'x' }, 0);
-    expect(result.status).toBe('error');
-  });
-
-  it('returns structured error when lsp_call_hierarchy callback throws', async () => {
-    const { executeBulkOperation } =
-      await import('../../src/utils/response/bulk.js');
-    const { executeCallHierarchy } =
-      await import('../../src/tools/lsp_call_hierarchy/execution.js');
-
-    mocks.processCallHierarchy.mockRejectedValueOnce(new Error('lsp failed'));
-
-    await executeCallHierarchy({ queries: [{ uri: '/tmp/a.ts' }] as any });
-
-    const callback = vi.mocked(executeBulkOperation).mock.calls[0]![1] as (
-      query: unknown,
-      index: number
-    ) => Promise<{ status: string }>;
-
-    const result = await callback({ uri: '/tmp/a.ts' }, 0);
     expect(result.status).toBe('error');
   });
 

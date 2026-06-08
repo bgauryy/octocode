@@ -11,6 +11,10 @@ import {
   withSecurityValidation,
 } from '../utils/securityBridge.js';
 import { STATIC_TOOL_NAMES } from './toolNames.js';
+import {
+  LSP_GET_DIAGNOSTICS_TOOL_NAME,
+  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+} from './lsp/shared/semanticTypes.js';
 import { ALL_TOOLS, type ToolConfig } from './toolConfig.js';
 
 export type DirectToolInput = Record<string, unknown> & {
@@ -52,9 +56,8 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
     STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-    STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION,
-    STATIC_TOOL_NAMES.LSP_FIND_REFERENCES,
-    STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY,
+    LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+    LSP_GET_DIAGNOSTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
   ].map((name, index) => [name, index])
 );
@@ -338,6 +341,12 @@ export function buildDirectToolExampleQuery(
     fields.some(field => field.name === 'uri')
   ) {
     example.uri ??= 'uri';
+  }
+
+  if (toolName === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME) {
+    example.type ??= 'definition';
+    example.symbolName ??= 'symbolName';
+    example.lineHint ??= 1;
   }
 
   return example;

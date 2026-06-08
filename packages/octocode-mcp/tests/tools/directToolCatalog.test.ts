@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import {
+  LSP_GET_DIAGNOSTICS_TOOL_NAME,
+  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+} from '../../src/tools/lsp/shared/semanticTypes.js';
+import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
   DirectToolInputError,
@@ -77,7 +81,7 @@ describe('directToolCatalog', () => {
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual(['id', 'researchGoal', 'reasoning']);
     expect(
-      getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION)
+      getDirectToolAutoFilledFields(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)
     ).toEqual(['id', 'researchGoal', 'reasoning']);
   });
 
@@ -107,9 +111,7 @@ describe('directToolCatalog', () => {
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
       'Local'
     );
-    expect(getDirectToolCategory(STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION)).toBe(
-      'LSP'
-    );
+    expect(getDirectToolCategory(LSP_GET_DIAGNOSTICS_TOOL_NAME)).toBe('LSP');
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.PACKAGE_SEARCH)).toBe(
       'Package'
     );
@@ -170,13 +172,13 @@ describe('directToolCatalog', () => {
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO)
     ).toEqual({ owner: 'bgauryy', repo: 'octocode-mcp' });
     expect(
-      buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY)
+      buildDirectToolExampleQuery(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)
     ).toEqual(
-      // lineHint is now optional → omitted from the minimal example query
       expect.objectContaining({
         uri: 'uri',
+        type: 'definition',
         symbolName: 'symbolName',
-        direction: 'incoming',
+        lineHint: 1,
       })
     );
     expect(buildDirectToolExampleQuery('missingTool')).toEqual({});

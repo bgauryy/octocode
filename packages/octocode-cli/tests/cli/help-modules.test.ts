@@ -22,7 +22,7 @@ describe('main-help', () => {
       .join('');
     expect(output).toContain('githubSearchCode');
     expect(output).toContain('localSearchCode');
-    expect(output).toContain('lspGotoDefinition');
+    expect(output).toContain('lspGetSemanticContent');
     expect(output).toContain('packageSearch');
     expect(output).toContain('install');
     expect(output).toContain('COMMANDS');

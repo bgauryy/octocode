@@ -57,7 +57,7 @@ octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
 
 ---
 
-## The 14 Tools
+## The 13 Tools
 
 Call any tool directly from the terminal. Great for scripts, pipelines, and one-off queries. No MCP server required.
 
@@ -73,9 +73,8 @@ Call any tool directly from the terminal. Great for scripts, pipelines, and one-
 | | `localFindFiles` | Find files by name/metadata |
 | | `localGetFileContent` | Read local file content |
 | | `localViewStructure` | View a local directory tree |
-| **LSP** | `lspGotoDefinition` | Navigate to a symbol's definition |
-| | `lspFindReferences` | Find all usages of a symbol |
-| | `lspCallHierarchy` | Trace function call relationships |
+| **LSP** | `lspGetSemanticContent` | Definitions, references, call flow, hover, symbols, type definitions, implementations |
+| | `lspGetDiagnostics` | File diagnostics from the language server |
 | **Package** | `packageSearch` | Resolve an npm package to its source repo + metadata |
 
 ```bash
@@ -241,7 +240,6 @@ octocode cache clean --all --dry-run     # See what cache clean would free
 - [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md): full command and flag reference
 - [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md): bundled skills installation
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md)
-- [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md)
 
 ---
 

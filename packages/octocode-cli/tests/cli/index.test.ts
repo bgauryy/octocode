@@ -148,11 +148,11 @@ describe('runCLI', () => {
 
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['--tool', 'lspGotoDefinition', '--help']);
+    const handled = await runCLI(['--tool', 'lspGetSemanticContent', '--help']);
 
     expect(handled).toBe(true);
     expect(mocks.showToolHelp).toHaveBeenCalledTimes(1);
-    expect(mocks.showToolHelp).toHaveBeenCalledWith('lspGotoDefinition');
+    expect(mocks.showToolHelp).toHaveBeenCalledWith('lspGetSemanticContent');
     expect(mocks.executeToolCommand).not.toHaveBeenCalled();
   });
 

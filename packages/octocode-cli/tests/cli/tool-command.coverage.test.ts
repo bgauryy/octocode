@@ -877,33 +877,33 @@ describe('tool-command coverage', () => {
     expect(parsed.structuredContent).toBe('just a string');
   });
 
-  it('buildExampleValue: lspFindReferences example exercises boolean and unknown-name branches', async () => {
+  it('buildExampleValue: lspGetSemanticContent example exercises semantic enum branches', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['lspFindReferences'],
-      options: { tool: 'lspFindReferences', schema: true },
+      args: ['lspGetSemanticContent'],
+      options: { tool: 'lspGetSemanticContent', schema: true },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
-    expect(out).toContain('lspFindReferences');
+    expect(out).toContain('lspGetSemanticContent');
     expect(out).toContain('Input Schema');
+    expect(out).toContain('definition');
   });
 
-  it('buildExampleValue: lspCallHierarchy example exercises enum branch in schema', async () => {
+  it('buildExampleValue: lspGetDiagnostics example exercises severity enum branch', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['lspCallHierarchy'],
-      options: { tool: 'lspCallHierarchy', schema: true },
+      args: ['lspGetDiagnostics'],
+      options: { tool: 'lspGetDiagnostics', schema: true },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
-    expect(out).toContain('direction');
-
-    expect(out).toContain('incoming');
+    expect(out).toContain('severity');
+    expect(out).toContain('all');
   });
 
   it('resolves tool name from --tool option when no positional arg given', async () => {

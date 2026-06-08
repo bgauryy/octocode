@@ -4,7 +4,7 @@ This playbook verifies that every Octocode MCP tool works as a research tool, no
 
 ## Source Of Truth
 
-The active MCP tool catalog is defined in [packages/octocode-mcp/src/tools/toolConfig.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/toolConfig.ts). The public schema overlays live in [packages/octocode-mcp/src/scheme/localSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/localSchemaOverlay.ts), [packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts), and [packages/octocode-mcp/src/scheme/lspSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/lspSchemaOverlay.ts).
+The active MCP tool catalog is defined in [packages/octocode-mcp/src/tools/toolConfig.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/toolConfig.ts). The public local and remote schema overlays live in [packages/octocode-mcp/src/scheme/localSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/localSchemaOverlay.ts) and [packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts); LSP schemas live with the tools in [packages/octocode-mcp/src/tools/lsp/semantic_content/scheme.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/lsp/semantic_content/scheme.ts) and [packages/octocode-mcp/src/tools/lsp/diagnostics/scheme.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/lsp/diagnostics/scheme.ts).
 
 Response behavior is shared through [packages/octocode-mcp/src/utils/response/bulk.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/bulk.ts), [packages/octocode-mcp/src/utils/response/structuredPagination.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/structuredPagination.ts), [packages/octocode-mcp/src/utils/pagination/hints.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/pagination/hints.ts), and [packages/octocode-mcp/src/scheme/responseEnvelope.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/responseEnvelope.ts).
 
@@ -152,7 +152,7 @@ Primary code: [src/tools/local_ripgrep/](https://github.com/bgauryy/octocode-mcp
 | Implementation | Uses the bundled `@vscode/ripgrep` path only. No grep fallback. Invalid regex, path errors, and no-permission paths are structured errors. |
 | Pagination | File and match pagination work independently. `line` values are stable 1-indexed `lineHint` inputs for LSP tools. |
 | Empty | Empty hints name active filters such as type, include, exclude, excludeDir, or path. No-filter empty stays silent. |
-| Research quality | Results must include file path, match count, line, column, snippet value, and enough context to drive precise `lspGotoDefinition`, `lspFindReferences`, or `lspCallHierarchy`. |
+| Research quality | Results must include file path, match count, line, column, snippet value, and enough context to drive precise `lspGetSemanticContent` queries such as `type="definition"`, `type="references"`, `type="callers"`, or `type="callees"`. |
 
 ### `localViewStructure`
 
@@ -192,41 +192,28 @@ Primary code: [src/tools/local_fetch_content/](https://github.com/bgauryy/octoco
 | Empty | A missing `matchString` result returns empty with no fake content. Missing file and invalid path are errors. |
 | Research quality | Returned content must include path, line range, total lines, `isPartial`, and enough source text to cite or reason from. Partial line-range reads emit a `startLine=N` continuation hint. |
 
-### `lspGotoDefinition`
+### `lspGetSemanticContent`
 
-Primary code: [src/tools/lsp_goto_definition/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp_goto_definition). Schema: `LSPGotoDefinitionQuerySchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify `uri`, `symbolName`, `lineHint`, `orderHint`, `contextLines`, query-level output pagination if supported by upstream schema, response pagination. |
-| Implementation | Requires a `lineHint` from `localSearchCode`, resolves exact code occurrence while ignoring string/comment hits, follows import/export definitions when safe, and falls back cleanly when LSP is unavailable. |
-| Pagination | Large definition payloads page by character cursor without losing target identity. |
-| Empty | Symbol-not-found reports searched radius and the requested line. File-not-found reports the URI. |
-| Semantic quality | Returned definitions must identify URI, range, name/kind when known, content or snippet, and `lspMode` or fallback confidence. |
-
-### `lspFindReferences`
-
-Primary code: [src/tools/lsp_find_references/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp_find_references). Schema: `LSPFindReferencesQuerySchema`.
+Primary code: [src/tools/lsp/semantic_content/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp/semantic_content). Schema: `LspGetSemanticContentQuerySchema`.
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `uri`, `symbolName`, `lineHint`, `orderHint`, `includeDeclaration`, include/exclude patterns, `groupByFile`, `referencesPerPage`, `page`, `contextLines`, output pagination. |
-| Implementation | LSP references and ripgrep fallback dedupe by URI/range, declaration filtering works, include/exclude filters apply to workspace-relative URIs, and fallback confidence is visible. |
-| Pagination | Normal reference mode pages by row. `groupByFile` must aggregate the full result set, not only the current page. |
-| Empty | No-reference results distinguish no usages from symbol-resolution failure. |
-| Semantic quality | Results should support blast-radius analysis with exact URI, line, column, snippet/content, declaration flag, and per-file grouping. |
+| Params | Verify `uri`/`filePath`, `type`, `symbolName`, `lineHint`, `orderHint`, `includeDeclaration`, `groupByFile`, `depth`, `page`, `contextLines`, and output pagination. |
+| Implementation | Requires a `lineHint` for symbol-anchored types, resolves exact code occurrences while ignoring string/comment hits, uses pooled LSP clients, and reports capability gaps explicitly. |
+| Pagination | Large semantic payloads page without losing target identity. |
+| Empty | Symbol-not-found, unsupported capability, and LSP-unavailable paths are explicit. |
+| Semantic quality | Definition/reference/call/hover/symbol outputs identify URI, range, symbol identity, completeness, and static-vs-dynamic limits where applicable. |
 
-### `lspCallHierarchy`
+### `lspGetDiagnostics`
 
-Primary code: [src/tools/lsp_call_hierarchy/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp_call_hierarchy). Schema: `LSPCallHierarchyQuerySchema`.
+Primary code: [src/tools/lsp/diagnostics/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp/diagnostics). Schema: `LspGetDiagnosticsQuerySchema`.
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `uri`, `symbolName`, `lineHint`, `orderHint`, `direction:"incoming"|"outgoing"`, `depth`, `callsPerPage`, `page`, `contextLines`, output pagination. |
-| Implementation | Uses `LspClientPool`, never stops pooled clients directly, resolves target symbol before hierarchy, follows definitions when needed, and uses pattern fallback only when semantic LSP cannot provide call hierarchy. |
-| Pagination | Incoming/outgoing rows paginate by call count, and output-size pagination can still page a large structured response. |
-| Empty | Incoming empty means no callers. Outgoing empty means no callees. Symbol-resolution failure is an error or empty with precise hints, not a misleading no-call result. |
-| Semantic quality | Calls should include direction, callee/caller item, URI, range, fromRanges when available, depth, and confidence/fallback mode. |
+| Params | Verify `uri`/`filePath`, `severity`, `source`, and response pagination. |
+| Implementation | Synchronizes the current file into the LSP document manager, uses pull diagnostics when advertised, otherwise falls back to buffered `publishDiagnostics`. |
+| Empty | Distinguishes clean files from unavailable diagnostics. |
+| Semantic quality | Diagnostics include severity, range, message, source, code, related information, and summary counts. |
 
 ## Cross-Tool Research Quality Suites
 
@@ -234,7 +221,7 @@ These suites verify that tools compose into reliable research workflows.
 
 | Suite | Steps | Pass criteria |
 | --- | --- | --- |
-| Local semantic navigation | `localSearchCode` for a symbol, then `lspGotoDefinition`, `lspFindReferences`, and `lspCallHierarchy` with returned line hints. | LSP tools resolve the same symbol, references include the definition when requested, call hierarchy direction is correct, and fallback mode is explicit if used. |
+| Local semantic navigation | `localSearchCode` for a symbol, then `lspGetSemanticContent` with `type="definition"`, `type="references"`, and `type="callers"`/`type="callees"` using returned line hints. | LSP tools resolve the same symbol, references include the definition when requested, call direction is correct, and fallback mode is explicit if used. |
 | Remote to local deep dive | `githubSearchCode` or `githubSearchRepositories`, then `githubCloneRepo`, then local search and LSP tools on `localPath`. | Remote identity, branch, clone path, and local path all line up. No result requires guessing a path or branch. |
 | Structure to content | `githubViewRepoStructure` or `localViewStructure`, then content fetch on selected entries. | Paths emitted by structure tools are directly accepted by content tools. Empty directories and missing files are differentiated. |
 | Package provenance | `packageSearch`, then `githubViewRepoStructure` or `githubSearchCode` on parsed repo owner/name. | Package repo metadata is normalized enough to drive GitHub tools, and missing/ambiguous repo URLs are represented as missing evidence. |
@@ -303,7 +290,7 @@ npx knip
 
 Do not mark a tool-surface change complete until these are true:
 
-1. All 14 tools still register with input and output schemas.
+1. All 13 tools still register with input and output schemas.
 2. All public schema defaults, caps, hidden fields, and mutex rules have tests.
 3. Every tool has success, empty, error, mixed-bulk, pagination, lean-output (`base`/`shared`), and verbosity coverage.
 4. Remote tools cover auth, rate limit, provider error, no results, and provider-mapper edge cases.

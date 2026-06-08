@@ -470,7 +470,7 @@ function buildExtractionState(
   };
 }
 
-export function lineRangeContinuationHints(r: {
+function lineRangeContinuationHints(r: {
   isPartial?: boolean;
   startLine?: number;
   endLine?: number;

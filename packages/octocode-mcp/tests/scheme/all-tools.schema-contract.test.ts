@@ -2,27 +2,25 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
+import {
+  LSP_GET_DIAGNOSTICS_TOOL_NAME,
+  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+} from '../../src/tools/lsp/shared/semanticTypes.js';
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { pattern: 'foo', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
-  [STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION]: {
+  [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: {
     uri: '/tmp/test.ts',
+    type: 'definition',
     symbolName: 'myFn',
     lineHint: 10,
   },
-  [STATIC_TOOL_NAMES.LSP_FIND_REFERENCES]: {
+  [LSP_GET_DIAGNOSTICS_TOOL_NAME]: {
     uri: '/tmp/test.ts',
-    symbolName: 'myFn',
-    lineHint: 10,
-  },
-  [STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY]: {
-    uri: '/tmp/test.ts',
-    symbolName: 'myFn',
-    lineHint: 10,
-    direction: 'incoming',
+    severity: 'all',
   },
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: {
     keywordsToSearch: ['useState'],
@@ -259,8 +257,8 @@ describe('all-tools schema contract', () => {
   );
 
   describe('global invariants', () => {
-    it('ALL_TOOLS contains exactly 14 tools', () => {
-      expect(ALL_TOOLS).toHaveLength(14);
+    it('ALL_TOOLS contains exactly 13 tools', () => {
+      expect(ALL_TOOLS).toHaveLength(13);
     });
 
     it('every tool has a MINIMAL_QUERY entry in this test', () => {

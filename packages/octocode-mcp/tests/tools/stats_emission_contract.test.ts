@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { describe, expect, it } from 'vitest';
+import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
 const ROOT = process.cwd();
 
@@ -87,30 +88,17 @@ const registeredTools = [
     ],
   },
   {
-    name: 'lspGotoDefinition',
-    executionFiles: ['src/tools/lsp_goto_definition/execution.ts'],
+    name: 'lspGetSemanticContent',
+    executionFiles: ['src/tools/lsp/semantic_content/execution.ts'],
     rawEvidence: [
-      /attachRawResponseChars\([\s\S]*content\.length\s*\+\s*countSerializedChars\(result\)/,
+      /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
     ],
   },
   {
-    name: 'lspFindReferences',
-    executionFiles: [
-      'src/tools/lsp_find_references/execution.ts',
-      'src/tools/lsp_find_references/lsp_find_references.ts',
-    ],
+    name: 'lspGetDiagnostics',
+    executionFiles: ['src/tools/lsp/diagnostics/execution.ts'],
     rawEvidence: [
-      /attachRawResponseChars\([\s\S]*content\.length\s*\+\s*countSerializedChars\(lspResult\)/,
-    ],
-  },
-  {
-    name: 'lspCallHierarchy',
-    executionFiles: [
-      'src/tools/lsp_call_hierarchy/execution.ts',
-      'src/tools/lsp_call_hierarchy/callHierarchy.ts',
-    ],
-    rawEvidence: [
-      /attachRawResponseChars\([\s\S]*content\.length\s*\+\s*countSerializedChars\(result\)/,
+      /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
     ],
   },
 ] as const;
@@ -121,15 +109,11 @@ async function readProjectFile(relativePath: string): Promise<string> {
 
 describe('tool stats emission contract', () => {
   it('covers every registered tool from the catalog', async () => {
-    const toolConfig = await readProjectFile('src/tools/toolConfig.ts');
-    const catalogNames = [
-      ...toolConfig.matchAll(/const\s+([A-Z_]+)\s*=\s*createTool\(/g),
-    ].map(match => match[1]);
+    const catalogNames = ALL_TOOLS.map(tool => tool.name).sort();
+    const coveredNames = registeredTools.map(tool => tool.name).sort();
 
-    expect(catalogNames).toHaveLength(14);
-    expect(registeredTools.map(tool => tool.name)).toHaveLength(
-      catalogNames.length
-    );
+    expect(catalogNames).toHaveLength(13);
+    expect(coveredNames).toEqual(catalogNames);
   });
 
   it('records final sent response length once per bulk tool invocation', async () => {

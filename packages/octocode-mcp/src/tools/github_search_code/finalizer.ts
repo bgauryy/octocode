@@ -33,12 +33,14 @@ function mergeGroups(
   perQuery: readonly PerQueryGroups[]
 ): CodeSearchGroupedResult[] {
   const merged = new Map<string, CodeSearchGroupedResult>();
-  for (const { groups } of perQuery) {
+  for (const { id: queryId, groups } of perQuery) {
     for (const group of groups) {
-      const existing = merged.get(group.id);
+      const mergeKey = `${queryId}\u0000${group.id}`;
+      const existing = merged.get(mergeKey);
       if (!existing) {
-        merged.set(group.id, {
+        merged.set(mergeKey, {
           id: group.id,
+          queryId,
           owner: group.owner,
           repo: group.repo,
           matches: [...group.matches],
@@ -140,6 +142,12 @@ function collectPeerHints(results: readonly FlatQueryResult[]): string[] {
   );
 }
 
+function hasPathOnlyFileMatches(
+  groups: readonly CodeSearchGroupedResult[]
+): boolean {
+  return groups.some(group => group.matches.some(match => match.pathOnly));
+}
+
 function buildCodeEvidence(
   groups: readonly CodeSearchGroupedResult[],
   upstreamPagination: CodeSearchPagination | undefined,
@@ -223,9 +231,15 @@ export function buildGithubSearchCodeFinalizer<
         : [];
 
     const errors = collectFlatErrors(results);
+    const pathOnlyHints = hasPathOnlyFileMatches(groups)
+      ? [
+          'Some match="file" results are path-only because GitHub did not return text matches; use githubGetFileContent with matchString or startLine/endLine to inspect content.',
+        ]
+      : [];
     const hints = dedupeHints([
       ...(config.peerHints ? collectPeerHints(results) : []),
       ...paginationHints,
+      ...pathOnlyHints,
     ]);
     const responseData: GitHubCodeSearchOutputLocal = { results: groups };
 
@@ -254,6 +268,7 @@ export function buildGithubSearchCodeFinalizer<
         'id',
         'owner',
         'repo',
+        'queryId',
         'matches',
         'pagination',
         'hints',

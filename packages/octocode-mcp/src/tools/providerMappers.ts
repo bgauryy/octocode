@@ -106,11 +106,14 @@ export interface CodeSearchGroupedMatch {
   path: string;
   value?: string;
 
+  pathOnly?: boolean;
+
   matchIndices?: Array<{ start: number; end: number }>;
 }
 
 export interface CodeSearchGroupedResult {
   id: string;
+  queryId?: string;
   owner: string;
   repo: string;
   matches: CodeSearchGroupedMatch[];
@@ -164,7 +167,10 @@ export function mapCodeSearchProviderResult(
     }
 
     if (isPathMatch || !item.matches?.length) {
-      group.matches.push({ path: item.path });
+      group.matches.push({
+        path: item.path,
+        ...(!isPathMatch ? { pathOnly: true } : {}),
+      });
       continue;
     }
 
@@ -542,6 +548,12 @@ export function mapFileContentProviderResult(
     }),
     ...(data.warnings?.length && {
       warnings: data.warnings,
+    }),
+    ...(data.matchNotFound === true && {
+      matchNotFound: true,
+    }),
+    ...(data.searchedFor && {
+      searchedFor: data.searchedFor,
     }),
     ...(data.ref && query.branch !== data.ref
       ? { resolvedBranch: data.ref }

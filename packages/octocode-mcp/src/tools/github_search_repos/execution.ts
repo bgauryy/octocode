@@ -73,15 +73,69 @@ export function formatRepoLine(repo: GitHubRepositoryOutput): string {
   return parts.join(' · ');
 }
 
-export function buildReposSearchOutput(
+type RepositoryDetail = {
+  owner: string;
+  repo: string;
+  fullName: string;
+  stars?: number;
+  forks?: number;
+  openIssues?: number;
+  language?: string;
+  description?: string;
+  pushedAt?: string;
+  createdAt?: string;
+  defaultBranch?: string;
+  topics?: string[];
+  visibility?: string;
+};
+
+function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
+  const detail: RepositoryDetail = {
+    owner: repo.owner ?? '',
+    repo: repo.repo,
+    fullName: `${repo.owner ? `${repo.owner}/` : ''}${repo.repo}`,
+    stars: repo.stars,
+    forks: repo.forksCount,
+    openIssues: repo.openIssuesCount,
+    language: repo.language,
+    description: repo.description || undefined,
+    pushedAt: repo.pushedAt,
+    createdAt: repo.createdAt,
+    defaultBranch:
+      repo.defaultBranch &&
+      repo.defaultBranch !== 'main' &&
+      repo.defaultBranch !== 'master'
+        ? repo.defaultBranch
+        : undefined,
+    topics: repo.topics?.slice(0, 5),
+    visibility:
+      repo.visibility && repo.visibility !== 'public'
+        ? repo.visibility
+        : undefined,
+  };
+
+  return Object.fromEntries(
+    Object.entries(detail).filter(([, value]) => value !== undefined)
+  ) as RepositoryDetail;
+}
+
+function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
   _query: PartialReposSearchQuery
 ): {
-  data: { repositories: unknown[]; pagination?: unknown };
+  data: {
+    repositories: unknown[];
+    repositoryDetails: RepositoryDetail[];
+    pagination?: unknown;
+  };
   extraHints: string[];
 } {
   return {
-    data: { ...data, repositories: data.repositories.map(formatRepoLine) },
+    data: {
+      ...data,
+      repositories: data.repositories.map(formatRepoLine),
+      repositoryDetails: data.repositories.map(buildRepositoryDetail),
+    },
     extraHints: [],
   };
 }
@@ -583,7 +637,12 @@ export async function searchMultipleGitHubRepos(
     },
     {
       toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-      keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
+      keysPriority: [
+        'repositories',
+        'repositoryDetails',
+        'pagination',
+        'error',
+      ] satisfies string[],
       peerHints: true,
       peerEvidence: true,
     },

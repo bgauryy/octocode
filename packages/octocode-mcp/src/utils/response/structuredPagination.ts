@@ -357,6 +357,42 @@ function paginateSegments(
   };
 }
 
+/**
+ * Shared short-circuit for the paginate* helpers: returns the full value when
+ * paging is unnecessary, an empty value when the offset is past the end, or
+ * null when real pagination work is required. Pass hasContent=false to force
+ * the "nothing to paginate" branch (e.g. zero collection segments).
+ */
+function shortCircuitPagination<T>(
+  request: ResolvedPaginationRequest,
+  totalChars: number,
+  fullValue: T,
+  emptyValue: T,
+  hasContent: boolean = true
+): ValuePageResult<T> | null {
+  if (!hasContent || (!request.explicit && totalChars <= request.length)) {
+    return {
+      value: fullValue,
+      actualOffset: 0,
+      pageEnd: totalChars,
+      totalChars,
+      paginated: false,
+    };
+  }
+
+  if (request.offset >= totalChars) {
+    return {
+      value: emptyValue,
+      actualOffset: request.offset,
+      pageEnd: request.offset,
+      totalChars,
+      paginated: true,
+    };
+  }
+
+  return null;
+}
+
 function paginateConfiguredObjectValue(
   target: Record<string, unknown>,
   request: ResolvedPaginationRequest,
@@ -376,28 +412,14 @@ function paginateConfiguredObjectValue(
   const { baseObject, baseChars, segments, totalChars } =
     buildCollectionSegments(target, configs);
 
-  if (
-    segments.length === 0 ||
-    (!request.explicit && totalChars <= request.length)
-  ) {
-    return {
-      value: target,
-      actualOffset: 0,
-      pageEnd: totalChars,
-      totalChars,
-      paginated: false,
-    };
-  }
-
-  if (request.offset >= totalChars) {
-    return {
-      value: baseObject,
-      actualOffset: request.offset,
-      pageEnd: request.offset,
-      totalChars,
-      paginated: true,
-    };
-  }
+  const shortCircuit = shortCircuitPagination(
+    request,
+    totalChars,
+    target,
+    baseObject,
+    segments.length > 0
+  );
+  if (shortCircuit) return shortCircuit;
 
   const page = paginateSegments(baseChars, totalChars, segments, request);
 
@@ -421,25 +443,8 @@ function paginateStringValue(
   const encodedTotal = encodedLengths.reduce((sum, length) => sum + length, 0);
   const totalChars = 2 + encodedTotal;
 
-  if (!request.explicit && totalChars <= request.length) {
-    return {
-      value,
-      actualOffset: 0,
-      pageEnd: totalChars,
-      totalChars,
-      paginated: false,
-    };
-  }
-
-  if (request.offset >= totalChars) {
-    return {
-      value: '',
-      actualOffset: request.offset,
-      pageEnd: request.offset,
-      totalChars,
-      paginated: true,
-    };
-  }
+  const shortCircuit = shortCircuitPagination(request, totalChars, value, '');
+  if (shortCircuit) return shortCircuit;
 
   let startIndex = 0;
   let startOffset = 0;
@@ -535,25 +540,13 @@ function paginateObjectFieldCore(
   });
   const totalChars = wrapperChars + innerPage.totalChars;
 
-  if (!request.explicit && totalChars <= request.length) {
-    return {
-      value: target,
-      actualOffset: 0,
-      pageEnd: totalChars,
-      totalChars,
-      paginated: false,
-    };
-  }
-
-  if (request.offset >= totalChars) {
-    return {
-      value: baseValue,
-      actualOffset: request.offset,
-      pageEnd: request.offset,
-      totalChars,
-      paginated: true,
-    };
-  }
+  const shortCircuit = shortCircuitPagination(
+    request,
+    totalChars,
+    target,
+    baseValue
+  );
+  if (shortCircuit) return shortCircuit;
 
   return {
     value: {
@@ -750,53 +743,6 @@ function paginateLocalSearchFile(
   ]);
 }
 
-function paginateLspLocation(
-  value: unknown,
-  request: ResolvedPaginationRequest
-): ValuePageResult<unknown> | null {
-  if (!isPlainObject(value)) {
-    return null;
-  }
-
-  return paginateObjectStringField(value, 'content', request);
-}
-
-function paginateCallHierarchyNode(
-  value: unknown,
-  request: ResolvedPaginationRequest
-): ValuePageResult<unknown> | null {
-  if (!isPlainObject(value)) {
-    return null;
-  }
-  const nestedKey = isPlainObject(value.from)
-    ? 'from'
-    : isPlainObject(value.to)
-      ? 'to'
-      : null;
-  if (nestedKey) {
-    return paginateObjectFieldCore(
-      value,
-      nestedKey,
-      request,
-      {},
-      (inner, req) => {
-        const node = inner as Record<string, unknown>;
-        const sliced = paginateObjectStringField(node, 'content', req);
-        if (sliced) return sliced;
-        const total = serialize(node).length;
-        return {
-          value: node,
-          actualOffset: 0,
-          pageEnd: total,
-          totalChars: total,
-          paginated: false,
-        };
-      }
-    );
-  }
-  return paginateObjectStringField(value, 'content', request);
-}
-
 function pageToolDataValue(
   toolName: string,
   data: Record<string, unknown>,
@@ -817,6 +763,7 @@ function pageToolDataValue(
     case TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES:
       page = paginateConfiguredObjectValue(data, request, [
         { field: 'repositories', kind: 'array' },
+        { field: 'repositoryDetails', kind: 'array' },
       ]);
       break;
     case TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE:
@@ -855,35 +802,6 @@ function pageToolDataValue(
         {
           field: 'entries',
           kind: 'array',
-        },
-      ]);
-      break;
-    case TOOL_NAMES.LSP_FIND_REFERENCES:
-    case TOOL_NAMES.LSP_GOTO_DEFINITION:
-      page = paginateConfiguredObjectValue(data, request, [
-        {
-          field: 'locations',
-          kind: 'array',
-          itemPaginator: paginateLspLocation,
-        },
-      ]);
-      break;
-    case TOOL_NAMES.LSP_CALL_HIERARCHY:
-      page = paginateConfiguredObjectValue(data, request, [
-        {
-          field: 'incomingCalls',
-          kind: 'array',
-          itemPaginator: paginateCallHierarchyNode,
-        },
-        {
-          field: 'outgoingCalls',
-          kind: 'array',
-          itemPaginator: paginateCallHierarchyNode,
-        },
-        {
-          field: 'calls',
-          kind: 'array',
-          itemPaginator: paginateCallHierarchyNode,
         },
       ]);
       break;
@@ -980,8 +898,6 @@ function paginateFlatQueryResult(
     };
   }
 
-  const shouldExposeQueryOutputPagination =
-    toolName !== TOOL_NAMES.LSP_FIND_REFERENCES;
   const dataPagination = createOutputPagination(
     dataPage.actualOffset,
     Math.max(0, dataPage.pageEnd - dataPage.actualOffset),
@@ -990,23 +906,21 @@ function paginateFlatQueryResult(
   );
   const dataValue =
     dataPage.paginated && isPlainObject(dataPage.value)
-      ? shouldExposeQueryOutputPagination
-        ? withPaginationHints(
-            {
-              ...dataPage.value,
-              outputPagination: dataPagination,
-              ...(toolName === TOOL_NAMES.LOCAL_FIND_FILES && {
-                charPagination: dataPagination,
-              }),
-            },
-            dataPagination,
-            'output',
-            {
-              autoPaginated: false,
-              requestedLength: request.length,
-            }
-          )
-        : dataPage.value
+      ? withPaginationHints(
+          {
+            ...dataPage.value,
+            outputPagination: dataPagination,
+            ...(toolName === TOOL_NAMES.LOCAL_FIND_FILES && {
+              charPagination: dataPagination,
+            }),
+          },
+          dataPagination,
+          'output',
+          {
+            autoPaginated: false,
+            requestedLength: request.length,
+          }
+        )
       : dataPage.value;
 
   return {
@@ -1032,10 +946,6 @@ export function applyQueryOutputPagination(
   }
 
   if (queryResult.status !== undefined) {
-    return queryResult;
-  }
-
-  if (toolName === TOOL_NAMES.LSP_FIND_REFERENCES) {
     return queryResult;
   }
 

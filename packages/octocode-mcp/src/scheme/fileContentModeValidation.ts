@@ -42,4 +42,17 @@ export function validateFileContentExtractionMode(
       path: ['startLine'],
     });
   }
+
+  if (
+    data.startLine !== undefined &&
+    data.endLine !== undefined &&
+    data.endLine < data.startLine
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'Invalid line range: endLine must be greater than or equal to startLine.',
+      path: ['endLine'],
+    });
+  }
 }

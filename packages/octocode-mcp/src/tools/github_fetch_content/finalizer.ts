@@ -33,6 +33,8 @@ type FileEntry = {
   lastModified?: string;
   lastModifiedBy?: string;
   warnings?: string[];
+  matchNotFound?: boolean;
+  searchedFor?: string;
 };
 
 type DirectoryEntry = {
@@ -213,6 +215,8 @@ function readFileEntry(
     lastModified: readString(data.lastModified),
     lastModifiedBy: readString(data.lastModifiedBy),
     warnings: readStringArray(data.warnings),
+    ...(data.matchNotFound === true ? { matchNotFound: true } : {}),
+    searchedFor: readString(data.searchedFor),
   };
 }
 

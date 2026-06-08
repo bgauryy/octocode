@@ -59,6 +59,37 @@ describe('jsonToYamlString', () => {
       expect(yaml).toContain('  - id: 2');
       expect(yaml).toContain('    name: "User2"');
     });
+
+    it('renders multiline strings as readable block scalars', () => {
+      const yaml = jsonToYamlString({
+        file: {
+          path: 'src/example.ts',
+          content: 'export const a = 1;\nexport const b = 2;',
+        },
+      });
+
+      expect(yaml).toContain('content: |-');
+      expect(yaml).toContain('  export const a = 1;');
+      expect(yaml).toContain('  export const b = 2;');
+      expect(yaml).not.toContain('content: "export const a = 1;\\n');
+    });
+  });
+
+  describe('Fallback behavior', () => {
+    it('falls back to JSON when YAML cannot serialize a value', () => {
+      const yaml = jsonToYamlString({ valid: 'ok', invalid: () => 'nope' });
+
+      expect(yaml).toContain('"valid": "ok"');
+      expect(yaml).not.toContain('invalid');
+    });
+
+    it('returns diagnostic text when YAML and JSON conversion both fail', () => {
+      const yaml = jsonToYamlString({ invalid: 1n });
+
+      expect(yaml).toContain('# YAML conversion failed:');
+      expect(yaml).toContain('# JSON conversion also failed:');
+      expect(yaml).toContain('# Object: [Unconvertible]');
+    });
   });
 
   describe('Default behavior (no configuration)', () => {

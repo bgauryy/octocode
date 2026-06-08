@@ -10,7 +10,6 @@
  * @example
  * ```typescript
  * import {
- *   STATIC_TOOL_NAMES,
  *   type CompleteMetadata,
  *   type ToolNames,
  *   type ToolMetadata
@@ -35,9 +34,6 @@ import type {
   GitHubViewRepoStructureQuerySchema,
   RipgrepQuerySchema,
   ViewStructureQuerySchema,
-  LSPCallHierarchyQuerySchema,
-  LSPFindReferencesQuerySchema,
-  LSPGotoDefinitionQuerySchema,
   NpmPackageQuerySchema,
 } from '@octocodeai/octocode-core/schemas';
 
@@ -56,14 +52,16 @@ export type GitHubViewRepoStructureQuery = z.infer<
 >;
 export type RipgrepSearchQuery = z.infer<typeof RipgrepQuerySchema>;
 export type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
-export type LSPCallHierarchyQuery = z.infer<typeof LSPCallHierarchyQuerySchema>;
-export type LSPFindReferencesQuery = z.infer<
-  typeof LSPFindReferencesQuerySchema
->;
-export type LSPGotoDefinitionQuery = z.infer<
-  typeof LSPGotoDefinitionQuerySchema
->;
 export type PackageSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
+
+export type {
+  LspDiagnosticsQuery,
+  LspEvidence,
+  LspGetSemanticContentQuery,
+  LspSemanticEnvelope,
+  ResolvedSymbol,
+  SemanticContentType,
+} from './tools/lsp/shared/semanticTypes.js';
 
 export type {
   GitHubFileContentData as ContentResultData,
@@ -98,12 +96,6 @@ export type {
   LocalFindFilesToolResult as FindFilesResult,
   LocalSearchCodeToolResult as SearchContentResult,
   LocalViewStructureToolResult as ViewStructureResult,
-  LspCallHierarchyItem as CallHierarchyItem,
-  LspIncomingCall as IncomingCall,
-  LspOutgoingCall as OutgoingCall,
-  LspCallHierarchyToolResult as CallHierarchyResult,
-  LspFindReferencesToolResult as FindReferencesResult,
-  LspGotoDefinitionToolResult as GotoDefinitionResult,
   LspExactPosition as ExactPosition,
 } from '@octocodeai/octocode-core/extra-types';
 
@@ -116,9 +108,8 @@ export { executeFetchContent } from './tools/local_fetch_content/execution.js';
 export { executeFindFiles } from './tools/local_find_files/execution.js';
 export { executeRipgrepSearch } from './tools/local_ripgrep/execution.js';
 export { executeViewStructure } from './tools/local_view_structure/execution.js';
-export { executeCallHierarchy } from './tools/lsp_call_hierarchy/execution.js';
-export { executeFindReferences } from './tools/lsp_find_references/execution.js';
-export { executeGotoDefinition } from './tools/lsp_goto_definition/execution.js';
+export { executeLspGetSemanticContent } from './tools/lsp/semantic_content/execution.js';
+export { executeLspGetDiagnostics } from './tools/lsp/diagnostics/execution.js';
 export { searchPackages } from './tools/package_search/execution.js';
 export { executeCloneRepo } from './tools/github_clone_repo/execution.js';
 export {
@@ -159,12 +150,20 @@ export {
   FetchContentQuerySchema,
   FindFilesQuerySchema,
   ViewStructureQuerySchema,
-  LSPGotoDefinitionQuerySchema,
-  LSPFindReferencesQuerySchema,
-  LSPCallHierarchyQuerySchema,
   NpmPackageQuerySchema as PackageSearchQuerySchema,
   CloneRepoQuerySchema,
 } from '@octocodeai/octocode-core/schemas';
+
+export {
+  BulkLspGetSemanticContentQuerySchema,
+  LspGetSemanticContentQuerySchema,
+} from './tools/lsp/semantic_content/scheme.js';
+export { LspGetSemanticContentOutputSchema } from './tools/lsp/semantic_content/outputSchema.js';
+export {
+  BulkLspGetDiagnosticsQuerySchema,
+  LspGetDiagnosticsQuerySchema,
+} from './tools/lsp/diagnostics/scheme.js';
+export { LspGetDiagnosticsOutputSchema } from './tools/lsp/diagnostics/outputSchema.js';
 
 export { loadToolContent } from './tools/toolMetadata/state.js';
 

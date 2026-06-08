@@ -14,11 +14,8 @@ import {
   RipgrepQuerySchema,
   ViewStructureQuerySchema,
 } from '../../src/scheme/localSchemaOverlay.js';
-import {
-  LSPGotoDefinitionQuerySchema,
-  LSPFindReferencesQuerySchema,
-  LSPCallHierarchyQuerySchema,
-} from '../../src/scheme/lspSchemaOverlay.js';
+import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
+import { LspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 
 const SENTINEL = 9007199254740991;
 
@@ -33,9 +30,8 @@ const schemas: Record<string, z.ZodTypeAny> = {
   findFiles: FindFilesQuerySchema,
   ripgrep: RipgrepQuerySchema,
   viewStructure: ViewStructureQuerySchema,
-  lspGoto: LSPGotoDefinitionQuerySchema,
-  lspRefs: LSPFindReferencesQuerySchema,
-  lspCalls: LSPCallHierarchyQuerySchema,
+  lspSemantic: LspGetSemanticContentQuerySchema,
+  lspDiagnostics: LspGetDiagnosticsQuerySchema,
 };
 
 describe('numeric schema fields are bounded (#C1)', () => {
@@ -57,6 +53,14 @@ describe('numeric schema fields are bounded (#C1)', () => {
     });
   }
 
+  it('githubSearchCode rejects page 0 instead of silently clamping to page 1', () => {
+    const r = GitHubCodeSearchQueryLocalSchema.safeParse({
+      keywordsToSearch: ['x'],
+      page: 0,
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('clamps matchStringContextLines:120 to 100 instead of rejecting (FC-2)', () => {
     const r = FileContentQueryBaseLocalSchema.safeParse({
       owner: 'o',
@@ -74,8 +78,9 @@ describe('numeric schema fields are bounded (#C1)', () => {
   });
 
   it('clamps a negative line number instead of rejecting it', () => {
-    const r = LSPGotoDefinitionQuerySchema.safeParse({
+    const r = LspGetSemanticContentQuerySchema.safeParse({
       uri: 'a.ts',
+      type: 'definition',
       symbolName: 'x',
       lineHint: -5,
     });

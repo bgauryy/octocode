@@ -39,9 +39,12 @@ type FlatResponse = {
       path: string;
       content: string;
       warnings?: string[];
+      matchNotFound?: boolean;
+      searchedFor?: string;
     }>;
   }>;
   warnings?: Warning[];
+  hints?: string[];
 };
 
 describe('githubGetFileContent — content-truncated structured warning', () => {
@@ -112,6 +115,51 @@ describe('githubGetFileContent — content-truncated structured warning', () => 
     expect(first.warnings).toBeUndefined();
     const file = first.results[0]?.files?.[0];
     expect(file?.content).not.toMatch(/\[(truncated|clipped)\]/i);
+  });
+
+  it('preserves match-not-found metadata without generic empty-file hints', async () => {
+    mockProvider.getFileContent.mockResolvedValue({
+      data: {
+        path: 'src/small.ts',
+        content: '',
+        encoding: 'utf-8',
+        size: 0,
+        ref: 'main',
+        totalLines: 10,
+        matchNotFound: true,
+        searchedFor: 'missingAnchor',
+        warnings: [
+          'No matches for "missingAnchor" in file (10 lines scanned). Try matchStringIsRegex=true, a different anchor, or fullContent=true.',
+        ],
+      },
+      status: 200,
+      provider: 'github',
+      rawResponseChars: 0,
+    });
+
+    const result = await mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
+      queries: [
+        {
+          owner: 'owner',
+          repo: 'small',
+          path: 'src/small.ts',
+          matchString: 'missingAnchor',
+        },
+      ],
+    });
+
+    const data = result.structuredContent as FlatResponse;
+    const file = data.results[0]?.files?.[0];
+    expect(result.isError).toBe(false);
+    expect(file).toMatchObject({
+      path: 'src/small.ts',
+      content: '',
+      matchNotFound: true,
+      searchedFor: 'missingAnchor',
+    });
+    expect(file?.warnings?.[0]).toContain('No matches for "missingAnchor"');
+    expect(data.hints?.join('\n') ?? '').not.toContain('may be an empty file');
+    expect(data.results[0]).toBeDefined();
   });
 
   it('emits no warnings when content fits the budget', async () => {

@@ -108,6 +108,8 @@ const GitHubFetchFileEntrySchema = z.object({
   lastModified: z.string().optional(),
   lastModifiedBy: z.string().optional(),
   warnings: z.array(z.string()).optional(),
+  matchNotFound: z.boolean().optional(),
+  searchedFor: z.string().optional(),
 });
 
 const GitHubFetchDirectoryEntrySchema = z.object({
@@ -180,11 +182,20 @@ export const GitHubCodeSearchQueryLocalSchema = withCoreSchemaDescriptions(
       UpstreamGitHubCodeSearchQuerySchema.shape.repo,
       'Optional repository scope. Use with owner to avoid broad global searches.'
     ),
+    extension: describeField(
+      UpstreamGitHubCodeSearchQuerySchema.shape.extension,
+      'Optional extension filter. Pass without a dot for clarity, e.g. "ts"; a leading dot is tolerated.'
+    ),
     match: describeField(
       UpstreamGitHubCodeSearchQuerySchema.shape.match,
       'Search target: "file" searches contents, "path" searches path/name metadata.'
     ),
-    page: relaxedPageNumberField
+    page: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
       .default(1)
       .describe(
         `Result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} matches. Use page=2, page=3, … to walk through results.`
@@ -208,12 +219,14 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
   results: z.array(
     z.object({
       id: z.string(),
+      queryId: z.string().optional(),
       owner: z.string(),
       repo: z.string(),
       matches: z.array(
         z.object({
           path: z.string(),
           value: z.string().optional(),
+          pathOnly: z.boolean().optional(),
           matchIndices: z
             .array(z.object({ start: z.number(), end: z.number() }))
             .optional(),
@@ -244,6 +257,7 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
       z.object({
         id: z.string(),
         error: z.string(),
+        hints: z.array(z.string()).optional(),
       })
     )
     .optional(),

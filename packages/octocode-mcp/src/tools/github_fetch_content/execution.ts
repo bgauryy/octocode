@@ -163,8 +163,9 @@ async function handleFileFetch(
   );
 
   const hasContent = Boolean(
-    providerResult.response.data.content &&
-    providerResult.response.data.content.length > 0
+    providerResult.response.data.matchNotFound === true ||
+    (providerResult.response.data.content &&
+      providerResult.response.data.content.length > 0)
   );
 
   return createSuccessResult(

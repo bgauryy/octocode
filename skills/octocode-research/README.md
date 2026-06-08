@@ -201,7 +201,6 @@ Collects de-identified telemetry (usage counts, error rates). Never collects sou
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Architecture |
 | [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) | Full API reference |
 | [docs/FLOWS.md](./docs/FLOWS.md) | Request flow diagrams |
-| [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) | Common issues |
 
 ---
 

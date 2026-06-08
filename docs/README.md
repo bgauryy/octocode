@@ -11,14 +11,12 @@ Install, authenticate, and configure Octocode.
 | Doc | When to read |
 |-----|--------------|
 | [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) | All env vars and `.octocoderc` options |
-| [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) | npm, Node.js, auth, and connection issues |
 
 **Providers**
 
 | Doc | When to read |
 |-----|--------------|
-| [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) | Auth model overview |
-| [GitHub Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) | Tokens, Enterprise, clone tools |
+| [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) | GitHub login, token priority, Enterprise, clone tools |
 
 **Clients**
 
@@ -44,9 +42,9 @@ How to use, extend, and contribute to Octocode.
 | Doc | When to read |
 |-----|--------------|
 | [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) | Schemas + behavior for remote-host tools |
-| [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | Schemas + behavior for local FS / LSP tools |
+| [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | Schemas + behavior for local filesystem tools |
+| [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) | Canonical reference for semantic content and diagnostics |
 | [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) | All `octocode-cli` commands and flags |
-| [Shared API Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/SHARED_API_REFERENCE.md) | `octocode-shared` credentials / session / platform / config |
 
 **Workflows**
 

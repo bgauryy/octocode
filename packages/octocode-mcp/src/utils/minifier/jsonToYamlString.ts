@@ -5,6 +5,31 @@ export interface YamlConversionConfig {
   keysPriority?: string[];
 }
 
+function quoteYamlBlockLine(indent: string, line: string): string {
+  return line.length === 0 ? indent : `${indent}  ${line}`;
+}
+
+function decodeEscapedYamlString(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+}
+
+function convertMultilineQuotedStringsToBlockScalars(yaml: string): string {
+  return yaml.replace(
+    /^(\s*)([A-Za-z0-9_-]+): "((?:[^"\\]|\\.)*\\n(?:[^"\\]|\\.)*)"$/gm,
+    (_match, indent: string, key: string, escapedValue: string) => {
+      const content = decodeEscapedYamlString(escapedValue);
+      const lines = content
+        .split('\n')
+        .map(line => quoteYamlBlockLine(indent, line))
+        .join('\n');
+      return `${indent}${key}: |-\n${lines}`;
+    }
+  );
+}
+
 export function jsonToYamlString(
   jsonObject: unknown,
   config?: YamlConversionConfig
@@ -48,7 +73,7 @@ export function jsonToYamlString(
   };
 
   try {
-    return dump(jsonObject, {
+    const yaml = dump(jsonObject, {
       forceQuotes: true,
       quotingType: '"',
       lineWidth: -1,
@@ -59,6 +84,8 @@ export function jsonToYamlString(
       flowLevel: -1,
       skipInvalid: false,
     });
+
+    return convertMultilineQuotedStringsToBlockScalars(yaml);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';

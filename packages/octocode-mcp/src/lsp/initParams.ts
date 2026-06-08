@@ -31,8 +31,28 @@ export function buildInitializeParams(
       references: {
         dynamicRegistration: true,
       },
+      hover: {
+        dynamicRegistration: true,
+        contentFormat: ['markdown', 'plaintext'],
+      },
+      typeDefinition: {
+        dynamicRegistration: true,
+        linkSupport: true,
+      },
+      implementation: {
+        dynamicRegistration: true,
+        linkSupport: true,
+      },
+      documentSymbol: {
+        dynamicRegistration: true,
+        hierarchicalDocumentSymbolSupport: true,
+      },
       callHierarchy: {
         dynamicRegistration: true,
+      },
+      diagnostic: {
+        dynamicRegistration: true,
+        relatedDocumentSupport: true,
       },
       publishDiagnostics: {
         relatedInformation: true,

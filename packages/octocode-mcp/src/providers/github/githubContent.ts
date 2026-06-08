@@ -36,6 +36,8 @@ export function transformFileContentResult(
     startLine: data.startLine,
     endLine: data.endLine,
     warnings: buildContentWarnings(data, query),
+    matchNotFound: data.matchNotFound,
+    searchedFor: data.searchedFor,
   };
 }
 

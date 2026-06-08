@@ -33,13 +33,13 @@ import {
   BulkViewStructureSchema,
 } from '../scheme/localSchemaOverlay.js';
 import {
-  LSPCallHierarchyQuerySchema,
-  BulkLSPCallHierarchyQuerySchema,
-  LSPFindReferencesQuerySchema,
-  BulkLSPFindReferencesQuerySchema,
-  LSPGotoDefinitionQuerySchema,
-  BulkLSPGotoDefinitionQuerySchema,
-} from '../scheme/lspSchemaOverlay.js';
+  BulkLspGetDiagnosticsQuerySchema,
+  LspGetDiagnosticsQuerySchema,
+} from './lsp/diagnostics/scheme.js';
+import {
+  BulkLspGetSemanticContentQuerySchema,
+  LspGetSemanticContentQuerySchema,
+} from './lsp/semantic_content/scheme.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { registerGitHubSearchCodeTool } from './github_search_code/github_search_code.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
@@ -62,12 +62,14 @@ import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
 import { registerLocalViewStructureTool } from './local_view_structure/register.js';
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
-import { executeCallHierarchy } from './lsp_call_hierarchy/execution.js';
-import { executeFindReferences } from './lsp_find_references/execution.js';
-import { executeGotoDefinition } from './lsp_goto_definition/execution.js';
-import { registerLSPGotoDefinitionTool } from './lsp_goto_definition/lsp_goto_definition.js';
-import { registerLSPFindReferencesTool } from './lsp_find_references/register.js';
-import { registerLSPCallHierarchyTool } from './lsp_call_hierarchy/register.js';
+import { executeLspGetDiagnostics } from './lsp/diagnostics/execution.js';
+import { registerLspGetDiagnosticsTool } from './lsp/diagnostics/register.js';
+import { executeLspGetSemanticContent } from './lsp/semantic_content/execution.js';
+import { registerLspGetSemanticContentTool } from './lsp/semantic_content/register.js';
+import {
+  LSP_GET_DIAGNOSTICS_TOOL_NAME,
+  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+} from './lsp/shared/semanticTypes.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
@@ -144,9 +146,8 @@ interface ToolCatalog {
   LOCAL_VIEW_STRUCTURE: ToolConfig;
   LOCAL_FIND_FILES: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
-  LSP_GOTO_DEFINITION: ToolConfig;
-  LSP_FIND_REFERENCES: ToolConfig;
-  LSP_CALL_HIERARCHY: ToolConfig;
+  LSP_GET_SEMANTIC_CONTENT: ToolConfig;
+  LSP_GET_DIAGNOSTICS: ToolConfig;
   ALL_TOOLS: ToolConfig[];
 }
 
@@ -323,47 +324,40 @@ function createToolCatalog(
     },
   });
 
-  const LSP_GOTO_DEFINITION = createTool(gateway, 'LSP_GOTO_DEFINITION', {
+  const LSP_GET_SEMANTIC_CONTENT: ToolConfig = {
+    name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+    description:
+      'Return typed semantic content from a local language server for a symbol or file.',
     isDefault: true,
     isLocal: true,
+    skipMetadataCheck: true,
     type: 'content',
-    fn: registerLSPGotoDefinitionTool,
+    fn: registerLspGetSemanticContentTool,
     direct: {
-      schema: LSPGotoDefinitionQuerySchema,
-      inputSchema: BulkLSPGotoDefinitionQuerySchema,
-      executionFn: executeGotoDefinition,
+      schema: LspGetSemanticContentQuerySchema,
+      inputSchema: BulkLspGetSemanticContentQuerySchema,
+      executionFn: executeLspGetSemanticContent,
       security: 'basic',
       requiresServerRuntime: true,
     },
-  });
+  };
 
-  const LSP_FIND_REFERENCES = createTool(gateway, 'LSP_FIND_REFERENCES', {
+  const LSP_GET_DIAGNOSTICS: ToolConfig = {
+    name: LSP_GET_DIAGNOSTICS_TOOL_NAME,
+    description: 'Return language-server diagnostics for a local file.',
     isDefault: true,
     isLocal: true,
-    type: 'search',
-    fn: registerLSPFindReferencesTool,
-    direct: {
-      schema: LSPFindReferencesQuerySchema,
-      inputSchema: BulkLSPFindReferencesQuerySchema,
-      executionFn: executeFindReferences,
-      security: 'basic',
-      requiresServerRuntime: true,
-    },
-  });
-
-  const LSP_CALL_HIERARCHY = createTool(gateway, 'LSP_CALL_HIERARCHY', {
-    isDefault: true,
-    isLocal: true,
+    skipMetadataCheck: true,
     type: 'content',
-    fn: registerLSPCallHierarchyTool,
+    fn: registerLspGetDiagnosticsTool,
     direct: {
-      schema: LSPCallHierarchyQuerySchema,
-      inputSchema: BulkLSPCallHierarchyQuerySchema,
-      executionFn: executeCallHierarchy,
+      schema: LspGetDiagnosticsQuerySchema,
+      inputSchema: BulkLspGetDiagnosticsQuerySchema,
+      executionFn: executeLspGetDiagnostics,
       security: 'basic',
       requiresServerRuntime: true,
     },
-  });
+  };
 
   const ALL_TOOLS: ToolConfig[] = [
     GITHUB_SEARCH_CODE,
@@ -377,9 +371,8 @@ function createToolCatalog(
     LOCAL_VIEW_STRUCTURE,
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
-    LSP_GOTO_DEFINITION,
-    LSP_FIND_REFERENCES,
-    LSP_CALL_HIERARCHY,
+    LSP_GET_SEMANTIC_CONTENT,
+    LSP_GET_DIAGNOSTICS,
   ];
 
   return {
@@ -394,9 +387,8 @@ function createToolCatalog(
     LOCAL_VIEW_STRUCTURE,
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
-    LSP_GOTO_DEFINITION,
-    LSP_FIND_REFERENCES,
-    LSP_CALL_HIERARCHY,
+    LSP_GET_SEMANTIC_CONTENT,
+    LSP_GET_DIAGNOSTICS,
     ALL_TOOLS,
   };
 }
@@ -417,4 +409,7 @@ export const LOCAL_RIPGREP = DEFAULT_TOOL_CATALOG.LOCAL_RIPGREP;
 export const LOCAL_VIEW_STRUCTURE = DEFAULT_TOOL_CATALOG.LOCAL_VIEW_STRUCTURE;
 export const LOCAL_FIND_FILES = DEFAULT_TOOL_CATALOG.LOCAL_FIND_FILES;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
+export const LSP_GET_SEMANTIC_CONTENT =
+  DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;
+export const LSP_GET_DIAGNOSTICS = DEFAULT_TOOL_CATALOG.LSP_GET_DIAGNOSTICS;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

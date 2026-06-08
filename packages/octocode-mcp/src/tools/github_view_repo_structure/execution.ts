@@ -17,6 +17,7 @@ import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { shouldIgnoreFile, shouldIgnoreDir } from '../../utils/file/filters.js';
 import { handleCatchError, createSuccessResult } from '../utils.js';
+import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import {
   mapRepoStructureProviderResult,
   mapRepoStructureToolQuery,
@@ -50,6 +51,22 @@ function collectTopStructureEntries(
   return collectAllStructureEntries(structure).slice(0, limit);
 }
 
+function buildStructureNavigationHint(input: {
+  owner?: string;
+  repo?: string;
+  truncated: boolean;
+  hasMore: boolean;
+}): string | undefined {
+  if (!input.owner || !input.repo) return undefined;
+
+  const prefix =
+    input.truncated || input.hasMore
+      ? 'Structure page is partial'
+      : 'Structure complete';
+
+  return `${prefix} — use githubSearchCode(owner="${input.owner}", repo="${input.repo}") to find patterns, or githubGetFileContent to read specific files.`;
+}
+
 function buildNextPathHints(
   structure: unknown,
   entryCount: number,
@@ -63,6 +80,36 @@ function buildNextPathHints(
       ? ` (+${entryCount - topEntries.length} more)`
       : '';
   return [`Next paths: ${topEntries.join(', ')}${more}`];
+}
+
+function normalizeStructureErrorResult(
+  result: ProcessedBulkResult,
+  query: PartialRepoStructureQuery
+): ProcessedBulkResult {
+  const rawError = result.error;
+  const apiError =
+    typeof rawError === 'object' && rawError !== null
+      ? (rawError as { error?: unknown; status?: unknown; type?: unknown })
+      : undefined;
+
+  return {
+    status: 'error',
+    owner: query.owner,
+    repo: query.repo,
+    path: query.path,
+    branch: query.branch,
+    error:
+      typeof apiError?.error === 'string'
+        ? apiError.error
+        : typeof rawError === 'string'
+          ? rawError
+          : 'Failed to explore repository structure',
+    ...(typeof apiError?.status === 'number'
+      ? { statusCode: apiError.status }
+      : {}),
+    ...(typeof apiError?.type === 'string' ? { errorType: apiError.type } : {}),
+    ...(Array.isArray(result.hints) ? { hints: result.hints } : {}),
+  };
 }
 
 function filterStructure(
@@ -114,7 +161,7 @@ export async function exploreMultipleRepositoryStructures(
         );
 
         if (providerResult.ok === false) {
-          return providerResult.result;
+          return normalizeStructureErrorResult(providerResult.result, query);
         }
 
         const filteredStructure = filterStructure(
@@ -133,12 +180,6 @@ export async function exploreMultipleRepositoryStructures(
             ? resultData.branchFallback
             : undefined;
         const apiHints = providerResult.response.data.hints || [];
-        const escalationHints: string[] =
-          hasContent && query.owner && query.repo
-            ? [
-                `Structure complete — use githubSearchCode(owner="${query.owner}", repo="${query.repo}") to find patterns, or githubGetFileContent to read specific files.`,
-              ]
-            : [];
         const branchHints: string[] = branchFallback
           ? [
               `WARNING: Branch '${String((branchFallback as { requestedBranch: string }).requestedBranch)}' not found. Showing '${String((branchFallback as { actualBranch: string }).actualBranch)}' (default branch). Re-query with the correct branch name if branch-specific results are required.`,
@@ -156,6 +197,18 @@ export async function exploreMultipleRepositoryStructures(
         ).summary;
         const wasTruncated = Boolean(summary?.truncated);
         const wasFiltered = Boolean(summary?.filtered);
+        const hasMorePages = Boolean(
+          (resultData as { pagination?: { hasMore?: boolean } }).pagination
+            ?.hasMore
+        );
+        const navigationHint = hasContent
+          ? buildStructureNavigationHint({
+              owner: query.owner,
+              repo: query.repo,
+              truncated: wasTruncated,
+              hasMore: hasMorePages,
+            })
+          : undefined;
         const truncatedReasons: string[] = [];
         if (wasTruncated) {
           truncatedReasons.push(
@@ -173,7 +226,10 @@ export async function exploreMultipleRepositoryStructures(
             data: resultData as Record<string, unknown>,
             entryCount,
             summary,
-            extraHints: [...apiHints, ...escalationHints],
+            extraHints: [
+              ...apiHints,
+              ...(navigationHint ? [navigationHint] : []),
+            ],
           },
           query
         );

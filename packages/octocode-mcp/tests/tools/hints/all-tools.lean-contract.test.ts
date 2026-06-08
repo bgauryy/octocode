@@ -11,9 +11,8 @@ import { hints as ghReposHints } from '../../../src/tools/github_search_repos/hi
 import { hints as ghViewHints } from '../../../src/tools/github_view_repo_structure/hints.js';
 import { hints as cloneHints } from '../../../src/tools/github_clone_repo/hints.js';
 import { hints as pkgHints } from '../../../src/tools/package_search/hints.js';
-import { hints as gotoHints } from '../../../src/tools/lsp_goto_definition/hints.js';
-import { hints as refsHints } from '../../../src/tools/lsp_find_references/hints.js';
-import { hints as callHints } from '../../../src/tools/lsp_call_hierarchy/hints.js';
+import { hints as semanticContentHints } from '../../../src/tools/lsp/semantic_content/hints.js';
+import { hints as diagnosticsHints } from '../../../src/tools/lsp/diagnostics/hints.js';
 
 import { buildPaginationHints } from '../../../src/tools/providerMappers.js';
 import {
@@ -33,9 +32,8 @@ const ALL_HINTS = {
   githubViewRepoStructure: ghViewHints,
   githubCloneRepo: cloneHints,
   packageSearch: pkgHints,
-  lspGotoDefinition: gotoHints,
-  lspFindReferences: refsHints,
-  lspCallHierarchy: callHints,
+  lspGetSemanticContent: semanticContentHints,
+  lspGetDiagnostics: diagnosticsHints,
 };
 
 describe('per-tool hints — structural contract', () => {
@@ -600,69 +598,40 @@ describe('packageSearch — hints coverage', () => {
   });
 });
 
-describe('lspGotoDefinition — empty + error', () => {
-  it('empty with searchRadius + lineHint', () => {
-    const h = gotoHints.empty({
-      searchRadius: 2,
-      lineHint: 42,
-    } as never);
-    expect(h[0]).toContain('±2');
-    expect(h[0]).toContain('42');
-  });
-
-  it('empty without searchRadius is silent', () => {
-    expect(gotoHints.empty({ lineHint: 5 } as never)).toEqual([]);
-  });
-
-  it('error symbol_not_found cites symbol + line', () => {
-    const h = gotoHints.error({
-      errorType: 'symbol_not_found',
+describe('lspGetSemanticContent — empty + error', () => {
+  it('empty with symbolName cites the symbol', () => {
+    const h = semanticContentHints.empty({
       symbolName: 'handleAuth',
-      lineHint: 30,
     } as never);
     expect(h[0]).toContain('handleAuth');
-    expect(h[0]).toContain('30');
   });
 
-  it('error file_not_found cites uri', () => {
-    const h = gotoHints.error({
-      errorType: 'file_not_found',
-      uri: 'src/missing.ts',
+  it('error symbol_not_found tells agents to refresh lineHint', () => {
+    const h = semanticContentHints.error({
+      errorType: 'symbol_not_found',
     } as never);
-    expect(h[0]).toContain('src/missing.ts');
+    expect(h[0]).toContain('lineHint');
   });
 
-  it('error timeout', () => {
-    const h = gotoHints.error({ errorType: 'timeout' } as never);
-    expect(h[0]).toContain('timed out');
+  it('error lsp_unavailable gives local fallback guidance', () => {
+    const h = semanticContentHints.error({
+      errorType: 'lsp_unavailable',
+    } as never);
+    expect(h[0]).toContain('localSearchCode');
   });
 });
 
-describe('lspFindReferences — empty', () => {
-  it('filteredAll → broaden include/exclude', () => {
-    const h = refsHints.empty({ filteredAll: true } as never);
-    expect(h[0]).toContain('include/exclude');
+describe('lspGetDiagnostics — empty + error', () => {
+  it('empty with uri cites the file', () => {
+    const h = diagnosticsHints.empty({ uri: 'src/file.ts' } as never);
+    expect(h[0]).toContain('src/file.ts');
   });
 
-  it('silent otherwise', () => {
-    expect(refsHints.empty({} as never)).toEqual([]);
-  });
-});
-
-describe('lspCallHierarchy — error', () => {
-  it('not_a_function', () => {
-    const h = callHints.error({
-      errorType: 'not_a_function',
+  it('error lsp_unavailable points to project verification', () => {
+    const h = diagnosticsHints.error({
+      errorType: 'lsp_unavailable',
     } as never);
-    expect(h[0]).toContain('not a function');
-  });
-
-  it('timeout cites depth', () => {
-    const h = callHints.error({
-      errorType: 'timeout',
-      depth: 5,
-    } as never);
-    expect(h[0]).toContain('Depth=5');
+    expect(h[0]).toContain('lint/typecheck/tests');
   });
 });
 
@@ -753,42 +722,19 @@ describe('pagination hints — fire only on hasMore=true', () => {
     });
   });
 
-  describe('lspCallHierarchy — lsp_unavailable error type', () => {
-    it('error with lsp_unavailable emits localSearchCode guidance', () => {
-      const h = callHints
-        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
+  describe('current LSP unavailable error types', () => {
+    it('semantic-content unavailable emits localSearchCode guidance', () => {
+      const h = semanticContentHints
+        .error({ errorType: 'lsp_unavailable' as never })
         .filter((s): s is string => typeof s === 'string');
       expect(h.some(s => s.includes('localSearchCode'))).toBe(true);
     });
 
-    it('error with lsp_unavailable and symbolName names the symbol', () => {
-      const h = callHints
-        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
+    it('diagnostics unavailable points to project verification', () => {
+      const h = diagnosticsHints
+        .error({ errorType: 'lsp_unavailable' as never })
         .filter((s): s is string => typeof s === 'string');
-      expect(h.some(s => s.includes('myFn'))).toBe(true);
-    });
-
-    it('error with no context still returns []', () => {
-      const h = callHints
-        .error({})
-        .filter((s): s is string => typeof s === 'string');
-      expect(h).toEqual([]);
-    });
-  });
-
-  describe('lspFindReferences — lsp_unavailable error type', () => {
-    it('error with lsp_unavailable emits localSearchCode guidance', () => {
-      const h = refsHints
-        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
-        .filter((s): s is string => typeof s === 'string');
-      expect(h.some(s => s.includes('localSearchCode'))).toBe(true);
-    });
-
-    it('error with lsp_unavailable and symbolName names the symbol', () => {
-      const h = refsHints
-        .error({ errorType: 'lsp_unavailable' as never, symbolName: 'myFn' })
-        .filter((s): s is string => typeof s === 'string');
-      expect(h.some(s => s.includes('myFn'))).toBe(true);
+      expect(h.some(s => s.includes('lint/typecheck/tests'))).toBe(true);
     });
   });
 

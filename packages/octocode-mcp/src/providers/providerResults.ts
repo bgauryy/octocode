@@ -99,6 +99,10 @@ export interface FileContentResult {
   endLine?: number;
 
   warnings?: string[];
+
+  matchNotFound?: boolean;
+
+  searchedFor?: string;
 }
 
 export interface RepoSearchResult {

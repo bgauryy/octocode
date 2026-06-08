@@ -71,13 +71,3 @@ export const RipgrepJsonMessageSchema = z.discriminatedUnion('type', [
   RipgrepJsonEndSchema,
   RipgrepJsonSummarySchema,
 ]);
-
-export const RipgrepMatchOnlySchema = z.object({
-  type: z.literal('match'),
-  data: z.object({
-    path: z.object({ text: z.string() }),
-    lines: z.object({ text: z.string() }),
-    line_number: z.number(),
-    submatches: z.array(z.looseObject({ start: z.number() })).optional(),
-  }),
-});

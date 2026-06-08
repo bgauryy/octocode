@@ -83,13 +83,12 @@ Canonical command list lives in the [Development Guide](https://github.com/bgaur
 - **Specs**: [docs/specs/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/specs) — design specs and RFCs
 - **Development Guide**: [docs/dev/DEVELOPMENT_GUIDE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/DEVELOPMENT_GUIDE.md)
 - **Configuration**: [docs/configuration/CONFIGURATION_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md)
-- **Troubleshooting**: [docs/configuration/TROUBLESHOOTING.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md)
 
 ### Octocode MCP
 - **GitHub Tools**: [docs/dev/reference/GITHUB_TOOLS_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md)
 - **Local + LSP Tools**: [docs/dev/reference/LOCAL_TOOLS_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)
 - **Clone & Local Workflow**: [docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md)
-- **Authentication**: [docs/configuration/providers/AUTHENTICATION_SETUP.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) · [GitHub](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md)
+- **Authentication**: [docs/configuration/providers/AUTHENTICATION_SETUP.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md)
 - **Using with Pi**: [docs/configuration/clients/PI_SETUP_GUIDE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/clients/PI_SETUP_GUIDE.md)
 
 ### Octocode CLI
@@ -98,7 +97,6 @@ Canonical command list lives in the [Development Guide](https://github.com/bgaur
 - **CLI vs MCP Benchmark**: [docs/dev/workflows/BENCHMARK.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/BENCHMARK.md)
 
 ### Octocode Shared
-- **API Reference**: [docs/dev/reference/SHARED_API_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/SHARED_API_REFERENCE.md)
 - **Credentials**: [docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md)
 - **Session Persistence**: [docs/dev/architecture/SESSION_PERSISTENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md)
 
@@ -383,7 +381,7 @@ import { ... } from 'octocode-shared/platform';
 import { ... } from 'octocode-shared/session';
 ```
 
-Full export tables: see [`docs/SHARED_API_REFERENCE.md`](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/SHARED_API_REFERENCE.md).
+Shared package behavior is documented in [Credentials Architecture](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md) and [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md).
 
 ### Credential storage
 

@@ -441,7 +441,7 @@ describe('Response Utilities', () => {
           ],
         });
 
-        const expectedYaml = `data:\n  - queryId: "tng_hooks_readme"\n    reasoning: "Get documentation for TNG-Hooks which provides React-inspired useState for standalone functions"\n    repository: "getify/TNG-Hooks"\n    path: "README.md"\n    contentLength: 126\n    content: "# TNG-Hooks\\n\\n[![Build Status](https://travis-ci.org/getify/TNG-Hooks.svg?branch=master)](https://travis-ci.org/getify/TNG-Hooks)"\nhints:\n  - "Rich dataset available - analyze patterns, compare implementations, identify best practices"\n  - "Compare implementations across 3-5 repositories to identify best practices"\n`;
+        const expectedYaml = `data:\n  - queryId: "tng_hooks_readme"\n    reasoning: "Get documentation for TNG-Hooks which provides React-inspired useState for standalone functions"\n    repository: "getify/TNG-Hooks"\n    path: "README.md"\n    contentLength: 126\n    content: |-\n      # TNG-Hooks\n    \n      [![Build Status](https://travis-ci.org/getify/TNG-Hooks.svg?branch=master)](https://travis-ci.org/getify/TNG-Hooks)\nhints:\n  - "Rich dataset available - analyze patterns, compare implementations, identify best practices"\n  - "Compare implementations across 3-5 repositories to identify best practices"\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -518,7 +518,7 @@ describe('Response Utilities', () => {
 
         // 'path' is a priority key so it goes first, then original order for rest
         const expectedYaml =
-          'data:\n  path: "src/components/Button.tsx"\n  message: "Hello \\"world\\" with \'quotes\' and\\nnewlines"\n  code: "const [state, setState] = useState(\\"initial\\");"\nhints:\n  - "Handle special characters properly"\n';
+          'data:\n  path: "src/components/Button.tsx"\n  message: |-\n    Hello "world" with \'quotes\' and\n    newlines\n  code: "const [state, setState] = useState(\\"initial\\");"\nhints:\n  - "Handle special characters properly"\n';
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -774,7 +774,7 @@ banana: "value3"
         'path: "packages/react-reconciler/src/ReactFiberHooks.js"'
       );
       expect(yamlResult).toContain('contentLength: 3309');
-      expect(yamlResult).toContain('content: "');
+      expect(yamlResult).toContain('content: |-');
       expect(yamlResult).toContain(
         'branch: "66a390ebb815065b1e5ac7ae504dadb22989f0d4"'
       );
@@ -870,7 +870,7 @@ banana: "value3"
         'path: "packages/react-reconciler/src/ReactFiberHooks.js"'
       );
       expect(yamlResult).toContain('contentLength: 1211');
-      expect(yamlResult).toContain('content: "');
+      expect(yamlResult).toContain('content: |-');
       expect(yamlResult).toContain(
         'branch: "66a390ebb815065b1e5ac7ae504dadb22989f0d4"'
       );

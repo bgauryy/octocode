@@ -156,6 +156,21 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
     });
     expect(result.success).toBe(true);
   });
+
+  it('rejects an inverted startLine/endLine range', () => {
+    const result = FileContentQueryLocalSchema.safeParse({
+      ...baseQuery,
+      startLine: 20,
+      endLine: 10,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map(i => i.message).join('\n');
+      expect(messages).toContain(
+        'endLine must be greater than or equal to startLine'
+      );
+    }
+  });
 });
 
 describe('RipgrepQuerySchema mutex checks', () => {

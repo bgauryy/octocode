@@ -32,6 +32,7 @@ import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 type FlatResponse = {
   results: Array<{
     id: string;
+    queryId?: string;
     owner: string;
     repo: string;
     matches: Array<{ path: string; value?: string }>;
@@ -44,7 +45,7 @@ type FlatResponse = {
   };
   hints?: string[];
   warnings?: unknown[];
-  errors?: Array<{ id: string; error: string }>;
+  errors?: Array<{ id: string; error: string; hints?: string[] }>;
 };
 
 function makeItem(
@@ -223,7 +224,73 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const data = result.structuredContent as FlatResponse;
       expect(data.results.length).toBeGreaterThanOrEqual(1);
+      expect(data.results.map(group => group.queryId)).toEqual(['q1', 'q2']);
       expect(data.errors).toBeUndefined();
+    });
+
+    it('keeps same-repository matches separated by queryId', async () => {
+      mockProvider.searchCode
+        .mockResolvedValueOnce({
+          data: {
+            items: [makeItem('owner/repo', 'src/a.ts', 'body-a')],
+            totalCount: 1,
+            pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+          },
+          status: 200,
+          provider: 'github',
+        })
+        .mockResolvedValueOnce({
+          data: {
+            items: [makeItem('owner/repo', 'src/b.ts', 'body-b')],
+            totalCount: 1,
+            pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+          },
+          status: 200,
+          provider: 'github',
+        });
+
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+        queries: [
+          {
+            id: 'first',
+            keywordsToSearch: ['a'],
+            owner: 'owner',
+            repo: 'repo',
+          },
+          {
+            id: 'second',
+            keywordsToSearch: ['b'],
+            owner: 'owner',
+            repo: 'repo',
+          },
+        ],
+      });
+
+      const data = result.structuredContent as FlatResponse;
+      expect(data.results).toHaveLength(2);
+      expect(data.results.map(group => group.queryId)).toEqual([
+        'first',
+        'second',
+      ]);
+      expect(data.results.map(group => group.matches[0]?.path)).toEqual([
+        'src/a.ts',
+        'src/b.ts',
+      ]);
+    });
+
+    it('rejects repo without owner before calling the provider', async () => {
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+        queries: [{ id: 'missing-owner', repo: 'repo' }],
+      });
+
+      const data = result.structuredContent as FlatResponse;
+      expect(mockProvider.searchCode).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      expect(data.errors?.[0]).toMatchObject({
+        id: 'missing-owner',
+        error: expect.stringContaining('Repository scope requires owner'),
+      });
+      expect(data.errors?.[0]?.hints?.[0]).toContain('owner=');
     });
 
     it('reports errors per query without failing the whole request', async () => {

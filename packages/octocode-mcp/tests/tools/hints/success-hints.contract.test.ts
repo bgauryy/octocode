@@ -1,32 +1,19 @@
 import { describe, it, expect } from 'vitest';
 
-describe('lspCallHierarchy — direction schema default', () => {
-  it('direction defaults to incoming when omitted', async () => {
-    const { LSPCallHierarchyQuerySchema } =
-      await import('../../../src/scheme/lspSchemaOverlay.js');
-    const parsed = LSPCallHierarchyQuerySchema.safeParse({
-      symbolName: 'foo',
-      lineHint: 1,
-      uri: '/tmp/foo.ts',
-    });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect((parsed.data as Record<string, unknown>).direction).toBe(
-        'incoming'
-      );
-    }
-  });
+describe('lspGetSemanticContent — call-flow schema', () => {
+  it('accepts callers and callees as explicit semantic content types', async () => {
+    const { LspGetSemanticContentQuerySchema } =
+      await import('../../../src/tools/lsp/semantic_content/scheme.js');
 
-  it('direction: outgoing is accepted', async () => {
-    const { LSPCallHierarchyQuerySchema } =
-      await import('../../../src/scheme/lspSchemaOverlay.js');
-    const parsed = LSPCallHierarchyQuerySchema.safeParse({
-      symbolName: 'bar',
-      lineHint: 5,
-      uri: '/tmp/bar.ts',
-      direction: 'outgoing',
-    });
-    expect(parsed.success).toBe(true);
+    for (const type of ['callers', 'callees'] as const) {
+      const parsed = LspGetSemanticContentQuerySchema.safeParse({
+        type,
+        symbolName: 'foo',
+        lineHint: 1,
+        uri: '/tmp/foo.ts',
+      });
+      expect(parsed.success).toBe(true);
+    }
   });
 });
 
@@ -57,42 +44,21 @@ describe('localSearchCode — LSP lineHint success hint', () => {
       'src/tools/local_ripgrep/ripgrepResultBuilder.ts',
       'utf-8'
     );
-    expect(src).toContain('lspGotoDefinition');
+    expect(src).toContain('lspGetSemanticContent');
     expect(src).toContain('lineHint');
   });
 });
 
-describe('lspGotoDefinition — success-path extra hint', () => {
-  it('success return includes lspFindReferences chaining hint', async () => {
-    const { finalizeGotoDefinitionResult } =
-      await import('../../../src/tools/lsp_goto_definition/execution.js');
-    const mockResult = {
-      locations: [
-        {
-          uri: '/tmp/foo.ts',
-          range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 3 },
-          },
-        },
-      ],
-      resolvedPosition: { line: 0, character: 0 },
-      searchRadius: 5,
-      hints: [
-        'Definition found — use lspFindReferences with the same symbolName+lineHint to find all usages, or lspCallHierarchy to trace call flow.',
-      ],
-    };
-    const result = finalizeGotoDefinitionResult(
-      mockResult as never,
-      {} as never
-    );
-    expect(result.hints).toBeDefined();
-    expect(
-      result.hints!.some(
-        (h: string) =>
-          h.includes('lspFindReferences') || h.includes('lspCallHierarchy')
-      )
-    ).toBe(true);
+describe('lspGetSemanticContent — success-path extra hint', () => {
+  it('definition success hint points to current semantic content types', async () => {
+    const { semanticHints } =
+      await import('../../../src/tools/lsp/semantic_content/hints.js');
+    const result = semanticHints('definition', true);
+    const joined = result.join(' ');
+
+    expect(joined).toContain('type="references"');
+    expect(joined).toContain('type="callers"');
+    expect(joined).toContain('type="callees"');
   });
 });
 

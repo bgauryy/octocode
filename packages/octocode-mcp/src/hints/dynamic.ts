@@ -12,9 +12,12 @@ import { hints as githubSearchPullRequestsHints } from '../tools/github_search_p
 import { hints as githubSearchReposHints } from '../tools/github_search_repos/hints.js';
 import { hints as githubCloneRepoHints } from '../tools/github_clone_repo/hints.js';
 import { hints as packageSearchHints } from '../tools/package_search/hints.js';
-import { hints as lspGotoDefinitionHints } from '../tools/lsp_goto_definition/hints.js';
-import { hints as lspFindReferencesHints } from '../tools/lsp_find_references/hints.js';
-import { hints as lspCallHierarchyHints } from '../tools/lsp_call_hierarchy/hints.js';
+import { hints as semanticContentHints } from '../tools/lsp/semantic_content/hints.js';
+import { hints as diagnosticsHints } from '../tools/lsp/diagnostics/hints.js';
+import {
+  LSP_GET_DIAGNOSTICS_TOOL_NAME,
+  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+} from '../tools/lsp/shared/semanticTypes.js';
 
 export const HINTS: Record<string, ToolHintGenerators> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: localRipgrepHints,
@@ -29,9 +32,8 @@ export const HINTS: Record<string, ToolHintGenerators> = {
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: githubSearchReposHints,
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: githubCloneRepoHints,
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: packageSearchHints,
-  [STATIC_TOOL_NAMES.LSP_GOTO_DEFINITION]: lspGotoDefinitionHints,
-  [STATIC_TOOL_NAMES.LSP_FIND_REFERENCES]: lspFindReferencesHints,
-  [STATIC_TOOL_NAMES.LSP_CALL_HIERARCHY]: lspCallHierarchyHints,
+  [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: semanticContentHints,
+  [LSP_GET_DIAGNOSTICS_TOOL_NAME]: diagnosticsHints,
 };
 
 type DynamicToolName = keyof typeof HINTS;

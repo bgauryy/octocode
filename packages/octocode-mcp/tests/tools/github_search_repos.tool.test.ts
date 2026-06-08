@@ -139,6 +139,38 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       expect(responseText).not.toContain('status: "hasResults"');
       expect(responseText).toContain('facebook/react');
       expect(responseText).toContain('vercel/next.js');
+
+      const structured = result.structuredContent as {
+        results?: Array<{
+          data?: {
+            repositories?: string[];
+            repositoryDetails?: Array<{
+              owner: string;
+              repo: string;
+              fullName: string;
+              stars?: number;
+              forks?: number;
+              language?: string;
+              pushedAt?: string;
+            }>;
+          };
+        }>;
+      };
+      const data = structured.results?.[0]?.data;
+      expect(data?.repositories?.[0]).toContain('facebook/react');
+      expect(data?.repositoryDetails?.[0]).toMatchObject({
+        owner: 'facebook',
+        repo: 'react',
+        fullName: 'facebook/react',
+        stars: 200000,
+        forks: 40000,
+      });
+      expect(data?.repositoryDetails?.[1]).toMatchObject({
+        owner: 'vercel',
+        repo: 'next.js',
+        fullName: 'vercel/next.js',
+      });
+      expect(responseText).not.toContain('https://github.com/facebook/react');
     });
 
     it('should handle single repository result', async () => {

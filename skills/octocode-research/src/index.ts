@@ -17,9 +17,8 @@ export {
 
 
 export {
-  executeGotoDefinition as lspGotoDefinition,
-  executeFindReferences as lspFindReferences,
-  executeCallHierarchy as lspCallHierarchy,
+  executeLspGetSemanticContent as lspGetSemanticContent,
+  executeLspGetDiagnostics as lspGetDiagnostics,
 } from 'octocode-mcp/public';
 
 

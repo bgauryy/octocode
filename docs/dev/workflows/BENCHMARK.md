@@ -9,7 +9,7 @@ Symmetric, n=10 per task per variant, 5 tasks, trials interleaved.
 
 ## Task design principle
 
-Tasks mirror the **real usage archetypes** observed in Claude Code chat history across hundreds of sessions: deep repo exploration, npm package investigation, library usage pattern search, PR archaeology, comparative multi-repo research. Earlier synthetic tasks (symbol lookup via LSP, call-chain trace) were moved to an appendix — they exercised tools (`lspGotoDefinition`, `lspCallHierarchy`) that have zero real-world invocations in observed sessions.
+Tasks mirror the **real usage archetypes** observed in Claude Code chat history across hundreds of sessions: deep repo exploration, npm package investigation, library usage pattern search, PR archaeology, comparative multi-repo research. Earlier synthetic tasks (symbol lookup via LSP, call-chain trace) were moved to an appendix — they exercised tools (`lspGetSemanticContent(type="definition")`, `lspGetSemanticContent(type="callHierarchy")`) that have zero real-world invocations in observed sessions.
 
 Tool coverage across the primary catalog:
 
@@ -303,7 +303,7 @@ Historical comparison tables (old T1–T4 synthetic benchmark) preserved in [PR 
 
 ## Appendix: Legacy synthetic micro-benchmark (T1–T4)
 
-The original benchmark ran 4 synthetic tasks against the octocode-mcp repo itself. These are kept as regression-smoke tests because they're cheap and deterministic, but they should not be used for headline claims: two of the four rely on LSP tools (`lspGotoDefinition`, `lspCallHierarchy`) that have zero real-world usage in observed chat history, and all four target a single repo the model may have partial training-data memory of.
+The original benchmark ran 4 synthetic tasks against the octocode-mcp repo itself. These are kept as regression-smoke tests because they're cheap and deterministic, but they should not be used for headline claims: two of the four rely on LSP tools (`lspGetSemanticContent(type="definition")`, `lspGetSemanticContent(type="callHierarchy")`) that have zero real-world usage in observed chat history, and all four target a single repo the model may have partial training-data memory of.
 
 <details>
 <summary>T1–T4 prompts (reference)</summary>

@@ -6,6 +6,7 @@ import type { QueryStatus } from '../../src/types/toolResults.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 import type { ToolName } from '../../src/tools/toolMetadata/types.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {
@@ -63,17 +64,114 @@ describe('executeBulkOperation', () => {
         hints?: string[];
       };
 
-      expect(responseText).toContain('Next: responseCharOffset=40');
+      expect(responseText).toContain('Next: responseCharOffset=');
       expect(responseText.length).toBeGreaterThan(40);
       expect(structured.responsePagination).toMatchObject({
         hasMore: true,
-        charLength: 40,
+        charOffset: 0,
       });
+      expect(structured.responsePagination?.charLength).toBeLessThanOrEqual(40);
       expect(structured.responsePagination?.totalChars).toBeGreaterThan(40);
-      expect(structured.responsePagination?.nextCharOffset).toBe(40);
+      expect(structured.responsePagination?.nextCharOffset).toBe(
+        structured.responsePagination?.charLength
+      );
+      expect(responseText.endsWith('\n')).toBe(true);
       expect(
-        structured.hints?.some(h => h.includes('responseCharOffset=40'))
+        structured.hints?.some(h => h.includes('responseCharOffset='))
       ).toBe(true);
+    });
+
+    it('uses newline boundaries inside block-scalar multiline content when available', async () => {
+      const queries = [{ id: 'q1' }];
+      const processor = vi.fn().mockResolvedValue({
+        content: Array.from({ length: 20 }, (_, index) => `line-${index}`).join(
+          '\n'
+        ),
+      });
+
+      const result = await executeBulkOperation(
+        queries,
+        processor,
+        { toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES },
+        { responseCharLength: 90 }
+      );
+      const text = getTextContent(result.content);
+      const structured = result.structuredContent as {
+        responsePagination?: { nextCharOffset?: number };
+      };
+      const nextOffset = structured.responsePagination?.nextCharOffset;
+
+      expect(text.endsWith('\n')).toBe(true);
+      expect(nextOffset).toBeTypeOf('number');
+    });
+
+    it('does not create tiny pages when the next YAML line is longer than the requested window', async () => {
+      const queries = [{ id: 'q1' }];
+      const processor = vi.fn().mockResolvedValue({
+        content: 'x'.repeat(200),
+      });
+
+      const result = await executeBulkOperation(
+        queries,
+        processor,
+        { toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES },
+        { responseCharLength: 80 }
+      );
+      const structured = result.structuredContent as {
+        responsePagination?: { charLength?: number; nextCharOffset?: number };
+      };
+
+      expect(structured.responsePagination?.charLength).toBeGreaterThanOrEqual(
+        40
+      );
+      expect(structured.responsePagination?.nextCharOffset).toBe(
+        structured.responsePagination?.charLength
+      );
+    });
+
+    it('uses newline-aware continuation offsets for formatted response pagination', async () => {
+      const queries = [{ id: 'q1' }];
+      const processor = vi.fn().mockResolvedValue({
+        repositories: [
+          { name: 'alpha-repository-with-long-name' },
+          { name: 'beta-repository-with-long-name' },
+        ],
+      });
+
+      const unpaginated = await executeBulkOperation(queries, processor, {
+        toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+      });
+      const fullText = getTextContent(unpaginated.content);
+
+      const firstPage = await executeBulkOperation(
+        queries,
+        processor,
+        { toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES },
+        { responseCharLength: 40 }
+      );
+      const firstStructured = firstPage.structuredContent as {
+        responsePagination?: { nextCharOffset?: number };
+      };
+      const nextOffset = firstStructured.responsePagination?.nextCharOffset;
+
+      expect(nextOffset).toBeTypeOf('number');
+      if (nextOffset === undefined) throw new Error('Expected next offset');
+      expect(nextOffset).toBeLessThanOrEqual(40);
+      expect(fullText[nextOffset - 1]).toBe('\n');
+
+      const secondPage = await executeBulkOperation(
+        queries,
+        processor,
+        { toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES },
+        { responseCharLength: 40, responseCharOffset: nextOffset }
+      );
+      const secondText = getTextContent(secondPage.content);
+      const secondBody = secondText.replace(/^# Response page [^\n]+\n/, '');
+
+      expect(secondBody).toBe(
+        fullText.slice(nextOffset, nextOffset + secondBody.length)
+      );
+      expect(secondBody.endsWith('\n')).toBe(true);
     });
 
     it('marks peer evidence incomplete when query output pagination has more data', async () => {
@@ -90,7 +188,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.LSP_CALL_HIERARCHY,
+        toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
         peerEvidence: true,
       });
 

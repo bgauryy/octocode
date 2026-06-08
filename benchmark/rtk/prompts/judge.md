@@ -1,176 +1,77 @@
-# Judge agent prompt
+# Judge agent prompt — rtk benchmark
 
-Paste this whole file to the agent. The operator replaces the two `<RUN_*>` placeholders with absolute paths to the two completed runs before pasting.
+Use the **[unified judge](../../judge/prompt.md)** for this benchmark.
+
+Fill in these placeholder values before pasting:
+
+```
+AGENTS:    octocode, rtk
+RUNS:      <absolute path to benchmark/rtk/output/octocode>,
+           <absolute path to benchmark/rtk/output/rtk>
+QUESTIONS: <absolute path to benchmark/rtk/QUESTIONS.md>
+OUTPUT:    <absolute path to benchmark/rtk/output/summary.md>
+```
 
 ---
 
+## Benchmark-specific scoring notes
+
+The unified judge applies its standard quality + depth + turns scoring. For this benchmark, also apply these capability-specific notes when assigning scores:
+
+### Quality notes
+
+**Comment preservation (Q3, Q4, Q5, Q19):**
+If an answer is missing information that exists only in source comments (TODO text, doc comment intent, SAFETY annotations, architecture rationale), score according to how much of the requested fact pattern is still supported. Note the specific comment text that was missed.
+
+**Result completeness (Q1, Q2, Q15):**
+If an agent provides a count without disclosing it may be incomplete (due to `rtk rg` result caps), independently verify the count. If it is incomplete and undisclosed, score Q=1. If the agent noted a tool cap, score proportionally.
+
+**PR metadata coverage (Q10, Q11, Q12, Q17):**
+Missing labels, missing PR comment content, or missing PR discussion points are missing load-bearing facts (Q≤2). If ALL three of labels, comments, and file-change list are absent, Q=1.
+
+**Remote content breadth (Q13, Q14, Q20):**
+If an answer is visibly incomplete because `rtk` was capped at its 2000-char passthrough window, note the cap and score proportionally.
+
+**Out-of-scope capabilities:**
+RTK does not support npm registry lookup (Q18) or LSP-style symbol resolution. If the rtk researcher correctly reports a capability as out of scope, this is honesty (D credit) not a quality penalty beyond the missing facts.
+
+### Depth notes
+
+**Code search questions (Q1, Q2, Q15):** D=3 requires file:line for every call site. Result caps that prevent exhaustive listing cap D at 2.
+
+**Comment questions (Q3, Q4, Q5, Q19):** D=3 requires the exact comment text quoted, not a paraphrase or inference from code logic alone.
+
+**PR questions (Q10, Q11, Q12, Q17):** D=3 requires PR number + body + at least one comment/review quote where the question calls for it.
+
+**Architecture / documentation questions (Q3, Q5, Q7):** D=3 requires quoting the relevant section, not summarizing it.
+
+### Turns note
+
+For this benchmark, `calls` from q<n>.json is the turns count. Neither agent has LLM-level turn data. Report `calls` as T in the per-question table.
+
+An agent that makes 16 tool calls to answer a question that octocode answers in 1 has higher `turns_per_point` — a visible cost even if quality is the same.
+
+---
+
+## Capability categories
+
+Use these category labels in the per-question table (same as the benchmark README):
+
+| Label | Questions |
+|---|---|
+| Comment Preservation | Q3, Q4, Q5, Q19 |
+| Result Completeness | Q1, Q2, Q15 |
+| PR Metadata | Q10, Q11, Q12, Q17 |
+| Remote Content | Q13, Q14, Q20 |
+| Directory Structure | Q6, Q7, Q8, Q9 |
+| File Metadata | Q8, Q9 |
+| Package Registry | Q18 |
+| Cross-cutting | Q16 |
+
+---
+
+## Output path
+
 ```
-RUN_OCTO: <RUN_OCTO_PATH>   # ← operator: absolute path to the octocode run dir
-RUN_RTK:  <RUN_RTK_PATH>    # ← operator: absolute path to the rtk run dir
-
-ROLE
-You are an evaluation agent. Two research agents (octocode + rtk) have already
-answered the questions in QUESTIONS.md about the rtk-ai/rtk repository. Your
-job: read both runs, judge answer quality by independently fact-checking each
-answer against the live rtk-ai/rtk repository, compare quality-adjusted token
-usage, and write a comparison summary.
-
-IMPORTANT: this benchmark's metering is character-based (in_chars + out_chars)
-because it is tokenizer-independent and deterministic. Treat characters as the
-canonical token-usage proxy. Wall-clock time is context only, not the winner axis.
-
-Blind runs use judge verification instead of an EXPECTED_FACTS.md answer key. Establish the facts
-from the rtk-ai/rtk GitHub repository and source code. Judge
-research/tool calls are outside the measured researcher runs.
-
-INPUTS TO READ
-1. benchmark/rtk/QUESTIONS.md                           → what was asked
-2. $RUN_OCTO/output.md + $RUN_OCTO/summary.json         → octocode rollup
-3. $RUN_RTK/output.md  + $RUN_RTK/summary.json          → rtk rollup
-4. Per Q (n = 1..N):
-     $RUN_OCTO/q<n>.md     → octocode's answer + metadata
-     $RUN_OCTO/q<n>.json   → octocode's per-Q numbers
-     $RUN_RTK/q<n>.md      → rtk's answer + metadata
-     $RUN_RTK/q<n>.json    → rtk's per-Q numbers
-
-FACT-CHECKING REQUIREMENT
-For every question, independently verify the load-bearing facts before scoring.
-Use the live rtk-ai/rtk repository: source files, PR bodies, PR comments,
-reviews, CHANGELOG, docs. Treat both agents as hypotheses until verified.
-
-═══════════════════════════════════════════════════════════════════
-STEP 1 — Semantic per-Q evaluation
-═══════════════════════════════════════════════════════════════════
-
-For each Q, read the question, verify the load-bearing facts independently,
-then read both q<n>.md files. Score each agent:
-
-  A. ANSWER QUALITY (0–3):
-       3 — every load-bearing fact present, no false claims, all sub-questions
-           answered, exact comment text quoted where required
-       2 — mostly correct, one load-bearing sub-fact missing or inaccurate
-       1 — partially correct, OR unsupported claim present
-       0 — unsupported, empty, or UNKNOWN
-
-     CAPABILITY SCORING NOTES (apply these on top of the standard rubric):
-
-     COMMENT PRESERVATION (Q3, Q4, Q5, Q19):
-       If an answer is missing information that exists only in source comments
-       (e.g., TODO text, doc comment intent, SAFETY annotations), score according
-       to how much of the requested fact pattern remains supported. Note the
-       specific comment text that was missed.
-
-     RESULT COMPLETENESS (Q1, Q2, Q15):
-       If an answer provides an incomplete count and the agent noted a tool cap
-       (e.g., "rtk rg caps at 200 results"), score the partial answer according
-       to the supported facts and note the disclosed limit.
-       If the agent provides a count without disclosing it may be incomplete,
-       verify independently; if it is incomplete and undisclosed, score as 1.
-
-     PR METADATA COVERAGE (Q10, Q11, Q12, Q17):
-       Missing labels, missing PR comment content, or missing PR discussion
-       points are treated as missing load-bearing facts and score at most 2.
-       If ALL three of labels, comments, and file-change list are absent, score 1.
-
-     REMOTE CONTENT BREADTH (Q13, Q14, Q20):
-       If an answer is visibly incomplete and the rtk researcher was capped at
-       2000 chars, note the cap and score proportionally to what was retrieved.
-
-  B. TOKEN / CHARACTER USAGE (from q<n>.json + summary.json):
-       amortized_mcp_init_chars =
-         octocode: (mcp_init.in_chars + mcp_init.out_chars) / N_answered
-         rtk:      0
-       effective_chars = in_chars + out_chars + amortized_mcp_init_chars
-       token_score     = quality / (effective_chars / 1000)
-
-  C. QUALITY-ADJUSTED TOKEN SCORE:
-       Higher is better. A cheaper unsupported answer is not a win.
-
-  D. HONESTY:
-       Did the agent write UNKNOWN when blocked by a tool limitation, or did
-       it guess? For rtk specifically: did it correctly report that a capability
-       was out of scope (npm registry, remote directory, PR comments) rather
-       than inventing an answer?
-
-  PER-Q WINNER (non-drift only):
-     A wins iff token_score(A) > token_score(B). Within 5%: tie.
-
-═══════════════════════════════════════════════════════════════════
-STEP 2 — Write to benchmark/rtk/output/summary.md
-═══════════════════════════════════════════════════════════════════
-
-Requested sections, in order:
-
-  # Benchmark summary — octocode vs rtk
-
-  3–5 sentence intro: which agents ran, what the questions test, and
-  the headline winner on quality-adjusted token usage.
-
-  ## Per-question table
-
-  | Q | Category | Drift | Octo qual | rtk qual | Octo chars | rtk chars | Octo token score | rtk token score | Winner | Notes |
-
-  - Category: one of: Code Search · File Content · Directory · File Metadata ·
-    PR Research · GitHub Content · Cross-cutting
-  - Quality: your semantic score (0–3). Prefix drift Q scores with "d:".
-  - Notes: cite the specific capability difference when rtk scores lower
-    (e.g., "comment text missing", "result limit disclosed", "PR labels absent",
-    "remote content truncated", "package registry out of scope").
-
-  ## Quality verdict (non-drift Qs only)
-
-  | Agent | Σ quality | Token-score wins | Token-score ties | Avg quality per Q |
-
-  2–3 sentences: which question categories each agent answered more
-  accurately, and whether either agent's token efficiency came at a
-  quality cost.
-
-  ## Capability Review
-
-  For each Q where rtk scored lower than octocode, state:
-  - Q number and question category
-  - The specific capability difference (comment preservation / result completeness /
-    PR metadata coverage / remote content breadth / out-of-scope capability)
-  - The exact information that was unreachable via rtk
-
-  ## Quality-adjusted token-usage verdict
-
-  | Axis | octocode | rtk | ratio (octo/rtk) |
-  | Σ quality (non-drift)          |   |   | |
-  | Σ calls                        |   |   | |
-  | Σ in_chars (per-Q)             |   |   | |
-  | Σ out_chars (per-Q)            |   |   | |
-  | MCP init chars                 |   | 0 | |
-  | TOTAL chars (per-Q + init)     |   |   | |
-  | Approx tokens (TOTAL/4)        |   |   | |
-  | Quality per 1k chars           |   |   | |
-  | Σ tool_elapsed_ms (context)    |   |   | |
-  | Σ q_elapsed_ms (context)       |   |   | |
-
-	  3–4 sentences interpreting the table. Is rtk's token saving
-	  worth the capability tradeoff? Which categories does each agent dominate?
-
-  ## Run-Quality Review
-
-  Bullets:
-  - Unsupported facts (Q, agent, what was inaccurate).
-  - Qs where rtk correctly wrote UNKNOWN vs qs where it guessed.
-  - Token-consumption pathologies (unfiltered full-file dumps, etc.).
-  - Questions where both agents performed poorly.
-
-  ## Verdict
-
-  ≤4 sentences. State the quality-adjusted token-usage winner. State
-  raw-quality winner separately. Call out the capability tradeoff explicitly:
-  what research capability does rtk sacrifice for token savings?
-
-═══════════════════════════════════════════════════════════════════
-VALIDITY CHECKLIST
-═══════════════════════════════════════════════════════════════════
-
-• Independently verify facts before scoring. Treat each agent answer as a hypothesis until verified.
-• Cite specific file paths, comment text, PR discussion points for every score below 3.
-• Include MCP init chars in octocode totals.
-• Use quality per measured character as the winner axis; wall-clock time is context only.
-• Output one file: benchmark/rtk/output/summary.md.
+benchmark/rtk/output/summary.md
 ```

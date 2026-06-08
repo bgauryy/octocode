@@ -1,23 +1,18 @@
 # Configuration Reference
 
-> Complete guide to configuring Octocode MCP — where to set options, what each option does, and how they interact.
+Concise reference for Octocode MCP environment variables, `.octocoderc`, local state paths, and option precedence.
 
-## Two Ways to Configure
+## Sources And Precedence
 
-Octocode reads configuration from **two sources**. You can use either or both:
+Octocode resolves configuration in this order:
 
-### 1. Environment Variables (in your MCP client settings)
+```text
+environment variables > ~/.octocode/.octocoderc > built-in defaults
+```
 
-Your MCP client (Cursor, Codex, Claude Code, Claude Desktop, VS Code, etc.) has a settings file where you declare MCP servers. Environment variables go in the `"env"` block of your server config.
+Use environment variables for per-client/per-project settings and tokens. Use `.octocoderc` for machine-wide defaults. Restart the MCP server after changing either source.
 
-The JSON structure is the same across clients — only the file location differs. The table below shows common locations; `octocode-cli install --ide <client>` writes the right file for every supported client listed in the [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md#install).
-
-| Client | Config file |
-|--------|------------|
-| Cursor | `~/.cursor/mcp.json` |
-| VS Code | `.vscode/mcp.json` |
-| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+## MCP Env Example
 
 ```json
 {
@@ -27,514 +22,163 @@ The JSON structure is the same across clients — only the file location differs
       "args": ["-y", "octocode-mcp@latest"],
       "env": {
         "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "ENABLE_LOCAL": "true"
+        "ENABLE_LOCAL": "true",
+        "ENABLE_CLONE": "false"
       }
     }
   }
 }
 ```
 
-Environment variables are ideal for per-project or per-session settings — especially auth tokens and feature flags.
-
-### 2. The `.octocoderc` Config File (persistent defaults)
-
-A JSON file stored on your machine that applies to **all** sessions. Supports comments and trailing commas. Ideal for machine-wide defaults that don't change between projects (API URLs, network tuning, tool preferences).
-
-| Platform | Path |
-|----------|------|
-| macOS / Linux | `~/.octocode/.octocoderc` |
-| Windows | `%USERPROFILE%\.octocode\.octocoderc` |
-
-**Quick setup (macOS / Linux):**
+Install helpers write client-specific paths automatically:
 
 ```bash
-mkdir -p ~/.octocode
-cat > ~/.octocode/.octocoderc << 'EOF'
-{
-  "github": {
-    "apiUrl": "https://api.github.com"
-  },
-  "local": {
-    "enabled": true
-  }
-}
-EOF
+npx octocode-cli install --ide cursor
 ```
 
-**Quick setup (Windows PowerShell):**
+Supported clients are listed in the [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md#install).
 
-```powershell
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.octocode"
-@'
-{
-  "github": {
-    "apiUrl": "https://api.github.com"
-  },
-  "local": {
-    "enabled": true
-  }
-}
-'@ | Out-File -Encoding utf8 "$env:USERPROFILE\.octocode\.octocoderc"
+## `.octocoderc`
+
+Path:
+
+```text
+${OCTOCODE_HOME:-~/.octocode}/.octocoderc
 ```
 
-**Complete schema:**
+The file is JSON with comments/trailing commas tolerated. Tokens do not belong here.
 
 ```jsonc
 {
   "version": 1,
-
   "github": {
-    "apiUrl": "https://api.github.com"       // GitHub API endpoint
+    "apiUrl": "https://api.github.com"
   },
-
   "local": {
-    "enabled": true,                         // Enable local filesystem + LSP tools
-    "enableClone": false,                    // Enable repo cloning (requires enabled=true)
-    "workspaceRoot": "/path/to/workspace",   // Root for local operations
-    "allowedPaths": []                       // Restrict to these paths (empty = all)
+    "enabled": true,
+    "enableClone": false,
+    "workspaceRoot": "/absolute/workspace",
+    "allowedPaths": []
   },
-
   "tools": {
-    "enabled": null,                         // Strict whitelist (null = all tools)
-    "enableAdditional": null,                // Add extra tools
-    "disabled": null                         // Remove specific tools
+    "enabled": null,
+    "enableAdditional": null,
+    "disabled": null
   },
-
   "network": {
-    "timeout": 30000,                        // Request timeout in ms (5000–300000)
-    "maxRetries": 3                          // Retry attempts (0–10)
+    "timeout": 30000,
+    "maxRetries": 3
   },
-
   "telemetry": {
-    "logging": true                          // Telemetry
+    "logging": true
   },
-
   "lsp": {
-    "configPath": null                       // Custom LSP config file path
+    "configPath": null
   },
-
   "output": {
-    "format": "yaml",                        // Response format: "yaml" (default) or "json"
+    "format": "yaml",
     "pagination": {
-      "defaultCharLength": 8000             // Default output page budget for auto-pagination
+      "defaultCharLength": 8000
     }
   }
 }
 ```
 
-**Validation:** The file is validated on load. Invalid values don't prevent startup — defaults are used instead. URLs must start with `http://` or `https://`. Numbers are clamped to valid range. Unknown keys are ignored with a warning. Parse errors skip the entire file with a warning.
-
-### Resolution Order
-
-When both sources set the same option, environment variables always win:
-
-```
-Environment Variable  >  .octocoderc File  >  Built-in Default
-     (highest)             (fallback)          (last resort)
-```
-
-This means you can set sensible defaults in `.octocoderc` and override specific values per-project in your MCP client config.
-
----
-
-## Authentication
-
-Auth tokens are **environment-variable only** — never store tokens in `.octocoderc`.
-
-GitHub is the only supported provider.
-
-| Provider | Setup Guide | Key Variables |
-|----------|-------------|---------------|
-| **GitHub** | [GitHub Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) | `GITHUB_TOKEN`, `GH_TOKEN`, `OCTOCODE_TOKEN` |
-
-For full authentication details (token creation, auth modes, troubleshooting), see the [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) overview or the GitHub guide.
-
----
-
-## Octocode Home Directory
-
-Octocode stores local state under `~/.octocode` by default (credentials, config, session identity, usage stats, clone cache, logs).
-
-You can override the root directory with `OCTOCODE_HOME`:
-
-```bash
-export OCTOCODE_HOME=/data/octocode
-```
-
-When set, these paths move under the new root:
-
-- `.octocoderc` -> `${OCTOCODE_HOME}/.octocoderc`
-- credentials -> `${OCTOCODE_HOME}/credentials.json`
-- session -> `${OCTOCODE_HOME}/session.json`
-- usage stats -> `${OCTOCODE_HOME}/stats.json`
-- clone cache -> `${OCTOCODE_HOME}/repos/`
-- logs -> `${OCTOCODE_HOME}/logs/`
-- LSP user config -> `${OCTOCODE_HOME}/lsp-servers.json`
-
----
-
-## Usage Stats and Savings
-
-Octocode automatically tracks local usage counters in `stats.json` under the Octocode home directory. This file is separate from `session.json`: the session file stores identity and timestamps, while `stats.json` stores cumulative counters that can be shown to users.
-
-Default path:
-
-```bash
-~/.octocode/stats.json
-```
-
-With `OCTOCODE_HOME`:
-
-```bash
-${OCTOCODE_HOME}/stats.json
-```
-
-Example:
-
-```json
-{
-  "version": 1,
-  "stats": {
-    "toolCalls": 142,
-    "errors": 2,
-    "rateLimits": 3,
-    "rateLimitsByProvider": {
-      "github": 3
-    },
-    "charsSavedByTool": {
-      "githubSearchCode": {
-        "rawChars": 120000,
-        "responseChars": 18000,
-        "savedChars": 102000,
-        "calls": 6
-      }
-    },
-    "githubCacheHits": {
-      "hits": {
-        "gh-api-code": 12,
-        "gh-api-prs": 3
-      },
-      "rateLimits": 1
-    },
-    "packageRegistryFailures": {
-      "npm": 2
-    },
-    "totalUsage": {
-      "toolCalls": 142,
-      "errors": 2,
-      "rateLimits": 3,
-      "rateLimitsByProvider": {
-        "github": 3
-      },
-      "rawChars": 120000,
-      "responseChars": 18000,
-      "savedChars": 102000,
-      "charSavingsCalls": 6,
-      "githubCacheHits": 15,
-      "githubCacheRateLimits": 1,
-      "packageRegistryFailures": 2,
-      "packageRegistryFailuresByRegistry": {
-        "npm": 2
-      }
-    }
-  }
-}
-```
-
-Tracked stats:
-
-| Field | Description |
-|-------|-------------|
-| `toolCalls` | Total MCP tool calls handled by Octocode. |
-| `errors` | Total logged Octocode errors. |
-| `rateLimits` | Total provider API rate-limit encounters. Package registry failures are tracked separately. |
-| `rateLimitsByProvider` | Provider API rate-limit encounters by provider (currently only `github`). |
-| `charsSavedByTool` | Per-tool source/raw character count, final returned character count, saved character count, and call count. |
-| `githubCacheHits.hits` | Per GitHub cache bucket hit counts, such as `gh-api-code`, `gh-api-prs`, and `gh-repo-structure-api`. |
-| `githubCacheHits.rateLimits` | GitHub-specific rate-limit encounters stored alongside GitHub cache stats, including API errors and Octokit retry-throttle hits from any GitHub-backed tool. |
-| `packageRegistryFailures` | Package registry HTTP failures by registry, such as `npm` and `pypi`. These are not counted as provider API rate limits. |
-| `totalUsage` | Derived aggregate totals for display: overall counters, provider rate-limit breakdown, total raw characters, total returned characters, total saved characters, char-savings call count, total GitHub cache hits, GitHub cache rate-limit count, and package-registry failure totals. |
-
-For every registered tool, Octocode records source/raw characters before Octocode-specific trimming, filtering, and bulk response pagination when that source size is available. The returned character count is the final MCP tool text response. Bulk and parallel calls are aggregated once per tool invocation, including mixed success/error query results.
-
-`totalUsage` is recalculated whenever stats are read or written, so dashboards can read a single object without separately summing `charsSavedByTool` and `githubCacheHits`. The per-tool and per-cache counters remain the source of truth for detailed breakdowns.
-
-These counters are written locally regardless of remote telemetry logging. Setting `LOG=false` disables remote telemetry, but it does not disable local `stats.json` updates.
-
-For implementation details, see [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md).
-
----
-
-## All Configuration Options
-
-| # | Env Variable | `.octocoderc` Field | Type | Default | Description |
-|---|---|---|---|---|---|
-| | **Provider API Endpoints** | | | | |
-| 1 | `GITHUB_API_URL` | `github.apiUrl` | string | `https://api.github.com` | GitHub API endpoint. Change for GitHub Enterprise. |
-| | **Local Tools** | | | | |
-| 4 | `ENABLE_LOCAL` | `local.enabled` | boolean | `true` | Enable local filesystem + LSP tools. |
-| 5 | `ENABLE_CLONE` | `local.enableClone` | boolean | `false` | Enable repo cloning (`githubCloneRepo`) and directory fetch. **Requires `ENABLE_LOCAL=true`.** |
-| 6 | `WORKSPACE_ROOT` | `local.workspaceRoot` | string | `process.cwd()` | Root directory for local tool operations. |
-| 7 | `ALLOWED_PATHS` | `local.allowedPaths` | list | `[]` (all) | Restrict local tools to these directory paths. Empty = unrestricted. |
-| | **Tool Filtering** | | | | |
-| 8 | `TOOLS_TO_RUN` | `tools.enabled` | list | `null` (all) | **Strict whitelist.** When set, only these tools are available. Overrides #9 and #10. |
-| 9 | `ENABLE_TOOLS` | `tools.enableAdditional` | list | `null` | Add extra tools to the default set. Ignored when #8 is set. |
-| 10 | `DISABLE_TOOLS` | `tools.disabled` | list | `null` | Remove tools from the default set. Ignored when #8 is set. |
-| | **Network** | | | | |
-| 11 | `REQUEST_TIMEOUT` | `network.timeout` | number | `30000` | Request timeout in ms. Range: 5,000–300,000. Values outside range are clamped. |
-| 12 | `MAX_RETRIES` | `network.maxRetries` | number | `3` | Max retry attempts. Range: 0–10. Clamped. |
-| | **Telemetry** | | | | |
-| 13 | `LOG` | `telemetry.logging` | logging | `true` | Telemetry. Disabled with `false`/`0`. |
-| | **LSP** | | | | |
-| 14 | `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | string | `null` | Custom LSP config file path. Auto-detects `.octocode/lsp-servers.json` when unset. Requires `ENABLE_LOCAL=true`. |
-| | **Output** | | | | |
-| 15 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | string | `yaml` | Response serialization format. `yaml` (default, token-efficient) or `json` (raw JSON). |
-| 16 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | number | `8000` | Default output page budget for automatic pagination. Used by all tools unless a request overrides it with `charLength` or `responseCharLength`. |
-| | **Authentication** (env only) | | | | |
-| 18 | `OCTOCODE_TOKEN` | — | string | — | GitHub token (priority 1). |
-| 19 | `GH_TOKEN` | — | string | — | GitHub CLI token (priority 2). |
-| 20 | `GITHUB_TOKEN` | — | string | — | GitHub Actions token (priority 3). |
-| | **Advanced** (env only) | | | | |
-| 25 | `OCTOCODE_BULK_QUERY_TIMEOUT_MS` | — | number | `60000` | Timeout for bulk/multi-query tool calls (ms). |
-| 26 | `OCTOCODE_COMMAND_CHECK_TIMEOUT_MS` | — | number | `5000` | Timeout for checking system command availability (ms). |
-| 27 | `OCTOCODE_CACHE_TTL_MS` | — | number | `86400000` | Cache TTL for cloned repos (ms). Default is 24 hours. Must be a positive integer. |
-| 28 | `OCTOCODE_HOME` | — | string | `~/.octocode` | Override Octocode home directory for all local state (config, credentials, repos, logs, session, stats). |
-| 29 | `OCTOCODE_MAX_CACHE_SIZE` | — | number | `2147483648` | Maximum clone cache disk usage in bytes (default 2 GB). Evicts oldest clones when exceeded. |
-| 30 | `OCTOCODE_MAX_CLONES` | — | number | `50` | Maximum number of cached clones. Evicts oldest clones when exceeded. |
-
-**Type parsing (all values are case-insensitive, whitespace is trimmed):**
-
-| Type | Accepted values | Invalid input |
-|------|----------------|---------------|
-| **boolean** | `true`, `1` = on; `false`, `0` = off | Ignored (default used) |
-| **logging** | `false`, `0` = off; everything else = on | Treated as on |
-| **number** | Integer string, clamped to valid range | Ignored (default used) |
-| **list** | Comma-separated (e.g., `"a,b,c"`) | — |
-| **string** | Any value | — |
-
-### Notes
-
-- **Tool filtering:** `TOOLS_TO_RUN` is a strict whitelist that overrides both `ENABLE_TOOLS` and `DISABLE_TOOLS`. When `TOOLS_TO_RUN` is not set, start with all tools, remove `DISABLE_TOOLS`, then add `ENABLE_TOOLS`.
-- **Clone:** Requires both `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
-- **LSP:** Requires `ENABLE_LOCAL=true`. When `OCTOCODE_LSP_CONFIG` is unset, Octocode checks `<workspace>/.octocode/lsp-servers.json` then `${OCTOCODE_HOME:-~/.octocode}/lsp-servers.json`.
-- **WORKSPACE_ROOT:** Configurable via `WORKSPACE_ROOT` env var **or** `local.workspaceRoot` in `.octocoderc`. Priority: env var > `.octocoderc` > `process.cwd()`. Must be an absolute path. LSP tools also respect this setting — the workspace root determines the project context used for symbol resolution.
-- **Auth tokens:** Never store in `.octocoderc`. GitHub fallback chain: env vars > `~/.octocode/credentials.json` > `gh auth token`.
-
----
-
-## How to Set Each Option
-
-Every option (except auth-only and advanced-only) can be set in **two places**.
-
-### In MCP Client Settings (`mcp.json` / `claude_desktop_config.json`)
-
-All values are strings in the `"env"` block:
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "GITHUB_API_URL": "https://api.github.com",
-        "ENABLE_LOCAL": "true",
-        "ENABLE_CLONE": "true",
-        "WORKSPACE_ROOT": "/Users/me/projects",
-        "ALLOWED_PATHS": "/Users/me/projects,/Users/me/libs",
-        "TOOLS_TO_RUN": "githubSearchCode,githubGetFileContent",
-        "ENABLE_TOOLS": "localSearchCode",
-        "DISABLE_TOOLS": "packageSearch",
-        "REQUEST_TIMEOUT": "30000",
-        "MAX_RETRIES": "3",
-        "LOG": "true",
-        "OCTOCODE_LSP_CONFIG": "/Users/me/.octocode/lsp-servers.json",
-        "OCTOCODE_OUTPUT_FORMAT": "yaml",
-        "OCTOCODE_HOME": "/Users/me/.octocode",
-        "OCTOCODE_MAX_CACHE_SIZE": "2147483648",
-        "OCTOCODE_MAX_CLONES": "50"
-      }
-    }
-  }
-}
-```
-
-### In `.octocoderc` Config File (`~/.octocode/.octocoderc`)
-
-Values use native JSON types (booleans, numbers, arrays — not strings). See the [complete schema above](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md#2-the-octocoderc-config-file-persistent-defaults) for all fields and defaults.
-
-### Key Differences Between the Two Formats
-
-| | MCP env (`"env"` block) | `.octocoderc` file |
-|---|---|---|
-| **All values are** | Strings (`"true"`, `"30000"`, `"a,b,c"`) | Native JSON types (`true`, `30000`, `["a","b","c"]`) |
-| **Lists** | Comma-separated string: `"a,b,c"` | JSON array: `["a", "b", "c"]` |
-| **Booleans** | `"true"` / `"false"` | `true` / `false` |
-| **Numbers** | `"30000"` | `30000` |
-| **Auth tokens** | Supported | Not supported (never store tokens here) |
-| **Scope** | Per-project / per-session | Machine-wide (all sessions) |
-| **Priority** | Highest (always wins) | Fallback |
-
----
-
-## Full Examples
-
-### Minimal Setup (GitHub + remote tools only)
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx"
-      }
-    }
-  }
-}
-```
-
-### Full-Featured Setup (local + clone + LSP)
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "ENABLE_LOCAL": "true",
-        "ENABLE_CLONE": "true"
-      }
-    }
-  }
-}
-```
-
-### GitHub Enterprise
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "GITHUB_API_URL": "https://github.mycompany.com/api/v3"
-      }
-    }
-  }
-}
-```
-
-### Production Hardening
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "ENABLE_LOCAL": "true",
-        "REQUEST_TIMEOUT": "60000",
-        "MAX_RETRIES": "5",
-        "LOG": "false"
-      }
-    }
-  }
-}
-```
-
-### Restricted Tool Set (only GitHub search tools)
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "TOOLS_TO_RUN": "githubSearchCode,githubGetFileContent,githubViewRepoStructure,githubSearchRepositories"
-      }
-    }
-  }
-}
-```
-
-### Combining MCP env + `.octocoderc`
-
-Set persistent defaults in `.octocoderc`:
-
-```jsonc
-// ~/.octocode/.octocoderc
-{
-  "network": { "timeout": 60000, "maxRetries": 5 },
-  "local": { "enabled": true, "allowedPaths": ["/Users/me/projects"] }
-}
-```
-
-Then override per-project in your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "WORKSPACE_ROOT": "/Users/me/projects/my-app",
-        "ENABLE_CLONE": "true"
-      }
-    }
-  }
-}
-```
-
-The env values override `.octocoderc` where they overlap; `.octocoderc` fills in the rest.
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Token not found | See the [GitHub Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) |
-| Local tools not showing | Check `ENABLE_LOCAL` is not set to `false` in MCP `"env"` or `.octocoderc` |
-| Clone/directory tools disabled | Set both `ENABLE_LOCAL=true` and `ENABLE_CLONE=true` |
-| Timeout errors | Increase `REQUEST_TIMEOUT` (max `300000`) |
-| Tool not available | Check if `TOOLS_TO_RUN` or `DISABLE_TOOLS` is filtering it out |
-| Config file ignored | Env variables always override `.octocoderc` — check your MCP `"env"` block |
-| Config changes not applied | Restart the MCP server (config is read at startup) |
-| Usage stats missing | Run at least one Octocode tool, then check `${OCTOCODE_HOME:-~/.octocode}/stats.json`. |
-
-### Verify Your Setup
+Invalid file values fall back to defaults or env overrides. Unknown keys warn and are ignored.
+
+## Options
+
+| Env | `.octocoderc` | Default | Meaning |
+|-----|---------------|---------|---------|
+| `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | GitHub API endpoint. Use `/api/v3` for GitHub Enterprise. |
+| `ENABLE_LOCAL` | `local.enabled` | `true` | Enable local filesystem and LSP tools. |
+| `ENABLE_CLONE` | `local.enableClone` | `false` | Enable `githubCloneRepo` and directory fetch. Requires local enabled. |
+| `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Root used for relative local paths and project context. Must be absolute when set. |
+| `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Comma-separated env list or JSON array. Empty means unrestricted after path validation. |
+| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict whitelist. Overrides add/remove filters. |
+| `ENABLE_TOOLS` | `tools.enableAdditional` | `null` | Add tools to the default enabled set. |
+| `DISABLE_TOOLS` | `tools.disabled` | `null` | Remove tools from the default enabled set. |
+| `REQUEST_TIMEOUT` | `network.timeout` | `30000` | Request timeout in ms. Clamped to `5000..300000`. |
+| `MAX_RETRIES` | `network.maxRetries` | `3` | Retry attempts. Clamped to `0..10`. |
+| `LOG` | `telemetry.logging` | `true` | Remote/session logging switch. `false` or `0` disables. |
+| `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | unset | Custom LSP server config path. |
+| `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | `yaml` or `json`. |
+| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | `8000` | Auto-pagination character budget. Clamped to `1000..50000`. |
+
+Env-only options:
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `OCTOCODE_TOKEN` | unset | Highest-priority GitHub token. |
+| `GH_TOKEN` | unset | Second-priority GitHub token. |
+| `GITHUB_TOKEN` | unset | Third-priority GitHub token. |
+| `OCTOCODE_HOME` | `~/.octocode` | Base directory for config, credentials, sessions, stats, logs, and repo cache. |
+| `OCTOCODE_BULK_QUERY_TIMEOUT_MS` | `60000` | Bulk/multi-query tool timeout in ms. |
+| `OCTOCODE_COMMAND_CHECK_TIMEOUT_MS` | `5000` | System command availability check timeout in ms. |
+| `OCTOCODE_CACHE_TTL_MS` | `86400000` | Clone cache TTL in ms. |
+| `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` | Clone cache size limit in bytes. |
+| `OCTOCODE_MAX_CLONES` | `50` | Maximum cached clone count. |
+
+## Parsing Rules
+
+| Type | Env format | `.octocoderc` format |
+|------|------------|----------------------|
+| Boolean | `"true"` / `"1"` / `"false"` / `"0"` | `true` / `false` |
+| Number | Integer string | Number |
+| List | Comma-separated string, such as `"a,b,c"` | JSON array |
+| Logging | `"false"` or `"0"` disables; anything else enables | Boolean |
+
+## Important Interactions
+
+- Auth tokens are env-only. Do not put tokens in `.octocoderc`.
+- `TOOLS_TO_RUN` is a strict whitelist and overrides `ENABLE_TOOLS` and `DISABLE_TOOLS`.
+- Clone and GitHub directory fetch require both `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
+- LSP requires local tools enabled. If `OCTOCODE_LSP_CONFIG` is unset, Octocode checks `<workspace>/.octocode/lsp-servers.json`, then `${OCTOCODE_HOME}/lsp-servers.json`.
+- `WORKSPACE_ROOT` env overrides `local.workspaceRoot`.
+- `LOG=false` disables remote/session logging, but local usage stats may still be updated.
+
+## Local State
+
+All state lives under `${OCTOCODE_HOME:-~/.octocode}`:
+
+| Path | Purpose |
+|------|---------|
+| `.octocoderc` | Persistent config. |
+| `credentials.json` | Encrypted credentials. |
+| `.key` | Local encryption key. |
+| `session.json` | Session identity and timestamps. |
+| `stats.json` | Usage counters and character savings. |
+| `repos/` | Clone/directory-fetch cache. |
+| `logs/` | Local logs. |
+| `lsp-servers.json` | User-level LSP server config. |
+
+Architecture details:
+
+- [Credentials Architecture](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md)
+- [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md)
+
+## Quick Checks
 
 ```bash
 echo "GITHUB_TOKEN: ${GITHUB_TOKEN:+set}"
 echo "ENABLE_LOCAL: ${ENABLE_LOCAL:-not set}"
-echo "LOG: ${LOG:-not set}"
-
-ls -la ~/.octocode/.octocoderc
-cat ~/.octocode/.octocoderc | python3 -c "import sys,json; json.load(sys.stdin)"
-if [ -f "${OCTOCODE_HOME:-$HOME/.octocode}/stats.json" ]; then
-  cat "${OCTOCODE_HOME:-$HOME/.octocode}/stats.json" | python3 -c "import sys,json; json.load(sys.stdin)"
-fi
+echo "ENABLE_CLONE: ${ENABLE_CLONE:-not set}"
+test -f "${OCTOCODE_HOME:-$HOME/.octocode}/.octocoderc" && cat "${OCTOCODE_HOME:-$HOME/.octocode}/.octocoderc"
 ```
 
----
+Common fixes:
+
+| Symptom | Check |
+|---------|-------|
+| Token missing | Set `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, or run `octocode auth login`. |
+| Local tools unavailable | Make sure `ENABLE_LOCAL` is not false and tool filters did not hide them. |
+| Clone unavailable | Set `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`. |
+| Tool hidden | Check `TOOLS_TO_RUN`, `ENABLE_TOOLS`, and `DISABLE_TOOLS`. |
+| Timeout | Increase `REQUEST_TIMEOUT` up to `300000`. |
 
 ## See Also
 
-- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md) — Provider authentication overview
-- [GitHub Setup Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/GITHUB_SETUP_GUIDE.md) — GitHub auth, Enterprise, clone tools
-- [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — Remote code research tools
-- [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local tools (`ENABLE_LOCAL`)
-- [Troubleshooting](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/TROUBLESHOOTING.md) — Node.js, npm, and connection issues
+- [Authentication Setup](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/providers/AUTHENTICATION_SETUP.md)
+- [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md)
+- [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)
+- [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md)

@@ -5,7 +5,6 @@ import { hints as fetchContentHints } from '../../../src/tools/local_fetch_conte
 import { hints as viewStructureHints } from '../../../src/tools/local_view_structure/hints.js';
 import { hints as ghFetchHints } from '../../../src/tools/github_fetch_content/hints.js';
 import { hints as cloneHints } from '../../../src/tools/github_clone_repo/hints.js';
-import { hints as callHints } from '../../../src/tools/lsp_call_hierarchy/hints.js';
 
 const BANNED_WORKFLOW_PHRASES = [
   'Best approach',
@@ -13,8 +12,6 @@ const BANNED_WORKFLOW_PHRASES = [
   'Use charLength',
   'Use charOffset',
   'Why matchString',
-  'Use lspFindReferences',
-  'Use lspGotoDefinition',
   'Use localSearchCode',
   'Use localFindFiles',
   'Use localGetFileContent',
@@ -90,16 +87,6 @@ describe('limitation hints — content shape', () => {
       assertLean(h[0]!);
     }
   });
-
-  it('lspCallHierarchy timeout cites depth', () => {
-    const h = callHints.error({
-      errorType: 'timeout',
-      depth: 3,
-    } as never);
-    expect(h).toHaveLength(1);
-    expect(h[0]).toContain('Depth=3');
-    assertLean(h[0]!);
-  });
 });
 
 describe('limitation hints — silence when threshold not hit', () => {
@@ -120,9 +107,5 @@ describe('limitation hints — silence when threshold not hit', () => {
     expect(
       viewStructureHints.error({ errorType: 'size_limit' } as never)
     ).toEqual([]);
-  });
-
-  it('lspCallHierarchy unknown errorType returns []', () => {
-    expect(callHints.error({ errorType: 'other' as never })).toEqual([]);
   });
 });

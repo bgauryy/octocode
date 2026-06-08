@@ -104,6 +104,55 @@ describe('GitHub View Repository Structure Tool', () => {
     expect(responseText).toContain('package.json');
   });
 
+  it('uses partial wording when structure results are paginated or truncated', async () => {
+    mockProvider.getRepoStructure.mockResolvedValue({
+      data: {
+        projectPath: 'test/repo',
+        branch: 'main',
+        path: 'src',
+        structure: {
+          '.': {
+            files: ['a.ts', 'b.ts'],
+            folders: ['nested'],
+          },
+        },
+        summary: {
+          totalFiles: 10,
+          totalFolders: 3,
+          truncated: true,
+        },
+        pagination: {
+          currentPage: 1,
+          totalPages: 2,
+          hasMore: true,
+          entriesPerPage: 3,
+          totalEntries: 13,
+        },
+      },
+      status: 200,
+      provider: 'github',
+    });
+
+    const result = await mockServer.callTool(
+      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+      {
+        queries: [
+          {
+            owner: 'test',
+            repo: 'repo',
+            path: 'src',
+            page: 1,
+            itemsPerPage: 3,
+          },
+        ],
+      }
+    );
+
+    const responseText = getTextContent(result.content);
+    expect(responseText).toContain('Structure page is partial');
+    expect(responseText).not.toContain('Structure complete');
+  });
+
   it('should resolve default branch when branch is omitted', async () => {
     mockProvider.resolveDefaultBranch.mockResolvedValue('master');
 
@@ -310,7 +359,10 @@ describe('GitHub View Repository Structure Tool', () => {
 
     expect(result.isError).toBe(true);
     const responseText = getTextContent(result.content);
-    expect(responseText).toContain('error');
+    expect(responseText).toContain('error: "Repository not found"');
+    expect(responseText).toContain('statusCode: 404');
+    expect(responseText).toContain('owner: "nonexistent"');
+    expect(responseText).not.toContain('error:\n        status: 404');
   });
 
   it('should filter out directories with only ignored files and folders', async () => {

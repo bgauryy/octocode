@@ -85,7 +85,7 @@ printf '%s\n%s\n%s\n' \
   | grep -o '"name":"[^"]*"' | sort -u
 ```
 
-Expected output includes the 14 Octocode tools below — this confirms `ENABLE_LOCAL` / `ENABLE_CLONE` are taking effect:
+Expected output includes the 13 Octocode tools below — this confirms `ENABLE_LOCAL` / `ENABLE_CLONE` are taking effect:
 
 ```
 "name":"githubCloneRepo"
@@ -98,9 +98,8 @@ Expected output includes the 14 Octocode tools below — this confirms `ENABLE_L
 "name":"localGetFileContent"
 "name":"localSearchCode"
 "name":"localViewStructure"
-"name":"lspCallHierarchy"
-"name":"lspFindReferences"
-"name":"lspGotoDefinition"
+"name":"lspGetDiagnostics"
+"name":"lspGetSemanticContent"
 "name":"packageSearch"
 ```
 
@@ -147,10 +146,10 @@ Pi's stated philosophy is "CLI tools with READMEs (Skills) over MCP." If you don
 npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-researcher
 ```
 
-The skill drives octocode via the CLI and avoids the MCP transport layer entirely. Use the adapter route when you want the full 14-tool surface; use the skill route when a focused research workflow is enough.
+The skill drives octocode via the CLI and avoids the MCP transport layer entirely. Use the adapter route when you want the full 13-tool surface; use the skill route when a focused research workflow is enough.
 
 ## References
 
 - pi-mcp-adapter — https://github.com/nicobailon/pi-mcp-adapter
 - Pi (coding agent) — https://github.com/earendil-works/pi
-- octocode-mcp tool reference — [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md), [Local & LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)
+- octocode-mcp tool reference — [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md), [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md), [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md)

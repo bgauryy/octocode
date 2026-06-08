@@ -38,19 +38,6 @@ describe('structuredPagination branch coverage', () => {
     expect(result).toBe(queryResult);
   });
 
-  it('returns the result unchanged for lspFindReferences (line 1082)', () => {
-    const queryResult = {
-      id: 'q-refs',
-      data: { locations: [{ content: 'x'.repeat(20000) }] },
-    };
-    const result = applyQueryOutputPagination(
-      queryResult,
-      { charLength: 50 },
-      TOOL_NAMES.LSP_FIND_REFERENCES
-    );
-    expect(result).toBe(queryResult);
-  });
-
   it('returns the result unchanged when nothing needs pagination (small payload, no explicit request)', () => {
     const queryResult = {
       id: 'q-small',
@@ -118,7 +105,7 @@ describe('structuredPagination branch coverage', () => {
         },
       },
       { charOffset: 100000, charLength: 100 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = result.data as {
       locations?: Array<{ content?: string }>;
@@ -154,16 +141,16 @@ describe('structuredPagination branch coverage', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-bigstr',
-        data: { locations: [{ path: 'big.ts', content: big }] },
+        data: { summary: big },
       },
       { charOffset: 0, charLength: 100 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = result.data as {
-      locations?: Array<{ content?: string }>;
+      summary?: string;
       outputPagination?: { hasMore: boolean };
     };
-    expect(data.locations?.[0]?.content?.length).toBeLessThan(big.length);
+    expect(data.summary?.length).toBeLessThan(big.length);
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
@@ -172,16 +159,16 @@ describe('structuredPagination branch coverage', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-bigstr-off',
-        data: { locations: [{ path: 'big.ts', content: big }] },
+        data: { summary: big },
       },
       { charOffset: 5000, charLength: 200 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = result.data as {
-      locations?: Array<{ content?: string }>;
+      summary?: string;
       outputPagination?: { charOffset: number };
     };
-    expect(data.locations?.[0]?.content?.length).toBeGreaterThan(0);
+    expect(data.summary?.length).toBeGreaterThan(0);
     expect(data.outputPagination?.charOffset).toBeGreaterThanOrEqual(0);
   });
 
@@ -190,17 +177,17 @@ describe('structuredPagination branch coverage', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-escapes',
-        data: { locations: [{ path: 'e.ts', content: big }] },
+        data: { summary: big },
       },
       { charOffset: 0, charLength: 150 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = result.data as {
-      locations?: Array<{ content?: string }>;
+      summary?: string;
       outputPagination?: { hasMore: boolean };
     };
     expect(data.outputPagination?.hasMore).toBe(true);
-    expect(data.locations?.[0]?.content?.length).toBeGreaterThan(0);
+    expect(data.summary?.length).toBeGreaterThan(0);
   });
 
   it('handles unicode astral code points in a paginated string', () => {
@@ -211,7 +198,7 @@ describe('structuredPagination branch coverage', () => {
         data: { locations: [{ path: 'u.ts', content: big }] },
       },
       { charOffset: 0, charLength: 120 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = result.data as {
       locations?: Array<{ content?: string }>;
@@ -353,7 +340,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('handles lsp locations where items are not plain objects (line 814)', () => {
+  it('handles generic location payloads where items are not plain objects (line 814)', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-lsp-nonobj',
@@ -366,13 +353,13 @@ describe('structuredPagination branch coverage', () => {
         },
       },
       { charLength: 300 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = result.data as { outputPagination?: { hasMore: boolean } };
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('handles lspCallHierarchy with mixed primitive and object call entries (fallback paginator)', () => {
+  it('handles generic call payload with mixed primitive and object call entries (fallback paginator)', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-callh',
@@ -389,7 +376,7 @@ describe('structuredPagination branch coverage', () => {
         },
       },
       { charLength: 400 },
-      TOOL_NAMES.LSP_CALL_HIERARCHY
+      'unknown_string_tool'
     );
     const data = result.data as { outputPagination?: { hasMore: boolean } };
     expect(data.outputPagination?.hasMore).toBe(true);
@@ -489,7 +476,7 @@ describe('structuredPagination branch coverage', () => {
     const first = applyQueryOutputPagination(
       payload,
       { charOffset: 0, charLength: 300 },
-      TOOL_NAMES.LSP_GOTO_DEFINITION
+      'unknown_string_tool'
     );
     const data = first.data as { hints?: string[] };
     const summaryHints = (data.hints ?? []).filter(h => h.startsWith('Page '));
@@ -659,29 +646,6 @@ describe('structuredPagination branch coverage', () => {
       outputPagination?: { hasMore: boolean };
     };
     expect(data.outputPagination?.hasMore).toBe(true);
-  });
-
-  it('does not expose inner outputPagination for lspFindReferences bulk results (line 1023/1038)', () => {
-    const results = [
-      {
-        id: 'refs',
-        data: {
-          locations: Array.from({ length: 10 }, (_, i) => ({
-            uri: `/x/${i}.ts`,
-            content: 'c'.repeat(800),
-          })),
-        },
-      },
-    ];
-    const response = applyBulkResponsePagination(
-      { results },
-      { offset: 0, length: 400 },
-      TOOL_NAMES.LSP_FIND_REFERENCES
-    );
-    const data = response.results[0]?.data as {
-      outputPagination?: unknown;
-    };
-    expect(data.outputPagination).toBeUndefined();
   });
 
   it('paginates a sole top-level string field at offset 0 (fallback string branch)', () => {
