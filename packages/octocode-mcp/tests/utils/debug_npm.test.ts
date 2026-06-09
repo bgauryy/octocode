@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { it, vi, beforeEach } from 'vitest';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 import { resetCircuitBreaker } from '../../src/utils/http/circuitBreaker.js';
 

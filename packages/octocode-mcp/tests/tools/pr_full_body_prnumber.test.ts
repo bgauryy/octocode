@@ -19,7 +19,7 @@ const data = {
 describe('PR body: never truncated (lossless)', () => {
   it('search returns the complete body with no truncation marker', () => {
     const { resultData } = mapPullRequestProviderResultData(data);
-    const body = (resultData.pull_requests as Array<{ body: string }>)[0].body;
+    const body = (resultData.pull_requests as Array<{ body: string }>)[0]!.body;
     expect(body).toBe(longBody);
     expect(body).not.toMatch(/chars total|use prNumber|\[truncated/i);
   });
@@ -28,7 +28,7 @@ describe('PR body: never truncated (lossless)', () => {
     const { resultData } = mapPullRequestProviderResultData(data, {
       includeFileChanges: true,
     });
-    const body = (resultData.pull_requests as Array<{ body: string }>)[0].body;
+    const body = (resultData.pull_requests as Array<{ body: string }>)[0]!.body;
     expect(body).toBe(longBody);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
-import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
+import { fetchContent as fetchContentImpl } from '../../src/tools/local_fetch_content/fetchContent.js';
 import {
   extractSignatures,
   applyContentViewMinification,
@@ -8,6 +8,24 @@ import {
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
+import type { CharPagination } from '@octocodeai/octocode-core/types';
+
+// `contextLines` carries a schema-level default (5) that is applied during
+// MCP input parsing; tests call fetchContent directly, so this thin wrapper
+// applies the same default while letting tests omit or override it.
+type FetchContentInput = Omit<
+  Parameters<typeof fetchContentImpl>[0],
+  'contextLines'
+> & { contextLines?: number };
+
+const fetchContent = (query: FetchContentInput) =>
+  fetchContentImpl({ ...query, contextLines: query.contextLines ?? 5 });
+
+// Narrows the `CharPagination | PaginationInfo` union to the char-cursor form.
+const charPagination = (
+  pagination: Awaited<ReturnType<typeof fetchContentImpl>>['pagination']
+): CharPagination | undefined =>
+  pagination && 'charOffset' in pagination ? pagination : undefined;
 
 // Mock fs/promises
 vi.mock('fs/promises', () => ({
@@ -80,7 +98,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'test.txt',
         matchString: 'MATCH',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -98,7 +116,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'test.js',
         matchString: 'TARGET',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -115,12 +133,12 @@ describe('localGetFileContent', () => {
       const def = await fetchContent({
         path: 'test.js',
         matchString: 'TARGET',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
       const result = await fetchContent({
         path: 'test.js',
         matchString: 'TARGET',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -165,7 +183,8 @@ describe('localGetFileContent', () => {
       // Large skeleton must be char-paginated, not returned whole.
       expect(result.pagination).toBeDefined();
       expect(result.pagination?.hasMore).toBe(true);
-      expect(result.content.length).toBeLessThan(src.length);
+      expect(result.content).toBeDefined();
+      expect(result.content!.length).toBeLessThan(src.length);
       expect(result.isPartial).toBe(true);
     });
 
@@ -382,7 +401,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'test.txt',
         matchString: 'MATCH_LINE',
-        matchStringContextLines: 2,
+        contextLines: 2,
       });
 
       expect(result.status).toBeUndefined();
@@ -418,7 +437,7 @@ describe('localGetFileContent', () => {
         path: 'test.txt',
         fullContent: true,
         matchString: 'MATCH',
-        matchStringContextLines: 3,
+        contextLines: 3,
       });
 
       expect(result.status).toBe('error');
@@ -890,7 +909,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'test.txt',
         matchString: 'MATCH',
-        matchStringContextLines: 5,
+        contextLines: 5,
       });
 
       expect(result.status).toBeUndefined();
@@ -935,7 +954,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'large-matches.txt',
         matchString: 'MATCH',
-        matchStringContextLines: 2,
+        contextLines: 2,
         // No charLength - triggers auto-pagination when content > 8000
       });
 
@@ -1066,8 +1085,8 @@ describe('localGetFileContent', () => {
 
       const page1 = await fetchContent({ path: 'large.txt' });
       const nextOffset =
-        (page1.pagination?.charOffset ?? 0) +
-        (page1.pagination?.charLength ?? 0);
+        (charPagination(page1.pagination)?.charOffset ?? 0) +
+        (charPagination(page1.pagination)?.charLength ?? 0);
       const page2 = await fetchContent({
         path: 'large.txt',
         charOffset: nextOffset,
@@ -1095,8 +1114,8 @@ describe('localGetFileContent', () => {
         matchString: 'MATCH',
       });
       const nextOffset =
-        (page1.pagination?.charOffset ?? 0) +
-        (page1.pagination?.charLength ?? 0);
+        (charPagination(page1.pagination)?.charOffset ?? 0) +
+        (charPagination(page1.pagination)?.charLength ?? 0);
       const page2 = await fetchContent({
         path: 'huge.txt',
         matchString: 'MATCH',
@@ -1337,7 +1356,7 @@ describe('localGetFileContent', () => {
       // Large content triggers auto-pagination
       if (result.pagination) {
         expect(result.pagination.hasMore).toBe(true);
-        expect(result.pagination.totalChars).toBeDefined();
+        expect(charPagination(result.pagination)?.totalChars).toBeDefined();
       }
     });
 
@@ -1498,7 +1517,7 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.totalLines).toBe(500);
-      expect(result.pagination?.totalChars).toBeDefined();
+      expect(charPagination(result.pagination)?.totalChars).toBeDefined();
     });
   });
 });

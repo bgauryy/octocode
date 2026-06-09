@@ -6,35 +6,13 @@ import { BulkLspGetSemanticContentQuerySchema } from './scheme.js';
 import { LspGetSemanticContentOutputSchema } from './outputSchema.js';
 import { executeLspGetSemanticContent } from './execution.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../shared/semanticTypes.js';
-
-const DESCRIPTION = `\
-Typed semantic queries on a local language server (TS/JS built-in; 30+ langs via installed servers). \
-Pair with lspGetDiagnostics: use this tool to navigate and understand code, use lspGetDiagnostics to verify health after edits.
-
-PREREQUISITE — always run localSearchCode first to get exact filePath + lineHint.
-
-TYPES (set type=):
-  definition      → jump to where a symbol is declared (returns code snippet)
-  references      → all usages across the workspace; groupByFile=true for per-file summary; includeDeclaration=false to exclude the definition site
-  callers         → who calls this function (incoming); functions only — use type="references" for types/variables; depth controls recursion (default 1)
-  callees         → what this function calls (outgoing); functions only — use type="references" for types/variables; depth controls recursion
-  callHierarchy   → bidirectional callers+callees in one shot; functions only; use type="callers"/"callees" for focused single-direction view
-  hover           → type signature + doc comment for a symbol; requires symbolName + lineHint like all other symbol-anchored types
-  documentSymbols → full symbol outline of a file; no symbolName or lineHint needed; paginate with page=
-  typeDefinition  → jump to the declared type of an expression (where the type was written, not inferred)
-  implementation  → concrete implementations of a method or property declared in an interface or abstract class; symbolName must be a member name (e.g. "searchCode"), not the interface/class name itself
-
-FLOW (typical research chain):
-  1. localSearchCode → filePath + lineHint
-  2. lspGetSemanticContent type=definition → confirm symbol location
-  3. type=references or type=callers/callees → blast radius / call graph
-  4. lspGetDiagnostics → verify impacted files after edits`;
+import { DESCRIPTIONS } from '../../toolMetadata/proxies.js';
 
 export function registerLspGetSemanticContentTool(server: McpServer) {
   return server.registerTool(
     LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
     {
-      description: DESCRIPTION,
+      description: DESCRIPTIONS[LSP_GET_SEMANTIC_CONTENT_TOOL_NAME],
       inputSchema: toMCPSchema(BulkLspGetSemanticContentQuerySchema),
       outputSchema: toMCPSchema(
         withResponseEnvelope(LspGetSemanticContentOutputSchema)
@@ -53,5 +31,3 @@ export function registerLspGetSemanticContentTool(server: McpServer) {
     )
   );
 }
-
-export { DESCRIPTION as LSP_GET_SEMANTIC_CONTENT_DESCRIPTION };

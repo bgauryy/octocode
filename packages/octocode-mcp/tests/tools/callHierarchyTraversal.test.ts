@@ -10,7 +10,7 @@ import type { CallHierarchyItem } from '../../src/lsp/types.js';
 
 const makeItem = (name: string, uri: string, line = 0): CallHierarchyItem => ({
   name,
-  kind: 12,
+  kind: 'function',
   uri,
   range: {
     start: { line, character: 0 },

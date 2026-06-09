@@ -28,7 +28,7 @@ describe('File Operations - Timestamp Optimization', () => {
     };
 
     vi.mocked(getOctokit).mockResolvedValue(
-      mockOctokit as unknown as ReturnType<typeof getOctokit>
+      mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
     );
 
     getContentMock.mockResolvedValue({
@@ -59,7 +59,7 @@ describe('File Operations - Timestamp Optimization', () => {
     };
 
     vi.mocked(getOctokit).mockResolvedValue(
-      mockOctokit as unknown as ReturnType<typeof getOctokit>
+      mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
     );
 
     getContentMock.mockResolvedValue({

@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
+import { findFiles as findFilesImpl } from '../../src/tools/local_find_files/findFiles.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
+
+// The MCP overlay schema (scheme.ts) layers `page`/`itemsPerPage` on top of
+// the upstream query type; findFiles reads them via runtime casts. This
+// wrapper exposes those overlay fields to the direct-call tests.
+type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
+  page?: number;
+  itemsPerPage?: number;
+};
+
+const findFiles = (query: FindFilesInput) => findFilesImpl(query);
 
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),

@@ -59,7 +59,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const data = out.structuredContent as {
       results: Array<{ files?: Array<Record<string, unknown>> }>;
     };
-    const file = data.results[0].files![0];
+    const file = data.results[0]!.files![0]!;
     expect(file.path).toBe('src/a.ts');
     expect(file.content).toBe('hello world');
     expect(file.isPartial).toBe(true);
@@ -88,7 +88,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const data = out.structuredContent as {
       results: Array<{ files?: Array<Record<string, unknown>> }>;
     };
-    const file = data.results[0].files![0];
+    const file = data.results[0]!.files![0]!;
     expect(file.path).toBe('fallback.ts');
     expect(file.content).toBe('');
     expect(file.pagination).toBeUndefined();
@@ -122,7 +122,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const data = out.structuredContent as {
       results: Array<{ directories?: Array<Record<string, unknown>> }>;
     };
-    const dir = data.results[0].directories![0];
+    const dir = data.results[0]!.directories![0]!;
     expect(dir.path).toBe('src');
     expect(dir.localPath).toBe('/tmp/clone/src');
     expect(dir.cached).toBe(true);
@@ -162,7 +162,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
       results: Array<{ directories?: Array<Record<string, unknown>> }>;
       hints?: string[];
     };
-    const dir = data.results[0].directories![0];
+    const dir = data.results[0]!.directories![0]!;
     expect(dir.path).toBe('');
     expect(dir.localPath).toBe('');
     expect(dir.totalSize).toBe(0);
@@ -181,7 +181,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const data = out.structuredContent as {
       results: Array<{ files?: Array<{ path: string }> }>;
     };
-    expect(data.results[0].files![0].path).toBe('');
+    expect(data.results[0]!.files![0]!.path).toBe('');
   });
 
   it('drops a result whose query slot is missing (results longer than queries)', () => {
@@ -215,7 +215,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
       results: Array<{ owner: string }>;
     };
     expect(data.results).toHaveLength(1);
-    expect(data.results[0].owner).toBe('o');
+    expect(data.results[0]!.owner).toBe('o');
   });
 });
 
@@ -315,10 +315,10 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[]; owner?: string; path?: string }>;
     };
-    expect(data.errors![0].owner).toBe('o');
-    expect(data.errors![0].path).toBe('gone.ts');
+    expect(data.errors![0]!.owner).toBe('o');
+    expect(data.errors![0]!.path).toBe('gone.ts');
     expect(
-      data.errors![0].hints?.some(h => /githubViewRepoStructure/.test(h))
+      data.errors![0]!.hints?.some(h => /githubViewRepoStructure/.test(h))
     ).toBe(true);
     expect(out.isError).toBe(true);
   });
@@ -332,8 +332,8 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[]; path?: string }>;
     };
-    expect(data.errors![0].path).toBeUndefined();
-    expect(data.errors![0].hints?.some(h => /token permissions/.test(h))).toBe(
+    expect(data.errors![0]!.path).toBeUndefined();
+    expect(data.errors![0]!.hints?.some(h => /token permissions/.test(h))).toBe(
       true
     );
   });
@@ -347,7 +347,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[] }>;
     };
-    expect(data.errors![0].hints?.some(h => /Retry after reset/.test(h))).toBe(
+    expect(data.errors![0]!.hints?.some(h => /Retry after reset/.test(h))).toBe(
       true
     );
   });
@@ -361,7 +361,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     const data = out.structuredContent as {
       errors?: Array<{ hints?: string[] }>;
     };
-    expect(data.errors![0].hints).toBeUndefined();
+    expect(data.errors![0]!.hints).toBeUndefined();
   });
 });
 
@@ -397,7 +397,7 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     expect(
       data.warnings?.some(w => w.kind === 'content-truncated') ?? false
     ).toBe(false);
-    expect(data.results[0].files![0].content).not.toMatch(
+    expect(data.results[0]!.files![0]!.content).not.toMatch(
       /\[(truncated|clipped)\]/i
     );
   });
@@ -442,8 +442,8 @@ describe('buildGithubFetchContentFinalizer — char pagination & truncation', ()
     expect(
       data.warnings?.some(w => w.kind === 'content-truncated') ?? false
     ).toBe(false);
-    expect(data.results[0].files).toHaveLength(2);
-    expect(data.results[0].directories).toHaveLength(1);
+    expect(data.results[0]!.files).toHaveLength(2);
+    expect(data.results[0]!.directories).toHaveLength(1);
     expect(data.hints?.some(h => /charOffset=7\b/.test(h))).toBe(true);
   });
 });

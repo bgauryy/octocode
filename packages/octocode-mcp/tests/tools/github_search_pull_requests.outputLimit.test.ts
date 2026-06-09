@@ -146,8 +146,11 @@ describe('githubSearchPullRequests output size limits', () => {
               owner: 'test',
               repo: 'repo',
               prNumber: 320,
-              content: { changedFiles: true, patches: { mode: 'all' } },
-              content: { comments: { discussion: true, reviewInline: true } },
+              content: {
+                changedFiles: true,
+                patches: { mode: 'all' },
+                comments: { discussion: true, reviewInline: true },
+              },
             },
           ],
         }
@@ -171,8 +174,11 @@ describe('githubSearchPullRequests output size limits', () => {
               owner: 'test',
               repo: 'repo',
               prNumber: 320,
-              content: { changedFiles: true, patches: { mode: 'all' } },
-              content: { comments: { discussion: true, reviewInline: true } },
+              content: {
+                changedFiles: true,
+                patches: { mode: 'all' },
+                comments: { discussion: true, reviewInline: true },
+              },
             },
           ],
         }

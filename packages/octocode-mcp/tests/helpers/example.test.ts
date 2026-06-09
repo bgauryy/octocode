@@ -187,6 +187,8 @@ vi.mock('octocode-security-utils/pathValidator', () => pathValidatorMocks);
 
 const { viewStructure } =
   await import('../../src/tools/local_view_structure/local_view_structure.js');
+const { LocalViewStructureQuerySchema } =
+  await import('../../src/tools/local_view_structure/scheme.js');
 
 describe('Example: Using Unified Test Helpers', () => {
   beforeEach(() => {
@@ -293,11 +295,13 @@ describe('Example: Using Unified Test Helpers', () => {
       helpers.setupExecSuccess(helpers.createLsOutput(files));
       helpers.setupLstatFile();
 
-      const result = await viewStructure({
-        path: '/workspace',
-        itemsPerPage: 10,
-        page: 1,
-      });
+      const result = await viewStructure(
+        LocalViewStructureQuerySchema.parse({
+          path: '/workspace',
+          itemsPerPage: 10,
+          page: 1,
+        })
+      );
 
       expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();

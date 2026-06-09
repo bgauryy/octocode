@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
@@ -20,6 +21,12 @@ const createTestTool = (name: string): ToolConfig => ({
       { description: `${name} test tool` },
       async () => ({ content: [{ type: 'text', text: 'ok' }] })
     ),
+  direct: {
+    schema: z.object({}),
+    inputSchema: z.object({}),
+    executionFn: async () => ({ content: [] }),
+    security: 'basic',
+  },
 });
 
 const createThrowingTool = (name: string): ToolConfig => ({

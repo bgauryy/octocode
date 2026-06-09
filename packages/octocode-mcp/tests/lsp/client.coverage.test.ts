@@ -155,7 +155,7 @@ describe('LSPClient Coverage', () => {
       await client.start();
 
       const registration = mockConnection.onRequest.mock.calls.find(
-        call => call[0] === 'workspace/configuration'
+        (call: unknown[]) => call[0] === 'workspace/configuration'
       );
       expect(registration).toBeDefined();
       const handler = registration![1] as (params: {
@@ -178,7 +178,7 @@ describe('LSPClient Coverage', () => {
       await client.start();
 
       const registration = mockConnection.onRequest.mock.calls.find(
-        call => call[0] === 'workspace/workspaceFolders'
+        (call: unknown[]) => call[0] === 'workspace/workspaceFolders'
       );
       expect(registration).toBeDefined();
       const handler = registration![1] as () => Array<{
@@ -205,7 +205,7 @@ describe('LSPClient Coverage', () => {
         'window/workDoneProgress/create',
       ]) {
         const registration = mockConnection.onRequest.mock.calls.find(
-          call => call[0] === method
+          (call: unknown[]) => call[0] === method
         );
         expect(registration).toBeDefined();
         const handler = registration![1] as () => null;
@@ -982,7 +982,7 @@ describe('LSPClient Coverage', () => {
       await vi.advanceTimersByTimeAsync(2100);
 
       const registration = mockConnection.onNotification.mock.calls.find(
-        call => call[0] === 'textDocument/publishDiagnostics'
+        (call: unknown[]) => call[0] === 'textDocument/publishDiagnostics'
       );
       expect(registration).toBeDefined();
       const handler = registration![1] as (params: {

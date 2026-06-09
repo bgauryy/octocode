@@ -4,13 +4,11 @@ import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { attachRawResponseChars } from '../../src/utils/response/charSavings.js';
 import type { QueryStatus } from '../../src/types/toolResults.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 import type { ToolName } from '../../src/tools/toolMetadata/types.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {
-  await initializeToolMetadata();
 });
 
 describe('executeBulkOperation', () => {

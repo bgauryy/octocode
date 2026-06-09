@@ -26,7 +26,7 @@ describe('Repo Search - Sorting', () => {
     };
 
     vi.mocked(getOctokit).mockResolvedValue(
-      mockOctokit as unknown as ReturnType<typeof getOctokit>
+      mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
     );
 
     searchReposMock.mockResolvedValue({
@@ -76,7 +76,7 @@ describe('Repo Search - Sorting', () => {
       });
       vi.mocked(getOctokit).mockResolvedValue({
         rest: { search: { repos: searchReposMock } },
-      } as unknown as ReturnType<typeof getOctokit>);
+      } as unknown as Awaited<ReturnType<typeof getOctokit>>);
 
       await searchGitHubReposAPI({ keywordsToSearch: ['test'], sort });
 
@@ -95,7 +95,7 @@ describe('Repo Search - Sorting', () => {
       });
       vi.mocked(getOctokit).mockResolvedValue({
         rest: { search: { repos: searchReposMock } },
-      } as unknown as ReturnType<typeof getOctokit>);
+      } as unknown as Awaited<ReturnType<typeof getOctokit>>);
 
       await searchGitHubReposAPI({
         keywordsToSearch: ['test'],

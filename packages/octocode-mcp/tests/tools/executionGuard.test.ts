@@ -18,10 +18,10 @@ describe('executeWithToolBoundary', () => {
     const result = await executeWithToolBoundary({
       toolName: 'localGetFileContent',
       query: { researchGoal: 'test', reasoning: 'test' },
-      execute: async () => ({ status: 'hasResults', content: 'ok' }),
+      execute: async () => ({ data: { content: 'ok' } }),
     });
 
-    expect(result).toEqual({ status: 'hasResults', content: 'ok' });
+    expect(result).toEqual({ data: { content: 'ok' } });
     expect(handleCatchError).not.toHaveBeenCalled();
   });
 

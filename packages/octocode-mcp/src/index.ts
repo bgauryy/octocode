@@ -24,7 +24,7 @@ import {
   logToolCall,
 } from './session.js';
 import { loadToolContent } from './tools/toolMetadata/state.js';
-import { SERVER_INSTRUCTIONS } from './serverInstructions.js';
+import { completeMetadata } from '@octocodeai/octocode-core';
 import { version, name } from '../package.json';
 import { STARTUP_ERRORS } from './errors/domainErrors.js';
 import { startCacheGC, stopCacheGC } from './tools/github_clone_repo/cache.js';
@@ -172,7 +172,7 @@ async function createServer(): Promise<McpServer> {
 
   return new McpServer(SERVER_CONFIG, {
     capabilities,
-    instructions: SERVER_INSTRUCTIONS,
+    instructions: completeMetadata.instructions,
   });
 }
 

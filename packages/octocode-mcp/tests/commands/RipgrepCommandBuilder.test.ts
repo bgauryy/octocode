@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { RipgrepCommandBuilder } from '../../src/commands/RipgrepCommandBuilder.js';
-import { RESOURCE_LIMITS } from '../../src/utils/core/constants.js';
 
 function buildArgs(query: Record<string, unknown>): string[] {
   return new RipgrepCommandBuilder()

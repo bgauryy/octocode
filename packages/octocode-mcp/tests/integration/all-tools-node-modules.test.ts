@@ -8,8 +8,8 @@ import type {
   ViewStructureResult,
   FindFilesResult,
   FetchContentResult,
-} from '../../src/utils/core/types.js';
-import { RipgrepQuerySchema } from '@octocodeai/octocode-core';
+} from '../../src/public.js';
+import { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import path from 'path';
 
 const NODE_MODULES_PATH = path.resolve(process.cwd(), 'node_modules');
@@ -32,10 +32,12 @@ type ToolResult =
 
 function verifySmartData<T extends ToolResult>(result: T, toolName: string): T {
   expect(result, `${toolName} should return a result object`).toBeDefined();
-  expect(result.status, `${toolName} should have status field`).toBeDefined();
-  expect([undefined, 'empty', 'error']).toContain(result.status);
+  expect(
+    [undefined, 'empty', 'error'],
+    `${toolName} status should be a valid envelope status`
+  ).toContain(result.status);
 
-  if (result.status === 'hasResults') {
+  if (result.status === undefined) {
     const hasFiles =
       'files' in result &&
       Array.isArray(result.files) &&
@@ -52,7 +54,7 @@ function verifySmartData<T extends ToolResult>(result: T, toolName: string): T {
 
     expect(
       hasFiles || hasContent || hasStructuredOutput || hasPagination,
-      `${toolName} should have data when status is hasResults`
+      `${toolName} should have data when status indicates success`
     ).toBe(true);
   }
 
@@ -80,7 +82,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localSearchCode');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.files).toBeDefined();
         expect(Array.isArray(result.files)).toBe(true);
       }
@@ -98,7 +100,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localSearchCode');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.files).toBeDefined();
         expect(Array.isArray(result.files)).toBe(true);
       }
@@ -117,7 +119,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localViewStructure');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.structuredOutput).toBeDefined();
       }
     });
@@ -134,7 +136,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localViewStructure');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.structuredOutput).toBeDefined();
       }
     });
@@ -149,7 +151,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localViewStructure');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.structuredOutput).toBeDefined();
       }
     });
@@ -168,7 +170,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localFindFiles');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.files).toBeDefined();
         expect(Array.isArray(result.files)).toBe(true);
       }
@@ -186,7 +188,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localFindFiles');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.files).toBeDefined();
       }
     });
@@ -203,7 +205,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
       verifySmartData(result, 'localFindFiles');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.files).toBeDefined();
       }
     });
@@ -223,7 +225,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
       });
 
       if (
-        findResult.status === 'hasResults' &&
+        findResult.status === undefined &&
         findResult.files &&
         findResult.files.length > 0
       ) {
@@ -238,7 +240,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         });
 
         if (
-          jsFileResult.status === 'hasResults' &&
+          jsFileResult.status === undefined &&
           jsFileResult.files &&
           jsFileResult.files.length > 0
         ) {
@@ -262,13 +264,14 @@ describe('Integration Tests: All Tools on node_modules', () => {
       const result = await fetchContent({
         path: testFile,
         fullContent: true,
+        contextLines: 5,
         researchGoal: 'Read full package.json content',
         reasoning: 'Testing full content fetch',
       });
 
       verifySmartData(result, 'localGetFileContent');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.content).toBeDefined();
         expect(typeof result.content).toBe('string');
       }
@@ -283,13 +286,14 @@ describe('Integration Tests: All Tools on node_modules', () => {
         path: testFile,
         charOffset: 0,
         charLength: 2000,
+        contextLines: 5,
         researchGoal: 'Read first 20 lines',
         reasoning: 'Testing line range fetch',
       });
 
       verifySmartData(result, 'localGetFileContent');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.content).toBeDefined();
       }
     });
@@ -302,14 +306,14 @@ describe('Integration Tests: All Tools on node_modules', () => {
       const result = await fetchContent({
         path: testFile,
         matchString: 'dependencies',
-        matchStringContextLines: 5,
+        contextLines: 5,
         researchGoal: 'Extract dependencies section',
         reasoning: 'Testing pattern-based extraction',
       });
 
       verifySmartData(result, 'localGetFileContent');
 
-      if (result.status === 'hasResults') {
+      if (result.status === undefined) {
         expect(result.content).toBeDefined();
       }
     });

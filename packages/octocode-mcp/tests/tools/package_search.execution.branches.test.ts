@@ -58,6 +58,8 @@ describe('package_search execution branches', () => {
       mockSearchPackage.mockResolvedValue({
         packages: [
           {
+            name: 'some-pkg',
+            npmUrl: 'https://www.npmjs.com/package/some-pkg',
             path: 'some-pkg',
             version: '1.0.0',
             repoUrl: 'https://example.com/owner/repo',
@@ -94,6 +96,8 @@ describe('package_search execution branches', () => {
       mockSearchPackage.mockResolvedValue({
         packages: [
           {
+            name: 'deprecated-pkg',
+            npmUrl: 'https://www.npmjs.com/package/deprecated-pkg',
             path: 'deprecated-pkg',
             version: '1.0.0',
             repoUrl: 'https://github.com/owner/repo',
@@ -191,6 +195,7 @@ describe('package_search execution branches', () => {
         packages: [
           {
             name: '@modelcontextprotocol/sdk',
+            npmUrl: 'https://www.npmjs.com/package/@modelcontextprotocol/sdk',
             version: '1.0.0',
             description: 'MCP TypeScript SDK',
             repoUrl: 'https://github.com/modelcontextprotocol/typescript-sdk',
@@ -225,6 +230,7 @@ describe('package_search execution branches', () => {
         packages: [
           {
             name: '@scope/pkg',
+            npmUrl: 'https://www.npmjs.com/package/@scope/pkg',
             version: '1.0.0',
             description: 'D'.repeat(250),
             repoUrl: 'https://github.com/owner/repo',
@@ -265,6 +271,7 @@ describe('package_search execution branches', () => {
         packages: [
           {
             name: 'clitool',
+            npmUrl: 'https://www.npmjs.com/package/clitool',
             version: '2.0.0',
             repoUrl: 'https://github.com/owner/clitool',
             mainEntry: './dist/index.cjs', // legacy fallback; should be superseded
@@ -297,6 +304,7 @@ describe('package_search execution branches', () => {
         packages: [
           {
             name: 'non-gh',
+            npmUrl: 'https://www.npmjs.com/package/non-gh',
             version: '1.0.0',
             repoUrl: 'https://example.com/owner/repo',
             mainEntry: 'index.js',
@@ -323,6 +331,7 @@ describe('package_search execution branches', () => {
         packages: [
           {
             name: 'no-repo-pkg',
+            npmUrl: 'https://www.npmjs.com/package/no-repo-pkg',
             version: '2.0.0',
             description: 'Package with no repository field',
             repoUrl: null,

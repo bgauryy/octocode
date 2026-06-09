@@ -47,6 +47,9 @@ import { countSerializedChars } from '../../src/utils/response/charSavings.js';
 
 type MockPRItem = Partial<PullRequestSimple>;
 
+const asTransformOctokit = (octokit: unknown) =>
+  octokit as Parameters<typeof transformPullRequestItemFromREST>[2];
+
 describe('Pull Request Search', () => {
   let mockOctokit: {
     rest: {
@@ -461,7 +464,11 @@ describe('Pull Request Search', () => {
         content: { comments: { discussion: true, reviewInline: true } },
       });
 
-      const pr = result.pull_requests?.[0] as Record<string, unknown>;
+      expect(result.pull_requests?.[0]).toBeDefined();
+      const pr = result.pull_requests![0]! as unknown as Record<
+        string,
+        unknown
+      >;
       expect(pr.body).toBeTypeOf('string');
       expect((pr.body as string).length).toBeLessThan(longBody.length);
       expect(pr.body_pagination).toMatchObject({
@@ -545,7 +552,11 @@ describe('Pull Request Search', () => {
         charLength: 25,
       });
 
-      const pr = result.pull_requests?.[0] as Record<string, unknown>;
+      expect(result.pull_requests?.[0]).toBeDefined();
+      const pr = result.pull_requests![0]! as unknown as Record<
+        string,
+        unknown
+      >;
       expect(pr.body).toBe(longBody.slice(10, 35));
       expect(pr.body_pagination).toMatchObject({
         charOffset: 10,
@@ -826,7 +837,11 @@ describe('Pull Request Search', () => {
         content: { comments: { discussion: true, reviewInline: true } },
       });
 
-      const pr = result.pull_requests[0] as Record<string, unknown>;
+      expect(result.pull_requests?.[0]).toBeDefined();
+      const pr = result.pull_requests![0]! as unknown as Record<
+        string,
+        unknown
+      >;
       const comments = pr.comment_details as Array<{
         user: string;
         body: string;
@@ -1254,7 +1269,7 @@ describe('Pull Request Search', () => {
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
         { owner: 'test', repo: 'repo' },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.number).toBe(789);
@@ -1302,7 +1317,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { changedFiles: true, patches: { mode: 'all' } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.file_changes).toBeDefined();
@@ -1348,7 +1363,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { comments: { discussion: true, reviewInline: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.comments).toBeDefined();
@@ -1383,7 +1398,7 @@ describe('Pull Request Search', () => {
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
         { owner: 'test', repo: 'repo' },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result._sanitization_warnings).toBeDefined();
@@ -1418,7 +1433,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { changedFiles: true, patches: { mode: 'all' } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.number).toBe(793);
@@ -1453,7 +1468,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { comments: { discussion: true, reviewInline: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.number).toBe(794);
@@ -1511,7 +1526,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { commits: { list: true, includeFiles: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.commits).toBeDefined();
@@ -1552,7 +1567,7 @@ describe('Pull Request Search', () => {
       const result = await transformPullRequestItemFromREST(
         mockItem as PullRequestSimple,
         { owner: 'test', repo: 'repo' },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.commits).toBeUndefined();
@@ -1579,7 +1594,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { commits: { list: true, includeFiles: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.commits).toBeUndefined();
@@ -1634,7 +1649,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { commits: { list: true, includeFiles: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(result.commits).toBeDefined();
@@ -1685,7 +1700,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { commits: { list: true, includeFiles: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       expect(mockOctokit.rest.pulls.listCommits).toHaveBeenCalledTimes(2);
@@ -1743,7 +1758,7 @@ describe('Pull Request Search', () => {
           repo: 'repo',
           content: { comments: { discussion: true, reviewInline: true } },
         },
-        mockOctokit
+        asTransformOctokit(mockOctokit)
       );
 
       const allComments = result.comments as Array<{

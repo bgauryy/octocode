@@ -94,7 +94,8 @@ describe('directToolCatalog', () => {
       { name: 'isError', type: 'boolean', optional: true },
     ]);
 
-    outputFields[0].name = 'mutated';
+    expect(outputFields[0]).toBeDefined();
+    outputFields[0]!.name = 'mutated';
 
     expect(getDirectToolOutputFields()[0]?.name).toBe('content');
     expect(JSON.parse(formatDirectToolOutputSchemaText())).toEqual({

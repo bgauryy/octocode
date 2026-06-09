@@ -57,14 +57,13 @@ vi.mock('../src/tools/toolMetadata/state.js', () => ({
       baseHints: { hasResults: [], empty: [] },
       genericErrorHints: [],
       baseSchema: {
+        id: '',
         mainResearchGoal: '',
         researchGoal: '',
         reasoning: '',
-        bulkQuery: () => '',
       },
     })
   ),
-  getMetadataOrNull: vi.fn(() => null),
 }));
 
 vi.mock('../src/tools/toolsManager.js', () => ({

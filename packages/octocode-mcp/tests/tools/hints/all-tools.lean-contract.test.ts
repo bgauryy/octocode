@@ -41,7 +41,9 @@ describe('per-tool hints — structural contract', () => {
     it(`${tool}: declares empty + error, never hasResults`, () => {
       expect(typeof gen.empty).toBe('function');
       expect(typeof gen.error).toBe('function');
-      expect((gen as Record<string, unknown>).hasResults).toBeUndefined();
+      expect(
+        (gen as unknown as Record<string, unknown>).hasResults
+      ).toBeUndefined();
     });
 
     it(`${tool}: empty() with no context returns []`, () => {
@@ -317,9 +319,9 @@ describe('githubGetFileContent — error', () => {
       fileSize: 400,
       totalLines: 1000,
     } as never);
-    expect(h.some(s => s.includes('1000') && s.includes('total lines'))).toBe(
-      true
-    );
+    expect(
+      h.some(s => !!s && s.includes('1000') && s.includes('total lines'))
+    ).toBe(true);
   });
 
   it('not_found with path + branch', () => {
@@ -682,8 +684,19 @@ describe('pagination hints — fire only on hasMore=true', () => {
   });
 
   describe('generatePaginationHints (local tools, char-offset based)', () => {
+    const basePaginationMetadata = {
+      paginatedContent: '',
+      byteOffset: 0,
+      byteLength: 0,
+      totalBytes: 0,
+      charOffset: 0,
+      charLength: 0,
+      totalChars: 0,
+    };
+
     it('emits charOffset cursor when hasMore + nextCharOffset', () => {
       const h = generatePaginationHints({
+        ...basePaginationMetadata,
         currentPage: 1,
         totalPages: 4,
         hasMore: true,
@@ -694,6 +707,7 @@ describe('pagination hints — fire only on hasMore=true', () => {
 
     it('stays silent when hasMore=false', () => {
       const h = generatePaginationHints({
+        ...basePaginationMetadata,
         currentPage: 4,
         totalPages: 4,
         hasMore: false,
@@ -703,6 +717,7 @@ describe('pagination hints — fire only on hasMore=true', () => {
 
     it('emits token warning when estimatedTokens > 30k', () => {
       const h = generatePaginationHints({
+        ...basePaginationMetadata,
         currentPage: 1,
         totalPages: 1,
         hasMore: false,
@@ -713,6 +728,7 @@ describe('pagination hints — fire only on hasMore=true', () => {
 
     it('suppresses token warning under 30k', () => {
       const h = generatePaginationHints({
+        ...basePaginationMetadata,
         currentPage: 1,
         totalPages: 1,
         hasMore: false,
@@ -745,6 +761,8 @@ describe('pagination hints — fire only on hasMore=true', () => {
           currentPage: 1,
           totalPages: 3,
           hasMore: true,
+          entriesPerPage: 10,
+          totalEntries: 30,
         },
         {} as never
       );
@@ -757,6 +775,8 @@ describe('pagination hints — fire only on hasMore=true', () => {
           currentPage: 3,
           totalPages: 3,
           hasMore: false,
+          entriesPerPage: 10,
+          totalEntries: 30,
         },
         {} as never
       );

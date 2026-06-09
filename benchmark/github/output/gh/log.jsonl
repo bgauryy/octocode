@@ -93,3 +93,6 @@
 {"ts":"2026-06-09T15:42:16.918Z","q":17,"agent":"gh","cmd":"gh api search/repositories?q=org:vercel+is:public+stars:>1000&per_page=100","in_chars":71,"out_chars":231866,"elapsed_ms":3135,"exit":0}
 {"ts":"2026-06-09T15:42:47.317Z","q":19,"agent":"gh","cmd":"gh api search/repositories?q=org:vitejs+topic:vite-plugin+pushed:>=2024-01-01&sort=stars&order=desc&per_page=20","in_chars":108,"out_chars":5361,"elapsed_ms":1522,"exit":0}
 {"ts":"2026-06-09T15:42:57.256Z","q":19,"agent":"gh","cmd":"gh api search/repositories?q=org:vitejs+pushed:>=2024-01-01&per_page=10&sort=stars&order=desc","in_chars":90,"out_chars":53614,"elapsed_ms":1747,"exit":0}
+{"ts":"2026-06-09T15:43:14.110Z","q":20,"agent":"gh","cmd":"gh api search/issues?q=repo:microsoft/TypeScript+is:pr+is:merged+satisfies+in:title&per_page=10&sort=created&order=asc","in_chars":115,"out_chars":33081,"elapsed_ms":1130,"exit":0}
+{"ts":"2026-06-09T15:43:22.166Z","q":20,"agent":"gh","cmd":"gh pr view 46827 --repo microsoft/TypeScript --json number,title,body,files","in_chars":72,"out_chars":11296,"elapsed_ms":1075,"exit":0}
+{"ts":"2026-06-09T15:43:30.310Z","q":20,"agent":"gh","cmd":"gh issue view 7481 --repo microsoft/TypeScript --json number,title,body","in_chars":68,"out_chars":961,"elapsed_ms":957,"exit":0}

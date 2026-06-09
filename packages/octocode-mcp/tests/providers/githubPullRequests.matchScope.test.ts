@@ -37,7 +37,7 @@ describe('searchPullRequests — matchScope mapping to API `match`', () => {
     } as PRQuery);
 
     expect(mockSearchAPI).toHaveBeenCalledTimes(1);
-    const forwarded = mockSearchAPI.mock.calls[0][0];
+    const forwarded = mockSearchAPI.mock.calls[0]![0];
     expect(forwarded.match).toEqual(['title']);
     expect(forwarded.query).toBe('Suspense');
   });
@@ -48,12 +48,12 @@ describe('searchPullRequests — matchScope mapping to API `match`', () => {
       matchScope: ['title', 'body'],
     } as PRQuery);
 
-    expect(mockSearchAPI.mock.calls[0][0].match).toEqual(['title', 'body']);
+    expect(mockSearchAPI.mock.calls[0]![0].match).toEqual(['title', 'body']);
   });
 
   it('forwards undefined `match` when matchScope is absent', async () => {
     await searchPullRequests({ query: 'x' } as PRQuery);
 
-    expect(mockSearchAPI.mock.calls[0][0].match).toBeUndefined();
+    expect(mockSearchAPI.mock.calls[0]![0].match).toBeUndefined();
   });
 });

@@ -7,6 +7,7 @@ import {
   type ToolFilterConfig,
 } from '../../src/tools/toolFilters.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
+import { z } from 'zod';
 
 function makeTool(
   overrides: Partial<ToolConfig> & Pick<ToolConfig, 'name'>
@@ -20,6 +21,12 @@ function makeTool(
     type: overrides.type ?? 'search',
     skipMetadataCheck: overrides.skipMetadataCheck,
     fn: overrides.fn ?? (() => ({}) as never),
+    direct: overrides.direct ?? {
+      schema: z.object({}),
+      inputSchema: z.object({}),
+      executionFn: async () => ({ content: [] }),
+      security: 'basic',
+    },
   };
 }
 

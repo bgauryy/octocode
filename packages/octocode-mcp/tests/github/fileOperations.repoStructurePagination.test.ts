@@ -49,7 +49,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -76,7 +76,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -104,7 +104,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -130,7 +130,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -156,7 +156,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -180,7 +180,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -202,7 +202,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -224,7 +224,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit(files);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -246,7 +246,7 @@ describe('GitHub Repository Structure - Pagination', () => {
       const mockOctokit = createMockOctokit([]);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({

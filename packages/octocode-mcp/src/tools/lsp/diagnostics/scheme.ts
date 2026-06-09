@@ -2,55 +2,38 @@ import { z } from 'zod';
 import {
   createRelaxedBulkQuerySchema,
   optionalMetaFields,
+  withCoreSchemaDescriptions,
 } from '../../../scheme/localSchemaOverlay.js';
 import { LSP_GET_DIAGNOSTICS_TOOL_NAME } from '../shared/semanticTypes.js';
 
+// All field descriptions come from the octocode-core ToolSpec via
+// withCoreSchemaDescriptions — do not add local .describe() text here.
+const DiagnosticsObjectSchema = withCoreSchemaDescriptions(
+  LSP_GET_DIAGNOSTICS_TOOL_NAME,
+  z.object({
+    ...optionalMetaFields,
+    uri: z.string().optional(),
+    filePath: z.string().optional(),
+    workspaceRoot: z.string().optional(),
+    severity: z
+      .enum(['error', 'warning', 'information', 'hint', 'all'])
+      .optional()
+      .default('all'),
+    source: z.string().optional(),
+  })
+);
+
 export const LspGetDiagnosticsQuerySchema = z.preprocess(
   normalizeFilePathAlias,
-  z
-    .object({
-      ...optionalMetaFields,
-      uri: z
-        .string()
-        .optional()
-        .describe(
-          'Required. Absolute file path or file:/// URI of the file to check. Either uri or filePath must be provided. Use this to check a specific file for errors after editing it.'
-        ),
-      filePath: z
-        .string()
-        .optional()
-        .describe(
-          'Alias for uri — pass either uri or filePath, not both. Required when uri is omitted.'
-        ),
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe(
-          'Override the workspace root used to locate/start the language server. Omit to auto-detect from the file path.'
-        ),
-      severity: z
-        .enum(['error', 'warning', 'information', 'hint', 'all'])
-        .optional()
-        .default('all')
-        .describe(
-          'Filter by severity level. Use "error" to check only blocking errors after an edit. Defaults to "all".'
-        ),
-      source: z
-        .string()
-        .optional()
-        .describe(
-          'Filter diagnostics by their source (e.g. "typescript", "eslint"). Omit to get all sources.'
-        ),
-    })
-    .superRefine((value, ctx) => {
-      if (!value.uri && !value.filePath) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['uri'],
-          message: 'Either uri or filePath is required',
-        });
-      }
-    })
+  DiagnosticsObjectSchema.superRefine((value, ctx) => {
+    if (!value.uri && !value.filePath) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['uri'],
+        message: 'Either uri or filePath is required',
+      });
+    }
+  })
 );
 
 export const BulkLspGetDiagnosticsQuerySchema = createRelaxedBulkQuerySchema(

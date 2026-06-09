@@ -356,10 +356,13 @@ describe('GitHub Client', () => {
 
       await getOctokit();
 
-      const callArgs = mockOctokit.mock.calls[0][0];
-      expect(typeof callArgs.throttle).toEqual('object');
-      expect(typeof callArgs.throttle.onRateLimit).toEqual('function');
-      expect(typeof callArgs.throttle.onSecondaryRateLimit).toEqual('function');
+      const callArgs = mockOctokit.mock.calls[0]?.[0];
+      expect(callArgs).toBeDefined();
+      expect(typeof callArgs!.throttle).toEqual('object');
+      expect(typeof callArgs!.throttle!.onRateLimit).toEqual('function');
+      expect(typeof callArgs!.throttle!.onSecondaryRateLimit).toEqual(
+        'function'
+      );
     });
 
     it('should never retry on rate limit - fail immediately', async () => {
@@ -367,12 +370,15 @@ describe('GitHub Client', () => {
 
       await getOctokit();
 
-      const callArgs = mockOctokit.mock.calls[0][0];
-      const { onRateLimit } = callArgs.throttle;
+      const callArgs = mockOctokit.mock.calls[0]?.[0];
+      expect(callArgs?.throttle?.onRateLimit).toBeDefined();
+      const onRateLimit = callArgs!.throttle!.onRateLimit!;
+      type Options = Parameters<typeof onRateLimit>[1];
+      type Client = Parameters<typeof onRateLimit>[2];
 
-      expect(onRateLimit(3600, {}, {}, 0)).toBe(false);
-      expect(onRateLimit(3600, {}, {}, 1)).toBe(false);
-      expect(onRateLimit(3600, {}, {}, 5)).toBe(false);
+      expect(onRateLimit(3600, {} as Options, {} as Client, 0)).toBe(false);
+      expect(onRateLimit(3600, {} as Options, {} as Client, 1)).toBe(false);
+      expect(onRateLimit(3600, {} as Options, {} as Client, 5)).toBe(false);
     });
 
     it('should never retry on secondary rate limit - fail immediately', async () => {
@@ -380,12 +386,21 @@ describe('GitHub Client', () => {
 
       await getOctokit();
 
-      const callArgs = mockOctokit.mock.calls[0][0];
-      const { onSecondaryRateLimit } = callArgs.throttle;
+      const callArgs = mockOctokit.mock.calls[0]?.[0];
+      expect(callArgs?.throttle?.onSecondaryRateLimit).toBeDefined();
+      const onSecondaryRateLimit = callArgs!.throttle!.onSecondaryRateLimit!;
+      type Options = Parameters<typeof onSecondaryRateLimit>[1];
+      type Client = Parameters<typeof onSecondaryRateLimit>[2];
 
-      expect(onSecondaryRateLimit(60, {}, {}, 0)).toBe(false);
-      expect(onSecondaryRateLimit(60, {}, {}, 1)).toBe(false);
-      expect(onSecondaryRateLimit(60, {}, {}, 5)).toBe(false);
+      expect(onSecondaryRateLimit(60, {} as Options, {} as Client, 0)).toBe(
+        false
+      );
+      expect(onSecondaryRateLimit(60, {} as Options, {} as Client, 1)).toBe(
+        false
+      );
+      expect(onSecondaryRateLimit(60, {} as Options, {} as Client, 5)).toBe(
+        false
+      );
     });
   });
 });

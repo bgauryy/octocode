@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyStructurePagination } from '../../src/github/repoStructurePagination.js';
 import type { GitHubRepositoryStructureResult } from '../../src/tools/github_view_repo_structure/types.js';
-import type { GitHubViewRepoStructureQuery } from '@octocodeai/octocode-core';
+import type { GitHubViewRepoStructureQuery } from '../../src/public.js';
 
 function makeQuery(
   overrides: Partial<GitHubViewRepoStructureQuery> = {}

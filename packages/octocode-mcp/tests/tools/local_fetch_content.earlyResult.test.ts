@@ -64,7 +64,7 @@ describe('fetchContent — earlyResult minification path', () => {
     const result = await fetchContent({
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
-      matchStringContextLines: 0,
+      contextLines: 0,
     });
 
     // The result is a first-page slice — pagination info must be present.
@@ -79,7 +79,7 @@ describe('fetchContent — earlyResult minification path', () => {
     const result = await fetchContent({
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
-      matchStringContextLines: 0,
+      contextLines: 0,
     });
 
     expect(result.pagination?.hasMore).toBe(true);
@@ -96,7 +96,7 @@ describe('fetchContent — earlyResult minification path', () => {
     const result = await fetchContent({
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
-      matchStringContextLines: 0,
+      contextLines: 0,
       minify: false,
     } as Parameters<typeof fetchContent>[0]);
 
@@ -113,7 +113,7 @@ describe('fetchContent — earlyResult minification path', () => {
     const withMinify = await fetchContent({
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
-      matchStringContextLines: 0,
+      contextLines: 0,
     });
 
     mockReadFile.mockResolvedValue(content);
@@ -121,7 +121,7 @@ describe('fetchContent — earlyResult minification path', () => {
     const withoutMinify = await fetchContent({
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
-      matchStringContextLines: 0,
+      contextLines: 0,
       minify: false,
     } as Parameters<typeof fetchContent>[0]);
 

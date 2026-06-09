@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeWithErrorIsolation } from '../../src/utils/core/promise.js';
-import type { PromiseExecutionOptions } from '../../src/types';
+import type { PromiseExecutionOptions } from '../../src/types/promise.js';
 import {
   VALIDATION_ERRORS,
   PROMISE_ERRORS,

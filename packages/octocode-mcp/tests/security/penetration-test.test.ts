@@ -19,6 +19,7 @@ import {
 } from '../../src/responses.js';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { sanitizeCallToolResult } from '../../src/utils/secureServer.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 vi.mock('octocode-shared', () => ({
   getConfigSync: () => ({
@@ -666,7 +667,9 @@ describe('ATTACK-08: Security Wrapper Bypass', () => {
 
     const wrapped = withBasicSecurityValidation(handler);
     const rawResult = await wrapped({ query: 'test' });
-    const result = sanitizeCallToolResult(rawResult);
+    const result = sanitizeCallToolResult(
+      rawResult as unknown as CallToolResult
+    );
 
     const text = result.content.find(c => c.type === 'text')?.text || '';
     assertSecretAbsent(text, 'AWS_KEY', SECRETS.AWS_KEY);
@@ -681,7 +684,9 @@ describe('ATTACK-08: Security Wrapper Bypass', () => {
 
     const wrapped = withSecurityValidation('testTool', handler);
     const rawResult = await wrapped({ query: 'test' }, {});
-    const result = sanitizeCallToolResult(rawResult);
+    const result = sanitizeCallToolResult(
+      rawResult as unknown as CallToolResult
+    );
 
     const text = result.content.find(c => c.type === 'text')?.text || '';
     assertSecretAbsent(text, 'GITHUB_TOKEN', SECRETS.GITHUB_TOKEN);

@@ -10,10 +10,10 @@ const hoisted = vi.hoisted(() => {
       GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
     },
     baseSchema: {
+      id: 'id',
       mainResearchGoal: 'goal',
       researchGoal: 'goal',
       reasoning: 'reasoning',
-      bulkQuery: (_name: string) => 'template',
     },
     tools: {},
     baseHints: { hasResults: [], empty: [] },
@@ -49,41 +49,27 @@ describe('toolMetadata - Final Edge Cases', () => {
     hoisted.completeMetadataReads = 0;
   });
 
-  describe('Concurrent initialization (line 146)', () => {
-    it('should handle concurrent initializeToolMetadata calls', async () => {
-      const { initializeToolMetadata } =
-        await import('../../src/tools/toolMetadata/state.js');
-
-      const promise1 = initializeToolMetadata();
-      const promise2 = initializeToolMetadata();
-      const promise3 = initializeToolMetadata();
-
-      await Promise.all([promise1, promise2, promise3]);
-
-      expect(hoisted.completeMetadataReads).toBe(1);
-    });
-  });
-
-  describe('loadToolContent auto-initialization (line 206)', () => {
-    it('should auto-initialize when metadata is null', async () => {
-      const { loadToolContent } =
-        await import('../../src/tools/toolMetadata/state.js');
+  describe('loadToolContent', () => {
+    it('returns core metadata directly', async () => {
+      const { loadToolContent } = await import(
+        '../../src/tools/toolMetadata/state.js'
+      );
 
       const content = await loadToolContent();
 
       expect(content).toBeDefined();
       expect(content.toolNames).toBeDefined();
+      expect(content).toBe(hoisted.octocodeConfig);
     });
 
-    it('should not reinitialize if metadata already loaded', async () => {
-      const { initializeToolMetadata, loadToolContent } =
-        await import('../../src/tools/toolMetadata/state.js');
+    it('is stable across repeated calls', async () => {
+      const { loadToolContent } = await import(
+        '../../src/tools/toolMetadata/state.js'
+      );
 
-      await initializeToolMetadata();
-      const readsAfterInit = hoisted.octocodeReads;
-
-      await loadToolContent();
-      expect(hoisted.octocodeReads).toBe(readsAfterInit);
+      const first = await loadToolContent();
+      const second = await loadToolContent();
+      expect(second).toBe(first);
     });
   });
 });

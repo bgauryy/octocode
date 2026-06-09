@@ -3,7 +3,7 @@ import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
 import { getOctokit } from '../../src/github/client.js';
 import { handleGitHubAPIError } from '../../src/github/errors.js';
 import { buildRepoSearchQuery } from '../../src/github/queryBuilders.js';
-import type { GitHubReposSearchQuery } from '@octocodeai/octocode-core';
+import type { GitHubReposSearchQuery } from '../../src/public.js';
 
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/github/errors.js');

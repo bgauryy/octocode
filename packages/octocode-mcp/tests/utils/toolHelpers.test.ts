@@ -42,7 +42,7 @@ describe('validateToolPath — WORKSPACE_ROOT path resolution', () => {
 
     validateToolPath({ path: 'src/index.ts' }, 'localSearchCode');
 
-    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0][0];
+    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0]?.[0];
     expect(calledWith).toBe('/workspace/project/src/index.ts');
   });
 
@@ -51,7 +51,7 @@ describe('validateToolPath — WORKSPACE_ROOT path resolution', () => {
 
     validateToolPath({ path: 'src/index.ts' }, 'localSearchCode');
 
-    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0][0];
+    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0]?.[0];
     expect(calledWith).toBe(path.resolve(process.cwd(), 'src/index.ts'));
   });
 
@@ -60,7 +60,7 @@ describe('validateToolPath — WORKSPACE_ROOT path resolution', () => {
 
     validateToolPath({ path: '/absolute/path/to/file.ts' }, 'localSearchCode');
 
-    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0][0];
+    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0]?.[0];
     expect(calledWith).toBe('/absolute/path/to/file.ts');
   });
 
@@ -74,7 +74,7 @@ describe('validateToolPath — WORKSPACE_ROOT path resolution', () => {
 
     validateToolPath({ path: 'file://src/index.ts' }, 'localSearchCode');
 
-    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0][0];
+    const calledWith = vi.mocked(pathValidator.validate).mock.calls[0]?.[0];
     expect(calledWith).toBe('/workspace/project/src/index.ts');
   });
 });

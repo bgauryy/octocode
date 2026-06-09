@@ -100,8 +100,6 @@ describe('resolveSymbolAnchor', () => {
       {
         uri: filePath,
         type: 'documentSymbols',
-        symbolName: 'target',
-        lineHint: 1,
       },
       TOOL_NAME
     );

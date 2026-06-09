@@ -1,13 +1,8 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
 import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
-import { getMetadataOrNull } from './state.js';
 
 function getBaseSchemaSource(): Record<PropertyKey, unknown> {
-  const metadata = getMetadataOrNull();
-  return (metadata ?? completeMetadata).baseSchema as unknown as Record<
-    PropertyKey,
-    unknown
-  >;
+  return completeMetadata.baseSchema as unknown as Record<PropertyKey, unknown>;
 }
 
 export const BASE_SCHEMA = new Proxy({} as CompleteMetadata['baseSchema'], {

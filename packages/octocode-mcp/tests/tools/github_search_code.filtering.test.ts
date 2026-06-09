@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 interface CallToolResult {
   content: Array<{ type: string; text: string }>;
+  structuredContent?: unknown;
   isError?: boolean;
 }
 

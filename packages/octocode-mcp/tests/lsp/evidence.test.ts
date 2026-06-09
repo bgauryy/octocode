@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { attachLspEvidence } from '../../src/lsp/evidence.js';
+import { attachLspEvidence as attachLspEvidenceImpl } from '../../src/lsp/evidence.js';
+
+type AttachedEvidence = {
+  kind: 'calls' | 'references';
+  answerReady: boolean;
+  complete: boolean;
+  confidence: 'high';
+  reason?: string;
+};
+
+const attachLspEvidence = (
+  result: Record<string, unknown>,
+  opts: {
+    kind: 'calls' | 'references';
+    paginationKey: 'pagination' | 'outputPagination';
+  }
+) =>
+  attachLspEvidenceImpl<
+    Record<string, unknown> & { evidence?: AttachedEvidence }
+  >(result, opts);
 
 describe('attachLspEvidence', () => {
   it('marks semantic success complete when pagination is exhausted', () => {

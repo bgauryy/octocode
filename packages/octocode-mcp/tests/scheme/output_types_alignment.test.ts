@@ -1,35 +1,37 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import type {
-  GitHubFetchContentData,
+  GitHubFileContentData,
+  GitHubSearchCodeData,
+  GitHubSearchCodeGroup,
+  GitHubSearchPullRequestsData,
+  GitHubPullRequestItem,
+  GitHubRepositoryItem,
+  GitHubViewRepoStructureData,
+  LocalFindFilesEntry,
+  LocalSearchCodeFile,
+  LocalSearchCodeMatch,
+  PackageItem,
+  PackageSearchData,
+} from '@octocodeai/octocode-core/types';
+import type {
   GitHubFetchContentToolResult,
   GitHubDirectoryFileEntry,
-  GitHubSearchCodeData,
   GitHubSearchCodeToolResult,
-  GitHubCodeSearchFile,
-  GitHubSearchPullRequestsData,
   GitHubSearchPullRequestsToolResult,
-  GitHubPullRequestOutput,
   GitHubSearchRepositoriesData,
   GitHubSearchRepositoriesToolResult,
   GitHubRepositoryOutput,
-  GitHubViewRepoStructureData,
   GitHubRepoStructureDirectoryEntry,
   LocalGetFileContentToolResult,
   LocalFindFilesToolResult,
-  LocalFindFilesEntry,
   LocalSearchCodeToolResult,
-  LocalSearchCodeFile,
-  LocalSearchCodeMatch,
   LocalViewStructureToolResult,
-  LocalViewStructureEntry,
-  PackageSearchData,
-  PackageSearchPackage,
-} from '@octocodeai/octocode-core';
+  LocalViewStructureEntryFlat,
+} from '@octocodeai/octocode-core/extra-types';
 import type {
   ContentResultData,
   ContentResult,
-  DirectoryFileEntry,
   SearchResult,
   PullRequestInfo,
   PullRequestSearchResultData,
@@ -38,6 +40,7 @@ import type {
   RepoSearchResult,
   DirectoryEntry,
   RepoStructureResultData,
+  RepoStructureResult,
   FetchContentResult,
   FindFilesResult,
   FoundFile,
@@ -54,40 +57,47 @@ import type {
 
 describe('Output type alignment', () => {
   it('derives GitHub tool output aliases from the output schemas', () => {
-    expectTypeOf<ContentResultData>().toEqualTypeOf<GitHubFetchContentData>();
+    expectTypeOf<ContentResultData>().toEqualTypeOf<GitHubFileContentData>();
     expectTypeOf<ContentResult>().toEqualTypeOf<GitHubFetchContentToolResult>();
-    expectTypeOf<DirectoryFileEntry>().toEqualTypeOf<GitHubDirectoryFileEntry>();
-    expectTypeOf<ContentResult['content']>().toEqualTypeOf<
-      string | undefined
+    expectTypeOf<GitHubDirectoryFileEntry>().toEqualTypeOf<{
+      path: string;
+      size: number;
+      type: string;
+    }>();
+    expectTypeOf<ContentResult['results']>().toEqualTypeOf<
+      GitHubFileContentData[] | undefined
     >();
     expectTypeOf<ContentResult['status']>().toEqualTypeOf<
-      'hasResults' | 'empty' | 'error'
+      'empty' | 'error' | undefined
     >();
 
     expectTypeOf<SearchResult>().toEqualTypeOf<GitHubSearchCodeData>();
-    expectTypeOf<SearchResult['files']>().toEqualTypeOf<
-      GitHubCodeSearchFile[] | undefined
+    expectTypeOf<SearchResult['results']>().toEqualTypeOf<
+      readonly GitHubSearchCodeGroup[]
     >();
-    expectTypeOf<GitHubSearchCodeToolResult['files']>().toEqualTypeOf<
-      GitHubCodeSearchFile[] | undefined
+    expectTypeOf<GitHubSearchCodeToolResult['results']>().toEqualTypeOf<
+      GitHubSearchCodeGroup[] | undefined
     >();
 
-    expectTypeOf<PullRequestInfo>().toEqualTypeOf<GitHubPullRequestOutput>();
+    expectTypeOf<PullRequestInfo>().toEqualTypeOf<GitHubPullRequestItem>();
     expectTypeOf<PullRequestSearchResultData>().toEqualTypeOf<GitHubSearchPullRequestsData>();
     expectTypeOf<PullRequestSearchResult>().toEqualTypeOf<GitHubSearchPullRequestsToolResult>();
     expectTypeOf<PullRequestSearchResult['pull_requests']>().toEqualTypeOf<
-      GitHubPullRequestOutput[] | undefined
+      GitHubPullRequestItem[] | undefined
     >();
 
     expectTypeOf<SimplifiedRepository>().toEqualTypeOf<GitHubRepositoryOutput>();
     expectTypeOf<RepoSearchResult>().toEqualTypeOf<GitHubSearchRepositoriesData>();
+    expectTypeOf<RepoSearchResult['repositories']>().toEqualTypeOf<
+      GitHubRepositoryOutput[]
+    >();
     expectTypeOf<
       GitHubSearchRepositoriesToolResult['repositories']
-    >().toEqualTypeOf<GitHubRepositoryOutput[] | undefined>();
+    >().toEqualTypeOf<GitHubRepositoryItem[] | undefined>();
 
     expectTypeOf<DirectoryEntry>().toEqualTypeOf<GitHubRepoStructureDirectoryEntry>();
     expectTypeOf<RepoStructureResultData>().toEqualTypeOf<GitHubViewRepoStructureData>();
-    expectTypeOf<GitHubViewRepoStructureData['structure']>().toEqualTypeOf<
+    expectTypeOf<RepoStructureResult['structure']>().toEqualTypeOf<
       Record<string, GitHubRepoStructureDirectoryEntry> | undefined
     >();
   });
@@ -112,7 +122,7 @@ describe('Output type alignment', () => {
     >();
 
     expectTypeOf<ViewStructureResult['entries']>().toEqualTypeOf<
-      LocalViewStructureEntry[] | undefined
+      LocalViewStructureEntryFlat[] | undefined
     >();
     expectTypeOf<ViewStructureResult>().toEqualTypeOf<LocalViewStructureToolResult>();
   });
@@ -138,10 +148,10 @@ describe('Output type alignment', () => {
   });
 
   it('derives package output aliases from the output schemas', () => {
-    expectTypeOf<PackageResultWithRepo>().toEqualTypeOf<PackageSearchPackage>();
+    expectTypeOf<PackageResultWithRepo>().toEqualTypeOf<PackageItem>();
     expectTypeOf<PackageSearchResult>().toEqualTypeOf<PackageSearchData>();
     expectTypeOf<PackageSearchResult['packages']>().toEqualTypeOf<
-      PackageSearchPackage[]
+      readonly PackageItem[]
     >();
   });
 });

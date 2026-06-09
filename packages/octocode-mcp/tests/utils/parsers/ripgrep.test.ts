@@ -5,7 +5,10 @@ import {
   parseFilesOnlyOutput,
   parseRipgrepOutput,
 } from '../../../src/tools/local_ripgrep/ripgrepParser.js';
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 
 const baseQuery = {
   pattern: 'test',

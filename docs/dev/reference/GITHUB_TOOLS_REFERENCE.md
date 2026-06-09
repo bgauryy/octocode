@@ -273,6 +273,7 @@ Use `packageSearch` before GitHub repo search when the user gives a package name
 
 Related docs:
 
+- [Tool Behavior Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/TOOL_BEHAVIOR_GUIDE.md) — known behaviors, control patterns, and token-cost tradeoffs per tool
 - [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md)
 - [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md)
 - [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/CLONE_AND_LOCAL_TOOLS_WORKFLOW.md)

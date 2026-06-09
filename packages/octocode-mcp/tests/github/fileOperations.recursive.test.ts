@@ -168,7 +168,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -190,8 +190,10 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
             call => call.value
           );
         const [rootData, recursiveData] = await Promise.all([
-          rootResponse.then(response => response.data),
-          recursiveResponse.then(response => response.data),
+          rootResponse.then((response: { data: unknown }) => response.data),
+          recursiveResponse.then(
+            (response: { data: unknown }) => response.data
+          ),
         ]);
         expect(result.rawResponseChars).toBe(
           countSerializedChars(rootData) + countSerializedChars(recursiveData)
@@ -246,7 +248,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -320,7 +322,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -397,7 +399,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -498,7 +500,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -585,7 +587,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -632,7 +634,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({
@@ -715,7 +717,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
       };
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await viewGitHubRepositoryStructureAPI({

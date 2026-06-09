@@ -14,7 +14,7 @@ function payload(
 ) {
   return sanitizeStructuredContent(
     result.structuredContent as Record<string, unknown>
-  );
+  ) as Record<string, unknown>;
 }
 
 function ok(

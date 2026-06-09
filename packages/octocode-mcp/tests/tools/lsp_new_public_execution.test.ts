@@ -618,10 +618,11 @@ describe('new public LSP tool execution', () => {
     if (!parsed.success) return;
 
     const firstResult = parsed.data.results[0];
+    expect(firstResult).toBeDefined();
     // no status field — failedAnchorEnvelope produces a no-status result with payload.kind='empty'
     expect(firstResult).not.toHaveProperty('status');
     // evidence is hoisted to top-level by aggregatePeerEvidence — not present in individual data
-    expect(firstResult.data).toMatchObject({
+    expect(firstResult!.data).toMatchObject({
       type: 'definition',
       uri: expect.stringContaining(filePath),
       // serverAvailable is intentionally omitted: symbol resolution fails before reaching the LSP
@@ -629,7 +630,9 @@ describe('new public LSP tool execution', () => {
       lsp: {},
       payload: expect.objectContaining({ kind: 'empty' }),
     });
-    expect(firstResult.data.lsp).not.toHaveProperty('serverAvailable');
+    expect(
+      (firstResult!.data as { lsp?: Record<string, unknown> }).lsp
+    ).not.toHaveProperty('serverAvailable');
   });
 
   it('handles empty queries array', async () => {

@@ -1,11 +1,9 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {
-  await initializeToolMetadata();
 });
 
 describe('Bulk Response Envelope', () => {

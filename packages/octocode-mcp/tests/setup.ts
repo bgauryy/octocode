@@ -1,5 +1,4 @@
 import { beforeEach, afterEach, afterAll, vi } from 'vitest';
-import { initializeToolMetadata } from '../src/tools/toolMetadata/state.js';
 import { resetCircuitBreaker } from '../src/utils/http/circuitBreaker.js';
 import {
   consumeExpectedStderrWarning,
@@ -387,13 +386,14 @@ const mockContent = {
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
     LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
+    LSP_GET_SEMANTIC_CONTENT: 'lspGetSemanticContent',
+    LSP_GET_DIAGNOSTICS: 'lspGetDiagnostics',
   },
   baseSchema: {
+    id: 'Stable query identifier.',
     mainResearchGoal: 'Main research goal description',
     researchGoal: 'Research goal description',
     reasoning: 'Reasoning description',
-    bulkQuery: (toolName: string) =>
-      `Research queries for ${toolName} (1-3 queries per call for optimal resource management). Review schema before use for optimal results`,
   },
   tools: {
     githubGetFileContent: githubFetchContentSchema,
@@ -515,13 +515,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     validateFetchContentQuery: identityValidator,
     applyWorkflowMode: identityValidator,
     createBulkQuerySchema: stubBulkSchema,
-    LOCAL_RIPGREP_DESCRIPTION: 'localSearchCode',
-    LOCAL_FIND_FILES_DESCRIPTION: 'localFindFiles',
-    LOCAL_VIEW_STRUCTURE_DESCRIPTION: 'localViewStructure',
-    LOCAL_FETCH_CONTENT_DESCRIPTION: 'localGetFileContent',
-    LSP_GET_SEMANTIC_CONTENT_DESCRIPTION: 'lspGetSemanticContent',
-    LSP_GET_DIAGNOSTICS_DESCRIPTION: 'lspGetDiagnostics',
-    GITHUB_CLONE_REPO_DESCRIPTION: 'githubCloneRepo',
     PackageSearchQuerySchema: passthrough(),
     LocalSearchCodeDataSchema: passthrough(),
     LocalFindFilesDataSchema: passthrough(),
@@ -598,8 +591,6 @@ function captureStderrWrite(chunk: string | Uint8Array): boolean {
 }
 
 _coreMock.ref = mockContent;
-
-await initializeToolMetadata();
 
 beforeEach(() => {
   sessionMockState.sessionId = generateMockUUID();

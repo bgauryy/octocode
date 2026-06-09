@@ -59,7 +59,7 @@ describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', ()
       []
     );
     expect(mockFsStat).toHaveBeenCalled();
-    expect(result.files?.[0].modified).toBe('2024-01-01T00:00:00.000Z');
+    expect(result.files?.[0]?.modified).toBe('2024-01-01T00:00:00.000Z');
   });
 
   it('falls back to path tiebreak using modified time when match counts tie', async () => {
@@ -98,7 +98,7 @@ describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', ()
       'rg',
       []
     );
-    expect(result.files?.[0].modified).toBeUndefined();
+    expect(result.files?.[0]?.modified).toBeUndefined();
   });
 });
 
@@ -144,9 +144,9 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       [],
       { matchCount: 42, fileCount: 1 } as any
     );
-    expect(result.files?.[0].matches).toEqual([]);
-    expect(result.files?.[0].matchCount).toBe(1);
-    expect(result.files?.[0].pagination).toBeUndefined();
+    expect(result.files?.[0]?.matches).toEqual([]);
+    expect(result.files?.[0]?.matchCount).toBe(1);
+    expect(result.files?.[0]?.pagination).toBeUndefined();
   });
 
   it('countMatches mode: file-list mode summed fallback when stats absent', async () => {
@@ -157,8 +157,8 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       'rg',
       []
     );
-    expect(result.files?.[0].matches).toEqual([]);
-    expect(result.files?.[1].matches).toEqual([]);
+    expect(result.files?.[0]?.matches).toEqual([]);
+    expect(result.files?.[1]?.matches).toEqual([]);
   });
 
   it('filesOnly mode: matches emptied, sums individual matchCounts', async () => {
@@ -169,8 +169,8 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       'rg',
       []
     );
-    expect(result.files?.[0].matches).toEqual([]);
-    expect(result.files?.[0].matchCount).toBe(4);
+    expect(result.files?.[0]?.matches).toEqual([]);
+    expect(result.files?.[0]?.matchCount).toBe(4);
   });
 });
 
@@ -206,7 +206,7 @@ describe('buildSearchResult - per-file match pagination (lines 106, 143)', () =>
   it('no per-file pagination when matches fit within matchesPerPage', async () => {
     const files = [makeFile('/test/a.ts', 3, 3)];
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);
-    expect(result.files?.[0].pagination).toBeUndefined();
+    expect(result.files?.[0]?.pagination).toBeUndefined();
     expect((result.hints ?? []).join('\n')).not.toContain('have more matches');
   });
 });
@@ -321,8 +321,8 @@ describe('buildSearchResult - empty results', () => {
   it('handles zero files without throwing', async () => {
     const result = await buildSearchResult([], baseQuery(), 'rg', []);
     expect(result.files).toEqual([]);
-    expect(result.pagination.totalFiles).toBe(0);
-    expect(result.pagination.totalPages).toBe(0);
+    expect(result.pagination?.totalFiles).toBe(0);
+    expect(result.pagination?.totalPages).toBe(0);
   });
 });
 
@@ -355,7 +355,7 @@ describe('buildSearchResult - compareModifiedDescending branches (266-274)', () 
       'rg',
       []
     );
-    expect(result.files?.[0].path).toBe('/test/has.ts');
+    expect(result.files?.[0]?.path).toBe('/test/has.ts');
   });
 
   it('valid dates sort newest first (line 275)', async () => {

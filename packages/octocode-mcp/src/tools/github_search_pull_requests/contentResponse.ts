@@ -337,7 +337,9 @@ export function shapePullRequestForContent(
     state: pr.state,
     draft: pr.draft,
     author: pr.author,
-    ...(Array.isArray(pr.assignees) && pr.assignees.length ? { assignees: pr.assignees } : {}),
+    ...(Array.isArray(pr.assignees) && pr.assignees.length
+      ? { assignees: pr.assignees }
+      : {}),
     labels: pr.labels,
     targetBranch: pr.targetBranch,
     createdAt: pr.createdAt,

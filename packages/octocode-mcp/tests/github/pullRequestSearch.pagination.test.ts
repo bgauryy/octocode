@@ -80,7 +80,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         await searchGitHubPullRequestsAPI({
@@ -104,7 +104,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         await searchGitHubPullRequestsAPI({
@@ -131,7 +131,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         const result = await searchGitHubPullRequestsAPI({
@@ -152,7 +152,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         const result = await searchGitHubPullRequestsAPI({
@@ -173,7 +173,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         const result = await searchGitHubPullRequestsAPI({
@@ -194,7 +194,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         const result = await searchGitHubPullRequestsAPI({
@@ -215,7 +215,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         const result = await searchGitHubPullRequestsAPI({
@@ -237,7 +237,7 @@ describe('Pull Request Search - Pagination', () => {
         vi.mocked(getOctokit).mockResolvedValue(
           createMockOctokit({
             issuesAndPullRequests: searchMock,
-          }) as unknown as ReturnType<typeof getOctokit>
+          }) as unknown as Awaited<ReturnType<typeof getOctokit>>
         );
 
         const result = await searchGitHubPullRequestsAPI({
@@ -260,7 +260,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           pullsList: pullsListMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       await searchGitHubPullRequestsAPI({
@@ -287,7 +287,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           pullsList: pullsListMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await searchGitHubPullRequestsAPI({
@@ -310,7 +310,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           pullsList: pullsListMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await searchGitHubPullRequestsAPI({
@@ -334,7 +334,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       await searchGitHubPullRequestsAPI({
@@ -360,7 +360,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       await searchGitHubPullRequestsAPI({
@@ -386,7 +386,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       await searchGitHubPullRequestsAPI({
@@ -414,7 +414,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await searchGitHubPullRequestsAPI({
@@ -435,7 +435,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await searchGitHubPullRequestsAPI({
@@ -457,7 +457,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       const result = await searchGitHubPullRequestsAPI({
@@ -481,7 +481,7 @@ describe('Pull Request Search - Pagination', () => {
       vi.mocked(getOctokit).mockResolvedValue(
         createMockOctokit({
           issuesAndPullRequests: searchMock,
-        }) as unknown as ReturnType<typeof getOctokit>
+        }) as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
 
       await searchGitHubPullRequestsAPI({

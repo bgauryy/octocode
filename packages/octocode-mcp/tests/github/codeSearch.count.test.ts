@@ -26,7 +26,7 @@ describe('Code Search - Total Count', () => {
     };
 
     vi.mocked(getOctokit).mockResolvedValue(
-      mockOctokit as unknown as ReturnType<typeof getOctokit>
+      mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
     );
 
     searchCodeMock.mockResolvedValue({

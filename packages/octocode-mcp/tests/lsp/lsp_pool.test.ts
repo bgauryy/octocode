@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { LspClientPool, type PoolKey } from '../../src/lsp/lspClientPool.js';
 
 interface FakeClient {
@@ -19,10 +19,10 @@ function makeFakeClient(): FakeClient {
   return self;
 }
 
-async function acquireNonNull(
-  pool: LspClientPool<FakeClient>,
+async function acquireNonNull<T extends { stop: () => Promise<void> }>(
+  pool: LspClientPool<T>,
   key: PoolKey
-): Promise<FakeClient> {
+): Promise<T> {
   const client = await pool.acquire(key);
   if (!client) {
     throw new Error(

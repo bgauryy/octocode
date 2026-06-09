@@ -238,7 +238,7 @@ describe('PackageSearch schema', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.queries[0].name).toBe('zod');
+      expect(result.data.queries[0]).toMatchObject({ name: 'zod' });
     }
   });
 });

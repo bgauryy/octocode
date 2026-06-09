@@ -4,11 +4,9 @@ import { createErrorResult } from '../../src/utils/response/error.js';
 import { buildSearchResult } from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
 import { validateToolPath } from '../../src/utils/file/toolHelpers.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 import { getTextContent } from '../utils/testHelpers.js';
 
 beforeAll(async () => {
-  await initializeToolMetadata();
 });
 
 describe('Hint conciseness', () => {

@@ -1,10 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
-import { viewStructure } from '../../src/tools/local_view_structure/local_view_structure.js';
+import { viewStructure as viewStructureImpl } from '../../src/tools/local_view_structure/local_view_structure.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import type { Stats } from 'fs';
+
+// The MCP overlay schema (scheme.ts) layers pagination/output fields on top
+// of the upstream query type; viewStructure reads them via runtime casts.
+// This wrapper exposes those overlay fields to the direct-call tests.
+type ViewStructureInput = Parameters<typeof viewStructureImpl>[0] & {
+  page?: number;
+  itemsPerPage?: number;
+  charOffset?: number;
+  charLength?: number;
+  summary?: boolean;
+};
+
+const viewStructure = (query: ViewStructureInput) => viewStructureImpl(query);
 
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
@@ -308,7 +321,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(
         result.entries!.some(
-          e => e.size && /\d+(\.\d+)?\s*(B|KB|MB|GB)/.test(e.size)
+          e => e.size && /\d+(\.\d+)?\s*(B|KB|MB|GB)/.test(String(e.size))
         )
       ).toBe(true);
     });
@@ -711,7 +724,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
       expect(result.entries!.length).toBeGreaterThan(0);
-      expect(result.entries![0].modified).toBe('2024-01-15T12:00:00.000Z');
+      expect(result.entries![0]!.modified).toBe('2024-01-15T12:00:00.000Z');
     });
 
     it('should default showFileLastModified to true when not specified (recursive)', async () => {
@@ -733,7 +746,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
       expect(result.entries!.length).toBeGreaterThan(0);
-      expect(result.entries![0].modified).toBe('2024-06-15T12:00:00.000Z');
+      expect(result.entries![0]!.modified).toBe('2024-06-15T12:00:00.000Z');
     });
 
     it('should NOT include modified when showFileLastModified is explicitly false', async () => {
@@ -760,7 +773,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
       expect(result.entries!.length).toBeGreaterThan(0);
-      expect(result.entries![0].modified).toBeUndefined();
+      expect(result.entries![0]!.modified).toBeUndefined();
     });
 
     it('should NOT include modified in detailed mode when showFileLastModified is false', async () => {
@@ -780,7 +793,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
       expect(result.entries!.length).toBe(1);
-      expect(result.entries![0].modified).toBeUndefined();
+      expect(result.entries![0]!.modified).toBeUndefined();
     });
   });
 

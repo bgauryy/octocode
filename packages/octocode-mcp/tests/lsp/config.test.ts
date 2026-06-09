@@ -67,7 +67,10 @@ describe('lsp/config', () => {
 
   describe('resolveLanguageServer — typescript-language-server branches', () => {
     it('returns default command when path validation fails (line 150)', () => {
-      mockValidateLSPServerPath.mockReturnValue({ isValid: false });
+      mockValidateLSPServerPath.mockReturnValue({
+        isValid: false,
+        resolvedPath: '',
+      });
 
       const config = {
         command: 'typescript-language-server',

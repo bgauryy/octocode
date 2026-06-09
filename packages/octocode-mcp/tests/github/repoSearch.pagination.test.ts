@@ -56,8 +56,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(50, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -80,8 +80,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(50, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -107,8 +107,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -133,8 +133,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(95, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -158,8 +158,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(5000, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -183,8 +183,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(50, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -208,8 +208,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(50, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -236,8 +236,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 25));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -260,8 +260,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -286,8 +286,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -312,8 +312,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -346,8 +346,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(5, 5));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -371,8 +371,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(0, 0));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -399,8 +399,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 30));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -425,8 +425,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 100));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -451,8 +451,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -478,8 +478,8 @@ describe('Repository Search - Pagination', () => {
         .mockResolvedValue(createMockResponse(100, 10));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchReposMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchReposMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 

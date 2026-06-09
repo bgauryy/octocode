@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { z } from 'zod';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +23,12 @@ vi.mock('../../src/tools/local_ripgrep/grepFallbackExecutor.js', () => ({
 
 const { searchContentRipgrep } =
   await import('../../src/tools/local_ripgrep/searchContentRipgrep.js');
+
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema> & {
+  id?: string;
+  researchGoal?: string;
+  reasoning?: string;
+};
 
 function makeRipgrepQuery(overrides: Partial<RipgrepQuery> = {}): RipgrepQuery {
   return {

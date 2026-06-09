@@ -6,7 +6,7 @@ import {
   buildPullRequestSearchQuery,
   shouldUseSearchForPRs,
 } from '../../src/github/queryBuilders.js';
-import type { GitHubCodeSearchQuery } from '@octocodeai/octocode-core';
+import type { GitHubCodeSearchQuery } from '../../src/public.js';
 
 const toCodeSearchQuery = (params: {
   keywordsToSearch: string[];

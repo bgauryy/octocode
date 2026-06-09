@@ -7,11 +7,7 @@ import { describe, it, expect } from 'vitest';
 // ── github_view_repo_structure/hints.ts (was 60.52%) ────────────────────────
 
 describe('github_view_repo_structure hints — uncovered branches', () => {
-  let hints: Awaited<
-    ReturnType<
-      typeof import('../../src/tools/github_view_repo_structure/hints.js')
-    >
-  >['hints'];
+  let hints: (typeof import('../../src/tools/github_view_repo_structure/hints.js'))['hints'];
 
   beforeAll(async () => {
     ({ hints } =
@@ -79,9 +75,7 @@ describe('github_view_repo_structure hints — uncovered branches', () => {
 // ── local_fetch_content/hints.ts (was 70.83%) ───────────────────────────────
 
 describe('local_fetch_content hints — uncovered branches', () => {
-  let hints: Awaited<
-    ReturnType<typeof import('../../src/tools/local_fetch_content/hints.js')>
-  >['hints'];
+  let hints: (typeof import('../../src/tools/local_fetch_content/hints.js'))['hints'];
 
   beforeAll(async () => {
     ({ hints } = await import('../../src/tools/local_fetch_content/hints.js'));
@@ -102,7 +96,7 @@ describe('local_fetch_content hints — uncovered branches', () => {
       fileSize: 512000,
       totalLines: 1000,
     } as never);
-    expect(result.some(h => h.includes('total lines'))).toBe(true);
+    expect(result.some(h => !!h && h.includes('total lines'))).toBe(true);
   });
 
   it('error() size_limit — without totalLines omits tail hint', () => {
@@ -110,7 +104,7 @@ describe('local_fetch_content hints — uncovered branches', () => {
       errorType: 'size_limit',
       fileSize: 512000,
     } as never);
-    expect(result.some(h => h.includes('total lines'))).toBe(false);
+    expect(result.some(h => !!h && h.includes('total lines'))).toBe(false);
   });
 
   it('error() not_found — with path', () => {
@@ -134,9 +128,7 @@ describe('local_fetch_content hints — uncovered branches', () => {
 // ── local_find_files/hints.ts (was 78.12%) ──────────────────────────────────
 
 describe('local_find_files hints — uncovered branches', () => {
-  let hints: Awaited<
-    ReturnType<typeof import('../../src/tools/local_find_files/hints.js')>
-  >['hints'];
+  let hints: (typeof import('../../src/tools/local_find_files/hints.js'))['hints'];
 
   beforeAll(async () => {
     ({ hints } = await import('../../src/tools/local_find_files/hints.js'));
@@ -180,9 +172,7 @@ describe('local_find_files hints — uncovered branches', () => {
 // ── local_view_structure/hints.ts (was 82.14%) ──────────────────────────────
 
 describe('local_view_structure hints — uncovered branches', () => {
-  let lvsHints: Awaited<
-    ReturnType<typeof import('../../src/tools/local_view_structure/hints.js')>
-  >['hints'];
+  let lvsHints: (typeof import('../../src/tools/local_view_structure/hints.js'))['hints'];
 
   beforeAll(async () => {
     ({ hints: lvsHints } =
@@ -221,9 +211,7 @@ describe('local_view_structure hints — uncovered branches', () => {
 // ── github_search_code/hints.ts line 27 — looksLikeTestInfrastructureQuery ─
 
 describe('github_search_code hints — test infrastructure query detection', () => {
-  let scHints: Awaited<
-    ReturnType<typeof import('../../src/tools/github_search_code/hints.js')>
-  >['hints'];
+  let scHints: (typeof import('../../src/tools/github_search_code/hints.js'))['hints'];
 
   beforeAll(async () => {
     ({ hints: scHints } =

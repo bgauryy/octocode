@@ -74,7 +74,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(result.pagination?.filesPerPage).toBe(2);
     expect(result.pagination?.totalFiles).toBe(5);
     expect(result.pagination?.hasMore).toBe(true);
-    expect(result.files[0]!.matches).toHaveLength(1);
+    expect(result.files![0]!.matches).toHaveLength(1);
     expect((result.hints ?? []).join('\n')).toContain('Next: page=2');
   });
 

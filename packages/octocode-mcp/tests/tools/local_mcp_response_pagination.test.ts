@@ -4,28 +4,54 @@ import {
   type MockMcpServer,
 } from '../fixtures/mcp-fixtures.js';
 import { expectHasResultsData, getSingleResult } from '../flows/assertions.js';
+import { z } from 'zod';
 import {
-  LocalFindFilesDataSchema,
   LocalFindFilesOutputSchema as UpstreamLocalFindFilesOutputSchema,
-  LocalGetFileContentDataSchema,
   LocalGetFileContentOutputSchema as UpstreamLocalGetFileContentOutputSchema,
-  LocalSearchCodeDataSchema,
   LocalSearchCodeOutputSchema as UpstreamLocalSearchCodeOutputSchema,
-  LocalViewStructureDataSchema,
   LocalViewStructureOutputSchema as UpstreamLocalViewStructureOutputSchema,
-} from '@octocodeai/octocode-core';
+} from '@octocodeai/octocode-core/schemas/outputs';
 import { withResponseEnvelope } from '../../src/scheme/responseEnvelope.js';
 
-const LocalFindFilesOutputSchema = withResponseEnvelope(
+// Bulk MCP responses wrap each per-query payload as {id, status?, data}.
+// `status` is omitted on success, which the assertion helpers treat as
+// 'hasResults' — the default below mirrors that convention. The per-query
+// data payload is validated separately via the Data schemas below.
+const toBulkOutputSchema = (dataSchema: z.ZodObject) =>
+  z.object({
+    results: z.array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['hasResults', 'empty', 'error']).default('hasResults'),
+        data: withResponseEnvelope(dataSchema).extend({
+          // This server projects directory entries to a slim shape (only
+          // `name` is guaranteed; `path`/`type` may be stripped), so relax
+          // the upstream entries shape to match the actual local output.
+          entries: z.array(z.looseObject({ name: z.string() })).optional(),
+        }),
+      })
+    ),
+  });
+
+const LocalFindFilesDataSchema = UpstreamLocalFindFilesOutputSchema;
+const LocalGetFileContentDataSchema = UpstreamLocalGetFileContentOutputSchema;
+const LocalSearchCodeDataSchema = UpstreamLocalSearchCodeOutputSchema;
+const LocalViewStructureDataSchema =
+  UpstreamLocalViewStructureOutputSchema.extend({
+    // See note above — local entries only guarantee `name`.
+    entries: z.array(z.looseObject({ name: z.string() })).optional(),
+  });
+
+const LocalFindFilesOutputSchema = toBulkOutputSchema(
   UpstreamLocalFindFilesOutputSchema
 );
-const LocalGetFileContentOutputSchema = withResponseEnvelope(
+const LocalGetFileContentOutputSchema = toBulkOutputSchema(
   UpstreamLocalGetFileContentOutputSchema
 );
-const LocalSearchCodeOutputSchema = withResponseEnvelope(
+const LocalSearchCodeOutputSchema = toBulkOutputSchema(
   UpstreamLocalSearchCodeOutputSchema
 );
-const LocalViewStructureOutputSchema = withResponseEnvelope(
+const LocalViewStructureOutputSchema = toBulkOutputSchema(
   UpstreamLocalViewStructureOutputSchema
 );
 import { registerLocalRipgrepTool } from '../../src/tools/local_ripgrep/register.js';

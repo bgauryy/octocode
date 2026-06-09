@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
@@ -927,6 +928,12 @@ describe('ToolsManager', () => {
         isLocal: false,
         type: 'debug' as const,
         fn: vi.fn(),
+        direct: {
+          schema: z.object({}),
+          inputSchema: z.object({}),
+          executionFn: async () => ({ content: [] }),
+          security: 'basic' as const,
+        },
       } as ToolConfig);
 
       mockIsToolAvailableSync.mockReturnValue(true);

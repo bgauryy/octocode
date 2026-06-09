@@ -4,10 +4,8 @@ import {
   applyBulkResponsePagination,
 } from '../../src/utils/response/structuredPagination.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 
 beforeAll(async () => {
-  await initializeToolMetadata();
 });
 
 describe('structuredPagination branch coverage', () => {

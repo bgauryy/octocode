@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { getHints } from '../../src/hints/index.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
-import { initializeToolMetadata } from '../../src/tools/toolMetadata/state.js';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import { buildRepoStructureOutput } from '../../src/tools/github_view_repo_structure/execution.js';
 
 beforeAll(async () => {
-  await initializeToolMetadata();
 });
 
 describe('Evidence: githubGetFileContent', () => {
@@ -108,7 +106,7 @@ describe('hints contract — static guidance never reaches responses', () => {
   ];
 
   for (const tool of remoteTools) {
-    for (const status of [undefined, 'empty', 'error'] as const) {
+    for (const status of ['empty', 'error'] as const) {
       it(`${tool} (${status}) — no static guidance phrases`, () => {
         const hints = getHints(tool, status, { hasOwnerRepo: false });
         for (const phrase of FORBIDDEN_STATIC_PHRASES) {

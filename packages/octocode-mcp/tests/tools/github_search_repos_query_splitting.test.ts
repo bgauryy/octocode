@@ -2,8 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import type { GitHubReposSearchQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod';
+import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { getTextContent } from '../utils/testHelpers.js';
+
+type GitHubReposSearchQuery = z.infer<
+  typeof GitHubReposSearchSingleQuerySchema
+>;
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
 

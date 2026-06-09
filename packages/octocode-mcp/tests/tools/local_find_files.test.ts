@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
-import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
-import type { FindFilesResult } from '../../src/utils/core/types.js';
+import { findFiles as findFilesImpl } from '../../src/tools/local_find_files/findFiles.js';
+import type { LocalFindFilesToolResult as FindFilesResult } from '@octocodeai/octocode-core/extra-types';
+
+// The MCP overlay schema (scheme.ts) layers `page`/`itemsPerPage` on top of
+// the upstream query type; findFiles reads them via runtime casts. This
+// wrapper exposes those overlay fields to the direct-call tests.
+type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
+  page?: number;
+  itemsPerPage?: number;
+};
+
+const findFiles = (query: FindFilesInput) => findFilesImpl(query);
 import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
@@ -1395,7 +1405,7 @@ describe('localFindFiles', () => {
       });
 
       expect([undefined, 'empty']).toContain(result.status);
-      if (result.status === 'hasResults') {
+      if ((result.status as string | undefined) === 'hasResults') {
         expect(result.pagination?.currentPage).toBe(10);
       }
     });

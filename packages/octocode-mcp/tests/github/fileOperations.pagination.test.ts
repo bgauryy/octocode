@@ -37,7 +37,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(smallContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(
         async content => ({
@@ -65,7 +65,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(
         async content => ({
@@ -94,7 +94,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(
         async content => ({
@@ -122,7 +122,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(content);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(async c => ({
         content: c,
@@ -144,7 +144,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(content);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(async c => ({
         content: c,
@@ -166,7 +166,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(smallContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(async c => ({
         content: c,
@@ -194,7 +194,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(async c => ({
         content: c,
@@ -220,7 +220,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(async c => ({
         content: c,
@@ -252,7 +252,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(largeContent, uniquePath);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(async c => ({
         content: c,
@@ -291,7 +291,7 @@ describe('GitHub File Operations - Pagination', () => {
       const mockOctokit = createMockOctokit(largeContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
-        mockOctokit as unknown as ReturnType<typeof getOctokit>
+        mockOctokit as unknown as Awaited<ReturnType<typeof getOctokit>>
       );
       vi.mocked(minifierModule.minifyContent).mockImplementation(
         async content => ({

@@ -56,8 +56,8 @@ describe('Pagination and Hints Fixes', () => {
         .mockResolvedValue(createMockResponseWithDefaultBranch(10, 5, 'main'));
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchCodeMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchCodeMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -92,8 +92,8 @@ describe('Pagination and Hints Fixes', () => {
         );
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchCodeMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchCodeMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -134,8 +134,8 @@ describe('Pagination and Hints Fixes', () => {
       });
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchCodeMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchCodeMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 
@@ -193,8 +193,8 @@ describe('Pagination and Hints Fixes', () => {
       });
 
       vi.mocked(getOctokit).mockResolvedValue(
-        createMockOctokit(searchCodeMock) as unknown as ReturnType<
-          typeof getOctokit
+        createMockOctokit(searchCodeMock) as unknown as Awaited<
+          ReturnType<typeof getOctokit>
         >
       );
 

@@ -7,6 +7,7 @@ import type {
   PullRequestQuery,
   RepoStructureQuery,
 } from '../../../src/providers/types.js';
+import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 
 vi.mock('../../../src/github/codeSearch.js', () => ({
   searchGitHubCodeAPI: vi.fn(),
@@ -877,7 +878,7 @@ describe('GitHubProvider', () => {
                 createdAt: '2024-01-01T00:00:00Z',
                 updatedAt: '2024-01-01T00:00:00Z',
                 pushedAt: '2024-01-01T00:00:00Z',
-              },
+              } as GitHubRepositoryOutput,
             ],
             pagination: {
               currentPage: 1,
@@ -916,6 +917,10 @@ describe('GitHubProvider', () => {
                 createdAt: '2024-01-01T00:00:00Z',
                 updatedAt: '2024-01-01T00:00:00Z',
                 pushedAt: '2024-01-01T00:00:00Z',
+                defaultBranch: 'main',
+                visibility: 'public' as const,
+                topics: [],
+                forksCount: 0,
               },
             ],
           },
@@ -1184,9 +1189,12 @@ describe('GitHubProvider', () => {
           headBranch: 'fix-branch',
           created: '>2024-01-01',
           updated: '<2024-12-31',
-          content: { comments: { discussion: true, reviewInline: true } },
-          content: { commits: { list: true, includeFiles: true } },
-          content: { changedFiles: true, patches: { mode: 'all' } },
+          content: {
+            comments: { discussion: true, reviewInline: true },
+            commits: { list: true, includeFiles: true },
+            changedFiles: true,
+            patches: { mode: 'all' },
+          },
           sort: 'updated',
           order: 'desc',
           limit: 25,
@@ -1208,9 +1216,12 @@ describe('GitHubProvider', () => {
             head: 'fix-branch',
             created: '>2024-01-01',
             updated: '<2024-12-31',
-            content: { comments: { discussion: true, reviewInline: true } },
-            content: { commits: { list: true, includeFiles: true } },
-            content: { changedFiles: true, patches: { mode: 'all' } },
+            content: {
+              comments: { discussion: true, reviewInline: true },
+              commits: { list: true, includeFiles: true },
+              changedFiles: true,
+              patches: { mode: 'all' },
+            },
             sort: 'updated',
             order: 'desc',
             limit: 25,
