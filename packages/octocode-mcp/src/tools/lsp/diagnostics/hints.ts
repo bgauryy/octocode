@@ -20,20 +20,18 @@ export const hints: ToolHintGenerators = {
 };
 
 export function diagnosticHints(
-  source: string,
+  _source: string,
   empty: boolean,
   errorCount = 0
 ): string[] {
   const base = [
-    empty
-      ? `No diagnostics returned from ${source}.`
-      : `Diagnostics returned from ${source}.`,
-    'Diagnostics are fast semantic evidence; still run project lint/typecheck/tests before claiming a risky change is fully verified.',
+    empty ? 'No LSP diagnostics found.' : 'LSP diagnostics returned.',
+    'Still run lint/typecheck/tests to fully verify changes.',
   ];
 
   if (!empty && errorCount > 0) {
     base.push(
-      'Use lspGetSemanticContent with type="definition" on impacted symbols to trace the source of errors.'
+      'Use lspGetSemanticContent type="definition" on impacted symbols to trace errors.'
     );
   }
 

@@ -1,107 +1,102 @@
 # Benchmark Suite
 
-Comparative benchmarks for AI-assisted code research. Each benchmark measures one or more research agents on the same question set and reports **three axes**: answer quality, research depth, and token efficiency.
+Comparative benchmarks for AI-assisted code research. Each benchmark measures research agents on the same question set and reports **answer quality, research depth, and token efficiency**.
 
 ---
 
 ## Benchmarks
 
-| Benchmark | Agents | Question Set | What It Tests |
-|---|---|---|---|
-| [`github/`](./github/README.md) | octocode · gh CLI | [`github/QUESTIONS.md`](./github/QUESTIONS.md) | GitHub API breadth — code search, file content, repo structure, PR intelligence, repo search |
-| [`rtk/`](./rtk/README.md) | octocode · rtk CLI | [`rtk/QUESTIONS.md`](./rtk/QUESTIONS.md) | Local + GitHub research — comment preservation, result completeness, PR metadata, remote content |
-| [`headroom/`](./headroom/README.md) | octocode · octocode+headroom · rtk · gh | [`questions/nextjs.md`](./questions/nextjs.md) | Full-stack research — GitHub API + local clone + LSP, measuring actual LLM token cost and research depth |
+| Benchmark | Agents | What It Tests |
+|---|---|---|
+| [`github/`](./github/README.md) | octocode · gh CLI | GitHub API breadth — code search, file content, repo structure, PR intelligence, package registry |
+| [`rtk/`](./rtk/README.md) | octocode · rtk CLI | Local + GitHub research — comment preservation, result completeness, PR metadata |
+
+Researcher prompts: [`OCTOCODE_RESEARCHER.md`](./OCTOCODE_RESEARCHER.md) (octocode) · each benchmark's `prompts/` for the comparison agent.
 
 ---
 
 ## Scoring Model
 
-All benchmarks use the **same three-axis scoring model** applied per question by the judge:
+Applied per question by the judge.
 
-### Axis 1 — Answer Quality `Q` (0–3)
-Factual correctness verified against source.
+### Quality `Q` (0–3) — factual correctness
 
 | Score | Meaning |
 |---:|---|
 | 3 | All load-bearing facts correct and complete |
 | 2 | Mostly correct — one sub-fact missing or inaccurate |
-| 1 | Partially correct — unsupported claim present, or key fact missing |
+| 1 | Partially correct — unsupported claim or key fact missing |
 | 0 | Wrong, empty, or `UNKNOWN` |
 
-### Axis 2 — Research Depth `D` (0–3)
-How thoroughly the agent researched the answer.
+### Depth `D` (0–3) — research thoroughness
 
 | Score | Meaning |
 |---:|---|
-| 3 | All sub-questions answered with file:line citations; cross-references followed and verified at source |
-| 2 | Most sub-questions answered; citations present but some gaps or surface-level treatment |
-| 1 | Some sub-questions answered; superficial; missing important context or citations |
-| 0 | No meaningful depth — no citations, entirely surface-level or hallucinated |
+| 3 | All sub-questions answered with file:line citations; cross-references verified at source |
+| 2 | Most sub-questions answered; citations present but gaps or surface treatment |
+| 1 | Some sub-questions answered; superficial; missing context or citations |
+| 0 | No meaningful depth — no citations, surface-level or hallucinated |
 
-### Axis 3 — Turns `T`
-Number of tool invocations (`calls` from per-Q JSON). Fewer turns at the same quality is more efficient.
+### Turns `T` — tool invocations
+`calls` from per-Q JSON. Fewer turns at the same quality is more efficient.
 
-### Composite Scores
+### Composite scores
 
 ```
-research_score   = Q × D                              # 0–9; penalizes shallow-but-correct
-tradeoff_score   = research_score / (effective_chars / 1000)   # research value per 1k chars
-turns_per_point  = T / max(Q, 0.5)                   # avg calls needed per quality point
+research_score        = Q × D
+total_chars_to_answer = Σ(in_chars + out_chars) across ALL calls for the question
+tradeoff_score        = research_score / (total_chars_to_answer / 1000)
+turns_per_point       = T / max(Q, 0.5)
 ```
 
-`effective_chars = in_chars + out_chars (+ amortized MCP init for octocode)` — the canonical tokenizer-independent cost proxy.
+`total_chars_to_answer` is the canonical cost proxy — it counts every follow-up call a tool makes to get the answer, not just the first. Targeted retrieval that answers in one call pays less than three follow-up calls for the same result.
 
-Winner axis: **tradeoff_score** (research value per measured character budget). Ties broken by `turns_per_point` (fewer turns at same efficiency = better).
+Winner axis: **tradeoff_score**. Ties broken by `turns_per_point`.
 
-> Wall-clock time is always context-only — it never decides the winner.
+> Wall-clock time is context-only — it never decides the winner.
 
 ---
 
-## Questions
+## Publication-Quality Run Standard
 
-The [`questions/`](./questions/) folder is the shared question bank.
+A run is considered publication-ready when it includes:
 
-| File | Scope | Questions |
+- Raw agent run directories with `log.jsonl`, every `q<n>.md`, every `q<n>.json`, `output.md`, and `summary.json`.
+- A judge summary with evidence notes for every score below 3, plus clear treatment of drift questions.
+- A completed `RUN_MANIFEST.template.md` copy with model IDs, tool versions, refs, and retrieval dates.
+- Repository refs or retrieval dates for facts that can drift over time.
+- At least three same-agent runs when stochastic agent behavior is being compared, with variance reported when repeated runs exist.
+- The exact model IDs, tool versions, authentication source, and benchmark commit SHA used for the run.
+
+---
+
+## Agent Prompts
+
+| Role | Prompt file | Usage |
 |---|---|---|
-| [`questions/nextjs.md`](./questions/nextjs.md) | `vercel/next.js` — external (GitHub API) + local (clone + LSP) | 20 |
-
-Each per-benchmark `QUESTIONS.md` may use a subset or a dedicated set. See [`questions/README.md`](./questions/README.md) for the question format specification and how to add new question sets.
-
----
-
-## Unified Judge
-
-All benchmarks share a single judge design documented in [`judge/prompt.md`](./judge/prompt.md). Each per-benchmark `prompts/judge.md` is a thin wrapper that fills in the agent names, run paths, and question set path before delegating to the unified scoring logic.
-
-The judge:
-1. Independently fact-checks each answer against live sources before scoring
-2. Assigns `Q` (quality) and `D` (depth) per question per agent
-3. Reads `calls`, `in_chars`, `out_chars` from per-Q JSON artifacts
-4. Computes `tradeoff_score` and `turns_per_point` per question
-5. Writes `summary.md` in the benchmark output dir
+| `researcher: octocode` | [`OCTOCODE_RESEARCHER.md`](./OCTOCODE_RESEARCHER.md) | Fill in `<BENCHMARK>` with `github` or `rtk` |
+| `judge` | [`judge/prompt.md`](./judge/prompt.md) | Fill in `AGENTS`, `RUNS`, `QUESTIONS`, `OUTPUT` placeholders |
 
 ---
 
 ## Running a Benchmark
 
-Each benchmark's `README.md` contains full operator instructions. Quick reference:
+Full instructions in each benchmark's `README.md`. Quick reference:
 
 ```bash
-# 1. Init the run (creates output/<agent>/, sets $RUN/$LOG)
+# Init
 source benchmark/<suite>/scripts/init-run.sh <agent>
 
-# 2. For each question: set-q, research, record
+# Per question
 bash benchmark/<suite>/scripts/set-q.sh <n>
-# ... research with metered wrapper ...
+# ... metered research ...
 bash benchmark/<suite>/scripts/record.sh <n> "<model-id>" /tmp/answer.md
 
-# 3. Finalize
+# Finalize
 node benchmark/<suite>/scripts/finalize.mjs benchmark/<suite>/output/<agent>
-
-# 4. Judge (paste judge/prompt.md to agent with paths filled in)
 ```
 
-Fresh start for a run:
+Fresh start:
 ```bash
 rm -rf benchmark/<suite>/output/<agent>
 ```
@@ -122,7 +117,7 @@ benchmark/<suite>/output/
 └── summary.md          ← judge output
 ```
 
-`summary.json` schema per question:
+`summary.json` per-question schema:
 ```json
 {
   "q": 1,
@@ -137,5 +132,4 @@ benchmark/<suite>/output/
 }
 ```
 
-Judge-assigned fields (written into `summary.md`, not `summary.json`):
-- `quality_score` (0–3), `depth_score` (0–3), `research_score` (Q×D), `tradeoff_score`, `turns_per_point`
+Judge-assigned fields (in `summary.md`): `Q`, `D`, `research_score`, `tradeoff_score`, `turns_per_point`.

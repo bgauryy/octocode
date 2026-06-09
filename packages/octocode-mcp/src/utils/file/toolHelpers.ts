@@ -13,11 +13,9 @@ type LocalErrorResult = UnifiedErrorResult;
 
 export { createErrorResult };
 
-interface ToolPathValidationResult {
-  isValid: boolean;
-  errorResult?: LocalErrorResult;
-  sanitizedPath?: string;
-}
+type ToolPathValidationResult =
+  | { isValid: false; errorResult: LocalErrorResult; sanitizedPath?: undefined }
+  | { isValid: true; sanitizedPath: string; errorResult?: undefined };
 
 function getPathErrorHints(
   inputPath: string,
@@ -107,7 +105,13 @@ export function validateToolPath(
     };
   }
 
-  return { isValid: true, sanitizedPath: validation.sanitizedPath };
+  // A successful validation always carries a sanitizedPath; resolvedPath is a
+  // defensive fallback so the success variant can guarantee a string (lets
+  // callers use sanitizedPath without a non-null assertion).
+  return {
+    isValid: true,
+    sanitizedPath: validation.sanitizedPath ?? resolvedPath,
+  };
 }
 
 interface LargeOutputSafetyOptions {

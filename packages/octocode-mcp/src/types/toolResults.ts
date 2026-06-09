@@ -21,9 +21,6 @@ export interface PaginationInfo {
   currentPage: number;
   totalPages: number;
   hasMore: boolean;
-  byteOffset?: number;
-  byteLength?: number;
-  totalBytes?: number;
   charOffset?: number;
   charLength?: number;
   totalChars?: number;

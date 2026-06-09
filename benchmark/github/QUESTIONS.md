@@ -1,10 +1,14 @@
 # Questions
 
-17 GitHub research questions. Each question is assigned a **tool category** that names the capability being evaluated. Answer each one, in order, using only the tool you were assigned.
+20 GitHub research questions. Each question is assigned a **tool category** that names the capability being evaluated. Answer each one, in order, using only the tool you were assigned.
 
 There is intentionally no answer key file. The judge independently validates each submitted answer against the live GitHub repositories and PRs.
 
 Questions tagged `[drift]` are time-sensitive (counts, recent activity). The judge scores them loosely and reports them separately.
+
+---
+
+Scoring model: see [`benchmark/README.md`](../README.md).
 
 ---
 
@@ -16,7 +20,8 @@ Questions tagged `[drift]` are time-sensitive (counts, recent activity). The jud
 | File content completeness | `CONTENT` | `githubGetFileContent` | Large-file retrieval and targeted reads | Q5–Q8 |
 | Repo tree navigation | `STRUCTURE` | `githubViewRepoStructure` | Tree shape, filtering, and metadata extraction | Q9–Q11 |
 | PR intelligence | `PR` | `githubSearchPullRequests` | PR comments, reviews, commits, and changed files | Q12–Q15 |
-| Repository search | `REPOS` | `githubSearchRepositories` | Search filters, counts, and pagination metadata | Q16–Q17 |
+| Repository search | `REPOS` | `githubSearchRepositories` | Search filters, counts, and pagination metadata | Q16–Q17, Q19–Q20 |
+| Package registry | `PACKAGE` | `packageSearch` | No gh CLI equivalent — documents exclusive capability | Q18 |
 
 ---
 
@@ -192,3 +197,34 @@ List every public repository in the `vercel` GitHub organization.
 3. How many repos have over 1,000 stars?
 
 > *Evaluates exhaustive org-level enumeration, result limits, and pagination. The judge independently verifies the total via the GitHub API.*
+
+---
+
+### Q18 — npm package bulk lookup `[PACKAGE]` `[drift]`
+
+Look up each of these npm packages: `hono`, `zod`, `vite`.
+For each package, state: current published version, weekly download count, repository URL, and homepage URL.
+
+> *Tests the `packageSearch` exclusive capability. The `gh` CLI has no npm/PyPI registry access — this question documents the full capability gap. Octocode can answer all three in a single bulk call. The `gh` researcher should write `UNKNOWN — out of scope for gh CLI` for this question.*
+
+---
+
+### Q19 — Org-scoped repo search with topic filter `[REPOS]` `[drift]`
+
+In the `vitejs` GitHub organization, find all repositories that carry the topic `vite-plugin` and were updated since January 2024.
+1. How many such repositories exist?
+2. List the top 5 by star count — name, star count, description.
+
+> *Tests org-scoped repository search combined with topic and recency filters. Different from Q16 (cross-org, language + topic) and Q17 (full org enumeration without topic). The judge verifies count and top-5 against the GitHub API.*
+
+---
+
+### Q20 — PR body text search: find the introducing PR `[PR]`
+
+In `microsoft/TypeScript`, find the merged PR that introduced the `satisfies` keyword operator.
+1. What is the PR number and title?
+2. What was the motivation stated in the PR body?
+3. How many files were changed?
+
+> *Tests PR search by body/title keyword content combined with diff and file-list retrieval. `gh search prs` finds the PR number, but retrieving its body motivation and full file list requires explicit field selection across additional `gh pr view` calls. Octocode uses a single `githubSearchPullRequests` call with `withDiff: true`.*
+

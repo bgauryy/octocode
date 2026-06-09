@@ -1,19 +1,15 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
-import {
-  FileContentQueryBaseLocalSchema,
-  GitHubCodeSearchQueryLocalSchema,
-  GitHubReposSearchSingleQueryLocalSchema,
-  GitHubPullRequestSearchQueryLocalSchema,
-  GitHubViewRepoStructureQueryLocalSchema,
-  PackageSearchQueryLocalSchema,
-} from '../../src/scheme/remoteSchemaOverlay.js';
-import {
-  FetchContentQuerySchema,
-  FindFilesQuerySchema,
-  RipgrepQuerySchema,
-  ViewStructureQuerySchema,
-} from '../../src/scheme/localSchemaOverlay.js';
+import { FileContentQueryBaseLocalSchema } from '../../src/tools/github_fetch_content/scheme.js';
+import { GitHubCodeSearchQueryLocalSchema } from '../../src/tools/github_search_code/scheme.js';
+import { GitHubReposSearchSingleQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';
+import { GitHubPullRequestSearchQueryLocalSchema } from '../../src/tools/github_search_pull_requests/scheme.js';
+import { GitHubViewRepoStructureQueryLocalSchema } from '../../src/tools/github_view_repo_structure/scheme.js';
+import { PackageSearchQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
+import { LocalFetchContentQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
+import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
+import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
+import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
 import { LspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 
@@ -26,10 +22,10 @@ const schemas: Record<string, z.ZodTypeAny> = {
   'pullRequests(remote)': GitHubPullRequestSearchQueryLocalSchema,
   'viewRepoStructure(remote)': GitHubViewRepoStructureQueryLocalSchema,
   'packageSearch(remote)': PackageSearchQueryLocalSchema,
-  'fetchContent(local)': FetchContentQuerySchema,
-  findFiles: FindFilesQuerySchema,
-  ripgrep: RipgrepQuerySchema,
-  viewStructure: ViewStructureQuerySchema,
+  'fetchContent(local)': LocalFetchContentQuerySchema,
+  findFiles: LocalFindFilesQuerySchema,
+  ripgrep: LocalRipgrepQuerySchema,
+  viewStructure: LocalViewStructureQuerySchema,
   lspSemantic: LspGetSemanticContentQuerySchema,
   lspDiagnostics: LspGetDiagnosticsQuerySchema,
 };
@@ -61,19 +57,17 @@ describe('numeric schema fields are bounded (#C1)', () => {
     expect(r.success).toBe(false);
   });
 
-  it('clamps matchStringContextLines:120 to 100 instead of rejecting (FC-2)', () => {
+  it('clamps contextLines:120 to 100 instead of rejecting (FC-2)', () => {
     const r = FileContentQueryBaseLocalSchema.safeParse({
       owner: 'o',
       repo: 'r',
       path: 'a.ts',
       matchString: 'foo',
-      matchStringContextLines: 120,
+      contextLines: 120,
     });
     expect(r.success).toBe(true);
     if (r.success) {
-      expect(
-        (r.data as { matchStringContextLines?: number }).matchStringContextLines
-      ).toBe(100);
+      expect((r.data as { contextLines?: number }).contextLines).toBe(100);
     }
   });
 

@@ -146,8 +146,7 @@ function buildFindFilesHints(ctx: {
       : []),
     ...(filePageNumber < totalPages
       ? [
-          `Page ${filePageNumber}/${totalPages} (showing ${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
-          `Results are paginated — use page=2, page=3 … to retrieve all files before reporting a total count or enumerating exhaustively.`,
+          `Page ${filePageNumber}/${totalPages} (${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
         ]
       : []),
     ...(totalPages > 0 && filePageNumber > totalPages
@@ -171,7 +170,11 @@ function buildFindFilesHints(ctx: {
           sizeLess: query.sizeLess,
         } as Record<string, unknown>)
       : [
-          `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} (files and directories) — pass type="f" for files only, type="d" for directories only. Use localSearchCode to search within files, or localGetFileContent to read them.`,
+          q.type === 'f'
+            ? `Found ${totalFiles} file${totalFiles === 1 ? '' : 's'}. Use localSearchCode to search or localGetFileContent to read.`
+            : q.type === 'd'
+              ? `Found ${totalFiles} director${totalFiles === 1 ? 'y' : 'ies'}. Use localViewStructure to browse or localSearchCode to search.`
+              : `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} — pass type="f" for files, type="d" for directories. Use localSearchCode or localGetFileContent.`,
         ]),
     ...(paginationMetadata
       ? generatePaginationHints(paginationMetadata, {
@@ -206,7 +209,7 @@ export async function findFiles(
 
     const queryWithSanitizedPath = {
       ...query,
-      path: validation.sanitizedPath!,
+      path: validation.sanitizedPath,
     };
 
     const queryWithDefaults = {
@@ -390,7 +393,6 @@ function formatForOutput(
     const result: LocalFindFilesEntry = { path: f.path, type: f.type };
     if (details) {
       if (f.size !== undefined) {
-        result.size = f.size;
         result.sizeFormatted = formatFileSize(f.size);
       }
       if (f.permissions) result.permissions = f.permissions;
@@ -411,6 +413,7 @@ async function getFileDetails(
   const results: LocalFindFilesEntry[] = new Array(filePaths.length);
 
   const processAtIndex = async (index: number) => {
+    // index is always in range — the worker pool only dispatches 0..length-1.
     const filePath = filePaths[index]!;
     try {
       const stats = await fs.promises.lstat(filePath);

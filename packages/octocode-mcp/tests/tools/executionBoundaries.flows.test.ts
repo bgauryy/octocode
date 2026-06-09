@@ -43,14 +43,26 @@ vi.mock('@octocodeai/octocode-core', () => ({
   completeMetadata: minimalCompleteMetadata,
 }));
 
-vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
-  RipgrepQuerySchema: {
+vi.mock('../../src/tools/local_ripgrep/scheme.js', () => ({
+  LocalRipgrepQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
-  FindFilesQuerySchema: {
+}));
+
+vi.mock('../../src/tools/local_find_files/scheme.js', () => ({
+  LocalFindFilesQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
-  ViewStructureQuerySchema: {
+}));
+
+vi.mock('../../src/tools/local_view_structure/scheme.js', () => ({
+  LocalViewStructureQuerySchema: {
+    safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
+  },
+}));
+
+vi.mock('../../src/tools/local_fetch_content/scheme.js', () => ({
+  LocalFetchContentQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));

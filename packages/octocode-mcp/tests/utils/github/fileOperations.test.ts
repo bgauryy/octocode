@@ -571,7 +571,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           result.data.matchLocations?.some(
             loc =>
               loc.startsWith('Found "import" on line 2') &&
-              loc.includes('Other occurrences at lines:')
+              loc.includes('Other occurrences:')
           )
         ).toBe(true);
       }

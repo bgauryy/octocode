@@ -319,15 +319,15 @@ describe('UTF-8 Pagination - Byte/Character Separation', () => {
   });
 
   describe('createPaginationInfo with UTF-8', () => {
-    it('should preserve both byte and char fields', () => {
+    it('should expose only char fields — no byte fields in public PaginationInfo', () => {
       const metadata = applyPagination(TEST_CONTENT.emoji, 0, 10, {
         mode: 'bytes',
       });
       const info = createPaginationInfo(metadata);
 
-      expect(info.byteOffset).toBe(metadata.byteOffset);
-      expect(info.byteLength).toBe(metadata.byteLength);
-      expect(info.totalBytes).toBe(metadata.totalBytes);
+      expect(info).not.toHaveProperty('byteOffset');
+      expect(info).not.toHaveProperty('byteLength');
+      expect(info).not.toHaveProperty('totalBytes');
 
       expect(info.charOffset).toBe(metadata.charOffset);
       expect(info.charLength).toBe(metadata.charLength);

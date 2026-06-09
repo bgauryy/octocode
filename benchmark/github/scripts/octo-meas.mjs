@@ -46,12 +46,20 @@ if (!toolName || !queriesJson) {
 const inChars = cps(queriesJson);
 
 // Run `octocode tools <tool-name> --queries '<queries-json>'`
+// Use OCTOCODE_CLI_BIN to point at a local .js binary instead of the global `octocode` command:
+//   export OCTOCODE_CLI_BIN=/path/to/octocode-cli.js
 // stdout is captured as the tool result; stderr forwarded but not counted.
+const CLI_BIN = process.env.OCTOCODE_CLI_BIN || 'octocode';
+const CLI_ARGS = ['tools', toolName, '--queries', queriesJson];
+const CLI_CMD = CLI_BIN.endsWith('.js') ? 'node' : CLI_BIN;
+const CLI_ARGV = CLI_BIN.endsWith('.js') ? [CLI_BIN, ...CLI_ARGS] : CLI_ARGS;
+
 const t0 = Date.now();
-const result = spawnSync('octocode', ['tools', toolName, '--queries', queriesJson], {
+const result = spawnSync(CLI_CMD, CLI_ARGV, {
   encoding: 'buffer',
   stdio: ['inherit', 'pipe', 'pipe'],
   maxBuffer: 50 * 1024 * 1024,
+  env: { ...process.env },
 });
 const elapsed = Date.now() - t0;
 

@@ -172,7 +172,12 @@ const roundDelta = (line: string): number =>
 // are not generics (`=>`, `<=`, `>=`, `<<`, `>>`, `->`). Used to keep multi-line
 // generic parameter lists (`Foo<\n  T,\n>`) intact.
 const angleDelta = (line: string): number => {
-  const code = line.replace(/\/\/.*$/, '').replace(/=>|<=|>=|<<|>>|->/g, '');
+  // Strip operators that contain < or > but are NOT generic brackets.
+  // Note: >> is intentionally NOT stripped here — in TypeScript/Go/Rust,
+  // >> almost always closes nested generics (e.g. Map<string, Array<T>>)
+  // rather than the bitwise right-shift operator, so stripping it would
+  // cause angle depth to drift and pull function bodies into the skeleton.
+  const code = line.replace(/\/\/.*$/, '').replace(/=>|<=|>=|<<|->/g, '');
   return netDelta(code, '<', '>');
 };
 

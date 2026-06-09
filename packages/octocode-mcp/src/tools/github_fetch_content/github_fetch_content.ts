@@ -2,7 +2,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   FileContentBulkQueryLocalSchema,
   GitHubFetchContentOutputLocalSchema,
-} from '../../scheme/remoteSchemaOverlay.js';
+} from './scheme.js';
 import { fetchMultipleGitHubFileContents } from './execution.js';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 

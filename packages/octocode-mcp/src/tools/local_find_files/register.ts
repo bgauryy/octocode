@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
 import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
 import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
-import { BulkFindFilesSchema } from '../../scheme/localSchemaOverlay.js';
+import { LocalFindFilesBulkQuerySchema } from './scheme.js';
 import { executeFindFiles } from './execution.js';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LocalFindFilesOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
@@ -12,7 +12,7 @@ export function registerLocalFindFilesTool(server: McpServer) {
     TOOL_NAMES.LOCAL_FIND_FILES,
     {
       description: DESCRIPTIONS[TOOL_NAMES.LOCAL_FIND_FILES],
-      inputSchema: toMCPSchema(BulkFindFilesSchema),
+      inputSchema: toMCPSchema(LocalFindFilesBulkQuerySchema),
       outputSchema: toMCPSchema(
         withResponseEnvelope(LocalFindFilesOutputSchema)
       ),

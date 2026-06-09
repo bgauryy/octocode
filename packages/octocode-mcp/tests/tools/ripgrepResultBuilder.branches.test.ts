@@ -228,7 +228,6 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const result = await buildSearchResult(files, query, 'rg', []);
 
     const hintsStr = (result.hints ?? []).join('\n');
-    expect(hintsStr).toContain('paginated');
     expect(hintsStr).toContain('page=2');
   });
 

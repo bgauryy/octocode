@@ -40,42 +40,16 @@ export function semanticHints(
   type: SemanticContentType,
   complete: boolean
 ): string[] {
-  const found: Record<SemanticContentType, string[]> = {
-    definition: [
-      'Definition found — use type="references", type="callers", or type="callees" next to inspect impact and flow.',
-    ],
-    references: [
-      'References found — run lspGetDiagnostics on impacted files after edits.',
-    ],
-    callers: [
-      'Callers show static incoming call sites only; combine with localSearchCode for dynamic dispatch or framework wiring.',
-      'Set depth=2 to trace one level deeper into the call chain.',
-      'Set contextLines=3 to include source snippets around each call site.',
-    ],
-    callees: [
-      'Callees show static outgoing calls only; combine with localSearchCode for dynamic imports, callbacks, or event names.',
-      'Set depth=2 to trace one level deeper into called functions.',
-      'Set contextLines=3 to include source snippets around each call site.',
-    ],
-    callHierarchy: [
-      'Bidirectional call hierarchy is depth-limited and excludes dynamic calls.',
-      'Use type="callers" or type="callees" for a focused single-direction view.',
-      'Set depth=2 to explore one more level in both directions.',
-    ],
-    hover: [
-      'Hover found — use type="typeDefinition" for declared types or type="implementation" for concrete behavior.',
-    ],
-    documentSymbols: [
-      'Pick a symbol from the outline and rerun with type="definition", type="references", or type="hover" plus lineHint.',
-    ],
-    typeDefinition: [
-      'Type definition found — use type="references" for type impact or type="implementation" for concrete behavior.',
-    ],
-    implementation: [
-      'Implementation found — use type="callers" or type="callees" to inspect runtime flow.',
-    ],
-  };
+  // On a successful result we deliberately emit NO coaching hints. The
+  // "what to query next" chains (type="references"/"callers"/"callees", depth,
+  // contextLines) and the typical research flow are already spelled out in the
+  // tool description (TYPES + FLOW). Repeating them on every successful call —
+  // including back-to-back repeat calls — is pure token waste.
+  if (complete) return [];
 
+  // Incomplete / not-found results keep targeted recovery guidance: this is
+  // context-specific (why nothing was found + how to re-anchor) and is not
+  // covered by the static tool description.
   const notFound: Partial<Record<SemanticContentType, string[]>> = {
     definition: [
       'No definition found. Verify the symbol name and lineHint are correct (rerun localSearchCode); ensure project dependencies are installed so the language server can resolve imports.',
@@ -108,10 +82,8 @@ export function semanticHints(
     ],
   };
 
-  if (complete) return found[type];
-
   return [
     'Semantic evidence is incomplete; combine this result with localSearchCode and project verification.',
-    ...(notFound[type] ?? found[type]),
+    ...(notFound[type] ?? []),
   ];
 }

@@ -9,29 +9,47 @@ import type { ToolInvocationCallback } from '../types/toolResults.js';
 import {
   CloneRepoQueryLocalSchema,
   BulkCloneRepoLocalSchema,
+} from './github_clone_repo/scheme.js';
+import {
   FileContentQueryLocalSchema,
   FileContentBulkQueryLocalSchema,
+} from './github_fetch_content/scheme.js';
+import {
   GitHubCodeSearchQueryLocalSchema,
   GitHubCodeSearchBulkQueryLocalSchema,
+} from './github_search_code/scheme.js';
+import {
   GitHubPullRequestSearchQueryLocalSchema,
   GitHubPullRequestSearchBulkQueryLocalSchema,
+} from './github_search_pull_requests/scheme.js';
+import {
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
+} from './github_search_repos/scheme.js';
+import {
   GitHubViewRepoStructureQueryLocalSchema,
   GitHubViewRepoStructureBulkQueryLocalSchema,
+} from './github_view_repo_structure/scheme.js';
+import {
   PackageSearchQueryLocalSchema,
   PackageSearchBulkQueryLocalSchema,
-} from '../scheme/remoteSchemaOverlay.js';
+} from './package_search/scheme.js';
 import {
-  FetchContentQuerySchema,
-  BulkFetchContentQuerySchema,
-  FindFilesQuerySchema,
-  BulkFindFilesSchema,
-  RipgrepQuerySchema,
-  BulkRipgrepQuerySchema,
-  ViewStructureQuerySchema,
-  BulkViewStructureSchema,
-} from '../scheme/localSchemaOverlay.js';
+  LocalFetchContentQuerySchema,
+  LocalFetchContentBulkQuerySchema,
+} from './local_fetch_content/scheme.js';
+import {
+  LocalFindFilesQuerySchema,
+  LocalFindFilesBulkQuerySchema,
+} from './local_find_files/scheme.js';
+import {
+  LocalRipgrepQuerySchema,
+  LocalRipgrepBulkQuerySchema,
+} from './local_ripgrep/scheme.js';
+import {
+  LocalViewStructureQuerySchema,
+  LocalViewStructureBulkQuerySchema,
+} from './local_view_structure/scheme.js';
 import {
   BulkLspGetDiagnosticsQuerySchema,
   LspGetDiagnosticsQuerySchema,
@@ -53,7 +71,7 @@ import { exploreMultipleRepositoryStructures } from './github_view_repo_structur
 import { registerViewGitHubRepoStructureTool } from './github_view_repo_structure/github_view_repo_structure.js';
 import { searchPackages } from './package_search/execution.js';
 import { registerPackageSearchTool } from './package_search/package_search.js';
-import { registerGitHubCloneRepoTool } from './github_clone_repo/register.js';
+import { registerGitHubCloneRepoTool } from './github_clone_repo/github_clone_repo.js';
 import { executeFetchContent } from './local_fetch_content/execution.js';
 import { executeFindFiles } from './local_find_files/execution.js';
 import { executeRipgrepSearch } from './local_ripgrep/execution.js';
@@ -278,8 +296,8 @@ function createToolCatalog(
     type: 'search',
     fn: registerLocalRipgrepTool,
     direct: {
-      schema: RipgrepQuerySchema,
-      inputSchema: BulkRipgrepQuerySchema,
+      schema: LocalRipgrepQuerySchema,
+      inputSchema: LocalRipgrepBulkQuerySchema,
       executionFn: executeRipgrepSearch,
       security: 'basic',
     },
@@ -291,8 +309,8 @@ function createToolCatalog(
     type: 'content',
     fn: registerLocalViewStructureTool,
     direct: {
-      schema: ViewStructureQuerySchema,
-      inputSchema: BulkViewStructureSchema,
+      schema: LocalViewStructureQuerySchema,
+      inputSchema: LocalViewStructureBulkQuerySchema,
       executionFn: executeViewStructure,
       security: 'basic',
     },
@@ -304,8 +322,8 @@ function createToolCatalog(
     type: 'search',
     fn: registerLocalFindFilesTool,
     direct: {
-      schema: FindFilesQuerySchema,
-      inputSchema: BulkFindFilesSchema,
+      schema: LocalFindFilesQuerySchema,
+      inputSchema: LocalFindFilesBulkQuerySchema,
       executionFn: executeFindFiles,
       security: 'basic',
     },
@@ -317,8 +335,8 @@ function createToolCatalog(
     type: 'content',
     fn: registerLocalFetchContentTool,
     direct: {
-      schema: FetchContentQuerySchema,
-      inputSchema: BulkFetchContentQuerySchema,
+      schema: LocalFetchContentQuerySchema,
+      inputSchema: LocalFetchContentBulkQuerySchema,
       executionFn: executeFetchContent,
       security: 'basic',
     },

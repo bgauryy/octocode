@@ -549,7 +549,7 @@ async function callsEnvelope(
       ...(query.contextLines && query.contextLines > 0
         ? []
         : [
-            'Call payloads are compact by default. Set contextLines>0 only when you need source previews for returned calls.',
+            'Set contextLines>0 to include source previews for returned calls.',
           ]),
     ],
   };

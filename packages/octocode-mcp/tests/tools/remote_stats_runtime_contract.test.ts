@@ -80,7 +80,7 @@ import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch
 import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view_repo_structure/github_view_repo_structure.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/register.js';
+import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
 import { registerPackageSearchTool } from '../../src/tools/package_search/package_search.js';
 
 describe('remote tool stats runtime contract', () => {

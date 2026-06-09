@@ -89,15 +89,27 @@ const pr = {
 };
 
 describe('githubSearchPullRequests content response shaping', () => {
-  it('returns previews and next calls for lean metadata', () => {
+  it('returns previews for lean metadata — no content map when no surfaces requested', () => {
     const shaped = shapePullRequestForContent(pr, query, baseRequest);
     expect(shaped.body).toBeUndefined();
     expect(shaped.bodyPreview).toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(shaped.availableContent).toBeUndefined();
+    expect(shaped.next).toBeUndefined();
+    expect(shaped.filePathsPreview).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('exposes content map when showContentMap is explicitly true (lean broad search)', () => {
+    const shaped = shapePullRequestForContent(
+      pr,
+      query,
+      baseRequest,
+      true,
+      true
+    );
     expect(shaped.availableContent).toBeDefined();
     expect(
       (shaped.next as Record<string, unknown>).getChangedFiles
     ).toBeDefined();
-    expect(shaped.filePathsPreview).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
   it('paginates body, selected patches, file comments, reviews, and commits', () => {
@@ -148,10 +160,10 @@ describe('githubSearchPullRequests content response shaping', () => {
 
   it('builds content hints for missing patches and comments', () => {
     const hints = buildContentHints([pr], baseRequest);
-    expect(hints.some(hint => hint.includes('Diffs are not included'))).toBe(
+    expect(hints.some(hint => hint.includes('Patches not included'))).toBe(
       true
     );
-    expect(hints.some(hint => hint.includes('Comments are not included'))).toBe(
+    expect(hints.some(hint => hint.includes('Comments not included'))).toBe(
       true
     );
   });
@@ -295,5 +307,27 @@ describe('githubSearchPullRequests content response shaping', () => {
         commitId: 'def',
       },
     ]);
+  });
+
+  it('includes assignees when non-empty and commentsCount when > 0', () => {
+    const prWithAssignees = {
+      ...pr,
+      assignees: ['alice', 'bob'],
+      commentsCount: 7,
+    };
+    const shaped = shapePullRequestForContent(
+      prWithAssignees,
+      query,
+      baseRequest
+    );
+    expect(shaped.assignees).toEqual(['alice', 'bob']);
+    expect(shaped.commentsCount).toBe(7);
+  });
+
+  it('omits assignees when empty and omits commentsCount when 0', () => {
+    const prEmpty = { ...pr, assignees: [], commentsCount: 0 };
+    const shaped = shapePullRequestForContent(prEmpty, query, baseRequest);
+    expect(shaped.assignees).toBeUndefined();
+    expect(shaped.commentsCount).toBeUndefined();
   });
 });

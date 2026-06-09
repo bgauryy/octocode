@@ -49,16 +49,33 @@ describe('localSearchCode — LSP lineHint success hint', () => {
   });
 });
 
-describe('lspGetSemanticContent — success-path extra hint', () => {
-  it('definition success hint points to current semantic content types', async () => {
+describe('lspGetSemanticContent — success-path emits no coaching hints', () => {
+  it('successful results return no hints (navigation chains live in the tool description)', async () => {
     const { semanticHints } =
       await import('../../../src/tools/lsp/semantic_content/hints.js');
-    const result = semanticHints('definition', true);
-    const joined = result.join(' ');
 
-    expect(joined).toContain('type="references"');
-    expect(joined).toContain('type="callers"');
-    expect(joined).toContain('type="callees"');
+    for (const type of [
+      'definition',
+      'references',
+      'callers',
+      'callees',
+      'callHierarchy',
+      'hover',
+      'documentSymbols',
+      'typeDefinition',
+      'implementation',
+    ] as const) {
+      expect(semanticHints(type, true)).toEqual([]);
+    }
+  });
+
+  it('incomplete results still return targeted recovery guidance', async () => {
+    const { semanticHints } =
+      await import('../../../src/tools/lsp/semantic_content/hints.js');
+    const result = semanticHints('definition', false);
+
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.join(' ')).toContain('incomplete');
   });
 });
 

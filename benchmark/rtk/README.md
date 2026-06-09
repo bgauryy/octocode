@@ -1,6 +1,6 @@
 # RTK vs Octocode Benchmark
 
-This directory benchmarks two approaches to LLM-assisted code research on the same codebase: **rtk CLI filtering** vs **Octocode CLI tools**. The metric is **semantic answer quality per measured character**. Characters are the deterministic token-usage proxy: every metered call records `in_chars + out_chars`. Elapsed time is recorded for context only.
+This directory benchmarks two approaches to LLM-assisted code research on the same codebase: **rtk CLI filtering** vs **Octocode CLI tools**. The metric is **semantic answer quality per total chars spent on the task** (Factory.ai framing): every metered call records `in_chars + out_chars`, and the denominator is the sum across *all* calls made to answer a question — not just the first call. A tool that needs three follow-up calls because the first call returned incomplete data pays for all four. Elapsed time is recorded for context only.
 
 Both agents use **CLI tools only** — no MCP server, no schema-loading overhead:
 
@@ -76,16 +76,7 @@ If your assigned role is unclear, ask before starting.
 
 ---
 
-## Publication-Quality Run Standard
-
-A run is considered publication-ready when it includes:
-
-- Raw `octocode` and `rtk` run directories with `log.jsonl`, every `q<n>.md`, every `q<n>.json`, `output.md`, and `summary.json`.
-- A judge summary with evidence notes for every score below 3, plus clear treatment of date-sensitive questions.
-- A completed `RUN_MANIFEST.template.md` copy with model IDs, tool versions, refs, and retrieval dates.
-- Repository refs or retrieval dates for facts that can drift over time.
-- At least three same-agent runs when stochastic agent behavior is being compared, with variance reported when repeated runs exist.
-- The exact model IDs, tool versions, authentication source, `rtk-ai/rtk` commit SHA or retrieval date, and benchmark commit SHA used for the run.
+See [benchmark/README.md](../README.md) for the publication-quality run standard.
 
 ---
 
@@ -154,72 +145,17 @@ Both agents use the same ruler — no init overhead for either side.
 
 Use this section only if your assigned role is `researcher: octocode`.
 
-## Validity Requirements
+Follow [`benchmark/OCTOCODE_RESEARCHER.md`](../OCTOCODE_RESEARCHER.md) with `<BENCHMARK>=rtk`.
 
-- Read `benchmark/rtk/QUESTIONS.md`.
-- Keep the run blind: leave the rtk researcher's output and `summary.md` unread during the run.
-- Use **any Octocode tool** needed, routed through `scripts/octo-meas.sh`.
-- Keep research inside the metered path; bare `octocode tools`, `rtk`, `rg`, `cat`, `find`, `gh`, web search, and local clone files are outside this run.
-- Run questions sequentially.
-
-## Setup
+Setup:
 
 ```bash
+git clone https://github.com/rtk-ai/rtk /tmp/rtk-bench
 rm -rf benchmark/rtk/output/octocode
 source benchmark/rtk/scripts/init-run.sh octocode
 ```
 
-## How to call Octocode tools
-
-Every Octocode tool call must use the wrapper:
-
-```bash
-bash benchmark/rtk/scripts/octo-meas.sh <tool-name> '<queries-json>'
-```
-
-Examples:
-
-```bash
-bash benchmark/rtk/scripts/octo-meas.sh localSearchCode \
-  '{"path":"/tmp/rtk-bench/src","pattern":"fn run"}'
-
-bash benchmark/rtk/scripts/octo-meas.sh localGetFileContent \
-  '{"path":"/tmp/rtk-bench/src/core/runner.rs"}'
-
-bash benchmark/rtk/scripts/octo-meas.sh localViewStructure \
-  '{"path":"/tmp/rtk-bench/src"}'
-
-bash benchmark/rtk/scripts/octo-meas.sh localFindFiles \
-  '{"path":"/tmp/rtk-bench","pattern":"*.rs"}'
-
-bash benchmark/rtk/scripts/octo-meas.sh githubSearchPullRequests \
-  '{"owner":"rtk-ai","repo":"rtk","query":"performance"}'
-
-bash benchmark/rtk/scripts/octo-meas.sh githubGetFileContent \
-  '{"owner":"rtk-ai","repo":"rtk","path":"src/core/runner.rs"}'
-
-bash benchmark/rtk/scripts/octo-meas.sh packageSearch \
-  '{"packageName":"rtk"}'
-```
-
-Bare `octocode tools ...` (without the wrapper) is unmetered, so redo that question through the wrapper before recording it.
-
-## Per-question loop
-
-```bash
-bash benchmark/rtk/scripts/set-q.sh <n>
-# research with metered octo-meas.sh calls
-# write answer to /tmp/answer.md
-bash benchmark/rtk/scripts/record.sh <n> "<model-id>" /tmp/answer.md
-```
-
-After the first tool call for Q`n`, verify the call was attributed:
-
-```bash
-grep '"q":<n>' "$RUN/log.jsonl"
-```
-
-## Finalize
+Finalize:
 
 ```bash
 node benchmark/rtk/scripts/finalize.mjs benchmark/rtk/output/octocode
@@ -294,78 +230,21 @@ node benchmark/rtk/scripts/finalize.mjs benchmark/rtk/output/rtk
 
 Use this section only if your assigned role is `judge`.
 
-## Inputs
+Use [`benchmark/judge/prompt.md`](../judge/prompt.md) with:
 
-1. `benchmark/rtk/QUESTIONS.md`
-2. `benchmark/rtk/output/octocode/output.md` + `summary.json`
-3. `benchmark/rtk/output/rtk/output.md` + `summary.json`
-4. Every `q<n>.md` and `q<n>.json` in both run directories
-
-No expected-facts file. Independently verify against the live `rtk-ai/rtk` GitHub repo and local clone.
-
-## Quality scoring (0–3 per question)
-
-| Score | Meaning |
-|---:|---|
-| 3 | All load-bearing facts correct and complete — no missing sub-answers, no false claims |
-| 2 | Mostly correct — one load-bearing sub-fact is missing or inaccurate |
-| 1 | Partially correct — unsupported claim present, or a key fact missing |
-| 0 | Wrong, empty, or `UNKNOWN` |
+```
+AGENTS:    octocode, rtk
+RUNS:      benchmark/rtk/output/octocode, benchmark/rtk/output/rtk
+QUESTIONS: benchmark/rtk/QUESTIONS.md
+OUTPUT:    benchmark/rtk/output/summary.md
+```
 
 **Special scoring notes for this benchmark:**
 
-- For questions testing comment preservation (Q3, Q4, Q5, Q19): if an answer misses information that only exists in source comments, score the answer according to how much of the requested fact pattern remains supported.
-- For questions testing result limits (Q1, Q2, Q15): if an answer gives an incomplete count or is missing files, confirm via independent search whether the answer is exhaustive.
-- For questions testing PR comments/labels (Q10, Q11, Q12, Q17): a missing label or a missing discussion point is scored as a missing load-bearing fact.
-
-## Token-usage scoring
-
-Both agents use a symmetric ruler — no init amortization for either side:
-
-```text
-effective_chars = in_chars + out_chars
-token_score     = quality / (effective_chars / 1000)
-```
-
-A zero-quality answer scores zero regardless of char efficiency.
-
-## Required output
-
-Write one judge summary file: `benchmark/rtk/output/summary.md`
-
-```markdown
-# Benchmark summary — octocode vs rtk
-
-## Per-question table
-
-| Q | Category | Drift | Octo qual | rtk qual | Octo chars | rtk chars | Octo token score | rtk token score | Winner | Notes |
-
-## Quality verdict (non-drift Qs only)
-
-| Agent | Σ quality | Token-score wins | Token-score ties | Avg quality per Q |
-
-## Quality-adjusted token-usage verdict
-
-| Axis | octocode | rtk | ratio (octo/rtk) |
-| Σ quality (non-drift) | | | |
-| Σ calls | | | |
-| Σ in_chars (per-Q) | | | |
-| Σ out_chars (per-Q) | | | |
-| TOTAL chars | | | |
-| Approx tokens (TOTAL chars / 4) | | | |
-| Quality per 1k chars | | | |
-
-## Capability Review
-
-For each question where rtk scored lower than Octocode, cite the specific capability difference:
-- Comment preservation
-- Result completeness
-- PR metadata coverage
-- Remote content breadth
-- Out-of-scope registry or LSP capability
-
-## Verdict
-```
+- Comment preservation (Q10, Q11, Q12): if an answer misses information that only exists in source comments or doc comments, score according to how much of the requested fact pattern remains supported.
+- Comment-as-target search (Q3, Q4): the comment text IS the search match — credit full marks if all matching lines are found.
+- Result limits (Q1, Q2, Q16): confirm via independent search whether a count is exhaustive.
+- PR metadata (Q18, Q19, Q20): a missing label, body section, or motivation statement is a missing load-bearing fact.
 
 ---
 

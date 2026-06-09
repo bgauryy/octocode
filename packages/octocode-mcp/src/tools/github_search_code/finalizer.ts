@@ -6,7 +6,7 @@ import {
   formatFinalizedResponse,
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
-import type { GitHubCodeSearchOutputLocal } from '../../scheme/remoteSchemaOverlay.js';
+import type { GitHubCodeSearchOutputLocal } from './scheme.js';
 import { buildEvidenceMetadata } from '../evidence.js';
 import {
   buildPaginationHints,
@@ -26,6 +26,7 @@ function readPerQueryFlat(result: FlatQueryResult): CodeSearchFlatResult {
   return {
     results: Array.isArray(data?.results) ? data.results : [],
     pagination: data?.pagination,
+    ...(data?.nonExistentScope ? { nonExistentScope: true } : {}),
   };
 }
 
@@ -182,7 +183,11 @@ export function buildGithubSearchCodeFinalizer<
     let upstreamPagination: CodeSearchPagination | undefined;
     let upstreamPaginationQueries = 0;
 
-    const emptyQueries: Array<{ id: string; hints: string[] }> = [];
+    const emptyQueries: Array<{
+      id: string;
+      hints: string[];
+      nonExistentScope?: true;
+    }> = [];
 
     results.forEach((res, _index) => {
       if (res.status === 'error') return;
@@ -199,7 +204,11 @@ export function buildGithubSearchCodeFinalizer<
               (h): h is string => typeof h === 'string' && h.trim().length > 0
             )
           : [];
-        emptyQueries.push({ id: res.id, hints: perQueryHints });
+        emptyQueries.push({
+          id: res.id,
+          hints: perQueryHints,
+          ...(flat.nonExistentScope ? { nonExistentScope: true as const } : {}),
+        });
       }
       const groups = flat.results;
       perQueryGroups.push({ id: res.id, groups });
@@ -248,8 +257,12 @@ export function buildGithubSearchCodeFinalizer<
     }
     if (hints.length > 0) responseData.hints = hints;
     if (emptyQueries.length > 0) {
-      responseData.emptyQueries = emptyQueries.map(({ id, hints }) =>
-        hints.length > 0 ? { id, hints } : { id }
+      responseData.emptyQueries = emptyQueries.map(
+        ({ id, hints, nonExistentScope }) => ({
+          id,
+          ...(hints.length > 0 ? { hints } : {}),
+          ...(nonExistentScope ? { nonExistentScope } : {}),
+        })
       );
     }
     if (errors.length > 0) responseData.errors = errors;

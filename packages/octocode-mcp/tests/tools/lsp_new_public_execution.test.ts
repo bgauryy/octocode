@@ -458,7 +458,7 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
     expect(text).toContain('hasMore: true');
-    expect(text).toContain('compact by default');
+    expect(text).toContain('contextLines>0');
   });
 
   it('renders contentPreview and deduplicates ranges when contextLines>0', async () => {

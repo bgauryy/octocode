@@ -24,7 +24,7 @@ const DiagnosticEntrySchema = z.object({
   severity: z.enum(['error', 'warning', 'information', 'hint']),
   message: z.string(),
   source: z.string().optional(),
-  code: z.unknown().optional(),
+  code: z.union([z.string(), z.number()]).optional(),
   relatedInformation: z.array(RelatedInformationSchema).optional(),
 });
 

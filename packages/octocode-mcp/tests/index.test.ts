@@ -542,26 +542,7 @@ describe('Index Module', () => {
         .spyOn(process.stderr, 'write')
         .mockImplementation(() => true);
 
-      const mockContent = {
-        instructions: 'test',
-        prompts: {},
-        toolNames: TOOL_NAMES,
-        baseSchema: {
-          id: 'test-id',
-          mainResearchGoal: '',
-          researchGoal: '',
-          reasoning: '',
-          bulkQuery: () => '',
-        },
-        tools: {},
-        baseHints: { hasResults: [], empty: [] },
-        genericErrorHints: [],
-      };
-
-      await registerAllTools(
-        mockMcpServer as unknown as McpServer,
-        mockContent
-      );
+      await registerAllTools(mockMcpServer as unknown as McpServer);
 
       expect(mockRegisterTools).toHaveBeenCalled();
       expect(stderrSpy).toHaveBeenCalledWith(
@@ -575,26 +556,7 @@ describe('Index Module', () => {
       mockGetGitHubToken.mockResolvedValue('test-token');
       const { registerAllTools } = await import('../src/index.js');
 
-      const mockContent = {
-        instructions: 'test',
-        prompts: {},
-        toolNames: TOOL_NAMES,
-        baseSchema: {
-          id: 'test-id',
-          mainResearchGoal: '',
-          researchGoal: '',
-          reasoning: '',
-          bulkQuery: () => '',
-        },
-        tools: {},
-        baseHints: { hasResults: [], empty: [] },
-        genericErrorHints: [],
-      };
-
-      await registerAllTools(
-        mockMcpServer as unknown as McpServer,
-        mockContent
-      );
+      await registerAllTools(mockMcpServer as unknown as McpServer);
 
       expect(mockRegisterTools).toHaveBeenCalled();
     });

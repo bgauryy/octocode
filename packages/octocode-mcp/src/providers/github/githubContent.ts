@@ -120,11 +120,13 @@ export async function getFileContent(
     };
   }
 
+  const processedHints = (result.data as { hints?: string[] }).hints;
   return {
     data: transformFileContentResult(result.data, query),
     status: 200,
     provider: 'github',
     rawResponseChars:
       result.rawResponseChars ?? countSerializedChars(result.data),
+    ...(processedHints?.length ? { hints: processedHints } : {}),
   };
 }

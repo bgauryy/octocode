@@ -2,16 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_PAGE_SIZE,
   STRUCTURE_PAGE_SIZE,
-  BulkRipgrepQuerySchema,
-  BulkFindFilesSchema,
-  BulkViewStructureSchema,
 } from '../../src/scheme/localSchemaOverlay.js';
-import {
-  GitHubReposSearchBulkQueryLocalSchema,
-  GitHubCodeSearchBulkQueryLocalSchema,
-  GitHubViewRepoStructureBulkQueryLocalSchema,
-  PackageSearchBulkQueryLocalSchema,
-} from '../../src/scheme/remoteSchemaOverlay.js';
+import { LocalRipgrepBulkQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
+import { LocalFindFilesBulkQuerySchema } from '../../src/tools/local_find_files/scheme.js';
+import { LocalViewStructureBulkQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
+import { GitHubReposSearchBulkQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';
+import { GitHubCodeSearchBulkQueryLocalSchema } from '../../src/tools/github_search_code/scheme.js';
+import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../src/tools/github_view_repo_structure/scheme.js';
+import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
 
 describe('Page size constants', () => {
   it('DEFAULT_PAGE_SIZE is 20', () => {
@@ -58,7 +56,7 @@ describe('Local tools: page-based pagination, legacy names gone', () => {
   ) => schema.parse({ queries: [query] }).queries[0] as Record<string, unknown>;
 
   it('ripgrep: accepts page, no itemsPerPage, no filesPerPage', () => {
-    const q = q0(BulkRipgrepQuerySchema, {
+    const q = q0(LocalRipgrepBulkQuerySchema, {
       pattern: 'x',
       path: '.',
       page: 2,
@@ -71,14 +69,18 @@ describe('Local tools: page-based pagination, legacy names gone', () => {
   });
 
   it('localFindFiles: accepts page, no filesPerPage', () => {
-    const q = q0(BulkFindFilesSchema, { path: '.', name: '*.ts', page: 2 });
+    const q = q0(LocalFindFilesBulkQuerySchema, {
+      path: '.',
+      name: '*.ts',
+      page: 2,
+    });
     expect(q.page).toBe(2);
     expect('filesPerPage' in q).toBe(false);
     expect('itemsPerPage' in q).toBe(false);
   });
 
   it('localViewStructure: accepts page, no entriesPerPage', () => {
-    const q = q0(BulkViewStructureSchema, { path: '.', page: 2 });
+    const q = q0(LocalViewStructureBulkQuerySchema, { path: '.', page: 2 });
     expect(q.page).toBe(2);
     expect('entriesPerPage' in q).toBe(false);
     expect('itemsPerPage' in q).toBe(false);

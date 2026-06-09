@@ -1279,7 +1279,7 @@ vi.mock('../../src/providers/factory.js', () => ({
 }));
 
 import { executeCloneRepo } from '../../src/tools/github_clone_repo/execution.js';
-import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/register.js';
+import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 
 function createMockProviderCapabilities(type?: string) {

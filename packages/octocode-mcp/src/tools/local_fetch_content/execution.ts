@@ -3,9 +3,9 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { fetchContent } from './fetchContent.js';
 import {
-  FetchContentQuerySchema,
+  LocalFetchContentQuerySchema,
   type FetchContentQuery,
-} from '../../scheme/localSchemaOverlay.js';
+} from './scheme.js';
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
@@ -60,7 +60,7 @@ export async function executeFetchContent(
         query,
         contextMessage: 'localGetFileContent execution failed',
         execute: async () => {
-          const validation = FetchContentQuerySchema.safeParse(query);
+          const validation = LocalFetchContentQuerySchema.safeParse(query);
           if (!validation.success) {
             const messages = validation.error.issues
               .map(i => i.message)

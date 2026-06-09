@@ -125,6 +125,7 @@ export function compactExports(
   for (const entry of exportsList) {
     const parts = entry.split(':');
     if (parts.length >= 3) {
+      // parts[0] and parts[1] exist — guarded by parts.length >= 3 above.
       const subpath = parts[0]!;
       const condition = parts[1]!;
       const target = parts.slice(2).join(':');
@@ -136,6 +137,7 @@ export function compactExports(
         bySubpath.set(subpath, { cond: condition, target });
       }
     } else if (parts.length === 2) {
+      // parts[0] and parts[1] exist — guarded by parts.length === 2 above.
       const subpath = parts[0]!;
       if (!bySubpath.has(subpath)) {
         bySubpath.set(subpath, { cond: '', target: parts[1]! });

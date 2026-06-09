@@ -38,7 +38,7 @@ export async function resolveFileAnchor(
     };
   }
 
-  const absolutePath = pathValidation.sanitizedPath!;
+  const absolutePath = pathValidation.sanitizedPath;
   try {
     return {
       ok: true,

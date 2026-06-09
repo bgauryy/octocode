@@ -1,6 +1,8 @@
 # Researcher agent prompt
 
-Paste this whole file to the agent. The operator replaces `<TOOLSET>` on line 1 with **either `octocode` or `rtk`** before pasting. The agent's behavior branches on that value.
+For the **octocode researcher**: use [`benchmark/OCTOCODE_RESEARCHER.md`](../OCTOCODE_RESEARCHER.md) — set `<BENCHMARK>` to `rtk` before pasting.
+
+For the **rtk researcher**: paste this file with `<TOOLSET>` set to `rtk`.
 
 ---
 
@@ -95,10 +97,19 @@ source benchmark/rtk/scripts/init-run.sh <TOOLSET>
 IF TOOLSET = rtk — clone the repo:
   git clone https://github.com/rtk-ai/rtk /tmp/rtk-bench
 
-IF TOOLSET = octocode — no extra setup beyond init-run.sh. The wrapper
-  `octo-meas.sh` delegates to `octocode tools` directly. Verify octocode CLI
-  is installed:
-    octocode --version
+IF TOOLSET = octocode — configure the local CLI binary and review schemas (required):
+  export OCTOCODE_CLI_BIN=/Users/guybary/Documents/octocode-mcp/packages/octocode-cli/out/octocode-cli.js
+
+  MANDATORY pre-flight: review ALL tool descriptions, schemas, and bulk-query patterns
+  before making any metered call. This ensures correct parameter usage and fewer wasted
+  calls (directly improves token counts):
+    node "$OCTOCODE_CLI_BIN" --tools-context
+
+  Read the full output. Key patterns to note:
+    - Every tool accepts 1–5 queries per call — batch independent lookups.
+    - mainResearchGoal / researchGoal / reasoning are required on every query.
+    - Use matchString or startLine/endLine for targeted file reads (not fullContent).
+    - Trust evidence.answerReady / hints in each result as required next steps.
 
 ═══════════════════════════════════════════════════════════════════
 PER-QUESTION LOOP — sequential, one question at a time

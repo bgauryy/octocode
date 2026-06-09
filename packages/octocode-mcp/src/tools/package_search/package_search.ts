@@ -9,7 +9,7 @@ type PackageSearchQuery = Omit<NpmPackageQuery, 'ecosystem'> & {
 import {
   PackageSearchBulkQueryLocalSchema,
   PackageSearchOutputLocalSchema,
-} from '../../scheme/remoteSchemaOverlay.js';
+} from './scheme.js';
 import { searchPackages } from './execution.js';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 

@@ -76,14 +76,11 @@ export function formatRepoLine(repo: GitHubRepositoryOutput): string {
 type RepositoryDetail = {
   owner: string;
   repo: string;
-  fullName: string;
   stars?: number;
   forks?: number;
-  openIssues?: number;
   language?: string;
   description?: string;
   pushedAt?: string;
-  createdAt?: string;
   defaultBranch?: string;
   topics?: string[];
   visibility?: string;
@@ -93,14 +90,11 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
   const detail: RepositoryDetail = {
     owner: repo.owner ?? '',
     repo: repo.repo,
-    fullName: `${repo.owner ? `${repo.owner}/` : ''}${repo.repo}`,
     stars: repo.stars,
     forks: repo.forksCount,
-    openIssues: repo.openIssuesCount,
     language: repo.language,
     description: repo.description || undefined,
     pushedAt: repo.pushedAt,
-    createdAt: repo.createdAt,
     defaultBranch:
       repo.defaultBranch &&
       repo.defaultBranch !== 'main' &&
@@ -124,17 +118,15 @@ function buildReposSearchOutput(
   _query: PartialReposSearchQuery
 ): {
   data: {
-    repositories: unknown[];
-    repositoryDetails: RepositoryDetail[];
+    repositories: RepositoryDetail[];
     pagination?: unknown;
   };
   extraHints: string[];
 } {
   return {
     data: {
-      ...data,
-      repositories: data.repositories.map(formatRepoLine),
-      repositoryDetails: data.repositories.map(buildRepositoryDetail),
+      pagination: data.pagination,
+      repositories: data.repositories.map(buildRepositoryDetail),
     },
     extraHints: [],
   };
@@ -612,6 +604,12 @@ export async function searchMultipleGitHubRepos(
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {
             extraHints: finalExtraHints,
+            hintContext: {
+              keywords: query.keywordsToSearch,
+              owner: query.owner,
+              language: query.language,
+              topic: query.topicsToSearch?.[0],
+            },
             evidence: {
               kind: 'repo',
               answerReady: hasContent,
@@ -637,12 +635,7 @@ export async function searchMultipleGitHubRepos(
     },
     {
       toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-      keysPriority: [
-        'repositories',
-        'repositoryDetails',
-        'pagination',
-        'error',
-      ] satisfies string[],
+      keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
       peerHints: true,
       peerEvidence: true,
     },

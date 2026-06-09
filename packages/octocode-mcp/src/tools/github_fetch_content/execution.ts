@@ -9,7 +9,7 @@ import {
   createSuccessResult,
   createErrorResult,
 } from '../utils.js';
-import { FileContentQueryLocalSchema } from '../../scheme/remoteSchemaOverlay.js';
+import { FileContentQueryLocalSchema } from './scheme.js';
 import { isCloneEnabled } from '../../serverConfig.js';
 import { fetchDirectoryContents } from '../../github/directoryFetch.js';
 import { resolveDefaultBranch } from '../../github/client.js';
@@ -153,10 +153,11 @@ async function handleFileFetch(
     return providerResult.result;
   }
 
-  const resultData = mapFileContentProviderResult(
-    providerResult.response.data,
-    query
-  );
+  const providerHints = providerResult.response.hints;
+  const resultData = {
+    ...mapFileContentProviderResult(providerResult.response.data, query),
+    ...(providerHints?.length ? { hints: providerHints } : {}),
+  };
 
   const hasContent = Boolean(
     providerResult.response.data.matchNotFound === true ||
@@ -174,8 +175,8 @@ async function handleFileFetch(
       hintContext: {
         path: query.path,
         branch: query.branch,
-        isPartial: (resultData as { isPartial?: boolean }).isPartial,
-        endLine: (resultData as { endLine?: number }).endLine,
+        isPartial: providerResult.response.data.isPartial,
+        endLine: providerResult.response.data.endLine,
       },
     }
   );

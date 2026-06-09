@@ -6,10 +6,7 @@ import {
   extractSignatures,
   SIGNATURES_ONLY_HINT,
 } from '../utils/minifier/applyMinification.js';
-import {
-  applyPagination,
-  createPaginationInfo,
-} from '../utils/pagination/core.js';
+import { applyPagination } from '../utils/pagination/core.js';
 import { OctokitWithThrottling } from './client.js';
 
 function getDefaultContentPageSize(): number {
@@ -34,16 +31,25 @@ export function applyContentPagination(
   }
 
   const paginationMeta = applyPagination(content, charOffset, maxChars);
-  const paginationInfo = createPaginationInfo(paginationMeta);
 
   // Tool-level pagination hints are emitted by the github_fetch_content
   // finalizer (buildRuntimeHints) from `pagination`; the provider boundary
   // (transformFileContentResult) does not carry per-file `hints`, so none are
   // attached here.
+  //
+  // Byte fields are intentionally omitted — pagination is char-based.
+  // Consumers must use charOffset (not byteOffset) as the continuation cursor.
   return {
     ...data,
     content: paginationMeta.paginatedContent,
-    pagination: paginationInfo,
+    pagination: {
+      currentPage: paginationMeta.currentPage,
+      totalPages: paginationMeta.totalPages,
+      hasMore: paginationMeta.hasMore,
+      charOffset: paginationMeta.charOffset,
+      charLength: paginationMeta.charLength,
+      totalChars: paginationMeta.totalChars,
+    },
   };
 }
 
@@ -233,10 +239,12 @@ export async function processFileContentAPI(
     isPartial = true;
 
     if (matchingLines.length > 1) {
-      // List ALL match line numbers so the agent can issue targeted startLine/endLine reads
       const otherLines = matchingLines.slice(1);
+      const shown = otherLines.slice(0, 5);
+      const extra =
+        otherLines.length > 5 ? ` and ${otherLines.length - 5} more` : '';
       matchLocationsSet.add(
-        `Found "${matchString}" on line ${firstMatch} (showing ±${matchStringContextLines} lines). Other occurrences at lines: ${otherLines.join(', ')} — use startLine/endLine to read those locations directly.`
+        `Found "${matchString}" on line ${firstMatch} (±${matchStringContextLines} lines shown). Other occurrences: ${shown.join(', ')}${extra} — use startLine/endLine.`
       );
     } else {
       matchLocationsSet.add(`Found "${matchString}" on line ${firstMatch}`);

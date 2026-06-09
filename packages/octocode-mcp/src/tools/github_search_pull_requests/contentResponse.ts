@@ -99,23 +99,21 @@ function availableContent() {
 }
 
 function nextCalls(query: QueryLike, prNumber: number) {
-  const base = baseQuery(query, prNumber);
   return {
-    getBody: { ...base, content: { body: true } },
-    getChangedFiles: { ...base, content: { changedFiles: true } },
+    target: baseQuery(query, prNumber),
+    getBody: { content: { body: true } },
+    getChangedFiles: { content: { changedFiles: true } },
     getSelectedPatches: {
-      ...base,
       content: {
         patches: { mode: 'selected', files: ['path/from/changedFiles'] },
       },
     },
-    getAllPatches: { ...base, content: { patches: { mode: 'all' } } },
+    getAllPatches: { content: { patches: { mode: 'all' } } },
     getComments: {
-      ...base,
       content: { comments: { discussion: true, reviewInline: true } },
     },
-    getCommits: { ...base, content: { commits: { list: true } } },
-    fullReview: { ...base, reviewMode: 'full' },
+    getCommits: { content: { commits: { list: true } } },
+    fullReview: { reviewMode: 'full' },
   };
 }
 
@@ -294,6 +292,8 @@ function shapeFileSurfaces(
     };
   }
 
+  if (allChanges.length === 0) return {};
+
   return {
     filePathsPreview: allChanges.slice(0, 20).map(filePathOf).filter(Boolean),
     filePathsPagination: {
@@ -309,7 +309,8 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
-  shouldMinify = true
+  shouldMinify = true,
+  showContentMap?: boolean
 ): Record<string, unknown> {
   const prNumber = Number(pr.number);
   const body = request.body
@@ -319,6 +320,16 @@ export function shapePullRequestForContent(
         query.charLength ?? 12_000
       )
     : undefined;
+  const hasContent =
+    request.body ||
+    request.changedFiles ||
+    request.patches.mode !== 'none' ||
+    Boolean(request.comments) ||
+    request.reviews ||
+    Boolean(request.commits);
+  const emitContentMap =
+    showContentMap !== undefined ? showContentMap : hasContent;
+
   const metadata = {
     number: pr.number,
     title: pr.title,
@@ -326,23 +337,24 @@ export function shapePullRequestForContent(
     state: pr.state,
     draft: pr.draft,
     author: pr.author,
-    assignees: pr.assignees,
+    ...(Array.isArray(pr.assignees) && pr.assignees.length ? { assignees: pr.assignees } : {}),
     labels: pr.labels,
-    sourceBranch: pr.sourceBranch,
     targetBranch: pr.targetBranch,
-    sourceSha: pr.sourceSha,
-    targetSha: pr.targetSha,
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     closedAt: pr.closedAt,
     mergedAt: pr.mergedAt,
-    commentsCount: pr.commentsCount,
+    ...(pr.commentsCount ? { commentsCount: pr.commentsCount } : {}),
     changedFilesCount: pr.changedFilesCount,
     additions: pr.additions,
     deletions: pr.deletions,
     bodyPreview: compactBody(typeof pr.body === 'string' ? pr.body : undefined),
-    availableContent: availableContent(),
-    next: nextCalls(query, prNumber),
+    ...(emitContentMap
+      ? {
+          availableContent: availableContent(),
+          next: nextCalls(query, prNumber),
+        }
+      : {}),
   };
 
   return {
@@ -362,18 +374,17 @@ export function buildContentHints(
 ): string[] {
   const first = pullRequests[0];
   if (!first) return [];
-  const n = first.number;
-  const hints = [
-    `Content map included. For full PR review use prNumber=${n} reviewMode="full"; for specific surfaces use content.body, content.changedFiles, content.patches, content.comments, or content.commits.`,
+  const hints: string[] = [
+    'Use next.target + a content key to fetch body, changedFiles, patches, comments, or commits.',
   ];
   if (request.patches.mode === 'none') {
     hints.push(
-      `Diffs are not included by default. Request selected files with content.patches={mode:"selected",files:["path"]}, or all patches paginated with content.patches={mode:"all"}.`
+      'Patches not included — request content.patches={mode:"all"} or {mode:"selected",files:[...]}.'
     );
   }
   if (!request.comments) {
     hints.push(
-      `Comments are not included by default. Request content.comments={discussion:true,reviewInline:true}; add file="path" for file-specific inline comments.`
+      'Comments not included — request content.comments={discussion:true,reviewInline:true}.'
     );
   }
   return hints;

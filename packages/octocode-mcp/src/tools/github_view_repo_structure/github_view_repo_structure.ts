@@ -2,7 +2,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   GitHubViewRepoStructureBulkQueryLocalSchema,
   GitHubViewRepoStructureOutputLocalSchema,
-} from '../../scheme/remoteSchemaOverlay.js';
+} from './scheme.js';
 import { exploreMultipleRepositoryStructures } from './execution.js';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 

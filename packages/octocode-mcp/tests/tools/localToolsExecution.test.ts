@@ -53,16 +53,59 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   };
 });
 
-vi.mock('../../src/scheme/localSchemaOverlay.js', () => ({
-  RipgrepQuerySchema: { safeParse: mockSafeParse },
-  FindFilesQuerySchema: { safeParse: mockSafeParse },
-  ViewStructureQuerySchema: { safeParse: mockSafeParse },
-  FetchContentQuerySchema: { safeParse: mockSafeParse },
-  BulkRipgrepQuerySchema: {},
-  BulkFindFilesSchema: {},
-  BulkViewStructureSchema: {},
-  BulkFetchContentQuerySchema: {},
-}));
+vi.mock('../../src/tools/local_ripgrep/scheme.js', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('../../src/tools/local_ripgrep/scheme.js')
+    >();
+  return {
+    ...actual,
+    LocalRipgrepQuerySchema: { safeParse: mockSafeParse },
+    LocalRipgrepBulkQuerySchema: {},
+  };
+});
+
+vi.mock('../../src/tools/local_find_files/scheme.js', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('../../src/tools/local_find_files/scheme.js')
+    >();
+  return {
+    ...actual,
+    LocalFindFilesQuerySchema: { safeParse: mockSafeParse },
+    LocalFindFilesBulkQuerySchema: {},
+  };
+});
+
+vi.mock(
+  '../../src/tools/local_view_structure/scheme.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../src/tools/local_view_structure/scheme.js')
+      >();
+    return {
+      ...actual,
+      LocalViewStructureQuerySchema: { safeParse: mockSafeParse },
+      LocalViewStructureBulkQuerySchema: {},
+    };
+  }
+);
+
+vi.mock(
+  '../../src/tools/local_fetch_content/scheme.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../src/tools/local_fetch_content/scheme.js')
+      >();
+    return {
+      ...actual,
+      LocalFetchContentQuerySchema: { safeParse: mockSafeParse },
+      LocalFetchContentBulkQuerySchema: {},
+    };
+  }
+);
 
 describe('Local Tools Execution', () => {
   beforeEach(() => {

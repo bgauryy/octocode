@@ -653,6 +653,28 @@ describe('pagination utility', () => {
       expect(info.totalPages).toBe(1);
       expect(info.hasMore).toBe(false);
     });
+
+    it('should NOT include byte fields — public PaginationInfo is char-only', () => {
+      const metadata: PaginationMetadata = withByteFieldsInfo({
+        paginatedContent: '中文内容',
+        charOffset: 0,
+        charLength: 4,
+        totalChars: 4,
+        hasMore: false,
+        estimatedTokens: 1,
+        currentPage: 1,
+        totalPages: 1,
+      });
+
+      const info = createPaginationInfo(metadata);
+
+      expect(info).not.toHaveProperty('byteOffset');
+      expect(info).not.toHaveProperty('byteLength');
+      expect(info).not.toHaveProperty('totalBytes');
+      expect(info.charOffset).toBe(0);
+      expect(info.charLength).toBe(4);
+      expect(info.totalChars).toBe(4);
+    });
   });
 
   describe('generateStructurePaginationHints', () => {

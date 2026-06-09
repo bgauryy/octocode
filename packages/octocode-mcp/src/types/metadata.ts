@@ -74,6 +74,10 @@ export interface HintContext {
   totalMatches?: number;
   hasMore?: boolean;
   flagFiles?: string[];
+
+  language?: string;
+  topic?: string;
+  matchScope?: string[];
 }
 
 type HintGenerator = (context: HintContext) => (string | undefined)[];

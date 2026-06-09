@@ -16,7 +16,7 @@ import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-typ
 import type { WithOptionalMeta } from '../types/execution.js';
 import { DEFAULT_PAGE_SIZE } from '../scheme/localSchemaOverlay.js';
 import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constants.js';
-import { FileContentQueryLocalSchema } from '../scheme/remoteSchemaOverlay.js';
+import { FileContentQueryLocalSchema } from './github_fetch_content/scheme.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema>;
@@ -292,11 +292,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     reviewRequested: query['review-requested'],
     reviewedBy: query['reviewed-by'],
     labels: (() => {
-      // Accept both `label` (canonical) and `labels` (alias) to prevent
-      // silent parameter ignore when agents use the plural form.
-      const labelValue =
-        query.label ??
-        (query as unknown as { labels?: typeof query.label }).labels;
+      const labelValue = query.label;
       if (!labelValue) return undefined;
       return Array.isArray(labelValue) ? labelValue : [labelValue];
     })(),
@@ -507,7 +503,8 @@ export function mapFileContentToolQuery(query: LocalFileContentQuery) {
     endLine: fullContent ? undefined : query.endLine,
     matchString:
       fullContent || !query.matchString ? undefined : String(query.matchString),
-    matchStringContextLines: query.matchStringContextLines ?? 5,
+    matchStringContextLines:
+      (query as { contextLines?: number }).contextLines ?? 5,
     fullContent,
     charOffset: query.charOffset,
     charLength: query.charLength,

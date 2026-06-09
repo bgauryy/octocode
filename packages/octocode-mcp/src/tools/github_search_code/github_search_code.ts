@@ -2,7 +2,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   GitHubCodeSearchBulkQueryLocalSchema,
   GitHubCodeSearchOutputLocalSchema,
-} from '../../scheme/remoteSchemaOverlay.js';
+} from './scheme.js';
 import { searchMultipleGitHubCode } from './execution.js';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 

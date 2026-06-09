@@ -103,7 +103,10 @@ export function minifyGeneralCore(content: string): string {
       .replace(/[ \t]+$/gm, '')
       .replace(/\r\n/g, '\n')
       .replace(/\n\s*\n\s*\n+/g, '\n\n')
-      .replace(/[ \t]{3,}/g, ' ')
+      .replace(/^([ \t]+)/gm, match => {
+        const spaces = match.replace(/\t/g, '    ').length;
+        return ' '.repeat(Math.max(1, Math.ceil(spaces / 2)));
+      })
       .trim();
   } /* v8 ignore start */ catch {
     return content;

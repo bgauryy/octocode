@@ -186,7 +186,7 @@ Tools return `structuredContent` validated against `outputSchema`. Handles track
 - **Bulk queries** — every tool accepts 1–5 queries per request
 - **Research context required** — every query needs `mainResearchGoal`, `researchGoal`, `reasoning`
 - **Security first** — all I/O sanitized, secrets redacted, paths validated, command whitelist (`rg`, `find`, `ls`)
-- **Single-engine search** — `localSearchCode` uses bundled `@vscode/ripgrep` only; no grep fallback
+- **Ripgrep-first search** — `localSearchCode` uses the resolved ripgrep binary (`resolveRipgrepBinary()`: sibling → `@vscode/ripgrep` → `PATH`), and falls back to `grep` when ripgrep is unavailable
 - **Pooled LSP clients** — acquire through `LspClientPool`; callers MUST NOT call `client.stop()`
 - **Token efficiency** — minification, YAML default, response prioritization
 

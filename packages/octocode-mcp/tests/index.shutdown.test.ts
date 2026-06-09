@@ -92,7 +92,7 @@ vi.mock('../src/utils/core/logger.js', () => ({
   },
 }));
 
-let registerAllTools: (server: never, content: never) => Promise<void>;
+let registerAllTools: (server: never) => Promise<void>;
 
 describe('index.ts - Server Lifecycle', () => {
   beforeEach(async () => {
@@ -120,11 +120,7 @@ describe('index.ts - Server Lifecycle', () => {
         failedTools: [],
       });
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
-      await registerAllTools(mockServer as never, content as never);
+      await registerAllTools(mockServer as never);
 
       expect(registerTools).toHaveBeenCalledWith(mockServer);
     });
@@ -156,11 +152,7 @@ describe('index.ts - Server Lifecycle', () => {
       allowExpectedStderrWarning(/No GitHub token available/);
       allowUnexpectedWarningFailureForCurrentTest();
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
-      await registerAllTools(mockServer as never, content as never);
+      await registerAllTools(mockServer as never);
 
       expect(mockLogger.warning).toHaveBeenCalledWith(
         'No GitHub token - limited functionality'
@@ -178,13 +170,9 @@ describe('index.ts - Server Lifecycle', () => {
         failedTools: [],
       });
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
-      await expect(
-        registerAllTools(mockServer as never, content as never)
-      ).rejects.toThrow('No tools were successfully registered');
+      await expect(registerAllTools(mockServer as never)).rejects.toThrow(
+        'No tools were successfully registered'
+      );
     });
 
     it('should log session error when no tools registered', async () => {
@@ -199,12 +187,8 @@ describe('index.ts - Server Lifecycle', () => {
 
       const { logSessionError } = await import('../src/session.js');
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
       try {
-        await registerAllTools(mockServer as never, content as never);
+        await registerAllTools(mockServer as never);
       } catch {
         expect(logSessionError).toHaveBeenCalledWith(
           'startup',
@@ -230,11 +214,7 @@ describe('index.ts - Server Lifecycle', () => {
         .spyOn(process.stderr, 'write')
         .mockImplementation(() => true);
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
-      await registerAllTools(mockServer as never, content as never);
+      await registerAllTools(mockServer as never);
 
       expect(stderrSpy).toHaveBeenCalledWith(
         expect.stringContaining('No GitHub token available')
@@ -267,11 +247,7 @@ describe('index.ts - Server Lifecycle', () => {
         failedTools: [],
       });
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
-      await registerAllTools(mockServer as never, content as never);
+      await registerAllTools(mockServer as never);
 
       expect(mockLogger.info).toHaveBeenCalledWith('GitHub token ready');
       expect(mockLogger.info).toHaveBeenCalledWith('Tools registered', {
@@ -303,12 +279,8 @@ describe('index.ts - Server Lifecycle', () => {
         failedTools: [],
       });
 
-      const { loadToolContent } =
-        await import('../src/tools/toolMetadata/state.js');
-      const content = await loadToolContent();
-
       try {
-        await registerAllTools(mockServer as never, content as never);
+        await registerAllTools(mockServer as never);
       } catch {
         expect(mockLogger.error).toHaveBeenCalledWith(
           'Tool registration failed'

@@ -49,13 +49,26 @@ export async function executeCloneRepo(
             );
           }
 
+          const normalizedQuery = query as PartialCloneRepoQuery & {
+            sparsePath?: string;
+            sparse_path?: string;
+          };
+          if (
+            normalizedQuery.sparsePath != null &&
+            !normalizedQuery.sparse_path
+          ) {
+            normalizedQuery.sparse_path = normalizedQuery.sparsePath;
+          }
+
           const result = await cloneRepo(
-            query,
+            normalizedQuery,
             authInfo,
             providerContext.token
           );
 
           const resultData: Record<string, unknown> = {
+            owner: query.owner,
+            repo: query.repo,
             localPath: result.localPath,
             ...(result.cached ? { cached: true } : {}),
             ...(query.branch !== result.branch
@@ -65,6 +78,9 @@ export async function executeCloneRepo(
 
           const baseHints: string[] = [];
           if (result.cached) baseHints.push(CACHE_HIT_HINT);
+          baseHints.push(
+            `Use localViewStructure with path="${result.localPath}" to explore, then localGetFileContent to read files.`
+          );
 
           return createSuccessResult(
             query,
@@ -79,9 +95,10 @@ export async function executeCloneRepo(
                 answerReady: true,
                 confidence: 'high',
                 complete: true,
-                reason: result.sparse_path
-                  ? 'Repository sparse checkout is available locally.'
-                  : 'Repository full shallow clone is available locally.',
+                reason:
+                  (result.sparse_path ?? normalizedQuery.sparsePath)
+                    ? 'Repository sparse checkout is available locally.'
+                    : 'Repository full shallow clone is available locally.',
               },
             }
           );

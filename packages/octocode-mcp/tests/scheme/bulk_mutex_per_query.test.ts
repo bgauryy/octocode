@@ -1,13 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import {
-  BulkFetchContentQuerySchema,
-  BulkRipgrepQuerySchema,
-} from '../../src/scheme/localSchemaOverlay.js';
-import { FileContentBulkQueryLocalSchema } from '../../src/scheme/remoteSchemaOverlay.js';
+import { LocalFetchContentBulkQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
+import { LocalRipgrepBulkQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
+import { FileContentBulkQueryLocalSchema } from '../../src/tools/github_fetch_content/scheme.js';
 
 describe('bulk schemas defer mutex to per-query (no whole-batch rejection)', () => {
   it('localGetFileContent bulk accepts a mutex-violating query alongside valid ones', () => {
-    const r = BulkFetchContentQuerySchema.safeParse({
+    const r = LocalFetchContentBulkQuerySchema.safeParse({
       queries: [
         { path: 'a.ts', fullContent: true, matchString: 'x' },
         { path: 'b.ts', startLine: 1, endLine: 5 },
@@ -17,7 +15,7 @@ describe('bulk schemas defer mutex to per-query (no whole-batch rejection)', () 
   });
 
   it('localSearchCode bulk accepts a mutex-violating query alongside valid ones', () => {
-    const r = BulkRipgrepQuerySchema.safeParse({
+    const r = LocalRipgrepBulkQuerySchema.safeParse({
       queries: [
         { pattern: 'x', path: '/r', filesOnly: true, filesWithoutMatch: true },
         { pattern: 'y', path: '/r' },

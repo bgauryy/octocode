@@ -1,8 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import {
-  type FindFilesQuery,
-  FindFilesQuerySchema,
-} from '../../scheme/localSchemaOverlay.js';
+import { type FindFilesQuery, LocalFindFilesQuerySchema } from './scheme.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { findFiles } from './findFiles.js';
@@ -41,14 +38,22 @@ export async function executeFindFiles(
         query,
         contextMessage: 'localFindFiles execution failed',
         execute: async () => {
-          const validation = FindFilesQuerySchema.safeParse(query);
+          const validation = LocalFindFilesQuerySchema.safeParse(query);
           if (!validation.success) {
             const messages = validation.error.issues
               .map(i => i.message)
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          const result = await findFiles(validation.data);
+          // `entryType` is the agent-facing fs-entry filter. Map it to the
+          // internal `type` field that the find command builder reads.
+          const normalized = validation.data as FindFilesQuery & {
+            entryType?: string;
+          };
+          if (normalized.entryType != null) {
+            normalized.type = normalized.entryType;
+          }
+          const result = await findFiles(normalized);
           return attachEvidence(
             result as ProcessedBulkResult,
             buildFindFilesEvidence(result)

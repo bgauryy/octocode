@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PackageSearchBulkQueryLocalSchema } from '../../src/scheme/remoteSchemaOverlay.js';
+import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
 
 function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
   const parsed = PackageSearchBulkQueryLocalSchema.parse({ queries: [query] });

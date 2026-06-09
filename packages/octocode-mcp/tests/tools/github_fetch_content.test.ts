@@ -157,16 +157,20 @@ describe('GitHub Fetch Content Tool', () => {
       expect(responseText).not.toContain("Follow 'mainResearchGoal'");
     });
 
-    it('surfaces the signaturesOnly hint at the tool level (aligned with local)', async () => {
+    it('surfaces the signaturesOnly hint when extraction succeeds (supported file type with body)', async () => {
       mockProvider.getFileContent.mockResolvedValue({
         data: {
           path: 'src/app.ts',
-          content: 'export function f(): void',
+          content:
+            'export function f(): void { const x = 1; }\nexport function g(a: string): string { return a; }',
           encoding: 'utf-8',
-          totalLines: 1,
-          isPartial: true,
+          totalLines: 2,
+          isPartial: false,
           ref: 'main',
         },
+        hints: [
+          'Signatures only — bodies omitted. Left gutter shows original line numbers; use startLine/endLine to read a body.',
+        ],
         status: 200,
         provider: 'github',
       });
@@ -187,6 +191,39 @@ describe('GitHub Fetch Content Tool', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('Signatures only');
+    });
+
+    it('does not show signaturesOnly hint for unsupported file types (e.g. .c)', async () => {
+      mockProvider.getFileContent.mockResolvedValue({
+        data: {
+          path: 'kernel/sched.c',
+          content:
+            'void schedule(void) { do_schedule(); }\nvoid idle(void) { cpu_idle(); }',
+          encoding: 'utf-8',
+          totalLines: 2,
+          isPartial: false,
+          ref: 'master',
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'torvalds',
+              repo: 'linux',
+              path: 'kernel/sched.c',
+              signaturesOnly: true,
+            },
+          ],
+        }
+      );
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).not.toContain('Signatures only');
     });
 
     it('should pass authInfo to provider', async () => {

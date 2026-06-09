@@ -24,7 +24,7 @@ import {
   logToolCall,
 } from './session.js';
 import { loadToolContent } from './tools/toolMetadata/state.js';
-import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
+import { SERVER_INSTRUCTIONS } from './serverInstructions.js';
 import { version, name } from '../package.json';
 import { STARTUP_ERRORS } from './errors/domainErrors.js';
 import { startCacheGC, stopCacheGC } from './tools/github_clone_repo/cache.js';
@@ -125,10 +125,7 @@ function setupProcessHandlers(
   });
 }
 
-export async function registerAllTools(
-  server: McpServer,
-  _content: CompleteMetadata
-) {
+export async function registerAllTools(server: McpServer) {
   const logger = LoggerFactory.getLogger(server, 'tools');
   const activeProvider = getActiveProvider();
 
@@ -164,7 +161,7 @@ export async function registerAllTools(
   }
 }
 
-async function createServer(content: CompleteMetadata): Promise<McpServer> {
+async function createServer(): Promise<McpServer> {
   const capabilities: {
     tools: { listChanged: boolean };
     logging: Record<string, never>;
@@ -175,7 +172,7 @@ async function createServer(content: CompleteMetadata): Promise<McpServer> {
 
   return new McpServer(SERVER_CONFIG, {
     capabilities,
-    instructions: content.instructions,
+    instructions: SERVER_INSTRUCTIONS,
   });
 }
 
@@ -195,11 +192,11 @@ async function startServer() {
     });
     securityRegistry.addAllowedRoots([getOctocodeDir()]);
     await initializeProviders();
-    const content = await loadToolContent();
+    await loadToolContent();
     const session = initializeSession();
 
-    const server = await createServer(content);
-    await registerAllTools(server, content);
+    const server = await createServer();
+    await registerAllTools(server);
 
     const gracefulShutdown = createShutdownHandler(
       server,

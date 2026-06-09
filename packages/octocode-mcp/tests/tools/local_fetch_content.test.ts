@@ -955,7 +955,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'test.txt',
         matchString: 'MATCH',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -974,7 +974,7 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'test.txt',
         matchString: 'MATCH',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result.status).toBeUndefined();

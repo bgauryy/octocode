@@ -105,7 +105,9 @@ export const hints: ToolHintGenerators = {
       keywords &&
       keywords.length === 1 &&
       typeof keywords[0] === 'string' &&
-      /^(@[\w-]+\/)?[\w.-]+$/.test(keywords[0])
+      // Match scoped packages (@scope/pkg) or kebab/dot-separated names (react-query, lodash.get)
+      // Excludes camelCase/PascalCase identifiers like lspGetSemanticContent or withSecurityValidation
+      /^@[\w-]+\/[\w.-]+$|^[a-z][\w]*[-.][\w.-]+$/.test(keywords[0])
     ) {
       out.push(
         `"${keywords[0]}" looks like a package name — try packageSearch.`

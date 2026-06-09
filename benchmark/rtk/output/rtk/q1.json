@@ -1,1 +1,0 @@
-{"calls":2,"in_chars":85,"out_chars":6201,"elapsed_ms":160,"calls_detail":[{"cmd":"rtk rg filter_markdown_body /tmp/rtk-bench","in_chars":38,"out_chars":4109,"elapsed_ms":88,"exit":0},{"cmd":"rtk rg -n filter_markdown_body\\( /tmp/rtk-bench/src","in_chars":47,"out_chars":2092,"elapsed_ms":72,"exit":0}],"tool_elapsed_ms":160,"q_elapsed_ms":10339}

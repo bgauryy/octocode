@@ -176,12 +176,13 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<string> };
+          data?: { repositories?: Array<{ owner: string; repo: string }> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
-        /^b\/high /
-      );
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        owner: 'b',
+        repo: 'high',
+      });
     });
 
     it('sorts by updated date when sort=updated', async () => {
@@ -200,12 +201,13 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<string> };
+          data?: { repositories?: Array<{ owner: string; repo: string }> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
-        /^b\/new /
-      );
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        owner: 'b',
+        repo: 'new',
+      });
     });
 
     it('sorts by created date when sort=created, handling missing dates', async () => {
@@ -224,12 +226,13 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<string> };
+          data?: { repositories?: Array<{ owner: string; repo: string }> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
-        /^b\/dated /
-      );
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        owner: 'b',
+        repo: 'dated',
+      });
     });
 
     it('falls back to relevance/stars when sort=best-match', async () => {
@@ -248,12 +251,13 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<string> };
+          data?: { repositories?: Array<{ owner: string; repo: string }> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
-        /^b\/high /
-      );
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        owner: 'b',
+        repo: 'high',
+      });
     });
   });
 
@@ -288,12 +292,13 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const structured = result.structuredContent as {
         results?: Array<{
-          data?: { repositories?: Array<string> };
+          data?: { repositories?: Array<{ owner: string; repo: string }> };
         }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatch(
-        /^org\/whale /
-      );
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        owner: 'org',
+        repo: 'whale',
+      });
     });
   });
 
@@ -432,6 +437,62 @@ describe('GitHub Search Repositories Coverage', () => {
       const text = getTextContent(result.content);
       expect(result.isError).toBe(false);
       expect(text).not.toContain('Large result set with no owner');
+    });
+
+    it('produces no hint when empty results and no keywords/topics/filters', async () => {
+      mockProvider.searchRepos.mockResolvedValue({
+        data: {
+          repositories: [],
+          totalCount: 0,
+          pagination: { currentPage: 1, totalPages: 0, hasMore: false },
+        },
+        status: 200,
+        provider: 'github',
+      });
+      const result = await call({ id: 'no_hints', owner: 'someorg' });
+      const text = getTextContent(result.content);
+      expect(result.isError).toBe(false);
+      expect(text).not.toContain('Drop the rarest');
+    });
+
+    it('shows filters-only hint when empty results with owner but no keywords', async () => {
+      mockProvider.searchRepos.mockResolvedValue({
+        data: {
+          repositories: [],
+          totalCount: 0,
+          pagination: { currentPage: 1, totalPages: 0, hasMore: false },
+        },
+        status: 200,
+        provider: 'github',
+      });
+      const result = await call({ id: 'filter_only_hint', owner: 'someorg' });
+      const text = getTextContent(result.content);
+      expect(result.isError).toBe(false);
+      expect(text).toContain(
+        'No repositories found matching the current filters'
+      );
+    });
+  });
+
+  describe('Sort by stars with undefined stars values', () => {
+    it('handles repos with undefined stars in sort by stars (covers ?? 0 branch)', async () => {
+      mockProvider.searchRepos.mockResolvedValue(
+        okResponse([
+          repo({ id: '1', fullPath: 'a/low', stars: undefined }),
+          repo({ id: '2', fullPath: 'b/high', stars: 500 }),
+        ])
+      );
+      const result = await call({
+        id: 'sort_stars_undef',
+        keywordsToSearch: ['x'],
+        sort: 'stars',
+      });
+      const structured = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: Array<{ repo: string }> } }>;
+      };
+      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
+        repo: 'high',
+      });
     });
   });
 });

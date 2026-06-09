@@ -137,17 +137,16 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       expect(result.isError).toBe(false);
       expect(responseText).not.toContain('status: "hasResults"');
-      expect(responseText).toContain('facebook/react');
-      expect(responseText).toContain('vercel/next.js');
+      expect(responseText).toContain('facebook');
+      expect(responseText).toContain('react');
+      expect(responseText).toContain('vercel');
 
       const structured = result.structuredContent as {
         results?: Array<{
           data?: {
-            repositories?: string[];
-            repositoryDetails?: Array<{
+            repositories?: Array<{
               owner: string;
               repo: string;
-              fullName: string;
               stars?: number;
               forks?: number;
               language?: string;
@@ -157,18 +156,15 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         }>;
       };
       const data = structured.results?.[0]?.data;
-      expect(data?.repositories?.[0]).toContain('facebook/react');
-      expect(data?.repositoryDetails?.[0]).toMatchObject({
+      expect(data?.repositories?.[0]).toMatchObject({
         owner: 'facebook',
         repo: 'react',
-        fullName: 'facebook/react',
         stars: 200000,
         forks: 40000,
       });
-      expect(data?.repositoryDetails?.[1]).toMatchObject({
+      expect(data?.repositories?.[1]).toMatchObject({
         owner: 'vercel',
         repo: 'next.js',
-        fullName: 'vercel/next.js',
       });
       expect(responseText).not.toContain('https://github.com/facebook/react');
     });
@@ -578,7 +574,13 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const firstStructured = firstResult.structuredContent as {
         results: Array<{
           data: {
-            repositories?: Array<string>;
+            repositories?: Array<{
+              owner: string;
+              repo: string;
+              stars?: number;
+              language?: string;
+              topics?: string[];
+            }>;
           };
         }>;
       };
@@ -586,9 +588,10 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       expect(firstData.repositories?.length ?? 0).toBeGreaterThan(0);
       for (const r of firstData.repositories ?? []) {
-        // each repo is an atomic one-liner: complete path + metrics, never cut
-        expect(typeof r).toBe('string');
-        expect(r).toMatch(/^test\/repo-\d+ · ★100/);
+        expect(r.owner).toBe('test');
+        expect(r.repo).toMatch(/^repo-\d+$/);
+        expect(typeof r).toBe('object');
+        expect(`${r.owner}/${r.repo}`).toMatch(/^test\/repo-\d+$/);
       }
     });
   });

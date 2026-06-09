@@ -60,7 +60,7 @@ export async function executeGrepFallbackSearch(
 
   const queryForExec: RipgrepQuery & { path: string } = {
     ...configuredQuery,
-    path: pathValidation.sanitizedPath!,
+    path: pathValidation.sanitizedPath,
   };
 
   const patternCheck = preflightValidateRipgrepPattern({
@@ -125,6 +125,7 @@ export async function executeGrepFallbackSearch(
             excludeDir: configuredQuery.excludeDir,
             fixedString: configuredQuery.fixedString,
             caseSensitive: configuredQuery.caseSensitive,
+            mode: configuredQuery.mode,
           } as Record<string, unknown>),
           'Try with ripgrep for better results when bundled ripgrep is repaired.',
         ],

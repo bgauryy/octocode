@@ -4,6 +4,7 @@ import {
   createRelaxedBulkQuerySchema,
   clampedInt,
   depthField,
+  optionalMetaFields,
   orderHintField,
   relaxedPageNumberField,
   requiredLineHintField,
@@ -14,23 +15,34 @@ import {
 } from '../shared/semanticTypes.js';
 
 const baseFields = {
-  id: z.string().optional().describe('Stable query identifier.'),
-  uri: z.string().optional(),
+  ...optionalMetaFields,
+  uri: z
+    .string()
+    .optional()
+    .describe(
+      'Required for all query types. Absolute file URI or path of the file containing the symbol. Pass either uri or filePath, not both.'
+    ),
   filePath: z
     .string()
     .optional()
-    .describe('Alias for uri — pass either, not both'),
-  workspaceRoot: z.string().optional(),
-  page: relaxedPageNumberField,
+    .describe(
+      'Alias for uri — pass either uri or filePath, not both. Required when uri is omitted.'
+    ),
+  workspaceRoot: z
+    .string()
+    .optional()
+    .describe(
+      'Override the workspace root used to locate/start the language server. Omit to auto-detect from the file path.'
+    ),
+  page: relaxedPageNumberField.describe(
+    'Result page (1-based) for documentSymbols and call-flow results. Use page=2, page=3, … to walk through long results.'
+  ),
   itemsPerPage: clampedInt(1, 100)
     .optional()
     .describe(
       'Semantic items per page for documentSymbols and call-flow results. Defaults to 40 for documentSymbols and 10 for call-flow.'
     ),
   contextLines: contextLinesField,
-  mainResearchGoal: z.string().optional(),
-  researchGoal: z.string().optional(),
-  reasoning: z.string().optional(),
 };
 
 export const LspGetSemanticContentQuerySchema = z.preprocess(
@@ -38,15 +50,30 @@ export const LspGetSemanticContentQuerySchema = z.preprocess(
   z
     .object({
       ...baseFields,
-      type: z.enum(SEMANTIC_CONTENT_TYPES).default('definition'),
-      symbolName: z.string().min(1).optional(),
+      type: z
+        .enum(SEMANTIC_CONTENT_TYPES)
+        .default('definition')
+        .describe(
+          'Semantic query kind: definition, references, callers, callees, callHierarchy, hover, documentSymbols, typeDefinition, or implementation. Defaults to definition.'
+        ),
+      symbolName: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          'Required unless type is documentSymbols. Exact name of the symbol to resolve at lineHint — case-sensitive, no parentheses.'
+        ),
       lineHint: requiredLineHintField
         .optional()
         .describe(
-          'Required for all symbol-anchored types (everything except documentSymbols). 1-based line number from a prior localSearchCode result.'
+          'Required unless type is documentSymbols. 1-based line number of the symbol from a prior localSearchCode result. The LSP searches ±2 lines around this hint.'
         ),
-      orderHint: orderHintField,
-      depth: depthField,
+      orderHint: orderHintField.describe(
+        'When multiple occurrences of symbolName sit on lineHint, select the Nth (0-based) occurrence. Defaults to 0 (first match).'
+      ),
+      depth: depthField.describe(
+        'For callHierarchy/callers/callees: maximum recursion depth to expand the call tree. Max 20; keep shallow to stay readable.'
+      ),
       includeDeclaration: z
         .boolean()
         .optional()
@@ -54,7 +81,12 @@ export const LspGetSemanticContentQuerySchema = z.preprocess(
         .describe(
           'For references: whether to include the symbol declaration itself in results. Defaults to true.'
         ),
-      groupByFile: z.boolean().optional(),
+      groupByFile: z
+        .boolean()
+        .optional()
+        .describe(
+          'For references: return a compact per-file summary instead of a flat list of usages.'
+        ),
     })
     .superRefine((value, ctx) => {
       requireUriOrFilePath(value, ctx);

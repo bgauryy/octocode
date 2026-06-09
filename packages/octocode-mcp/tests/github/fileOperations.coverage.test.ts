@@ -993,8 +993,7 @@ describe('File Operations - Additional Coverage Tests', () => {
         expect(
           result.data.matchLocations?.some(
             w =>
-              w.includes('Other occurrences at lines:') ||
-              w.includes('other location')
+              w.includes('Other occurrences:') || w.includes('other location')
           )
         ).toBe(true);
       }

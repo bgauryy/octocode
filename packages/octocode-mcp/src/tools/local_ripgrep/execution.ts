@@ -1,8 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import {
-  type RipgrepQuery,
-  RipgrepQuerySchema,
-} from '../../scheme/localSchemaOverlay.js';
+import { type RipgrepQuery, LocalRipgrepQuerySchema } from './scheme.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { searchContentRipgrep } from './searchContentRipgrep.js';
@@ -64,14 +61,30 @@ export async function executeRipgrepSearch(
         query,
         contextMessage: 'localSearchCode execution failed',
         execute: async () => {
-          const validation = RipgrepQuerySchema.safeParse(query);
+          const validation = LocalRipgrepQuerySchema.safeParse(query);
           if (!validation.success) {
             const messages = validation.error.issues
               .map(i => i.message)
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          const result = await searchContentRipgrep(validation.data);
+          // Map agent-facing renamed fields to the internal names that the
+          // ripgrep command builder reads.
+          const normalized = validation.data as RipgrepQuery & {
+            langType?: string;
+            countLinesPerFile?: boolean;
+            countMatchesPerFile?: boolean;
+          };
+          if (normalized.langType != null) {
+            normalized.type = normalized.langType;
+          }
+          if (normalized.countLinesPerFile != null) {
+            normalized.count = normalized.countLinesPerFile;
+          }
+          if (normalized.countMatchesPerFile != null) {
+            normalized.countMatches = normalized.countMatchesPerFile;
+          }
+          const result = await searchContentRipgrep(normalized);
           return attachEvidence(
             result as ProcessedBulkResult,
             buildRipgrepEvidence(result)

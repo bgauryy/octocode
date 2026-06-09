@@ -1,1 +1,1 @@
-{"calls":1,"in_chars":257,"out_chars":1871,"elapsed_ms":1459,"calls_detail":[{"cmd":"githubViewRepoStructure","in_chars":257,"out_chars":1871,"elapsed_ms":1459,"exit":0}],"tool_elapsed_ms":1459,"q_elapsed_ms":16324}
+{"calls":1,"in_chars":800,"out_chars":1848,"elapsed_ms":1669,"calls_detail":[{"cmd":"githubViewRepoStructure","in_chars":800,"out_chars":1848,"elapsed_ms":1669,"exit":0}],"tool_elapsed_ms":1669,"q_elapsed_ms":14313}

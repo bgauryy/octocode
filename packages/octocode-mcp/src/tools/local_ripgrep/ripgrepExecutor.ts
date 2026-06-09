@@ -55,7 +55,7 @@ export async function executeRipgrepSearchInternal(
 
   const queryForExec = {
     ...configuredQuery,
-    path: pathValidation.sanitizedPath!,
+    path: pathValidation.sanitizedPath,
   };
 
   const patternCheck = preflightValidateRipgrepPattern({
@@ -117,6 +117,7 @@ export async function executeRipgrepSearchInternal(
           excludeDir: configuredQuery.excludeDir,
           fixedString: configuredQuery.fixedString,
           caseSensitive: configuredQuery.caseSensitive,
+          mode: configuredQuery.mode,
         } as Record<string, unknown>),
       } as LocalSearchCodeToolResult,
       result.stdout.length

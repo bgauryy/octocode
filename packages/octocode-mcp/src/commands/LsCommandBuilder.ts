@@ -1,5 +1,5 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
-import type { ViewStructureQuery } from '../scheme/localSchemaOverlay.js';
+import type { ViewStructureQuery } from '../tools/local_view_structure/scheme.js';
 
 export class LsCommandBuilder extends BaseCommandBuilder {
   constructor() {

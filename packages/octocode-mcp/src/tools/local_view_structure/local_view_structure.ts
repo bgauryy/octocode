@@ -70,7 +70,7 @@ export async function viewStructure(
     if (query.depth || query.recursive) {
       return await viewStructureRecursive(
         query,
-        pathValidation.sanitizedPath!,
+        pathValidation.sanitizedPath,
         effectiveShowModified
       );
     }
@@ -90,7 +90,7 @@ export async function viewStructure(
     const { command, args } = builder
       .fromQuery({
         ...query,
-        path: pathValidation.sanitizedPath!,
+        path: pathValidation.sanitizedPath,
       })
       .build();
 
@@ -116,7 +116,7 @@ export async function viewStructure(
       ? parseLsLongFormat(result.stdout, effectiveShowModified)
       : await parseLsSimple(
           result.stdout,
-          pathValidation.sanitizedPath!,
+          pathValidation.sanitizedPath,
           effectiveShowModified
         );
 
@@ -131,7 +131,7 @@ export async function viewStructure(
       filteredEntries,
       query as { itemsPerPage?: number; page?: number }
     );
-    const sanitizedBasePath = pathValidation.sanitizedPath!;
+    const sanitizedBasePath = pathValidation.sanitizedPath;
     const outputEntries = paginatedEntries.map(entry => ({
       ...toEntryObject(entry),
       path: `${sanitizedBasePath}/${entry.name}`,
@@ -156,7 +156,6 @@ export async function viewStructure(
           ...(warnings.length > 0 && { warnings }),
           hints: [
             ...buildActiveViewStructureFilters(query),
-            ...entryPaginationHints,
             ...(isEmpty
               ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
                   entryCount: totalEntries,
@@ -167,7 +166,10 @@ export async function viewStructure(
                       ? (query as { pattern?: string }).pattern
                       : undefined,
                 } as Record<string, unknown>)
-              : []),
+              : [
+                  'Use localSearchCode to search or localGetFileContent to read discovered files.',
+                ]),
+            ...entryPaginationHints,
           ],
         },
         query
@@ -281,7 +283,7 @@ async function viewStructureRecursive(
   const baseHints = isEmpty
     ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
     : [
-        'Use localSearchCode to search within discovered directories, or localGetFileContent to read specific files.',
+        'Use localSearchCode to search or localGetFileContent to read discovered files.',
       ];
   const entryPaginationHints = buildEntryPaginationHints(
     filteredEntries,

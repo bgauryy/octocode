@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  FindFilesQuerySchema,
-  ViewStructureQuerySchema,
   LOCAL_OVERLAY_MAX_LIMIT,
   LOCAL_OVERLAY_MAX_DEPTH,
 } from '../../src/scheme/localSchemaOverlay.js';
+import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
+import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
 
-describe('FindFilesQuerySchema.limit bound', () => {
+describe('LocalFindFilesQuerySchema.limit bound', () => {
   it('clamps limit above LOCAL_OVERLAY_MAX_LIMIT to the max', () => {
-    const result = FindFilesQuerySchema.safeParse({
+    const result = LocalFindFilesQuerySchema.safeParse({
       path: '.',
       limit: LOCAL_OVERLAY_MAX_LIMIT + 1,
     });
@@ -21,7 +21,7 @@ describe('FindFilesQuerySchema.limit bound', () => {
   });
 
   it('clamps a negative limit up to the minimum', () => {
-    const result = FindFilesQuerySchema.safeParse({
+    const result = LocalFindFilesQuerySchema.safeParse({
       path: '.',
       limit: -5,
     });
@@ -32,7 +32,7 @@ describe('FindFilesQuerySchema.limit bound', () => {
   });
 
   it('accepts limit at the max bound', () => {
-    const result = FindFilesQuerySchema.safeParse({
+    const result = LocalFindFilesQuerySchema.safeParse({
       path: '.',
       limit: LOCAL_OVERLAY_MAX_LIMIT,
     });
@@ -40,14 +40,14 @@ describe('FindFilesQuerySchema.limit bound', () => {
   });
 
   it('accepts limit omitted', () => {
-    const result = FindFilesQuerySchema.safeParse({ path: '.' });
+    const result = LocalFindFilesQuerySchema.safeParse({ path: '.' });
     expect(result.success).toBe(true);
   });
 });
 
-describe('ViewStructureQuerySchema depth + limit bounds', () => {
+describe('LocalViewStructureQuerySchema depth + limit bounds', () => {
   it('clamps depth above LOCAL_OVERLAY_MAX_DEPTH to the max', () => {
-    const result = ViewStructureQuerySchema.safeParse({
+    const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
       depth: LOCAL_OVERLAY_MAX_DEPTH + 1,
     });
@@ -58,7 +58,7 @@ describe('ViewStructureQuerySchema depth + limit bounds', () => {
   });
 
   it('clamps limit above LOCAL_OVERLAY_MAX_LIMIT to the max', () => {
-    const result = ViewStructureQuerySchema.safeParse({
+    const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
       limit: LOCAL_OVERLAY_MAX_LIMIT + 1,
     });
@@ -69,7 +69,7 @@ describe('ViewStructureQuerySchema depth + limit bounds', () => {
   });
 
   it('clamps a negative depth up to the minimum', () => {
-    const result = ViewStructureQuerySchema.safeParse({
+    const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
       depth: -1,
     });
@@ -80,7 +80,7 @@ describe('ViewStructureQuerySchema depth + limit bounds', () => {
   });
 
   it('accepts depth at the max bound', () => {
-    const result = ViewStructureQuerySchema.safeParse({
+    const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
       depth: LOCAL_OVERLAY_MAX_DEPTH,
     });

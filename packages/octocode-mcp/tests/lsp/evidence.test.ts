@@ -85,4 +85,14 @@ describe('attachLspEvidence', () => {
         'No references were resolved for the supplied symbol and line hint.',
     });
   });
+
+  it('produces calls-specific empty reason when kind is calls', () => {
+    const result = attachLspEvidence(
+      { status: 'empty' as const, data: {} },
+      { kind: 'calls', paginationKey: 'pagination' }
+    );
+    expect(result.evidence?.reason).toBe(
+      'No calls were resolved for the supplied symbol and line hint.'
+    );
+  });
 });

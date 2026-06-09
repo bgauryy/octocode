@@ -1,19 +1,15 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  FetchContentQuerySchema,
-  RipgrepQuerySchema,
-} from '../../src/scheme/localSchemaOverlay.js';
-import {
-  FileContentQueryLocalSchema,
-  PackageSearchBulkQueryLocalSchema,
-} from '../../src/scheme/remoteSchemaOverlay.js';
+import { LocalFetchContentQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
+import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
+import { FileContentQueryLocalSchema } from '../../src/tools/github_fetch_content/scheme.js';
+import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
 
-describe('FetchContentQuerySchema mutual-exclusion', () => {
+describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
   const baseQuery = { path: 'src/foo.ts' };
 
   it('rejects fullContent=true together with matchString', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       fullContent: true,
       matchString: 'foo',
@@ -26,7 +22,7 @@ describe('FetchContentQuerySchema mutual-exclusion', () => {
   });
 
   it('rejects fullContent=true together with startLine/endLine', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       fullContent: true,
       startLine: 10,
@@ -40,7 +36,7 @@ describe('FetchContentQuerySchema mutual-exclusion', () => {
   });
 
   it('rejects matchString together with startLine/endLine', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       matchString: 'foo',
       startLine: 10,
@@ -54,7 +50,7 @@ describe('FetchContentQuerySchema mutual-exclusion', () => {
   });
 
   it('accepts fullContent=true alone', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       fullContent: true,
     });
@@ -62,7 +58,7 @@ describe('FetchContentQuerySchema mutual-exclusion', () => {
   });
 
   it('accepts matchString alone', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       matchString: 'foo',
     });
@@ -70,7 +66,7 @@ describe('FetchContentQuerySchema mutual-exclusion', () => {
   });
 
   it('accepts startLine+endLine alone', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       startLine: 10,
       endLine: 20,
@@ -79,7 +75,7 @@ describe('FetchContentQuerySchema mutual-exclusion', () => {
   });
 
   it('accepts fullContent=false with matchString', () => {
-    const result = FetchContentQuerySchema.safeParse({
+    const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       fullContent: false,
       matchString: 'foo',
@@ -173,11 +169,11 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
   });
 });
 
-describe('RipgrepQuerySchema mutex checks', () => {
+describe('LocalRipgrepQuerySchema mutex checks', () => {
   const baseQuery = { pattern: 'foo', path: '/repo' };
 
   it('rejects filesOnly=true together with filesWithoutMatch=true', () => {
-    const result = RipgrepQuerySchema.safeParse({
+    const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
       filesOnly: true,
       filesWithoutMatch: true,
@@ -190,7 +186,7 @@ describe('RipgrepQuerySchema mutex checks', () => {
   });
 
   it('rejects fixedString=true together with perlRegex=true', () => {
-    const result = RipgrepQuerySchema.safeParse({
+    const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
       fixedString: true,
       perlRegex: true,
@@ -203,7 +199,7 @@ describe('RipgrepQuerySchema mutex checks', () => {
   });
 
   it('accepts filesOnly=true alone', () => {
-    const result = RipgrepQuerySchema.safeParse({
+    const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
       filesOnly: true,
     });
@@ -211,7 +207,7 @@ describe('RipgrepQuerySchema mutex checks', () => {
   });
 
   it('accepts fixedString=true alone', () => {
-    const result = RipgrepQuerySchema.safeParse({
+    const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
       fixedString: true,
     });
@@ -219,7 +215,7 @@ describe('RipgrepQuerySchema mutex checks', () => {
   });
 
   it('allows count + countMatches together (warning, not error)', () => {
-    const result = RipgrepQuerySchema.safeParse({
+    const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
       count: true,
       countMatches: true,

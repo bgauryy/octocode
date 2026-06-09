@@ -130,21 +130,23 @@ export async function searchMultipleGitHubPullRequests(
             Boolean((query as { reviewMode?: unknown }).reviewMode));
         const prMinify =
           (effectiveQuery as { minify?: boolean }).minify !== false;
+        const leanRequest = {
+          ...contentRequest,
+          body: false,
+          changedFiles: false,
+          patches: { mode: 'none' as const },
+          comments: false as const,
+          commits: false as const,
+        };
+        const showContentMap =
+          shouldLeanBroadShape || hasExpensiveContentRequest(contentRequest);
         const shapedPullRequests = pullRequests.map(pr =>
           shapePullRequestForContent(
             pr,
             effectiveQuery as never,
-            shouldLeanBroadShape
-              ? {
-                  ...contentRequest,
-                  body: false,
-                  changedFiles: false,
-                  patches: { mode: 'none' },
-                  comments: false,
-                  commits: false,
-                }
-              : contentRequest,
-            prMinify
+            shouldLeanBroadShape ? leanRequest : contentRequest,
+            prMinify,
+            showContentMap
           )
         );
         resultData.pull_requests = shapedPullRequests;
@@ -171,7 +173,9 @@ export async function searchMultipleGitHubPullRequests(
         const resultHints: string[] = hasContent
           ? [
               `Found ${shapedPullRequests.length} PR${shapedPullRequests.length === 1 ? '' : 's'}.`,
-              ...buildContentHints(shapedPullRequests, contentRequest),
+              ...(showContentMap
+                ? buildContentHints(shapedPullRequests, contentRequest)
+                : []),
             ]
           : [];
 
@@ -247,6 +251,7 @@ export async function searchMultipleGitHubPullRequests(
               author: effectiveQuery.author,
               query: effectiveQuery.query,
               prNumber: effectiveQuery.prNumber,
+              matchScope: effectiveQuery.matchScope,
             },
             extraHints: shaped.extraHints,
             evidence: {

@@ -10,6 +10,7 @@ export const hints: ToolHintGenerators = {
       ? (c.excludeDir as unknown[])
       : [];
     const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
+    const mode = typeof c.mode === 'string' ? c.mode : undefined;
 
     if (
       !pattern &&
@@ -57,9 +58,11 @@ export const hints: ToolHintGenerators = {
       out.push(
         "Verify files exist: use `localFindFiles` with a name filter or `localViewStructure` to confirm the path isn't empty before retrying."
       );
-      out.push(
-        'Tip: use mode="discovery" for a fast cheap presence-check (returns only file paths + match counts, no content) before doing a full read.'
-      );
+      if (mode !== 'discovery') {
+        out.push(
+          'Tip: use mode="discovery" for a fast cheap presence-check (returns only file paths + match counts, no content) before doing a full read.'
+        );
+      }
     }
     return out;
   },

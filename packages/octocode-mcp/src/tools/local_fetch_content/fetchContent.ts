@@ -20,7 +20,7 @@ import {
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
 import type { LocalGetFileContentToolResult } from '@octocodeai/octocode-core/extra-types';
-import type { FetchContentQuery } from '../../scheme/localSchemaOverlay.js';
+import type { FetchContentQuery } from './scheme.js';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
@@ -120,6 +120,7 @@ async function getFileStatsOrError(
       fileStats: await stat(absolutePath),
     };
   } catch (error) {
+    // query.path is non-null: validated by validateToolPath before this runs.
     const toolError = ToolErrors.fileAccessFailed(
       query.path!,
       error instanceof Error ? error : undefined
@@ -131,6 +132,7 @@ async function getFileStatsOrError(
         extra: {
           resolvedPath: absolutePath,
         },
+        hintContext: { path: query.path },
       }) as LocalGetFileContentToolResult,
     };
   }
@@ -153,6 +155,7 @@ function createLargeFileErrorResult(
   absolutePath: string,
   fileSizeKB: number
 ): LocalGetFileContentToolResult {
+  // query.path is non-null: validated by validateToolPath before this runs.
   const toolError = ToolErrors.fileTooLarge(
     query.path!,
     fileSizeKB,
@@ -170,6 +173,7 @@ function createBinaryFileErrorResult(
   query: FetchContentQuery,
   absolutePath: string
 ): LocalGetFileContentToolResult {
+  // query.path is non-null: validated by validateToolPath before this runs.
   const toolError = ToolErrors.binaryFileUnsupported(query.path!);
 
   return createErrorResult(toolError, query, {
@@ -206,6 +210,7 @@ async function isLikelyBinaryFile(filePath: string): Promise<boolean> {
     let controlBytes = 0;
     let index = 0;
     while (index < sample.length) {
+      // index < sample.length is guaranteed by the loop condition above.
       const byte = sample[index]!;
 
       if (
@@ -253,6 +258,7 @@ async function readFileContentOrError(
       content: await readFile(absolutePath, 'utf-8'),
     };
   } catch (error) {
+    // query.path is non-null: validated by validateToolPath before this runs.
     const toolError = ToolErrors.fileReadFailed(
       query.path!,
       error instanceof Error ? error : undefined
@@ -300,8 +306,9 @@ function buildMatchExtractionState(
 ): ExtractionState {
   const result = extractMatchingLines(
     lines,
+    // matchString is present: this builder runs only on the matchString branch.
     query.matchString!,
-    query.matchStringContextLines ?? 5,
+    (query as { contextLines?: number }).contextLines ?? 5,
     query.matchStringIsRegex ?? false,
     query.matchStringCaseSensitive ?? false
   );
@@ -381,6 +388,7 @@ function buildLineRangeExtractionState(
   lines: string[],
   totalLines: number
 ): ExtractionState {
+  // Both are defined here — this builder runs only when hasLineRangeRequest() is true.
   const requestedStartLine = query.startLine!;
   const requestedEndLine = query.endLine!;
   const effectiveStartLine = Math.max(1, requestedStartLine);
@@ -614,7 +622,7 @@ export async function fetchContent(
       return invalidExtractionResult;
     }
 
-    const absolutePath = pathValidation.sanitizedPath!;
+    const absolutePath = pathValidation.sanitizedPath;
     const queryPath = String(query.path);
 
     const { fileStats, errorResult: fileStatsError } =

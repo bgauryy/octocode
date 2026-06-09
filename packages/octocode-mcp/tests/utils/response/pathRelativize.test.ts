@@ -49,6 +49,15 @@ describe('relativizeResultPaths (structuredContent leanness)', () => {
     ).toBeUndefined();
   });
 
+  it('returns undefined when paths have no shared directory prefix', () => {
+    const results = [
+      { data: { files: [{ path: '/aaa/x.ts' }] } },
+      { data: { files: [{ path: '/bbb/y.ts' }] } },
+    ];
+    expect(relativizeResultPaths(results)).toBeUndefined();
+    expect(results[0]!.data.files[0]!.path).toBe('/aaa/x.ts');
+  });
+
   it('relativizes absolute `uri` fields (LSP locations[]) and returns base', () => {
     const results = [
       {
@@ -155,6 +164,9 @@ describe('hoistSharedFields', () => {
 });
 
 describe('commonDirPrefix', () => {
+  it('returns "" for empty array', () => {
+    expect(commonDirPrefix([])).toBe('');
+  });
   it('returns the deepest shared directory (no trailing slash)', () => {
     expect(commonDirPrefix(['/a/b/c/x.ts', '/a/b/c/y.ts', '/a/b/d/z.ts'])).toBe(
       '/a/b'

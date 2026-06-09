@@ -1,28 +1,24 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  BulkRipgrepQuerySchema,
-  BulkFindFilesSchema,
-  BulkFetchContentQuerySchema,
-  BulkViewStructureSchema,
-} from '../../src/scheme/localSchemaOverlay.js';
-import {
-  FileContentBulkQueryLocalSchema,
-  GitHubCodeSearchBulkQueryLocalSchema,
-  GitHubViewRepoStructureBulkQueryLocalSchema,
-  GitHubReposSearchBulkQueryLocalSchema,
-  GitHubPullRequestSearchBulkQueryLocalSchema,
-  PackageSearchBulkQueryLocalSchema,
-  BulkCloneRepoLocalSchema,
-} from '../../src/scheme/remoteSchemaOverlay.js';
+import { LocalRipgrepBulkQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
+import { LocalFindFilesBulkQuerySchema } from '../../src/tools/local_find_files/scheme.js';
+import { LocalFetchContentBulkQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
+import { LocalViewStructureBulkQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
+import { FileContentBulkQueryLocalSchema } from '../../src/tools/github_fetch_content/scheme.js';
+import { GitHubCodeSearchBulkQueryLocalSchema } from '../../src/tools/github_search_code/scheme.js';
+import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../src/tools/github_view_repo_structure/scheme.js';
+import { GitHubReposSearchBulkQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';
+import { GitHubPullRequestSearchBulkQueryLocalSchema } from '../../src/tools/github_search_pull_requests/scheme.js';
+import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
+import { BulkCloneRepoLocalSchema } from '../../src/tools/github_clone_repo/scheme.js';
 import { BulkLspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
 import { BulkLspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 
 const ALL_BULK_SCHEMAS = [
-  ['BulkRipgrepQuerySchema', BulkRipgrepQuerySchema],
-  ['BulkFindFilesSchema', BulkFindFilesSchema],
-  ['BulkFetchContentQuerySchema', BulkFetchContentQuerySchema],
-  ['BulkViewStructureSchema', BulkViewStructureSchema],
+  ['LocalRipgrepBulkQuerySchema', LocalRipgrepBulkQuerySchema],
+  ['LocalFindFilesBulkQuerySchema', LocalFindFilesBulkQuerySchema],
+  ['LocalFetchContentBulkQuerySchema', LocalFetchContentBulkQuerySchema],
+  ['LocalViewStructureBulkQuerySchema', LocalViewStructureBulkQuerySchema],
   ['FileContentBulkQueryLocalSchema', FileContentBulkQueryLocalSchema],
   [
     'GitHubCodeSearchBulkQueryLocalSchema',

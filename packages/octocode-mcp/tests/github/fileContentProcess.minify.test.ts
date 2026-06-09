@@ -16,6 +16,19 @@ const TS_CONTENT = [
   '}',
 ].join('\n');
 
+// Import lines with inline comments ARE kept verbatim by extractSignatures.
+// This lets us directly test that minify:false preserves those comments in the
+// skeleton and minify:true strips them — without relying on interface bodies
+// (which need single-line syntax to be captured by the current patterns).
+const TS_CONTENT_SIGS = [
+  'import { useState } from "react"; // state hook',
+  'import { useEffect } from "react"; // effect hook',
+  '',
+  'export function Counter() {',
+  '  return useState(0);',
+  '}',
+].join('\n');
+
 describe('processFileContentAPI — minify flag', () => {
   it('strips comments by default (minify omitted)', async () => {
     const result = await processFileContentAPI(
@@ -76,9 +89,11 @@ describe('processFileContentAPI — minify flag', () => {
     expect(result.content).toContain('// inline counter init');
   });
 
-  it('minify=true strips comments from signaturesOnly output', async () => {
+  it('minify:true strips inline comments from import lines in signaturesOnly output', async () => {
+    // Import lines are always kept verbatim by extractSignatures.
+    // With minify:true their inline comments must be stripped.
     const result = await processFileContentAPI(
-      TS_CONTENT,
+      TS_CONTENT_SIGS,
       'facebook',
       'react',
       'main',
@@ -93,13 +108,16 @@ describe('processFileContentAPI — minify flag', () => {
       undefined,
       true
     );
-    expect(result.content).not.toContain('// Top-level comment');
-    expect(result.content).not.toContain('// inline counter init');
+    expect(result.content).not.toContain('// state hook');
+    expect(result.content).not.toContain('// effect hook');
+    expect(result.content).toContain('import { useState }');
+    expect(result.content).toContain('export function Counter');
   });
 
-  it('minify=false preserves comments in signaturesOnly output', async () => {
+  it('minify:false preserves inline comments on import lines in signaturesOnly output', async () => {
+    // Same skeleton — with minify:false, import-line comments must survive.
     const result = await processFileContentAPI(
-      TS_CONTENT,
+      TS_CONTENT_SIGS,
       'facebook',
       'react',
       'main',
@@ -114,6 +132,9 @@ describe('processFileContentAPI — minify flag', () => {
       undefined,
       false
     );
+    expect(result.content).toContain('// state hook');
+    expect(result.content).toContain('// effect hook');
+    expect(result.content).toContain('import { useState }');
     expect(result.content).toContain('export function Counter');
   });
 });
@@ -157,6 +178,30 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
     const result = applyContentPagination(data, 0, 100);
     expect(result.content).toHaveLength(100);
     expect(result.pagination?.hasMore).toBe(true);
+  });
+
+  it('pagination output contains only char fields — no byteOffset/byteLength/totalBytes', () => {
+    // Byte fields must be absent: consumers must use charOffset as continuation
+    // cursor, not byteOffset (which would silently produce wrong results on
+    // CJK/emoji content where chars ≠ bytes).
+    const content = 'x'.repeat(200);
+    const data = {
+      owner: 'test',
+      repo: 'repo',
+      path: 'file.ts',
+      content,
+      branch: 'main',
+      totalLines: 1,
+    };
+
+    const result = applyContentPagination(data, 0, 100);
+    expect(result.pagination).toBeDefined();
+    expect(result.pagination).not.toHaveProperty('byteOffset');
+    expect(result.pagination).not.toHaveProperty('byteLength');
+    expect(result.pagination).not.toHaveProperty('totalBytes');
+    expect(result.pagination).toHaveProperty('charOffset');
+    expect(result.pagination).toHaveProperty('charLength');
+    expect(result.pagination).toHaveProperty('totalChars');
   });
 
   it('charOffset advances by chars, not bytes', () => {

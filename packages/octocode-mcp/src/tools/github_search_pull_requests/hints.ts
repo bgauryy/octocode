@@ -9,6 +9,10 @@ export const hints: ToolHintGenerators = {
     const author = typeof c.author === 'string' ? c.author : undefined;
     const query = typeof c.query === 'string' ? c.query : undefined;
     const prNumber = typeof c.prNumber === 'number' ? c.prNumber : undefined;
+    const matchScope = Array.isArray(c.matchScope)
+      ? (c.matchScope as string[])
+      : undefined;
+    const alreadyTitleScope = matchScope?.includes('title') ?? false;
     const scope = owner && repo ? `${owner}/${repo}` : undefined;
 
     if (prNumber !== undefined && scope) {
@@ -36,9 +40,15 @@ export const hints: ToolHintGenerators = {
       state === 'merged'
         ? 'Zero merged PRs matched. If unexpected, verify the label spelling or date range; try omitting `state` to check all PR states.'
         : 'If unexpected, try removing one filter at a time: drop `author` first, then loosen `query` keywords.',
-      query
-        ? 'For approximate title matching, use `matchScope=["title"]` with `sort="best-match"` to surface the closest PR.'
-        : 'Add a `query` with keywords from the PR title or body to narrow the search.',
+      ...(query && !alreadyTitleScope
+        ? [
+            'For approximate title matching, use `matchScope=["title"]` with `sort="best-match"` to surface the closest PR.',
+          ]
+        : !query
+          ? [
+              'Add a `query` with keywords from the PR title or body to narrow the search.',
+            ]
+          : []),
       'Tip: the `query` field supports GitHub search qualifiers — e.g. `label:bug`, `created:>2024-01-01`, `merged:>2024-06-01`, `involves:<user>` — to filter by date, label, or involvement.',
     ];
   },

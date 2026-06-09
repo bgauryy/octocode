@@ -116,12 +116,11 @@ export async function buildSearchResult(
   const paginationHints: string[] =
     filePageNumber < totalFilePages
       ? [
-          `File page ${filePageNumber}/${totalFilePages} (showing ${finalFiles.length} of ${totalFiles}, ${totalMatches} matches). Next: page=${filePageNumber + 1}`,
-          `Results are paginated — use page=2, page=3 … to retrieve all matches before reporting a total count or enumerating exhaustively.`,
+          `Page ${filePageNumber}/${totalFilePages} (${finalFiles.length} of ${totalFiles} files, ${totalMatches} matches). Next: page=${filePageNumber + 1}`,
         ]
       : totalFilePages > 0 && filePageNumber > totalFilePages
         ? [
-            `Requested page ${filePageNumber} is outside available range (1-${totalFilePages}). Use page=${totalFilePages} for the last page.`,
+            `Page ${filePageNumber} is outside range (1–${totalFilePages}). Use page=${totalFilePages}.`,
           ]
         : [];
 
@@ -158,7 +157,7 @@ export async function buildSearchResult(
   if (Array.isArray(excludeDir) && excludeDir.length > 0) {
     activeFilters.push(`excludeDir: ${excludeDir.join(', ')}`);
   }
-  const fileType = q.type as string | undefined;
+  const fileType = (q.type ?? q.langType) as string | undefined;
   if (fileType) activeFilters.push(`type: ${fileType}`);
   if (q.caseSensitive) activeFilters.push('case-sensitive');
   if (q.wholeWord) activeFilters.push('whole-word');
@@ -179,9 +178,9 @@ export async function buildSearchResult(
     },
     ...(warnings.length > 0 ? { warnings } : {}),
     hints: [
-      ...(totalFiles > 0
+      ...(totalFiles > 0 && !isFileListMode
         ? [
-            'Results include lineHint values — pass them to lspGetSemanticContent for semantic definitions, references, call flow, hover, and related symbols.',
+            'Pass line numbers as lineHint to lspGetSemanticContent for definitions, references, or call flow.',
           ]
         : []),
       ...paginationHints,

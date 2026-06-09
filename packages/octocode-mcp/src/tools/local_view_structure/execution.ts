@@ -1,8 +1,8 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   type ViewStructureQuery,
-  ViewStructureQuerySchema,
-} from '../../scheme/localSchemaOverlay.js';
+  LocalViewStructureQuerySchema,
+} from './scheme.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { viewStructure } from './local_view_structure.js';
@@ -41,7 +41,7 @@ export async function executeViewStructure(
         query,
         contextMessage: 'localViewStructure execution failed',
         execute: async () => {
-          const validation = ViewStructureQuerySchema.safeParse(query);
+          const validation = LocalViewStructureQuerySchema.safeParse(query);
           if (!validation.success) {
             const messages = validation.error.issues
               .map(i => i.message)

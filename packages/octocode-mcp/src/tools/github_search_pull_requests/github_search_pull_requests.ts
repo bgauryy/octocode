@@ -8,7 +8,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   GitHubPullRequestSearchBulkQueryLocalSchema,
   GitHubSearchPullRequestsOutputLocalSchema,
-} from '../../scheme/remoteSchemaOverlay.js';
+} from './scheme.js';
 import { searchMultipleGitHubPullRequests } from './execution.js';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 

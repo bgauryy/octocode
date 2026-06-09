@@ -1,23 +1,33 @@
 import { z } from 'zod';
-import { createRelaxedBulkQuerySchema } from '../../../scheme/localSchemaOverlay.js';
+import {
+  createRelaxedBulkQuerySchema,
+  optionalMetaFields,
+} from '../../../scheme/localSchemaOverlay.js';
 import { LSP_GET_DIAGNOSTICS_TOOL_NAME } from '../shared/semanticTypes.js';
 
 export const LspGetDiagnosticsQuerySchema = z.preprocess(
   normalizeFilePathAlias,
   z
     .object({
-      id: z.string().optional().describe('Stable query identifier.'),
+      ...optionalMetaFields,
       uri: z
         .string()
         .optional()
         .describe(
-          'Absolute file URI in the format file:///absolute/path/to/file.ts. Use this to check a specific file for errors after editing it.'
+          'Required. Absolute file path or file:/// URI of the file to check. Either uri or filePath must be provided. Use this to check a specific file for errors after editing it.'
         ),
       filePath: z
         .string()
         .optional()
-        .describe('Alias for uri — pass either, not both'),
-      workspaceRoot: z.string().optional(),
+        .describe(
+          'Alias for uri — pass either uri or filePath, not both. Required when uri is omitted.'
+        ),
+      workspaceRoot: z
+        .string()
+        .optional()
+        .describe(
+          'Override the workspace root used to locate/start the language server. Omit to auto-detect from the file path.'
+        ),
       severity: z
         .enum(['error', 'warning', 'information', 'hint', 'all'])
         .optional()
@@ -31,9 +41,6 @@ export const LspGetDiagnosticsQuerySchema = z.preprocess(
         .describe(
           'Filter diagnostics by their source (e.g. "typescript", "eslint"). Omit to get all sources.'
         ),
-      mainResearchGoal: z.string().optional(),
-      researchGoal: z.string().optional(),
-      reasoning: z.string().optional(),
     })
     .superRefine((value, ctx) => {
       if (!value.uri && !value.filePath) {

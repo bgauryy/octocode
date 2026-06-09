@@ -21,7 +21,7 @@ export const hints: ToolHintGenerators = {
 
     return [
       `No files match ${filters.join(' + ')} in ${path ?? 'this path'}.`,
-      'Widen: remove filters one at a time; use `iname` for case-insensitive glob or `names` for an OR list of patterns.',
+      'Widen: remove filters one at a time; use `names` for an OR list of glob patterns or `iname` for a single case-insensitive glob.',
       'For content-based search, use `localSearchCode` instead — `localFindFiles` matches metadata only.',
     ];
   },

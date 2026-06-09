@@ -109,7 +109,8 @@ describe('GitHub Search Repositories Response Structure Test', () => {
     expect(responseText).toContain('id: "repos_response_structure"');
     expect(responseText).not.toContain('status: "hasResults"');
     expect(responseText).toContain('repositories:');
-    expect(responseText).toContain('facebook/react');
-    expect(responseText).toContain('vercel/next.js');
+    expect(responseText).toContain('facebook');
+    expect(responseText).toContain('react');
+    expect(responseText).toContain('vercel');
   }, 5000);
 });
