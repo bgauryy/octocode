@@ -5,10 +5,11 @@
  * ─── applyContentViewMinification  (sync, conservative)
  *       Used by: localGetFileContent, githubGetFileContent, PR patches
  *       Pipeline per category (driven by MINIFY_CONFIG):
- *         json / jsonc / json5 → minifyJsonCore
+ *         json / jsonc / json5 → minifyJsonReadable
  *         md / markdown        → minifyMarkdownCore
- *         files with comments  → removeComments(configured) + minifyGeneralCore
- *         csv / txt / log / …  → minifyGeneralCore only
+ *         code/config files    → removeComments(configured) + minifyCodeCore
+ *         txt / log / unknown  → minifyGeneralCore only
+ *         Makefile-style names → hash comments + minifyCodeCore
  *
  * ─── minifyContent (async, aggressive)
  *       Used by: githubSearchCode (fragments)
@@ -22,8 +23,8 @@
  *       ts/tsx/js/jsx/mjs/cjs  → TypeScript AST (regex fallback)
  *       py  → indent heuristic
  *       go  → column-0 anchoring
- *       java/cs/kt  → line-pattern
- *       rs  → line-pattern
+ *       java/cs/kt/kotlin  → line-pattern
+ *       rs/rust  → line-pattern
  *       c/h/cpp/hpp → struct+func head
  *       rb  → line-pattern
  *       php → line-pattern
@@ -261,14 +262,17 @@ describe('applyContentViewMinification — SQL comments', () => {
 });
 
 describe('applyContentViewMinification — Lua comments', () => {
-  it('lua: strips -- line and --[[ ]] block comments', () => {
+  it('lua: strips line, inline, and --[[ ]] block comments', () => {
     const r = applyContentViewMinification(
-      '-- lc\nlocal x = 1\n--[[ bc ]]\nlocal y = 2\n',
+      '-- lc\nlocal x = 1 -- inline\n--[[ bc\nmulti ]]\nlocal y = 2\n',
       'f.lua'
     );
     hasNot(r, '-- lc', 'lua-line');
-    hasNot(r, '--[[ bc ]]', 'lua-block');
+    hasNot(r, '-- inline', 'lua-inline');
+    hasNot(r, 'bc', 'lua-block');
+    hasNot(r, 'multi', 'lua-block');
     has(r, 'local x = 1', 'lua-code');
+    has(r, 'local y = 2', 'lua-code2');
   });
 });
 
@@ -364,13 +368,61 @@ describe('applyContentViewMinification — general fallback (no comments)', () =
     expect(r).not.toMatch(/\n{3,}/);
     has(r, 'a', 'unknown');
   });
-  it('no extension (e.g. Makefile) → general', () => {
+  it.each([['txt'], ['log']])(
+    '%s content-view uses general indentation compression',
+    ext => {
+      const input = 'header\n\tchild\n\n\n    grandchild   \n';
+      const r = applyContentViewMinification(input, `f.${ext}`);
+
+      expect(r).toContain('\n  child');
+      expect(r).toContain('\n  grandchild');
+      expect(r).not.toContain('\n\tchild');
+      expect(r).not.toContain('\n    grandchild');
+    }
+  );
+  it('indentation-sensitive no-extension names preserve tabs and strip hash comments', () => {
     const r = applyContentViewMinification(
-      'build:\n\t@echo ok\n\n\ntest:\n',
+      '# hidden\nbuild:\n\t@echo ok\n\n\ntest:\n\t@echo test\n',
       'Makefile'
     );
-    str(r, 'Makefile');
+    hasNot(r, '# hidden', 'Makefile-hash-comment');
+    has(r, '\t@echo ok', 'Makefile-tab');
+    has(r, '\t@echo test', 'Makefile-tab2');
+    expect(r).not.toMatch(/\n{3,}/);
   });
+  it('indentation-sensitive Windows paths preserve tabs', () => {
+    const r = applyContentViewMinification(
+      '# hidden\nrun:\n\tcommand\n',
+      'C:\\repo\\Justfile'
+    );
+    hasNot(r, '# hidden', 'Justfile-hash-comment');
+    has(r, '\tcommand', 'Justfile-tab');
+  });
+});
+
+describe('applyContentViewMinification — fragile formats stay structural', () => {
+  const FRAGILE_CASES: Array<[string, string, string]> = [
+    ['toml', '# c\n[tool]\nname = "demo"\n', '[tool]'],
+    ['ini', '; c\n[app]\nkey=value\n', '[app]'],
+    ['graphql', '# c\ntype Query {\n  user: String\n}\n', 'type Query'],
+    ['gql', '# c\ntype Mutation {\n  ok: Boolean\n}\n', 'type Mutation'],
+    ['proto', '// c\nsyntax = "proto3";\nmessage User {}\n', 'message User'],
+    ['sql', '-- c\nSELECT id\nFROM users;\n', 'FROM users'],
+    ['hbs', '{{!-- c --}}\n<div>\n  {{name}}\n</div>\n', '{{name}}'],
+    ['ejs', '<%# c %>\n<ul>\n  <li><%= name %></li>\n</ul>\n', '<li>'],
+    ['mustache', '{{! c }}\n<section>\n  {{name}}\n</section>\n', '{{name}}'],
+    ['twig', '{# c #}\n<section>\n  {{ name }}\n</section>\n', '{{ name }}'],
+  ];
+
+  it.each(FRAGILE_CASES)(
+    'ext=%s keeps multi-line shape through content-view minification',
+    (ext, input, expected) => {
+      const r = applyContentViewMinification(input, `f.${ext}`);
+
+      has(r, expected, ext);
+      expect(r.split('\n').length, `${ext}: line count`).toBeGreaterThan(1);
+    }
+  );
 });
 
 describe('applyContentViewMinification — all MINIFY_CONFIG exts: never throws, never longer', () => {

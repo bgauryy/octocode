@@ -1153,7 +1153,9 @@ const STRATEGY_REGISTRY: Record<string, SignatureStrategy> = {
   java: javaCsStrategy,
   cs: javaCsStrategy,
   kt: javaCsStrategy,
+  kotlin: javaCsStrategy,
   rs: rustStrategy,
+  rust: rustStrategy,
   c: cFamilyStrategy,
   h: cFamilyStrategy,
   cpp: cFamilyStrategy,
@@ -1185,8 +1187,8 @@ export const SUPPORTED_SIGNATURE_EXTENSIONS = Object.freeze(
  *
  * ts/tsx/js/jsx/mjs/cjs are parsed with the TypeScript compiler API (regex
  * fallback when the parser throws) — vue/svelte script blocks reuse the same
- * AST path with original-line offsets; py/go/java/cs/kt/rs/c/cpp/rb/php/
- * swift/css/scss/less/html/sql/sh use lean per-family heuristics.
+ * AST path with original-line offsets; py/go/java/cs/kt/kotlin/rs/rust/c/cpp/
+ * rb/php/swift/css/scss/less/html/sql/sh use lean per-family heuristics.
  *
  * Returns null when the file extension is not recognised or when extraction
  * produces an empty result (caller should use the original content).

@@ -18,8 +18,8 @@ function parseMinify(schema: z.ZodTypeAny, input: Record<string, unknown>) {
 }
 
 describe('minify enum — githubGetFileContent scheme', () => {
-  it('defaults to "none" when omitted', () => {
-    expect(parseMinify(FileContentQueryLocalSchema, GH_BASE)).toBe('none');
+  it('returns undefined when omitted (runtime default applied by getOutputMinifyDefault)', () => {
+    expect(parseMinify(FileContentQueryLocalSchema, GH_BASE)).toBeUndefined();
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
@@ -59,8 +59,8 @@ describe('minify enum — githubGetFileContent scheme', () => {
 });
 
 describe('minify enum — localGetFileContent scheme', () => {
-  it('defaults to "none" when omitted', () => {
-    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('none');
+  it('returns undefined when omitted (runtime default applied by getOutputMinifyDefault)', () => {
+    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBeUndefined();
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
@@ -103,10 +103,8 @@ describe('minify enum — localGetFileContent scheme', () => {
 });
 
 describe('minify enum — githubSearchPullRequests scheme', () => {
-  it('defaults to "none" when omitted', () => {
-    expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBe(
-      'none'
-    );
+  it('returns undefined when omitted (runtime default applied by getOutputMinifyDefault)', () => {
+    expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBeUndefined();
   });
 
   it.each(['none', 'standard'])('accepts "%s"', value => {

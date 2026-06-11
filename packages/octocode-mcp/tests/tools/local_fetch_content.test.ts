@@ -76,7 +76,7 @@ describe('localGetFileContent', () => {
       expect(result.totalLines).toBe(3);
     });
 
-    it('returns raw content by default (minify omitted → "none")', async () => {
+    it('strips comments by default (minify omitted → inherits "standard" from config)', async () => {
       const testContent =
         'function test() {\n  // explain the return\n  return true;\n}';
       mockReadFile.mockResolvedValue(testContent);
@@ -87,8 +87,8 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.content).toContain('// explain the return');
-      expect(result.content).toBe(testContent);
+      expect(result.content).not.toContain('// explain the return');
+      expect(result.content).toContain('return true');
     });
 
     it('strips comments and whitespace with minify:"standard"', async () => {

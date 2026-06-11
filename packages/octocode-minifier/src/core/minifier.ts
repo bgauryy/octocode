@@ -19,7 +19,7 @@ const MINIFIER_EXT_OPTIONS = { lowercase: true, fallback: 'txt' } as const;
 
 function getFileConfig(filePath: string): FileTypeMinifyConfig {
   const ext = getExtension(filePath, MINIFIER_EXT_OPTIONS);
-  const baseName = (filePath.split('/').pop() || '').toLowerCase();
+  const baseName = (filePath.split(/[\\/]/).pop() || '').toLowerCase();
 
   if (INDENTATION_SENSITIVE_NAMES.has(baseName)) {
     return { strategy: 'conservative', comments: 'hash' };

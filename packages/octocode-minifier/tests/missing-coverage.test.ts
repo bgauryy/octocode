@@ -16,12 +16,16 @@
  *
  *  3. Exported constant never asserted:
  *       SIGNATURES_ONLY_HINT
+ *
+ *  4. Long-name skeleton aliases:
+ *       kotlin / rust
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   extractSignatures,
   SIGNATURES_ONLY_HINT,
+  SUPPORTED_SIGNATURE_EXTENSIONS,
   minifyJsonReadable,
   minifyJavaScriptCore,
   minifyConservativeCore,
@@ -165,6 +169,23 @@ describe('extractSignatures — kt (Kotlin / javaCsStrategy)', () => {
 
   it('skeleton is shorter than the source', () => {
     expect(sigs.length).toBeLessThan(KT_SOURCE.length);
+  });
+
+  it('supports the long-name .kotlin extension alias', () => {
+    const aliasSigs = extractSignatures(KT_SOURCE, 'UserService.kotlin')!;
+
+    expect(aliasSigs).not.toBeNull();
+    expect(aliasSigs).toContain('interface Repository');
+    expect(aliasSigs).toContain('class UserService');
+    expect(aliasSigs).not.toContain('"drop"');
+  });
+});
+
+describe('signature extension aliases', () => {
+  it('exports long-name aliases next to short extensions', () => {
+    expect(SUPPORTED_SIGNATURE_EXTENSIONS).toEqual(
+      expect.arrayContaining(['kt', 'kotlin', 'rs', 'rust'])
+    );
   });
 });
 

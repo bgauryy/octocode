@@ -9,7 +9,7 @@ export function getExtension(
 ): string {
   // Strip any leading directory path first so basenames like ".gitignore" work
   // correctly whether the caller passes a bare name or a full path.
-  const basename = filePath.split('/').pop()!;
+  const basename = filePath.split(/[\\/]/).pop()!;
   const parts = basename.split('.');
 
   // No dot at all (e.g. "Makefile", "README") → no extension.

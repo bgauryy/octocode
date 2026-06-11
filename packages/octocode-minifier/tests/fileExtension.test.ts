@@ -38,6 +38,10 @@ describe('getExtension', () => {
     expect(getExtension('src/Makefile', { fallback: 'txt' })).toBe('txt');
   });
 
+  it('returns fallback for extensionless Windows paths', () => {
+    expect(getExtension('C:\\repo\\Makefile', { fallback: 'txt' })).toBe('txt');
+  });
+
   // ── dotfiles — FIX: must return the extension, NOT the fallback ──────────
   it('.gitignore → "gitignore" (matches MINIFY_CONFIG entry)', () => {
     expect(getExtension('.gitignore', { fallback: 'txt' })).toBe('gitignore');
@@ -77,6 +81,12 @@ describe('getExtension', () => {
 
   it('dotfile inside a directory path → extension still returned', () => {
     expect(getExtension('home/user/.gitignore', { fallback: 'txt' })).toBe(
+      'gitignore'
+    );
+  });
+
+  it('dotfile inside a Windows path → extension still returned', () => {
+    expect(getExtension('C:\\repo\\.gitignore', { fallback: 'txt' })).toBe(
       'gitignore'
     );
   });

@@ -91,13 +91,13 @@ const legacyMinifyBoolean = (value: unknown): unknown =>
 /** minify enum for the fetch-content tools: none (raw) | standard | symbols. */
 export const minifyFieldWithSymbols = z.preprocess(
   legacyMinifyBoolean,
-  z.enum(['none', 'standard', 'symbols']).default('none')
+  z.enum(['none', 'standard', 'symbols']).optional()
 );
 
 /** minify enum for PR patches: none (raw diffs) | standard. */
 export const minifyFieldStandard = z.preprocess(
   legacyMinifyBoolean,
-  z.enum(['none', 'standard']).default('none')
+  z.enum(['none', 'standard']).optional()
 );
 
 export type WithQueryMeta<T> = T & {

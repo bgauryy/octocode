@@ -528,9 +528,10 @@ And more content    `;
       },
       {
         extension: 'lua',
-        content: '-- hidden lua comment\nlocal x = 1\n',
+        content:
+          '-- hidden lua comment\nlocal x = 1 -- hidden inline lua comment\n',
         expectedCode: 'local x = 1',
-        removedNoise: 'hidden lua comment',
+        removedNoise: 'hidden inline lua comment',
       },
       {
         extension: 'proto',

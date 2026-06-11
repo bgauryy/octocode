@@ -90,7 +90,7 @@ describe('fetchContent — earlyResult minification path', () => {
     expect(result.content).toContain('EARLYMARKER');
   });
 
-  it('default (minify omitted → "none") preserves inline comments in the earlyResult slice', async () => {
+  it('default (minify omitted → inherits "standard" from config) strips inline comments in the earlyResult slice', async () => {
     const content = buildHugeCommentedContent(200);
     mockReadFile.mockResolvedValue(content);
 
@@ -101,8 +101,8 @@ describe('fetchContent — earlyResult minification path', () => {
     });
 
     expect(result.pagination?.hasMore).toBe(true);
-    // Raw content — comments must be preserved.
-    expect(result.content).toContain('// inline comment');
+    // Default is now "standard" — comments should be stripped.
+    expect(result.content).not.toContain('// inline comment');
     expect(result.content).toContain('EARLYMARKER');
   });
 

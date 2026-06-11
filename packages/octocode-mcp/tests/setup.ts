@@ -65,6 +65,7 @@ const mockDefaultConfig = {
     pagination: {
       defaultCharLength: 8000,
     },
+    defaultMinify: 'standard',
   },
   source: 'defaults',
   configPath: undefined,

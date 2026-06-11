@@ -28,7 +28,7 @@ describe('signature extension registry', () => {
       [...SUPPORTED_SIGNATURE_EXTENSIONS].sort()
     );
     expect(SUPPORTED_SIGNATURE_EXTENSIONS).toEqual(
-      expect.arrayContaining(['hpp', 'cc', 'htm', 'zsh'])
+      expect.arrayContaining(['hpp', 'cc', 'htm', 'zsh', 'rust', 'kotlin'])
     );
   });
 });
@@ -655,6 +655,14 @@ describe('extractSignatures — rust', () => {
 
   it('emits no blank gutter lines', () => {
     expectNoBlankGutterLines(sigs);
+  });
+
+  it('supports the long-name .rust extension alias', () => {
+    const aliasSigs = extractSignatures(RUST_SOURCE, 'cache.rust')!;
+
+    expect(aliasSigs).not.toBeNull();
+    expectGutter(aliasSigs, 4, 'pub struct Cache {');
+    expectGutter(aliasSigs, 19, 'pub fn make_cache() -> Cache {');
   });
 });
 

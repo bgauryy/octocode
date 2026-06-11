@@ -67,6 +67,79 @@ describe('minifierStrategies - Branch Coverage', () => {
     });
   });
 
+  describe('removeComments - string-aware code families', () => {
+    it.each([
+      {
+        label: 'c-style',
+        type: 'c-style' as const,
+        content:
+          'const url = "https://example.com"; // remove\nconst marker = "/* keep */";\nconst escaped = "quote \\" // keep";\n/* remove block */\nconst done = true;',
+        kept: [
+          '"https://example.com"',
+          '"/* keep */"',
+          '"quote \\" // keep"',
+          'const done = true',
+        ],
+        removed: ['// remove', 'remove block'],
+      },
+      {
+        label: 'hash',
+        type: 'hash' as const,
+        content:
+          '#!/bin/bash\necho "# keep"\ntext = """# keep triple"""\nvalue = 1 # remove',
+        kept: ['#!/bin/bash', '"# keep"', '"""# keep triple"""'],
+        removed: ['# remove'],
+      },
+      {
+        label: 'sql',
+        type: 'sql' as const,
+        content:
+          "SELECT '-- keep'; -- remove\n/* remove block */\nSELECT '/* keep */';",
+        kept: ["'-- keep'", "'/* keep */'"],
+        removed: ['-- remove', 'remove block'],
+      },
+      {
+        label: 'lua',
+        type: 'lua' as const,
+        content:
+          'local s = "-- keep"\nlocal b = "--[[ keep ]]"\nlocal x = 1 -- remove\n--[[ remove block ]]',
+        kept: ['"-- keep"', '"--[[ keep ]]"', 'local x = 1'],
+        removed: ['-- remove', 'remove block'],
+      },
+      {
+        label: 'haskell',
+        type: 'haskell' as const,
+        content:
+          'main = putStrLn "-- keep" -- remove\nname = "{- keep -}"\n{- remove block -}',
+        kept: ['"-- keep"', '"{- keep -}"'],
+        removed: ['-- remove', 'remove block'],
+      },
+      {
+        label: 'semicolon',
+        type: 'semicolon' as const,
+        content: 'value = "; keep" ; remove\nnext = 1',
+        kept: ['"; keep"', 'next = 1'],
+        removed: ['; remove'],
+      },
+      {
+        label: 'percent',
+        type: 'percent' as const,
+        content: 'Value = "% keep" % remove\nnext().',
+        kept: ['"% keep"', 'next().'],
+        removed: ['% remove'],
+      },
+    ])('$label comments outside strings only', testCase => {
+      const result = removeComments(testCase.content, testCase.type);
+
+      for (const expected of testCase.kept) {
+        expect(result).toContain(expected);
+      }
+      for (const removed of testCase.removed) {
+        expect(result).not.toContain(removed);
+      }
+    });
+  });
+
   describe('minifyAggressiveCore - config.comments is undefined', () => {
     it('should handle config without comments property', () => {
       const content = '  function test() { return true; }  ';

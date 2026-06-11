@@ -447,13 +447,15 @@ function buildHtml(data) {
     }
 
     // ── MCP rows ──
-    const mcpRows = v.mcpServers.map(m => {
+    const mcpSel = !v.mcpReadOnly;
+    const mcpRows = [...v.mcpServers].sort((a, b) => a.name.localeCompare(b.name)).map(m => {
       const cmd = m.command + (m.args.length ? ' ' + m.args.join(' ') : '');
       return `
-      <tr class="mcp-row" id="mcp-row-${esc(v.id)}-${esc(m.name)}" data-vendor="${esc(v.id)}" data-name="${esc(m.name.toLowerCase())}" data-cmd="${esc(cmd.toLowerCase())}" data-env="${m.envKeys.length}">
+      <tr class="mcp-row" id="mcp-row-${esc(v.id)}-${esc(m.name)}" data-vendor="${esc(v.id)}" data-item="${esc(m.name)}" data-name="${esc(m.name.toLowerCase())}" data-cmd="${esc(cmd.toLowerCase())}" data-env="${m.envKeys.length}">
+        ${mcpSel ? `<td class="td-check"><input type="checkbox" class="row-sel" onchange="onSel(this)" aria-label="Select ${esc(m.name)}"/></td>` : ''}
         <td class="td-name"><span class="badge badge-mcp">MCP</span><span class="nm">${esc(m.name)}</span></td>
         <td class="td-cmd mono" title="${esc(cmd)}">${esc(cmd) || '<span class="muted">&mdash;</span>'}</td>
-        <td class="td-env">${m.envKeys.length ? m.envKeys.map(k => `<span class="env-tag">${esc(k)}</span>`).join('') : '<span class="muted">&mdash;</span>'}</td>
+        <td class="td-env td-num">${m.envKeys.length ? m.envKeys.map(k => `<span class="env-tag">${esc(k)}</span>`).join('') : '<span class="muted">&mdash;</span>'}</td>
         <td class="td-actions">${v.mcpReadOnly
           ? `<span class="ro-lock" title="${esc(v.mcpConfigFormat.toUpperCase())} config &mdash; read-only">&#128274;</span>`
           : `<button class="btn-icon btn-edit" title="Edit" aria-label="Edit ${esc(m.name)}" onclick="openEditMcp('${escJs(v.id)}','${escJs(m.name)}')">&#9998;</button>
@@ -463,11 +465,13 @@ function buildHtml(data) {
     }).join('');
 
     // ── Skill rows (+ grouped script sub-rows) ──
-    const skillRows = v.skills.map(s => {
+    const skillRows = [...v.skills].sort((a, b) => b.bytes - a.bytes).map(s => {
       const groupKey = `${esc(v.id)}-${esc(s.name)}`;
       const scriptRows = s.scripts.map(f => `
         <tr class="script-row hidden" data-scripts="${groupKey}">
-          <td colspan="3"><span class="badge badge-script">SCRIPT</span><span class="mono">${esc(f.name)}</span> <span class="muted">${fmtBytes(f.bytes)}</span></td>
+          <td class="td-check"></td>
+          <td colspan="2"><span class="badge badge-script">SCRIPT</span><span class="mono">${esc(f.name)}</span></td>
+          <td class="td-size mono td-num">${fmtBytes(f.bytes)}</td>
           <td class="td-actions">
             <button class="btn-icon btn-del" title="Delete file" aria-label="Delete ${esc(f.name)}" onclick="confirmDeleteFile('${escJs(f.path)}','${escJs(f.name)}',this)">&times;</button>
           </td>
@@ -477,10 +481,11 @@ function buildHtml(data) {
         : '';
       const desc = (s.description || '').slice(0, 120);
       return `
-      <tr class="skill-row" id="skill-row-${esc(v.id)}-${esc(s.name)}" data-vendor="${esc(v.id)}" data-group="${groupKey}" data-name="${esc(s.name.toLowerCase())}" data-size="${s.bytes}">
+      <tr class="skill-row" id="skill-row-${esc(v.id)}-${esc(s.name)}" data-vendor="${esc(v.id)}" data-item="${esc(s.name)}" data-group="${groupKey}" data-name="${esc(s.name.toLowerCase())}" data-size="${s.bytes}">
+        <td class="td-check"><input type="checkbox" class="row-sel" onchange="onSel(this)" aria-label="Select ${esc(s.name)}"/></td>
         <td class="td-name"><span class="badge badge-skill">SKILL</span><span class="nm">${esc(s.name)}</span> ${scriptToggle}</td>
         <td class="td-desc" title="${esc(s.description||'')}">${esc(desc)}${(s.description||'').length>120?'&hellip;':''}</td>
-        <td class="td-size mono">${fmtBytes(s.bytes)}<span class="desc-size muted">desc ${fmtBytes(s.descBytes)}</span></td>
+        <td class="td-size mono td-num">${fmtBytes(s.bytes)}<span class="desc-size muted">desc ${fmtBytes(s.descBytes)}</span></td>
         <td class="td-actions">
           <button class="btn-icon btn-del" title="Delete skill" aria-label="Delete ${esc(s.name)}" onclick="confirmRemove('skill','${escJs(v.id)}','${escJs(s.name)}','${escJs(v.skillsDir||'')}','')">&times;</button>
         </td>
@@ -539,30 +544,40 @@ function buildHtml(data) {
           <input class="card-filter" type="text" placeholder="Filter this vendor&hellip;" oninput="filterItems(this)" autocomplete="off" aria-label="Filter ${esc(v.name)} items"/>
         </div>` : ''}
         ${v.mcpServers.length ? `
-        <section class="table-section">
+        <section class="table-section" data-table="mcp" data-vendor="${esc(v.id)}">
           <div class="table-title">MCP Servers <span class="tt-count">${v.mcpServers.length}</span>${v.mcpReadOnly ? ` <span class="ro-note">&#128274; ${esc(v.mcpConfigFormat.toUpperCase())} read-only</span>` : ''}</div>
+          ${mcpSel ? `<div class="bulk-bar"><span class="bulk-count">0 selected</span><div class="bulk-actions"><button class="btn-bulk-del" onclick="bulkRemove(this)">Remove selected</button><button class="btn-bulk-clear" onclick="clearSel(this)">Clear</button></div></div>` : ''}
+          <div class="table-scroll">
           <table class="item-table">
             <thead><tr>
-              <th class="sortable" data-key="name" onclick="sortTable(this)">Name</th>
+              ${mcpSel ? `<th class="th-check"><input type="checkbox" class="sel-all" onchange="toggleAll(this)" aria-label="Select all MCP servers"/></th>` : ''}
+              <th class="sortable sort-asc" data-key="name" onclick="sortTable(this)" aria-sort="ascending">Name</th>
               <th class="sortable" data-key="cmd" onclick="sortTable(this)">Command</th>
-              <th class="sortable" data-key="env" onclick="sortTable(this)">Env</th>
+              <th class="sortable th-num" data-key="env" onclick="sortTable(this)">Env</th>
               <th class="th-actions"></th>
             </tr></thead>
             <tbody>${mcpRows}</tbody>
+            <tfoot><tr><td colspan="${mcpSel ? 5 : 4}">${v.mcpServers.length} server${v.mcpServers.length!==1?'s':''} &middot; ${v.mcpServers.reduce((s,m)=>s+m.envKeys.length,0)} env key${v.mcpServers.reduce((s,m)=>s+m.envKeys.length,0)!==1?'s':''}</td></tr></tfoot>
           </table>
+          </div>
         </section>` : ''}
         ${v.skills.length ? `
-        <section class="table-section">
+        <section class="table-section" data-table="skill" data-vendor="${esc(v.id)}">
           <div class="table-title">Skills <span class="tt-count">${v.skills.length}</span></div>
+          <div class="bulk-bar"><span class="bulk-count">0 selected</span><div class="bulk-actions"><button class="btn-bulk-del" onclick="bulkRemove(this)">Remove selected</button><button class="btn-bulk-clear" onclick="clearSel(this)">Clear</button></div></div>
+          <div class="table-scroll">
           <table class="item-table">
             <thead><tr>
+              <th class="th-check"><input type="checkbox" class="sel-all" onchange="toggleAll(this)" aria-label="Select all skills"/></th>
               <th class="sortable" data-key="name" onclick="sortTable(this)">Name</th>
               <th>Description</th>
-              <th class="sortable" data-key="size" onclick="sortTable(this)">Size</th>
+              <th class="sortable th-num sort-desc" data-key="size" onclick="sortTable(this)" aria-sort="descending">Size</th>
               <th class="th-actions"></th>
             </tr></thead>
             <tbody>${skillRows}</tbody>
+            <tfoot><tr><td colspan="5">${v.skills.length} skill${v.skills.length!==1?'s':''} &middot; ${fmtBytes(v.totalSkillBytes)} &middot; ~${fmtTok(sb.tokens)} tok total</td></tr></tfoot>
           </table>
+          </div>
         </section>` : ''}
         ${!itemCount ? '<div class="empty-state">Configured, but no MCP servers or skills found.</div>' : ''}
         <div class="card-no-match">No items in this vendor match your filter.</div>
@@ -771,8 +786,31 @@ function buildHtml(data) {
     .chip-scripts:hover{background:rgba(251,146,60,.15);}
     .ro-lock{color:var(--fg3);font-size:.82rem;cursor:help;}
     .ro-note{font-size:.58rem;font-weight:700;color:var(--orange);background:rgba(251,146,60,.13);padding:1px 7px;border-radius:5px;letter-spacing:.02em;text-transform:none;}
-    .script-row td{background:rgba(255,255,255,.02)!important;font-size:.78rem;padding-left:30px!important;}
+    .script-row td{background:rgba(255,255,255,.02)!important;font-size:.78rem;}
     .empty-state{color:var(--fg3);font-size:.82rem;padding:12px 2px;}
+
+    /* ── Table: numeric align, checkboxes, scroll, footer ── */
+    .th-num,.td-num{text-align:right;}
+    .td-env.td-num{justify-content:flex-end;}
+    .th-check,.td-check{width:34px;text-align:center;padding-left:12px!important;padding-right:4px!important;}
+    .item-table input[type=checkbox]{appearance:none;-webkit-appearance:none;width:15px;height:15px;border:1.5px solid var(--line2);border-radius:4px;background:var(--surface);cursor:pointer;vertical-align:middle;position:relative;transition:all .15s;flex-shrink:0;}
+    .item-table input[type=checkbox]:hover{border-color:var(--primary);}
+    .item-table input[type=checkbox]:checked{background:var(--primary);border-color:var(--primary);}
+    .item-table input[type=checkbox]:checked::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);}
+    .item-table input[type=checkbox]:indeterminate{background:var(--primary);border-color:var(--primary);}
+    .item-table input[type=checkbox]:indeterminate::after{content:'';position:absolute;left:3px;top:6px;width:7px;height:2px;background:#fff;}
+    tr.sel-on>td{background:var(--primary-soft)!important;}
+    .table-scroll{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:9px;}
+    .item-table thead th{position:sticky;top:0;z-index:2;}
+    .item-table tfoot td{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line2);border-bottom:none;font-size:.66rem;font-weight:600;color:var(--fg3);text-transform:uppercase;letter-spacing:.05em;padding:7px 11px;}
+    .bulk-bar{display:none;align-items:center;gap:12px;background:var(--primary-soft);border:1px solid var(--primary);border-radius:9px;padding:7px 12px;margin-bottom:7px;animation:fade .15s ease;}
+    .bulk-bar.show{display:flex;}
+    .bulk-count{font-size:.74rem;font-weight:700;color:var(--primary2);}
+    .bulk-actions{margin-left:auto;display:flex;gap:7px;}
+    .btn-bulk-del{background:rgba(244,82,95,.16);border:1px solid rgba(244,82,95,.4);color:#ff8a93;font-size:.72rem;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;font-family:inherit;transition:all .15s;}
+    .btn-bulk-del:hover{background:rgba(244,82,95,.3);}
+    .btn-bulk-clear{background:var(--surface3);border:1px solid var(--line2);color:var(--fg2);font-size:.72rem;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;font-family:inherit;transition:all .15s;}
+    .btn-bulk-clear:hover{border-color:var(--fg3);color:var(--fg);}
 
     /* ── CLI + rate cards ── */
     .panel{background:linear-gradient(180deg,var(--surface),var(--surface2));border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;}
@@ -1121,6 +1159,68 @@ function buildHtml(data) {
       if (x < y) return -dir; if (x > y) return dir; return 0;
     });
     groups.forEach(g => { tbody.appendChild(g.head); g.extra.forEach(e => tbody.appendChild(e)); });
+  }
+
+  // ── Bulk selection ──
+  let pendingBulk = null;
+  function onSel(cb){
+    cb.closest('tr').classList.toggle('sel-on', cb.checked);
+    updateBulk(cb.closest('.table-section'));
+  }
+  function toggleAll(cb){
+    const sec = cb.closest('.table-section');
+    sec.querySelectorAll('tbody tr:not(.hidden) .row-sel').forEach(x => { x.checked = cb.checked; x.closest('tr').classList.toggle('sel-on', cb.checked); });
+    updateBulk(sec);
+  }
+  function clearSel(btn){
+    const sec = btn.closest('.table-section');
+    sec.querySelectorAll('.row-sel').forEach(x => { x.checked = false; x.closest('tr').classList.remove('sel-on'); });
+    const all = sec.querySelector('.sel-all'); if (all) { all.checked = false; all.indeterminate = false; }
+    updateBulk(sec);
+  }
+  function updateBulk(sec){
+    const checked = sec.querySelectorAll('.row-sel:checked').length;
+    const total = sec.querySelectorAll('.row-sel').length;
+    const bar = sec.querySelector('.bulk-bar');
+    if (bar) { bar.classList.toggle('show', checked > 0); const c = bar.querySelector('.bulk-count'); if (c) c.textContent = checked + ' selected'; }
+    const all = sec.querySelector('.sel-all');
+    if (all) { all.checked = checked > 0 && checked === total; all.indeterminate = checked > 0 && checked < total; }
+  }
+  function bulkRemove(btn){
+    const sec = btn.closest('.table-section');
+    const type = sec.dataset.table, vendor = sec.dataset.vendor;
+    const rows = [...sec.querySelectorAll('.row-sel:checked')].map(cb => cb.closest('tr'));
+    if (!rows.length) return;
+    const names = rows.map(r => r.dataset.item);
+    pendingBulk = { type, vendor, rows };
+    const label = (type === 'mcp' ? 'MCP server' : 'skill') + (rows.length > 1 ? 's' : '');
+    document.getElementById('mc-title').textContent = 'Remove ' + rows.length + ' ' + label;
+    document.getElementById('mc-body').textContent = 'Remove the selected ' + label + ' from ' + vendor + '? This edits files on disk and cannot be undone.';
+    document.getElementById('mc-path').textContent = names.join('  ·  ');
+    document.getElementById('mc-ok').textContent = 'Remove ' + rows.length;
+    document.getElementById('mc-ok').onclick = executeBulkRemove;
+    openModal('modal-confirm');
+  }
+  async function executeBulkRemove(){
+    closeModal('modal-confirm');
+    const b = pendingBulk; if (!b) return;
+    let ok = 0, fail = 0;
+    for (const row of b.rows) {
+      const name = row.dataset.item;
+      const res = await apiPost('/api/remove', { type: b.type, vendorId: b.vendor, itemName: name });
+      if (res.ok) {
+        ok++;
+        if (b.type === 'skill') {
+          const key = b.vendor + '-' + name;
+          document.querySelectorAll('.script-row[data-scripts="' + cssEsc(key) + '"]').forEach(r => r.remove());
+        }
+        row.remove();
+      } else { fail++; }
+    }
+    showToast('Removed ' + ok + (fail ? ' · ' + fail + ' failed' : ''), fail ? 'err' : 'ok');
+    const sec = document.querySelector('.table-section[data-vendor="' + cssEsc(b.vendor) + '"][data-table="' + b.type + '"]');
+    if (sec) updateBulk(sec);
+    pendingBulk = null;
   }
 
   // ── Copy ──

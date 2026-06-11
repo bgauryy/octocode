@@ -1030,7 +1030,7 @@ main = putStrLn "Hello"`;
 
     it('should handle Lua files with aggressive strategy', async () => {
       const luaCode = `-- Lua single line comment
-local x = 1
+local x = 1 -- inline Lua comment
 --[[ Block comment
 spanning lines ]]
 print(x)`;
@@ -1039,6 +1039,9 @@ print(x)`;
 
       expect(result.type).toBe('aggressive');
       expect(result.failed).toBe(false);
+      expect(result.content).not.toContain('inline Lua comment');
+      expect(result.content).not.toContain('Block comment');
+      expect(result.content).toContain('local x = 1');
     });
 
     it('should handle template files (handlebars, twig, etc)', async () => {

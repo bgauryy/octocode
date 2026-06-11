@@ -13,7 +13,7 @@ import {
 } from '../../utils/pagination/core.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
-import { getOutputCharLimit } from '../../utils/pagination/charLimit.js';
+import { getOutputCharLimit, getOutputMinifyDefault } from '../../utils/pagination/charLimit.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   validateToolPath,
@@ -697,7 +697,7 @@ export async function fetchContent(
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
 
-    const minifyMode = query.minify ?? 'none';
+    const minifyMode = query.minify ?? getOutputMinifyDefault();
     // "symbols" implies the standard comment/whitespace strip on whatever
     // content is returned (skeleton, or full-content fallback).
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';

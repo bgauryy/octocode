@@ -1,5 +1,5 @@
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
-import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
+import { getOutputCharLimit, getOutputMinifyDefault } from '../utils/pagination/charLimit.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import {
   applyContentViewMinification,
@@ -103,7 +103,7 @@ export async function processFileContentAPI(
   matchString?: string,
   matchStringIsRegex?: boolean,
   matchStringCaseSensitive?: boolean,
-  minify: MinifyMode = 'none'
+  minify: MinifyMode = getOutputMinifyDefault()
 ): Promise<GitHubFileContentApiResult> {
   // "symbols" implies the standard comment/whitespace strip on whatever
   // content leaves this function (skeleton, or full-content fallback).

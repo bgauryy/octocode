@@ -207,7 +207,8 @@ Tools return `structuredContent` validated against `outputSchema`. Handles track
 | `TOOLS_TO_RUN` / `ENABLE_TOOLS` / `DISABLE_TOOLS` | Comma-separated tool filters | – |
 | `OCTOCODE_LSP_CONFIG` | Custom LSP config file path | auto-detect |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` (default) or `json` | `yaml` |
-| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | Default output page budget (chars) | `8000` |
+| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | Default output page budget (chars) | `2000` |
+| `OCTOCODE_DEFAULT_MINIFY` | Default minify mode for file reads: `none` (exact text), `standard` (strip comments/blanks, 20–50% smaller), `symbols` (skeleton+line gutter, 55–97% smaller) | `standard` |
 
 ### Key files
 

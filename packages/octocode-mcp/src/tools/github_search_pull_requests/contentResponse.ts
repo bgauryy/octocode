@@ -370,7 +370,7 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
-  // Aligned with minify:"none" default — patches are raw unless "standard".
+  // shouldMinify defaults false here — callers pass the resolved value from getOutputMinifyDefault().
   shouldMinify = false,
   showContentMap?: boolean
 ): Record<string, unknown> {

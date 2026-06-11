@@ -7,6 +7,168 @@ import type {
 } from '../types/index.js';
 import { MINIFY_CONFIG } from '../types/index.js';
 
+type BlockCommentRule = {
+  start: string;
+  end: string;
+};
+
+type LineCommentRule = {
+  token: string;
+  requireBoundary?: boolean;
+  preserveShebang?: boolean;
+};
+
+type StringAwareCommentRules = {
+  block?: BlockCommentRule[];
+  line?: LineCommentRule[];
+};
+
+function stringAwareRulesFor(
+  type: CommentPatternGroup
+): StringAwareCommentRules | null {
+  switch (type) {
+    case 'c-style':
+      return {
+        block: [{ start: '/*', end: '*/' }],
+        line: [{ token: '//' }],
+      };
+    case 'hash':
+      return {
+        line: [{ token: '#', preserveShebang: true }],
+      };
+    case 'sql':
+      return {
+        block: [{ start: '/*', end: '*/' }],
+        line: [{ token: '--', requireBoundary: false }],
+      };
+    case 'lua':
+      return {
+        block: [{ start: '--[[', end: ']]' }],
+        line: [{ token: '--' }],
+      };
+    case 'haskell':
+      return {
+        block: [{ start: '{-', end: '-}' }],
+        line: [{ token: '--' }],
+      };
+    case 'semicolon':
+      return { line: [{ token: ';' }] };
+    case 'percent':
+      return { line: [{ token: '%' }] };
+    default:
+      return null;
+  }
+}
+
+function quoteDelimiterAt(content: string, index: number): string | null {
+  if (content.startsWith('"""', index)) return '"""';
+  if (content.startsWith("'''", index)) return "'''";
+
+  const char = content[index];
+  return char === '"' || char === "'" || char === '`' ? char : null;
+}
+
+function hasLineCommentBoundary(content: string, index: number): boolean {
+  if (index === 0) return true;
+  const previous = content[index - 1];
+  return (
+    previous === ' ' ||
+    previous === '\t' ||
+    previous === '\n' ||
+    previous === '\r'
+  );
+}
+
+function shouldStripLineComment(
+  content: string,
+  index: number,
+  rule: LineCommentRule
+): boolean {
+  if (!content.startsWith(rule.token, index)) return false;
+  if (rule.preserveShebang && content.startsWith('#!', index)) return false;
+
+  return rule.requireBoundary === false
+    ? true
+    : hasLineCommentBoundary(content, index);
+}
+
+function preserveLineBreaks(content: string): string {
+  return content.replace(/[^\r\n]/g, '');
+}
+
+function stripStringAwareComments(
+  content: string,
+  rules: StringAwareCommentRules
+): string {
+  let result = '';
+  let quoteEnd: string | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; ) {
+    if (quoteEnd) {
+      if (quoteEnd.length > 1 && content.startsWith(quoteEnd, i)) {
+        result += quoteEnd;
+        i += quoteEnd.length;
+        quoteEnd = null;
+        continue;
+      }
+
+      const char = content[i]!;
+      result += char;
+      i++;
+
+      if (quoteEnd.length === 1) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === quoteEnd) {
+          quoteEnd = null;
+        }
+      }
+      continue;
+    }
+
+    const quote = quoteDelimiterAt(content, i);
+    if (quote) {
+      quoteEnd = quote;
+      escaped = false;
+      result += quote;
+      i += quote.length;
+      continue;
+    }
+
+    const blockRule = rules.block?.find(rule =>
+      content.startsWith(rule.start, i)
+    );
+    if (blockRule) {
+      const commentStart = i;
+      const afterStart = i + blockRule.start.length;
+      const endIndex = content.indexOf(blockRule.end, afterStart);
+      const commentEnd =
+        endIndex === -1 ? content.length : endIndex + blockRule.end.length;
+      result += preserveLineBreaks(content.slice(commentStart, commentEnd));
+      i = commentEnd;
+      continue;
+    }
+
+    const lineRule = rules.line?.find(rule =>
+      shouldStripLineComment(content, i, rule)
+    );
+    if (lineRule) {
+      const newlineIndex = content.indexOf('\n', i);
+      if (newlineIndex === -1) break;
+      i = newlineIndex;
+      continue;
+    }
+
+    result += content[i]!;
+    i++;
+  }
+
+  return result;
+}
+
 export function removeComments(
   content: string,
   commentTypes: CommentPatternGroup | CommentPatternGroup[]
@@ -16,6 +178,12 @@ export function removeComments(
     const types = Array.isArray(commentTypes) ? commentTypes : [commentTypes];
 
     for (const type of types) {
+      const stringAwareRules = stringAwareRulesFor(type);
+      if (stringAwareRules) {
+        result = stripStringAwareComments(result, stringAwareRules);
+        continue;
+      }
+
       const patterns = MINIFY_CONFIG.commentPatterns[type];
       if (patterns) {
         for (const pattern of patterns) {

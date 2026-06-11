@@ -19,6 +19,7 @@ export type {
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
+  MinifyMode,
 } from './types.js';
 
 export { CONFIG_SCHEMA_VERSION, CONFIG_FILE_NAME } from './types.js';

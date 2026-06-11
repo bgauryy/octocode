@@ -59,8 +59,9 @@ export const MINIFY_CONFIG: MinifyConfig = {
       /\/\*[\s\S]*?\*\//g, // /* SQL block comments */
     ],
     lua: [
-      /^\s*--.*$/gm, // -- line comments
       /--\[\[[\s\S]*?\]\]/g, // --[[ block comments ]]
+      /^\s*--(?!\[\[).*$/gm, // -- line comments (but not block starts)
+      /\s+--(?!\[\[).*$/gm, // -- inline comments
     ],
     template: [
       /\{\{!--[\s\S]*?--\}\}/g, // {{!-- Handlebars --}}

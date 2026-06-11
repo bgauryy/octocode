@@ -1,11 +1,20 @@
 import { getConfigSync } from 'octocode-shared';
 import { DEFAULT_OUTPUT_CONFIG } from 'octocode-shared';
+import type { MinifyMode } from 'octocode-shared';
 
 export function getOutputCharLimit(): number {
   try {
     return getConfigSync().output.pagination.defaultCharLength;
   } catch {
     return DEFAULT_OUTPUT_CONFIG.pagination.defaultCharLength;
+  }
+}
+
+export function getOutputMinifyDefault(): MinifyMode {
+  try {
+    return getConfigSync().output.defaultMinify;
+  } catch {
+    return DEFAULT_OUTPUT_CONFIG.defaultMinify;
   }
 }
 

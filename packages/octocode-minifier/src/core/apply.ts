@@ -6,7 +6,7 @@ import {
   minifyMarkdownCore,
   removeComments,
 } from './strategies.js';
-import { MINIFY_CONFIG } from '../types/index.js';
+import { INDENTATION_SENSITIVE_NAMES, MINIFY_CONFIG } from '../types/index.js';
 import { getExtension } from '../utils/fileExtension.js';
 
 export function applyMinification(content: string, filePath: string): string {
@@ -20,6 +20,10 @@ export function applyMinification(content: string, filePath: string): string {
 
 const JSON_EXTS = new Set(['json', 'jsonc', 'json5']);
 
+function getBaseName(filePath: string): string {
+  return (filePath.split(/[\\/]/).pop() || '').toLowerCase();
+}
+
 /**
  * Content-safe minification for file viewing tools (localGetFileContent,
  * githubGetFileContent, PR patches).
@@ -31,10 +35,11 @@ const JSON_EXTS = new Set(['json', 'jsonc', 'json5']);
  *                        then re-pretty-print with 2-space indent — readable);
  *                        only returned if result is shorter (i.e. JSONC had comments)
  *   Markdown          → minifyMarkdownCore (HTML comments, quote-replies stripped)
- *   Files with comments config → removeComments(configured) + minifyCodeCore
+ *   Code/config files     → removeComments(configured) + minifyCodeCore
  *                                (trailing whitespace + blank-line compression;
  *                                 original indentation PRESERVED for agent readability)
  *   Plain text (txt/log/unknown) → minifyGeneralCore (whitespace + indent compression)
+ *   Indentation-sensitive names → conservative hash comments + minifyCodeCore
  *
  * Always returns the original if the minified version is not shorter.
  */
@@ -44,6 +49,10 @@ export function applyContentViewMinification(
 ): string {
   try {
     const ext = getExtension(filePath, { lowercase: true, fallback: 'txt' });
+    const baseName = getBaseName(filePath);
+    const config = INDENTATION_SENSITIVE_NAMES.has(baseName)
+      ? ({ strategy: 'conservative', comments: 'hash' } as const)
+      : MINIFY_CONFIG.fileTypes[ext];
 
     let minified: string;
 
@@ -51,19 +60,18 @@ export function applyContentViewMinification(
       // Readable JSON: strip JSONC noise, keep pretty-printing.
       // Falls back to original when nothing was stripped (already clean JSON).
       minified = minifyJsonReadable(content).content;
-    } else if (MINIFY_CONFIG.fileTypes[ext]?.strategy === 'markdown') {
+    } else if (config?.strategy === 'markdown') {
       minified = minifyMarkdownCore(content);
     } else {
-      const commentType = MINIFY_CONFIG.fileTypes[ext]?.comments;
-      const stripped = commentType
-        ? removeComments(content, commentType)
+      const stripped = config?.comments
+        ? removeComments(content, config.comments)
         : content;
       // Code files: preserve indentation so agents keep structural context.
       // Plain-text files (txt/log/no registered type): allow indent compression.
-      const hasRegisteredType = Boolean(MINIFY_CONFIG.fileTypes[ext]);
-      minified = hasRegisteredType
-        ? minifyCodeCore(stripped)
-        : minifyGeneralCore(stripped);
+      minified =
+        !config || config.strategy === 'general'
+          ? minifyGeneralCore(stripped)
+          : minifyCodeCore(stripped);
     }
 
     return minified.length < content.length ? minified : content;

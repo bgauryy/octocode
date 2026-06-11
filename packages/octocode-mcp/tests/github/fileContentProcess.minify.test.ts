@@ -17,7 +17,7 @@ const TS_CONTENT = [
 ].join('\n');
 
 describe('processFileContentAPI — minify mode', () => {
-  it('returns raw content by default (minify omitted → "none")', async () => {
+  it('strips comments by default (minify omitted → inherits "standard" from config)', async () => {
     const result = await processFileContentAPI(
       TS_CONTENT,
       'facebook',
@@ -26,8 +26,8 @@ describe('processFileContentAPI — minify mode', () => {
       'src/Counter.ts',
       true
     );
-    expect(result.content).toContain('// Top-level comment');
-    expect(result.content).toContain('// inline counter init');
+    expect(result.content).not.toContain('// Top-level comment');
+    expect(result.content).not.toContain('// inline counter init');
     expect(result.content).toContain('export function Counter');
   });
 
