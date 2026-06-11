@@ -1,0 +1,190 @@
+{
+  "generatedAt": "2026-06-11T17:22:55.186Z",
+  "languages": 12,
+  "averageContentViewCutPct": 32.8,
+  "averageApplyCutPct": 37.4,
+  "averageAsyncCutPct": 37.5,
+  "averageRating": 7.5,
+  "perLanguage": [
+    {
+      "ext": "ts",
+      "language": "TypeScript",
+      "inputBytes": 10126,
+      "inputLines": 322,
+      "contentViewCutPct": 25.9,
+      "applyMinifyCutPct": 61.4,
+      "asyncCutPct": 61.4,
+      "asyncType": "conservative",
+      "symbolsCutPct": 71.3,
+      "rating": {
+        "score": 9.5,
+        "label": "excellent"
+      }
+    },
+    {
+      "ext": "py",
+      "language": "Python",
+      "inputBytes": 10724,
+      "inputLines": 341,
+      "contentViewCutPct": 16.7,
+      "applyMinifyCutPct": 16.7,
+      "asyncCutPct": 16.7,
+      "asyncType": "conservative",
+      "symbolsCutPct": 60.2,
+      "rating": {
+        "score": 6,
+        "label": "fair"
+      }
+    },
+    {
+      "ext": "go",
+      "language": "Go",
+      "inputBytes": 8428,
+      "inputLines": 323,
+      "contentViewCutPct": 34.5,
+      "applyMinifyCutPct": 34.5,
+      "asyncCutPct": 34.5,
+      "asyncType": "conservative",
+      "symbolsCutPct": 77.7,
+      "rating": {
+        "score": 7.5,
+        "label": "good"
+      }
+    },
+    {
+      "ext": "java",
+      "language": "Java",
+      "inputBytes": 14819,
+      "inputLines": 394,
+      "contentViewCutPct": 54.7,
+      "applyMinifyCutPct": 54.7,
+      "asyncCutPct": 54.7,
+      "asyncType": "conservative",
+      "symbolsCutPct": 83.3,
+      "rating": {
+        "score": 9,
+        "label": "excellent"
+      }
+    },
+    {
+      "ext": "rs",
+      "language": "Rust",
+      "inputBytes": 9961,
+      "inputLines": 325,
+      "contentViewCutPct": 33.2,
+      "applyMinifyCutPct": 33.2,
+      "asyncCutPct": 33.2,
+      "asyncType": "conservative",
+      "symbolsCutPct": 80.8,
+      "rating": {
+        "score": 7.5,
+        "label": "good"
+      }
+    },
+    {
+      "ext": "css",
+      "language": "CSS",
+      "inputBytes": 10231,
+      "inputLines": 363,
+      "contentViewCutPct": 18.8,
+      "applyMinifyCutPct": 30.8,
+      "asyncCutPct": 31.6,
+      "asyncType": "aggressive",
+      "symbolsCutPct": 66.2,
+      "rating": {
+        "score": 7,
+        "label": "good"
+      }
+    },
+    {
+      "ext": "sql",
+      "language": "SQL",
+      "inputBytes": 8970,
+      "inputLines": 261,
+      "contentViewCutPct": 18.6,
+      "applyMinifyCutPct": 18.6,
+      "asyncCutPct": 18.6,
+      "asyncType": "conservative",
+      "symbolsCutPct": 42.2,
+      "rating": {
+        "score": 6,
+        "label": "fair"
+      }
+    },
+    {
+      "ext": "sh",
+      "language": "Shell",
+      "inputBytes": 9146,
+      "inputLines": 294,
+      "contentViewCutPct": 21.5,
+      "applyMinifyCutPct": 21.5,
+      "asyncCutPct": 21.5,
+      "asyncType": "conservative",
+      "symbolsCutPct": 91.9,
+      "rating": {
+        "score": 6,
+        "label": "fair"
+      }
+    },
+    {
+      "ext": "rb",
+      "language": "Ruby",
+      "inputBytes": 6781,
+      "inputLines": 201,
+      "contentViewCutPct": 55.4,
+      "applyMinifyCutPct": 55.4,
+      "asyncCutPct": 55.4,
+      "asyncType": "conservative",
+      "symbolsCutPct": 92.8,
+      "rating": {
+        "score": 9,
+        "label": "excellent"
+      }
+    },
+    {
+      "ext": "kt",
+      "language": "Kotlin",
+      "inputBytes": 7281,
+      "inputLines": 206,
+      "contentViewCutPct": 38.6,
+      "applyMinifyCutPct": 38.6,
+      "asyncCutPct": 38.6,
+      "asyncType": "conservative",
+      "symbolsCutPct": 75.3,
+      "rating": {
+        "score": 7.5,
+        "label": "good"
+      }
+    },
+    {
+      "ext": "yml",
+      "language": "YAML",
+      "inputBytes": 8974,
+      "inputLines": 312,
+      "contentViewCutPct": 21.9,
+      "applyMinifyCutPct": 21.9,
+      "asyncCutPct": 21.9,
+      "asyncType": "conservative",
+      "symbolsCutPct": null,
+      "rating": {
+        "score": 5,
+        "label": "fair"
+      }
+    },
+    {
+      "ext": "js",
+      "language": "JavaScript",
+      "inputBytes": 10668,
+      "inputLines": 419,
+      "contentViewCutPct": 54.1,
+      "applyMinifyCutPct": 61.9,
+      "asyncCutPct": 61.9,
+      "asyncType": "terser",
+      "symbolsCutPct": 91.3,
+      "rating": {
+        "score": 10,
+        "label": "excellent"
+      }
+    }
+  ]
+}

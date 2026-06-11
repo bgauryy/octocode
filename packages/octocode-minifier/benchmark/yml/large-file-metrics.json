@@ -1,0 +1,42 @@
+{
+  "ext": "yml",
+  "language": "YAML",
+  "description": "GitHub Actions CI/CD pipeline — multi-job workflow",
+  "inputBytes": 8974,
+  "inputLines": 312,
+  "contentView": {
+    "bytes": 7008,
+    "cutPct": 21.9,
+    "ms": 2.66
+  },
+  "applyMinify": {
+    "bytes": 7008,
+    "cutPct": 21.9,
+    "ms": 6.55
+  },
+  "syncMinify": {
+    "bytes": 7008,
+    "cutPct": 21.9,
+    "ms": 2.99
+  },
+  "asyncMinify": {
+    "bytes": 7008,
+    "cutPct": 21.9,
+    "ms": 5,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": false,
+    "bytes": null,
+    "cutPct": null,
+    "ms": null
+  },
+  "rating": {
+    "score": 5,
+    "label": "fair"
+  },
+  "notes": [
+    "Hash comments stripped",
+    "Low savings expected — real workflows are data-dense"
+  ]
+}

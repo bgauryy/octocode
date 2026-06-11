@@ -1,0 +1,42 @@
+{
+  "ext": "java",
+  "language": "Java",
+  "description": "Spring StringUtils — JavaDoc-heavy utility class",
+  "inputBytes": 14819,
+  "inputLines": 394,
+  "contentView": {
+    "bytes": 6711,
+    "cutPct": 54.7,
+    "ms": 4.09
+  },
+  "applyMinify": {
+    "bytes": 6711,
+    "cutPct": 54.7,
+    "ms": 2.73
+  },
+  "syncMinify": {
+    "bytes": 6711,
+    "cutPct": 54.7,
+    "ms": 4.8
+  },
+  "asyncMinify": {
+    "bytes": 6711,
+    "cutPct": 54.7,
+    "ms": 2.63,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 2472,
+    "cutPct": 83.3,
+    "ms": 0.5
+  },
+  "rating": {
+    "score": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "JavaDoc block comments stripped",
+    "High comment ratio typical of Spring source"
+  ]
+}

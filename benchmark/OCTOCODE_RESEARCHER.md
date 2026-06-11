@@ -1,7 +1,14 @@
-# Octocode Researcher — Agent Prompt
+# Octocode Researcher Prompt
 
-Operator: replace `<BENCHMARK>` with **`github`** or **`rtk`** before pasting.
-Scoring model: see [`benchmark/README.md`](./README.md).
+Paste this prompt to an Octocode benchmark researcher.
+
+Operator setup:
+
+- Replace `<BENCHMARK>` with `github` or `rtk`.
+- Use only suites that have `benchmark/<BENCHMARK>/QUESTIONS.md` and `benchmark/<BENCHMARK>/scripts/`.
+- For shared question banks such as `benchmark/questions/nextjs.md`, create or select a runnable suite harness first.
+
+Scoring model: see [`benchmark/COMPARISON.md`](./COMPARISON.md).
 
 ---
 
@@ -11,19 +18,26 @@ Research agent. Answer benchmark/<BENCHMARK>/QUESTIONS.md in order
 using only the Octocode CLI. Every tool call must go through the
 metering wrapper — bare CLI calls are unmetered and disqualify the run.
 
+VALID BENCHMARK VALUES
+  github — GitHub API research suite
+  rtk    — local + GitHub research suite against rtk-ai/rtk
+
 ═══════════════════════════════════════════════════════════════════
 STEP 0 — LEARN YOUR TOOLS  (mandatory before any metered call)
 ═══════════════════════════════════════════════════════════════════
 
-# From the repo root (development):
+# From the repo root, development checkout:
 export OCTOCODE_CLI_BIN="packages/octocode-cli/out/octocode-cli.js"
 # Installed globally: export OCTOCODE_CLI_BIN=$(which octocode-cli 2>/dev/null || which octocode)
 
-Run and read the full output:
-  node "$OCTOCODE_CLI_BIN" --tools-context
+Run and read the agent protocol:
+  node "$OCTOCODE_CLI_BIN" --agent
 
-This lists every tool, its description, and every input field.
-You must know this before calling anything. Key things to find:
+If you need every schema inline, run:
+  node "$OCTOCODE_CLI_BIN" --agent --full
+
+This lists every tool, its description, and the required calling protocol.
+You must understand this before any metered tool call. Key things to find:
   - required fields on each tool (mainResearchGoal, researchGoal, reasoning)
   - that 1–5 queries can be batched in one call
   - matchString / startLine / endLine for targeted file reads
@@ -32,14 +46,19 @@ You must know this before calling anything. Key things to find:
 Inspect one tool's schema at any time:
   node "$OCTOCODE_CLI_BIN" tools <tool-name>
 
+Inspect one tool's full MCP-style JSON schema:
+  node "$OCTOCODE_CLI_BIN" tools <tool-name> --format tool
+
 ═══════════════════════════════════════════════════════════════════
 STEP 1 — SETUP
 ═══════════════════════════════════════════════════════════════════
 
+rm -rf benchmark/<BENCHMARK>/output/octocode
 source benchmark/<BENCHMARK>/scripts/init-run.sh octocode
   # creates output/octocode/, exports $RUN and $LOG
 
 If BENCHMARK = rtk:
+  rm -rf /tmp/rtk-bench
   git clone https://github.com/rtk-ai/rtk /tmp/rtk-bench
 
 ═══════════════════════════════════════════════════════════════════
@@ -75,6 +94,11 @@ Targeted read (matchString instead of fullContent):
 Verify attribution after the first call for Q<n>:
   grep '"q":<n>' "$RUN/log.jsonl"
 
+Output guidance:
+  - the benchmark wrapper returns the default Octocode tool output
+  - read the returned evidence and hints directly
+  - never discard hints[]; they are part of the tool contract
+
 ═══════════════════════════════════════════════════════════════════
 STEP 3 — PER-QUESTION LOOP
 ═══════════════════════════════════════════════════════════════════
@@ -96,6 +120,7 @@ For n = 1 to N  (N = `cat $RUN/.q-count`):
      - Paths, names, PR numbers, identifiers in backticks
      - Completeness over brevity
      - Unanswerable: UNKNOWN — <one-line reason>
+     - Do not include tool transcripts or process notes
 
   5. bash benchmark/<BENCHMARK>/scripts/record.sh <n> "<model-id>" /tmp/answer.md
      — never use --allow-zero; zero rows = metering failure, redo
@@ -115,4 +140,5 @@ RULES
 • sequential — finish Q<n> before Q<n+1>
 • no --allow-zero
 • blind — do not read the other agent's output or summary.md
+• do not use benchmark/questions/*.md directly unless a suite harness points at it
 ```

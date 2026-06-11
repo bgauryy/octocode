@@ -136,9 +136,9 @@ In `vitejs/vite`, trace the dev server entry point starting from `packages/vite/
 
 ---
 
-### Q12 — PR labels in search results `[PR]`
+### Q12 — PR labels in search results `[PR]` `[drift]`
 
-In `vercel/next.js`, find merged PRs carrying the label `Pages Router` that were merged since January 2025. `[drift]`
+In `vercel/next.js`, find merged PRs carrying the label `Pages Router` that were merged since January 2025.
 1. How many such PRs exist?
 2. List the 5 most recent: PR number, title, and merged date.
 
@@ -179,9 +179,9 @@ In `honojs/hono`, find the first merged PR that introduced JSX / JSX renderer su
 
 ---
 
-### Q16 — Multi-filter repository search `[REPOS]`
+### Q16 — Multi-filter repository search `[REPOS]` `[drift]`
 
-Find TypeScript repositories with the topic `mcp` that have at least 500 stars and were updated since 2025. `[drift]`
+Find TypeScript repositories with the topic `mcp` that have at least 500 stars and were updated since 2025.
 1. How many match?
 2. List the top 5 by star count: name, star count, description.
 
@@ -227,4 +227,3 @@ In `microsoft/TypeScript`, find the merged PR that introduced the `satisfies` ke
 3. How many files were changed?
 
 > *Tests PR search by body/title keyword content combined with diff and file-list retrieval. `gh search prs` finds the PR number, but retrieving its body motivation and full file list requires explicit field selection across additional `gh pr view` calls. Octocode uses a single `githubSearchPullRequests` call with `withDiff: true`.*
-

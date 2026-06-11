@@ -11,7 +11,8 @@ Shared research questions used across benchmarks. A question file is a target-sp
 | [`nextjs.md`](./nextjs.md) | `vercel/next.js` | External (Q1–Q10) + Local clone + LSP (Q11–Q20) | 20 |
 
 Used by:
-- **`benchmark/headroom/`** — full 4-way comparison (octocode · octocode+headroom · rtk · gh)
+- future full comparison runs — three-way or four-way comparisons such as `octocode · gh · rtk`
+- ad hoc local validation of tool coverage across GitHub, local clone, package, and LSP-style research
 
 Per-benchmark question sets (`benchmark/github/QUESTIONS.md`, `benchmark/rtk/QUESTIONS.md`) are kept in their own directories for historical runs.
 
@@ -53,6 +54,7 @@ Every question must carry one category tag in its heading. Tags are used in the 
 | `[PR]` | PR metadata, inline comments, commits, diff access |
 | `[REPOS]` | Repository search, filters, pagination |
 | `[LOCAL]` | Local filesystem search, ripgrep, find |
+| `[METADATA]` | File/repository metadata such as size, recency, timestamps, counts |
 | `[LSP]` | Symbol definition, references, call hierarchy |
 | `[PACKAGE]` | npm/PyPI registry lookup |
 
@@ -80,6 +82,8 @@ Questions are scored on three axes by the judge (see [`../judge/prompt.md`](../j
 **Turns `T`** — tool invocation count (from `calls` in per-Q JSON)
 
 The composite `tradeoff_score = (Q × D) / (effective_chars / 1000)` is the winner axis.
+
+`effective_chars` is the deterministic token-budget ruler: per-question `in_chars + out_chars`, plus any explicitly recorded and amortized init cost. `approx_tokens = ceil(effective_chars / 4)` is display-only unless all compared agents also provide actual model token counters.
 
 ---
 

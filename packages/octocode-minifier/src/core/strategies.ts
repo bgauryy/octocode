@@ -457,6 +457,79 @@ function stripStringAwareComments(
   return result;
 }
 
+/**
+ * Strip Python triple-quoted strings that are in docstring position:
+ * — module docstring (appears before any code)
+ * — class/function docstring (first statement after a line ending with ':')
+ *
+ * The heuristic is: a triple-quoted string whose opening delimiter is the
+ * FIRST non-whitespace token on its line, and whose immediately preceding
+ * non-blank non-comment line either (a) ends with ':' or (b) does not exist
+ * (start of file).
+ *
+ * Known safe: string literals assigned to variables (e.g. `x = """…"""`) are
+ * NOT stripped because the `=` appears before the delimiter on the same line.
+ * Known limitation: a bare triple-quoted string inside an `if`/`for` body would
+ * be stripped — but such code is essentially non-existent in real Python.
+ */
+export function stripPythonDocstrings(content: string): string {
+  try {
+    const lines = content.split('\n');
+    const out: string[] = [];
+    let i = 0;
+
+    // Scan backwards for the last non-blank, non-comment line before `idx`.
+    function prevCodeLine(idx: number): string {
+      for (let j = idx - 1; j >= 0; j--) {
+        const t = lines[j]!.trim();
+        if (t && !t.startsWith('#')) return t;
+      }
+      return '';
+    }
+
+    while (i < lines.length) {
+      const line = lines[i]!;
+      const trimmed = line.trim();
+
+      // Docstring opener: first non-whitespace is """ or '''
+      if (trimmed.startsWith('"""') || trimmed.startsWith("'''")) {
+        const delimiter = trimmed.startsWith('"""') ? '"""' : "'''";
+        const prev = prevCodeLine(i);
+
+        // Docstring context: after def/class/with/else/try/except ending in ':'  OR module top
+        const isDocContext = prev === '' || prev.endsWith(':');
+
+        if (isDocContext) {
+          // Single-line docstring: """text""" (delimiter appears twice on same line)
+          const afterOpen = trimmed.slice(3);
+          const hasSameLineClose = afterOpen.includes(delimiter);
+
+          out.push(''); // preserve line count
+          i++;
+
+          if (!hasSameLineClose) {
+            // Multi-line: consume until closing delimiter
+            while (i < lines.length) {
+              const nextLine = lines[i]!;
+              out.push('');
+              i++;
+              if (nextLine.includes(delimiter)) break;
+            }
+          }
+          continue;
+        }
+      }
+
+      out.push(line);
+      i++;
+    }
+
+    return out.join('\n');
+  } /* v8 ignore start */ catch {
+    return content;
+  } /* v8 ignore stop */
+}
+
 export function removeComments(
   content: string,
   commentTypes: CommentPatternGroup | CommentPatternGroup[]
@@ -466,6 +539,12 @@ export function removeComments(
     const types = Array.isArray(commentTypes) ? commentTypes : [commentTypes];
 
     for (const type of types) {
+      // Python docstrings are handled by a dedicated function, not the string-aware scanner.
+      if (type === 'python-docstring') {
+        result = stripPythonDocstrings(result);
+        continue;
+      }
+
       const stringAwareRules = stringAwareRulesFor(type);
       if (stringAwareRules) {
         result = stripStringAwareComments(result, stringAwareRules);

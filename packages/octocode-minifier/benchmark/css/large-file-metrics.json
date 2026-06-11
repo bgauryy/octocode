@@ -1,0 +1,42 @@
+{
+  "ext": "css",
+  "language": "CSS",
+  "description": "Design-system tokens + components (buttons, cards, forms)",
+  "inputBytes": 10231,
+  "inputLines": 363,
+  "contentView": {
+    "bytes": 8312,
+    "cutPct": 18.8,
+    "ms": 6.03
+  },
+  "applyMinify": {
+    "bytes": 7082,
+    "cutPct": 30.8,
+    "ms": 5.05
+  },
+  "syncMinify": {
+    "bytes": 7082,
+    "cutPct": 30.8,
+    "ms": 21.45
+  },
+  "asyncMinify": {
+    "bytes": 7003,
+    "cutPct": 31.6,
+    "ms": 48.37,
+    "type": "aggressive"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 3460,
+    "cutPct": 66.2,
+    "ms": 0.64
+  },
+  "rating": {
+    "score": 7,
+    "label": "good"
+  },
+  "notes": [
+    "Aggressive strategy: CleanCSS async path",
+    "Variable declarations compress well"
+  ]
+}

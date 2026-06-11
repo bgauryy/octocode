@@ -1,0 +1,42 @@
+{
+  "ext": "rs",
+  "language": "Rust",
+  "description": "Async task runtime — doc comments, unsafe blocks, generics",
+  "inputBytes": 9961,
+  "inputLines": 325,
+  "contentView": {
+    "bytes": 6656,
+    "cutPct": 33.2,
+    "ms": 3.06
+  },
+  "applyMinify": {
+    "bytes": 6656,
+    "cutPct": 33.2,
+    "ms": 3.49
+  },
+  "syncMinify": {
+    "bytes": 6656,
+    "cutPct": 33.2,
+    "ms": 2.11
+  },
+  "asyncMinify": {
+    "bytes": 6656,
+    "cutPct": 33.2,
+    "ms": 5.72,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 1911,
+    "cutPct": 80.8,
+    "ms": 0.82
+  },
+  "rating": {
+    "score": 7.5,
+    "label": "good"
+  },
+  "notes": [
+    "//! and /// doc comments stripped by c-style remover",
+    "Aggressive savings from Rustdoc"
+  ]
+}

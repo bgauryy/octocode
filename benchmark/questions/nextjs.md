@@ -9,7 +9,7 @@ git clone --depth 1 https://github.com/vercel/next.js /tmp/nextjs-bench
 
 ---
 
-### Q1 — Exhaustive `"use client"` directive coverage
+### Q1 — Exhaustive `"use client"` directive coverage `[SEARCH]`
 
 In `vercel/next.js`, find every file under `packages/next/src/` that contains `'use client'` as an actual directive (the first statement in the file), excluding the `compiled/` subdirectory.
 1. How many unique files contain this directive?
@@ -19,7 +19,7 @@ In `vercel/next.js`, find every file under `packages/next/src/` that contains `'
 
 ---
 
-### Q2 — Bulk symbol definition lookup
+### Q2 — Bulk symbol definition lookup `[SEARCH]`
 
 Find where each of these symbols is **defined** (class or function declaration, not an import) in `vercel/next.js`:
 - `NextRequest` — exact file path and line number
@@ -30,7 +30,7 @@ Find where each of these symbols is **defined** (class or function declaration, 
 
 ---
 
-### Q3 — textMatch context: `revalidatePath` call sites
+### Q3 — textMatch context: `revalidatePath` call sites `[SEARCH]`
 
 In `vercel/next.js`, find every call to `revalidatePath` inside `packages/next/src/server/`.
 For each match: state the file path, line number, and the exact source line.
@@ -39,7 +39,7 @@ For each match: state the file path, line number, and the exact source line.
 
 ---
 
-### Q4 — AND-intersection: files referencing both routers
+### Q4 — AND-intersection: files referencing both routers `[SEARCH]`
 
 In `vercel/next.js`, find files under `packages/next/src/` that contain **both** `appDir` and `pagesDir` in the same file.
 1. How many files match?
@@ -49,7 +49,7 @@ In `vercel/next.js`, find files under `packages/next/src/` that contain **both**
 
 ---
 
-### Q5 — Large file targeted read: app-render entry
+### Q5 — Large file targeted read: app-render entry `[CONTENT]`
 
 Read `packages/next/src/server/app-render/app-render.tsx` in `vercel/next.js`.
 1. What are the names of all top-level exported functions or types?
@@ -59,7 +59,7 @@ Read `packages/next/src/server/app-render/app-render.tsx` in `vercel/next.js`.
 
 ---
 
-### Q6 — Directory listing with extension breakdown
+### Q6 — Directory listing with extension breakdown `[STRUCTURE]`
 
 List all files directly inside `packages/next/src/server/` in `vercel/next.js` (non-recursive, flat listing only).
 1. How many total files are in this directory?
@@ -69,7 +69,7 @@ List all files directly inside `packages/next/src/server/` in `vercel/next.js` (
 
 ---
 
-### Q7 — Monorepo package enumeration
+### Q7 — Monorepo package enumeration `[STRUCTURE]`
 
 In `vercel/next.js`, list every directory directly under `packages/`.
 1. How many top-level packages exist?
@@ -79,7 +79,7 @@ In `vercel/next.js`, list every directory directly under `packages/`.
 
 ---
 
-### Q8 — Feature archaeology: Partial Prerendering
+### Q8 — Feature archaeology: Partial Prerendering `[PR]`
 
 Search merged PRs in `vercel/next.js` to find the PR that first introduced Partial Prerendering (PPR).
 1. What is the PR number and title?
@@ -90,7 +90,7 @@ Search merged PRs in `vercel/next.js` to find the PR that first introduced Parti
 
 ---
 
-### Q9 — Inline review thread depth
+### Q9 — Inline review thread depth `[PR]`
 
 In `vercel/next.js`, find a merged PR that introduced or significantly changed middleware execution in the App Router.
 1. How many inline review comments (code-level thread comments, not PR-level summaries) does it have?
@@ -101,7 +101,7 @@ In `vercel/next.js`, find a merged PR that introduced or significantly changed m
 
 ---
 
-### Q10 — npm registry: Next.js ecosystem packages `[drift]`
+### Q10 — npm registry: Next.js ecosystem packages `[PACKAGE]` `[drift]`
 
 Look up the following npm packages. For each report: current version, weekly download count, and repository URL.
 - `next`
@@ -114,7 +114,7 @@ What replaced the deprecated `@next/font` package, and where does it now live?
 
 ---
 
-### Q11 — `"use server"` directive frequency
+### Q11 — `"use server"` directive frequency `[LOCAL]`
 
 Find every file under `packages/next/src/` that contains the exact string `"use server"`, excluding the `compiled/` subdirectory.
 1. How many unique files contain it?
@@ -124,7 +124,7 @@ Find every file under `packages/next/src/` that contains the exact string `"use 
 
 ---
 
-### Q12 — TODO/FIXME annotation survey
+### Q12 — TODO/FIXME annotation survey `[LOCAL]`
 
 Find every `// TODO`, `// FIXME`, or `// HACK` comment in `packages/next/src/server/`.
 For each: state the file path, line number, and exact comment text.
@@ -134,7 +134,7 @@ What is the total count?
 
 ---
 
-### Q13 — Largest source files by size
+### Q13 — Largest source files by size `[LOCAL]`
 
 Find the 5 largest `.ts` or `.tsx` files by byte size under `packages/next/src/server/`.
 For each: state the file path and file size.
@@ -143,7 +143,7 @@ For each: state the file path and file size.
 
 ---
 
-### Q14 — Server directory structure
+### Q14 — Server directory structure `[STRUCTURE]`
 
 List all direct subdirectories under `packages/next/src/server/`.
 1. How many subdirectories are there?
@@ -153,7 +153,7 @@ List all direct subdirectories under `packages/next/src/server/`.
 
 ---
 
-### Q15 — Abstract class interface: `BaseServer`
+### Q15 — Abstract class interface: `BaseServer` `[CONTENT]`
 
 Read `packages/next/src/server/base-server.ts`.
 1. What is the stated purpose of the `BaseServer` class?
@@ -163,7 +163,7 @@ Read `packages/next/src/server/base-server.ts`.
 
 ---
 
-### Q16 — Configuration defaults
+### Q16 — Configuration defaults `[CONTENT]`
 
 Read `packages/next/src/server/config-shared.ts`.
 1. What is the default value for `reactStrictMode`?
@@ -174,7 +174,7 @@ Read `packages/next/src/server/config-shared.ts`.
 
 ---
 
-### Q17 — Symbol definition: `NextRequest`
+### Q17 — Symbol definition: `NextRequest` `[LSP]`
 
 Where is the `NextRequest` class defined (not re-exported)?
 1. State the exact file path and line number of the class declaration.
@@ -184,7 +184,7 @@ Where is the `NextRequest` class defined (not re-exported)?
 
 ---
 
-### Q18 — Type definition: `Metadata`
+### Q18 — Type definition: `Metadata` `[LSP]`
 
 The main `Metadata` type lives under `packages/next/src/lib/metadata/types/`. Which file defines the root `Metadata` type or interface?
 1. State the exact file name and line number of the type declaration.
@@ -194,7 +194,7 @@ The main `Metadata` type lives under `packages/next/src/lib/metadata/types/`. Wh
 
 ---
 
-### Q19 — Reference exhaustiveness: `unstable_cache`
+### Q19 — Reference exhaustiveness: `unstable_cache` `[LSP]`
 
 Find all files across `packages/` that reference or import `unstable_cache`, excluding the `compiled/` subdirectory.
 1. How many unique files reference it?
@@ -204,7 +204,7 @@ Find all files across `packages/` that reference or import `unstable_cache`, exc
 
 ---
 
-### Q20 — Incoming call hierarchy: `renderToHTMLOrFlight`
+### Q20 — Incoming call hierarchy: `renderToHTMLOrFlight` `[LSP]`
 
 Trace the direct callers of the function `renderToHTMLOrFlight` in the server rendering pipeline.
 1. List each direct caller: function name, file path, and line number of the call site.

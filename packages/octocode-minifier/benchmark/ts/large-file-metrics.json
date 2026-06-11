@@ -1,0 +1,42 @@
+{
+  "ext": "ts",
+  "language": "TypeScript",
+  "description": "Async HTTP client with generics, retry, EventEmitter",
+  "inputBytes": 10126,
+  "inputLines": 322,
+  "contentView": {
+    "bytes": 7501,
+    "cutPct": 25.9,
+    "ms": 10.01
+  },
+  "applyMinify": {
+    "bytes": 3911,
+    "cutPct": 61.4,
+    "ms": 204.58
+  },
+  "syncMinify": {
+    "bytes": 3911,
+    "cutPct": 61.4,
+    "ms": 81.83
+  },
+  "asyncMinify": {
+    "bytes": 3911,
+    "cutPct": 61.4,
+    "ms": 69.96,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 2902,
+    "cutPct": 71.3,
+    "ms": 6.93
+  },
+  "rating": {
+    "score": 9.5,
+    "label": "excellent"
+  },
+  "notes": [
+    "TypeScript compiler + Terser pipeline",
+    "Rich type annotations removed by transpiler"
+  ]
+}

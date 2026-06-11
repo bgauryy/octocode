@@ -16,7 +16,8 @@ export type CommentPatternGroup =
   | 'apostrophe'
   | 'double-dash'
   | 'fsharp-block'
-  | 'pascal';
+  | 'pascal'
+  | 'python-docstring';
 
 export type Strategy =
   | 'terser'
@@ -153,6 +154,8 @@ export const MINIFY_CONFIG: MinifyConfig = {
       /^\s*\/\/.*$/gm, // // Delphi line comments
       /\s+\/\/.*$/gm, // // inline comments
     ],
+    // python-docstring is handled specially in removeComments (not a regex pattern)
+    'python-docstring': [],
   },
 
   fileTypes: {
@@ -164,7 +167,7 @@ export const MINIFY_CONFIG: MinifyConfig = {
     ts: { strategy: 'conservative', comments: 'c-style' },
     tsx: { strategy: 'conservative', comments: 'c-style' },
 
-    py: { strategy: 'conservative', comments: 'hash' },
+    py: { strategy: 'conservative', comments: ['hash', 'python-docstring'] },
     yaml: { strategy: 'conservative', comments: 'hash' },
     yml: { strategy: 'conservative', comments: 'hash' },
     coffee: { strategy: 'conservative', comments: 'hash' },

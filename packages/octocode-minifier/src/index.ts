@@ -16,6 +16,7 @@ export {
 // Core strategies (exported for consumers that need fine-grained control)
 export {
   removeComments,
+  stripPythonDocstrings,
   minifyConservativeCore,
   minifyAggressiveCore,
   minifyJsonCore,

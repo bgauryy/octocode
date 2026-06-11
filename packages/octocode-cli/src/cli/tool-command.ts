@@ -325,12 +325,12 @@ export async function getToolsContextString(
   ];
 
   toolNames.forEach((toolName, index) => {
-    const shortDesc = extractShortDescription(
-      getDirectToolDescription(toolName, metadata)
-    );
+    const description = getDirectToolDescription(toolName, metadata);
 
     sections.push(`${index + 1}. ${toolName}`);
-    sections.push(`Description: ${shortDesc}`);
+    sections.push(
+      `Description: ${full ? description.trim() : extractShortDescription(description)}`
+    );
 
     if (full) {
       const schemaText = findDirectToolDefinition(toolName)
@@ -479,9 +479,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       JSON.stringify(
         {
           name: tool.name,
-          description: extractShortDescription(
-            getDirectToolDescription(tool.name, metadata)
-          ),
+          description: getDirectToolDescription(tool.name, metadata),
           inputSchema,
         },
         null,

@@ -1,0 +1,42 @@
+{
+  "ext": "sh",
+  "language": "Shell",
+  "description": "Deployment script: args, SSH, rsync, health-check",
+  "inputBytes": 9146,
+  "inputLines": 294,
+  "contentView": {
+    "bytes": 7180,
+    "cutPct": 21.5,
+    "ms": 4.26
+  },
+  "applyMinify": {
+    "bytes": 7180,
+    "cutPct": 21.5,
+    "ms": 1.96
+  },
+  "syncMinify": {
+    "bytes": 7180,
+    "cutPct": 21.5,
+    "ms": 14.43
+  },
+  "asyncMinify": {
+    "bytes": 7180,
+    "cutPct": 21.5,
+    "ms": 3.47,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 745,
+    "cutPct": 91.9,
+    "ms": 1.47
+  },
+  "rating": {
+    "score": 6,
+    "label": "fair"
+  },
+  "notes": [
+    "Hash comments stripped but shebang preserved",
+    "Low comment ratio limits savings"
+  ]
+}

@@ -1263,10 +1263,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core::locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp":
   version: 4.3.0
-  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=98d2e8&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
+  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=ea0416&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/36d543cf084f29ef085ab5953ab38622496df07350d36201dfba65b121cbe1131881ec38a463d57c08d2e3cd7d5b90984a6260c72a4a9f0d6b7e89a2be215300
+  checksum: 10c0/342e1296fb7972b8f4bd28ae2c29c4badfb86f33e6a9740030d87abbb0ad55766ec5adc0557a68c443cce1d178fed78b57a46dc39a8362788d308d51706d5eed
   languageName: node
   linkType: hard
 

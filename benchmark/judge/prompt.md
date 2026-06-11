@@ -5,10 +5,10 @@ Paste this whole file to the agent. Before pasting, fill in the four `<PLACEHOLD
 ---
 
 ```
-AGENTS:    <comma-separated agent slugs, e.g. "octocode, gh" or "octocode, octocode-headroom, rtk, gh">
+AGENTS:    <comma-separated agent slugs, e.g. "octocode, gh" or "octocode, rtk, gh">
 RUNS:      <comma-separated absolute paths to completed run dirs, matching AGENTS order>
 QUESTIONS: <absolute path to the questions file, e.g. /path/to/benchmark/questions/nextjs.md>
-OUTPUT:    <absolute path to write summary.md, e.g. /path/to/benchmark/headroom/output/summary.md>
+OUTPUT:    <absolute path to write summary.md, e.g. /path/to/benchmark/output/summary.md>
 
 ROLE
 You are an evaluation judge. The agents listed in AGENTS have already answered all
@@ -20,10 +20,11 @@ questions in QUESTIONS. Your job:
 4. Write the comparison summary to OUTPUT.
 
 IMPORTANT: This benchmark uses a character-based ruler (in_chars + out_chars) as the
-canonical token-usage proxy — it is tokenizer-independent and deterministic. Where
-actual LLM token counts are available (headroom agents provide lm_tokens_in +
-lm_tokens_out in their q<n>.json), report both the chars-based and token-based scores.
-Wall-clock time is always context-only; it never decides the winner.
+canonical token-usage proxy — it is tokenizer-independent and deterministic. Approx
+tokens are display-only (`ceil(chars / 4)`). Where actual LLM token counts are
+available (for example lm_tokens_in + lm_tokens_out in q<n>.json), report both the
+chars-based and token-based scores. Wall-clock time is always context-only; it never
+decides the winner.
 
 Judge research and tool calls are OUTSIDE the measured researcher runs. Do not include
 any tools you use for fact-checking in any agent's token totals.
@@ -45,7 +46,7 @@ Read for each agent A in AGENTS (run dir = RUNS[A]):
     calls, in_chars, out_chars, total_chars, approx_tokens,
     tool_elapsed_ms, q_elapsed_ms, reasoning_ms
 
-  q<n>.json extended fields (headroom agents only):
+  q<n>.json optional actual-token fields:
     lm_tokens_in, lm_tokens_out, lm_turns, compression_ratio, savings_percent
 
 ═══════════════════════════════════════════════════════════════════
@@ -128,8 +129,8 @@ For EVERY question n, do the following:
 
   AXIS 3 — TURNS  T
   ──────────────────
-  T = calls  (from q<n>.json) for all non-headroom agents.
-  T = lm_turns  (from q<n>.json) for headroom agents.
+  T = calls  (from q<n>.json) by default.
+  T = lm_turns  (from q<n>.json) when an agent records model turns.
 
   Turns are reported directly — not scored 0–3. Fewer turns at the same
   research_score is better.
@@ -139,17 +140,17 @@ For EVERY question n, do the following:
   ─────────────────────────────────────────
   For each agent on Q<n>:
 
-    amortized_mcp_init_chars =
-      octocode agents: (mcp_init.in_chars + mcp_init.out_chars) / N_answered
-      all others:      0
+    amortized_tool_init_chars =
+      agent has recorded init/tool-context cost: init_chars / N_answered
+      CLI-only agents with no recorded init cost: 0
 
-    effective_chars  = in_chars + out_chars + amortized_mcp_init_chars
+    effective_chars  = in_chars + out_chars + amortized_tool_init_chars
 
     research_score   = Q × D                       (range 0–9)
     tradeoff_score   = research_score / max(effective_chars / 1000, 0.01)
     turns_per_point  = T / max(Q, 0.5)
 
-  For headroom agents that provide lm_tokens_in / lm_tokens_out, also compute:
+  For agents that provide lm_tokens_in / lm_tokens_out, also compute:
     effective_tokens     = lm_tokens_in + lm_tokens_out
     tradeoff_score_tok   = research_score / max(effective_tokens / 1000, 0.01)
     (Report tradeoff_score_tok alongside tradeoff_score in the table.)
@@ -183,10 +184,10 @@ Write to the path in OUTPUT. Use these sections in order:
   | Q | Category | Drift | <AgentA> Q | <AgentA> D | <AgentA> T | <AgentA> chars | <AgentA> tradeoff | <AgentB> Q | ... | Winner | Notes |
 
   - Q and D are your scores (0–3). Multi-part averages as "2.5".
-  - T = calls (or lm_turns for headroom). Show the number directly.
+  - T = calls, or lm_turns when present. Show the number directly.
   - chars = effective_chars for that Q.
   - tradeoff = tradeoff_score for that Q.
-    For headroom agents: "0.42 / 0.51tok" (chars-based / token-based).
+    For agents with actual token fields: "0.42 / 0.51tok" (chars-based / token-based).
   - Drift Qs: prefix Q score with "d:" (e.g. "d:2"). Winner = "—".
   - Notes: one short clause per interesting difference. Cite the
     specific missing or inaccurate fact for every score below 3.
@@ -204,8 +205,9 @@ Write to the path in OUTPUT. Use these sections in order:
 ────────────────────────────────────────────────────────────────────
   ## Token Efficiency Verdict (non-drift Qs only)
 
-  Pull totals from summary.json. MCP init = one-time per-session
-  schema-loading cost for octocode agents; zero for all others.
+  Pull totals from summary.json. Init/tool-context chars are zero unless
+  explicitly recorded by the run. CLI-only github/rtk benchmark runs have no
+  MCP session schema-loading cost.
 
   | Axis | <AgentA> | <AgentB> | ... | ratio (A/B) |
   |---|---|---|...|---|
@@ -213,12 +215,12 @@ Write to the path in OUTPUT. Use these sections in order:
   | Σ calls / lm_turns               | | | | |
   | Σ in_chars (per-Q)               | | | | |
   | Σ out_chars (per-Q)              | | | | |
-  | MCP init chars                   | | 0 | 0 | |
+  | Init/tool-context chars          | | 0 | 0 | |
   | TOTAL effective_chars            | | | | |
   | Approx tokens (chars / 4)        | | | | |
-  | Actual LM tokens (headroom only) | N/A | <value> | N/A | |
+  | Actual LM tokens (if present)    | N/A | <value> | N/A | |
   | tradeoff_score (Σ / total_chars) | | | | |
-  | tradeoff_score_tok (headroom)    | N/A | <value> | N/A | |
+  | tradeoff_score_tok (if present)  | N/A | <value> | N/A | |
   | Avg turns_per_point              | | | | |
   | Σ tool_elapsed_ms (context)      | | | | |
   | Σ q_elapsed_ms (context)         | | | | |
@@ -258,8 +260,8 @@ Write to the path in OUTPUT. Use these sections in order:
   - Questions where UNKNOWN was the honest answer but an agent guessed.
   - Tool capability gaps exposed by low scores (e.g. "gh cannot access
     inline PR review comments — Q13 answered from PR-level summary only").
-  - Compression-quality incidents for headroom agents (e.g. "headroom
-    stripped Q3 result context, missing file:line — D dropped from 3 to 1").
+  - Compression-quality incidents for agents that use compression or filtering
+    (e.g. "filtered output stripped Q3 result context, missing file:line — D dropped from 3 to 1").
   - Token-consumption pathologies (large unfiltered dumps, repeated
     schema cost, excessive turns for a simple answer).
   - Questions that were poorly specified or had too few verifiable facts.
@@ -272,8 +274,8 @@ Write to the path in OUTPUT. Use these sections in order:
   2. State the raw research_score (Q×D) winner separately.
   3. Explicitly name the quality/depth tradeoff if the efficiency winner
      had lower quality or shallower research.
-  4. For headroom agents: state whether compression preserved research
-     depth (did D scores hold up vs uncompressed baseline?).
+  4. For compressed or filtered-output agents: state whether compression
+     preserved research depth.
   5. State what the turns_per_point metric reveals about each agent's
      research strategy (few deep calls vs many shallow calls).
 
@@ -290,11 +292,11 @@ Before writing OUTPUT, verify:
 □ Every score below D=3: one-line reason citing what was missing from
   the research trail (file:line, cross-reference, quote, sub-question).
 □ Every fabricated fact: agent quoted verbatim.
-□ MCP init chars included in octocode agent totals.
+□ Init/tool-context chars included only if explicitly recorded by the run.
 □ Drift questions excluded from main quality+efficiency tallies.
 □ tradeoff_score winner called out if it has materially lower Q or D.
 □ Wall-clock time used only as context — never as a winner axis.
-□ For headroom agents: both chars-based and token-based tradeoff
-  scores reported in the per-question table.
+□ For agents with actual token fields: both chars-based and token-based
+  tradeoff scores reported in the per-question table.
 □ Output written to the path in OUTPUT (one file only).
 ```

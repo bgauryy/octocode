@@ -205,7 +205,7 @@ What is the grand total?
 
 ---
 
-### Q17 — Five most recently modified `.rs` files `[METADATA]`
+### Q17 — Five most recently modified `.rs` files `[METADATA]` `[drift]`
 
 List the 5 most recently modified `.rs` files under `src/` in `rtk-ai/rtk`.
 For each, state the file path and the most recent modification timestamp (use commit history or retrieval evidence — filesystem clone times are not meaningful).
@@ -240,7 +240,7 @@ Search the merged PRs in `rtk-ai/rtk` to find the PR that introduced the `--ultr
 
 ---
 
-### Q20 — Labels on the 10 most recently updated PRs `[PR · METADATA]`
+### Q20 — Labels on the 10 most recently updated PRs `[PR · METADATA]` `[drift]`
 
 List the labels applied to the 10 most recently opened or updated PRs in `rtk-ai/rtk`.
 Are there any PRs labeled `breaking-change`, `breaking`, or similar?

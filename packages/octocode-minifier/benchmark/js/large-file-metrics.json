@@ -1,0 +1,43 @@
+{
+  "ext": "js",
+  "language": "JavaScript",
+  "description": "Lodash-style utility library with full JSDoc (400 lines)",
+  "inputBytes": 10668,
+  "inputLines": 419,
+  "contentView": {
+    "bytes": 4895,
+    "cutPct": 54.1,
+    "ms": 2.32
+  },
+  "applyMinify": {
+    "bytes": 4062,
+    "cutPct": 61.9,
+    "ms": 70.43
+  },
+  "syncMinify": {
+    "bytes": 4062,
+    "cutPct": 61.9,
+    "ms": 14.26
+  },
+  "asyncMinify": {
+    "bytes": 4062,
+    "cutPct": 61.9,
+    "ms": 13.26,
+    "type": "terser"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 930,
+    "cutPct": 91.3,
+    "ms": 17.23
+  },
+  "rating": {
+    "score": 10,
+    "label": "excellent"
+  },
+  "notes": [
+    "Terser pipeline: TypeScript transpiler skipped (pure JS), goes direct to terser",
+    "JSDoc block comments stripped by Terser",
+    "Symbols extraction via tsJsStrategy AST parser"
+  ]
+}

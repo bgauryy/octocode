@@ -208,11 +208,12 @@ export async function minifyContent(
 
       case 'json': {
         const result = minifyJsonCore(content);
+        // minifyJsonCore always returns failed:false and never sets reason;
+        // the fields are kept explicit for future-proofing.
         return {
           content: result.content,
-          failed: result.failed,
-          type: result.failed ? 'failed' : 'json',
-          ...(result.reason && { reason: result.reason }),
+          failed: false,
+          type: 'json',
         };
       }
 

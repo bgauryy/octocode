@@ -76,10 +76,11 @@ source benchmark/github/scripts/init-run.sh <TOOLSET>
 IF TOOLSET = octocode — configure the local CLI binary (required):
   export OCTOCODE_CLI_BIN=/Users/guybary/Documents/octocode-mcp/packages/octocode-cli/out/octocode-cli.js
 
-  MANDATORY pre-flight: review ALL tool descriptions, schemas, and bulk-query patterns
-  before making any metered call. This ensures correct parameter usage and fewer wasted
-  calls (directly improves token counts):
-    node "$OCTOCODE_CLI_BIN" --tools-context
+  MANDATORY pre-flight: review the agent protocol, tool descriptions, schemas,
+  and bulk-query patterns before making any metered call. This ensures correct
+  parameter usage and fewer wasted calls (directly improves token counts):
+    node "$OCTOCODE_CLI_BIN" --agent
+    node "$OCTOCODE_CLI_BIN" --agent --full
 
   Read the full output. Key patterns to note:
     - Every tool accepts 1–5 queries per call — batch independent lookups.

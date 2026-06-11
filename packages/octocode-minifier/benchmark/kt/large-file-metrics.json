@@ -1,0 +1,42 @@
+{
+  "ext": "kt",
+  "language": "Kotlin",
+  "description": "Android repository: coroutines, Flow, Room, Retrofit",
+  "inputBytes": 7281,
+  "inputLines": 206,
+  "contentView": {
+    "bytes": 4467,
+    "cutPct": 38.6,
+    "ms": 2.2
+  },
+  "applyMinify": {
+    "bytes": 4467,
+    "cutPct": 38.6,
+    "ms": 4.03
+  },
+  "syncMinify": {
+    "bytes": 4467,
+    "cutPct": 38.6,
+    "ms": 4.24
+  },
+  "asyncMinify": {
+    "bytes": 4467,
+    "cutPct": 38.6,
+    "ms": 2.89,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 1795,
+    "cutPct": 75.3,
+    "ms": 0.35
+  },
+  "rating": {
+    "score": 7.5,
+    "label": "good"
+  },
+  "notes": [
+    "KDoc block comments stripped via c-style remover",
+    "Coroutine annotations preserved"
+  ]
+}
