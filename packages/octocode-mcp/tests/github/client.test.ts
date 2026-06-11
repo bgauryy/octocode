@@ -84,11 +84,12 @@ describe('GitHub Client', () => {
       expect(mockOctokit).toHaveBeenCalledWith({
         userAgent: expect.stringMatching(/^octocode-mcp\//),
         baseUrl: 'https://api.github.com',
-        request: { timeout: 30000 },
+        request: { timeout: 30000, log: expect.any(Object) },
         throttle: {
           onRateLimit: expect.any(Function),
           onSecondaryRateLimit: expect.any(Function),
         },
+        log: expect.any(Object),
         auth: testToken,
       });
     });
@@ -101,11 +102,12 @@ describe('GitHub Client', () => {
       expect(mockOctokit).toHaveBeenCalledWith({
         userAgent: expect.stringMatching(/^octocode-mcp\//),
         baseUrl: 'https://api.github.com',
-        request: { timeout: 30000 },
+        request: { timeout: 30000, log: expect.any(Object) },
         throttle: {
           onRateLimit: expect.any(Function),
           onSecondaryRateLimit: expect.any(Function),
         },
+        log: expect.any(Object),
       });
     });
 
@@ -122,11 +124,12 @@ describe('GitHub Client', () => {
       expect(mockOctokit).toHaveBeenCalledWith({
         userAgent: expect.stringMatching(/^octocode-mcp\//),
         baseUrl: 'https://api.github.com',
-        request: { timeout: 30000 },
+        request: { timeout: 30000, log: expect.any(Object) },
         throttle: {
           onRateLimit: expect.any(Function),
           onSecondaryRateLimit: expect.any(Function),
         },
+        log: expect.any(Object),
         auth: 'auth-token',
       });
     });
@@ -172,7 +175,7 @@ describe('GitHub Client', () => {
 
       expect(mockOctokit).toHaveBeenCalledWith(
         expect.objectContaining({
-          request: { timeout: 60000 },
+          request: { timeout: 60000, log: expect.any(Object) },
         })
       );
     });

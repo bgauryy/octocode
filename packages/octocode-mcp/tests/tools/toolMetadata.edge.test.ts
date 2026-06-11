@@ -51,9 +51,8 @@ describe('toolMetadata - Final Edge Cases', () => {
 
   describe('loadToolContent', () => {
     it('returns core metadata directly', async () => {
-      const { loadToolContent } = await import(
-        '../../src/tools/toolMetadata/state.js'
-      );
+      const { loadToolContent } =
+        await import('../../src/tools/toolMetadata/state.js');
 
       const content = await loadToolContent();
 
@@ -63,9 +62,8 @@ describe('toolMetadata - Final Edge Cases', () => {
     });
 
     it('is stable across repeated calls', async () => {
-      const { loadToolContent } = await import(
-        '../../src/tools/toolMetadata/state.js'
-      );
+      const { loadToolContent } =
+        await import('../../src/tools/toolMetadata/state.js');
 
       const first = await loadToolContent();
       const second = await loadToolContent();

@@ -6,8 +6,7 @@ import { validateToolPath } from '../../src/utils/file/toolHelpers.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { getTextContent } from '../utils/testHelpers.js';
 
-beforeAll(async () => {
-});
+beforeAll(async () => {});
 
 describe('Hint conciseness', () => {
   describe('empty string filtering in bulk responses', () => {

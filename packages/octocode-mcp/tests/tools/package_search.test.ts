@@ -354,6 +354,41 @@ describe('searchPackage - NPM (CLI)', () => {
     );
   });
 
+  it('keyword queries default to a ranked page of 20 lean results', async () => {
+    const searchItems = JSON.stringify([
+      { name: 'pkg-a', version: '1.0.0', description: 'a' },
+      { name: 'pkg-b', version: '2.0.0', description: 'b' },
+    ]);
+    mockExecuteNpmCommand.mockImplementation(
+      createNpmCommandMock({ stdout: searchItems, stderr: '', exitCode: 0 })
+    );
+
+    const query: PackageSearchInput = {
+      name: 'react state management',
+      mainResearchGoal: 'Test',
+      researchGoal: 'Test',
+      reasoning: 'Test',
+    };
+
+    const result = await searchPackage(query);
+
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
+      'search',
+      ['react state management', '--json', '--searchlimit', '20'],
+      expect.any(Object)
+    );
+    // lean keyword list: no per-item `npm view` metadata fetches
+    expect(mockExecuteNpmCommand).not.toHaveBeenCalledWith(
+      'view',
+      expect.arrayContaining(['pkg-a', '--json']),
+      expect.any(Object)
+    );
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect(result.packages.map(p => p.name)).toEqual(['pkg-a', 'pkg-b']);
+    }
+  });
+
   it('should return full NPM package results when npmFetchMetadata is true', async () => {
     mockNpmViewFull('axios', {
       name: 'axios',
@@ -1087,6 +1122,120 @@ describe('registerPackageSearchTool', () => {
 
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('Install: npm install lodash');
+    });
+
+    it('should include pagination in data when registry returns more results than fetched', async () => {
+      // Make CLI fail → triggers registry fallback
+      mockExecuteNpmCommand.mockRejectedValue(new Error('npm not found'));
+
+      // Registry returns 1 package but total = 1000
+      mockFetch.mockImplementation((url: string | URL | Request) => {
+        const urlStr = fetchUrlString(url);
+        if (urlStr.includes('/-/v1/search')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                objects: [
+                  {
+                    package: {
+                      name: 'react-utils',
+                      version: '1.0.0',
+                      description: 'React utilities',
+                    },
+                  },
+                ],
+                total: 1000,
+              }),
+            body: null,
+          });
+        }
+        if (/^https?:\/\/[^/]+\/?$/.test(urlStr)) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ db_name: 'registry' }),
+            body: null,
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          body: { cancel: vi.fn().mockResolvedValue(undefined) },
+          headers: new Headers(),
+        });
+      });
+
+      await registerPackageSearchTool(mockServer.server);
+
+      const result = await mockServer.callTool('packageSearch', {
+        queries: [
+          {
+            name: 'react utils library',
+            mainResearchGoal: 'Test pagination',
+            researchGoal: 'Test',
+            reasoning: 'Validate pagination output',
+          },
+        ],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('hasMore');
+      expect(text).toContain('1000');
+    });
+
+    it('should return lean package shape when npmFetchMetadata is false', async () => {
+      mockNpmViewFull('lodash', {
+        name: 'lodash',
+        version: '4.17.21',
+        description: 'Utility library',
+        repository: 'https://github.com/lodash/lodash',
+      });
+      mockExecuteNpmCommand.mockImplementation(
+        createNpmCommandMock({ stdout: '', stderr: '', exitCode: 0 })
+      );
+
+      await registerPackageSearchTool(mockServer.server);
+
+      const result = await mockServer.callTool('packageSearch', {
+        queries: [
+          {
+            name: 'lodash',
+            npmFetchMetadata: false,
+            mainResearchGoal: 'Test lean path',
+            researchGoal: 'Test',
+            reasoning: 'Cover shapeLeanPackage branch',
+          },
+        ],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('lodash');
+    });
+
+    it('should suggest underscore-based name variations on error', async () => {
+      mockFetch.mockRejectedValue(new Error('fetch failed'));
+      mockExecuteNpmCommand.mockRejectedValue(new Error('npm failed'));
+
+      await registerPackageSearchTool(mockServer.server);
+
+      const result = await mockServer.callTool('packageSearch', {
+        queries: [
+          {
+            name: 'my_package_name',
+            mainResearchGoal: 'Test name variation',
+            researchGoal: 'Test',
+            reasoning: 'Cover generateNameVariations underscore branch',
+          },
+        ],
+      });
+
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('my-package-name');
     });
   });
 

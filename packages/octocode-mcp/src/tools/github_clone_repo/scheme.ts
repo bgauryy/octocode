@@ -20,12 +20,7 @@ export const CloneRepoQueryLocalSchema = withCoreSchemaDescriptions(
     true
   >).extend({
     ...optionalMetaFields,
-    sparsePath: z
-      .string()
-      .optional()
-      .describe(
-        'Optional subdirectory for sparse checkout — reduces clone size for large monorepos. Use "packages/foo" to clone only that subtree.'
-      ),
+    sparsePath: z.string().optional(),
   })
 );
 

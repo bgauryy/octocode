@@ -367,7 +367,7 @@ describe('tool-command coverage', () => {
     );
   });
 
-  it('drops the legacy top-level responseCharOffset (char pagination removed)', async () => {
+  it('forwards envelope-level fields like responseCharOffset to the tool', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -383,9 +383,9 @@ describe('tool-command coverage', () => {
     expect(callArg).toEqual(
       expect.objectContaining({
         queries: [expect.objectContaining({ path: '.', pattern: 'foo' })],
+        responseCharOffset: 500,
       })
     );
-    expect(callArg).not.toHaveProperty('responseCharOffset');
   });
 
   it('errors when more than two positional args are supplied', async () => {
@@ -676,7 +676,9 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"name"');
     expect(output).toContain('react');
-    expect(output).toContain('"page"');
+    // page has a schema default — optional from the input side, so it is
+    // excluded from the required-fields example.
+    expect(output).not.toContain('"page":');
     expect(output).not.toContain('"limit"');
   });
 
@@ -691,7 +693,9 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('keywordsToSearch');
-    expect(output).toContain('"page"');
+    // page is defaulted (optional input) so the example omits it; the schema
+    // listing still documents the field itself.
+    expect(output).toContain('page (integer)');
     expect(output).toContain('sort');
   });
 
@@ -706,7 +710,7 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('bgauryy');
-    expect(output).toContain('octocode-mcp');
+    expect(output).toContain('"repo":"octocode"');
   });
 
   it('reports first failing query in a multi-query array', async () => {

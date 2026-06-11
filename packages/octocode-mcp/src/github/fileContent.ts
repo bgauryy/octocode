@@ -41,6 +41,7 @@ export async function fetchGitHubFileContentAPI(
     {
       shouldCache: (value: GitHubAPIResponse<RawContentResult>) =>
         'data' in value && !(value as { error?: unknown }).error,
+      forceRefresh: params.forceRefresh === true,
     }
   );
 
@@ -60,12 +61,11 @@ export async function fetchGitHubFileContentAPI(
     params.fullContent || false,
     params.startLine,
     params.endLine,
-    params.matchStringContextLines ?? 15,
+    params.matchStringContextLines ?? 5,
     params.matchString,
-    params.signaturesOnly,
     params.matchStringIsRegex,
     params.matchStringCaseSensitive,
-    params.minify !== false
+    params.minify ?? 'none'
   );
 
   if ('error' in processedResult) {
@@ -76,25 +76,45 @@ export async function fetchGitHubFileContentAPI(
     };
   }
 
-  // Always paginate: if the content exceeds the output char budget, truncate
-  // and attach pagination info so the caller can continue with charOffset.
+  // Paginate when the content exceeds the output char budget — EXCEPT for
+  // successful minify:"symbols" skeletons: skeletons are indexes and are
+  // always returned whole (charOffset/charLength inputs are ignored for them).
+  const { signaturesExtracted, ...processedData } = processedResult;
   const charOffset = params.charOffset ?? 0;
   const charLength = params.charLength;
-  const paginatedResult = applyContentPagination(
-    processedResult,
-    charOffset,
-    charLength
-  );
+  const paginatedResult = signaturesExtracted
+    ? processedData
+    : applyContentPagination(processedData, charOffset, charLength);
 
   if (!params.noTimestamp) {
     try {
       const octokit = await getOctokit(authInfo);
-      const timestampInfo = await fetchFileTimestamp(
-        octokit,
-        params.owner,
-        params.repo,
-        params.path,
-        params.branch
+      // Cached separately from raw content: every read variant of the same
+      // file (matchString/lines/minify modes) reuses one commits lookup.
+      const timestampInfo = await withDataCache(
+        generateCacheKey(
+          'gh-api-file-content',
+          {
+            owner: params.owner,
+            repo: params.repo,
+            path: params.path,
+            branch: params.branch,
+            ts: true,
+          },
+          sessionId
+        ),
+        () =>
+          fetchFileTimestamp(
+            octokit,
+            params.owner,
+            params.repo,
+            params.path,
+            params.branch
+          ),
+        {
+          shouldCache: value => value !== null,
+          forceRefresh: params.forceRefresh === true,
+        }
       );
       if (timestampInfo) {
         paginatedResult.lastModified = timestampInfo.lastModified;

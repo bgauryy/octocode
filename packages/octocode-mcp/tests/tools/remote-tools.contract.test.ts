@@ -4,8 +4,7 @@ import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import { buildRepoStructureOutput } from '../../src/tools/github_view_repo_structure/execution.js';
 
-beforeAll(async () => {
-});
+beforeAll(async () => {});
 
 describe('Evidence: githubGetFileContent', () => {
   it('nudges the next pagination parameter for partial file content', () => {

@@ -22,13 +22,17 @@ import {
 } from '../shared/semanticTypes.js';
 import { diagnosticHints } from './hints.js';
 
+// 1-based line/character (matching editor display and the other LSP tool
+// outputs) — raw LSP 0-based ranges are an off-by-one trap for agents.
 type DiagnosticEntry = {
-  range: Diagnostic['range'];
+  line: number;
+  character: number;
+  endLine?: number;
   severity: 'error' | 'warning' | 'information' | 'hint';
   message: string;
   source?: string;
   code?: unknown;
-  relatedInformation?: Diagnostic['relatedInformation'];
+  relatedInformation?: Array<{ uri: string; line: number; message: string }>;
 };
 
 export async function executeLspGetDiagnostics(
@@ -68,11 +72,10 @@ async function getDiagnostics(query: LspDiagnosticsQuery) {
     const hints = Array.isArray(anchor.error.hints)
       ? (anchor.error.hints as string[])
       : [`File could not be resolved: ${query.uri ?? query.filePath ?? ''}`];
+    // diagnostics/summary omitted — zero counts would read as "file is clean".
     return {
       uri: query.uri ?? query.filePath ?? '',
       lsp: { serverAvailable: false, source: 'unavailable' as const },
-      diagnostics: [] as DiagnosticEntry[],
-      summary: { errors: 0, warnings: 0, information: 0, hints: 0 },
       warnings: [message],
       hints,
     };
@@ -90,11 +93,10 @@ async function getDiagnostics(query: LspDiagnosticsQuery) {
     : null;
 
   if (!client) {
+    // diagnostics/summary omitted — zero counts would read as "file is clean".
     return {
       uri: anchor.value.uri,
       lsp: { serverAvailable: false, source: 'unavailable' },
-      diagnostics: [],
-      summary: { errors: 0, warnings: 0, information: 0, hints: 0 },
       warnings: ['Language server unavailable'],
       hints: diagnosticHints('unavailable', true),
     };
@@ -104,16 +106,41 @@ async function getDiagnostics(query: LspDiagnosticsQuery) {
     anchor.value.uri,
     anchor.value.content
   );
-  const diagnostics = result.diagnostics
-    .map(toDiagnosticEntry)
+  const allEntries = result.diagnostics.map(toDiagnosticEntry);
+  const filtered = allEntries
     .filter(entry => matchesSeverity(entry, query.severity ?? 'all'))
     .filter(entry => !query.source || entry.source === query.source);
+  // Diagnostics hidden ONLY by the severity/source filter — without this
+  // signal a filtered-out file reads as a false "clean".
+  const filteredOutCount = allEntries.length - filtered.length;
+
+  const DEFAULT_DIAGNOSTICS_PER_PAGE = 50;
+  const page = Math.max(1, query.page ?? 1);
+  const itemsPerPage = Math.max(
+    1,
+    query.itemsPerPage ?? DEFAULT_DIAGNOSTICS_PER_PAGE
+  );
+  const totalDiagnostics = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalDiagnostics / itemsPerPage));
+  const startIdx = (page - 1) * itemsPerPage;
+  const diagnostics = filtered.slice(startIdx, startIdx + itemsPerPage);
+  const pagination =
+    totalDiagnostics > itemsPerPage
+      ? {
+          currentPage: page,
+          totalPages,
+          itemsPerPage,
+          totalDiagnostics,
+          hasMore: page < totalPages,
+        }
+      : undefined;
 
   return {
     uri: anchor.value.uri,
     lsp: { serverAvailable: true, source: result.source },
     diagnostics,
-    summary: summarize(diagnostics),
+    ...(pagination && { pagination }),
+    summary: summarize(filtered),
     warnings:
       result.source === 'unavailable'
         ? [
@@ -122,20 +149,33 @@ async function getDiagnostics(query: LspDiagnosticsQuery) {
         : undefined,
     hints: diagnosticHints(
       result.source,
-      diagnostics.length === 0,
-      diagnostics.filter(d => d.severity === 'error').length
+      filtered.length === 0,
+      filtered.filter(d => d.severity === 'error').length,
+      filteredOutCount,
+      pagination
     ),
   };
 }
 
 function toDiagnosticEntry(diagnostic: Diagnostic): DiagnosticEntry {
+  const line = diagnostic.range.start.line + 1;
+  const endLine = diagnostic.range.end.line + 1;
+  const related = (diagnostic.relatedInformation ?? [])
+    .filter(info => info?.location?.uri)
+    .map(info => ({
+      uri: info.location.uri,
+      line: (info.location.range?.start?.line ?? 0) + 1,
+      message: info.message,
+    }));
   return {
-    range: diagnostic.range,
+    line,
+    character: diagnostic.range.start.character + 1,
+    ...(endLine !== line && { endLine }),
     severity: severityName(diagnostic.severity),
     message: diagnostic.message,
     source: diagnostic.source,
     code: diagnostic.code,
-    relatedInformation: diagnostic.relatedInformation,
+    ...(related.length > 0 && { relatedInformation: related }),
   };
 }
 
@@ -155,11 +195,23 @@ function severityName(
   }
 }
 
+// Threshold semantics (matching the schema text "Minimum severity:
+// error < warning < information < hint"): severity="warning" includes
+// errors AND warnings — exact-match filtering would zero out a file that
+// only has errors, reading as a false "clean".
+const SEVERITY_RANK: Record<DiagnosticEntry['severity'], number> = {
+  error: 1,
+  warning: 2,
+  information: 3,
+  hint: 4,
+};
+
 function matchesSeverity(
   diagnostic: DiagnosticEntry,
   requested: LspDiagnosticsQuery['severity']
 ): boolean {
-  return !requested || requested === 'all' || diagnostic.severity === requested;
+  if (!requested || requested === 'all') return true;
+  return SEVERITY_RANK[diagnostic.severity] <= SEVERITY_RANK[requested];
 }
 
 function summarize(diagnostics: DiagnosticEntry[]) {

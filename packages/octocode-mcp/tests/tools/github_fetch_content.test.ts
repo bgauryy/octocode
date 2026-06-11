@@ -157,7 +157,7 @@ describe('GitHub Fetch Content Tool', () => {
       expect(responseText).not.toContain("Follow 'mainResearchGoal'");
     });
 
-    it('surfaces the signaturesOnly hint when extraction succeeds (supported file type with body)', async () => {
+    it('surfaces the skeleton hint when minify:"symbols" extraction succeeds (supported file type with body)', async () => {
       mockProvider.getFileContent.mockResolvedValue({
         data: {
           path: 'src/app.ts',
@@ -183,7 +183,7 @@ describe('GitHub Fetch Content Tool', () => {
               owner: 'test',
               repo: 'repo',
               path: 'src/app.ts',
-              signaturesOnly: true,
+              minify: 'symbols',
             },
           ],
         }
@@ -193,7 +193,7 @@ describe('GitHub Fetch Content Tool', () => {
       expect(responseText).toContain('Signatures only');
     });
 
-    it('does not show signaturesOnly hint for unsupported file types (e.g. .c)', async () => {
+    it('does not show the skeleton hint for unsupported file types (e.g. .c)', async () => {
       mockProvider.getFileContent.mockResolvedValue({
         data: {
           path: 'kernel/sched.c',
@@ -216,7 +216,7 @@ describe('GitHub Fetch Content Tool', () => {
               owner: 'torvalds',
               repo: 'linux',
               path: 'kernel/sched.c',
-              signaturesOnly: true,
+              minify: 'symbols',
             },
           ],
         }

@@ -127,7 +127,8 @@ export function parseRipgrepJson(
         let value = contextLines.join('\n').replace(/\n+$/, '');
         const charArray = [...value];
         if (charArray.length > maxLength) {
-          value = charArray.slice(0, maxLength - 3).join('') + '...';
+          value =
+            charArray.slice(0, Math.max(maxLength - 3, 1)).join('') + '...';
         }
 
         return {

@@ -129,7 +129,8 @@ export async function searchMultipleGitHubPullRequests(
           (Boolean((query as { content?: unknown }).content) ||
             Boolean((query as { reviewMode?: unknown }).reviewMode));
         const prMinify =
-          (effectiveQuery as { minify?: boolean }).minify !== false;
+          (effectiveQuery as { minify?: 'none' | 'standard' }).minify ===
+          'standard';
         const leanRequest = {
           ...contentRequest,
           body: false,
@@ -138,8 +139,11 @@ export async function searchMultipleGitHubPullRequests(
           comments: false as const,
           commits: false as const,
         };
+        // Per-PR next.* menus only make sense on a prNumber detail fetch —
+        // broad list results would repeat the identical menu for every PR
+        // (the "Metadata mode:" hint covers escalation guidance instead).
         const showContentMap =
-          shouldLeanBroadShape || hasExpensiveContentRequest(contentRequest);
+          hasPrNumber && hasExpensiveContentRequest(contentRequest);
         const shapedPullRequests = pullRequests.map(pr =>
           shapePullRequestForContent(
             pr,
@@ -208,7 +212,18 @@ export async function searchMultipleGitHubPullRequests(
             `Large PR(s) ${prNumbers} have ${maxFiles}+ file changes.`
           );
         }
-        if (!includeFileChanges) {
+        // Only when the response is actually metadata-only — a prNumber
+        // fetch with comments/reviews/body is not "metadata mode", but a
+        // broad list result always is (the lean shape strips content there).
+        const requestedAnyContent =
+          contentRequest.body ||
+          contentRequest.changedFiles ||
+          contentRequest.patches.mode !== 'none' ||
+          Boolean(contentRequest.comments) ||
+          contentRequest.reviews ||
+          Boolean(contentRequest.commits);
+        const deliveredAnyContent = hasPrNumber && requestedAnyContent;
+        if (!includeFileChanges && !deliveredAnyContent) {
           const withChanges = pullRequests.filter(
             (pr: Record<string, unknown>) =>
               typeof pr.changedFilesCount === 'number' &&
@@ -223,6 +238,16 @@ export async function searchMultipleGitHubPullRequests(
 
         const hasMore = Boolean(pagination?.hasMore);
 
+        const matchStringHints =
+          hasPrNumber &&
+          typeof (effectiveQuery as { matchString?: string }).matchString ===
+            'string' &&
+          (effectiveQuery as { matchString: string }).matchString.trim()
+            ? [
+                `matchString filter active — pagination totals count only items matching "${(effectiveQuery as { matchString: string }).matchString.trim()}"; drop matchString for the full set.`,
+              ]
+            : [];
+
         const shaped = buildPRSearchOutput(
           {
             data: resultData,
@@ -232,6 +257,7 @@ export async function searchMultipleGitHubPullRequests(
               ...paginationHints,
               ...downgradeHints,
               ...fileChangeHints,
+              ...matchStringHints,
             ],
           },
           effectiveQuery as PartialPRQuery

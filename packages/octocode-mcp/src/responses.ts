@@ -1,7 +1,7 @@
 import { CallToolResult } from '@modelcontextprotocol/sdk/types';
 import { maskSensitiveData } from 'octocode-security-utils/mask';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
-import { jsonToYamlString } from './utils/minifier/jsonToYamlString.js';
+import { jsonToYamlString } from '@octocodeai/octocode-minifier';
 import { getConfigSync } from 'octocode-shared';
 import type { BulkToolResponse } from './types/bulk.js';
 import type { StructuredToolResponse } from './types/toolResults.js';
@@ -364,6 +364,58 @@ function sortObjectKeys(obj: unknown, priority: string[]): unknown {
   return sorted;
 }
 
+/**
+ * A pagination block earns its tokens only when it navigates somewhere:
+ * single-page, exhausted results carry no information beyond the result
+ * list itself (totals equal the visible count), so both render paths drop
+ * them. Char-style cursors are trivial only at offset 0 with no more data.
+ *
+ * Detection is by full shape, not field name: every key must belong to the
+ * pagination vocabulary and the block must report itself exhausted. An
+ * object with any foreign key — or any non-trivial cursor — is never touched,
+ * so renamed pagination fields are still pruned and tool data never is.
+ */
+const PAGINATION_KEYS = new Set([
+  'currentPage',
+  'totalPages',
+  'perPage',
+  'itemsPerPage',
+  'entriesPerPage',
+  'filesPerPage',
+  'referencesPerPage',
+  'callsPerPage',
+  'totalMatches',
+  'totalFiles',
+  'totalEntries',
+  'totalItems',
+  'totalResults',
+  'totalReferences',
+  'hasMore',
+  'nextPage',
+  'charOffset',
+  'charLength',
+  'totalChars',
+  'totalBytes',
+  'nextCharOffset',
+]);
+
+function isTrivialPagination(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const p = value as Record<string, unknown>;
+  const keys = Object.keys(p);
+  if (keys.length === 0 || !keys.every(k => PAGINATION_KEYS.has(k))) {
+    return false;
+  }
+  if (p.hasMore !== false) return false;
+  if (typeof p.totalPages === 'number') return p.totalPages <= 1;
+  if ('charOffset' in p || 'nextCharOffset' in p) {
+    return (p.charOffset ?? 0) === 0;
+  }
+  return true;
+}
+
 function cleanJsonObject(
   obj: unknown,
   context: { inFilesObject?: boolean; depth?: number } = {}
@@ -395,6 +447,10 @@ function cleanJsonObject(
       ) {
         cleaned[key] = [];
         hasValidProperties = true;
+        continue;
+      }
+
+      if (isTrivialPagination(value)) {
         continue;
       }
 

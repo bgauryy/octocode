@@ -20,11 +20,6 @@ export const hints: ToolHintGenerators = {
   },
 
   error: (ctx: HintContext = {}) => {
-    if (ctx.errorType === 'size_limit' && ctx.entryCount) {
-      return [
-        `Directory has ${ctx.entryCount} entries — add depth=1 or an extension filter to narrow the listing.`,
-      ];
-    }
     if (ctx.errorType === 'not_found') {
       const c2 = ctx as Record<string, unknown>;
       const path = typeof c2.path === 'string' ? c2.path : undefined;

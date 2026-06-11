@@ -19,6 +19,18 @@ type ViewStructureInput = Parameters<typeof viewStructureImpl>[0] & {
 
 const viewStructure = (query: ViewStructureInput) => viewStructureImpl(query);
 
+// Lean default output is flat grouped name lists (files/folders/links).
+// Helper to assert across all lists regardless of entry kind.
+const flatNames = (result: {
+  files?: string[];
+  folders?: string[];
+  links?: string[];
+}): string[] => [
+  ...(result.files ?? []),
+  ...(result.folders ?? []),
+  ...(result.links ?? []),
+];
+
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
 }));
@@ -163,8 +175,13 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeGreaterThan(0);
+      // Lean default: flat grouped name lists, no per-entry objects.
+      expect(result.entries).toBeUndefined();
+      expect(result.path).toBe('/test/path');
+      expect(result.files).toEqual(
+        expect.arrayContaining(['file1.txt', 'file2.js'])
+      );
+      expect(result.folders).toEqual(['dir1']);
     });
 
     it('should use sanitized path for non-recursive ls execution', async () => {
@@ -219,11 +236,15 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
+        details: true,
       });
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      expect(result.entries!.some(e => e.name === 'file1.txt')).toBe(true);
+      // path is base-joined inside the tool; the bulk layer relativizes it
+      expect(result.entries!.some(e => e.path?.endsWith('/file1.txt'))).toBe(
+        true
+      );
       expect(result.entries!.some(e => e.size === '1.0KB')).toBe(true);
     });
 
@@ -245,6 +266,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
+        details: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -278,10 +300,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('dir1'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('subfile.txt'))).toBe(
-        true
-      );
+      // Lean flat lists; names carry relative subpaths in recursive mode.
+      expect(result.folders).toContain('dir1');
+      expect(result.files!.some(f => f.includes('subfile.txt'))).toBe(true);
     });
   });
 
@@ -366,11 +387,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('file1.ts'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('file3.ts'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('file2.js'))).toBe(
-        false
-      );
+      expect(result.files).toContain('file1.ts');
+      expect(result.files).toContain('file3.ts');
+      expect(result.files).not.toContain('file2.js');
     });
 
     it('should filter by multiple extensions', async () => {
@@ -391,13 +410,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('file1.ts'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('file2.tsx'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('file3.js'))).toBe(
-        false
-      );
+      expect(result.files).toContain('file1.ts');
+      expect(result.files).toContain('file2.tsx');
+      expect(result.files).not.toContain('file3.js');
     });
 
     it('should filter files only', async () => {
@@ -421,10 +436,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('file1.txt'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('dir1'))).toBe(false);
+      expect(result.files).toContain('file1.txt');
+      expect(result.folders).toBeUndefined();
+      expect(flatNames(result)).not.toContain('dir1');
     });
 
     it('should filter directories only', async () => {
@@ -448,11 +462,10 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('dir1'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('dir2'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('file1.txt'))).toBe(
-        false
-      );
+      expect(result.folders).toContain('dir1');
+      expect(result.folders).toContain('dir2');
+      expect(result.files).toBeUndefined();
+      expect(flatNames(result)).not.toContain('file1.txt');
     });
 
     it('should filter by name pattern', async () => {
@@ -473,15 +486,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('test1.txt'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('test2.txt'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('other.txt'))).toBe(
-        false
-      );
+      expect(result.files).toContain('test1.txt');
+      expect(result.files).toContain('test2.txt');
+      expect(result.files).not.toContain('other.txt');
     });
 
     it('should filter by glob pattern with asterisks', async () => {
@@ -507,18 +514,10 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('parser.test.ts'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('utils.test.ts'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('helper.ts'))).toBe(
-        false
-      );
-      expect(result.entries!.some(e => e.name.includes('config.ts'))).toBe(
-        false
-      );
+      expect(result.files).toContain('parser.test.ts');
+      expect(result.files).toContain('utils.test.ts');
+      expect(result.files).not.toContain('helper.ts');
+      expect(result.files).not.toContain('config.ts');
     });
 
     it('should filter by glob pattern, extensions, and recursive together', async () => {
@@ -548,18 +547,11 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('root.test.ts'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('nested.test.ts'))).toBe(
-        true
-      );
-      expect(result.entries!.some(e => e.name.includes('other.ts'))).toBe(
-        false
-      );
-      expect(result.entries!.some(e => e.name.includes('another.ts'))).toBe(
-        false
-      );
+      const names = flatNames(result);
+      expect(names.some(n => n.includes('root.test.ts'))).toBe(true);
+      expect(names.some(n => n.includes('nested.test.ts'))).toBe(true);
+      expect(names.some(n => n.includes('other.ts'))).toBe(false);
+      expect(names.some(n => n.includes('another.ts'))).toBe(false);
     });
 
     it('should filter by glob pattern with question mark', async () => {
@@ -585,14 +577,10 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('test1.ts'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('test2.ts'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('test10.ts'))).toBe(
-        false
-      );
-      expect(result.entries!.some(e => e.name.includes('testing.ts'))).toBe(
-        false
-      );
+      expect(result.files).toContain('test1.ts');
+      expect(result.files).toContain('test2.ts');
+      expect(result.files).not.toContain('test10.ts');
+      expect(result.files).not.toContain('testing.ts');
     });
   });
 
@@ -617,7 +605,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.type === 'link')).toBe(true);
+      // Lean default: symlinks surface in the flat `links` list.
+      expect(result.links).toContain('link');
+      expect(result.files).toContain('file.txt');
     });
 
     it('should identify symlinks in parseLsLongFormat', async () => {
@@ -701,7 +691,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
     });
 
-    it('should default showFileLastModified to true when not specified (non-recursive)', async () => {
+    it('should default to lean flat lists without timestamps when showFileLastModified is not specified', async () => {
       mockSafeExec.mockResolvedValue({
         success: true,
         code: 0,
@@ -722,12 +712,40 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeGreaterThan(0);
-      expect(result.entries![0]!.modified).toBe('2024-01-15T12:00:00.000Z');
+      // Lean default: no rich entries at all — just flat name lists.
+      expect(result.entries).toBeUndefined();
+      expect(result.files).toEqual(['file.txt']);
     });
 
-    it('should default showFileLastModified to true when not specified (recursive)', async () => {
+    it('should honor sortBy=time in lean mode (modified collected internally, not displayed)', async () => {
+      mockReaddir.mockResolvedValue(['new.txt', 'old.txt']);
+
+      mockLstat.mockImplementation(
+        async (pathArg: string | Buffer | URL): Promise<Stats> =>
+          ({
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => false,
+            size: 1024,
+            mtime: pathArg.toString().includes('old')
+              ? new Date('2020-01-01T00:00:00Z')
+              : new Date('2024-06-15T12:00:00Z'),
+          }) as Stats
+      );
+
+      const result = await viewStructure({
+        path: '/test/path',
+        depth: 1,
+        sortBy: 'time',
+      });
+
+      expect(result.status).toBeUndefined();
+      // Time sort works without rich output: oldest first (ascending).
+      expect(result.entries).toBeUndefined();
+      expect(result.files).toEqual(['old.txt', 'new.txt']);
+    });
+
+    it('should include modified timestamps for sortBy=time when showFileLastModified=true (recursive)', async () => {
       mockReaddir.mockResolvedValue(['file.txt']);
 
       mockLstat.mockResolvedValue({
@@ -741,6 +759,8 @@ describe('localViewStructure', () => {
       const result = await viewStructure({
         path: '/test/path',
         depth: 1,
+        sortBy: 'time',
+        showFileLastModified: true,
       });
 
       expect(result.status).toBeUndefined();
@@ -771,9 +791,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeGreaterThan(0);
-      expect(result.entries![0]!.modified).toBeUndefined();
+      // Explicit false keeps the lean flat output — no rich entries.
+      expect(result.entries).toBeUndefined();
+      expect(result.files).toEqual(['file.txt']);
     });
 
     it('should NOT include modified in detailed mode when showFileLastModified is false', async () => {
@@ -816,10 +836,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('.hidden'))).toBe(true);
-      expect(result.entries!.some(e => e.name.includes('visible.txt'))).toBe(
-        true
-      );
+      expect(result.files).toContain('.hidden');
+      expect(result.files).toContain('visible.txt');
     });
 
     it('should hide hidden files by default', async () => {
@@ -840,10 +858,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.some(e => e.name.includes('.hidden'))).toBe(false);
-      expect(result.entries!.some(e => e.name.includes('visible.txt'))).toBe(
-        true
-      );
+      expect(result.files).not.toContain('.hidden');
+      expect(result.files).toContain('visible.txt');
     });
   });
 
@@ -900,7 +916,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      const names = result.entries!.map(e => e.name);
+      const names = result.files!;
       expect(names[0]).toContain('small');
       expect(names[names.length - 1]).toContain('large');
     });
@@ -965,7 +981,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      const names = result.entries!.map(e => e.name);
+      const names = result.files!;
       expect(names[0]).toContain('alpha');
       expect(names[1]).toContain('beta');
       expect(names[2]).toContain('zebra');
@@ -1067,7 +1083,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.pagination?.totalEntries).toBe(150);
       expect(result.pagination?.hasMore).toBe(true);
-      expect(result.entries!.length).toBe(100);
+      expect(result.files!.length).toBe(100);
     });
 
     it('should paginate tree view when requested', async () => {
@@ -1122,7 +1138,7 @@ describe('localViewStructure', () => {
 
       expect(result2.status).toBeUndefined();
       expect(result2.pagination?.currentPage).toBe(2);
-      expect(result2.entries![0]!.name).not.toBe(result1.entries![0]!.name);
+      expect(result2.files![0]).not.toBe(result1.files![0]);
     });
   });
 
@@ -1170,7 +1186,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries?.[0]?.path).toContain('/test/path');
+      // Lean output hoists the base dir to a single `path` field.
+      expect(result.path).toBe('/test/path');
+      expect(result.files).toContain('file.txt');
     });
 
     it('should handle max depth limit for recursive', async () => {
@@ -1507,7 +1525,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries?.length).toBe(5);
+      expect(result.files?.length).toBe(5);
       expect(result.summary).toContain('5 entries');
       expect(result.pagination?.totalPages).toBe(1);
     });
@@ -1536,7 +1554,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
+      expect(result.files).toBeDefined();
       expect(result.pagination?.totalPages).toBeGreaterThan(1);
       expect(result.pagination?.hasMore).toBe(true);
     });
@@ -1592,7 +1610,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
+      expect(result.files).toBeDefined();
       expect(result.pagination?.entriesPerPage).toBe(10);
     });
 
@@ -1621,7 +1639,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
+      expect(result.files).toBeDefined();
       expect(result.pagination?.hasMore).toBe(false);
     });
   });
@@ -1705,7 +1723,7 @@ describe('localViewStructure', () => {
       expect(result.pagination?.currentPage).toBe(3);
       expect(result.pagination?.totalPages).toBe(3);
       expect(result.pagination?.hasMore).toBe(false);
-      expect(result.entries?.length).toBe(5);
+      expect(result.files?.length).toBe(5);
     });
   });
 
@@ -2071,7 +2089,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
+      expect(result.files).toBeDefined();
       expect(result.pagination).not.toHaveProperty('totalChars');
     });
 
@@ -2142,7 +2160,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
+      expect(result.files).toBeDefined();
     });
 
     it('should handle 2-byte UTF-8 chars (é, ñ)', async () => {
@@ -2165,8 +2183,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
+      expect(result.files).toBeDefined();
+      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
     });
 
     it('should handle 3-byte UTF-8 chars (中文)', async () => {
@@ -2189,8 +2207,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
+      expect(result.files).toBeDefined();
+      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
     });
 
     it('should handle 4-byte UTF-8 chars (emoji)', async () => {
@@ -2213,8 +2231,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
+      expect(result.files).toBeDefined();
+      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
     });
 
     it('should not split multi-byte characters at boundaries', async () => {
@@ -2237,7 +2255,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries!.every(e => !e.name.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
     });
 
     it('should show character pagination hints', async () => {
@@ -2534,7 +2552,7 @@ describe('localViewStructure', () => {
       const result = await viewStructure({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries?.every(e => !e.name.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
       expect(
         (result as Record<string, unknown>).charPagination
       ).toBeUndefined();
@@ -2564,8 +2582,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBe(20);
+      expect(result.files).toBeDefined();
+      expect(result.files!.length).toBe(20);
       expect(result.warnings).toBeUndefined();
     });
 
@@ -2611,7 +2629,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.warnings).toBeUndefined();
-      expect(result.entries!.length).toBeLessThanOrEqual(100);
+      expect(result.files!.length).toBeLessThanOrEqual(100);
     });
 
     it('should use entry pagination in non-recursive mode (C5: no char truncation)', async () => {
@@ -2633,8 +2651,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeLessThanOrEqual(100);
+      expect(result.files).toBeDefined();
+      expect(result.files!.length).toBeLessThanOrEqual(100);
     });
   });
 
@@ -2658,15 +2676,16 @@ describe('localViewStructure', () => {
       );
     });
 
-    it(' returns same full entries[] as default', async () => {
+    it(' returns same full flat lists as default', async () => {
       const def = await viewStructure({ path: '/test/path' });
       const result = await viewStructure({
         path: '/test/path',
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toEqual(def.entries);
-      expect(result.entries!.length).toBeGreaterThan(0);
+      expect(result.files).toEqual(def.files);
+      expect(result.folders).toEqual(def.folders);
+      expect(result.files!.length).toBeGreaterThan(0);
     });
 
     it(' keeps pagination so the agent still sees totalEntries', async () => {
@@ -2690,24 +2709,24 @@ describe('localViewStructure', () => {
       expect(hintsBlob).not.toMatch(/drill-back|re-call|detail dropped/i);
     });
 
-    it('always returns full entries', async () => {
+    it('always returns full flat lists', async () => {
       const result = await viewStructure({
         path: '/test/path',
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeGreaterThan(0);
+      expect(result.files).toBeDefined();
+      expect(result.files!.length).toBeGreaterThan(0);
     });
 
-    it(' also returns full entries (metadata is additive)', async () => {
+    it(' also returns full flat lists (metadata is additive)', async () => {
       const result = await viewStructure({
         path: '/test/path',
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.entries).toBeDefined();
-      expect(result.entries!.length).toBeGreaterThan(0);
+      expect(result.files).toBeDefined();
+      expect(result.files!.length).toBeGreaterThan(0);
     });
 
     it('does not transform the empty status', async () => {

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { paginateGroupsCharWindow } from '../../../src/utils/response/groupedFinalizer.js';
+import {
+  paginateGroupsCharWindow,
+  collectFlatErrors,
+} from '../../../src/utils/response/groupedFinalizer.js';
 import { countSerializedChars } from '../../../src/utils/response/charSavings.js';
 
 type Match = { path: string; value?: string };
@@ -20,6 +23,23 @@ const window = (groups: Group[], charOffset: number, charLength: number) =>
     charOffset,
     charLength,
   });
+
+describe('paginateGroupsCharWindow — empty groups (lines 47-51 safeTotal=0 branches)', () => {
+  it('handles empty groups array (totalChars=0, triggers safeTotal===0 ternaries)', () => {
+    const result = paginateGroupsCharWindow<Group, Match>({
+      groups: [],
+      getItems: g => g.matches,
+      setItems: (g, matches) => ({ ...g, matches }),
+      getItemText: m => m.value,
+      setItemText: (m, v) => ({ ...m, value: v }),
+      charOffset: 0,
+      charLength: 100,
+    });
+    expect(result.groups).toHaveLength(0);
+    expect(result.pagination.totalChars).toBe(0);
+    expect(result.pagination.currentPage).toBe(1);
+  });
+});
 
 describe('paginateGroupsCharWindow — edge branches', () => {
   it('returns empty selection when charOffset exceeds total size', () => {
@@ -85,5 +105,118 @@ describe('paginateGroupsCharWindow — oversized item is paginated, never trunca
     const page = window(groups, 0, 5);
     expect(page.groups.length).toBeGreaterThan(0);
     expect(page.pagination.charLength).toBeGreaterThan(0);
+  });
+});
+
+describe('paginateGroupsCharWindow — no textAccessors (line 117 else branch)', () => {
+  it('works when getItemText/setItemText are not provided', () => {
+    type Item = { value: string };
+    type Grp = { id: string; items: Item[] };
+    const result = paginateGroupsCharWindow<Grp, Item>({
+      groups: [{ id: 'g', items: [{ value: 'hello' }, { value: 'world' }] }],
+      getItems: g => g.items,
+      setItems: (g, items) => ({ ...g, items }),
+      charOffset: 0,
+      charLength: 10000,
+    });
+    expect(result.groups).toHaveLength(1);
+    expect(result.pagination.hasMore).toBe(false);
+  });
+});
+
+describe('paginateGroupsCharWindow — maxItems cap (lines 154-155)', () => {
+  it('breaks early when itemCap is reached', () => {
+    const groups: Group[] = [
+      {
+        id: 'g',
+        matches: [
+          { path: 'a', value: 'alpha' },
+          { path: 'b', value: 'beta' },
+          { path: 'c', value: 'gamma' },
+        ],
+      },
+    ];
+    const result = paginateGroupsCharWindow<Group, Match>({
+      groups,
+      getItems: g => g.matches,
+      setItems: (g, matches) => ({ ...g, matches }),
+      getItemText: m => m.value,
+      setItemText: (m, v) => ({ ...m, value: v }),
+      charOffset: 0,
+      charLength: 100000,
+      maxItems: 1,
+    });
+    expect(result.groups[0]!.matches).toHaveLength(1);
+    expect(result.pagination.hasMore).toBe(true);
+  });
+});
+
+describe('paginateGroupsCharWindow — textAccessors.get returns undefined (line 135)', () => {
+  it('falls back to empty string when getItemText returns undefined for sliced text', () => {
+    // getItemText that returns undefined for some items triggers the ?? '' branch
+    const groups: Group[] = [
+      {
+        id: 'g',
+        matches: [{ path: 'a' }, { path: 'b', value: 'hello world something' }],
+      },
+    ];
+    const result = paginateGroupsCharWindow<Group, Match>({
+      groups,
+      getItems: g => g.matches,
+      setItems: (g, matches) => ({ ...g, matches }),
+      getItemText: m => m.value,
+      setItemText: (m, v) => ({ ...m, value: v }),
+      charOffset: 0,
+      charLength: 5,
+    });
+    expect(result.groups).toBeDefined();
+  });
+});
+
+describe('collectFlatErrors — unwrapProviderError branches', () => {
+  it('includes HTTP status in error message when error object has numeric status', () => {
+    const errors = collectFlatErrors([
+      {
+        id: 'q1',
+        status: 'error',
+        data: { error: { error: 'Not Found', status: 404 } },
+      } as never,
+    ]);
+    expect(errors[0]!.error).toContain('HTTP 404');
+  });
+
+  it('falls back to "Provider error" when error value is not string/object (line 213)', () => {
+    const errors = collectFlatErrors([
+      {
+        id: 'q2',
+        status: 'error',
+        data: { error: 42 },
+      } as never,
+    ]);
+    expect(errors[0]!.error).toBe('Provider error');
+  });
+
+  it('uses "Provider error" message when error field is empty string (line 206 false branch)', () => {
+    const errors = collectFlatErrors([
+      {
+        id: 'q3',
+        status: 'error',
+        data: { error: { error: '', status: 503 } },
+      } as never,
+    ]);
+    expect(errors[0]!.error).toContain('HTTP 503');
+    expect(errors[0]!.error).toContain('Provider error');
+  });
+
+  it('omits status when error object has no numeric status (line 210 false branch)', () => {
+    const errors = collectFlatErrors([
+      {
+        id: 'q4',
+        status: 'error',
+        data: { error: { error: 'Something failed' } },
+      } as never,
+    ]);
+    expect(errors[0]!.error).toBe('Something failed');
+    expect(errors[0]!.error).not.toContain('HTTP');
   });
 });

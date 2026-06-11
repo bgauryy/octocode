@@ -118,7 +118,7 @@ describe('Output type alignment', () => {
       LocalSearchCodeFile[] | undefined
     >();
     expectTypeOf<RipgrepFileMatches['matches']>().toEqualTypeOf<
-      LocalSearchCodeMatch[]
+      LocalSearchCodeMatch[] | undefined
     >();
 
     expectTypeOf<ViewStructureResult['entries']>().toEqualTypeOf<

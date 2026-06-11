@@ -125,14 +125,17 @@ export async function executeRipgrepSearchInternal(
   }
 
   if (!result.success) {
-    return createErrorResult(
-      new Error(`Ripgrep failed (exit code ${result.code}): ${result.stderr}`),
-      configuredQuery,
-      {
-        toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        rawResponse: result.stdout.length + result.stderr.length,
-      }
-    ) as LocalSearchCodeToolResult;
+    // rg's "No such file or directory" stderr repeats the full path twice —
+    // map it to the same actionable shape the other local tools use.
+    const isMissingPath =
+      result.code === 2 && /No such file or directory/.test(result.stderr);
+    const message = isMissingPath
+      ? `Search path not found: ${configuredQuery.path}. Verify it with localViewStructure or localFindFiles.`
+      : `Ripgrep failed (exit code ${result.code}): ${result.stderr}`;
+    return createErrorResult(new Error(message), configuredQuery, {
+      toolName: TOOL_NAMES.LOCAL_RIPGREP,
+      rawResponse: result.stdout.length + result.stderr.length,
+    }) as LocalSearchCodeToolResult;
   }
 
   const parsed = parseRipgrepOutput(result.stdout, configuredQuery);

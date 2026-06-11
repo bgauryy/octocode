@@ -1,5 +1,5 @@
 /**
- * Canonical source used by the signaturesOnly alignment tests on both the
+ * Canonical source used by the minify:"symbols" skeleton alignment tests on both the
  * GitHub terminal (fileOperations.processContent.test.ts) and the local
  * terminal (local_fetch_content.test.ts). Both must return exactly
  * extractSignatures(SIGNATURE_SOURCE) — that equality IS the alignment contract.

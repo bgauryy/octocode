@@ -4,7 +4,7 @@ import { fetchContent as fetchContentImpl } from '../../src/tools/local_fetch_co
 import {
   extractSignatures,
   applyContentViewMinification,
-} from '../../src/utils/minifier/applyMinification.js';
+} from '@octocodeai/octocode-minifier';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import * as pathValidator from 'octocode-security-utils/pathValidator';
 import * as fs from 'fs/promises';
@@ -76,8 +76,9 @@ describe('localGetFileContent', () => {
       expect(result.totalLines).toBe(3);
     });
 
-    it('should apply minification by default', async () => {
-      const testContent = 'function test() {\n  return true;\n}';
+    it('returns raw content by default (minify omitted → "none")', async () => {
+      const testContent =
+        'function test() {\n  // explain the return\n  return true;\n}';
       mockReadFile.mockResolvedValue(testContent);
 
       const result = await fetchContent({
@@ -86,7 +87,24 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Minification is always applied for token efficiency
+      expect(result.content).toContain('// explain the return');
+      expect(result.content).toBe(testContent);
+    });
+
+    it('strips comments and whitespace with minify:"standard"', async () => {
+      const testContent =
+        'function test() {\n  // explain the return\n  return true;\n}';
+      mockReadFile.mockResolvedValue(testContent);
+
+      const result = await fetchContent({
+        path: 'test.js',
+        fullContent: true,
+        minify: 'standard',
+      });
+
+      expect(result.status).toBeUndefined();
+      expect(result.content).not.toContain('// explain the return');
+      expect(result.content).toContain('return true');
     });
   });
 
@@ -108,7 +126,7 @@ describe('localGetFileContent', () => {
       expect(result.isPartial).toBe(true);
     });
 
-    it('strips inline comments from JS files in the matchString slice (comment + indent minification)', async () => {
+    it('strips inline comments from JS files in the matchString slice with minify:"standard"', async () => {
       const testContent =
         'before\nconst x = 1; // keep this comment\nTARGET\nafter';
       mockReadFile.mockResolvedValue(testContent);
@@ -117,6 +135,7 @@ describe('localGetFileContent', () => {
         path: 'test.js',
         matchString: 'TARGET',
         contextLines: 1,
+        minify: 'standard',
       });
 
       expect(result.status).toBeUndefined();
@@ -134,11 +153,13 @@ describe('localGetFileContent', () => {
         path: 'test.js',
         matchString: 'TARGET',
         contextLines: 1,
+        minify: 'standard',
       });
       const result = await fetchContent({
         path: 'test.js',
         matchString: 'TARGET',
         contextLines: 1,
+        minify: 'standard',
       });
 
       expect(result.status).toBeUndefined();
@@ -147,13 +168,13 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('const x = 1');
     });
 
-    it('signaturesOnly returns the extracted skeleton, aligned with the GitHub path', async () => {
+    it('minify:"symbols" returns the extracted skeleton, aligned with the GitHub path', async () => {
       const SOURCE = SIGNATURE_SOURCE;
       mockReadFile.mockResolvedValue(SOURCE);
 
       const result = await fetchContent({
         path: 'sample.ts',
-        signaturesOnly: true,
+        minify: 'symbols',
       } as Parameters<typeof fetchContent>[0]);
 
       expect(result.status).toBeUndefined();
@@ -165,9 +186,11 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('a: string,');
       expect(result.content).toContain('Promise<void>');
       expect(result.content).not.toContain('secretLocal');
+      expect(result.contentView).toBe('symbols');
+      expect(result.isSkeleton).toBe(true);
     });
 
-    it('paginates a large signaturesOnly skeleton (aligned with the GitHub char pagination)', async () => {
+    it('returns a large minify:"symbols" skeleton WHOLE — never paginated', async () => {
       let src = '';
       for (let i = 0; i < 800; i++) {
         src += `export function fn${i}(argumentOne: string, argumentTwo: number): Promise<void> {\n  return doStuff(${i});\n}\n`;
@@ -176,16 +199,67 @@ describe('localGetFileContent', () => {
 
       const result = await fetchContent({
         path: 'big.ts',
-        signaturesOnly: true,
+        minify: 'symbols',
       } as Parameters<typeof fetchContent>[0]);
 
       expect(result.status).toBeUndefined();
-      // Large skeleton must be char-paginated, not returned whole.
-      expect(result.pagination).toBeDefined();
-      expect(result.pagination?.hasMore).toBe(true);
+      // Skeletons are indexes — they must come back whole, with NO pagination block.
+      expect(result.pagination).toBeUndefined();
       expect(result.content).toBeDefined();
-      expect(result.content!.length).toBeLessThan(src.length);
+      expect(result.content).toContain('fn0(');
+      expect(result.content).toContain('fn799(');
+      expect(result.content).not.toContain('doStuff');
       expect(result.isPartial).toBe(true);
+      expect(result.contentView).toBe('symbols');
+      expect(result.isSkeleton).toBe(true);
+      expect(result.totalLines).toBe(src.split('\n').length);
+    });
+
+    it('unsupported minify:"symbols" warns and falls back to standard content view', async () => {
+      mockReadFile.mockResolvedValue(
+        'name=octocode\n\n\n; token-saving comment\nkeep=true\n'
+      );
+
+      const result = await fetchContent({
+        path: 'settings.ini',
+        minify: 'symbols',
+      } as Parameters<typeof fetchContentImpl>[0]);
+
+      expect(result.status).toBeUndefined();
+      expect(result.contentView).toBe('standard');
+      expect(result.isSkeleton).toBeUndefined();
+      expect(result.content).toContain('name=octocode');
+      expect(result.content).toContain('keep=true');
+      expect(result.content).not.toContain('; token-saving comment');
+      expect(result.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('falling back to standard content view'),
+        ])
+      );
+      expect(result.warnings?.join('\n')).not.toContain(
+        'returning full content'
+      );
+    });
+
+    it('ignores charOffset/charLength for minify:"symbols" (skeleton is whole)', async () => {
+      let src = '';
+      for (let i = 0; i < 800; i++) {
+        src += `export function fn${i}(argumentOne: string, argumentTwo: number): Promise<void> {\n  return doStuff(${i});\n}\n`;
+      }
+      mockReadFile.mockResolvedValue(src);
+
+      const result = await fetchContent({
+        path: 'big.ts',
+        minify: 'symbols',
+        charOffset: 5000,
+        charLength: 100,
+      } as Parameters<typeof fetchContent>[0]);
+
+      expect(result.status).toBeUndefined();
+      expect(result.pagination).toBeUndefined();
+      // Whole skeleton from the top — char cursor inputs are ignored.
+      expect(result.content).toContain('fn0(');
+      expect(result.content).toContain('fn799(');
     });
 
     it('redacts secrets in normal content (aligned with GitHub ContentSanitizer)', async () => {
@@ -200,14 +274,14 @@ describe('localGetFileContent', () => {
       expect(result.content).not.toContain('AKIAIOSFODNN7EXAMPLE');
     });
 
-    it('redacts secrets inside signaturesOnly output', async () => {
+    it('redacts secrets inside minify:"symbols" output', async () => {
       mockReadFile.mockResolvedValue(
         'export function connect(token = "AKIAIOSFODNN7EXAMPLE"): void {\n  doThing();\n}\n'
       );
 
       const result = await fetchContent({
         path: 'svc.ts',
-        signaturesOnly: true,
+        minify: 'symbols',
       } as Parameters<typeof fetchContent>[0]);
 
       expect(result.content).toContain('connect(');
@@ -498,6 +572,27 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBe('error');
       expect(result.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.FILE_READ_FAILED);
+    });
+
+    it('reports a directory-specific error (EISDIR) with a localViewStructure hint', async () => {
+      const eisdir = Object.assign(
+        new Error("EISDIR: illegal operation on a directory, read 'utils'"),
+        { code: 'EISDIR' }
+      );
+      mockReadFile.mockRejectedValue(eisdir);
+
+      const result = await fetchContent({
+        path: 'src/utils',
+      });
+
+      expect(result.status).toBe('error');
+      expect(result.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.FILE_ACCESS_FAILED);
+      expect(String(result.error)).toContain('directory');
+      expect(String(result.error)).toContain('localViewStructure');
+      const hints = ((result.hints as string[] | undefined) ?? []).join(' ');
+      expect(hints).toContain('localViewStructure');
+      expect(hints).not.toContain('not found');
+      expect(hints).not.toContain('localFindFiles');
     });
 
     it('should handle file read errors when error is not Error instance', async () => {
@@ -933,10 +1028,12 @@ describe('localGetFileContent', () => {
       // Lossless: a pagination cursor reaches the rest — nothing is dropped.
       expect(result.pagination).toBeDefined();
       expect(result.warnings).toBeDefined();
-      expect(result.warnings?.[0]).toContain('2000');
-      expect(result.warnings?.[0]).toContain('Auto-paginated');
+      const joinedWarnings = (result.warnings ?? []).join(' | ');
+      // Occurrence summary first (with lineHint anchors), then the auto-pagination note.
+      expect(result.warnings?.[0]).toContain('Found 2000 occurrences');
+      expect(joinedWarnings).toContain('Auto-paginated');
       // The old hard "first 50 matches" cap must be gone.
-      expect(result.warnings?.[0]).not.toContain('Truncated to first 50');
+      expect(joinedWarnings).not.toContain('Truncated to first 50');
     });
 
     it('should auto-paginate when matchString result exceeds MAX_OUTPUT_CHARS without charLength (lines 206-212)', async () => {

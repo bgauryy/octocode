@@ -1261,14 +1261,33 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^4.2.0":
-  version: 4.2.0
-  resolution: "@octocodeai/octocode-core@npm:4.2.0"
+"@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core::locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp":
+  version: 4.3.0
+  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=dadbd4&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/e014a82d90393a06280d523d04b49eb6918e8ceca5deef60d2010dbc8f2ac50770275b6ea3ef79bd45e7a6e10e8c38c49914191bfdfae2d6b5e27e24eea1df33
+  checksum: 10c0/d2adb7725e1c9c8ad46583a97d31d175f4ed912c8c8649cc2518afc231490b17df2bbb36b6590920e17adc42085928e1fa66ea39da30554849b5acd255c9aa83
   languageName: node
   linkType: hard
+
+"@octocodeai/octocode-minifier@workspace:*, @octocodeai/octocode-minifier@workspace:packages/octocode-minifier":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier@workspace:packages/octocode-minifier"
+  dependencies:
+    "@types/clean-css": "npm:^4.2.11"
+    "@types/html-minifier-terser": "npm:^7.0.2"
+    "@types/js-yaml": "npm:^4.0.9"
+    "@types/node": "npm:^22.15.29"
+    "@vitest/coverage-v8": "npm:^4.0.16"
+    clean-css: "npm:^5.3.3"
+    eslint: "npm:^9.18.0"
+    html-minifier-terser: "npm:^7.2.0"
+    js-yaml: "npm:^4.1.1"
+    terser: "npm:^5.46.1"
+    typescript: "npm:^5.9.3"
+    vitest: "npm:^4.0.16"
+  languageName: unknown
+  linkType: soft
 
 "@octokit/app@npm:^16.1.2":
   version: 16.1.2
@@ -7014,7 +7033,8 @@ __metadata:
   resolution: "octocode-mcp@workspace:packages/octocode-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-core": "npm:^4.2.0"
+    "@octocodeai/octocode-core": "file:../../../octocode-mcp-host/packages/octocode-core"
+    "@octocodeai/octocode-minifier": "workspace:*"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/openapi-types": "npm:^27.0.0"
     "@octokit/plugin-rest-endpoint-methods": "npm:^17.0.0"

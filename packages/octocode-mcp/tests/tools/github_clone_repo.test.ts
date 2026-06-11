@@ -550,6 +550,17 @@ describe('cloneRepo', () => {
             mkdirSync(targetDir, { recursive: true });
           }
         }
+        // sparse-checkout set: materialize the sparse path inside the clone
+        // dir, mirroring git behavior for an existing directory — cloneRepo
+        // verifies the path exists after checkout.
+        if (args.includes('sparse-checkout')) {
+          const cIdx = args.indexOf('-C');
+          const targetDir = cIdx !== -1 ? args[cIdx + 1] : undefined;
+          const sparsePath = args[args.length - 1];
+          if (targetDir && sparsePath) {
+            mkdirSync(join(targetDir, sparsePath), { recursive: true });
+          }
+        }
         return { success: true, stdout: 'ok', stderr: '', exitCode: 0 };
       }
     );

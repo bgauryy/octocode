@@ -36,7 +36,12 @@ export const hints: ToolHintGenerators = {
       );
     }
 
-    if (searchTerm && /^(@[\w-]+\/)?[\w.-]+$/.test(searchTerm)) {
+    // Match scoped packages (@scope/pkg) or kebab/dot-separated names (react-query, lodash.get)
+    // Excludes camelCase/PascalCase identifiers like executeCloneRepo or MyComponent
+    if (
+      searchTerm &&
+      /^@[\w-]+\/[\w.-]+$|^[a-z][\w]*[-.][\w.-]+$/.test(searchTerm)
+    ) {
       out.push(
         `"${searchTerm}" looks like a package — use \`packageSearch\` to resolve it directly to the source repo.`
       );

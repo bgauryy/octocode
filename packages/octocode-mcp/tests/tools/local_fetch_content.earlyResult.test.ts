@@ -72,7 +72,7 @@ describe('fetchContent — earlyResult minification path', () => {
     expect(result.pagination?.hasMore).toBe(true);
   });
 
-  it('minify:true (default) strips inline comments from the earlyResult slice', async () => {
+  it('minify:"standard" strips inline comments from the earlyResult slice', async () => {
     const content = buildHugeCommentedContent(200);
     mockReadFile.mockResolvedValue(content);
 
@@ -80,6 +80,7 @@ describe('fetchContent — earlyResult minification path', () => {
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
       contextLines: 0,
+      minify: 'standard',
     });
 
     expect(result.pagination?.hasMore).toBe(true);
@@ -89,7 +90,7 @@ describe('fetchContent — earlyResult minification path', () => {
     expect(result.content).toContain('EARLYMARKER');
   });
 
-  it('minify:false preserves inline comments in the earlyResult slice', async () => {
+  it('default (minify omitted → "none") preserves inline comments in the earlyResult slice', async () => {
     const content = buildHugeCommentedContent(200);
     mockReadFile.mockResolvedValue(content);
 
@@ -97,8 +98,7 @@ describe('fetchContent — earlyResult minification path', () => {
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
       contextLines: 0,
-      minify: false,
-    } as Parameters<typeof fetchContent>[0]);
+    });
 
     expect(result.pagination?.hasMore).toBe(true);
     // Raw content — comments must be preserved.
@@ -106,7 +106,7 @@ describe('fetchContent — earlyResult minification path', () => {
     expect(result.content).toContain('EARLYMARKER');
   });
 
-  it('minify:true and minify:false produce different content on earlyResult path', async () => {
+  it('minify:"standard" and minify:"none" produce different content on earlyResult path', async () => {
     const content = buildHugeCommentedContent(200);
     mockReadFile.mockResolvedValue(content);
 
@@ -114,6 +114,7 @@ describe('fetchContent — earlyResult minification path', () => {
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
       contextLines: 0,
+      minify: 'standard',
     });
 
     mockReadFile.mockResolvedValue(content);
@@ -122,8 +123,8 @@ describe('fetchContent — earlyResult minification path', () => {
       path: 'huge.ts',
       matchString: 'EARLYMARKER',
       contextLines: 0,
-      minify: false,
-    } as Parameters<typeof fetchContent>[0]);
+      minify: 'none',
+    });
 
     expect(withMinify.content).not.toBe(withoutMinify.content);
     expect(withoutMinify.content!.length).toBeGreaterThan(

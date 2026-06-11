@@ -23,7 +23,7 @@ export const hints: ToolHintGenerators = {
       const tailLine = totalLines ? Math.max(1, totalLines - 200) : undefined;
       const hints: string[] = [
         `File${kb} exceeds the read budget — use matchString or startLine+endLine for a focused section.`,
-        `Or signaturesOnly=true for an export index (80–95% fewer chars), then startLine/endLine for a body.`,
+        `Or minify:"symbols" for an export index (80–95% fewer chars), then startLine/endLine for a body.`,
       ];
       if (tailLine && totalLines) {
         hints.push(
@@ -32,11 +32,22 @@ export const hints: ToolHintGenerators = {
       }
       return hints;
     }
+    if (ctx.errorType === 'directory') {
+      const c = ctx as Record<string, unknown>;
+      const path = typeof c.path === 'string' ? `'${c.path}'` : 'The path';
+      return [
+        `${path} is a directory, not a file.`,
+        'Use `localViewStructure` to explore directory contents, then read a specific file.',
+      ];
+    }
     if (ctx.errorType === 'not_found') {
       const c = ctx as Record<string, unknown>;
-      const path = typeof c.path === 'string' ? `'${c.path}'` : 'the file';
+      const notFound =
+        typeof c.path === 'string'
+          ? `'${c.path}' not found.`
+          : 'File not found.';
       return [
-        `${path} not found.`,
+        notFound,
         'Use `localFindFiles` with a `name` filter to locate the correct path.',
       ];
     }

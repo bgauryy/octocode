@@ -4,8 +4,8 @@ import { minify as htmlMinifierTerser } from 'html-minifier-terser';
 import type {
   CommentPatternGroup,
   FileTypeMinifyConfig,
-} from './minifierTypes.js';
-import { MINIFY_CONFIG } from './minifierTypes.js';
+} from '../types/index.js';
+import { MINIFY_CONFIG } from '../types/index.js';
 
 export function removeComments(
   content: string,
@@ -41,14 +41,12 @@ export function minifyConservativeCore(
     let result = content;
 
     if (config.comments) {
-      result = removeComments(
-        result,
-        config.comments as CommentPatternGroup | CommentPatternGroup[]
-      );
+      result = removeComments(result, config.comments);
     }
 
     return result
       .replace(/[ \t]+$/gm, '')
+      .replace(/\r\n/g, '\n')
       .replace(/\n\s*\n\s*\n+/g, '\n\n')
       .trim();
   } /* v8 ignore start */ catch {
@@ -64,10 +62,7 @@ export function minifyAggressiveCore(
     let result = content;
 
     if (config.comments) {
-      result = removeComments(
-        result,
-        config.comments as CommentPatternGroup | CommentPatternGroup[]
-      );
+      result = removeComments(result, config.comments);
     }
 
     return result
@@ -80,6 +75,106 @@ export function minifyAggressiveCore(
   } /* v8 ignore stop */
 }
 
+function stripJsonComments(content: string): string {
+  let result = '';
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]!;
+    const next = content[i + 1];
+
+    if (quote !== null) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      result += char;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      while (i + 1 < content.length && content[i + 1] !== '\n') {
+        i++;
+      }
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      i += 2;
+      while (
+        i < content.length &&
+        !(content[i] === '*' && content[i + 1] === '/')
+      ) {
+        i++;
+      }
+      if (i < content.length) {
+        i++;
+      }
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function stripJsonTrailingCommas(content: string): string {
+  let result = '';
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]!;
+
+    if (quote !== null) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      result += char;
+      continue;
+    }
+
+    if (char === ',') {
+      let lookahead = i + 1;
+      while (/\s/.test(content[lookahead] ?? '')) {
+        lookahead++;
+      }
+      if (content[lookahead] === '}' || content[lookahead] === ']') {
+        continue;
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function normalizeJsonLikeContent(content: string): string {
+  return stripJsonTrailingCommas(stripJsonComments(content));
+}
+
 export function minifyJsonCore(content: string): {
   content: string;
   failed: boolean;
@@ -89,12 +184,74 @@ export function minifyJsonCore(content: string): {
     return { content: JSON.stringify(JSON.parse(content)), failed: false };
   } catch {
     try {
-      const cleaned = removeComments(content, 'c-style');
+      const cleaned = normalizeJsonLikeContent(content);
       return { content: JSON.stringify(JSON.parse(cleaned)), failed: false };
     } catch {
       return { content: content.trim(), failed: false };
     }
   }
+}
+
+/**
+ * Readable JSON for agent consumption.
+ *
+ * Strategy: strip JSONC/JSON5 noise (comments, trailing commas) while
+ * preserving the original whitespace structure so agents keep readability.
+ * Does NOT re-format with JSON.stringify — that can expand compact arrays
+ * and produce output LARGER than the input, defeating the guard.
+ *
+ * - Clean JSON    → returned as-is  (no change, guard returns original)
+ * - JSONC/JSON5   → comments + trailing commas stripped, structure preserved
+ * - Unparseable   → trimmed original
+ */
+export function minifyJsonReadable(content: string): {
+  content: string;
+  failed: boolean;
+  reason?: string;
+} {
+  try {
+    JSON.parse(content); // already valid JSON — return unchanged
+    return { content, failed: false };
+  } catch {
+    try {
+      // JSONC / JSON5: strip noise while keeping original indentation.
+      // Also remove trailing whitespace (from stripped inline comments) and
+      // collapse consecutive blank lines left behind by comment-only lines.
+      const cleaned = normalizeJsonLikeContent(content)
+        .replace(/[ \t]+$/gm, '')
+        .replace(/\n\s*\n\s*\n+/g, '\n\n')
+        .trim();
+      JSON.parse(cleaned); // validate the cleaned result
+      return { content: cleaned, failed: false };
+    } catch {
+      return { content: content.trim(), failed: false };
+    }
+  }
+}
+
+/**
+ * Whitespace-only compression for code files (comment stripping is handled
+ * by the caller before this runs). Preserves original indentation so agents
+ * keep structural context; only removes trailing whitespace and collapses
+ * 3+ consecutive blank lines to max 2.
+ *
+ * Does NOT halve indentation — `minifyGeneralCore` is reserved for plain-text
+ * (txt/log/unknown) files where structural indentation carries no meaning.
+ */
+export function minifyCodeCore(content: string): string {
+  try {
+    // Leading blank lines are dropped but the first line's own indentation is
+    // preserved — skeleton gutters (` 1| …`) and indented first lines must
+    // keep their alignment.
+    return content
+      .replace(/[ \t]+$/gm, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
+      .replace(/^\n+/, '')
+      .trimEnd();
+  } /* v8 ignore start */ catch {
+    return content;
+  } /* v8 ignore stop */
 }
 
 export function minifyGeneralCore(content: string): string {
@@ -245,6 +402,10 @@ export async function minifyHTMLAsync(
   content: string
 ): Promise<{ content: string; failed: boolean; reason?: string }> {
   try {
+    if (!content.trim()) {
+      return { content, failed: false };
+    }
+
     const result = await htmlMinifierTerser(content, {
       collapseWhitespace: true,
       removeComments: true,

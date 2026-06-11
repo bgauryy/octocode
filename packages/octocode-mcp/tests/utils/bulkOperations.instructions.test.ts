@@ -3,8 +3,7 @@ import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { getTextContent } from './testHelpers.js';
 
-beforeAll(async () => {
-});
+beforeAll(async () => {});
 
 describe('Bulk Response Envelope', () => {
   const toolName = TOOL_NAMES.GITHUB_SEARCH_CODE;

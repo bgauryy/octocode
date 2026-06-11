@@ -144,7 +144,7 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       [],
       { matchCount: 42, fileCount: 1 } as any
     );
-    expect(result.files?.[0]?.matches).toEqual([]);
+    expect(result.files?.[0]?.matches).toBeUndefined();
     expect(result.files?.[0]?.matchCount).toBe(1);
     expect(result.files?.[0]?.pagination).toBeUndefined();
   });
@@ -157,11 +157,11 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       'rg',
       []
     );
-    expect(result.files?.[0]?.matches).toEqual([]);
-    expect(result.files?.[1]?.matches).toEqual([]);
+    expect(result.files?.[0]?.matches).toBeUndefined();
+    expect(result.files?.[1]?.matches).toBeUndefined();
   });
 
-  it('filesOnly mode: matches emptied, sums individual matchCounts', async () => {
+  it('filesOnly mode: matches emptied, matchCount omitted (rg -l reports no counts)', async () => {
     const files = [makeFile('/test/a.ts', 4, 4)];
     const result = await buildSearchResult(
       files,
@@ -169,8 +169,22 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
       'rg',
       []
     );
-    expect(result.files?.[0]?.matches).toEqual([]);
-    expect(result.files?.[0]?.matchCount).toBe(4);
+    expect(result.files?.[0]?.matches).toBeUndefined();
+    expect(result.files?.[0]?.matchCount).toBeUndefined();
+    expect(result.pagination?.totalMatches).toBeUndefined();
+  });
+
+  it('filesWithoutMatch mode: matchCount omitted (rg -L reports no counts)', async () => {
+    const files = [makeFile('/test/a.ts', 1, 0)];
+    const result = await buildSearchResult(
+      files,
+      baseQuery({ filesWithoutMatch: true }),
+      'rg',
+      []
+    );
+    expect(result.files?.[0]?.matches).toBeUndefined();
+    expect(result.files?.[0]?.matchCount).toBeUndefined();
+    expect(result.pagination?.totalMatches).toBeUndefined();
   });
 });
 
@@ -179,7 +193,7 @@ describe('buildSearchResult - per-file match pagination (lines 106, 143)', () =>
     const files = [makeFile('/test/a.ts', 12, 12)];
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);
     const file = result.files?.[0];
-    expect(file?.matches.length).toBe(10);
+    expect(file?.matches?.length).toBe(10);
     expect(file?.pagination).toBeDefined();
     expect(file?.pagination?.hasMore).toBe(true);
     const hints = (result.hints ?? []).join('\n');
@@ -195,7 +209,7 @@ describe('buildSearchResult - per-file match pagination (lines 106, 143)', () =>
       []
     );
     const file = result.files?.[0];
-    expect(file?.matches.map(m => m.line)).toEqual([11, 12]);
+    expect(file?.matches?.map(m => m.line)).toEqual([11, 12]);
     expect(file?.pagination).toMatchObject({
       currentPage: 2,
       totalPages: 2,

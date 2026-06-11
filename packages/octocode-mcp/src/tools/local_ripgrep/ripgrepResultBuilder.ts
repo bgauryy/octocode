@@ -44,13 +44,18 @@ export async function buildSearchResult(
   }
 
   const totalFiles = limitedFiles.length;
-  const isFileListMode =
-    configuredQuery.filesOnly ||
-    configuredQuery.count ||
-    configuredQuery.countMatches;
+  // Path-list mode (rg -l / -L): ripgrep reports NO per-file counts — any
+  // matchCount would be fabricated. Count mode (rg -c): counts are real.
+  const isPathListMode = Boolean(
+    configuredQuery.filesOnly || configuredQuery.filesWithoutMatch
+  );
+  const isCountMode = Boolean(
+    configuredQuery.count || configuredQuery.countMatches
+  );
+  const isFileListMode = isPathListMode || isCountMode;
   const summedMatches = limitedFiles.reduce(
     (sum: number, f: LocalSearchCodeFile & { modified?: string }) =>
-      sum + f.matchCount,
+      sum + (f.matchCount ?? 0),
     0
   );
   const totalMatches = isFileListMode
@@ -79,7 +84,7 @@ export async function buildSearchResult(
 
   const finalFiles: LocalSearchCodeFile[] = paginatedFiles.map(
     (file: LocalSearchCodeFile & { modified?: string }) => {
-      const totalFileMatches = file.matches.length;
+      const totalFileMatches = file.matches?.length ?? 0;
       const totalMatchPages = Math.ceil(totalFileMatches / matchesPerPage);
       const matchPage = Math.max(1, aligned.matchPage || 1);
       const matchStartIdx = (matchPage - 1) * matchesPerPage;
@@ -88,13 +93,20 @@ export async function buildSearchResult(
         totalFileMatches
       );
       const paginatedMatches = isFileListMode
-        ? []
-        : file.matches.slice(matchStartIdx, matchEndIdx);
+        ? undefined
+        : file.matches?.slice(matchStartIdx, matchEndIdx);
 
-      const result: LocalSearchCodeFile = {
+      const result = {
         path: file.path,
-        matchCount: isFileListMode ? file.matchCount || 1 : totalFileMatches,
-        matches: paginatedMatches,
+        // matchCount omitted in filesOnly/discovery mode — rg -l reports no
+        // counts, so any number here would be fabricated.
+        ...(isPathListMode
+          ? {}
+          : {
+              matchCount: isCountMode ? file.matchCount || 1 : totalFileMatches,
+            }),
+        // omitted in discovery/filesOnly mode — empty arrays are noise
+        ...(paginatedMatches !== undefined && { matches: paginatedMatches }),
         pagination:
           !isFileListMode && totalFileMatches > matchesPerPage
             ? {
@@ -105,7 +117,7 @@ export async function buildSearchResult(
                 hasMore: matchPage < totalMatchPages,
               }
             : undefined,
-      };
+      } as LocalSearchCodeFile;
       if (configuredQuery.showFileLastModified && file.modified) {
         result.modified = file.modified;
       }
@@ -116,7 +128,7 @@ export async function buildSearchResult(
   const paginationHints: string[] =
     filePageNumber < totalFilePages
       ? [
-          `Page ${filePageNumber}/${totalFilePages} (${finalFiles.length} of ${totalFiles} files, ${totalMatches} matches). Next: page=${filePageNumber + 1}`,
+          `Page ${filePageNumber}/${totalFilePages} (${finalFiles.length} of ${totalFiles} files${isPathListMode ? '' : `, ${totalMatches} matches`}). Next: page=${filePageNumber + 1}`,
         ]
       : totalFilePages > 0 && filePageNumber > totalFilePages
         ? [
@@ -172,7 +184,8 @@ export async function buildSearchResult(
       totalPages: totalFilePages,
       filesPerPage,
       totalFiles,
-      totalMatches,
+      // Omitted in filesOnly/discovery mode — rg -l reports no match counts.
+      ...(isPathListMode ? {} : { totalMatches }),
       hasMore: filePageNumber < totalFilePages,
       ...(wasLimited ? { totalFilesFound: filesWithMetadata.length } : {}),
     },
@@ -240,7 +253,7 @@ function compareRipgrepFilesByRelevance(
   b: LocalSearchCodeFile & { modified?: string },
   query: RipgrepQuery
 ): number {
-  const matchDelta = b.matchCount - a.matchCount;
+  const matchDelta = (b.matchCount ?? 0) - (a.matchCount ?? 0);
   if (matchDelta !== 0) return matchDelta;
 
   if (query.showFileLastModified) {

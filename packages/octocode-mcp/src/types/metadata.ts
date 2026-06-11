@@ -13,6 +13,7 @@ export interface HintContext {
   errorType?:
     | 'size_limit'
     | 'not_found'
+    | 'directory'
     | 'permission'
     | 'pattern_too_broad'
     | 'symbol_not_found'

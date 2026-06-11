@@ -130,7 +130,7 @@ describe('searchContentRipgrep — error handling', () => {
     expect(result.searchEngine).toBe('rg');
     expect(mocks.executeRipgrepSearchInternal).toHaveBeenCalledOnce();
     expect(mocks.executeGrepFallbackSearch).not.toHaveBeenCalled();
-    expect(result.files?.[0]?.matches[0]).toMatchObject({
+    expect(result.files?.[0]?.matches![0]).toMatchObject({
       line: 2,
       value: 'const foo = true;',
     });

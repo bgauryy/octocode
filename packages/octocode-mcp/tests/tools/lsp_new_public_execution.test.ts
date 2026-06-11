@@ -622,9 +622,10 @@ describe('new public LSP tool execution', () => {
     // no status field — failedAnchorEnvelope produces a no-status result with payload.kind='empty'
     expect(firstResult).not.toHaveProperty('status');
     // evidence is hoisted to top-level by aggregatePeerEvidence — not present in individual data
+    // uri is relativized against the hoisted base (single absolute path → basename)
     expect(firstResult!.data).toMatchObject({
       type: 'definition',
-      uri: expect.stringContaining(filePath),
+      uri: 'fixture.ts',
       // serverAvailable is intentionally omitted: symbol resolution fails before reaching the LSP
       // server so we cannot report server status — lsp object is present but serverAvailable is undefined
       lsp: {},

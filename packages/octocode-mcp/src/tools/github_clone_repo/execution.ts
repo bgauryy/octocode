@@ -12,7 +12,11 @@ import type {
 } from '../../types/execution.js';
 
 type PartialCloneRepoQuery = WithOptionalMeta<CloneRepoQuery>;
-import { handleCatchError, createSuccessResult } from '../utils.js';
+import {
+  handleCatchError,
+  createSuccessResult,
+  createErrorResult,
+} from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import {
   createLazyProviderContext,
@@ -21,6 +25,11 @@ import {
 import { cloneRepo } from './cloneRepo.js';
 
 const CACHE_HIT_HINT = 'Served from 24-hour cache.';
+
+const CLONE_FAILURE_HINTS = [
+  'Verify the owner/repo (and branch) exist — use githubSearchRepositories to confirm the repository name.',
+  'For private repositories, ensure the GitHub token is set and has repo read access.',
+];
 
 export async function executeCloneRepo(
   args: ToolExecutionArgs<PartialCloneRepoQuery>
@@ -60,11 +69,24 @@ export async function executeCloneRepo(
             normalizedQuery.sparse_path = normalizedQuery.sparsePath;
           }
 
-          const result = await cloneRepo(
-            normalizedQuery,
-            authInfo,
-            providerContext.token
-          );
+          let result;
+          try {
+            result = await cloneRepo(
+              normalizedQuery,
+              authInfo,
+              providerContext.token
+            );
+          } catch (error) {
+            // executeWithToolBoundary would swallow this into a bare error
+            // with no recovery guidance — attach actionable hints here.
+            const message =
+              error instanceof Error ? error.message : String(error);
+            return createErrorResult(
+              `Clone failed for ${query.owner}/${query.repo}: ${message}`,
+              query,
+              { customHints: CLONE_FAILURE_HINTS }
+            );
+          }
 
           const resultData: Record<string, unknown> = {
             owner: query.owner,

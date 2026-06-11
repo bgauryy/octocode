@@ -5,7 +5,11 @@ export type CommentPatternGroup =
   | 'sql'
   | 'lua'
   | 'template'
-  | 'haskell';
+  | 'haskell'
+  | 'semicolon'
+  | 'percent'
+  | 'haml'
+  | 'slim';
 
 export type Strategy =
   | 'terser'
@@ -15,26 +19,26 @@ export type Strategy =
   | 'general'
   | 'markdown';
 
-export interface FileTypeMinifyConfig {
+export type FileTypeMinifyConfig = {
   strategy: Strategy;
   comments?: CommentPatternGroup | CommentPatternGroup[];
-}
+};
 
-interface MinifyConfig {
+type MinifyConfig = {
   commentPatterns: {
     [key in CommentPatternGroup]: RegExp[];
   };
   fileTypes: {
     [extension: string]: FileTypeMinifyConfig;
   };
-}
+};
 
-export interface MinifyResult {
+export type MinifyResult = {
   content: string;
   failed: boolean;
   type: Strategy | 'failed';
   reason?: string;
-}
+};
 
 export const MINIFY_CONFIG: MinifyConfig = {
   commentPatterns: {
@@ -45,7 +49,7 @@ export const MINIFY_CONFIG: MinifyConfig = {
     ],
     hash: [
       /^\s*#(?!!).*$/gm, // # comments (but not shebangs #!)
-      /\s+#.*$/gm, // # inline comments
+      /\s+#(?!!).*$/gm, // # inline comments (but not shebangs, e.g. skeleton gutters)
     ],
     html: [
       /<!--[\s\S]*?-->/g, // <!-- HTML comments -->
@@ -69,13 +73,27 @@ export const MINIFY_CONFIG: MinifyConfig = {
       /\s+--.*$/gm, // -- inline comments
       /\{-[\s\S]*?-\}/g, // {- block comments -}
     ],
+    semicolon: [
+      /^\s*;.*$/gm, // ; line comments (INI, Clojure)
+      /\s+;.*$/gm, // ; inline comments
+    ],
+    percent: [
+      /^\s*%.*$/gm, // % line comments (Erlang)
+      /\s+%.*$/gm, // % inline comments
+    ],
+    haml: [
+      /^\s*-#.*$/gm, // -# HAML silent comments
+    ],
+    slim: [
+      /^\s*\/.*$/gm, // / Slim comments
+    ],
   },
 
   fileTypes: {
-    js: { strategy: 'terser' },
-    jsx: { strategy: 'terser' },
-    mjs: { strategy: 'terser' },
-    cjs: { strategy: 'terser' },
+    js: { strategy: 'terser', comments: 'c-style' },
+    jsx: { strategy: 'terser', comments: 'c-style' },
+    mjs: { strategy: 'terser', comments: 'c-style' },
+    cjs: { strategy: 'terser', comments: 'c-style' },
 
     ts: { strategy: 'conservative', comments: 'c-style' },
     tsx: { strategy: 'conservative', comments: 'c-style' },
@@ -85,8 +103,8 @@ export const MINIFY_CONFIG: MinifyConfig = {
     yml: { strategy: 'conservative', comments: 'hash' },
     coffee: { strategy: 'conservative', comments: 'hash' },
     nim: { strategy: 'conservative', comments: 'hash' },
-    haml: { strategy: 'conservative', comments: 'hash' },
-    slim: { strategy: 'conservative', comments: 'hash' },
+    haml: { strategy: 'conservative', comments: ['hash', 'haml'] },
+    slim: { strategy: 'conservative', comments: ['hash', 'slim'] },
     sass: { strategy: 'conservative', comments: 'c-style' },
     styl: { strategy: 'conservative', comments: 'c-style' },
 
@@ -100,6 +118,8 @@ export const MINIFY_CONFIG: MinifyConfig = {
     scss: { strategy: 'aggressive', comments: 'c-style' },
 
     json: { strategy: 'json' },
+    jsonc: { strategy: 'json' },
+    json5: { strategy: 'json' },
 
     go: { strategy: 'conservative', comments: 'c-style' },
     java: { strategy: 'conservative', comments: 'c-style' },
@@ -109,6 +129,7 @@ export const MINIFY_CONFIG: MinifyConfig = {
     rust: { strategy: 'conservative', comments: 'c-style' },
     rs: { strategy: 'conservative', comments: 'c-style' },
     swift: { strategy: 'conservative', comments: 'c-style' },
+    kt: { strategy: 'conservative', comments: 'c-style' },
     kotlin: { strategy: 'conservative', comments: 'c-style' },
     scala: { strategy: 'conservative', comments: 'c-style' },
     dart: { strategy: 'conservative', comments: 'c-style' },
@@ -143,7 +164,7 @@ export const MINIFY_CONFIG: MinifyConfig = {
     proto: { strategy: 'aggressive', comments: 'c-style' },
     csv: { strategy: 'conservative' },
     toml: { strategy: 'aggressive', comments: 'hash' },
-    ini: { strategy: 'aggressive', comments: 'hash' },
+    ini: { strategy: 'aggressive', comments: ['hash', 'semicolon'] },
     conf: { strategy: 'aggressive', comments: 'hash' },
     config: { strategy: 'aggressive', comments: 'hash' },
     env: { strategy: 'aggressive', comments: 'hash' },
@@ -168,12 +189,12 @@ export const MINIFY_CONFIG: MinifyConfig = {
     hs: { strategy: 'conservative', comments: 'haskell' },
     lhs: { strategy: 'conservative', comments: 'haskell' },
     elm: { strategy: 'conservative', comments: 'c-style' },
-    clj: { strategy: 'aggressive', comments: 'hash' },
-    cljs: { strategy: 'aggressive', comments: 'hash' },
+    clj: { strategy: 'aggressive', comments: 'semicolon' },
+    cljs: { strategy: 'aggressive', comments: 'semicolon' },
     ex: { strategy: 'aggressive', comments: 'hash' },
     exs: { strategy: 'aggressive', comments: 'hash' },
-    erl: { strategy: 'aggressive', comments: 'hash' },
-    hrl: { strategy: 'aggressive', comments: 'hash' },
+    erl: { strategy: 'aggressive', comments: 'percent' },
+    hrl: { strategy: 'aggressive', comments: 'percent' },
 
     txt: { strategy: 'general' },
     log: { strategy: 'general' },

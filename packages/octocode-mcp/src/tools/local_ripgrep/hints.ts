@@ -60,7 +60,7 @@ export const hints: ToolHintGenerators = {
       );
       if (mode !== 'discovery') {
         out.push(
-          'Tip: use mode="discovery" for a fast cheap presence-check (returns only file paths + match counts, no content) before doing a full read.'
+          'Tip: use mode="discovery" for a fast cheap presence-check (returns only file paths, no content or match counts) before doing a full read.'
         );
       }
     }

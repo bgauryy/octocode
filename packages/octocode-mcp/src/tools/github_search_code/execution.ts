@@ -112,12 +112,26 @@ export async function searchMultipleGitHubCode(
         const fileCount = flat.results.flatMap(r => r.matches).length;
         const successHints: string[] = [];
         if (flat.results.length > 0) {
+          const firstKeyword =
+            Array.isArray(query.keywordsToSearch) &&
+            typeof query.keywordsToSearch[0] === 'string'
+              ? query.keywordsToSearch[0]
+              : '<keyword>';
           successHints.push(
-            `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — use githubGetFileContent(owner, repo, branch, path) to read specific files.`
+            `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — read with githubGetFileContent(path, matchString="${firstKeyword}") to land on the matched lines (matchIndices are char offsets inside snippet values, not line numbers).`
           );
-          successHints.push(
-            'matchIndices are character offsets inside the snippet `value` string — they are NOT line numbers. Use githubGetFileContent with matchString to get exact line positions.'
-          );
+        }
+        // GitHub caps reachable code-search results (totalPages * perPage,
+        // e.g. 10 pages x 20). When the reported total exceeds that, the
+        // surplus matches can never be paged to — say so on every page.
+        if (flat.pagination) {
+          const { totalPages, perPage, totalMatches } = flat.pagination;
+          const reachable = totalPages * perPage;
+          if (totalMatches > reachable) {
+            successHints.push(
+              `GitHub caps code-search at ${reachable} results — ${totalMatches - reachable} of ${totalMatches} reported matches are unreachable; narrow with path/extension/filename to see the rest.`
+            );
+          }
         }
         const pathLooksLikeFile =
           typeof query.path === 'string' &&

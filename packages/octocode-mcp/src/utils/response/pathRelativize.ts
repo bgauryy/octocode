@@ -15,26 +15,36 @@ export function commonDirPrefix(paths: readonly string[]): string {
 
 const PATH_LIKE_KEYS = ['path', 'uri'] as const;
 
+function collectPathHolders(
+  node: unknown,
+  holders: Array<{ obj: Record<string, unknown>; key: string }>,
+  depth: number
+): void {
+  if (depth > 8 || !node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const el of node) collectPathHolders(el, holders, depth + 1);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  for (const key of PATH_LIKE_KEYS) {
+    const v = obj[key];
+    if (typeof v === 'string' && v.startsWith('/')) holders.push({ obj, key });
+  }
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object') {
+      collectPathHolders(value, holders, depth + 1);
+    }
+  }
+}
+
 export function relativizeResultPaths(
   results: ReadonlyArray<{ data?: unknown } | null | undefined>
 ): string | undefined {
   const holders: Array<{ obj: Record<string, unknown>; key: string }> = [];
   for (const r of results) {
-    const data = r?.data;
-    if (!data || typeof data !== 'object') continue;
-    for (const value of Object.values(data as Record<string, unknown>)) {
-      if (!Array.isArray(value)) continue;
-      for (const el of value) {
-        if (!el || typeof el !== 'object') continue;
-        const obj = el as Record<string, unknown>;
-        const key = PATH_LIKE_KEYS.find(
-          k => typeof obj[k] === 'string' && (obj[k] as string).startsWith('/')
-        );
-        if (key) holders.push({ obj, key });
-      }
-    }
+    collectPathHolders(r?.data, holders, 0);
   }
-  if (holders.length < 2) return undefined;
+  if (holders.length === 0) return undefined;
 
   const base = commonDirPrefix(holders.map(h => h.obj[h.key] as string));
   if (base.length <= 1) return undefined;

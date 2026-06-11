@@ -197,10 +197,16 @@ export async function exploreMultipleRepositoryStructures(
         ).summary;
         const wasTruncated = Boolean(summary?.truncated);
         const wasFiltered = Boolean(summary?.filtered);
-        const hasMorePages = Boolean(
-          (resultData as { pagination?: { hasMore?: boolean } }).pagination
-            ?.hasMore
-        );
+        const pagination = (
+          resultData as {
+            pagination?: {
+              hasMore?: boolean;
+              currentPage?: number;
+              totalPages?: number;
+            };
+          }
+        ).pagination;
+        const hasMorePages = Boolean(pagination?.hasMore);
         const navigationHint = hasContent
           ? buildStructureNavigationHint({
               owner: query.owner,
@@ -210,7 +216,15 @@ export async function exploreMultipleRepositoryStructures(
             })
           : undefined;
         const truncatedReasons: string[] = [];
-        if (wasTruncated) {
+        if (hasMorePages) {
+          // Page-driven truncation: the next page completes the tree — a
+          // "deeper depth" suggestion would mislead the agent.
+          const currentPage = pagination?.currentPage ?? 1;
+          const totalPages = pagination?.totalPages;
+          truncatedReasons.push(
+            `Tree paginated (page ${currentPage}${totalPages ? ` of ${totalPages}` : ''}); use page=${currentPage + 1} to fetch the remaining entries.`
+          );
+        } else if (wasTruncated) {
           truncatedReasons.push(
             `Tree truncated at depth=${query.depth ?? 'default'}; re-query with a deeper depth or a more specific path to see the rest.`
           );

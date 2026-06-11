@@ -1,26 +1,17 @@
 import { z } from 'zod';
 import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
-const PositionSchema = z.object({
-  line: z.number(),
-  character: z.number(),
-});
-
-const RangeSchema = z.object({
-  start: PositionSchema,
-  end: PositionSchema,
-});
-
 const RelatedInformationSchema = z.object({
-  location: z.object({
-    uri: z.string(),
-    range: RangeSchema,
-  }),
+  uri: z.string(),
+  line: z.number(),
   message: z.string(),
 });
 
+// 1-based line/character (raw LSP 0-based ranges are converted on output).
 const DiagnosticEntrySchema = z.object({
-  range: RangeSchema,
+  line: z.number(),
+  character: z.number(),
+  endLine: z.number().optional(),
   severity: z.enum(['error', 'warning', 'information', 'hint']),
   message: z.string(),
   source: z.string().optional(),
@@ -33,16 +24,29 @@ const LspSchema = z.object({
   source: z.string().optional(),
 });
 
+const DiagnosticsPaginationSchema = z.object({
+  currentPage: z.number(),
+  totalPages: z.number(),
+  itemsPerPage: z.number(),
+  totalDiagnostics: z.number(),
+  hasMore: z.boolean(),
+});
+
 const DiagnosticsDataSchema = z.object({
   uri: z.string(),
   lsp: LspSchema,
-  diagnostics: z.array(DiagnosticEntrySchema),
-  summary: z.object({
-    errors: z.number(),
-    warnings: z.number(),
-    information: z.number(),
-    hints: z.number(),
-  }),
+  // Both omitted when the language server is unavailable — an empty list +
+  // zero summary would read as "file is clean".
+  diagnostics: z.array(DiagnosticEntrySchema).optional(),
+  pagination: DiagnosticsPaginationSchema.optional(),
+  summary: z
+    .object({
+      errors: z.number(),
+      warnings: z.number(),
+      information: z.number(),
+      hints: z.number(),
+    })
+    .optional(),
   warnings: z.array(z.string()).optional(),
   hints: z.array(z.string()).optional(),
 });

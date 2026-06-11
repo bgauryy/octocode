@@ -33,8 +33,8 @@ describe('parseRipgrepJson', () => {
     expect(files).toHaveLength(1);
     expect(files[0]!.path).toBe('/test/file.ts');
     expect(files[0]!.matchCount).toBe(1);
-    expect(files[0]!.matches[0]!.line).toBe(10);
-    expect(files[0]!.matches[0]!.column).toBe(6);
+    expect(files[0]!.matches![0]!.line).toBe(10);
+    expect(files[0]!.matches![0]!.column).toBe(6);
     expect(stats).toEqual({});
   });
 
@@ -137,9 +137,9 @@ describe('parseRipgrepJson', () => {
     });
 
     expect(files).toHaveLength(1);
-    expect(files[0]!.matches[0]!.value).toContain('context before');
-    expect(files[0]!.matches[0]!.value).toContain('test match');
-    expect(files[0]!.matches[0]!.value).toContain('context after');
+    expect(files[0]!.matches![0]!.value).toContain('context before');
+    expect(files[0]!.matches![0]!.value).toContain('test match');
+    expect(files[0]!.matches![0]!.value).toContain('context after');
   });
 
   it('should parse summary statistics', () => {
@@ -196,7 +196,7 @@ describe('parseRipgrepJson', () => {
     const { files } = parseRipgrepJson(jsonOutput, baseQuery);
 
     expect(files).toHaveLength(1);
-    expect(files[0]!.matches[0]!.column).toBe(0);
+    expect(files[0]!.matches![0]!.column).toBe(0);
   });
 
   it('should truncate long match values', () => {
@@ -217,8 +217,8 @@ describe('parseRipgrepJson', () => {
       matchContentLength: 100,
     });
 
-    expect(files[0]!.matches[0]!.value!.length).toBeLessThanOrEqual(100);
-    expect(files[0]!.matches[0]!.value).toMatch(/\.\.\.$/);
+    expect(files[0]!.matches![0]!.value!.length).toBeLessThanOrEqual(100);
+    expect(files[0]!.matches![0]!.value).toMatch(/\.\.\.$/);
   });
 
   it('should skip malformed JSON lines', () => {
@@ -326,8 +326,8 @@ describe('parseRipgrepJson', () => {
       contextLines: 2,
     });
 
-    expect(files[0]!.matches[0]!.value).toContain('context before');
-    expect(files[0]!.matches[0]!.value).toContain('context before 2');
+    expect(files[0]!.matches![0]!.value).toContain('context before');
+    expect(files[0]!.matches![0]!.value).toContain('context before 2');
   });
 
   it('should not double-space snippets when ripgrep JSON lines include trailing newlines', () => {
@@ -367,7 +367,7 @@ describe('parseRipgrepJson', () => {
       contextLines: 1,
     });
 
-    expect(files[0]!.matches[0]!.value).toBe(
+    expect(files[0]!.matches![0]!.value).toBe(
       ['context before', 'test match', 'context after'].join('\n')
     );
   });

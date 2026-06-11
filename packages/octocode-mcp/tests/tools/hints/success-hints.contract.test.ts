@@ -74,8 +74,9 @@ describe('lspGetSemanticContent — success-path emits no coaching hints', () =>
       await import('../../../src/tools/lsp/semantic_content/hints.js');
     const result = semanticHints('definition', false);
 
+    // Type-specific recovery only — the vague generic preamble was removed.
     expect(result.length).toBeGreaterThan(0);
-    expect(result.join(' ')).toContain('incomplete');
+    expect(result.join(' ')).toContain('rerun localSearchCode');
   });
 });
 

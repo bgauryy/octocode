@@ -3,11 +3,11 @@ import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { RequestError } from 'octokit';
-import * as minifierModule from '../../src/utils/minifier/minifier.js';
+import * as minifierModule from '@octocodeai/octocode-minifier';
 import {
   extractSignatures,
   applyContentViewMinification,
-} from '../../src/utils/minifier/applyMinification.js';
+} from '@octocodeai/octocode-minifier';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 
@@ -29,7 +29,11 @@ function createRequestError(message: string, status: number) {
 }
 
 vi.mock('../../src/github/client.js');
-vi.mock('../../src/utils/minifier/minifier.js');
+vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@octocodeai/octocode-minifier')>();
+  return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
+});
 
 describe('GitHub File Operations - processFileContentAPI coverage', () => {
   beforeEach(() => {
@@ -117,7 +121,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       expect('error' in result).toBe(false);
     });
 
-    it('signaturesOnly returns the extracted skeleton, aligned with the local path', async () => {
+    it('minify:"symbols" returns the extracted skeleton, aligned with the local path', async () => {
       const SOURCE = SIGNATURE_SOURCE;
 
       const mockOctokit = {
@@ -145,7 +149,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         owner: 'test',
         repo: 'repo',
         path: 'sample.ts',
-        signaturesOnly: true,
+        minify: 'symbols',
       } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
         data: { content: string };
       };
@@ -162,7 +166,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       expect(content).not.toContain('secretLocal');
     });
 
-    it('char-paginates a large signaturesOnly skeleton', async () => {
+    it('returns a large minify:"symbols" skeleton WHOLE — never paginated', async () => {
       let src = '';
       for (let i = 0; i < 400; i++) {
         src += `export function fn${i}(argOne: string, argTwo: number): Promise<void> {\n  return doStuff(${i});\n}\n`;
@@ -192,20 +196,30 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         owner: 'test',
         repo: 'repo',
         path: 'big.ts',
-        signaturesOnly: true,
+        minify: 'symbols',
+        // Char cursor inputs must be IGNORED for minify:"symbols".
+        charOffset: 3000,
+        charLength: 100,
       } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
-        data: { content: string; pagination?: { hasMore: boolean } };
+        data: {
+          content: string;
+          pagination?: { hasMore: boolean };
+          signaturesExtracted?: boolean;
+        };
       };
 
       expect('error' in result).toBe(false);
-      expect(result.data.pagination?.hasMore).toBe(true);
-      expect(result.data.content.length).toBeLessThan(src.length);
-      // Extraction ran (signatures present), not full bodies.
+      // Skeletons are indexes — whole response, NO pagination block attached.
+      expect(result.data.pagination).toBeUndefined();
       expect(result.data.content).toContain('fn0(');
+      expect(result.data.content).toContain('fn399(');
+      // Extraction ran (signatures present), not full bodies.
       expect(result.data.content).not.toContain('doStuff');
+      // Internal bypass flag must not leak into the API result.
+      expect(result.data.signaturesExtracted).toBeUndefined();
     });
 
-    it('redacts secrets inside signaturesOnly output (aligned with local)', async () => {
+    it('redacts secrets inside minify:"symbols" output (aligned with local)', async () => {
       const src =
         'export function connect(token = "AKIAIOSFODNN7EXAMPLE"): void {\n  doThing();\n}\n';
       const mockOctokit = {
@@ -233,7 +247,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         owner: 'test',
         repo: 'repo',
         path: 'svc.ts',
-        signaturesOnly: true,
+        minify: 'symbols',
       } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
         data: { content: string };
       };
@@ -914,7 +928,9 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
   describe('fetchGitHubFileContentAPI - JSON content is minified by applyContentViewMinification', () => {
     it('minifies JSON content (sync inline minification, not async minifyContent)', async () => {
       const fileContent = '{\n  "name": "demo",\n  "version": "1.0.0"\n}';
-      const minifiedJson = '{"name":"demo","version":"1.0.0"}';
+      // JSON standard now returns readable pretty-printed output (original,
+      // since clean JSON is already the same length after re-formatting).
+      const minifiedJson = fileContent;
 
       const mockOctokit = {
         rest: {
@@ -949,7 +965,8 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         repo: 'repo',
         path: 'package.json',
         fullContent: true,
-      });
+        minify: 'standard',
+      } as Parameters<typeof fetchGitHubFileContentAPI>[0]);
 
       expect('data' in result).toBe(true);
       if ('data' in result && result.data) {

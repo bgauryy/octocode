@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { getOctokit } from '../../src/github/client.js';
-import * as minifierModule from '../../src/utils/minifier/minifier.js';
+import * as minifierModule from '@octocodeai/octocode-minifier';
 
 vi.mock('../../src/github/client.js');
-vi.mock('../../src/utils/minifier/minifier.js');
+vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+  const actual = await importOriginal();
+  return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
+});
 
 describe('GitHub File Operations - Pagination', () => {
   beforeEach(() => {

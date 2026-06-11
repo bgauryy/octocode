@@ -5,6 +5,7 @@ import {
   contextLinesField,
   createRelaxedBulkQuerySchema,
   lineNumberField,
+  minifyFieldWithSymbols,
   optionalMetaFields,
   withCoreSchemaDescriptions,
 } from '../../scheme/localSchemaOverlay.js';
@@ -34,12 +35,18 @@ const PaginationInfoSchema = z.object({
 const GitHubFetchFileEntrySchema = z.object({
   path: z.string(),
   content: z.string(),
+  contentView: z.enum(['none', 'standard', 'symbols']).optional(),
+  isSkeleton: z.boolean().optional(),
   totalLines: z.number().optional(),
   resolvedBranch: z.string().optional(),
   pagination: PaginationInfoSchema.optional(),
   isPartial: z.boolean().optional(),
   startLine: z.number().optional(),
   endLine: z.number().optional(),
+  // Slice ranges when matchString hits multiple separated spots in the file.
+  matchRanges: z
+    .array(z.object({ start: z.number(), end: z.number() }))
+    .optional(),
   lastModified: z.string().optional(),
   lastModifiedBy: z.string().optional(),
   warnings: z.array(z.string()).optional(),
@@ -75,44 +82,12 @@ export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
     startLine: lineNumberField,
     endLine: lineNumberField,
     contextLines: contextLinesField,
-    matchString: z
-      .string()
-      .optional()
-      .describe(
-        'Anchor text or regex — returns matching slices with contextLines lines of context around each match. Matching is case-insensitive by default; set matchStringCaseSensitive=true for an exact-case match.'
-      ),
-    matchStringIsRegex: z
-      .boolean()
-      .optional()
-      .describe('Treat matchString as a regex pattern.'),
-    matchStringCaseSensitive: z
-      .boolean()
-      .optional()
-      .describe(
-        'Enable case-sensitive matching for matchString. Default is case-insensitive. Pass true to require an exact case match.'
-      ),
-    charOffset: clampedInt(0, 100_000_000)
-      .optional()
-      .describe(
-        'Character offset for file-content pagination. Use the returned pagination charOffset+charLength hint to continue, or jump near the tail for large files.'
-      ),
-    charLength: clampedInt(1, 50_000)
-      .optional()
-      .describe(
-        'Character page size for file-content pagination. Lower it for compact previews; raise it up to 50k when you need a larger contiguous chunk.'
-      ),
-    signaturesOnly: z
-      .boolean()
-      .optional()
-      .describe(
-        'Extract only the structural skeleton of the file: imports, function/class/interface/type signatures — bodies are dropped. Saves 80–95% tokens. Use for structure exploration; follow up with startLine/endLine to read specific bodies.'
-      ),
-    minify: z
-      .boolean()
-      .optional()
-      .describe(
-        'Control minification of returned content. Default true — comments and redundant whitespace are stripped for token efficiency. Pass false to get the raw unprocessed content (useful for debugging or when exact formatting matters).'
-      ),
+    matchString: z.string().optional(),
+    matchStringIsRegex: z.boolean().optional(),
+    matchStringCaseSensitive: z.boolean().optional(),
+    charOffset: clampedInt(0, 100_000_000).optional(),
+    charLength: clampedInt(1, 50_000).optional(),
+    minify: minifyFieldWithSymbols,
   })
 );
 

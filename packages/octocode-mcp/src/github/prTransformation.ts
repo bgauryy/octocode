@@ -6,7 +6,7 @@ import {
 } from './githubAPI.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import { filterPatch, trimDiffContext } from '../utils/parsers/diff.js';
-import { minifyMarkdownCore } from '../utils/minifier/minifierStrategies.js';
+import { minifyMarkdownCore } from '@octocodeai/octocode-minifier';
 
 interface RawPRData {
   number: number;
@@ -287,7 +287,10 @@ export function applyPartialContentFilter(
       }
     | undefined;
   const patches = content?.patches;
-  const mode = patches?.mode ?? 'none';
+  // reviewMode:'full' implies all patches when no explicit patches mode is
+  // set — mirrors normalizePatches() in contentRequest.ts so the fetch,
+  // filter, and render layers agree.
+  const mode = patches?.mode ?? (params.reviewMode === 'full' ? 'all' : 'none');
   const metadataMap = new Map(
     patches?.ranges?.map(range => [range.file, range]) || []
   );

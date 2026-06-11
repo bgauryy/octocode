@@ -16,21 +16,22 @@ const DisplayRangeSchema = z.object({
   endLine: z.number(),
 });
 
+// 0-based `range` is internal-only; locations emit line-prefixed content and
+// 1-based displayRange, which is what agents chain on.
 const LocationSchema = z.object({
   uri: z.string(),
-  range: RangeSchema,
   content: z.string().optional(),
   displayRange: DisplayRangeSchema.optional(),
   isDefinition: z.boolean().optional(),
 });
 
+// range/position are 0-based internals derived from the same location as
+// foundAtLine (1-based) — the envelope emits only the agent-facing facts.
 const ResolvedSymbolSchema = z.object({
   name: z.string(),
   uri: z.string(),
-  range: RangeSchema,
   foundAtLine: z.number(),
   orderHint: z.number().optional(),
-  position: PositionSchema,
 });
 
 const LspSchema = z.object({
@@ -88,6 +89,7 @@ const CompletenessSchema = z.object({
   cycleCount: z.number(),
   failedRequestCount: z.number(),
   dynamicCallsExcluded: z.literal(true),
+  stdlibCallsExcluded: z.number().optional(),
 });
 
 const ReferencesByFileSchema = z.object({
@@ -114,7 +116,8 @@ const PayloadSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('references'),
-    locations: z.array(LocationSchema),
+    // groupByFile=true emits byFile INSTEAD OF the flat locations list.
+    locations: z.array(LocationSchema).optional(),
     byFile: z.array(ReferencesByFileSchema).optional(),
     totalReferences: z.number(),
     totalFiles: z.number(),
@@ -125,7 +128,10 @@ const PayloadSchema = z.discriminatedUnion('kind', [
       root: CompactCallTargetSchema.optional(),
       direction: z.enum(['incoming', 'outgoing', 'both']),
       calls: z.array(CompactCallSchema),
-      totalCalls: z.number(),
+      // total count lives in pagination.totalResults; only the
+      // incoming/outgoing split is unique information here.
+      incomingCalls: z.number(),
+      outgoingCalls: z.number(),
       completeness: CompletenessSchema,
     })
   ),

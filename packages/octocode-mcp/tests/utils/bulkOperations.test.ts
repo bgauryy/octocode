@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { incrementToolCharSavings } from 'octocode-shared';
-import { executeBulkOperation } from '../../src/utils/response/bulk.js';
+import {
+  executeBulkOperation,
+  aggregatePeerEvidence,
+} from '../../src/utils/response/bulk.js';
 import { attachRawResponseChars } from '../../src/utils/response/charSavings.js';
 import type { QueryStatus } from '../../src/types/toolResults.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
@@ -8,8 +11,7 @@ import type { ToolName } from '../../src/tools/toolMetadata/types.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 import { getTextContent } from './testHelpers.js';
 
-beforeAll(async () => {
-});
+beforeAll(async () => {});
 
 describe('executeBulkOperation', () => {
   describe('Single query scenarios', () => {
@@ -1907,6 +1909,22 @@ describe('executeBulkOperation — uncovered branches', () => {
       toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
     });
     expect(result).toBeDefined();
+  });
+
+  it('collects missingFields from evidence when array of strings (lines 491-492)', async () => {
+    const result = aggregatePeerEvidence([
+      {
+        id: 'q1',
+        data: {
+          evidence: {
+            kind: 'code',
+            answerReady: true,
+            missingFields: ['owner', 'repo', 42 as unknown as string, ''], // 42 and '' filtered out
+          },
+        },
+      },
+    ]);
+    expect(result?.missingFields).toEqual(['owner', 'repo']);
   });
 
   it('swallows incrementToolCharSavings throw gracefully (line 381)', async () => {

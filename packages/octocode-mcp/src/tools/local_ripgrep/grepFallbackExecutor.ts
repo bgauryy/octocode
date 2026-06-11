@@ -298,7 +298,10 @@ function parseGrepOutput(
     const files = uniqueNonEmptyLines(stdout)
       .map(parseGrepCountLine)
       .filter((file): file is LocalSearchCodeFile => file !== undefined);
-    const matchCount = files.reduce((sum, file) => sum + file.matchCount, 0);
+    const matchCount = files.reduce(
+      (sum, file) => sum + (file.matchCount ?? 0),
+      0
+    );
     return { files, matchCount };
   }
 
@@ -313,17 +316,21 @@ function parseGrepOutput(
       matchCount: 0,
       matches: [],
     };
-    file.matches.push({
+    const fileMatches = (file.matches ??= []);
+    fileMatches.push({
       value: parsed.value,
       line: parsed.line,
       column: 0,
     });
-    file.matchCount = file.matches.length;
+    file.matchCount = fileMatches.length;
     byFile.set(parsed.path, file);
   }
 
   const files = [...byFile.values()];
-  const matchCount = files.reduce((sum, file) => sum + file.matchCount, 0);
+  const matchCount = files.reduce(
+    (sum, file) => sum + (file.matchCount ?? 0),
+    0
+  );
   return { files, matchCount };
 }
 

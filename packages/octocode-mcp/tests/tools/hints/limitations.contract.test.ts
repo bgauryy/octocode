@@ -60,14 +60,12 @@ describe('limitation hints — content shape', () => {
     assertLean(h[0]!);
   });
 
-  it('localViewStructure size_limit + entryCount', () => {
+  it('localViewStructure size_limit returns [] (cap is surfaced as runtime warning via wasCapped)', () => {
     const h = viewStructureHints.error({
       errorType: 'size_limit',
       entryCount: 5000,
     } as never);
-    expect(h).toHaveLength(1);
-    expect(h[0]).toContain('5000');
-    assertLean(h[0]!);
+    expect(h).toHaveLength(0);
   });
 
   it('githubGetFileContent 300KB cap', () => {

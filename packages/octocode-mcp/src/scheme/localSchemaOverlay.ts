@@ -1,13 +1,6 @@
 import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
 
-export function describeField<T extends z.ZodTypeAny>(
-  field: T,
-  description: string
-): T {
-  return field.describe(description) as T;
-}
-
 export function withCoreSchemaDescriptions<
   T extends z.ZodObject<z.ZodRawShape>,
 >(toolName: string, schema: T): T {
@@ -57,9 +50,10 @@ export const orderHintField = clampedInt(
   LOCAL_OVERLAY_MAX_ORDER_HINT
 ).optional();
 
-export const contextLinesField = clampedInt(0, LOCAL_OVERLAY_MAX_CONTEXT_LINES)
-  .optional()
-  .describe('Number of lines of context to show around each match. Max 100.');
+export const contextLinesField = clampedInt(
+  0,
+  LOCAL_OVERLAY_MAX_CONTEXT_LINES
+).optional();
 
 export const relaxedPageNumberField = clampedInt(
   1,
@@ -84,11 +78,27 @@ const responsePaginationFields = {
     ),
 } as const;
 
-export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
-  .optional()
-  .describe(
-    `Recursion depth. Max ${LOCAL_OVERLAY_MAX_DEPTH}. For large trees, page the entries (page=N) or narrow the path rather than over-deepening.`
-  );
+export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH).optional();
+
+/** View level for content-returning tools. */
+export type MinifyMode = 'none' | 'standard' | 'symbols';
+
+// Legacy boolean inputs (pre-enum `minify`) are still accepted but
+// undocumented: true → "standard", false → "none".
+const legacyMinifyBoolean = (value: unknown): unknown =>
+  value === true ? 'standard' : value === false ? 'none' : value;
+
+/** minify enum for the fetch-content tools: none (raw) | standard | symbols. */
+export const minifyFieldWithSymbols = z.preprocess(
+  legacyMinifyBoolean,
+  z.enum(['none', 'standard', 'symbols']).default('none')
+);
+
+/** minify enum for PR patches: none (raw diffs) | standard. */
+export const minifyFieldStandard = z.preprocess(
+  legacyMinifyBoolean,
+  z.enum(['none', 'standard']).default('none')
+);
 
 export type WithQueryMeta<T> = T & {
   id?: string;
@@ -140,17 +150,8 @@ export function createRelaxedBulkQuerySchema(
 }
 
 export const optionalMetaFields = {
-  id: z.string().optional().describe('Stable query identifier.'),
-  mainResearchGoal: z
-    .string()
-    .optional()
-    .describe('Overall research objective shared by related queries.'),
-  researchGoal: z
-    .string()
-    .optional()
-    .describe('Specific goal this query is trying to answer.'),
-  reasoning: z
-    .string()
-    .optional()
-    .describe('Why this query helps achieve the research goal.'),
+  id: z.string().optional(),
+  mainResearchGoal: z.string().optional(),
+  researchGoal: z.string().optional(),
+  reasoning: z.string().optional(),
 } as const;

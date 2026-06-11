@@ -96,8 +96,13 @@ export const hints: ToolHintGenerators = {
         );
       }
       out.push(
-        'A zero here isn\'t proof — code search misses archived repos and is stale for renamed/redirected ones; confirm via githubGetFileContent (it follows redirects) before "not found".'
+        'A zero here isn\'t proof — code search misses archived repos, some very large repos (e.g. facebook/react), and is stale for renamed/redirected ones; confirm via githubGetFileContent (it follows redirects) before "not found".'
       );
+      if (!filters.includes('extension') && !filters.includes('filename')) {
+        out.push(
+          `${owner}/${repo} may not be indexed by GitHub code search — retry without repo to search all of ${owner}'s indexed repositories, then narrow down with githubGetFileContent.`
+        );
+      }
     }
 
     if (
@@ -122,6 +127,9 @@ export const hints: ToolHintGenerators = {
     ) {
       out.push(
         'No matches across GitHub — scope to owner/repo, run separate single-term queries, or add extension/path filters.'
+      );
+      out.push(
+        "A zero isn't proof — the index skips archived and recently renamed repos; if you suspect a specific repo, confirm with githubGetFileContent."
       );
       if (filters.includes('path')) {
         out.push(

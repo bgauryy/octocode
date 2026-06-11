@@ -206,29 +206,35 @@ function buildResearchTargets(
     '';
   const name = getPackageName(pkg);
   const entrypoints = buildEntrypoints(pkg);
-  const fileContent = [
-    {
-      path: joinRepoPath(sourceRoot, entrypoints?.main),
-      purpose: 'runtime' as const,
-    },
-    {
-      path: joinRepoPath(sourceRoot, entrypoints?.module),
-      purpose: 'module' as const,
-    },
-    {
-      path: joinRepoPath(sourceRoot, entrypoints?.types),
-      purpose: 'types' as const,
-    },
-  ]
-    .filter(
-      (
-        entry
-      ): entry is {
-        path: string;
-        purpose: 'runtime' | 'module' | 'types';
-      } => Boolean(entry.path)
-    )
-    .map(entry => ({ owner, repo, ...entry }));
+  // Without repository.directory (sourceRoot) the package-relative entrypoint
+  // paths cannot be anchored in the repo — on monorepos/gitignored dist they
+  // 404 as repo-root paths, so emit fileContent targets only when the
+  // monorepo signal exists.
+  const fileContent = !sourceRoot
+    ? []
+    : [
+        {
+          path: joinRepoPath(sourceRoot, entrypoints?.main),
+          purpose: 'runtime' as const,
+        },
+        {
+          path: joinRepoPath(sourceRoot, entrypoints?.module),
+          purpose: 'module' as const,
+        },
+        {
+          path: joinRepoPath(sourceRoot, entrypoints?.types),
+          purpose: 'types' as const,
+        },
+      ]
+        .filter(
+          (
+            entry
+          ): entry is {
+            path: string;
+            purpose: 'runtime' | 'module' | 'types';
+          } => Boolean(entry.path)
+        )
+        .map(entry => ({ owner, repo, ...entry }));
 
   return {
     repoStructure: { owner, repo, path: sourceRoot },
@@ -239,6 +245,30 @@ function buildResearchTargets(
       keywordsToSearch: [name],
     },
     ...(fileContent.length > 0 ? { fileContent } : {}),
+  };
+}
+
+/**
+ * npmFetchMetadata=false is documented as "a lean exact-name pointer" — keep
+ * only the identity + handoff fields (name/version/description/repoUrl/
+ * npmUrl/owner/repo) and drop everything research-grade (entrypoints,
+ * researchTargets, downloads, license, packageType, lastPublished).
+ */
+function shapeLeanPackage(pkg: PackageResult): ShapedPackage {
+  const repoUrl = getPackageRepo(pkg);
+  const { owner, repo } = parseRepoInfo(repoUrl);
+  const name = getPackageName(pkg);
+  const version = getPackageField<string>(pkg, 'version');
+  const description = truncateText(getPackageField<string>(pkg, 'description'));
+  const npmUrl = getPackageField<string>(pkg, 'npmUrl');
+
+  return {
+    name,
+    ...(version ? { version } : {}),
+    ...(description ? { description } : {}),
+    ...(repoUrl ? { repoUrl } : {}),
+    ...(npmUrl ? { npmUrl } : {}),
+    ...(owner && repo ? { owner, repo } : {}),
   };
 }
 
@@ -339,7 +369,11 @@ export async function searchPackages(
         }
 
         const rawPackages = apiResult.packages as PackageResult[];
-        const packages = rawPackages.map(pkg => shapePackage(pkg));
+        const lean =
+          (query as { npmFetchMetadata?: boolean }).npmFetchMetadata === false;
+        const packages = rawPackages.map(pkg =>
+          lean ? shapeLeanPackage(pkg) : shapePackage(pkg)
+        );
 
         const result = {
           packages,
@@ -362,7 +396,6 @@ export async function searchPackages(
             )
           : generateEmptyHints(validatedQuery);
 
-        const shaped = { data: result, extraHints };
         const itemsPerPage =
           (query as { itemsPerPage?: number }).itemsPerPage ?? 20;
         const isPartial =
@@ -373,6 +406,24 @@ export async function searchPackages(
           typeof result.totalFound === 'number'
             ? `${result.packages.length} of ${result.totalFound} package result(s) returned.`
             : `${result.packages.length} result(s) returned; registry did not report total — there may be more. Try a more specific name or reduce itemsPerPage.`;
+
+        const pagination =
+          isPartial && typeof result.totalFound === 'number'
+            ? {
+                hasMore: true,
+                totalFound: result.totalFound,
+                returnedCount: result.packages.length,
+                currentPage: (query as { page?: number }).page ?? 1,
+                totalPages: Math.ceil(
+                  result.totalFound / itemsPerPage
+                ),
+              }
+            : undefined;
+
+        const shaped = {
+          data: pagination ? { ...result, pagination } : result,
+          extraHints,
+        };
 
         return createSuccessResult(
           query,
@@ -453,9 +504,14 @@ function generateSuccessHints(
       `Source: github.com/${owner}/${repo}${sourceRoot ? ` (sourceRoot=${sourceRoot})` : ''} — use githubViewRepoStructure or githubSearchCode to explore the implementation.`
     );
     const firstFile = targets?.fileContent?.[0]?.path;
-    if (firstFile) {
+    // Built-output entrypoints (dist/build/out bundles) misdirect research —
+    // the implementation lives in source, reached via structure/search above.
+    const isBuildOutput =
+      firstFile !== undefined &&
+      /^(dist|build|out|umd|cjs|esm|\.next)\//.test(firstFile);
+    if (firstFile && !isBuildOutput) {
       hints.push(
-        `Entrypoint: use githubGetFileContent owner=${owner} repo=${repo} path=${firstFile}.`
+        `Entrypoint: use githubGetFileContent owner=${owner} repo=${repo} path=${firstFile} — verify with githubViewRepoStructure if not found.`
       );
     }
   } else if (repoUrl) {

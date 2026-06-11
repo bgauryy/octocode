@@ -47,6 +47,16 @@ describe('LSPClient Coverage', () => {
   let mockProcess: any;
   let mockConnection: any;
 
+  // Resolve indexing readiness the way tsserver does: a $/progress begin/end
+  // cycle. Ops wait for readiness after didOpen, so tests drive it explicitly.
+  const fireReadyProgress = () => {
+    const handler = mockConnection.onNotification.mock.calls.find(
+      (call: unknown[]) => call[0] === '$/progress'
+    )?.[1];
+    handler?.({ token: 'ready', value: { kind: 'begin' } });
+    handler?.({ token: 'ready', value: { kind: 'end' } });
+  };
+
   const config = {
     command: 'test-server',
     args: ['--stdio'],
@@ -317,7 +327,7 @@ describe('LSPClient Coverage', () => {
     beforeEach(async () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
-      await vi.advanceTimersByTimeAsync(2100);
+      fireReadyProgress();
     });
 
     it('should return snippets from location result', async () => {
@@ -427,7 +437,7 @@ describe('LSPClient Coverage', () => {
     beforeEach(async () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
-      await vi.advanceTimersByTimeAsync(2100);
+      fireReadyProgress();
     });
 
     it('findReferences should throw if not initialized', async () => {
@@ -470,7 +480,7 @@ describe('LSPClient Coverage', () => {
     beforeEach(async () => {
       mockConnection.sendRequest.mockResolvedValueOnce({});
       await client.start();
-      await vi.advanceTimersByTimeAsync(2100);
+      fireReadyProgress();
     });
 
     it('prepareCallHierarchy should throw if not initialized', async () => {

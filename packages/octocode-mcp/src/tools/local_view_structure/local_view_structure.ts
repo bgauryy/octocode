@@ -20,6 +20,30 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 
 type ViewStructureQuery = WithOptionalMeta<UpstreamViewStructureQuery>;
 
+/**
+ * Sanitize raw `ls` stderr for agent-facing output: strip the `ls:` prefix
+ * and redact absolute paths to a relative/short form (no filesystem leak).
+ */
+function sanitizeLsStderr(
+  stderr: string | undefined,
+  absolutePath: string
+): string | undefined {
+  const trimmed = stderr?.trim();
+  if (!trimmed) return undefined;
+  const redacted = redactPath(absolutePath);
+  const sanitized = trimmed
+    .split('\n')
+    .map(line =>
+      line
+        .replace(/^ls:\s*/i, '')
+        .split(absolutePath)
+        .join(redacted)
+    )
+    .join('\n')
+    .trim();
+  return sanitized || undefined;
+}
+
 function buildActiveViewStructureFilters(query: ViewStructureQuery): string[] {
   const activeFilters: string[] = [`path: ${query.path}`];
   if (query.depth !== undefined) activeFilters.push(`depth: ${query.depth}`);
@@ -35,9 +59,11 @@ function buildActiveViewStructureFilters(query: ViewStructureQuery): string[] {
 }
 
 import { ToolErrors } from '../../errors/errorFactories.js';
+import { redactPath } from '../../errors/pathUtils.js';
 import {
   applyEntryFilters,
   toEntryObject,
+  toGroupedLists,
   type DirectoryEntry,
 } from './structureFilters.js';
 import { parseLsSimple, parseLsLongFormat } from './structureParser.js';
@@ -65,7 +91,11 @@ export async function viewStructure(
       return pathValidation.errorResult as LocalViewStructureToolResult;
     }
 
-    const effectiveShowModified = query.showFileLastModified ?? true;
+    // Lean by default: timestamps only on request, or when needed for
+    // time-based sorting / detailed listings.
+    const effectiveShowModified =
+      query.showFileLastModified ??
+      (query.sortBy === 'time' || query.details === true);
 
     if (query.depth || query.recursive) {
       return await viewStructureRecursive(
@@ -97,7 +127,10 @@ export async function viewStructure(
     const result = await safeExec(command, args);
 
     if (!result.success) {
-      const stderrMsg = result.stderr?.trim();
+      const stderrMsg = sanitizeLsStderr(
+        result.stderr,
+        pathValidation.sanitizedPath
+      );
       const toolError = ToolErrors.commandExecutionFailed(
         'ls',
         new Error(stderrMsg || 'Unknown error'),
@@ -105,9 +138,10 @@ export async function viewStructure(
       );
       return createErrorResult(toolError, query, {
         toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-        customHints: stderrMsg
-          ? [`Error: ${stderrMsg}`]
-          : ['ls command failed'],
+        customHints: [
+          ...(stderrMsg ? [`Error: ${stderrMsg}`] : ['ls command failed']),
+          'Verify the path exists — use localFindFiles or check ALLOWED_PATHS.',
+        ],
         rawResponse: result.stdout.length + result.stderr.length,
       }) as LocalViewStructureToolResult;
     }
@@ -132,10 +166,18 @@ export async function viewStructure(
       query as { itemsPerPage?: number; page?: number }
     );
     const sanitizedBasePath = pathValidation.sanitizedPath;
-    const outputEntries = paginatedEntries.map(entry => ({
-      ...toEntryObject(entry),
-      path: `${sanitizedBasePath}/${entry.name}`,
-    }));
+    // Flat grouped name lists by default (githubViewRepoStructure parity);
+    // rich per-entry objects when details or timestamps are requested.
+    const richEntries =
+      query.details === true || query.showFileLastModified === true;
+    const entryPayload = richEntries
+      ? {
+          entries: paginatedEntries.map(entry => ({
+            ...toEntryObject(entry),
+            path: `${sanitizedBasePath}/${entry.name}`,
+          })),
+        }
+      : { path: sanitizedBasePath, ...toGroupedLists(paginatedEntries) };
     const warnings: string[] = [];
     const isEmpty = totalEntries === 0;
     const entryPaginationHints = buildEntryPaginationHints(
@@ -150,7 +192,7 @@ export async function viewStructure(
       finalizeViewStructureResult(
         {
           ...(isEmpty ? { status: 'empty' as const } : {}),
-          entries: outputEntries,
+          ...entryPayload,
           summary,
           pagination,
           ...(warnings.length > 0 && { warnings }),
@@ -236,34 +278,35 @@ async function viewStructureRecursive(
 
   let filteredEntries = applyEntryFilters(entries, query);
 
-  if (query.sortBy) {
-    filteredEntries = filteredEntries.sort((a, b) => {
-      let comparison = 0;
-      switch (query.sortBy) {
-        case 'size': {
-          const aSize = a.sizeBytes ?? (a.size ? parseFileSize(a.size) : 0);
-          const bSize = b.sizeBytes ?? (b.size ? parseFileSize(b.size) : 0);
-          comparison = aSize - bSize;
-          break;
-        }
-        case 'time':
-          if (showModified && a.modified && b.modified) {
-            comparison = a.modified.localeCompare(b.modified);
-          } else {
-            comparison = a.name.localeCompare(b.name);
-          }
-          break;
-        case 'extension':
-          comparison = (a.extension || '').localeCompare(b.extension || '');
-          break;
-        case 'name':
-        default:
-          comparison = a.name.localeCompare(b.name);
-          break;
+  // Default to name sort so omitted sortBy matches the flat (ls) path's
+  // alphabetical order instead of leaking filesystem traversal order.
+  const sortBy = query.sortBy ?? 'name';
+  filteredEntries = filteredEntries.sort((a, b) => {
+    let comparison = 0;
+    switch (sortBy) {
+      case 'size': {
+        const aSize = a.sizeBytes ?? (a.size ? parseFileSize(a.size) : 0);
+        const bSize = b.sizeBytes ?? (b.size ? parseFileSize(b.size) : 0);
+        comparison = aSize - bSize;
+        break;
       }
-      return query.reverse ? -comparison : comparison;
-    });
-  }
+      case 'time':
+        if (showModified && a.modified && b.modified) {
+          comparison = a.modified.localeCompare(b.modified);
+        } else {
+          comparison = a.name.localeCompare(b.name);
+        }
+        break;
+      case 'extension':
+        comparison = (a.extension || '').localeCompare(b.extension || '');
+        break;
+      case 'name':
+      default:
+        comparison = a.name.localeCompare(b.name);
+        break;
+    }
+    return query.reverse ? -comparison : comparison;
+  });
 
   if (query.limit) {
     filteredEntries = filteredEntries.slice(0, query.limit);
@@ -274,11 +317,26 @@ async function viewStructureRecursive(
     filteredEntries,
     query as { itemsPerPage?: number; page?: number }
   );
-  const outputEntries = paginatedEntries.map(entry => ({
-    ...toEntryObject(entry),
-    path: `${basePath}/${entry.name}`,
-  }));
-  const warnings = buildWalkWarnings(walkStats);
+  // Flat grouped name lists by default (githubViewRepoStructure parity);
+  // rich per-entry objects when details or timestamps are requested.
+  const richEntries =
+    query.details === true || query.showFileLastModified === true;
+  const entryPayload = richEntries
+    ? {
+        entries: paginatedEntries.map(entry => ({
+          ...toEntryObject(entry),
+          path: `${basePath}/${entry.name}`,
+        })),
+      }
+    : { path: basePath, ...toGroupedLists(paginatedEntries) };
+  const warnings = [
+    ...buildWalkWarnings(walkStats),
+    ...(walkStats.wasCapped
+      ? [
+          `Results capped at ${maxEntries} entries — add a pattern/extension filter or reduce depth to narrow the scope.`,
+        ]
+      : []),
+  ];
   const isEmpty = totalEntries === 0;
   const baseHints = isEmpty
     ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
@@ -297,7 +355,7 @@ async function viewStructureRecursive(
     finalizeViewStructureResult(
       {
         ...(isEmpty ? { status: 'empty' as const } : {}),
-        entries: outputEntries,
+        ...entryPayload,
         summary,
         pagination,
         ...(warnings.length > 0 && { warnings }),

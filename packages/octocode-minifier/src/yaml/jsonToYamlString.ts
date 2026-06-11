@@ -1,26 +1,33 @@
 import { dump } from 'js-yaml';
 
-export interface YamlConversionConfig {
+export type YamlConversionConfig = {
   sortKeys?: boolean;
   keysPriority?: string[];
-}
+};
 
 function quoteYamlBlockLine(indent: string, line: string): string {
   return line.length === 0 ? indent : `${indent}  ${line}`;
 }
 
+// Single-pass decode — sequential replaces would corrupt literal `\n` text
+// (dumped as `\\n`) by decoding its tail `\n` into a real newline.
 function decodeEscapedYamlString(value: string): string {
-  return value
-    .replace(/\\n/g, '\n')
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, '\\');
+  return value.replace(/\\(n|t|"|\\)/g, (_match, ch: string) =>
+    ch === 'n' ? '\n' : ch === 't' ? '\t' : ch
+  );
 }
+
+// Escapes the decoder above cannot reproduce (\r, \u…, \x…) — the quoted
+// form is the only lossless representation for values containing them.
+const UNSUPPORTED_ESCAPE = /\\(?![nt"\\])/;
 
 function convertMultilineQuotedStringsToBlockScalars(yaml: string): string {
   return yaml.replace(
     /^(\s*)([A-Za-z0-9_-]+): "((?:[^"\\]|\\.)*\\n(?:[^"\\]|\\.)*)"$/gm,
-    (_match, indent: string, key: string, escapedValue: string) => {
+    (match, indent: string, key: string, escapedValue: string) => {
+      if (UNSUPPORTED_ESCAPE.test(escapedValue)) return match;
       const content = decodeEscapedYamlString(escapedValue);
+      if (!content.includes('\n')) return match; // literal \n text only
       const lines = content
         .split('\n')
         .map(line => quoteYamlBlockLine(indent, line))

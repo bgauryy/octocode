@@ -35,9 +35,11 @@ vi.mock('octocode-security-utils/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
-vi.mock('../../../src/utils/minifier/minifier.js', () => ({
-  minifyContent: mockminifyContent,
-}));
+vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@octocodeai/octocode-minifier')>();
+  return { ...actual, minifyContent: mockminifyContent };
+});
 
 vi.mock('../../../src/utils/http/cache.js', () => ({
   generateCacheKey: mockGenerateCacheKey,
@@ -164,6 +166,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          contentView: 'none',
           totalLines: 5,
         },
       });
@@ -183,6 +186,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          contentView: 'none',
           totalLines: 5,
         },
       });
@@ -204,6 +208,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'master',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          contentView: 'none',
           totalLines: 5,
         },
       });
@@ -225,6 +230,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          contentView: 'none',
           totalLines: 5,
         },
       });
@@ -245,6 +251,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          contentView: 'none',
           totalLines: 5,
         },
       });
@@ -268,6 +275,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
+          contentView: 'none',
           totalLines: 5,
         },
       });
@@ -567,11 +575,12 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       expect(result.status).toBe(200);
       if ('data' in result) {
         expect(result.data.content).toContain('import React from "react"');
+        // All occurrences are returned as slices now — the hint reports the
+        // occurrence count and slice layout instead of "Other occurrences".
         expect(
           result.data.matchLocations?.some(
             loc =>
-              loc.startsWith('Found "import" on line 2') &&
-              loc.includes('Other occurrences:')
+              loc.includes('occurrences of "import"') && loc.includes('slice')
           )
         ).toBe(true);
       }
@@ -701,29 +710,25 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         endLine: 5,
       });
 
-      expect(mockGenerateCacheKey).toHaveBeenCalledTimes(2);
-      expect(mockGenerateCacheKey).toHaveBeenNthCalledWith(
-        1,
-        'gh-api-file-content',
-        {
+      // Two keys per call: raw content + cached timestamp lookup (ts: true).
+      expect(mockGenerateCacheKey).toHaveBeenCalledTimes(4);
+      const contentKeyCalls = mockGenerateCacheKey.mock.calls.filter(
+        call => !(call[1] as Record<string, unknown>).ts
+      );
+      expect(contentKeyCalls).toHaveLength(2);
+      for (const call of contentKeyCalls) {
+        expect(call[0]).toBe('gh-api-file-content');
+        expect(call[1]).toEqual({
           owner: 'test',
           repo: 'repo',
           path: 'test.txt',
           branch: undefined,
-        },
-        undefined
+        });
+      }
+      const tsKeyCalls = mockGenerateCacheKey.mock.calls.filter(
+        call => (call[1] as Record<string, unknown>).ts === true
       );
-      expect(mockGenerateCacheKey).toHaveBeenNthCalledWith(
-        2,
-        'gh-api-file-content',
-        {
-          owner: 'test',
-          repo: 'repo',
-          path: 'test.txt',
-          branch: undefined,
-        },
-        undefined
-      );
+      expect(tsKeyCalls).toHaveLength(2);
     });
   });
 

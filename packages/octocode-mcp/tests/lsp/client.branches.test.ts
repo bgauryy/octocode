@@ -84,6 +84,18 @@ describe('LSP Client Branch Coverage', () => {
     delete process.env['OCTOCODE_LSP_CONFIG'];
   });
 
+  // Resolve indexing readiness the way tsserver does: a $/progress begin/end
+  // cycle. Ops wait for readiness after didOpen, so tests drive it explicitly.
+  const fireReadyProgress = () => {
+    const handler = mockConnection.onNotification.mock.calls.find(
+      (call: unknown[]) => call[0] === '$/progress'
+    )?.[1] as
+      | ((p: { token: string; value: { kind: string } }) => void)
+      | undefined;
+    handler?.({ token: 'ready', value: { kind: 'begin' } });
+    handler?.({ token: 'ready', value: { kind: 'end' } });
+  };
+
   describe('User config loading from env var (line 117)', () => {
     it('should load config from OCTOCODE_LSP_CONFIG env var', async () => {
       const customConfigPath = '/custom/config/lsp-servers.json';
@@ -320,8 +332,7 @@ describe('LSP Client Branch Coverage', () => {
         languageId: 'typescript',
       });
       await client.start();
-      // Advance past the 2 s readyFallbackTimer so waitForReady() resolves immediately.
-      await vi.advanceTimersByTimeAsync(2100);
+      fireReadyProgress();
     });
 
     afterEach(() => {
@@ -437,7 +448,7 @@ describe('LSP Client Branch Coverage', () => {
         languageId: 'typescript',
       });
       await client.start();
-      await vi.advanceTimersByTimeAsync(2100);
+      fireReadyProgress();
     });
 
     afterEach(() => {
@@ -497,7 +508,7 @@ describe('LSP Client Branch Coverage', () => {
   });
 
   describe('Indexing-wait — readyPromise / $/progress tracking', () => {
-    it('resolves via 2 s fallback when no $/progress notifications arrive', async () => {
+    it('resolves via settle fallback after the first didOpen when no $/progress arrives', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       try {
         mockConnection.sendRequest.mockResolvedValueOnce({ capabilities: {} });
@@ -506,12 +517,19 @@ describe('LSP Client Branch Coverage', () => {
           workspaceRoot: '/workspace',
         });
         await client.start();
+
+        // Before any didOpen there is nothing to wait for — resolves immediately.
+        await client.waitForReady();
+
+        // The settle fallback is armed by the first didOpen, not by initialize.
+        await client.openDocument('/workspace/a.ts', 'content');
         let resolved = false;
         const p = client.waitForReady().then(() => {
           resolved = true;
         });
+        await Promise.resolve();
         expect(resolved).toBe(false);
-        await vi.advanceTimersByTimeAsync(2100);
+        await vi.advanceTimersByTimeAsync(2600);
         await p;
         expect(resolved).toBe(true);
       } finally {
@@ -614,6 +632,9 @@ describe('LSP Client Branch Coverage', () => {
           workspaceRoot: '/workspace',
         });
         await client.start();
+        // waitForReady only waits once a document has been opened (that is
+        // when tsserver starts loading the project).
+        await client.openDocument('/workspace/file.ts', 'content');
 
         const progressHandler = handlers['$/progress']!;
 

@@ -98,6 +98,9 @@ export interface FileContentResult {
 
   endLine?: number;
 
+  /** Line ranges of returned slices when matchString hits multiple spots. */
+  matchRanges?: Array<{ start: number; end: number }>;
+
   warnings?: string[];
 
   matchNotFound?: boolean;

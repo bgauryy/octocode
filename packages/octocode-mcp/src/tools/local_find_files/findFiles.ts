@@ -124,15 +124,31 @@ function buildFindFilesHints(ctx: {
     const caseNote = q.iname ? ' (case-insensitive)' : '';
     activeFilters.push(`name: ${namePattern}${caseNote}`);
   }
+  if (Array.isArray(q.names) && q.names.length > 0) {
+    activeFilters.push(`names: ${(q.names as string[]).join(', ')}`);
+  }
   if (q.type)
     activeFilters.push(
       `type: ${q.type === 'f' ? 'files' : q.type === 'd' ? 'directories' : String(q.type)}`
     );
-  if (q.modifiedAfter) activeFilters.push(`modified after: ${q.modifiedAfter}`);
+  // Time filters with an invalid format are skipped by the command builder —
+  // annotate them so the hint doesn't assert a filter that never ran.
+  const timeFilterNote = (value: unknown): string =>
+    typeof value === 'string' && !VALID_TIME_STRING_RE.test(value)
+      ? ' (skipped: invalid format)'
+      : '';
+  if (q.modifiedAfter)
+    activeFilters.push(
+      `modified after: ${q.modifiedAfter}${timeFilterNote(q.modifiedAfter)}`
+    );
   if (q.modifiedBefore)
-    activeFilters.push(`modified before: ${q.modifiedBefore}`);
+    activeFilters.push(
+      `modified before: ${q.modifiedBefore}${timeFilterNote(q.modifiedBefore)}`
+    );
   if (q.modifiedWithin)
-    activeFilters.push(`modified within: ${q.modifiedWithin}`);
+    activeFilters.push(
+      `modified within: ${q.modifiedWithin}${timeFilterNote(q.modifiedWithin)}`
+    );
   if (q.sizeGreater) activeFilters.push(`size > ${q.sizeGreater}`);
   if (q.sizeLess) activeFilters.push(`size < ${q.sizeLess}`);
   if (Array.isArray(q.excludeDir) && q.excludeDir.length > 0) {
@@ -156,7 +172,7 @@ function buildFindFilesHints(ctx: {
       : []),
     ...(wasFileCapped
       ? [
-          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with name/type/time filters.`,
+          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with name/type/time filters. Note: sorting applies only within the capped set — limit is a pre-sort discovery cap.`,
         ]
       : []),
     ...(totalFiles === 0
@@ -165,6 +181,7 @@ function buildFindFilesHints(ctx: {
           hasConfigFiles,
           path: query.path,
           name: query.name ?? query.iname,
+          names: query.names,
           modifiedWithin: query.modifiedWithin,
           sizeGreater: query.sizeGreater,
           sizeLess: query.sizeLess,
@@ -174,7 +191,7 @@ function buildFindFilesHints(ctx: {
             ? `Found ${totalFiles} file${totalFiles === 1 ? '' : 's'}. Use localSearchCode to search or localGetFileContent to read.`
             : q.type === 'd'
               ? `Found ${totalFiles} director${totalFiles === 1 ? 'y' : 'ies'}. Use localViewStructure to browse or localSearchCode to search.`
-              : `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} — pass type="f" for files, type="d" for directories. Use localSearchCode or localGetFileContent.`,
+              : `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} — pass entryType="f" for files, entryType="d" for directories. Use localSearchCode or localGetFileContent.`,
         ]),
     ...(paginationMetadata
       ? generatePaginationHints(paginationMetadata, {
@@ -187,8 +204,13 @@ function buildFindFilesHints(ctx: {
 export async function findFiles(
   query: FindFilesQuery
 ): Promise<LocalFindFilesToolResult> {
-  const details = query.details ?? true;
-  const showLastModified = query.showFileLastModified ?? true;
+  // Lean by default: paths only. details=true adds size/permissions,
+  // showFileLastModified=true adds timestamps. Sorting never depends on
+  // display flags — modified is collected whenever the sort needs it.
+  const details = query.details ?? false;
+  const showLastModified = query.showFileLastModified ?? false;
+  const collectModified =
+    showLastModified || (query.sortBy || 'modified') === 'modified';
 
   try {
     const findAvailability = await checkCommandAvailability('find');
@@ -256,21 +278,16 @@ export async function findFiles(
 
     const files: LocalFindFilesEntry[] = await getFileDetails(
       filePaths,
-      showLastModified
+      collectModified
     );
 
     if (details) {
-      await enrichFileDetails(files, showLastModified);
+      await enrichFileDetails(files, collectModified);
     }
 
     const sortBy = query.sortBy || 'modified';
-    sortLocalFindFilesEntrys(files, sortBy, showLastModified);
-    const sortHints =
-      query.sortBy === 'modified' && !showLastModified
-        ? [
-            'sortBy="modified" ignored: showFileLastModified=false; sorted by path instead.',
-          ]
-        : [];
+    sortLocalFindFilesEntrys(files, sortBy, collectModified);
+    const sortHints: string[] = [];
 
     const filesForOutput = formatForOutput(files, details, showLastModified);
     const totalFiles = filesForOutput.length;

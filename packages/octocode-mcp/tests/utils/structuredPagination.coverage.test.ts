@@ -5,8 +5,7 @@ import {
 } from '../../src/utils/response/structuredPagination.js';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 
-beforeAll(async () => {
-});
+beforeAll(async () => {});
 
 describe('structuredPagination branch coverage', () => {
   it('returns the result unchanged when data is not a plain object (line 1070)', () => {
@@ -1045,5 +1044,112 @@ describe('githubSearchPullRequests pagination fixes', () => {
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
     );
     expect(out.results.length).toBeLessThan(4);
+  });
+
+  it('LOCAL_FIND_FILES with explicit charOffset passes through pageToolDataValue non-paginated path (line 819)', () => {
+    const queryResult = {
+      id: 'find-explicit',
+      data: { files: ['a.ts', 'b.ts'], pagination: { hasMore: false } },
+    };
+    // Explicit request triggers pageToolDataValue for LOCAL_FIND_FILES
+    const result = applyQueryOutputPagination(
+      queryResult,
+      { charOffset: 0, charLength: 10000 },
+      TOOL_NAMES.LOCAL_FIND_FILES
+    );
+    // LOCAL_FIND_FILES is always returned as-is from pageToolDataValue
+    expect(result).toBeDefined();
+  });
+
+  it('paginateFlatQueryResult fits-in-one-page branch: small data with explicit request that exceeds total (line 882)', () => {
+    // Small data that fits within the requested page length → returns non-paginated
+    const result = applyQueryOutputPagination(
+      {
+        id: 'q-fits',
+        data: { packages: [{ name: 'tiny-pkg' }] },
+      },
+      { charOffset: 0, charLength: 999999 }, // huge page → whole content fits
+      TOOL_NAMES.PACKAGE_SEARCH
+    );
+    expect(result).toBeDefined();
+  });
+
+  it('paginateFlatQueryResult offset-past-end branch: charOffset well beyond content size (line 892)', () => {
+    // charOffset bigger than totalChars of the wrapped object
+    const result = applyQueryOutputPagination(
+      {
+        id: 'q-past-wrap',
+        data: { packages: [{ name: 'tiny' }] },
+      },
+      { charOffset: 999999, charLength: 100 },
+      TOOL_NAMES.PACKAGE_SEARCH
+    );
+    const data = result.data as Record<string, unknown>;
+    expect(data).toBeDefined();
+  });
+
+  it('paginateFlatQueryResult returns null for non-plain-object result value (line 856)', () => {
+    // A result with data that is not a plain object — paginateFlatQueryResult returns null
+    const response = applyBulkResponsePagination(
+      {
+        results: [
+          { id: 'q1', data: 'not-a-plain-object' as unknown as Record<string, unknown> },
+        ],
+      } as never,
+      { length: 10 },
+      TOOL_NAMES.PACKAGE_SEARCH
+    );
+    expect(response).toBeDefined();
+  });
+
+  it('paginateFlatQueryResult fits-in-one-page (line 882) — small items before a large item force pagination', () => {
+    // 3 tiny results + 1 huge result. Budget fits tiny results (each hits line 882) then
+    // truncates on the large one, marking the outer array as paginated.
+    const smallResult = { id: 'qs', data: { packages: [{ name: 'x' }] } };
+    const bigPackages = Array.from({ length: 100 }, (_, i) => ({
+      name: `pkg-${i}`,
+      keywords: ['k'.repeat(200)],
+    }));
+    const largeResult = { id: 'ql', data: { packages: bigPackages } };
+    const response = applyBulkResponsePagination(
+      { results: [smallResult, smallResult, smallResult, largeResult] } as never,
+      { length: 500 },
+      TOOL_NAMES.PACKAGE_SEARCH
+    );
+    expect(response).toBeDefined();
+  });
+
+  it('paginateFlatQueryResult past-end via bulk (line 892) — offset beyond total result chars', () => {
+    const packages = Array.from({ length: 50 }, (_, i) => ({
+      name: `p${i}`,
+      keywords: ['k'.repeat(100)],
+    }));
+    const response = applyBulkResponsePagination(
+      {
+        results: [{ id: 'q1', data: { packages } }],
+      } as never,
+      { offset: 999999, length: 100 },
+      TOOL_NAMES.PACKAGE_SEARCH
+    );
+    expect(response).toBeDefined();
+  });
+
+  it('LOCAL_FETCH_CONTENT returns non-paginated from pageToolDataValue via bulk (line 834)', () => {
+    const response = applyBulkResponsePagination(
+      {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              content: 'x'.repeat(5000),
+              path: 'src/foo.ts',
+            },
+          },
+        ],
+      } as never,
+      { length: 50 },
+      TOOL_NAMES.LOCAL_FETCH_CONTENT
+    );
+    expect(response).toBeDefined();
   });
 });

@@ -23,12 +23,15 @@ type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
 type FileEntry = {
   path: string;
   content: string;
+  contentView?: 'none' | 'standard' | 'symbols';
+  isSkeleton?: boolean;
   totalLines?: number;
   resolvedBranch?: string;
   pagination?: PaginationInfo;
   isPartial?: boolean;
   startLine?: number;
   endLine?: number;
+  matchRanges?: Array<{ start: number; end: number }>;
   lastModified?: string;
   lastModifiedBy?: string;
   warnings?: string[];
@@ -101,9 +104,18 @@ function buildFetchEvidence(
     (sum, group) => sum + (group.directories?.length ?? 0),
     0
   );
+  // matchString reads are intentionally partial — every occurrence is already
+  // returned as a slice, so they don't reduce evidence completeness.
   const partialFiles = groups.reduce(
     (sum, group) =>
-      sum + (group.files ?? []).filter(file => file.isPartial).length,
+      sum +
+      (group.files ?? []).filter(
+        file =>
+          file.isPartial &&
+          !file.matchRanges?.length &&
+          !file.isSkeleton &&
+          file.contentView !== 'symbols'
+      ).length,
     0
   );
   const paginatedFiles = groups.reduce(
@@ -202,12 +214,27 @@ function readFileEntry(
   return {
     path: readString(data.path) ?? String(query.path ?? ''),
     content: typeof data.content === 'string' ? data.content : '',
+    contentView:
+      data.contentView === 'none' ||
+      data.contentView === 'standard' ||
+      data.contentView === 'symbols'
+        ? data.contentView
+        : undefined,
+    ...(data.isSkeleton === true ? { isSkeleton: true } : {}),
     totalLines: readNumber(data.totalLines),
     resolvedBranch: readString(data.resolvedBranch),
     pagination: readPagination(data.pagination),
     ...(data.isPartial === true ? { isPartial: true } : {}),
     startLine: readNumber(data.startLine),
     endLine: readNumber(data.endLine),
+    ...(Array.isArray(data.matchRanges) && data.matchRanges.length > 0
+      ? {
+          matchRanges: data.matchRanges as Array<{
+            start: number;
+            end: number;
+          }>,
+        }
+      : {}),
     lastModified: readString(data.lastModified),
     lastModifiedBy: readString(data.lastModifiedBy),
     warnings: readStringArray(data.warnings),
@@ -286,6 +313,7 @@ function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
       }
       if (
         file.isPartial &&
+        !file.matchRanges?.length &&
         typeof file.endLine === 'number' &&
         typeof file.totalLines === 'number' &&
         file.endLine < file.totalLines

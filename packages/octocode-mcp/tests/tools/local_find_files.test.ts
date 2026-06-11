@@ -105,7 +105,7 @@ describe('localFindFiles', () => {
       expect(hints).toMatch(/outside available range|page 999 is/i);
     });
 
-    it('should include metadata (size, permissions) in results', async () => {
+    it('should include metadata (size, permissions) in results when details is true', async () => {
       const modified = new Date('2025-01-01T00:00:00Z');
 
       mockSafeExec.mockResolvedValue({
@@ -124,7 +124,7 @@ describe('localFindFiles', () => {
         mtime: modified,
       } as unknown as import('fs').Stats);
 
-      const result = await findFiles({ path: '/test/path' });
+      const result = await findFiles({ path: '/test/path', details: true });
 
       expect(result.status).toBeUndefined();
 
@@ -785,7 +785,7 @@ describe('localFindFiles', () => {
       expect(files[0]!.modified).toBeDefined();
     });
 
-    it('should fall back to path sorting when showFileLastModified is false', async () => {
+    it('should sort by modification time even when showFileLastModified is false (modified hidden from output)', async () => {
       mockSafeExec.mockResolvedValue({
         success: true,
         code: 0,
@@ -793,14 +793,24 @@ describe('localFindFiles', () => {
         stderr: '',
       });
 
-      vi.mocked(mockFs.promises.lstat).mockResolvedValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-        isFile: () => true,
-        size: 123,
-        mode: parseInt('100644', 8),
-        mtime: new Date(),
-      } as unknown as import('fs').Stats);
+      vi.mocked(mockFs.promises.lstat).mockImplementation(
+        async (filePath: string | Buffer | URL) => {
+          const path = filePath.toString();
+          const mtimes: Record<string, Date> = {
+            '/test/a.txt': new Date('2024-12-01'),
+            '/test/b.txt': new Date('2022-06-01'),
+            '/test/c.txt': new Date('2020-01-01'),
+          };
+          return {
+            isDirectory: () => false,
+            isSymbolicLink: () => false,
+            isFile: () => true,
+            size: 123,
+            mode: parseInt('100644', 8),
+            mtime: mtimes[path] || new Date(),
+          } as unknown as import('fs').Stats;
+        }
+      );
 
       const result = await findFiles({
         path: '/test/path',
@@ -811,9 +821,12 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files.length).toBe(3);
+      // Default sortBy=modified is honored even without showFileLastModified:
+      // newest first, while `modified` stays out of the output.
       expect(files[0]!.path).toBe('/test/a.txt');
       expect(files[1]!.path).toBe('/test/b.txt');
       expect(files[2]!.path).toBe('/test/c.txt');
+      expect(files.every(f => f.modified === undefined)).toBe(true);
     });
   });
 

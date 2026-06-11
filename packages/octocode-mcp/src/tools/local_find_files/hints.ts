@@ -5,6 +5,10 @@ export const hints: ToolHintGenerators = {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
     const name = typeof c.name === 'string' ? c.name : undefined;
+    const names =
+      Array.isArray(c.names) && c.names.length > 0
+        ? (c.names as string[])
+        : undefined;
     const modifiedWithin =
       typeof c.modifiedWithin === 'string' ? c.modifiedWithin : undefined;
     const sizeGreater =
@@ -13,6 +17,7 @@ export const hints: ToolHintGenerators = {
 
     const filters: string[] = [];
     if (name) filters.push(`name="${name}"`);
+    if (names) filters.push(`names=${JSON.stringify(names)}`);
     if (modifiedWithin) filters.push(`modifiedWithin="${modifiedWithin}"`);
     if (sizeGreater) filters.push(`sizeGreater="${sizeGreater}"`);
     if (sizeLess) filters.push(`sizeLess="${sizeLess}"`);
@@ -21,7 +26,7 @@ export const hints: ToolHintGenerators = {
 
     return [
       `No files match ${filters.join(' + ')} in ${path ?? 'this path'}.`,
-      'Widen: remove filters one at a time; use `names` for an OR list of glob patterns or `iname` for a single case-insensitive glob.',
+      'Widen: remove filters one at a time. Filename matching is case-sensitive — list both casings in `names` (e.g. ["README*", "readme*"]) when casing is unknown.',
       'For content-based search, use `localSearchCode` instead — `localFindFiles` matches metadata only.',
     ];
   },

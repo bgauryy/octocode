@@ -191,6 +191,65 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       expect(data.results).toBeDefined();
       expect(data.errors).toBeUndefined();
     });
+
+    it('hints when GitHub caps reachable results below totalMatches', async () => {
+      mockProvider.searchCode.mockResolvedValue({
+        data: {
+          items: Array.from({ length: 20 }, (_, i) =>
+            makeItem('owner/repo', `src/file-${i + 1}.ts`, `body-${i + 1}`)
+          ),
+          totalCount: 446,
+          pagination: {
+            currentPage: 1,
+            totalPages: 10,
+            entriesPerPage: 20,
+            hasMore: true,
+            totalMatches: 446,
+          },
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo' }],
+      });
+
+      const data = result.structuredContent as FlatResponse;
+      const capHint = data.hints?.find(h =>
+        h.includes('GitHub caps code-search at 200 results')
+      );
+      expect(capHint).toBeDefined();
+      expect(capHint).toContain('246 of 446 reported matches are unreachable');
+      expect(capHint).toContain('narrow with path/extension/filename');
+    });
+
+    it('emits no cap hint when all reported matches are reachable', async () => {
+      mockProvider.searchCode.mockResolvedValue({
+        data: {
+          items: Array.from({ length: 20 }, (_, i) =>
+            makeItem('owner/repo', `src/file-${i + 1}.ts`, `body-${i + 1}`)
+          ),
+          totalCount: 60,
+          pagination: {
+            currentPage: 1,
+            totalPages: 3,
+            entriesPerPage: 20,
+            hasMore: true,
+            totalMatches: 60,
+          },
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
+        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo' }],
+      });
+
+      const data = result.structuredContent as FlatResponse;
+      expect(data.hints?.some(h => h.includes('caps code-search'))).toBeFalsy();
+    });
   });
 
   describe('Multiple queries', () => {

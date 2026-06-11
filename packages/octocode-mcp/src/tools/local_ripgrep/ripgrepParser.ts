@@ -56,7 +56,7 @@ export function parseRipgrepOutput(
 
   if (isCountOutput) {
     const files = parseCountOutput(stdout);
-    const totalMatches = files.reduce((sum, f) => sum + f.matchCount, 0);
+    const totalMatches = files.reduce((sum, f) => sum + (f.matchCount ?? 0), 0);
     return {
       files,
       stats: { matchCount: totalMatches },

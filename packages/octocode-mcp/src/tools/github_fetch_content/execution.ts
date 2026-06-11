@@ -10,6 +10,7 @@ import {
   createErrorResult,
 } from '../utils.js';
 import { FileContentQueryLocalSchema } from './scheme.js';
+import type { MinifyMode } from '../../scheme/localSchemaOverlay.js';
 import { isCloneEnabled } from '../../serverConfig.js';
 import { fetchDirectoryContents } from '../../github/directoryFetch.js';
 import { resolveDefaultBranch } from '../../github/client.js';
@@ -26,7 +27,12 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
-type PartialFileContentQuery = z.infer<typeof FileContentQueryLocalSchema>;
+// `minify` is optional at the type level: the schema default ("none") is
+// applied at the MCP input boundary, while direct impl callers may omit it.
+type PartialFileContentQuery = Omit<
+  z.infer<typeof FileContentQueryLocalSchema>,
+  'minify'
+> & { minify?: MinifyMode };
 
 export async function fetchMultipleGitHubFileContents(
   args: ToolExecutionArgs<PartialFileContentQuery>

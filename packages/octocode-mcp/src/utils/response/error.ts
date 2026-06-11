@@ -156,17 +156,28 @@ export function createErrorResult(
 
 function getErrorTypeFromToolError(
   error: ToolError
-): 'size_limit' | 'not_found' | 'permission' | undefined {
+): 'size_limit' | 'not_found' | 'directory' | 'permission' | undefined {
   switch (error.errorCode) {
     case 'fileTooLarge':
     case 'outputTooLarge':
       return 'size_limit';
     case 'fileAccessFailed':
     case 'fileReadFailed':
-      return 'not_found';
+      // EISDIR is not "not found" — the path exists but is a directory.
+      return isDirectoryToolError(error) ? 'directory' : 'not_found';
     case 'pathValidationFailed':
       return 'permission';
     default:
       return undefined;
   }
+}
+
+function isDirectoryToolError(error: ToolError): boolean {
+  if (error.context?.errorCode === 'EISDIR') return true;
+  const cause = (error as Error & { cause?: unknown }).cause;
+  return (
+    typeof cause === 'object' &&
+    cause !== null &&
+    (cause as { code?: string }).code === 'EISDIR'
+  );
 }

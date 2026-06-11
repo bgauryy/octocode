@@ -152,7 +152,7 @@ async function fetchWeeklyDownloads(
   }
 }
 
-function isExactPackageName(query: string): boolean {
+export function isExactPackageName(query: string): boolean {
   if (query.startsWith('@') && query.includes('/')) {
     return true;
   }

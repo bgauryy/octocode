@@ -94,6 +94,8 @@ vi.mock('../src/utils/core/logger.js', () => ({
 let registerAllTools: (server: never) => Promise<void>;
 
 describe('index.ts - Server Lifecycle', () => {
+  // The dynamic index.js import occasionally exceeds the default 1s hook
+  // timeout under full-suite load — a timing flake, not a regression.
   beforeEach(async () => {
     vi.clearAllMocks();
 
@@ -102,7 +104,7 @@ describe('index.ts - Server Lifecycle', () => {
 
     const indexModule = await import('../src/index.js');
     registerAllTools = indexModule.registerAllTools;
-  });
+  }, 15_000);
 
   afterAll(() => {
     mockProcessExit.mockRestore();

@@ -15,6 +15,7 @@ export function extractMatchingLines(
   lines: string[];
   matchRanges: Array<{ start: number; end: number }>;
   matchCount: number;
+  matchingLines: number[];
 } {
   const matchingLineNumbers: number[] = [];
 
@@ -62,7 +63,7 @@ export function extractMatchingLines(
   const totalMatchCount = matchingLineNumbers.length;
 
   if (totalMatchCount === 0) {
-    return { lines: [], matchRanges: [], matchCount: 0 };
+    return { lines: [], matchRanges: [], matchCount: 0, matchingLines: [] };
   }
 
   const matchesToProcess = maxMatches
@@ -72,7 +73,7 @@ export function extractMatchingLines(
   const ranges: Array<{ start: number; end: number }> = [];
   const firstMatchLine = matchesToProcess[0];
   if (firstMatchLine === undefined) {
-    return { lines: [], matchRanges: [], matchCount: 0 };
+    return { lines: [], matchRanges: [], matchCount: 0, matchingLines: [] };
   }
 
   let currentRange = {
@@ -115,5 +116,6 @@ export function extractMatchingLines(
     lines: resultLines,
     matchRanges: ranges,
     matchCount: totalMatchCount,
+    matchingLines: matchesToProcess,
   };
 }

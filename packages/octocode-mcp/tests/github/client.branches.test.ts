@@ -73,7 +73,7 @@ describe('GitHub Client Branch Coverage', () => {
 
       expect(mockOctokit).toHaveBeenCalledWith(
         expect.objectContaining({
-          request: { timeout: 30000 },
+          request: expect.objectContaining({ timeout: 30000 }),
         })
       );
     });
@@ -95,7 +95,7 @@ describe('GitHub Client Branch Coverage', () => {
 
       expect(mockOctokit).toHaveBeenCalledWith(
         expect.objectContaining({
-          request: { timeout: 30000 },
+          request: expect.objectContaining({ timeout: 30000 }),
         })
       );
     });
@@ -117,7 +117,7 @@ describe('GitHub Client Branch Coverage', () => {
 
       expect(mockOctokit).toHaveBeenCalledWith(
         expect.objectContaining({
-          request: { timeout: 30000 },
+          request: expect.objectContaining({ timeout: 30000 }),
         })
       );
     });

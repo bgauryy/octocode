@@ -3,13 +3,16 @@ import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 import { RequestError } from 'octokit';
-import * as minifierModule from '../../src/utils/minifier/minifier.js';
+import * as minifierModule from '@octocodeai/octocode-minifier';
 
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('../../src/utils/minifier/minifier.js');
+vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+  const actual = await importOriginal();
+  return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
+});
 
 function createRequestError(message: string, status: number) {
   return new RequestError(message, status, {

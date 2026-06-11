@@ -4,13 +4,16 @@ import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 import { RequestError } from 'octokit';
-import * as minifierModule from '../../src/utils/minifier/minifier.js';
+import * as minifierModule from '@octocodeai/octocode-minifier';
 
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('../../src/utils/minifier/minifier.js');
+vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+  const actual = await importOriginal();
+  return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
+});
 
 function createRequestError(message: string, status: number) {
   return new RequestError(message, status, {
@@ -990,12 +993,18 @@ describe('File Operations - Additional Coverage Tests', () => {
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data) {
         expect(result.data.matchLocations).toBeDefined();
+        // Multi-occurrence matchString returns all slices; the hint carries
+        // the occurrence count rather than pointing at unfetched lines.
         expect(
-          result.data.matchLocations?.some(
-            w =>
-              w.includes('Other occurrences:') || w.includes('other location')
+          result.data.matchLocations?.some(w =>
+            w.includes('occurrences of "TODO"')
           )
         ).toBe(true);
+        // All three occurrences are in the returned content (contiguous
+        // ranges merge into one slice here, so matchRanges stays omitted).
+        expect(result.data.content).toContain('TODO: first');
+        expect(result.data.content).toContain('TODO: second');
+        expect(result.data.content).toContain('TODO: third');
       }
     });
   });

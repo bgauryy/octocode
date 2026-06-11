@@ -39,7 +39,11 @@ export const hints: ToolHintGenerators = {
       `0 PRs found in ${scope ?? 'this scope'} matching ${filters.join(' + ')} — result is confirmed empty.`,
       state === 'merged'
         ? 'Zero merged PRs matched. If unexpected, verify the label spelling or date range; try omitting `state` to check all PR states.'
-        : 'If unexpected, try removing one filter at a time: drop `author` first, then loosen `query` keywords.',
+        : author
+          ? 'If unexpected, try removing one filter at a time: drop `author` first, then loosen `query` keywords.'
+          : query
+            ? 'If unexpected, loosen `query` keywords or remove filters one at a time.'
+            : 'If unexpected, try removing or loosening filters one at a time.',
       ...(query && !alreadyTitleScope
         ? [
             'For approximate title matching, use `matchScope=["title"]` with `sort="best-match"` to surface the closest PR.',
@@ -50,6 +54,11 @@ export const hints: ToolHintGenerators = {
             ]
           : []),
       'Tip: the `query` field supports GitHub search qualifiers — e.g. `label:bug`, `created:>2024-01-01`, `merged:>2024-06-01`, `involves:<user>` — to filter by date, label, or involvement.',
+      ...(scope
+        ? [
+            `Zero PRs in ${scope} — the repo may have been renamed or transferred. Confirm the canonical name with githubSearchRepositories before concluding the PR does not exist.`,
+          ]
+        : []),
     ];
   },
 

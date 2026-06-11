@@ -5,7 +5,7 @@ import {
   applyContentViewMinification,
   extractSignatures,
   SIGNATURES_ONLY_HINT,
-} from '../../utils/minifier/applyMinification.js';
+} from '@octocodeai/octocode-minifier';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import {
   applyPagination,
@@ -27,6 +27,7 @@ import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
 type FileStats = Awaited<ReturnType<typeof stat>>;
+type ContentView = 'none' | 'standard' | 'symbols';
 
 interface ExtractionState {
   resultContent?: string;
@@ -258,15 +259,20 @@ async function readFileContentOrError(
       content: await readFile(absolutePath, 'utf-8'),
     };
   } catch (error) {
+    const cause = error instanceof Error ? error : undefined;
+    const causeCode = (cause as (Error & { code?: string }) | undefined)?.code;
     // query.path is non-null: validated by validateToolPath before this runs.
-    const toolError = ToolErrors.fileReadFailed(
-      query.path!,
-      error instanceof Error ? error : undefined
-    );
+    // EISDIR (path is a directory) gets the access-specific message —
+    // "Path is a directory … use localViewStructure" — not "failed to read".
+    const toolError =
+      causeCode === 'EISDIR'
+        ? ToolErrors.fileAccessFailed(query.path!, cause)
+        : ToolErrors.fileReadFailed(query.path!, cause);
 
     return {
       errorResult: createErrorResult(toolError, query, {
         toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
+        hintContext: { path: query.path },
         extra: { resolvedPath: absolutePath },
       }) as LocalGetFileContentToolResult,
     };
@@ -321,6 +327,15 @@ function buildMatchExtractionState(
   }
 
   const resultContent = result.lines.join('\n');
+  // GitHub-fetch parity summary; on the local surface the matched line
+  // numbers double as lspGetSemanticContent lineHint anchors.
+  const contextLines = (query as { contextLines?: number }).contextLines ?? 5;
+  const shownLines = result.matchingLines.slice(0, 10).join(', ');
+  const extraCount =
+    result.matchingLines.length > 10
+      ? ` (+${result.matchingLines.length - 10} more)`
+      : '';
+  const matchSummary = `Found ${result.matchCount} occurrence${result.matchCount === 1 ? '' : 's'} of "${query.matchString}" on line${result.matchingLines.length === 1 ? '' : 's'} ${shownLines}${extraCount} — all shown as ${result.matchRanges.length} slice${result.matchRanges.length === 1 ? '' : 's'}, ±${contextLines} lines of context each; these lines are lineHint anchors for lspGetSemanticContent.`;
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
   let matchRanges: Array<{ start: number; end: number }> | undefined;
@@ -356,6 +371,7 @@ function buildMatchExtractionState(
         }),
         pagination: createPaginationInfo(autoPagination),
         warnings: [
+          matchSummary,
           `Auto-paginated: ${result.matchCount} matches exceeded display limit`,
           ...(matchRanges && matchRanges.length > 0
             ? [
@@ -376,6 +392,7 @@ function buildMatchExtractionState(
     actualStartLine,
     actualEndLine,
     matchRanges,
+    warnings: [matchSummary],
   };
 }
 
@@ -500,7 +517,8 @@ function buildSuccessResult(
   fileStats: FileStats,
   totalLines: number,
   defaultOutputCharLength: number,
-  shouldMinify = true
+  shouldMinify = true,
+  contentView: ContentView = shouldMinify ? 'standard' : 'none'
 ): LocalGetFileContentToolResult {
   if (
     !extraction.resultContent ||
@@ -556,13 +574,13 @@ function buildSuccessResult(
       : [];
 
   // Large-file navigation hints: when the file is large and no narrowing was
-  // requested, guide agents to use startLine for tail access and signaturesOnly
-  // for an export index — prevents agents giving up on navigable large files.
+  // requested, guide agents to use startLine for tail access and
+  // minify:"symbols" for an export index — prevents agents giving up on
+  // navigable large files.
   const largeFileHints: string[] = [];
-  const querySignaturesOnly = query.signaturesOnly;
   if (
     totalLines > 2000 &&
-    !querySignaturesOnly &&
+    query.minify !== 'symbols' &&
     !query.matchString &&
     !query.startLine &&
     !query.endLine &&
@@ -571,7 +589,7 @@ function buildSuccessResult(
   ) {
     const tailLine = Math.max(1, totalLines - 200);
     largeFileHints.push(
-      `Large file (${totalLines} lines) — signaturesOnly=true for an export index, or startLine=${tailLine} for the tail.`
+      `Large file (${totalLines} lines) — minify:"symbols" for an export index, or startLine=${tailLine} for the tail.`
     );
   }
 
@@ -582,6 +600,7 @@ function buildSuccessResult(
     content: shouldMinify
       ? applyContentViewMinification(pagination.paginatedContent, queryPath)
       : pagination.paginatedContent,
+    contentView,
     isPartial,
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
@@ -600,6 +619,19 @@ function buildSuccessResult(
     }),
     ...(warnings.length > 0 && { warnings }),
     hints: [...baseHints, ...paginationHints, ...largeFileHints],
+  };
+}
+
+function withContentView(
+  result: LocalGetFileContentToolResult,
+  contentView: ContentView,
+  isSkeleton = false
+): LocalGetFileContentToolResult {
+  if (typeof result.content !== 'string') return result;
+  return {
+    ...result,
+    contentView,
+    ...(isSkeleton ? { isSkeleton: true } : {}),
   };
 }
 
@@ -665,49 +697,31 @@ export async function fetchContent(
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
 
-    const shouldMinify = query.minify !== false;
+    const minifyMode = query.minify ?? 'none';
+    // "symbols" implies the standard comment/whitespace strip on whatever
+    // content is returned (skeleton, or full-content fallback).
+    const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';
+    const fallbackContentView: ContentView = shouldMinify ? 'standard' : 'none';
 
-    if (query.signaturesOnly) {
+    let signaturesSkippedWarning: string | undefined;
+    if (minifyMode === 'symbols') {
       const sigs = extractSignatures(content, queryPath);
+      if (sigs === null) {
+        signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${queryPath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
+      }
       if (sigs !== null) {
         const totalLinesOrig = content.split('\n').length;
-        const sigsProcessed = shouldMinify
-          ? applyContentViewMinification(sigs, queryPath)
-          : sigs;
+        const sigsProcessed = applyContentViewMinification(sigs, queryPath);
 
-        // Char-paginate the skeleton at the output budget, mirroring the
-        // GitHub path (applyContentPagination) so a large export index stays
-        // navigable instead of overflowing the response.
-        if (sigsProcessed.length > defaultOutputCharLength) {
-          const charOffset = query.charOffset ?? 0;
-          const sigPagination = applyPagination(
-            sigsProcessed,
-            charOffset,
-            defaultOutputCharLength
-          );
-          return attachRawResponseChars(
-            {
-              path: query.path,
-              content: sigPagination.paginatedContent,
-              isPartial: true,
-              totalLines: totalLinesOrig,
-              pagination: createPaginationInfo(sigPagination),
-              hints: [
-                SIGNATURES_ONLY_HINT,
-                ...generatePaginationHints(sigPagination, {
-                  toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
-                }),
-                ...(secretWarning ? [secretWarning] : []),
-              ],
-            },
-            content.length
-          );
-        }
-
+        // Skeletons are indexes — they always come back WHOLE in one response
+        // (paging an index is confusing). charOffset/charLength inputs are
+        // intentionally ignored for minify:"symbols", mirroring the GitHub path.
         return attachRawResponseChars(
           {
             path: query.path,
             content: sigsProcessed,
+            contentView: 'symbols',
+            isSkeleton: true,
             isPartial: true,
             totalLines: totalLinesOrig,
             hints: [
@@ -732,9 +746,13 @@ export async function fetchContent(
     const withSecretWarning = (
       r: LocalGetFileContentToolResult
     ): LocalGetFileContentToolResult => {
-      if (!secretWarning) return r;
+      const appended = [
+        ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
+        ...(secretWarning ? [secretWarning] : []),
+      ];
+      if (appended.length === 0) return r;
       const existing = (r as { warnings?: string[] }).warnings ?? [];
-      return { ...r, warnings: [...existing, secretWarning] };
+      return { ...r, warnings: [...existing, ...appended] };
     };
 
     if (extraction.earlyResult) {
@@ -752,7 +770,11 @@ export async function fetchContent(
           : extraction.earlyResult;
       return attachRawResponseChars(
         withSecretWarning(
-          finalizeFetchContentResult(minifiedEarlyResult, query, totalLines)
+          finalizeFetchContentResult(
+            withContentView(minifiedEarlyResult, fallbackContentView),
+            query,
+            totalLines
+          )
         ),
         content.length
       );
@@ -764,7 +786,8 @@ export async function fetchContent(
       fileStats,
       totalLines,
       defaultOutputCharLength,
-      shouldMinify
+      shouldMinify,
+      fallbackContentView
     );
     return attachRawResponseChars(
       withSecretWarning(

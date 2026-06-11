@@ -26,6 +26,8 @@ import {
   createCallItemKey,
 } from '../shared/callHierarchyTraversal.js';
 import {
+  compactLocation,
+  compactResolvedSymbol,
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
   type LspGetSemanticContentQuery,
   type LspSemanticEnvelope,
@@ -356,7 +358,7 @@ function locationsEnvelope(
   return {
     type: query.type,
     uri: anchor.uri,
-    resolvedSymbol: anchor.resolvedSymbol,
+    resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider },
     evidence: {
       confidence: complete ? 'high' : 'medium',
@@ -364,7 +366,7 @@ function locationsEnvelope(
       reason: complete ? undefined : `${provider} returned no locations`,
     },
     payload: complete
-      ? { kind, locations }
+      ? { kind, locations: locations.map(compactLocation) }
       : { kind: 'empty', reason: `${provider} returned no locations` },
     hints: semanticHints(query.type, complete),
   };
@@ -388,7 +390,7 @@ function referencesEnvelope(
   return {
     type: 'references',
     uri: anchor.uri,
-    resolvedSymbol: anchor.resolvedSymbol,
+    resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'referencesProvider' },
     evidence: {
       confidence: refs.length > 0 ? 'high' : 'medium',
@@ -400,8 +402,9 @@ function referencesEnvelope(
     },
     payload: {
       kind: 'references',
-      locations: refs,
-      byFile,
+      // groupByFile is documented as a per-file summary INSTEAD OF the flat
+      // usage list — emitting both duplicates every location.
+      ...(byFile ? { byFile } : { locations: refs.map(compactLocation) }),
       totalReferences: refs.length,
       totalFiles: new Set(refs.map(ref => ref.uri)).size,
     },
@@ -420,7 +423,7 @@ async function hoverEnvelope(
   return {
     type: 'hover',
     uri: anchor.uri,
-    resolvedSymbol: anchor.resolvedSymbol,
+    resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'hoverProvider' },
     evidence: {
       confidence: complete ? 'high' : 'medium',
@@ -477,12 +480,22 @@ async function callsEnvelope(
         )
       : emptyTraversal;
 
+  // Outgoing calls into TS/JS built-in declarations (Array.slice, String.join,
+  // …) are noise for code research — exclude them and report the count.
+  const isStdlibTarget = (call: OutgoingCall): boolean =>
+    /node_modules\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(call.to.uri);
+  const stdlibCallsExcluded =
+    outgoingResult.calls.filter(isStdlibTarget).length;
+  const projectOutgoingCalls = outgoingResult.calls.filter(
+    call => !isStdlibTarget(call)
+  );
+
   const calls = [
     ...incomingResult.calls.map(call => ({
       direction: 'incoming' as const,
       ...call,
     })),
-    ...outgoingResult.calls.map(call => ({
+    ...projectOutgoingCalls.map(call => ({
       direction: 'outgoing' as const,
       ...call,
     })),
@@ -507,7 +520,7 @@ async function callsEnvelope(
   return {
     type: query.type,
     uri: anchor.uri,
-    resolvedSymbol: anchor.resolvedSymbol,
+    resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'callHierarchyProvider' },
     evidence: {
       confidence: calls.length > 0 ? 'high' : 'medium',
@@ -522,29 +535,38 @@ async function callsEnvelope(
       root: compactCallItem(root),
       direction,
       calls: pageItems,
-      totalCalls: compactCalls.length,
+      // total count lives in pagination.totalResults; the incoming/outgoing
+      // split is the only unique aggregate worth emitting.
+      incomingCalls: incomingResult.calls.length,
+      outgoingCalls: projectOutgoingCalls.length,
       completeness: {
-        complete: compactCalls.length > 0,
+        // Complete only when traversal exhausted every level and no
+        // sub-request failed — "found calls" is not completeness.
+        complete:
+          !incomingResult.truncatedByDepth &&
+          !outgoingResult.truncatedByDepth &&
+          incomingResult.failedRequestCount +
+            outgoingResult.failedRequestCount ===
+            0,
         truncatedByDepth:
           incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
         cycleCount: incomingResult.cycleCount + outgoingResult.cycleCount,
         failedRequestCount:
           incomingResult.failedRequestCount + outgoingResult.failedRequestCount,
         dynamicCallsExcluded: true,
+        ...(stdlibCallsExcluded > 0 && { stdlibCallsExcluded }),
       },
-    },
-    summary: {
-      totalCalls: compactCalls.length,
-      returnedCalls: pageItems.length,
-      direction,
-      incomingCalls: incomingResult.calls.length,
-      outgoingCalls: outgoingResult.calls.length,
     },
     pagination,
     hints: [
       ...semanticHints(query.type, true),
       ...(pagination.hasMore
         ? [`More calls available — retry with page=${pagination.nextPage}.`]
+        : []),
+      ...(incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth
+        ? [
+            'Calls exist beyond the traversal depth — increase depth to follow the chain further.',
+          ]
         : []),
       ...(query.contextLines && query.contextLines > 0
         ? []
@@ -613,7 +635,13 @@ function flattenDocumentSymbol(
       ...(containerName ? { containerName } : {}),
     });
   }
-  if (Array.isArray(symbol.children)) {
+  // Recurse only into structural containers (class/interface/namespace/…) —
+  // children of functions and methods are local bindings, which are noise
+  // for file orientation. childCount still reports they exist.
+  if (
+    Array.isArray(symbol.children) &&
+    STRUCTURAL_SYMBOL_KINDS.has(symbolKindName(symbol.kind))
+  ) {
     const parentName =
       typeof symbol.name === 'string' ? symbol.name : containerName;
     for (const child of symbol.children) {
@@ -621,6 +649,17 @@ function flattenDocumentSymbol(
     }
   }
 }
+
+const STRUCTURAL_SYMBOL_KINDS = new Set([
+  'file',
+  'module',
+  'namespace',
+  'package',
+  'class',
+  'enum',
+  'interface',
+  'struct',
+]);
 
 function getSymbolRange(value: {
   range?: unknown;
@@ -804,12 +843,15 @@ function failedAnchorEnvelope(
     type: query.type,
     uri,
     // serverAvailable is omitted: symbol resolution failed before reaching the LSP server,
-    // so server availability is unknown. Presence of reason/warnings conveys the real issue.
+    // so server availability is unknown. Presence of reason conveys the real issue.
     lsp: {},
     evidence: { confidence: 'low', complete: false, reason },
+    // reason already lives in payload.reason + evidence.reason — repeating it
+    // a third time in warnings is pure noise.
     payload: { kind: 'empty', reason },
-    warnings: [reason],
-    hints: [...semanticHints(query.type, false), ...(hints ?? [])],
+    // Anchor hints name the precise failure and recovery; the generic
+    // type-level hints would only repeat "rerun localSearchCode".
+    hints: hints?.length ? hints : semanticHints(query.type, false),
   };
 }
 
@@ -822,7 +864,7 @@ function emptyEnvelope(
   return {
     type,
     uri: anchor.uri,
-    resolvedSymbol: anchor.resolvedSymbol,
+    resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable },
     evidence: { confidence: 'low', complete: false, reason },
     payload: { kind: 'empty', reason },
@@ -864,18 +906,21 @@ function normalizeHover(hover: unknown): {
   if (!hover || typeof hover !== 'object') return {};
   const value = hover as { contents?: unknown; range?: unknown };
   const content = value.contents;
-  if (typeof content === 'string') return { text: content };
+  if (typeof content === 'string') return { text: content.trim() };
   if (Array.isArray(content)) {
     return {
-      markdown: content.map(part => stringifyHoverPart(part)).join('\n'),
+      markdown: content
+        .map(part => stringifyHoverPart(part))
+        .join('\n')
+        .trim(),
     };
   }
   if (content && typeof content === 'object') {
     const part = content as { kind?: unknown; value?: unknown };
     if (typeof part.value === 'string') {
       return part.kind === 'markdown'
-        ? { markdown: part.value }
-        : { text: part.value };
+        ? { markdown: part.value.trim() }
+        : { text: part.value.trim() };
     }
   }
   return {};

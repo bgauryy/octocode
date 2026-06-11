@@ -1,12 +1,78 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { load } from 'js-yaml';
 import {
   jsonToYamlString,
   YamlConversionConfig,
-} from '../../../src/utils/minifier/jsonToYamlString.js';
+} from '@octocodeai/octocode-minifier';
 
 describe('jsonToYamlString', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('Block scalar lossless round-trip', () => {
+    it('preserves literal backslash-n sequences in multiline strings', () => {
+      // The regex source below contains LITERAL \r \n sequences plus a real
+      // newline — block conversion must never decode `\\n` as a newline.
+      const input = { code: "replace(/\\r\\n/g, '\\n')\nsecond line" };
+      const yaml = jsonToYamlString(input);
+      expect(load(yaml)).toEqual(input);
+    });
+
+    it('keeps quoted form for escapes a block scalar cannot represent', () => {
+      const input = { mixed: 'bell\u0007 first\nsecond' };
+      const yaml = jsonToYamlString(input);
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).not.toContain('|-');
+    });
+
+    it('keeps quoted form for multiline strings containing carriage returns', () => {
+      const input = { mixed: 'first\rsecond\nthird' };
+      const yaml = jsonToYamlString(input);
+
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).not.toContain('mixed: |-');
+      expect(yaml).toContain('\\r');
+    });
+
+    it('does not block-convert strings without a real newline', () => {
+      const input = { pattern: 'a\\nb' };
+      const yaml = jsonToYamlString(input);
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).not.toContain('|-');
+    });
+
+    it('does not block-convert double-escaped newline text', () => {
+      const input = { pattern: 'a\\\\nb' };
+      const yaml = jsonToYamlString(input);
+
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).not.toContain('pattern: |-');
+    });
+
+    it('decodes tabs inside block scalars', () => {
+      const input = { text: 'col1\tcol2\nrow2' };
+      const yaml = jsonToYamlString(input);
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).toContain('text: |-');
+    });
+
+    it('decodes escaped quotes and backslashes inside block scalars', () => {
+      const input = { text: 'say "hello"\npath C:\\tmp' };
+      const yaml = jsonToYamlString(input);
+
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).toContain('text: |-');
+      expect(yaml).toContain('say "hello"');
+      expect(yaml).toContain('path C:\\tmp');
+    });
+
+    it('round-trips plain multiline content as block scalars', () => {
+      const input = { content: 'export const a = 1;\nexport const b = 2;' };
+      const yaml = jsonToYamlString(input);
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).toContain('content: |-');
+    });
   });
 
   describe('Basic conversion', () => {
@@ -139,6 +205,22 @@ describe('jsonToYamlString', () => {
       const appleIndex = yaml.indexOf('apple');
       const zebraIndex = yaml.indexOf('zebra');
       expect(appleIndex).toBeLessThan(zebraIndex);
+    });
+
+    it('should sort object keys inside a top-level array', () => {
+      const input = [
+        { zebra: 1, apple: 2, mango: 3 },
+        { beta: 4, alpha: 5 },
+      ];
+      const yaml = jsonToYamlString(input, { sortKeys: true });
+      const lines = yaml.split('\n').filter(line => line.trim());
+
+      expect(load(yaml)).toEqual(input);
+      expect(lines[0]).toBe('- apple: 2');
+      expect(lines[1]).toBe('  mango: 3');
+      expect(lines[2]).toBe('  zebra: 1');
+      expect(lines[3]).toBe('- alpha: 5');
+      expect(lines[4]).toBe('  beta: 4');
     });
 
     it('should not sort when sortKeys is false', () => {
@@ -283,6 +365,26 @@ describe('jsonToYamlString', () => {
       expect(lines[1]).toBe('a: 1');
       expect(lines[2]).toBe('b: 2');
       expect(lines[3]).toBe('d: 4');
+    });
+
+    it('should apply priority keys inside a top-level array before sorting remaining keys', () => {
+      const input = [
+        { zebra: 1, id: 'first', apple: 2 },
+        { beta: 4, name: 'second', alpha: 5 },
+      ];
+      const yaml = jsonToYamlString(input, {
+        sortKeys: true,
+        keysPriority: ['id', 'name'],
+      });
+      const lines = yaml.split('\n').filter(line => line.trim());
+
+      expect(load(yaml)).toEqual(input);
+      expect(lines[0]).toBe('- id: "first"');
+      expect(lines[1]).toBe('  apple: 2');
+      expect(lines[2]).toBe('  zebra: 1');
+      expect(lines[3]).toBe('- name: "second"');
+      expect(lines[4]).toBe('  alpha: 5');
+      expect(lines[5]).toBe('  beta: 4');
     });
   });
 

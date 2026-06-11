@@ -84,9 +84,17 @@ type RepositoryDetail = {
   defaultBranch?: string;
   topics?: string[];
   visibility?: string;
+  // verbose-mode extras
+  url?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  openIssuesCount?: number;
 };
 
-function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
+function buildRepositoryDetail(
+  repo: GitHubRepositoryOutput,
+  verbose = false
+): RepositoryDetail {
   const detail: RepositoryDetail = {
     owner: repo.owner ?? '',
     repo: repo.repo,
@@ -95,17 +103,31 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
     language: repo.language,
     description: repo.description || undefined,
     pushedAt: repo.pushedAt,
+    // Lean mode hides the default main/master branch and public visibility;
+    // verbose reports them explicitly.
     defaultBranch:
-      repo.defaultBranch &&
-      repo.defaultBranch !== 'main' &&
-      repo.defaultBranch !== 'master'
+      verbose ||
+      (repo.defaultBranch &&
+        repo.defaultBranch !== 'main' &&
+        repo.defaultBranch !== 'master')
         ? repo.defaultBranch
         : undefined,
-    topics: repo.topics?.slice(0, 5),
+    // Empty topic arrays are omitted in lean mode (noise); verbose keeps them.
+    topics: verbose
+      ? repo.topics
+      : repo.topics?.length
+        ? repo.topics.slice(0, 5)
+        : undefined,
     visibility:
-      repo.visibility && repo.visibility !== 'public'
+      verbose || (repo.visibility && repo.visibility !== 'public')
         ? repo.visibility
         : undefined,
+    ...(verbose && {
+      url: repo.url,
+      createdAt: repo.createdAt,
+      updatedAt: repo.updatedAt,
+      openIssuesCount: repo.openIssuesCount,
+    }),
   };
 
   return Object.fromEntries(
@@ -115,7 +137,7 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
 
 function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
-  _query: PartialReposSearchQuery
+  query: PartialReposSearchQuery
 ): {
   data: {
     repositories: RepositoryDetail[];
@@ -123,10 +145,13 @@ function buildReposSearchOutput(
   };
   extraHints: string[];
 } {
+  const verbose = (query as { verbose?: boolean }).verbose === true;
   return {
     data: {
       pagination: data.pagination,
-      repositories: data.repositories.map(buildRepositoryDetail),
+      repositories: data.repositories.map(repo =>
+        buildRepositoryDetail(repo, verbose)
+      ),
     },
     extraHints: [],
   };
@@ -536,10 +561,6 @@ export async function searchMultipleGitHubRepos(
                 `Owner "${query.owner ?? '?'}" doesn't exist or isn't searchable — verify spelling/access, not filters.`,
               ]
             : [];
-        const searchHints = generateSearchSpecificHints(
-          query,
-          repositories.length > 0
-        );
         const onlySuccessfulVariant =
           successfulVariants.length === 1 ? successfulVariants[0] : undefined;
         const isMergedResult = successfulVariants.length > 1;
@@ -555,6 +576,26 @@ export async function searchMultipleGitHubRepos(
         const resultPagination = effectivePagination
           ? buildResultPagination(effectivePagination)
           : undefined;
+        // A page beyond totalPages yields zero items from the API while the
+        // clamped pagination still reports the last page — without this
+        // detection the empty result reads as "no repos match" and the
+        // filter-widening hints send the agent down the wrong path.
+        const requestedPage = (query as { page?: number }).page;
+        const lastAvailablePage = effectivePagination?.totalPages ?? 0;
+        const pageExceedsTotal = Boolean(
+          typeof requestedPage === 'number' &&
+          lastAvailablePage > 0 &&
+          requestedPage > lastAvailablePage &&
+          repositories.length === 0
+        );
+        const pageExceededHints = pageExceedsTotal
+          ? [
+              `page ${requestedPage} exceeds totalPages ${lastAvailablePage} — last page is ${lastAvailablePage}.`,
+            ]
+          : [];
+        const searchHints = pageExceedsTotal
+          ? undefined
+          : generateSearchSpecificHints(query, repositories.length > 0);
         const partialFailureHints =
           variants.length > 1 && successfulVariants.length === 1
             ? [
@@ -588,6 +629,7 @@ export async function searchMultipleGitHubRepos(
           }
         }
         const allExtraHints = [
+          ...pageExceededHints,
           ...scopeHints,
           ...shape.extraHints,
           ...partialFailureHints,
@@ -604,12 +646,16 @@ export async function searchMultipleGitHubRepos(
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {
             extraHints: finalExtraHints,
-            hintContext: {
-              keywords: query.keywordsToSearch,
-              owner: query.owner,
-              language: query.language,
-              topic: query.topicsToSearch?.[0],
-            },
+            // Page overrun is not a "no match" — suppress the keyword/filter
+            // widening empty-hints so only the page guidance remains.
+            hintContext: pageExceedsTotal
+              ? {}
+              : {
+                  keywords: query.keywordsToSearch,
+                  owner: query.owner,
+                  language: query.language,
+                  topic: query.topicsToSearch?.[0],
+                },
             evidence: {
               kind: 'repo',
               answerReady: hasContent,
@@ -618,9 +664,11 @@ export async function searchMultipleGitHubRepos(
               ...(hasContent
                 ? {}
                 : {
-                    reason: nonExistentScope
-                      ? `Owner "${query.owner ?? '?'}" doesn't exist or isn't searchable — verify the scope, not filters.`
-                      : 'No repositories matched the supplied filters; consider dropping topics/keywords or widening stars/created/updated ranges.',
+                    reason: pageExceedsTotal
+                      ? `page ${requestedPage} exceeds totalPages ${lastAvailablePage} — last page is ${lastAvailablePage}.`
+                      : nonExistentScope
+                        ? `Owner "${query.owner ?? '?'}" doesn't exist or isn't searchable — verify the scope, not filters.`
+                        : 'No repositories matched the supplied filters; consider dropping topics/keywords or widening stars/created/updated ranges.',
                   }),
             },
             rawResponse: sumVariantRawResponseChars([

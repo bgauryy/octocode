@@ -1,0 +1,143 @@
+import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
+import {
+  FileContentQueryBaseLocalSchema,
+  FileContentQueryLocalSchema,
+} from '../../src/tools/github_fetch_content/scheme.js';
+import { LocalFetchContentQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
+import { GitHubPullRequestSearchQueryLocalSchema } from '../../src/tools/github_search_pull_requests/scheme.js';
+
+const GH_BASE = { owner: 'o', repo: 'r', path: 'src/a.ts' };
+const LOCAL_BASE = { path: 'src/a.ts' };
+const PR_BASE = { prNumber: 1, owner: 'o', repo: 'r' };
+
+function parseMinify(schema: z.ZodTypeAny, input: Record<string, unknown>) {
+  const result = schema.safeParse(input);
+  expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
+  return (result.data as { minify?: unknown }).minify;
+}
+
+describe('minify enum — githubGetFileContent scheme', () => {
+  it('defaults to "none" when omitted', () => {
+    expect(parseMinify(FileContentQueryLocalSchema, GH_BASE)).toBe('none');
+  });
+
+  it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
+    expect(
+      parseMinify(FileContentQueryLocalSchema, { ...GH_BASE, minify: value })
+    ).toBe(value);
+  });
+
+  it('maps legacy minify:true → "standard"', () => {
+    expect(
+      parseMinify(FileContentQueryLocalSchema, { ...GH_BASE, minify: true })
+    ).toBe('standard');
+  });
+
+  it('maps legacy minify:false → "none"', () => {
+    expect(
+      parseMinify(FileContentQueryLocalSchema, { ...GH_BASE, minify: false })
+    ).toBe('none');
+  });
+
+  it('rejects unknown minify values', () => {
+    const result = FileContentQueryLocalSchema.safeParse({
+      ...GH_BASE,
+      minify: 'skeleton',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('no longer exposes signaturesOnly in the schema', () => {
+    const json = z.toJSONSchema(FileContentQueryBaseLocalSchema) as {
+      properties?: Record<string, unknown>;
+    };
+    expect(json.properties).toBeDefined();
+    expect(Object.keys(json.properties!)).not.toContain('signaturesOnly');
+    expect(Object.keys(json.properties!)).toContain('minify');
+  });
+});
+
+describe('minify enum — localGetFileContent scheme', () => {
+  it('defaults to "none" when omitted', () => {
+    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('none');
+  });
+
+  it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
+    expect(
+      parseMinify(LocalFetchContentQuerySchema, {
+        ...LOCAL_BASE,
+        minify: value,
+      })
+    ).toBe(value);
+  });
+
+  it('maps legacy minify:true → "standard" and minify:false → "none"', () => {
+    expect(
+      parseMinify(LocalFetchContentQuerySchema, { ...LOCAL_BASE, minify: true })
+    ).toBe('standard');
+    expect(
+      parseMinify(LocalFetchContentQuerySchema, {
+        ...LOCAL_BASE,
+        minify: false,
+      })
+    ).toBe('none');
+  });
+
+  it('rejects unknown minify values', () => {
+    const result = LocalFetchContentQuerySchema.safeParse({
+      ...LOCAL_BASE,
+      minify: 'full',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('no longer exposes signaturesOnly in the schema', () => {
+    const json = z.toJSONSchema(LocalFetchContentQuerySchema) as {
+      properties?: Record<string, unknown>;
+    };
+    expect(json.properties).toBeDefined();
+    expect(Object.keys(json.properties!)).not.toContain('signaturesOnly');
+    expect(Object.keys(json.properties!)).toContain('minify');
+  });
+});
+
+describe('minify enum — githubSearchPullRequests scheme', () => {
+  it('defaults to "none" when omitted', () => {
+    expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBe(
+      'none'
+    );
+  });
+
+  it.each(['none', 'standard'])('accepts "%s"', value => {
+    expect(
+      parseMinify(GitHubPullRequestSearchQueryLocalSchema, {
+        ...PR_BASE,
+        minify: value,
+      })
+    ).toBe(value);
+  });
+
+  it('rejects "symbols" — PR patches have no skeleton mode', () => {
+    const result = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+      ...PR_BASE,
+      minify: 'symbols',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('maps legacy minify:true → "standard" and minify:false → "none"', () => {
+    expect(
+      parseMinify(GitHubPullRequestSearchQueryLocalSchema, {
+        ...PR_BASE,
+        minify: true,
+      })
+    ).toBe('standard');
+    expect(
+      parseMinify(GitHubPullRequestSearchQueryLocalSchema, {
+        ...PR_BASE,
+        minify: false,
+      })
+    ).toBe('none');
+  });
+});

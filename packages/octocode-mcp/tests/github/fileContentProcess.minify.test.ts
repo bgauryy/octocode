@@ -16,21 +16,8 @@ const TS_CONTENT = [
   '}',
 ].join('\n');
 
-// Import lines with inline comments ARE kept verbatim by extractSignatures.
-// This lets us directly test that minify:false preserves those comments in the
-// skeleton and minify:true strips them — without relying on interface bodies
-// (which need single-line syntax to be captured by the current patterns).
-const TS_CONTENT_SIGS = [
-  'import { useState } from "react"; // state hook',
-  'import { useEffect } from "react"; // effect hook',
-  '',
-  'export function Counter() {',
-  '  return useState(0);',
-  '}',
-].join('\n');
-
-describe('processFileContentAPI — minify flag', () => {
-  it('strips comments by default (minify omitted)', async () => {
+describe('processFileContentAPI — minify mode', () => {
+  it('returns raw content by default (minify omitted → "none")', async () => {
     const result = await processFileContentAPI(
       TS_CONTENT,
       'facebook',
@@ -39,13 +26,12 @@ describe('processFileContentAPI — minify flag', () => {
       'src/Counter.ts',
       true
     );
-    expect(result.content).not.toContain('// Top-level comment');
-    expect(result.content).not.toContain('// inline counter init');
-    expect(result.content).not.toContain('// increment handler');
+    expect(result.content).toContain('// Top-level comment');
+    expect(result.content).toContain('// inline counter init');
     expect(result.content).toContain('export function Counter');
   });
 
-  it('strips comments when minify=true is explicit', async () => {
+  it('preserves comments with explicit minify:"none"', async () => {
     const result = await processFileContentAPI(
       TS_CONTENT,
       'facebook',
@@ -59,29 +45,7 @@ describe('processFileContentAPI — minify flag', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
-      true
-    );
-    expect(result.content).not.toContain('// Top-level comment');
-    expect(result.content).toContain('export function Counter');
-  });
-
-  it('preserves comments when minify=false', async () => {
-    const result = await processFileContentAPI(
-      TS_CONTENT,
-      'facebook',
-      'react',
-      'main',
-      'src/Counter.ts',
-      true,
-      undefined,
-      undefined,
-      5,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false
+      'none'
     );
     expect(result.content).toContain(
       '// Top-level comment that should be stripped'
@@ -89,11 +53,31 @@ describe('processFileContentAPI — minify flag', () => {
     expect(result.content).toContain('// inline counter init');
   });
 
-  it('minify:true strips inline comments from import lines in signaturesOnly output', async () => {
-    // Import lines are always kept verbatim by extractSignatures.
-    // With minify:true their inline comments must be stripped.
+  it('strips comments with minify:"standard"', async () => {
     const result = await processFileContentAPI(
-      TS_CONTENT_SIGS,
+      TS_CONTENT,
+      'facebook',
+      'react',
+      'main',
+      'src/Counter.ts',
+      true,
+      undefined,
+      undefined,
+      5,
+      undefined,
+      undefined,
+      undefined,
+      'standard'
+    );
+    expect(result.content).not.toContain('// Top-level comment');
+    expect(result.content).not.toContain('// inline counter init');
+    expect(result.content).not.toContain('// increment handler');
+    expect(result.content).toContain('export function Counter');
+  });
+
+  it('minify:"symbols" returns the skeleton with bodies dropped', async () => {
+    const result = await processFileContentAPI(
+      TS_CONTENT,
       'facebook',
       'react',
       'main',
@@ -103,10 +87,43 @@ describe('processFileContentAPI — minify flag', () => {
       undefined,
       5,
       undefined,
-      true,
       undefined,
       undefined,
-      true
+      'symbols'
+    );
+    expect(result.signaturesExtracted).toBe(true);
+    expect(result.contentView).toBe('symbols');
+    expect(result.isSkeleton).toBe(true);
+    expect(result.content).toContain('import { useState }');
+    expect(result.content).toContain('export function Counter');
+    expect(result.content).not.toContain('setCount(c => c + 1)');
+  });
+
+  it('minify:"symbols" strips inline comments from import lines in the skeleton', async () => {
+    // Import lines are always kept verbatim by extractSignatures; the symbols
+    // view applies standard minification on top (legacy default behavior).
+    const content = [
+      'import { useState } from "react"; // state hook',
+      'import { useEffect } from "react"; // effect hook',
+      '',
+      'export function Counter() {',
+      '  return useState(0);',
+      '}',
+    ].join('\n');
+    const result = await processFileContentAPI(
+      content,
+      'facebook',
+      'react',
+      'main',
+      'src/Counter.ts',
+      false,
+      undefined,
+      undefined,
+      5,
+      undefined,
+      undefined,
+      undefined,
+      'symbols'
     );
     expect(result.content).not.toContain('// state hook');
     expect(result.content).not.toContain('// effect hook');
@@ -114,28 +131,69 @@ describe('processFileContentAPI — minify flag', () => {
     expect(result.content).toContain('export function Counter');
   });
 
-  it('minify:false preserves inline comments on import lines in signaturesOnly output', async () => {
-    // Same skeleton — with minify:false, import-line comments must survive.
+  it('minify:"symbols" keeps the shebang in a shell skeleton', async () => {
+    // The skeleton gutter (`NNN| #!/usr/bin/env bash`) puts the shebang
+    // mid-line; the hash inline-comment stripper must not eat it.
+    const shContent = [
+      '#!/usr/bin/env bash',
+      '',
+      'greet() {',
+      '  echo "hi" # inline comment',
+      '}',
+    ].join('\n');
     const result = await processFileContentAPI(
-      TS_CONTENT_SIGS,
-      'facebook',
-      'react',
+      shContent,
+      'nvm-sh',
+      'nvm',
       'main',
-      'src/Counter.ts',
+      'install.sh',
       false,
       undefined,
       undefined,
       5,
       undefined,
-      true,
       undefined,
       undefined,
-      false
+      'symbols'
     );
-    expect(result.content).toContain('// state hook');
-    expect(result.content).toContain('// effect hook');
-    expect(result.content).toContain('import { useState }');
-    expect(result.content).toContain('export function Counter');
+    expect(result.signaturesExtracted).toBe(true);
+    expect(result.content).toContain('#!/usr/bin/env bash');
+    expect(result.content).toContain('greet() {');
+    expect(result.content).not.toContain('echo "hi"');
+  });
+
+  it('minify:"symbols" on an unsupported file type warns and falls back to standard content view', async () => {
+    const txt = 'name=octocode\n\n\n; token-saving comment\nkeep=true\n';
+    const result = await processFileContentAPI(
+      txt,
+      'o',
+      'r',
+      'main',
+      'settings.ini',
+      false,
+      undefined,
+      undefined,
+      5,
+      undefined,
+      undefined,
+      undefined,
+      'symbols'
+    );
+    expect(result.signaturesExtracted).toBeUndefined();
+    expect(result.contentView).toBe('standard');
+    expect(result.isSkeleton).toBeUndefined();
+    expect(result.content).toContain('name=octocode');
+    expect(result.content).toContain('keep=true');
+    expect(result.content).not.toContain('; token-saving comment');
+    expect(
+      result.warnings?.some(w => w.includes('not supported for this file type'))
+    ).toBe(true);
+    expect(
+      result.warnings?.some(w =>
+        w.includes('falling back to standard content view')
+      )
+    ).toBe(true);
+    expect(result.warnings?.join('\n')).not.toContain('returning full content');
   });
 });
 

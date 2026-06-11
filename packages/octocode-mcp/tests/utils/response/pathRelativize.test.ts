@@ -37,10 +37,16 @@ describe('relativizeResultPaths (structuredContent leanness)', () => {
     expect(results[0]!.data.files[0]!.path).toBe('pkg/a.ts');
   });
 
-  it('no-op for a single path', () => {
-    const results = [{ data: { files: [{ path: '/abs/only.ts' }] } }];
+  it('relativizes a single absolute path against its directory', () => {
+    const results = [{ data: { files: [{ path: '/abs/dir/only.ts' }] } }];
+    expect(relativizeResultPaths(results)).toBe('/abs/dir');
+    expect(results[0]!.data.files[0]!.path).toBe('only.ts');
+  });
+
+  it('no-op for a single path directly under the root', () => {
+    const results = [{ data: { files: [{ path: '/only.ts' }] } }];
     expect(relativizeResultPaths(results)).toBeUndefined();
-    expect(results[0]!.data.files[0]!.path).toBe('/abs/only.ts');
+    expect(results[0]!.data.files[0]!.path).toBe('/only.ts');
   });
 
   it('tolerates null/empty data', () => {
@@ -56,6 +62,31 @@ describe('relativizeResultPaths (structuredContent leanness)', () => {
     ];
     expect(relativizeResultPaths(results)).toBeUndefined();
     expect(results[0]!.data.files[0]!.path).toBe('/aaa/x.ts');
+  });
+
+  it('relativizes nested LSP shape: scalar data.uri, resolvedSymbol.uri, payload.locations[].uri', () => {
+    const results = [
+      {
+        data: {
+          uri: '/w/src/a.ts',
+          resolvedSymbol: { name: 'fn', uri: '/w/src/a.ts' },
+          payload: {
+            kind: 'references',
+            locations: [
+              { uri: '/w/src/a.ts', line: 1 },
+              { uri: '/w/src/lib/b.ts', line: 9 },
+            ],
+          },
+        },
+      },
+    ];
+    expect(relativizeResultPaths(results)).toBe('/w/src');
+    expect(results[0]!.data.uri).toBe('a.ts');
+    expect(results[0]!.data.resolvedSymbol.uri).toBe('a.ts');
+    expect(results[0]!.data.payload.locations.map(l => l.uri)).toEqual([
+      'a.ts',
+      'lib/b.ts',
+    ]);
   });
 
   it('relativizes absolute `uri` fields (LSP locations[]) and returns base', () => {
@@ -177,5 +208,40 @@ describe('commonDirPrefix', () => {
   });
   it('does not split mid-segment', () => {
     expect(commonDirPrefix(['/a/foobar.ts', '/a/foobaz.ts'])).toBe('/a');
+  });
+  it('breaks early when prefix becomes empty (line 10 break branch)', () => {
+    // paths with no common char → prefix collapses to '' and loop breaks early
+    expect(commonDirPrefix(['abc', 'xyz', 'mno'])).toBe('');
+  });
+  it('handles sparse/undefined array items via ?? fallback (lines 3, 5)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(commonDirPrefix([undefined as any, undefined as any])).toBe('');
+  });
+});
+
+describe('relativizeResultPaths — branch coverage extras', () => {
+  it('handles paths where computed base does not expand to all holders', () => {
+    // When base is shorter than any holder path, all valid absolute paths starting with /
+    // and sharing the directory prefix get relativized
+    const results = [
+      {
+        data: {
+          files: [{ path: '/a/b/c.ts' }, { path: '/a/b/d.ts' }],
+        },
+      },
+    ];
+    const base = relativizeResultPaths(results);
+    expect(base).toBe('/a/b');
+    expect(results[0]!.data.files[0]!.path).toBe('c.ts');
+    expect(results[0]!.data.files[1]!.path).toBe('d.ts');
+  });
+});
+
+describe('hoistSharedFields — collectLeaves branch coverage', () => {
+  it('skips null/undefined results and non-object data in collectLeaves (lines 64-66)', () => {
+    // null and { data: null } should trigger the continue branch
+    expect(
+      hoistSharedFields([null, undefined, { data: null }, { data: 42 as never }])
+    ).toBeUndefined();
   });
 });

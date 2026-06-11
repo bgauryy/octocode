@@ -621,7 +621,7 @@ describe('GitHub Search Pull Requests Tool', () => {
   });
 
   describe('Content selector output', () => {
-    it('keeps broad search lean and exposes available content + next calls', async () => {
+    it('keeps broad search lean without per-PR next menus (Metadata mode hint covers escalation)', async () => {
       mockProvider.searchPullRequests.mockResolvedValue({
         data: {
           items: [
@@ -674,14 +674,19 @@ describe('GitHub Search Pull Requests Tool', () => {
       );
 
       const text = getTextContent(result.content);
-      expect(text).toContain('availableContent');
-      expect(text).toContain('getChangedFiles');
+      // Broad (no prNumber) list results must NOT repeat the per-PR next.*
+      // menu — escalation guidance lives in the hints instead.
+      expect(text).not.toContain('getBody');
+      expect(text).not.toContain('getChangedFiles');
+      expect(text).not.toContain('Patches not included');
+      expect(text).not.toContain('Comments not included');
       expect(text).toContain('Broad PR search returns metadata only');
+      expect(text).toContain('Metadata mode:');
       expect(text).not.toContain('HUGE PATCH SHOULD NOT SHOW');
       expect(text).not.toContain('COMMENT SHOULD NOT SHOW');
     });
 
-    it('returns selected direct PR content with paginated files and comments', async () => {
+    it('returns selected direct PR content; exhausted pagination blocks are pruned at render', async () => {
       mockProvider.searchPullRequests.mockResolvedValue({
         data: {
           items: [
@@ -754,8 +759,10 @@ describe('GitHub Search Pull Requests Tool', () => {
       expect(text).toContain('path: "src/a.ts"');
       expect(text).toContain('patch: "patch-a"');
       expect(text).not.toContain('patch-b');
-      expect(text).toContain('commentPagination');
-      expect(text).toContain('filePagination');
+      // patches.files narrows 2 changes to 1 and the single comment fits one
+      // page — both pagination blocks are exhausted, so render drops them.
+      expect(text).not.toContain('filePagination');
+      expect(text).not.toContain('commentPagination');
     });
   });
 });

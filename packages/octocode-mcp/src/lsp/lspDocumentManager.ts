@@ -33,9 +33,15 @@ export class LSPDocumentManager {
     openClose: true,
     change: TextDocumentSyncKind.Full,
   };
+  private onDidOpen: (() => void) | null = null;
 
   constructor(config: LanguageServerConfig) {
     this.config = config;
+  }
+
+  /** Invoked after each textDocument/didOpen notification is sent. */
+  setOnDidOpen(callback: (() => void) | null): void {
+    this.onDidOpen = callback;
   }
 
   setConnection(
@@ -107,6 +113,7 @@ export class LSPDocumentManager {
       refCount: options.incrementRefCount ? 1 : 0,
       content,
     });
+    this.onDidOpen?.();
   }
 
   async closeDocument(filePath: string): Promise<void> {

@@ -11,25 +11,25 @@ import {
 } from '../../src/tools/providerMappers.js';
 
 describe('providerMappers', () => {
-  it('forwards signaturesOnly through the file-content tool→provider mapper', () => {
+  it('forwards minify:"symbols" through the file-content tool→provider mapper', () => {
     const mapped = mapFileContentToolQuery({
       owner: 'facebook',
       repo: 'react',
       path: 'packages/react/index.js',
-      signaturesOnly: true,
+      minify: 'symbols',
     } as Parameters<typeof mapFileContentToolQuery>[0]);
 
-    expect(mapped.signaturesOnly).toBe(true);
+    expect(mapped.minify).toBe('symbols');
   });
 
-  it('leaves signaturesOnly undefined when not requested', () => {
+  it('leaves minify undefined when not requested', () => {
     const mapped = mapFileContentToolQuery({
       owner: 'facebook',
       repo: 'react',
       path: 'packages/react/index.js',
     } as Parameters<typeof mapFileContentToolQuery>[0]);
 
-    expect(mapped.signaturesOnly).toBeUndefined();
+    expect(mapped.minify).toBeUndefined();
   });
 
   it('should map code search tool queries to provider queries', () => {
@@ -85,6 +85,58 @@ describe('providerMappers', () => {
         matches: [{ path: 'src/index.ts', value: 'const test = 1;' }],
       }),
     ]);
+  });
+
+  it('drops empty-snippet matches (no value:"" with dangling matchIndices)', () => {
+    const result = mapCodeSearchProviderResult(
+      {
+        items: [
+          {
+            path: 'src/empty.ts',
+            matches: [
+              { context: '', positions: [[0, 4]] as Array<[number, number]> },
+            ],
+            url: '',
+            repository: { id: '1', name: 'owner/repo', url: '' },
+          },
+          {
+            path: 'src/mixed.ts',
+            matches: [
+              { context: '', positions: [[0, 4]] as Array<[number, number]> },
+              {
+                context: 'const real = 1;',
+                positions: [[6, 10]] as Array<[number, number]>,
+              },
+            ],
+            url: '',
+            repository: { id: '1', name: 'owner/repo', url: '' },
+          },
+        ],
+        totalCount: 2,
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          hasMore: false,
+          totalMatches: 2,
+        },
+      },
+      { keywordsToSearch: ['real'] }
+    );
+
+    const matches = result.results[0]!.matches;
+    // empty-snippet-only file falls back to a pathOnly entry
+    expect(matches).toContainEqual({ path: 'src/empty.ts', pathOnly: true });
+    // mixed file keeps only the non-empty match
+    const mixed = matches.filter(m => m.path === 'src/mixed.ts');
+    expect(mixed).toEqual([
+      {
+        path: 'src/mixed.ts',
+        value: 'const real = 1;',
+        matchIndices: [{ start: 6, end: 10 }],
+      },
+    ]);
+    // no entry anywhere has an empty value
+    expect(matches.every(m => m.value !== '')).toBe(true);
   });
 
   it('should preserve subgroup owners when mapping code search results', () => {

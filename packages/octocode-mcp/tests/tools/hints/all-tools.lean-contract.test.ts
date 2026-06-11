@@ -143,12 +143,12 @@ describe('localViewStructure — empty + error', () => {
     expect(viewStructureHints.empty({ path: 'src' } as never)).toEqual([]);
   });
 
-  it('error size_limit emits entry count', () => {
+  it('error size_limit returns [] (cap detection is a runtime warning, not a hint)', () => {
     const h = viewStructureHints.error({
       errorType: 'size_limit',
       entryCount: 12345,
     } as never);
-    expect(h[0]).toContain('12345');
+    expect(h).toEqual([]);
   });
 });
 
@@ -405,8 +405,29 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[1]).toContain('try removing one filter');
+    expect(h[1]).toContain('try removing or loosening filters');
     expect(h[1]).not.toContain('Zero merged PRs');
+    // No author filter was set — the hint must not suggest dropping `author`.
+    expect(h[1]).not.toContain('author');
+  });
+
+  it('mentions dropping `author` only when an author filter is present', () => {
+    const withAuthor = ghPrHints.empty({
+      state: 'open',
+      author: 'alice',
+      owner: 'a',
+      repo: 'b',
+    } as never);
+    expect(withAuthor[1]).toContain('drop `author` first');
+
+    const withQuery = ghPrHints.empty({
+      state: 'open',
+      query: 'fix bug',
+      owner: 'a',
+      repo: 'b',
+    } as never);
+    expect(withQuery[1]).toContain('loosen `query` keywords');
+    expect(withQuery[1]).not.toContain('author');
   });
 
   it('no query shows add-query hint', () => {
@@ -448,6 +469,15 @@ describe('githubSearchPullRequests — error permutations', () => {
   it('unknown error returns []', () => {
     expect(ghPrHints.error({ status: 500 } as never)).toEqual([]);
   });
+
+  it('empty with scoped repo includes rename/redirect disclaimer', () => {
+    const h = ghPrHints.empty({
+      owner: 'acme',
+      repo: 'utils',
+      query: 'fix bug',
+    } as never);
+    expect(h.some(s => /redirect|rename/i.test(s ?? ''))).toBe(true);
+  });
 });
 
 describe('githubSearchRepositories — hints coverage', () => {
@@ -474,6 +504,34 @@ describe('githubSearchRepositories — hints coverage', () => {
   it('empty suggests packageSearch for package-like terms', () => {
     const h = ghReposHints.empty({ query: '@babel/core' } as never);
     expect(h.some(s => (s ?? '').includes('use `packageSearch`'))).toBe(true);
+  });
+
+  it('empty does NOT suggest packageSearch for camelCase identifiers', () => {
+    // camelCase/PascalCase identifiers must not be mistaken for package names
+    const camelCases = [
+      'lspGetSemanticContent',
+      'withSecurityValidation',
+      'executeCloneRepo',
+      'MyComponent',
+    ];
+    for (const term of camelCases) {
+      const h = ghReposHints.empty({ query: term } as never);
+      expect(h.some(s => (s ?? '').includes('packageSearch'))).toBe(
+        false,
+        `"${term}" should NOT trigger packageSearch hint`
+      );
+    }
+  });
+
+  it('empty DOES suggest packageSearch for kebab/dot/scoped package names', () => {
+    const packageLike = ['react-query', 'lodash.get', '@scope/pkg'];
+    for (const term of packageLike) {
+      const h = ghReposHints.empty({ query: term } as never);
+      expect(h.some(s => (s ?? '').includes('packageSearch'))).toBe(
+        true,
+        `"${term}" should trigger packageSearch hint`
+      );
+    }
   });
 
   it('error rate-limited with retryAfter', () => {

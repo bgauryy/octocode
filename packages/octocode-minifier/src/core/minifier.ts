@@ -1,6 +1,6 @@
-import { getExtension } from '../file/filters.js';
-import type { FileTypeMinifyConfig, MinifyResult } from './minifierTypes.js';
-import { MINIFY_CONFIG, INDENTATION_SENSITIVE_NAMES } from './minifierTypes.js';
+import { getExtension } from '../utils/fileExtension.js';
+import type { FileTypeMinifyConfig, MinifyResult } from '../types/index.js';
+import { MINIFY_CONFIG, INDENTATION_SENSITIVE_NAMES } from '../types/index.js';
 import {
   minifyConservativeCore,
   minifyAggressiveCore,
@@ -13,7 +13,7 @@ import {
   minifyWithTerser,
   minifyCSSAsync,
   minifyHTMLAsync,
-} from './minifierStrategies.js';
+} from './strategies.js';
 
 const MINIFIER_EXT_OPTIONS = { lowercase: true, fallback: 'txt' } as const;
 

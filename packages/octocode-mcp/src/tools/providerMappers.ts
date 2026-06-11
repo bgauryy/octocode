@@ -19,7 +19,12 @@ import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constant
 import { FileContentQueryLocalSchema } from './github_fetch_content/scheme.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema>;
+// `minify` is optional at the type level: the schema default ("none") is
+// applied at the MCP input boundary, while direct impl callers may omit it.
+type LocalFileContentQuery = Omit<
+  z.infer<typeof FileContentQueryLocalSchema>,
+  'minify'
+> & { minify?: import('../scheme/localSchemaOverlay.js').MinifyMode };
 type GitHubPullRequestSearchQuery = z.infer<
   typeof GitHubPullRequestSearchQuerySchema
 >;
@@ -30,13 +35,7 @@ type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema
 >;
 
-type PRDefaultKeys =
-  | 'order'
-  | 'limit'
-  | 'page'
-  | 'withComments'
-  | 'withCommits'
-  | 'type';
+type PRDefaultKeys = 'order' | 'limit' | 'page';
 type PartialPRQuery = WithOptionalMeta<
   Omit<GitHubPullRequestSearchQuery, PRDefaultKeys> &
     Partial<Pick<GitHubPullRequestSearchQuery, PRDefaultKeys>>
@@ -109,6 +108,9 @@ export interface CodeSearchGroupedMatch {
   pathOnly?: boolean;
 
   matchIndices?: Array<{ start: number; end: number }>;
+
+  /** verbose mode: html URL of the matched file. */
+  url?: string;
 }
 
 export interface CodeSearchGroupedResult {
@@ -153,6 +155,7 @@ export function mapCodeSearchProviderResult(
   query: WithOptionalMeta<GitHubCodeSearchQuery>
 ): CodeSearchFlatResult {
   const isPathMatch = query.match === 'path';
+  const verbose = (query as { verbose?: boolean }).verbose === true;
   const groups = new Map<string, CodeSearchGroupedResult>();
 
   for (const item of data.items) {
@@ -160,6 +163,7 @@ export function mapCodeSearchProviderResult(
     const { owner, repo } = splitRepositoryPath(repoFullName);
     const id = `${owner}/${repo}`;
 
+    const itemExtra = item as { url?: string };
     let group = groups.get(id);
     if (!group) {
       group = { id, owner, repo, matches: [] };
@@ -170,11 +174,17 @@ export function mapCodeSearchProviderResult(
       group.matches.push({
         path: item.path,
         ...(!isPathMatch ? { pathOnly: true } : {}),
+        ...(verbose && itemExtra.url ? { url: itemExtra.url } : {}),
       });
       continue;
     }
 
+    let firstMatchForItem = true;
+    let emittedMatchForItem = false;
     for (const m of item.matches) {
+      // Empty snippet text: matchIndices would point into nothing — drop the
+      // match entry entirely (the file falls back to a pathOnly entry below).
+      if (!m.context) continue;
       const match: CodeSearchGroupedMatch = {
         path: item.path,
         value: m.context,
@@ -185,7 +195,21 @@ export function mapCodeSearchProviderResult(
           end,
         }));
       }
+      // verbose: emit the file URL once per file, not per fragment
+      if (verbose && firstMatchForItem && itemExtra.url) {
+        match.url = itemExtra.url;
+        firstMatchForItem = false;
+      }
       group.matches.push(match);
+      emittedMatchForItem = true;
+    }
+
+    if (!emittedMatchForItem) {
+      group.matches.push({
+        path: item.path,
+        pathOnly: true,
+        ...(verbose && itemExtra.url ? { url: itemExtra.url } : {}),
+      });
     }
   }
 
@@ -485,8 +509,11 @@ export function mapPullRequestProviderResultData(
     pullRequests,
     resultData: {
       pull_requests: pullRequests,
-      total_count: data.totalCount || pullRequests.length,
-      ...(pagination && { pagination }),
+      // pagination.totalMatches already carries the count — only emit
+      // total_count when there is no pagination block to read it from.
+      ...(pagination
+        ? { pagination }
+        : { total_count: data.totalCount || pullRequests.length }),
     } as Record<string, unknown>,
     pagination,
   };
@@ -508,7 +535,6 @@ export function mapFileContentToolQuery(query: LocalFileContentQuery) {
     fullContent,
     charOffset: query.charOffset,
     charLength: query.charLength,
-    signaturesOnly: query.signaturesOnly,
     minify: query.minify,
     matchStringIsRegex: query.matchStringIsRegex,
     matchStringCaseSensitive: query.matchStringCaseSensitive,
@@ -535,6 +561,7 @@ export function mapFileContentProviderResult(
       startLine: data.startLine,
     }),
     ...(data.endLine && { endLine: data.endLine }),
+    ...(data.matchRanges?.length && { matchRanges: data.matchRanges }),
     ...(data.lastModified && {
       lastModified: data.lastModified,
     }),
@@ -583,7 +610,7 @@ export function mapRepoStructureToolQuery(
 
 export function mapRepoStructureProviderResult(
   data: ProviderRepoStructureResult,
-  query: PartialRepoStructureQuery,
+  _query: PartialRepoStructureQuery,
   filteredStructure: ProviderRepoStructureResult['structure'],
   resolvedBranch: string
 ): Record<string, unknown> {
@@ -600,7 +627,9 @@ export function mapRepoStructureProviderResult(
     summary: data.summary,
   };
 
-  if (!query.branch && actualBranch) {
+  // Echo the served ref consistently — also when the caller passed an
+  // explicit branch/tag/SHA, so every response states which ref it reflects.
+  if (actualBranch) {
     resultData.resolvedBranch = actualBranch;
   }
 

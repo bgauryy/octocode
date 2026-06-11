@@ -162,7 +162,7 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
 | `githubCloneRepo` | content | ✅ | Clone GitHub repos/subtrees for local + LSP analysis (`ENABLE_CLONE`) |
 | `githubSearchRepositories` | search | ❌ | Search repositories |
 | `githubSearchPullRequests` | history | ❌ | Search PRs and view diffs |
-| `packageSearch` | search | ❌ | NPM/PyPI package + repo URL lookup |
+| `packageSearch` | search | ❌ | NPM package + repo URL lookup (PyPI not implemented) |
 | `localSearchCode` | search | ✅ | ripgrep search |
 | `localViewStructure` | content | ✅ | Browse local directories |
 | `localFindFiles` | search | ✅ | Find files by metadata |
@@ -225,7 +225,7 @@ Tools return `structuredContent` validated against `outputSchema`. Handles track
 | Provider factory | `src/providers/factory.ts` |
 | LSP client + config | `src/lsp/client.ts`, `src/lsp/config.ts`, `src/lsp/manager.ts` |
 | Bulk operations | `src/utils/response/bulk.ts` |
-| Package search | `src/utils/package/npm.ts`, `src/utils/package/python.ts` |
+| Package search | `src/utils/package/npm.ts` |
 
 ### Safety (package)
 

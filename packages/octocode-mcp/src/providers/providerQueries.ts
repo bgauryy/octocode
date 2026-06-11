@@ -55,9 +55,7 @@ export interface FileContentQuery extends BaseProviderQuery {
 
   fullContent?: boolean;
 
-  signaturesOnly?: boolean;
-
-  minify?: boolean;
+  minify?: 'none' | 'standard' | 'symbols';
 }
 
 export interface RepoSearchQuery extends BaseProviderQuery {

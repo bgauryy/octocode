@@ -7,6 +7,7 @@ import type { DirectoryEntry } from './structureFilters.js';
 export interface WalkStats {
   skipped: number;
   permissionDenied: number;
+  wasCapped?: boolean;
 
   rootError?: { code: string; message: string };
 }
@@ -50,7 +51,10 @@ export async function walkDirectory(
   } = options;
 
   if (depth >= maxDepth) return;
-  if (entries.length >= maxEntries) return;
+  if (entries.length >= maxEntries) {
+    stats.wasCapped = true;
+    return;
+  }
 
   try {
     const items = await fs.promises.readdir(currentPath);

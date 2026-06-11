@@ -48,7 +48,10 @@ export const ToolErrors = {
     new ToolError(
       LOCAL_TOOL_ERROR_CODES.FILE_READ_FAILED,
       `Failed to read file: ${redactPath(filePath, workspaceRoot)}`,
-      { path: filePath },
+      {
+        path: filePath,
+        errorCode: (cause as (Error & { code?: string }) | undefined)?.code,
+      },
       cause
     ),
 

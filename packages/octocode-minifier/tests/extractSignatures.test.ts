@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractSignatures } from '../../../src/utils/minifier/applyMinification.js';
+import { extractSignatures } from '@octocodeai/octocode-minifier';
 
 const TS_SOURCE = `import { A, B } from './a';
 import {
@@ -121,5 +121,86 @@ describe('extractSignatures', () => {
     expect(
       extractSignatures('const x = 1;\nconst y = 2;\n', 'plain.ts')
     ).toBeNull();
+  });
+
+  it('drops callback bodies of single-line call-expression initializers', () => {
+    const src = `export const ZodString: core.$constructor<ZodString> = /*@__PURE__*/ core.$constructor("ZodString", (inst, def) => {
+  core.$ZodString.init(inst, def);
+  inst.format = bag.format ?? null;
+  inst.regex = (regex, params) => inst.check(core._regex(regex, params));
+});
+`;
+    const sigs = extractSignatures(src, 'schemas.ts')!;
+    expect(sigs).toContain('export const ZodString:');
+    expect(sigs).toContain('});');
+    expect(sigs).not.toContain('init(inst, def)');
+    expect(sigs).not.toContain('inst.format');
+    expect(sigs).not.toContain('inst.regex');
+  });
+
+  it('drops callback bodies of multi-line call-expression initializers (keeps head args)', () => {
+    const src = `export const ZodTransform: core.$constructor<ZodTransform> = /*@__PURE__*/ core.$constructor(
+  "ZodTransform",
+  (inst, def) => {
+    core.$ZodTransform.init(inst, def);
+    if (_ctx.direction === "backward") {
+      throw new core.$ZodEncodeError(inst.constructor.name);
+    }
+  }
+);
+`;
+    const sigs = extractSignatures(src, 'schemas.ts')!;
+    expect(sigs).toContain('export const ZodTransform:');
+    expect(sigs).toContain('"ZodTransform",');
+    expect(sigs).toContain('(inst, def) => {');
+    expect(sigs).toContain(');');
+    expect(sigs).not.toContain('init(inst, def)');
+    expect(sigs).not.toContain('backward');
+    expect(sigs).not.toContain('ZodEncodeError');
+  });
+
+  it('does not keep bare control-flow statements (lone `if (...)` lines)', () => {
+    const src = `export function check(result: Result | null): Result {
+  if (!result)
+    return fallback();
+  if (result.ok && result.value)
+    return result;
+  return fallback();
+}
+`;
+    const sigs = extractSignatures(src, 'npm.ts')!;
+    expect(sigs).toContain('export function check(');
+    expect(sigs).not.toContain('if (');
+  });
+
+  it('drops the body of functions with multi-line object-typed params (keeps params)', () => {
+    const src = `export function _function(params?: {
+  output?: core.$ZodType;
+  input?: core.$ZodFunctionArgs;
+}): ZodFunction {
+  return new ZodFunction({
+    type: "function",
+  });
+}
+`;
+    const sigs = extractSignatures(src, 'schemas.ts')!;
+    expect(sigs).toContain('export function _function(params?: {');
+    expect(sigs).toContain('output?: core.$ZodType;');
+    expect(sigs).toContain('}): ZodFunction {');
+    expect(sigs).not.toContain('return new ZodFunction');
+    expect(sigs).not.toContain('type: "function"');
+  });
+
+  it('emits no blank numbered gutter lines', () => {
+    const src = `export interface Spaced {
+  a: string;
+
+  b: number;
+}
+`;
+    const sigs = extractSignatures(src, 'spaced.ts')!;
+    for (const line of sigs.split('\n')) {
+      expect(line).toMatch(/^\s*\d+\|\s+\S/);
+    }
   });
 });

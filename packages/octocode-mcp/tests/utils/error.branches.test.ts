@@ -5,6 +5,8 @@ vi.mock('../../src/hints/index.js', () => ({
 }));
 
 import { createErrorResult } from '../../src/utils/response/error.js';
+import { ToolError } from '../../src/errors/ToolError.js';
+import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 
 const baseQuery = {
   researchGoal: 'test',
@@ -122,6 +124,41 @@ describe('createErrorResult - branch coverage', () => {
       });
       expect(result.error).toBe('Something failed');
       expect(result.errorCode).toBeDefined();
+    });
+
+    it('should skip tool hints when toolName is empty (line 105 false branch)', () => {
+      const error = new Error('Something failed');
+      const result = createErrorResult(error, baseQuery, {
+        toolName: '',
+      });
+      expect(result.error).toBe('Something failed');
+    });
+
+    it('should skip tool hints when ToolError is passed with empty toolName (line 105 ToolError false branch)', () => {
+      const toolError = new ToolError(
+        LOCAL_TOOL_ERROR_CODES.COMMAND_EXECUTION_FAILED,
+        'Tool failed'
+      );
+      const result = createErrorResult(toolError, baseQuery, {
+        toolName: '',
+      });
+      expect(result.error).toBe('Tool failed');
+    });
+  });
+
+  describe('rateLimitReset NaN handling (line 53 false branch)', () => {
+    it('should skip rate-limit hint when rateLimitReset is NaN', () => {
+      const hintSourceError = {
+        error: 'Rate limit',
+        type: 'http' as const,
+        rateLimitRemaining: 0,
+        rateLimitReset: NaN,
+      };
+      const result = createErrorResult('main error', baseQuery, {
+        hintSourceError,
+      });
+      const rateHints = result.hints?.filter(h => h.includes('Rate limit:')) ?? [];
+      expect(rateHints).toHaveLength(0);
     });
   });
 });

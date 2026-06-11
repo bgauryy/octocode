@@ -1,8 +1,4 @@
-import type {
-  CodeSnippet,
-  ExactPosition,
-  LSPRange,
-} from '../../../lsp/types.js';
+import type { ExactPosition, LSPRange } from '../../../lsp/types.js';
 
 export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME = 'lspGetSemanticContent';
 export const LSP_GET_DIAGNOSTICS_TOOL_NAME = 'lspGetDiagnostics';
@@ -62,6 +58,49 @@ export type ResolvedSymbol = {
   position: ExactPosition;
 };
 
+// Envelope variant: range/position are 0-based internals derived from the
+// same location as foundAtLine (1-based) — emit only the agent-facing facts.
+export type CompactResolvedSymbol = {
+  name: string;
+  uri: string;
+  foundAtLine: number;
+  orderHint?: number;
+};
+
+export function compactResolvedSymbol(
+  symbol: ResolvedSymbol
+): CompactResolvedSymbol {
+  return {
+    name: symbol.name,
+    uri: symbol.uri,
+    foundAtLine: symbol.foundAtLine,
+    ...(symbol.orderHint !== undefined && { orderHint: symbol.orderHint }),
+  };
+}
+
+// Envelope variant of CodeSnippet: the 0-based `range` is dropped — content
+// is line-prefixed and displayRange is 1-based, which is what agents chain on.
+export type CompactLocation = {
+  uri: string;
+  content?: string;
+  displayRange?: { startLine: number; endLine: number };
+  isDefinition?: boolean;
+};
+
+export function compactLocation(snippet: {
+  uri: string;
+  content?: string;
+  displayRange?: { startLine: number; endLine: number };
+  isDefinition?: boolean;
+}): CompactLocation {
+  return {
+    uri: snippet.uri,
+    ...(snippet.content !== undefined && { content: snippet.content }),
+    ...(snippet.displayRange && { displayRange: snippet.displayRange }),
+    ...(snippet.isDefinition && { isDefinition: true }),
+  };
+}
+
 export type LspEvidence = {
   confidence: 'high' | 'medium' | 'low';
   complete: boolean;
@@ -71,7 +110,7 @@ export type LspEvidence = {
 export type LspSemanticEnvelope = {
   type: SemanticContentType;
   uri: string;
-  resolvedSymbol?: ResolvedSymbol;
+  resolvedSymbol?: CompactResolvedSymbol;
   lsp: {
     serverAvailable?: boolean;
     provider?: string;
@@ -80,10 +119,11 @@ export type LspSemanticEnvelope = {
   evidence: LspEvidence;
   summary?: unknown;
   payload:
-    | { kind: 'definition'; locations: CodeSnippet[] }
+    | { kind: 'definition'; locations: CompactLocation[] }
     | {
         kind: 'references';
-        locations: unknown[];
+        // groupByFile=true emits byFile INSTEAD OF the flat locations list.
+        locations?: unknown[];
         byFile?: unknown[];
         totalReferences: number;
         totalFiles: number;
@@ -93,18 +133,20 @@ export type LspSemanticEnvelope = {
         direction: 'incoming' | 'outgoing' | 'both';
         root?: unknown;
         calls: unknown[];
-        totalCalls?: number;
+        incomingCalls?: number;
+        outgoingCalls?: number;
         completeness: {
           complete: boolean;
           truncatedByDepth: boolean;
           cycleCount: number;
           failedRequestCount: number;
           dynamicCallsExcluded: true;
+          stdlibCallsExcluded?: number;
         };
       }
     | { kind: 'hover'; markdown?: string; text?: string; range?: LSPRange }
-    | { kind: 'typeDefinition'; locations: CodeSnippet[] }
-    | { kind: 'implementation'; locations: CodeSnippet[] }
+    | { kind: 'typeDefinition'; locations: CompactLocation[] }
+    | { kind: 'implementation'; locations: CompactLocation[] }
     | {
         kind: 'documentSymbols';
         symbols: unknown[];
@@ -124,6 +166,8 @@ export type LspDiagnosticsQuery = {
   workspaceRoot?: string;
   severity?: 'error' | 'warning' | 'information' | 'hint' | 'all';
   source?: string;
+  page?: number;
+  itemsPerPage?: number;
   mainResearchGoal?: string;
   researchGoal?: string;
   reasoning?: string;

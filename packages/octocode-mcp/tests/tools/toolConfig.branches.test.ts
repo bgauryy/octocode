@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { toMCPSchema } from '../../src/types/toolTypes.js';
 
 vi.mock('../../src/tools/toolMetadata/proxies.js', async importOriginal => {
   const mod =
@@ -129,5 +130,67 @@ describe('toolConfig - fn property', () => {
     expect(typeof GITHUB_SEARCH_REPOSITORIES.fn).toBe('function');
     expect(typeof GITHUB_SEARCH_PULL_REQUESTS.fn).toBe('function');
     expect(typeof PACKAGE_SEARCH.fn).toBe('function');
+  });
+});
+
+describe('toMCPSchema — branch coverage', () => {
+  it('returns the schema as-is when no zod pipe/effects wrappers are present', () => {
+    const plain = { _def: {}, shape: {} };
+    const result = toMCPSchema(plain as never);
+    expect(result).toBe(plain);
+  });
+
+  it('unwraps ZodPipeline wrapper via _def.typeName (line 23 branch)', () => {
+    const inner = { _def: {}, shape: {} };
+    const pipeline = {
+      _def: { typeName: 'ZodPipeline', schema: inner },
+    };
+    const result = toMCPSchema(pipeline as never);
+    expect(result).toBe(inner);
+  });
+
+  it('unwraps ZodEffects wrapper via _def.schema (line 23 branch)', () => {
+    const inner = { _def: {}, shape: {} };
+    const effects = {
+      _def: { typeName: 'ZodEffects', schema: inner },
+    };
+    const result = toMCPSchema(effects as never);
+    expect(result).toBe(inner);
+  });
+
+  it('uses _def.in when _def.schema is absent for ZodPipeline (line 23 ?? fallback)', () => {
+    const inner = { _def: {}, shape: {} };
+    const pipeline = {
+      _def: { typeName: 'ZodPipeline', in: inner },
+    };
+    const result = toMCPSchema(pipeline as never);
+    expect(result).toBe(inner);
+  });
+
+  it('traverses _zod.def.type === "pipe" chain (line 17 while branch)', () => {
+    const final = { _def: {} };
+    const piped = {
+      _zod: { def: { type: 'pipe', out: final } },
+      _def: { typeName: 'ZodPipeline', schema: final },
+    };
+    const result = toMCPSchema(piped as never);
+    // After pipe unwrap, should get the ZodPipeline inner schema
+    expect(result).toBe(final);
+  });
+
+  it('falls back to original schema when _def.schema and _def.in are both absent (line 23 ?? schema branch)', () => {
+    const original = { _def: { typeName: 'ZodPipeline' } };
+    const result = toMCPSchema(original as never);
+    expect(result).toBe(original);
+  });
+
+  it('falls back to schema when s becomes falsy after pipe unwrap (line 25 ?? schema branch)', () => {
+    // If the piped chain's out is null/undefined, s becomes falsy and returns schema
+    const original = {
+      _zod: { def: { type: 'pipe', out: null } },
+      _def: {},
+    };
+    const result = toMCPSchema(original as never);
+    expect(result).toBe(original);
   });
 });

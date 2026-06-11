@@ -7,11 +7,11 @@ import {
   minifyHTMLAsync,
   minifyCSSCore,
   minifyHTMLCore,
-} from '../../src/utils/minifier/minifierStrategies.js';
+} from '@octocodeai/octocode-minifier';
 import type {
   CommentPatternGroup,
   FileTypeMinifyConfig,
-} from '../../src/utils/minifier/minifierTypes.js';
+} from '@octocodeai/octocode-minifier';
 
 const mockMinify = vi.hoisted(() => vi.fn());
 vi.mock('terser', () => ({
@@ -43,7 +43,7 @@ describe('minifierStrategies - Branch Coverage', () => {
     vi.clearAllMocks();
   });
 
-  describe('removeComments - Line 27: undefined comment pattern type', () => {
+  describe('removeComments - undefined comment pattern type', () => {
     it('should handle undefined comment pattern type gracefully', () => {
       const content = 'some code /* comment */';
 
@@ -67,7 +67,7 @@ describe('minifierStrategies - Branch Coverage', () => {
     });
   });
 
-  describe('minifyAggressiveCore - Line 79: config.comments is undefined', () => {
+  describe('minifyAggressiveCore - config.comments is undefined', () => {
     it('should handle config without comments property', () => {
       const content = '  function test() { return true; }  ';
       const config: FileTypeMinifyConfig = {
@@ -93,7 +93,7 @@ describe('minifierStrategies - Branch Coverage', () => {
     });
   });
 
-  describe('minifyWithTerser - Line 238: result.code is falsy', () => {
+  describe('minifyWithTerser - result.code is falsy', () => {
     it('should fallback to original content when result.code is null', async () => {
       const content = 'function test() { return true; }';
       mockMinify.mockResolvedValue({
@@ -142,7 +142,7 @@ describe('minifierStrategies - Branch Coverage', () => {
     });
   });
 
-  describe('minifyCSSAsync - Lines 274-303: error fallback path', () => {
+  describe('minifyCSSAsync - error fallback path', () => {
     beforeEach(() => {
       const mockObj = { minifyCSSCore };
       vi.spyOn(mockObj, 'minifyCSSCore' as any).mockImplementation(((
@@ -218,7 +218,16 @@ describe('minifierStrategies - Branch Coverage', () => {
     });
   });
 
-  describe('minifyHTMLAsync - Lines 274-303: error fallback path', () => {
+  describe('minifyHTMLAsync - error fallback path', () => {
+    it('returns empty or whitespace-only content without calling html-minifier-terser', async () => {
+      const empty = await minifyHTMLAsync('');
+      const whitespace = await minifyHTMLAsync(' \n\t ');
+
+      expect(empty).toEqual({ content: '', failed: false });
+      expect(whitespace).toEqual({ content: ' \n\t ', failed: false });
+      expect(mockHtmlMinify).not.toHaveBeenCalled();
+    });
+
     it('should fallback to regex minification when html-minifier-terser throws error', async () => {
       const content = '<div>  Test  </div><!-- comment -->';
       const error = new Error('HTML parse error');

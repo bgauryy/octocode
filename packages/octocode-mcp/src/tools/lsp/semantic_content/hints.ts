@@ -82,8 +82,7 @@ export function semanticHints(
     ],
   };
 
-  return [
-    'Semantic evidence is incomplete; combine this result with localSearchCode and project verification.',
-    ...(notFound[type] ?? []),
-  ];
+  // The vague "combine with localSearchCode" preamble was dropped — the
+  // type-specific entries below carry the actual recovery steps.
+  return [...(notFound[type] ?? [])];
 }

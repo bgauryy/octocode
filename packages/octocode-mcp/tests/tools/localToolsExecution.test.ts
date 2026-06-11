@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { RipgrepQuery } from '@octocodeai/octocode-core';
+import type { z } from 'zod';
+import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 
 vi.mock('../../src/utils/response/bulk.js', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
@@ -167,6 +169,35 @@ describe('Local Tools Execution', () => {
       await callback(query, 0);
 
       expect(fetchContent).toHaveBeenCalledWith(withParsedDefaults(query));
+    });
+
+    it('keeps matchString slices complete in evidence despite isPartial', async () => {
+      const { executeFetchContent } =
+        await import('../../src/tools/local_fetch_content/execution.js');
+      const { executeBulkOperation } =
+        await import('../../src/utils/response/bulk.js');
+      const { fetchContent } =
+        await import('../../src/tools/local_fetch_content/fetchContent.js');
+
+      vi.mocked(fetchContent).mockResolvedValueOnce({
+        content: 'sliced content',
+        totalLines: 200,
+        isPartial: true,
+        matchRanges: [{ start: 10, end: 14 }],
+      } as any);
+
+      const query = {
+        id: 'test',
+        researchGoal: 'Test',
+        reasoning: 'matchString slice evidence',
+        path: '/test/file.ts',
+        matchString: 'sliced',
+      };
+      await executeFetchContent({ queries: [query] as any });
+
+      const callback = vi.mocked(executeBulkOperation).mock.calls[0]![1];
+      const result = await callback(query, 0);
+      expect(result.evidence).toMatchObject({ complete: true });
     });
 
     it('should handle empty queries array', async () => {
@@ -356,7 +387,9 @@ describe('Local Tools Execution', () => {
         complete: false,
         confidence: 'medium',
       });
-      expect(result.evidence?.reason).toContain('capped');
+      expect((result.evidence as { reason?: string })?.reason).toContain(
+        'capped'
+      );
     });
   });
 
@@ -465,7 +498,9 @@ describe('Local Tools Execution', () => {
         complete: false,
         confidence: 'medium',
       });
-      expect(result.evidence?.reason).toContain('limited');
+      expect((result.evidence as { reason?: string })?.reason).toContain(
+        'limited'
+      );
     });
   });
 

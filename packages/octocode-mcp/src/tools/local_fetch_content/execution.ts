@@ -31,7 +31,12 @@ function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
       : typeof data.totalLines === 'number';
   const reasons: string[] = [];
 
-  if (data.isPartial === true) {
+  // matchString reads return every occurrence as a slice — intentionally
+  // partial, so they don't reduce evidence completeness.
+  const isMatchSlice =
+    Array.isArray(data.matchRanges) && data.matchRanges.length > 0;
+  const isSkeleton = data.isSkeleton === true || data.contentView === 'symbols';
+  if (data.isPartial === true && !isMatchSlice && !isSkeleton) {
     reasons.push('File content is partial.');
   }
   if (hasMorePagination(data.pagination)) {

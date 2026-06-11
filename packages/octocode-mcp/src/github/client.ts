@@ -117,13 +117,26 @@ function createOctokitInstance(
   const config = getServerConfig();
   const baseUrl = config.githubApiUrl;
 
+  // Suppress Octokit's console chatter (e.g. REST API deprecation notices
+  // printed via log.warn) — errors still surface on stderr. The logger must
+  // also be set on `request.log`: @octokit/request reads it from there and
+  // falls back to `console` otherwise (core does not forward its own log).
+  const quietLog = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    // eslint-disable-next-line no-console
+    error: (...args: unknown[]) => console.error(...args),
+  };
+
   const options: OctokitOptions & {
     throttle: ReturnType<typeof createThrottleOptions>;
   } = {
     userAgent: `octocode-mcp/${version}`,
     baseUrl,
-    request: { timeout: config.timeout || 30000 },
+    request: { timeout: config.timeout || 30000, log: quietLog },
     throttle: createThrottleOptions(),
+    log: quietLog,
     ...(token && { auth: token }),
   };
 

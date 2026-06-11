@@ -1,13 +1,13 @@
 import type { z } from 'zod';
 import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { MinifyMode } from '../../scheme/localSchemaOverlay.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { PaginationInfo } from '../../utils/core/types.js';
 
 export type FileContentExecutionQuery = FileContentQuery & {
   noTimestamp?: boolean;
-  signaturesOnly?: boolean;
-  minify?: boolean;
+  minify?: MinifyMode;
   matchStringIsRegex?: boolean;
   matchStringCaseSensitive?: boolean;
   charOffset?: number;
@@ -19,12 +19,16 @@ export interface GitHubFileContentApiData {
   repo?: string;
   path?: string;
   content?: string;
+  contentView?: 'none' | 'standard' | 'symbols';
+  isSkeleton?: boolean;
   branch?: string;
   resolvedBranch?: string;
   startLine?: number;
   endLine?: number;
   isPartial?: boolean;
   totalLines?: number;
+  /** Line ranges of the returned slices when matchString hits multiple spots. */
+  matchRanges?: Array<{ start: number; end: number }>;
   matchLocations?: string[];
   warnings?: string[];
   lastModified?: string;
@@ -33,6 +37,12 @@ export interface GitHubFileContentApiData {
   cached?: boolean;
   matchNotFound?: boolean;
   searchedFor?: string;
+  /**
+   * INTERNAL: set when minify:"symbols" extraction succeeded — skeletons are
+   * indexes and must bypass applyContentPagination (returned whole).
+   * Stripped in fetchGitHubFileContentAPI before the result leaves the layer.
+   */
+  signaturesExtracted?: boolean;
 }
 
 interface GitHubFileContentApiResultBase {

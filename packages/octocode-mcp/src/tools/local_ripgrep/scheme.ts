@@ -4,8 +4,6 @@ import {
   clampedInt,
   contextLinesField,
   createRelaxedBulkQuerySchema,
-  DEFAULT_PAGE_SIZE,
-  describeField,
   optionalMetaFields,
   relaxedPageNumberField,
   withCoreSchemaDescriptions,
@@ -37,85 +35,29 @@ const RIPGREP_HIDDEN_FIELDS = {
   followSymlinks: true,
 } as const;
 
-const matchContentLengthField = clampedInt(1, 100_000)
-  .optional()
-  .default(200)
-  .describe(
-    'Maximum characters per individual match snippet. Default 200, max 100000. ' +
-      'Raise this when matches sit on very long lines (minified code, JSON blobs, generated SQL).'
-  );
+const matchContentLengthField = clampedInt(1, 100_000).optional().default(500);
 
 const RipgrepQueryBaseSchema = withCoreSchemaDescriptions(
   STATIC_TOOL_NAMES.LOCAL_RIPGREP,
   UpstreamRipgrepQuerySchema.omit(RIPGREP_HIDDEN_FIELDS).extend({
     ...optionalMetaFields,
-    pattern: describeField(
-      UpstreamRipgrepQuerySchema.shape.pattern,
-      'Text or regex pattern to search for. Use fixedString=true for literal text and perlRegex=true only when regex features are required.'
-    ),
-    path: describeField(
-      UpstreamRipgrepQuerySchema.shape.path,
-      "File or directory to search. Relative paths resolve against the server's working directory; absolute paths must be within an allowed root (home directory or ALLOWED_PATHS)."
-    ),
-    mode: describeField(
-      UpstreamRipgrepQuerySchema.shape.mode,
-      'Result shape: "paginated"/default for normal reading, "discovery" for cheap presence checks, "detailed" for expanded snippets.'
-    ),
-    langType: describeField(
-      UpstreamRipgrepQuerySchema.shape.type,
-      'Ripgrep language/type filter (ts, js, py, go, …) — restricts the search to files of that language.'
-    ),
-    countLinesPerFile: UpstreamRipgrepQuerySchema.shape.count
-      .optional()
-      .describe(
-        'Return the number of matching lines per file instead of match content (one number per file). Mutually exclusive with countMatchesPerFile.'
-      ),
-    countMatchesPerFile: UpstreamRipgrepQuerySchema.shape.countMatches
-      .optional()
-      .describe(
-        'Return the total match occurrence count per file (counts multiple matches on the same line). Mutually exclusive with countLinesPerFile.'
-      ),
+    langType: UpstreamRipgrepQuerySchema.shape.type,
+    countLinesPerFile: UpstreamRipgrepQuerySchema.shape.count.optional(),
+    countMatchesPerFile:
+      UpstreamRipgrepQuerySchema.shape.countMatches.optional(),
     matchContentLength: matchContentLengthField,
-    invertMatch: UpstreamRipgrepQuerySchema.shape.invertMatch.describe(
-      'Return lines/files NOT matching the pattern (-v). ' +
-        'Combine with filesOnly to list files that lack a pattern entirely.'
-    ),
-    caseInsensitive: UpstreamRipgrepQuerySchema.shape.caseInsensitive.describe(
-      'Force case-insensitive matching (-i). Overrides smartCase. ' +
-        'Mutually exclusive with caseSensitive.'
-    ),
-    multiline: UpstreamRipgrepQuerySchema.shape.multiline.describe(
-      'Enable cross-line matching (-U). Pattern can span multiple lines. ' +
-        'Pair with perlRegex for named captures; pair with multilineDotall to let . match newlines.'
-    ),
-    multilineDotall: UpstreamRipgrepQuerySchema.shape.multilineDotall.describe(
-      'Make . match newlines in multiline mode (--multiline-dotall). ' +
-        'Requires multiline=true.'
-    ),
     sort: z
       .enum(['path', 'modified', 'accessed', 'created'])
       .optional()
-      .default('path')
-      .describe(
-        'Sort results by: path (default, deterministic), modified (most recently changed first), ' +
-          'accessed, or created.'
-      ),
-    sortReverse: UpstreamRipgrepQuerySchema.shape.sortReverse.describe(
-      'Reverse sort direction. Pair with sort (e.g. sort=modified + sortReverse=true for oldest first).'
-    ),
-    contextLines: contextLinesField.default(2),
+      .default('path'),
+    // No zod default here: applyWorkflowMode (mode="detailed") only expands
+    // context when contextLines is undefined. The default (2) is applied
+    // AFTER workflow-mode resolution in searchContentRipgrep.ts.
+    contextLines: contextLinesField,
     maxFiles: clampedInt(1, 100_000).optional(),
     maxMatchesPerFile: clampedInt(1, 100_000).optional(),
-    matchPage: relaxedPageNumberField
-      .default(1)
-      .describe(
-        'Per-file match page (1-based). Use with maxMatchesPerFile to continue matches inside files that report pagination.hasMore=true.'
-      ),
-    page: relaxedPageNumberField
-      .default(1)
-      .describe(
-        `Result page (1-based). Each page returns up to ${DEFAULT_PAGE_SIZE} files. Use page=2, page=3, … to walk through results.`
-      ),
+    matchPage: relaxedPageNumberField.default(1),
+    page: relaxedPageNumberField.default(1),
   })
 );
 
@@ -153,6 +95,17 @@ export const LocalRipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
         message:
           '`caseSensitive` and `caseInsensitive` are mutually exclusive. Choose ONE.',
         path: ['caseInsensitive'],
+      });
+    }
+    if (
+      (d as { countLinesPerFile?: boolean }).countLinesPerFile === true &&
+      (d as { countMatchesPerFile?: boolean }).countMatchesPerFile === true
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          '`countLinesPerFile` and `countMatchesPerFile` are mutually exclusive. Choose ONE: countLinesPerFile for matching-line counts, OR countMatchesPerFile for total match counts.',
+        path: ['countMatchesPerFile'],
       });
     }
     if (d.multilineDotall === true && d.multiline !== true) {

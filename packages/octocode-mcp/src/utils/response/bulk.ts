@@ -459,10 +459,13 @@ export function aggregatePeerEvidence(
     sawAny = true;
     if (!combinedKind && raw.kind) combinedKind = raw.kind;
     if (typeof raw.answerReady === 'boolean') {
+      // OR, not AND: the bulk call is answer-ready when ANY query produced
+      // usable evidence — per-query status/empty markers identify failures,
+      // and `complete` (ANDed below) flags that not everything landed.
       answerReadyAll =
         answerReadyAll === undefined
           ? raw.answerReady
-          : answerReadyAll && raw.answerReady;
+          : answerReadyAll || raw.answerReady;
     }
     if (typeof raw.complete === 'boolean') {
       completeAll =

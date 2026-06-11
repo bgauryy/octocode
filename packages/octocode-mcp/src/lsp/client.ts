@@ -65,11 +65,18 @@ export class LSPClient {
   private diagnosticsBuffer = new Map<string, Diagnostic[]>();
 
   // Indexing-wait: resolved once all $/progress tokens have ended (or fallback fires).
+  // tsserver only starts loading the project on the first textDocument/didOpen,
+  // so the fallback is armed there — not at initialize. A request sent before
+  // project load finishes gets file-scoped (partial) results, e.g. references
+  // confined to the opened file.
+  private static readonly READY_SETTLE_MS = 2_500;
+  private static readonly READY_MAX_WAIT_MS = 15_000;
   private readyPromise: Promise<void>;
   private readyResolve!: () => void;
   private readyResolved = false;
   private activeProgressTokens = new Set<string | number>();
   private readyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private hasOpenedDocument = false;
 
   constructor(config: LanguageServerConfig) {
     this.config = config;
@@ -77,10 +84,34 @@ export class LSPClient {
       this.readyResolve = resolve;
     });
     this.documentManager = new LSPDocumentManager(config);
+    this.documentManager.setOnDidOpen(() => this.handleDocumentOpened());
     this.operations = new LSPOperations(
       this.documentManager,
       config.workspaceRoot
     );
+    this.operations.setProjectReadyWaiter(() => this.waitForReady());
+  }
+
+  private handleDocumentOpened(): void {
+    if (this.hasOpenedDocument) return;
+    this.hasOpenedDocument = true;
+    if (this.readyResolved) return;
+    const armedAt = Date.now();
+    const settle = (): void => {
+      this.readyFallbackTimer = null;
+      if (this.readyResolved) return;
+      if (
+        this.activeProgressTokens.size === 0 ||
+        Date.now() - armedAt >= LSPClient.READY_MAX_WAIT_MS
+      ) {
+        this.resolveReady();
+        return;
+      }
+      // Indexing still in flight — the $/progress end handler resolves
+      // readiness; re-arm so a token that never ends cannot block forever.
+      this.readyFallbackTimer = setTimeout(settle, LSPClient.READY_SETTLE_MS);
+    };
+    this.readyFallbackTimer = setTimeout(settle, LSPClient.READY_SETTLE_MS);
   }
 
   private resolveReady(): void {
@@ -102,6 +133,9 @@ export class LSPClient {
     // If the client was never started, skip the wait and let requireConnection()
     // throw "LSP client not initialized" immediately.
     if (!this.initialized) return;
+    // Project load only starts on the first didOpen — before that there is
+    // nothing to wait for (and no fallback timer armed yet).
+    if (!this.hasOpenedDocument) return;
     await Promise.race([
       this.readyPromise,
       new Promise<void>(resolve => setTimeout(resolve, timeoutMs)),
@@ -229,10 +263,8 @@ export class LSPClient {
     );
     this.documentManager.setConnection(this.connection, this.initialized);
     this.operations.setConnection(this.connection, this.initialized);
-
-    // Servers that don't use workDoneProgress never send $/progress begin/end.
-    // After 2 s with no active tokens we assume they're ready.
-    this.readyFallbackTimer = setTimeout(() => this.resolveReady(), 2_000);
+    // Readiness fallback is armed on the first didOpen (handleDocumentOpened) —
+    // arming it here would let requests race tsserver's project load.
   }
 
   async openDocument(filePath: string, content?: string): Promise<void> {

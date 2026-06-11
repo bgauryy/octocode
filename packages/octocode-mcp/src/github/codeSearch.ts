@@ -11,7 +11,7 @@ import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/sche
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
-import { minifyContent } from '../utils/minifier/minifier.js';
+import { minifyContent } from '@octocodeai/octocode-minifier';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildCodeSearchQuery } from './queryBuilders.js';

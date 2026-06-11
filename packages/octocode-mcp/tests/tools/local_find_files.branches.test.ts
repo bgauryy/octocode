@@ -205,7 +205,7 @@ describe('findFiles sortBy branches', () => {
     expect(files[1]!.path).toContain('old.ts');
   });
 
-  it('warns when sortBy="modified" cannot be honored without showFileLastModified', async () => {
+  it('honors sortBy="modified" without showFileLastModified (no warning, modified hidden)', async () => {
     mockSafeExec.mockResolvedValue({
       success: true,
       code: 0,
@@ -213,14 +213,21 @@ describe('findFiles sortBy branches', () => {
       stderr: '',
     });
 
-    mockFs.promises.lstat.mockResolvedValue({
-      isFile: () => true,
-      isDirectory: () => false,
-      isSymbolicLink: () => false,
-      size: 100,
-      mode: parseInt('100644', 8),
-      mtime: new Date('2024-01-01'),
-    } as unknown as import('fs').Stats);
+    mockFs.promises.lstat.mockImplementation(async (p: unknown) => {
+      const path = String(p);
+      const mtimes: Record<string, Date> = {
+        '/test/a.ts': new Date('2020-01-01'),
+        '/test/b.ts': new Date('2024-06-01'),
+      };
+      return {
+        isFile: () => true,
+        isDirectory: () => false,
+        isSymbolicLink: () => false,
+        size: 100,
+        mode: parseInt('100644', 8),
+        mtime: mtimes[path] ?? new Date(),
+      } as unknown as import('fs').Stats;
+    });
 
     const result = await findFiles({
       path: '/test',
@@ -229,9 +236,16 @@ describe('findFiles sortBy branches', () => {
     });
 
     expect(result.status).toBeUndefined();
-    expect(result.hints).toContain(
-      'sortBy="modified" ignored: showFileLastModified=false; sorted by path instead.'
-    );
+    // modified is collected internally for sorting — newest first.
+    const files = result.files!;
+    expect(files[0]!.path).toBe('/test/b.ts');
+    expect(files[1]!.path).toBe('/test/a.ts');
+    // ...but never displayed without showFileLastModified.
+    expect(files.every(f => f.modified === undefined)).toBe(true);
+    // The old "sortBy=modified ignored" warning is gone.
+    expect(
+      (result.hints ?? []).some(h => h.includes('sortBy="modified" ignored'))
+    ).toBe(false);
   });
 
   it('should return empty files when page exceeds total pages', async () => {

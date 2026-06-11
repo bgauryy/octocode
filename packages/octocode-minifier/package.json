@@ -1,0 +1,65 @@
+{
+  "name": "@octocodeai/octocode-minifier",
+  "version": "1.0.0",
+  "description": "Content minification, signature extraction, and YAML serialization utilities for Octocode",
+  "keywords": [
+    "octocode",
+    "minifier",
+    "minification",
+    "signatures"
+  ],
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-minifier"
+  },
+  "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "yarn lint && tsc",
+    "build:dev": "tsc",
+    "clean": "rm -rf dist/",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
+    "test": "vitest run --coverage",
+    "test:quiet": "vitest run --reporter=dot --silent",
+    "test:watch": "vitest --watch",
+    "typecheck": "tsc --noEmit",
+    "verify": "yarn lint && yarn typecheck && yarn test && yarn build"
+  },
+  "dependencies": {
+    "clean-css": "^5.3.3",
+    "html-minifier-terser": "^7.2.0",
+    "js-yaml": "^4.1.1",
+    "terser": "^5.46.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/clean-css": "^4.2.11",
+    "@types/html-minifier-terser": "^7.0.2",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.15.29",
+    "@vitest/coverage-v8": "^4.0.16",
+    "eslint": "^9.18.0",
+    "vitest": "^4.0.16"
+  },
+  "private": true
+}

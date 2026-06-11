@@ -21,7 +21,7 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
       hasOwnerRepo: true,
       owner: 'bgauryy',
       repo: 'octocode-mcp', // redirects to bgauryy/octocode
-      keywords: ['signaturesOnly'],
+      keywords: ['extractSignatures'],
     });
     const joined = out.join(' ');
     expect(joined).toMatch(/archived/i);

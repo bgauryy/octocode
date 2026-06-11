@@ -516,6 +516,11 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   try {
     const input = prepareDirectToolInputFromJsonText(tool.name, inputText, {
       sourceLabel: 'octocode-cli',
+      onUnknownFields: (unknownFields, queryIndex) => {
+        console.error(
+          `  ${c('yellow', '!')} Query ${queryIndex + 1}: unknown field(s) ignored: ${unknownFields.join(', ')} — run \`octocode tools ${tool.name}\` to see valid fields.`
+        );
+      },
     });
     if (!input) {
       await showToolHelp(tool.name);

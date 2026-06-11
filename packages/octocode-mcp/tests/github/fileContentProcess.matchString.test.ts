@@ -32,7 +32,6 @@ async function run(
     undefined,
     opts.contextLines ?? 2,
     matchString,
-    undefined,
     opts.isRegex,
     opts.caseSensitive
   );

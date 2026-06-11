@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { minifyContentSync } from '../../../src/utils/minifier/minifier.js';
+import { minifyContentSync } from '@octocodeai/octocode-minifier';
 
 describe('minifierSync', () => {
   describe('minifyContentSync', () => {
@@ -42,6 +42,8 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'App.jsx');
+        expect(result).toContain('<div>Hello</div>');
+        expect(result).toContain('const App');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -53,6 +55,8 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'App.tsx');
+        expect(result).toContain('React.FC');
+        expect(result).toContain('<div>Hello</div>');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -62,6 +66,7 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'test.mjs');
+        expect(result).toBe("export const foo = 'bar';");
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -71,6 +76,8 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'test.cjs');
+        expect(result).toContain('module.exports');
+        expect(result).toContain("foo:'bar'");
         expect(result.length).toBeLessThan(content.length);
       });
     });
@@ -120,6 +127,9 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'styles.scss');
+        expect(result).not.toContain('/* Variables */');
+        expect(result).toContain('$primary:blue');
+        expect(result).toContain('.btn{color:$primary;}');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -131,6 +141,9 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'styles.sass');
+        expect(result).not.toContain('/* Comment */');
+        expect(result).toContain('.container');
+        expect(result).toContain('padding: 10px');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -142,6 +155,9 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'styles.less');
+        expect(result).not.toContain('/* LESS styles */');
+        expect(result).toContain('@color:blue');
+        expect(result).toContain('.btn{color:@color;}');
         expect(result.length).toBeLessThan(content.length);
       });
     });
@@ -164,6 +180,8 @@ describe('minifierSync', () => {
         const result = minifyContentSync(content, 'index.html');
 
         expect(result).not.toContain('<!-- Main page -->');
+        expect(result).toContain('<!DOCTYPE html>');
+        expect(result).toContain('<div> Hello </div>');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -187,6 +205,8 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'config.xml');
+        expect(result).not.toContain('<!-- Configuration -->');
+        expect(result).toContain('<setting>value</setting>');
         expect(result.length).toBeLessThan(content.length);
       });
     });
@@ -244,6 +264,8 @@ hello()`;
 
         const result = minifyContentSync(content, 'script.rb');
         expect(result).not.toContain('# Ruby code');
+        expect(result).toContain('def hello');
+        expect(result).toContain('puts "Hello"');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -390,6 +412,214 @@ And more content    `;
         expect(result).not.toContain('<!-- config comment -->');
         expect(result).toContain('<config>');
       });
+    });
+  });
+
+  describe('registered extension sync coverage', () => {
+    const cases: Array<{
+      extension: string;
+      content: string;
+      expectedCode: string;
+      removedNoise: string;
+    }> = [
+      {
+        extension: 'haml',
+        content: '-# hidden haml comment\n%main\n  %h1 Title\n',
+        expectedCode: '%main',
+        removedNoise: 'hidden haml comment',
+      },
+      {
+        extension: 'slim',
+        content: '/ hidden slim comment\nmain\n  h1 Title\n',
+        expectedCode: 'main',
+        removedNoise: 'hidden slim comment',
+      },
+      {
+        extension: 'pug',
+        content: '//- hidden pug comment\nmain\n  h1 Title\n',
+        expectedCode: 'main',
+        removedNoise: 'hidden pug comment',
+      },
+      {
+        extension: 'jade',
+        content: '// hidden jade comment\nmain\n  h1 Title\n',
+        expectedCode: 'main',
+        removedNoise: 'hidden jade comment',
+      },
+      {
+        extension: 'coffee',
+        content: '# hidden coffee comment\nsquare = (x) -> x * x\n',
+        expectedCode: 'square =',
+        removedNoise: 'hidden coffee comment',
+      },
+      {
+        extension: 'nim',
+        content: '# hidden nim comment\nproc greet() =\n  echo "hi"\n',
+        expectedCode: 'proc greet',
+        removedNoise: 'hidden nim comment',
+      },
+      {
+        extension: 'hbs',
+        content: '{{!-- hidden hbs comment --}}\n<div>{{name}}</div>\n',
+        expectedCode: '<div>{{name}}</div>',
+        removedNoise: 'hidden hbs comment',
+      },
+      {
+        extension: 'ejs',
+        content: '<%# hidden ejs comment %>\n<p><%= name %></p>\n',
+        expectedCode: '<p><%= name %></p>',
+        removedNoise: 'hidden ejs comment',
+      },
+      {
+        extension: 'mustache',
+        content: '{{! hidden mustache comment }}\n{{name}}\n',
+        expectedCode: '{{name}}',
+        removedNoise: 'hidden mustache comment',
+      },
+      {
+        extension: 'twig',
+        content: '{# hidden twig comment #}\n{{ name }}\n',
+        expectedCode: '{{name}}',
+        removedNoise: 'hidden twig comment',
+      },
+      {
+        extension: 'php',
+        content:
+          '<?php\n# hidden php hash\n// hidden php slash\nfunction test() {}\n',
+        expectedCode: 'function test()',
+        removedNoise: 'hidden php',
+      },
+      {
+        extension: 'sql',
+        content: '-- hidden sql comment\nSELECT * FROM users;\n',
+        expectedCode: 'SELECT * FROM users;',
+        removedNoise: 'hidden sql comment',
+      },
+      {
+        extension: 'tf',
+        content:
+          '# hidden terraform comment\nresource "demo" "main" {\n  name = "x"\n}\n',
+        expectedCode: 'resource "demo" "main"',
+        removedNoise: 'hidden terraform comment',
+      },
+      {
+        extension: 'tfvars',
+        content: '/* hidden tfvars comment */\nname = "demo"\n',
+        expectedCode: 'name = "demo"',
+        removedNoise: 'hidden tfvars comment',
+      },
+      {
+        extension: 'toml',
+        content: '# hidden toml comment\n[tool]\nname = "demo"\n',
+        expectedCode: '[tool]',
+        removedNoise: 'hidden toml comment',
+      },
+      {
+        extension: 'ini',
+        content: '; hidden ini comment\n[app]\nkey=value\n',
+        expectedCode: '[app]',
+        removedNoise: 'hidden ini comment',
+      },
+      {
+        extension: 'graphql',
+        content: '# hidden graphql comment\ntype Query {\n  user: String\n}\n',
+        expectedCode: 'type Query',
+        removedNoise: 'hidden graphql comment',
+      },
+      {
+        extension: 'lua',
+        content: '-- hidden lua comment\nlocal x = 1\n',
+        expectedCode: 'local x = 1',
+        removedNoise: 'hidden lua comment',
+      },
+      {
+        extension: 'proto',
+        content:
+          '// hidden proto comment\nsyntax = "proto3";\nmessage User { string name = 1; }\n',
+        expectedCode: 'syntax = "proto3";',
+        removedNoise: 'hidden proto comment',
+      },
+      {
+        extension: 'rs',
+        content: '// hidden rust comment\nfn main() {\n  println!("hi");\n}\n',
+        expectedCode: 'fn main()',
+        removedNoise: 'hidden rust comment',
+      },
+      {
+        extension: 'fs',
+        content: '// hidden fs comment\nlet value = 1\n',
+        expectedCode: 'let value = 1',
+        removedNoise: 'hidden fs comment',
+      },
+      {
+        extension: 'fsx',
+        content: '// hidden fsx comment\nprintfn "hi"\n',
+        expectedCode: 'printfn "hi"',
+        removedNoise: 'hidden fsx comment',
+      },
+      {
+        extension: 'hs',
+        content: '-- hidden haskell comment\nmain = putStrLn "hi"\n',
+        expectedCode: 'main = putStrLn',
+        removedNoise: 'hidden haskell comment',
+      },
+      {
+        extension: 'clj',
+        content: '; hidden clojure comment\n(defn hello [] :ok)\n',
+        expectedCode: '(defn hello',
+        removedNoise: 'hidden clojure comment',
+      },
+      {
+        extension: 'ex',
+        content: '# hidden elixir comment\ndefmodule Demo do\nend\n',
+        expectedCode: 'defmodule Demo do',
+        removedNoise: 'hidden elixir comment',
+      },
+      {
+        extension: 'erl',
+        content: '% hidden erlang comment\n-module(app).\nstart() -> ok.\n',
+        expectedCode: '-module(app).',
+        removedNoise: 'hidden erlang comment',
+      },
+    ];
+
+    it.each(cases)(
+      '$extension keeps representative code and removes real comments',
+      ({ extension, content, expectedCode, removedNoise }) => {
+        const result = minifyContentSync(content, `fixture.${extension}`);
+
+        expect(result.trim()).not.toBe('');
+        expect(result).toContain(expectedCode);
+        expect(result).not.toContain(removedNoise);
+      }
+    );
+  });
+
+  describe('indentation-sensitive filename coverage', () => {
+    it.each([
+      'Makefile',
+      'Dockerfile',
+      'Procfile',
+      'Justfile',
+      'Rakefile',
+      'Gemfile',
+      'Podfile',
+      'Fastfile',
+      'Vagrantfile',
+      'Jenkinsfile',
+      'Cakefile',
+      'Pipfile',
+      'Buildfile',
+      'Capfile',
+      'Brewfile',
+    ])('%s routes through conservative minification', fileName => {
+      const content = '# hidden file comment\nrun:\n\tcommand\n\n\n';
+      const result = minifyContentSync(content, fileName);
+
+      expect(result).not.toContain('hidden file comment');
+      expect(result).toContain('run:');
+      expect(result).toContain('\tcommand');
+      expect(result).not.toMatch(/\n{3,}/);
     });
   });
 });

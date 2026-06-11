@@ -93,7 +93,6 @@ describe('githubSearchPullRequests content response shaping', () => {
     const shaped = shapePullRequestForContent(pr, query, baseRequest);
     expect(shaped.body).toBeUndefined();
     expect(shaped.bodyPreview).toContain('abcdefghijklmnopqrstuvwxyz');
-    expect(shaped.availableContent).toBeUndefined();
     expect(shaped.next).toBeUndefined();
     expect(shaped.filePathsPreview).toEqual(['src/a.ts', 'src/b.ts']);
   });
@@ -106,7 +105,7 @@ describe('githubSearchPullRequests content response shaping', () => {
       true,
       true
     );
-    expect(shaped.availableContent).toBeDefined();
+    expect(shaped.next).toBeDefined();
     expect(
       (shaped.next as Record<string, unknown>).getChangedFiles
     ).toBeDefined();
@@ -146,6 +145,52 @@ describe('githubSearchPullRequests content response shaping', () => {
     expect(
       (shaped.commits as Array<Record<string, unknown>>)[0]?.files
     ).toBeDefined();
+  });
+
+  it('keeps raw patch comments by default and strips them only for token-saving standard view', () => {
+    const patchPr = {
+      ...pr,
+      fileChanges: [
+        {
+          path: 'src/a.ts',
+          status: 'modified',
+          additions: 2,
+          deletions: 0,
+          patch: [
+            '@@ -1,2 +1,2 @@',
+            '+const value = 1; // exact review comment',
+            '+// comment-only change',
+          ].join('\n'),
+        },
+      ],
+    };
+    const request = {
+      ...baseRequest,
+      patches: { mode: 'all' as const },
+    };
+
+    const raw = shapePullRequestForContent(
+      patchPr,
+      { ...query, charLength: 1_000 },
+      request,
+      false
+    );
+    const standard = shapePullRequestForContent(
+      patchPr,
+      { ...query, charLength: 1_000 },
+      request,
+      true
+    );
+
+    const rawPatch = (raw.changedFiles as Array<{ patch: string }>)[0]!.patch;
+    const standardPatch = (
+      standard.changedFiles as Array<{ patch: string }>
+    )[0]!.patch;
+    expect(rawPatch).toContain('// exact review comment');
+    expect(rawPatch).toContain('// comment-only change');
+    expect(standardPatch).not.toContain('// exact review comment');
+    expect(standardPatch).not.toContain('// comment-only change');
+    expect(standardPatch).toContain('const value = 1;');
   });
 
   it('omits commit files unless requested', () => {
@@ -329,5 +374,47 @@ describe('githubSearchPullRequests content response shaping', () => {
     const shaped = shapePullRequestForContent(prEmpty, query, baseRequest);
     expect(shaped.assignees).toBeUndefined();
     expect(shaped.commentsCount).toBeUndefined();
+  });
+});
+
+describe('matchString content filtering', () => {
+  it('filters changed files by path or patch text before pagination', () => {
+    const shaped = shapePullRequestForContent(
+      pr,
+      { ...query, itemsPerPage: 20, matchString: 'ghijkl' },
+      { ...baseRequest, changedFiles: true, patches: { mode: 'all' } }
+    );
+    const files = shaped.changedFiles as Array<{ path: string }>;
+    expect(files.map(f => f.path)).toEqual(['src/b.ts']);
+    expect((shaped.filePagination as { totalItems: number }).totalItems).toBe(
+      1
+    );
+  });
+
+  it('filters comments by body, case-insensitively', () => {
+    const shaped = shapePullRequestForContent(
+      pr,
+      {
+        ...query,
+        itemsPerPage: 20,
+        charLength: 100,
+        matchString: 'DISCUSSION-BODY',
+      },
+      {
+        ...baseRequest,
+        comments: { discussion: true, reviewInline: true, includeBots: true },
+      }
+    );
+    const comments = shaped.comments as Array<{ id: string }>;
+    expect(comments.map(c => c.id)).toEqual(['d1']);
+  });
+
+  it('no matchString leaves content unfiltered', () => {
+    const shaped = shapePullRequestForContent(
+      pr,
+      { ...query, itemsPerPage: 20 },
+      { ...baseRequest, changedFiles: true }
+    );
+    expect((shaped.changedFiles as unknown[]).length).toBe(2);
   });
 });

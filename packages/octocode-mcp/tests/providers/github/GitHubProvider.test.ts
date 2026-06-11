@@ -557,7 +557,7 @@ describe('GitHubProvider', () => {
         );
       });
 
-      it('should forward signaturesOnly to fetchGitHubFileContentAPI', async () => {
+      it('should forward minify:"symbols" to fetchGitHubFileContentAPI', async () => {
         mockFetchGitHubFileContentAPI.mockResolvedValue({
           data: {
             path: 'src/index.ts',
@@ -572,11 +572,11 @@ describe('GitHubProvider', () => {
         await provider.getFileContent({
           projectId: 'owner/repo',
           path: 'src/index.ts',
-          signaturesOnly: true,
+          minify: 'symbols',
         });
 
         expect(mockFetchGitHubFileContentAPI).toHaveBeenCalledWith(
-          expect.objectContaining({ signaturesOnly: true }),
+          expect.objectContaining({ minify: 'symbols' }),
           undefined
         );
       });

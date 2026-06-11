@@ -157,21 +157,21 @@ describe('directToolCatalog', () => {
     expect(localByName['id']).toBeUndefined();
     expect(localByName['pattern']?.required).toBe(true);
     expect(localByName['include']?.type).toBe('array<string>');
+    // Fields with schema defaults are optional from the input side, even
+    // though Zod's JSON Schema output lists them as required.
+    expect(localByName['matchContentLength']?.required).toBe(false);
+    expect(localByName['page']?.required).toBe(false);
     expect(getDirectToolDisplayFields('missingTool')).toEqual([]);
 
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
-    ).toEqual(
-      expect.objectContaining({
-        pattern: 'pattern',
-        path: '.',
-        matchContentLength: 1,
-        page: 1,
-      })
-    );
+    ).toEqual({
+      pattern: 'pattern',
+      path: '.',
+    });
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO)
-    ).toEqual({ owner: 'bgauryy', repo: 'octocode-mcp' });
+    ).toEqual({ owner: 'bgauryy', repo: 'octocode' });
     expect(
       buildDirectToolExampleQuery(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)
     ).toEqual(
@@ -279,6 +279,42 @@ describe('directToolCatalog', () => {
         mainResearchGoal: `Execute ${STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE} via unit-test`,
       })
     );
+  });
+
+  it('reports unknown fields instead of dropping them silently', () => {
+    const warnings: Array<{ fields: string[]; index: number }> = [];
+
+    prepareDirectToolInput(
+      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+      [
+        { pattern: 'a', path: '.', limit: 3, bogusKey: true },
+        { pattern: 'b', path: '.', fixed_string: true },
+      ],
+      {
+        sourceLabel: 'unit-test',
+        onUnknownFields: (fields, index) => warnings.push({ fields, index }),
+      }
+    );
+
+    // limit/bogusKey are not LOCAL_RIPGREP fields; fixed_string normalizes
+    // to the known fixedString field and must not be reported.
+    expect(warnings).toEqual([{ fields: ['limit', 'bogusKey'], index: 0 }]);
+  });
+
+  it('preserves envelope-level fields alongside rebuilt queries', () => {
+    const prepared = prepareDirectToolInput(
+      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+      {
+        queries: [{ pattern: 'a', path: '.' }],
+        responseCharLength: 500,
+      },
+      { sourceLabel: 'unit-test' }
+    );
+
+    expect(
+      (prepared as { responseCharLength?: number }).responseCharLength
+    ).toBe(500);
+    expect(prepared.queries).toHaveLength(1);
   });
 
   it('preserves camelCase fields for direct tool input', () => {

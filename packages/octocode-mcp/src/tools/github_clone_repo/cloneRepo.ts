@@ -1,3 +1,5 @@
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { getOctocodeDir } from 'octocode-shared';
 import { resolveDefaultBranch } from '../../github/client.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
@@ -74,6 +76,16 @@ export async function cloneRepo(
       sparse_path,
       resolvedToken
     );
+    // git sparse-checkout "succeeds" for nonexistent paths — the clone just
+    // silently lacks the requested directory. Verify it actually materialized
+    // so the agent gets an error instead of a false answerReady:true.
+    if (!existsSync(join(cloneDir, sparse_path))) {
+      removeCloneDir(cloneDir); // don't cache a clone missing its sparse dir
+      throw new Error(
+        `sparse_path "${sparse_path}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
+          'Verify the directory path with githubViewRepoStructure, then retry with the correct sparse_path (or omit it for a full clone).'
+      );
+    }
   } else {
     await executeFullClone(owner, repo, branch, cloneDir, resolvedToken);
   }

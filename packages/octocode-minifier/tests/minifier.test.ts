@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  minifyContent,
-  MINIFY_CONFIG,
-} from '../../../src/utils/minifier/minifier.js';
+import { minifyContent, MINIFY_CONFIG } from '@octocodeai/octocode-minifier';
 
 const mockMinify = vi.hoisted(() => vi.fn());
 vi.mock('terser', () => ({
@@ -47,6 +44,8 @@ describe('MinifierV2', () => {
       expect(MINIFY_CONFIG.fileTypes.py!.strategy).toBe('conservative');
       expect(MINIFY_CONFIG.fileTypes.html!.strategy).toBe('aggressive');
       expect(MINIFY_CONFIG.fileTypes.json!.strategy).toBe('json');
+      expect(MINIFY_CONFIG.fileTypes.jsonc!.strategy).toBe('json');
+      expect(MINIFY_CONFIG.fileTypes.json5!.strategy).toBe('json');
     });
   });
 
@@ -375,15 +374,56 @@ func main() {
 
     it('should handle JSON with comments (JSONC)', async () => {
       const jsonWithComments = `{
+  // package metadata
   "name": "test",
   "version": "1.0.0"
 }`;
 
-      const result = await minifyContent(jsonWithComments, 'config.json');
+      const result = await minifyContent(jsonWithComments, 'config.jsonc');
 
       expect(result.type).toBe('json');
       expect(result.failed).toBe(false);
       expect(result.content).toBe('{"name":"test","version":"1.0.0"}');
+    });
+
+    it('should handle JSONC-style trailing commas without changing strings', async () => {
+      const jsonWithTrailingCommas = `{
+  "url": "https://example.com/a // literal",
+  "items": [
+    "one",
+    "two",
+  ],
+  "enabled": true,
+}`;
+
+      const result = await minifyContent(
+        jsonWithTrailingCommas,
+        'config.json5'
+      );
+
+      expect(result.type).toBe('json');
+      expect(result.failed).toBe(false);
+      expect(result.content).toBe(
+        '{"url":"https://example.com/a // literal","items":["one","two"],"enabled":true}'
+      );
+    });
+
+    it('should handle block comments and escaped quotes in JSONC strings', async () => {
+      const jsonWithBlockComments = `{
+  "quote": "she said \\"/* still text */\\"",
+  /* remove this block comment */
+  "nested": {
+    "ok": true,
+  },
+}`;
+
+      const result = await minifyContent(jsonWithBlockComments, 'config.jsonc');
+
+      expect(result.type).toBe('json');
+      expect(result.failed).toBe(false);
+      expect(result.content).toBe(
+        '{"quote":"she said \\"/* still text */\\"","nested":{"ok":true}}'
+      );
     });
 
     it('should return trimmed content for unparseable JSON', async () => {
@@ -453,6 +493,23 @@ WHERE active = 1;
       expect(result.content).not.toContain('-- Another comment');
 
       expect(result.content).toContain('SELECT * FROM users WHERE active = 1;');
+    });
+
+    it('should preserve mid-line shebang sequences when stripping hash comments', async () => {
+      // Skeleton gutters (`NNN| #!/usr/bin/env bash`) and strings that embed
+      // shebangs must survive — only real `#` comments are stripped.
+      const shCode = [
+        '#!/usr/bin/env bash',
+        'echo "1| #!/usr/bin/env bash gutter-style line"',
+        'echo done # real comment',
+      ].join('\n');
+
+      const result = await minifyContent(shCode, 'script.sh');
+
+      expect(result.failed).toBe(false);
+      expect(result.content).toContain('#!/usr/bin/env bash');
+      expect(result.content).toContain('1| #!/usr/bin/env bash gutter-style');
+      expect(result.content).not.toContain('# real comment');
     });
   });
 

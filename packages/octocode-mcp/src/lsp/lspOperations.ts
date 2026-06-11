@@ -38,6 +38,7 @@ export class LSPOperations {
   private initialized = false;
   private documentManager: LSPDocumentManager;
   private pathValidator: PathValidator;
+  private projectReadyWaiter: (() => Promise<void>) | null = null;
 
   constructor(documentManager: LSPDocumentManager, workspaceRoot?: string) {
     this.documentManager = documentManager;
@@ -53,6 +54,15 @@ export class LSPOperations {
   ): void {
     this.connection = connection;
     this.initialized = initialized;
+  }
+
+  /**
+   * Awaited after a document is opened and before any request is sent, so
+   * project-scoped requests (references, implementations, call hierarchy)
+   * see the fully loaded project rather than file-scoped partial results.
+   */
+  setProjectReadyWaiter(waiter: (() => Promise<void>) | null): void {
+    this.projectReadyWaiter = waiter;
   }
 
   private requireConnection(): MessageConnection {
@@ -72,6 +82,8 @@ export class LSPOperations {
     // the same pooled client, saving the server a re-parse on every call.
     // closeAllDocuments() is called when the pool evicts the client (stop()).
     await this.documentManager.openDocument(filePath, content);
+    // Project load starts on didOpen — wait for indexing before the request.
+    if (this.projectReadyWaiter) await this.projectReadyWaiter();
     return fn(connection);
   }
 

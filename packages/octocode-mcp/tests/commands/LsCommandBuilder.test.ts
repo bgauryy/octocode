@@ -86,7 +86,7 @@ describe('LsCommandBuilder', () => {
         .fromQuery({ path: '/test', hidden: true })
         .build();
 
-      expect(args).toContain('-a');
+      expect(args).toContain('-A');
     });
 
     it('should handle humanReadable flag', () => {
@@ -230,7 +230,7 @@ describe('LsCommandBuilder', () => {
       const builder = new LsCommandBuilder();
       const { args } = builder.all().build();
 
-      expect(args).toContain('-a');
+      expect(args).toContain('-A');
     });
 
     it('should chain humanReadable method', () => {
@@ -287,7 +287,7 @@ describe('LsCommandBuilder', () => {
         .build();
 
       expect(args).toContain('-l');
-      expect(args).toContain('-a');
+      expect(args).toContain('-A');
       expect(args).toContain('-h');
       expect(args).toContain('-t');
       expect(args).toContain('-r');
@@ -317,7 +317,7 @@ describe('LsCommandBuilder', () => {
       expect(args).toContain('--quoting-style=literal');
       expect(args).toContain('-l');
       expect(args).toContain('--time-style=long-iso');
-      expect(args).toContain('-a');
+      expect(args).toContain('-A');
       expect(args).toContain('-h');
       expect(args).toContain('-R');
       expect(args).toContain('-r');

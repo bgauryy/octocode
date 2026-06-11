@@ -90,6 +90,12 @@ type DirectToolAutoFilledField =
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;
+  /**
+   * Called once per query that contains fields not present in the tool's
+   * schema. Schema parsing strips unknown fields silently, so without this
+   * callback the caller never learns a field was ignored.
+   */
+  onUnknownFields?: (unknownFields: string[], queryIndex: number) => void;
 }
 
 export class DirectToolInputError extends Error {
@@ -295,17 +301,22 @@ export function getDirectToolDisplayFields(
     return [];
   }
 
-  const requiredFields = new Set(
-    Array.isArray(jsonSchema.required)
-      ? jsonSchema.required.filter(
-          name => !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name)
-        )
-      : []
-  );
-
   const properties = isRecord(jsonSchema.properties)
     ? jsonSchema.properties
     : {};
+
+  // Zod marks `.default()` fields as required in JSON Schema output (they are
+  // always present after parsing) — but callers may omit them, so they are
+  // optional from the input side and must not display as required.
+  const requiredFields = new Set(
+    Array.isArray(jsonSchema.required)
+      ? jsonSchema.required.filter(
+          name =>
+            !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name) &&
+            !hasSchemaDefault(properties[name])
+        )
+      : []
+  );
 
   return Object.entries(properties)
     .filter(([name]) => !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name))
@@ -423,12 +434,22 @@ function buildDirectToolPayload(
     throw new DirectToolInputError('At least one query is required.');
   }
 
+  // Preserve envelope-level fields (e.g. responseCharOffset/responseCharLength)
+  // when the caller passed { queries: [...], ... } — only `queries` is rebuilt.
+  const envelopeFields =
+    isRecord(rawPayload) && Array.isArray(rawPayload.queries)
+      ? Object.fromEntries(
+          Object.entries(rawPayload).filter(([key]) => key !== 'queries')
+        )
+      : {};
+
   return {
+    ...envelopeFields,
     queries: queriesInput.map((query, index) =>
       applyDefaultQueryFields(
         toolName,
         index,
-        normalizeQueryObject(toolName, query),
+        normalizeQueryObject(toolName, query, index, options),
         {
           sourceLabel: options.sourceLabel,
         }
@@ -484,7 +505,9 @@ function buildDefaultGoal(toolName: string, sourceLabel: string): string {
 
 function normalizeQueryObject(
   toolName: string,
-  query: unknown
+  query: unknown,
+  queryIndex: number,
+  options: Pick<PrepareDirectToolInputOptions, 'onUnknownFields'> = {}
 ): Record<string, unknown> {
   if (!isRecord(query)) {
     throw new DirectToolInputError(
@@ -497,13 +520,21 @@ function normalizeQueryObject(
     ...DIRECT_TOOL_AUTO_FILLED_FIELDS,
   ]);
   const normalized: Record<string, unknown> = {};
+  const unknownFields: string[] = [];
   for (const [key, value] of Object.entries(query)) {
     if (schemaFields.has(key)) {
       normalized[key] = value;
       continue;
     }
     const normalizedKey = normalizeKey(key);
+    if (!schemaFields.has(normalizedKey)) {
+      unknownFields.push(key);
+    }
     normalized[schemaFields.has(normalizedKey) ? normalizedKey : key] = value;
+  }
+
+  if (unknownFields.length > 0 && schemaFields.size > 0) {
+    options.onUnknownFields?.(unknownFields, queryIndex);
   }
 
   return normalized;
@@ -560,7 +591,7 @@ function buildExampleValue(name: string, type: string): unknown {
     case 'owner':
       return 'bgauryy';
     case 'repo':
-      return 'octocode-mcp';
+      return 'octocode';
     case 'keywordsToSearch':
       return ['toolName'];
     case 'ecosystem':
@@ -578,6 +609,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isJsonSchemaObject(value: unknown): value is JsonSchemaObject {
   return isRecord(value);
+}
+
+function hasSchemaDefault(value: unknown): boolean {
+  return isJsonSchemaObject(value) && 'default' in value;
 }
 
 export async function executeDirectTool(

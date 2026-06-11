@@ -86,9 +86,11 @@ vi.mock('octocode-security-utils/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
-vi.mock('../../src/utils/minifier/minifier.js', () => ({
-  minifyContent: mockminifyContent,
-}));
+vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@octocodeai/octocode-minifier')>();
+  return { ...actual, minifyContent: mockminifyContent };
+});
 
 vi.mock('../../src/github/client.js', () => ({
   getOctokit: vi.fn(() => Promise.resolve(mockOctokit)),

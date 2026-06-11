@@ -257,12 +257,18 @@ export function buildGithubSearchCodeFinalizer<
     }
     if (hints.length > 0) responseData.hints = hints;
     if (emptyQueries.length > 0) {
+      // Per-query hints already aggregated into the top-level hints are not
+      // repeated here — emptyQueries only marks which queries came up empty.
+      const topLevelHints = new Set(hints);
       responseData.emptyQueries = emptyQueries.map(
-        ({ id, hints, nonExistentScope }) => ({
-          id,
-          ...(hints.length > 0 ? { hints } : {}),
-          ...(nonExistentScope ? { nonExistentScope } : {}),
-        })
+        ({ id, hints: queryHints, nonExistentScope }) => {
+          const uniqueHints = queryHints.filter(h => !topLevelHints.has(h));
+          return {
+            id,
+            ...(uniqueHints.length > 0 ? { hints: uniqueHints } : {}),
+            ...(nonExistentScope ? { nonExistentScope } : {}),
+          };
+        }
       );
     }
     if (errors.length > 0) responseData.errors = errors;

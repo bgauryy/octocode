@@ -5,9 +5,11 @@ import {
   applyContentViewMinification,
   extractSignatures,
   SIGNATURES_ONLY_HINT,
-} from '../utils/minifier/applyMinification.js';
+} from '@octocodeai/octocode-minifier';
 import { applyPagination } from '../utils/pagination/core.js';
+import { extractMatchingLines } from '../tools/local_fetch_content/contentExtractor.js';
 import { OctokitWithThrottling } from './client.js';
+import type { MinifyMode } from '../scheme/localSchemaOverlay.js';
 
 function getDefaultContentPageSize(): number {
   return getOutputCharLimit();
@@ -99,29 +101,42 @@ export async function processFileContentAPI(
   endLine?: number,
   matchStringContextLines: number = 5,
   matchString?: string,
-  signaturesOnly?: boolean,
   matchStringIsRegex?: boolean,
   matchStringCaseSensitive?: boolean,
-  minify: boolean = true
+  minify: MinifyMode = 'none'
 ): Promise<GitHubFileContentApiResult> {
-  if (signaturesOnly) {
+  // "symbols" implies the standard comment/whitespace strip on whatever
+  // content leaves this function (skeleton, or full-content fallback).
+  const applyStandardMinify = minify === 'standard' || minify === 'symbols';
+  const fallbackContentView = applyStandardMinify ? 'standard' : 'none';
+
+  let signaturesSkippedWarning: string | undefined;
+  if (minify === 'symbols') {
     const sigs = extractSignatures(decodedContent, filePath);
+    if (sigs === null) {
+      signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${filePath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
+    }
     if (sigs !== null) {
       // Redact secrets in the skeleton too (a top-level `const KEY = "…"`
       // matches a signature pattern) — same ContentSanitizer pass the normal
       // content path runs below, keeping local and GitHub aligned.
       const sanitized = ContentSanitizer.sanitizeContent(sigs, filePath);
-      const sigContent = minify
-        ? applyContentViewMinification(sanitized.content, filePath)
-        : sanitized.content;
+      const sigContent = applyContentViewMinification(
+        sanitized.content,
+        filePath
+      );
       return {
         owner,
         repo,
         path: filePath,
         content: sigContent,
+        contentView: 'symbols',
+        isSkeleton: true,
         branch,
         totalLines: decodedContent.split('\n').length,
         isPartial: true,
+        // Skeletons bypass applyContentPagination — returned whole.
+        signaturesExtracted: true,
         hints: sanitized.hasSecrets
           ? [
               SIGNATURES_ONLY_HINT,
@@ -142,65 +157,41 @@ export async function processFileContentAPI(
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
   let isPartial = false;
+  let matchRanges: Array<{ start: number; end: number }> | undefined;
 
   if (fullContent) {
     finalContent = decodedContent;
   } else if (matchString) {
-    const matchingLines: number[] = [];
+    // Same multi-occurrence extraction as localGetFileContent: ALL matches are
+    // returned as merged context slices (with "[N lines omitted]" separators),
+    // not just the first hit. Oversized results are char-paginated downstream.
     const isCaseSensitive = matchStringCaseSensitive === true;
-
-    if (matchStringIsRegex) {
-      let regex: RegExp;
-      try {
-        regex = new RegExp(matchString, isCaseSensitive ? '' : 'i');
-      } catch {
-        return {
-          owner,
-          repo,
-          path: filePath,
-          content: '',
-          branch,
-          totalLines,
-          matchNotFound: true,
-          searchedFor: matchString,
-          hints: [
-            `Invalid regex "${matchString}". Check syntax (e.g. escape backslashes: "\\\\w+" not "\\w+") or disable matchStringIsRegex=false for a literal search.`,
-          ],
-        } as GitHubFileContentApiResult;
-      }
-      for (let i = 0; i < originalLines.length; i++) {
-        if (regex.test(originalLines[i] ?? '')) {
-          matchingLines.push(i + 1);
-        }
-      }
-    } else {
-      const needle = isCaseSensitive ? matchString : matchString.toLowerCase();
-      for (let i = 0; i < originalLines.length; i++) {
-        const hay = isCaseSensitive
-          ? (originalLines[i] ?? '')
-          : (originalLines[i] ?? '').toLowerCase();
-        if (hay.includes(needle)) {
-          matchingLines.push(i + 1);
-        }
-      }
-
-      // Whitespace-stripped fallback for literal search only
-      if (matchingLines.length === 0) {
-        const needleStripped = needle.replace(/\s+/g, '');
-        if (needleStripped.length > 0) {
-          for (let i = 0; i < originalLines.length; i++) {
-            const hay = isCaseSensitive
-              ? (originalLines[i] ?? '').replace(/\s+/g, '')
-              : (originalLines[i] ?? '').toLowerCase().replace(/\s+/g, '');
-            if (hay.includes(needleStripped)) {
-              matchingLines.push(i + 1);
-            }
-          }
-        }
-      }
+    let extraction: ReturnType<typeof extractMatchingLines>;
+    try {
+      extraction = extractMatchingLines(
+        originalLines,
+        matchString,
+        matchStringContextLines,
+        matchStringIsRegex ?? false,
+        isCaseSensitive
+      );
+    } catch {
+      return {
+        owner,
+        repo,
+        path: filePath,
+        content: '',
+        branch,
+        totalLines,
+        matchNotFound: true,
+        searchedFor: matchString,
+        hints: [
+          `Invalid regex "${matchString}". Check syntax (e.g. escape backslashes: "\\\\w+" not "\\w+") or disable matchStringIsRegex=false for a literal search.`,
+        ],
+      } as GitHubFileContentApiResult;
     }
 
-    if (matchingLines.length === 0) {
+    if (extraction.matchCount === 0) {
       const notFoundHints = matchStringIsRegex
         ? [
             `Regex "${matchString}" matched no lines. Verify the pattern, check flags (case-${isCaseSensitive ? 'sensitive' : 'insensitive'}), or use fullContent=true to inspect the file.`,
@@ -221,34 +212,29 @@ export async function processFileContentAPI(
       } as GitHubFileContentApiResult;
     }
 
-    const firstMatch = matchingLines[0]!;
-    const matchStartLine = Math.max(1, firstMatch - matchStringContextLines);
-    const matchEndLine = Math.min(
-      totalLines,
-      firstMatch + matchStringContextLines
-    );
-
-    startLine = matchStartLine;
-    endLine = matchEndLine;
-
-    const selectedLines = originalLines.slice(matchStartLine - 1, matchEndLine);
-    finalContent = selectedLines.join('\n');
-
-    actualStartLine = matchStartLine;
-    actualEndLine = matchEndLine;
+    finalContent = extraction.lines.join('\n');
+    const firstRange = extraction.matchRanges[0]!;
+    const lastRange =
+      extraction.matchRanges[extraction.matchRanges.length - 1]!;
+    startLine = firstRange.start;
+    endLine = lastRange.end;
+    actualStartLine = firstRange.start;
+    actualEndLine = lastRange.end;
     isPartial = true;
-
-    if (matchingLines.length > 1) {
-      const otherLines = matchingLines.slice(1);
-      const shown = otherLines.slice(0, 5);
-      const extra =
-        otherLines.length > 5 ? ` and ${otherLines.length - 5} more` : '';
-      matchLocationsSet.add(
-        `Found "${matchString}" on line ${firstMatch} (±${matchStringContextLines} lines shown). Other occurrences: ${shown.join(', ')}${extra} — use startLine/endLine.`
-      );
-    } else {
-      matchLocationsSet.add(`Found "${matchString}" on line ${firstMatch}`);
+    if (extraction.matchRanges.length > 1) {
+      matchRanges = extraction.matchRanges;
     }
+
+    const shownLines = extraction.matchingLines.slice(0, 5).join(', ');
+    const extraCount =
+      extraction.matchingLines.length > 5
+        ? ` and ${extraction.matchingLines.length - 5} more`
+        : '';
+    matchLocationsSet.add(
+      extraction.matchCount > 1
+        ? `Found ${extraction.matchCount} occurrences of "${matchString}" on lines ${shownLines}${extraCount} — all shown as ${extraction.matchRanges.length} slice${extraction.matchRanges.length === 1 ? '' : 's'}, ±${matchStringContextLines} lines of context each.`
+        : `Found "${matchString}" on line ${extraction.matchingLines[0]}`
+    );
   } else if (startLine !== undefined || endLine !== undefined) {
     const effectiveStartLine = startLine || 1;
 
@@ -285,7 +271,7 @@ export async function processFileContentAPI(
     finalContent,
     filePath
   );
-  finalContent = minify
+  finalContent = applyStandardMinify
     ? applyContentViewMinification(sanitizationResult.content, filePath)
     : sanitizationResult.content;
 
@@ -301,11 +287,11 @@ export async function processFileContentAPI(
   }
 
   // Large-file navigation: when no narrowing was requested and the file is big,
-  // guide the agent to use startLine for tail access and signaturesOnly for an
-  // export index — avoids agents giving up on large files they can already read.
+  // guide the agent to use startLine for tail access and minify:"symbols" for
+  // an export index — avoids agents giving up on large files they can read.
   if (
     totalLines > 2000 &&
-    !signaturesOnly &&
+    minify !== 'symbols' &&
     !matchString &&
     !startLine &&
     !endLine &&
@@ -313,7 +299,7 @@ export async function processFileContentAPI(
   ) {
     const tailLine = Math.max(1, totalLines - 200);
     matchLocationsSet.add(
-      `Large file (${totalLines} lines) — signaturesOnly=true for an export index, or startLine=${tailLine} for the tail.`
+      `Large file (${totalLines} lines) — minify:"symbols" for an export index, or startLine=${tailLine} for the tail.`
     );
   }
 
@@ -324,6 +310,7 @@ export async function processFileContentAPI(
     repo,
     path: filePath,
     content: finalContent,
+    contentView: fallbackContentView,
     branch,
     totalLines,
     ...(isPartial && {
@@ -331,9 +318,13 @@ export async function processFileContentAPI(
       endLine: actualEndLine,
       isPartial,
     }),
-    ...(matchLocations.length > 0 && {
-      matchLocations,
-      warnings: matchLocations,
+    ...(matchRanges && { matchRanges }),
+    ...((matchLocations.length > 0 || signaturesSkippedWarning) && {
+      ...(matchLocations.length > 0 && { matchLocations }),
+      warnings: [
+        ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
+        ...matchLocations,
+      ],
     }),
   } as GitHubFileContentApiResult;
 }

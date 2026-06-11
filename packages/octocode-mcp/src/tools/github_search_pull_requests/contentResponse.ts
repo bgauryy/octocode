@@ -1,5 +1,5 @@
 import type { NormalizedPrContentRequest } from './contentRequest.js';
-import { applyContentViewMinification } from '../../utils/minifier/applyMinification.js';
+import { applyContentViewMinification } from '@octocodeai/octocode-minifier';
 
 type QueryLike = {
   owner?: string;
@@ -12,7 +12,22 @@ type QueryLike = {
   itemsPerPage?: number;
   charOffset?: number;
   charLength?: number;
+  matchString?: string;
 };
+
+// Case-insensitive keyword filter applied to cached PR content BEFORE
+// pagination — lets agents search inside a large PR (file paths, patch text,
+// comment/review bodies) the same way matchString narrows file reads.
+function matchStringNeedle(query: QueryLike): string | undefined {
+  const raw = query.matchString;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function containsNeedle(value: unknown, needle: string): boolean {
+  return typeof value === 'string' && value.toLowerCase().includes(needle);
+}
 
 type Pagination = {
   currentPage: number;
@@ -78,6 +93,23 @@ function compactBody(value: unknown, max = 500): string | undefined {
   return value.length <= max ? value : `${value.slice(0, max - 3)}...`;
 }
 
+function stripDiffCommentOnlyLines(patch: string): string {
+  return patch
+    .split('\n')
+    .filter(line => {
+      if (line.startsWith('+++') || line.startsWith('---')) return true;
+      return !/^[+\- ]\s*(?:\/\/|#(?!!)|--|;|%).*$/.test(line);
+    })
+    .join('\n');
+}
+
+function minifyPatchView(patch: string, filePath: string): string {
+  return applyContentViewMinification(
+    stripDiffCommentOnlyLines(patch),
+    filePath
+  );
+}
+
 function baseQuery(query: QueryLike, prNumber: number) {
   return {
     owner: query.owner,
@@ -86,34 +118,43 @@ function baseQuery(query: QueryLike, prNumber: number) {
   };
 }
 
-function availableContent() {
-  return {
-    metadata: true,
-    body: true,
-    changedFiles: true,
-    patches: true,
-    comments: { discussion: true, reviewInline: true },
-    reviews: true,
-    commits: true,
-  };
-}
-
-function nextCalls(query: QueryLike, prNumber: number) {
+// Entries already delivered in THIS response are omitted — the menu only
+// offers escalations the agent does not have yet.
+function nextCalls(
+  query: QueryLike,
+  prNumber: number,
+  request: NormalizedPrContentRequest
+) {
   return {
     target: baseQuery(query, prNumber),
-    getBody: { content: { body: true } },
-    getChangedFiles: { content: { changedFiles: true } },
-    getSelectedPatches: {
-      content: {
-        patches: { mode: 'selected', files: ['path/from/changedFiles'] },
-      },
-    },
-    getAllPatches: { content: { patches: { mode: 'all' } } },
-    getComments: {
-      content: { comments: { discussion: true, reviewInline: true } },
-    },
-    getCommits: { content: { commits: { list: true } } },
-    fullReview: { reviewMode: 'full' },
+    ...(request.body ? {} : { getBody: { content: { body: true } } }),
+    ...(request.changedFiles
+      ? {}
+      : { getChangedFiles: { content: { changedFiles: true } } }),
+    ...(request.patches.mode !== 'none'
+      ? {}
+      : {
+          getSelectedPatches: {
+            content: {
+              patches: { mode: 'selected', files: ['path/from/changedFiles'] },
+            },
+          },
+          getAllPatches: { content: { patches: { mode: 'all' } } },
+        }),
+    ...(request.comments
+      ? {}
+      : {
+          getComments: {
+            content: { comments: { discussion: true, reviewInline: true } },
+          },
+        }),
+    ...(request.reviews ? {} : { getReviews: { content: { reviews: true } } }),
+    ...(request.commits
+      ? {}
+      : { getCommits: { content: { commits: { list: true } } } }),
+    ...(request.reviewMode === 'full'
+      ? {}
+      : { fullReview: { reviewMode: 'full' } }),
   };
 }
 
@@ -160,8 +201,12 @@ function shapeComments(
     ? (pr.comments as Array<Record<string, unknown>>)
     : [];
   const filtered = filterComments(allComments, request.comments);
+  const needle = matchStringNeedle(query);
+  const matched = needle
+    ? filtered.filter(comment => containsNeedle(comment.body, needle))
+    : filtered;
   const { items, pagination } = paginateItems(
-    filtered,
+    matched,
     query.commentPage ?? query.page ?? 1,
     query.itemsPerPage ?? 20
   );
@@ -178,12 +223,15 @@ function shapeComments(
         commentType: comment.commentType ?? 'discussion',
         path: comment.path,
         line: comment.line,
-        bodyPreview: compactBody(
-          typeof comment.body === 'string' ? comment.body : ''
-        ),
+        // bodyPreview is only a fallback — when the full (paginated) body is
+        // included it would duplicate the same text verbatim.
         ...(body
           ? { body: body.content, bodyPagination: body.pagination }
-          : {}),
+          : {
+              bodyPreview: compactBody(
+                typeof comment.body === 'string' ? comment.body : ''
+              ),
+            }),
         createdAt: comment.createdAt,
         updatedAt: comment.updatedAt,
       };
@@ -194,12 +242,17 @@ function shapeComments(
 
 function shapeReviews(
   pr: Record<string, unknown>,
+  query: QueryLike,
   request: NormalizedPrContentRequest
 ) {
   if (!request.reviews) return {};
-  const reviews = Array.isArray(pr.reviews)
+  const allReviews = Array.isArray(pr.reviews)
     ? (pr.reviews as Array<Record<string, unknown>>)
     : [];
+  const needle = matchStringNeedle(query);
+  const reviews = needle
+    ? allReviews.filter(review => containsNeedle(review.body, needle))
+    : allReviews;
   return {
     reviews: reviews.map(review => ({
       id: review.id,
@@ -258,8 +311,16 @@ function shapeFileSurfaces(
     files && files.length > 0
       ? allChanges.filter(change => files.includes(filePathOf(change)))
       : allChanges;
+  const needle = matchStringNeedle(query);
+  const matched = needle
+    ? selected.filter(
+        change =>
+          containsNeedle(filePathOf(change), needle) ||
+          containsNeedle(change.patch, needle)
+      )
+    : selected;
   const { items, pagination } = paginateItems(
-    selected,
+    matched,
     query.filePage ?? query.page ?? 1,
     query.itemsPerPage ?? 20
   );
@@ -271,7 +332,7 @@ function shapeFileSurfaces(
     const rawPatch = change.patch;
     const processedPatch =
       shouldMinify && typeof rawPatch === 'string'
-        ? applyContentViewMinification(rawPatch, filePathOf(change))
+        ? minifyPatchView(rawPatch, filePathOf(change))
         : rawPatch;
     const patch = paginateText(
       processedPatch,
@@ -309,7 +370,8 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
-  shouldMinify = true,
+  // Aligned with minify:"none" default — patches are raw unless "standard".
+  shouldMinify = false,
   showContentMap?: boolean
 ): Record<string, unknown> {
   const prNumber = Number(pr.number);
@@ -330,10 +392,18 @@ export function shapePullRequestForContent(
   const emitContentMap =
     showContentMap !== undefined ? showContentMap : hasContent;
 
+  // List searches are lean unless verbose=true: url is derivable from
+  // owner/repo/number, bodyPreview belongs to the detail view, updatedAt and
+  // closedAt-when-merged are near-duplicates of mergedAt. prNumber detail
+  // fetches always emit the full shape.
+  const isDetailFetch = (query as { prNumber?: number }).prNumber !== undefined;
+  const fullShape =
+    isDetailFetch || (query as { verbose?: boolean }).verbose === true;
+
   const metadata = {
     number: pr.number,
     title: pr.title,
-    url: pr.url,
+    ...(fullShape ? { url: pr.url } : {}),
     state: pr.state,
     draft: pr.draft,
     author: pr.author,
@@ -343,20 +413,23 @@ export function shapePullRequestForContent(
     labels: pr.labels,
     targetBranch: pr.targetBranch,
     createdAt: pr.createdAt,
-    updatedAt: pr.updatedAt,
-    closedAt: pr.closedAt,
+    ...(fullShape ? { updatedAt: pr.updatedAt } : {}),
+    ...(fullShape || !pr.mergedAt ? { closedAt: pr.closedAt } : {}),
     mergedAt: pr.mergedAt,
     ...(pr.commentsCount ? { commentsCount: pr.commentsCount } : {}),
     changedFilesCount: pr.changedFilesCount,
     additions: pr.additions,
     deletions: pr.deletions,
-    bodyPreview: compactBody(typeof pr.body === 'string' ? pr.body : undefined),
-    ...(emitContentMap
+    // bodyPreview is only a fallback — omitted when the full (paginated)
+    // body is part of this response.
+    ...(fullShape && !body
       ? {
-          availableContent: availableContent(),
-          next: nextCalls(query, prNumber),
+          bodyPreview: compactBody(
+            typeof pr.body === 'string' ? pr.body : undefined
+          ),
         }
       : {}),
+    ...(emitContentMap ? { next: nextCalls(query, prNumber, request) } : {}),
   };
 
   return {
@@ -364,7 +437,7 @@ export function shapePullRequestForContent(
     ...(body ? { body: body.content, bodyPagination: body.pagination } : {}),
     ...shapeFileSurfaces(pr, query, request, shouldMinify),
     ...shapeComments(pr, query, request),
-    ...shapeReviews(pr, request),
+    ...shapeReviews(pr, query, request),
     ...shapeCommits(pr, query, request),
     ...(pr.reviewSummary ? { reviewSummary: pr.reviewSummary } : {}),
   };

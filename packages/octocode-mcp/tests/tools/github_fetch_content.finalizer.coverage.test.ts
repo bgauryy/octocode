@@ -33,6 +33,8 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         data: {
           path: 'src/a.ts',
           content: 'hello world',
+          contentView: 'symbols',
+          isSkeleton: true,
           totalLines: 12,
           resolvedBranch: 'main',
           pagination: {
@@ -62,6 +64,8 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const file = data.results[0]!.files![0]!;
     expect(file.path).toBe('src/a.ts');
     expect(file.content).toBe('hello world');
+    expect(file.contentView).toBe('symbols');
+    expect(file.isSkeleton).toBe(true);
     expect(file.isPartial).toBe(true);
     expect(file.totalLines).toBe(12);
     expect(file.warnings).toEqual(['w1', 'w2']);
@@ -273,6 +277,36 @@ describe('buildGithubFetchContentFinalizer — partial file continuation hints',
 
     const reason = data.evidence?.reason ?? '';
     expect(reason.length).toBeGreaterThan(0);
+  });
+
+  it('matchString slices (matchRanges) are complete — no continuation hint, no partial demotion', () => {
+    const queries: Query[] = [
+      { owner: 'o', repo: 'r', path: 'large.ts', matchString: 'foo' },
+    ];
+    const results: FlatQueryResult[] = [
+      {
+        id: 'q1',
+        data: {
+          path: 'large.ts',
+          content: 'hello',
+          totalLines: 200,
+          isPartial: true,
+          startLine: 10,
+          endLine: 50,
+          matchRanges: [{ start: 12, end: 15 }],
+        },
+      },
+    ];
+
+    const out = run(queries, results, { peerEvidence: true } as never);
+    const data = out.structuredContent as {
+      hints?: string[];
+      evidence?: { complete?: boolean; reason?: string };
+    };
+
+    expect(data.hints?.some(h => /startLine=51/.test(h))).toBeFalsy();
+    expect(data.evidence?.complete).toBe(true);
+    expect(data.evidence?.reason ?? '').not.toMatch(/partial/);
   });
 });
 

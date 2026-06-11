@@ -23,24 +23,15 @@ const cacheStats: CacheStats = {
   lastReset: new Date(),
 };
 
+// Only prefixes actually used by withDataCache callers: GitHub API layers
+// (src/github/*) and npm-search. Local/LSP tools read the filesystem directly
+// and never cache.
 const CACHE_TTL_CONFIG = {
   'gh-api-code': 3600,
   'gh-api-repos': 7200,
   'gh-api-prs': 1800,
   'gh-api-file-content': 300,
   'gh-repo-structure-api': 7200,
-  'bb-api-code': 3600,
-  'bb-api-repos': 7200,
-  'bb-api-prs': 1800,
-  'bb-api-file-content': 300,
-  'bb-repo-structure-api': 7200,
-  'local-search': 86400,
-  'local-view-structure': 86400,
-  'local-find-files': 86400,
-  'local-file-content': 86400,
-  'lsp-definition': 86400,
-  'lsp-references': 86400,
-  'lsp-call-hierarchy': 86400,
   'github-user': 900,
   'npm-search': 14400,
   default: 86400,

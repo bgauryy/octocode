@@ -130,8 +130,9 @@ export function formatEntryString(
   }
 }
 
+// No `name` field: the emitted `path` (relativized against the hoisted base)
+// carries the same value, and `type` already distinguishes directories.
 interface EntryOutput {
-  name: string;
   type: 'file' | 'dir' | 'link';
   depth?: number;
   size?: string;
@@ -139,9 +140,33 @@ interface EntryOutput {
   permissions?: string;
 }
 
+/**
+ * Flat name lists grouped by kind — the lean default output shape, matching
+ * githubViewRepoStructure. Entry names carry relative subpaths in recursive
+ * mode; sort order is preserved.
+ */
+export function toGroupedLists(entries: DirectoryEntry[]): {
+  files?: string[];
+  folders?: string[];
+  links?: string[];
+} {
+  const files: string[] = [];
+  const folders: string[] = [];
+  const links: string[] = [];
+  for (const entry of entries) {
+    if (entry.type === 'directory') folders.push(entry.name);
+    else if (entry.type === 'symlink') links.push(entry.name);
+    else files.push(entry.name);
+  }
+  return {
+    ...(files.length > 0 && { files }),
+    ...(folders.length > 0 && { folders }),
+    ...(links.length > 0 && { links }),
+  };
+}
+
 export function toEntryObject(entry: DirectoryEntry): EntryOutput {
   const obj: EntryOutput = {
-    name: entry.type === 'directory' ? `${entry.name}/` : entry.name,
     type:
       entry.type === 'directory'
         ? 'dir'
@@ -150,7 +175,8 @@ export function toEntryObject(entry: DirectoryEntry): EntryOutput {
           : 'file',
   };
   if (entry.depth !== undefined && entry.depth > 0) obj.depth = entry.depth;
-  if (entry.size) obj.size = entry.size;
+  // Directory/symlink inode sizes (e.g. "320.0B") are filesystem noise.
+  if (entry.size && entry.type === 'file') obj.size = entry.size;
   if (entry.modified) obj.modified = entry.modified;
   if (entry.permissions) obj.permissions = entry.permissions;
   return obj;

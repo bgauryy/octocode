@@ -23,7 +23,10 @@ export class LsCommandBuilder extends BaseCommandBuilder {
     }
 
     if (query.hidden) {
-      this.addFlag('-a');
+      // -A (almost-all): include dotfiles but NOT the `.`/`..` pseudo-entries,
+      // which would inflate folder counts. Matches the recursive walker,
+      // whose fs.readdir never emits `.`/`..`.
+      this.addFlag('-A');
     }
 
     if (query.humanReadable) {
@@ -83,7 +86,8 @@ export class LsCommandBuilder extends BaseCommandBuilder {
   }
 
   all(): this {
-    this.addFlag('-a');
+    // -A: include dotfiles without the `.`/`..` pseudo-entries.
+    this.addFlag('-A');
     return this;
   }
 
