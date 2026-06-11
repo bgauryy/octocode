@@ -1,0 +1,48 @@
+{
+  "ext": "py",
+  "language": "Python",
+  "source": "py/sessions.py",
+  "sourceBytes": 34072,
+  "strategy": "conservative",
+  "commentModel": "hash",
+  "sha256": "3d2089736ced93b2b405624a943f866d22652b17df06a85eb010f86272fc3e7d",
+  "contentView": {
+    "bytes": 26625,
+    "cutPercent": 21.9,
+    "durationMs": 3.998
+  },
+  "applyMinification": {
+    "bytes": 26625,
+    "cutPercent": 21.9,
+    "durationMs": 3.712
+  },
+  "sync": {
+    "bytes": 26625,
+    "cutPercent": 21.9,
+    "durationMs": 4.445
+  },
+  "async": {
+    "bytes": 26625,
+    "cutPercent": 21.9,
+    "durationMs": 3.439,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 4995,
+    "cutPercent": 85.3,
+    "durationMs": 0.39
+  },
+  "ratings": {
+    "minify": 7.8,
+    "symbols": 10,
+    "agent": 8.6,
+    "label": "strong"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

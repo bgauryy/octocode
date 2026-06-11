@@ -1,0 +1,59 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+-----------------------------------------------------------------------------
+{-
+Work around this warning:
+libraries/Cabal/Distribution/Simple.hs:78:0:
+    Warning: In the use of `runTests'
+             (imported from Distribution.Simple.UserHooks):
+             Deprecated: "Please use the new testing interface instead!"
+-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
+
+-- |
+-- Module      :  Distribution.Simple
+-- Copyright   :  Isaac Jones 2003-2005
+-- License     :  BSD3
+--
+-- Maintainer  :  cabal-devel@haskell.org
+-- Portability :  portable
+--
+-- This is the command line front end to the Simple build system. When given
+-- the parsed command-line args and package information, is able to perform
+-- basic commands like configure, build, install, register, etc.
+--
+-- This module exports the main functions that Setup.hs scripts use. It
+-- re-exports the 'UserHooks' type, the standard entry points like
+-- 'defaultMain' and 'defaultMainWithHooks' and the predefined sets of
+-- 'UserHooks
+
+... [truncated 39600 chars] ...
+
+
+      (allSuffixHandlers hooks)
+      args
+
+defaultRegHook
+  :: VerbosityHandles
+  -> PackageDescription
+  -> LocalBuildInfo
+  -> UserHooks
+  -> RegisterFlags
+  -> IO ()
+defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
+  | hasLibs pkg_descr =
+      registerWithHandles verbHandles pkg_descr localbuildinfo flags
+  | otherwise =
+      setupMessage
+        verbosity
+        "Package contains no library to register:"
+        (packageId pkg_descr)
+  where
+    verbosity =
+      mkVerbosity verbHandles $
+        fromFlag (setupVerbosity $ registerCommonFlags flags)

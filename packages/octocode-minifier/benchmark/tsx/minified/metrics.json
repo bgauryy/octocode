@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 284,
+      "cutPercent": 0.4,
+      "durationMs": 0.108
+    },
+    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 284,
+      "cutPercent": 0.4,
+      "durationMs": 3.252
+    },
+    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 284,
+      "cutPercent": 0.4,
+      "durationMs": 1.822
+    },
+    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 284,
+      "cutPercent": 0.4,
+      "durationMs": 4.598,
+      "failed": false,
+      "type": "conservative",
+      "reason": null
+    },
+    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "api": "minifyContent"
+  }
+}

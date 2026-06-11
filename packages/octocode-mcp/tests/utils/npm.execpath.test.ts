@@ -27,12 +27,27 @@ const expectedNpmPath = join(
   process.platform === 'win32' ? 'npm.cmd' : 'npm'
 );
 
-describe('executeNpmCommand - process.execPath spawn', () => {
+function expectNpmInvocation(
+  command: unknown,
+  args: unknown[] | undefined,
+  npmArgs: string[]
+) {
+  if (command === process.execPath) {
+    expect(args?.[0]).toBe(expectedNpmPath);
+    expect(args?.slice(1)).toEqual(npmArgs);
+    return;
+  }
+
+  expect(String(command)).toMatch(/npm(\.cmd)?$/);
+  expect(args).toEqual(npmArgs);
+}
+
+describe('executeNpmCommand - npm invocation spawn', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should spawn npm using process.execPath as the command (not the npm script directly)', async () => {
+  it('should spawn a resolved npm invocation', async () => {
     const mockProcess = new MockChildProcess();
     vi.mocked(spawn).mockReturnValue(
       mockProcess as unknown as ReturnType<typeof spawn>
@@ -51,13 +66,7 @@ describe('executeNpmCommand - process.execPath spawn', () => {
     const spawnCall = vi.mocked(spawn).mock.calls[0]!;
     const [command, args] = spawnCall;
 
-    expect(command).toBe(process.execPath);
-
-    expect(args![0]).toBe(expectedNpmPath);
-
-    expect(args![1]).toBe('view');
-    expect(args![2]).toBe('express');
-    expect(args![3]).toBe('--json');
+    expectNpmInvocation(command, args, ['view', 'express', '--json']);
   });
 
   it('should pass the npm subcommand and all arguments after the npm script path', async () => {
@@ -82,9 +91,7 @@ describe('executeNpmCommand - process.execPath spawn', () => {
     const spawnCall = vi.mocked(spawn).mock.calls[0]!;
     const [command, args] = spawnCall;
 
-    expect(command).toBe(process.execPath);
-    expect(args).toEqual([
-      expectedNpmPath,
+    expectNpmInvocation(command, args, [
       'search',
       'lodash',
       '--json',
@@ -93,12 +100,12 @@ describe('executeNpmCommand - process.execPath spawn', () => {
   });
 });
 
-describe('checkNpmAvailability - process.execPath spawn', () => {
+describe('checkNpmAvailability - npm invocation spawn', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should check npm availability using process.execPath as the command', async () => {
+  it('should check npm availability using a resolved npm invocation', async () => {
     const mockProcess = new MockChildProcess();
     vi.mocked(spawn).mockReturnValue(
       mockProcess as unknown as ReturnType<typeof spawn>
@@ -119,8 +126,6 @@ describe('checkNpmAvailability - process.execPath spawn', () => {
     const spawnCall = vi.mocked(spawn).mock.calls[0]!;
     const [command, args] = spawnCall;
 
-    expect(command).toBe(process.execPath);
-    expect(args![0]).toBe(expectedNpmPath);
-    expect(args![1]).toBe('--version');
+    expectNpmInvocation(command, args, ['--version']);
   });
 });

@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { GitHubCodeSearchQuerySchema as UpstreamGitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { completeMetadata } from '@octocodeai/octocode-core';
+import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
+  clampedInt,
   createRelaxedBulkQuerySchema,
-  optionalMetaFields,
-  withCoreSchemaDescriptions,
+  relaxedPageNumberField,
 } from '../../scheme/localSchemaOverlay.js';
 import {
   EvidenceSchema,
@@ -11,18 +12,48 @@ import {
 } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-export const GitHubCodeSearchQueryLocalSchema = withCoreSchemaDescriptions(
-  STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-  UpstreamGitHubCodeSearchQuerySchema.omit({ limit: true }).extend({
-    ...optionalMetaFields,
-    page: z.number().int().min(1).max(1000).optional().default(1),
-  })
-);
+const QUERY_DESCRIPTIONS = {
+  ...completeMetadata.baseSchema,
+  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.schema,
+} as Record<string, string>;
+
+const GitHubCodeSearchQuerySchema = z.object({
+  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.researchGoal!),
+  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
+  keywordsToSearch: z
+    .array(z.string())
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.keywordsToSearch!),
+  owner: z.string().optional().describe(QUERY_DESCRIPTIONS.owner!),
+  repo: z.string().optional().describe(QUERY_DESCRIPTIONS.repo!),
+  extension: z.string().optional().describe(QUERY_DESCRIPTIONS.extension!),
+  filename: z.string().optional().describe(QUERY_DESCRIPTIONS.filename!),
+  path: z.string().optional().describe(QUERY_DESCRIPTIONS.path!),
+  match: z
+    .enum(['file', 'path'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.match!),
+  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.limit!),
+  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
+  verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
+});
+
+export const GitHubCodeSearchQueryLocalSchema = GitHubCodeSearchQuerySchema;
 
 export const GitHubCodeSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(
     STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-    GitHubCodeSearchQueryLocalSchema
+    GitHubCodeSearchQuerySchema
   );
 
 export const GitHubCodeSearchOutputLocalSchema = z.object({
@@ -40,35 +71,13 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
       repo: z.string(),
       matches: z.array(
         z.object({
-          path: z.string().describe('Repo-relative file path of the match.'),
-          value: z
-            .string()
-            .optional()
-            .describe(
-              'Code snippet returned by GitHub for this match. NOT the full file — use githubGetFileContent to read the full file.'
-            ),
-          pathOnly: z
-            .boolean()
-            .optional()
-            .describe(
-              'True when GitHub returned a path match but no text snippet. Use githubGetFileContent with matchString to inspect content.'
-            ),
+          path: z.string(),
+          value: z.string().optional(),
+          pathOnly: z.boolean().optional(),
           matchIndices: z
-            .array(
-              z
-                .object({ start: z.number(), end: z.number() })
-                .describe(
-                  'Character offsets within the `value` snippet string (not line numbers in the file).'
-                )
-            )
-            .optional()
-            .describe(
-              'Character-offset spans inside the `value` snippet that highlight the matched terms. These are NOT line numbers — use githubGetFileContent with matchString to get exact line positions.'
-            ),
-          url: z
-            .string()
-            .optional()
-            .describe('verbose mode: html URL of the matched file.'),
+            .array(z.object({ start: z.number(), end: z.number() }))
+            .optional(),
+          url: z.string().optional(),
         })
       ),
     })

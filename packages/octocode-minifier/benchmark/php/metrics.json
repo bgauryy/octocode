@@ -1,0 +1,51 @@
+{
+  "ext": "php",
+  "language": "PHP",
+  "source": "php/Arr.php",
+  "sourceBytes": 35469,
+  "strategy": "conservative",
+  "commentModel": [
+    "c-style",
+    "hash"
+  ],
+  "sha256": "9b3d0573f42d060d51fe86858c06550c1a3f0f84cc112b186918837659a37632",
+  "contentView": {
+    "bytes": 20778,
+    "cutPercent": 41.4,
+    "durationMs": 9.388
+  },
+  "applyMinification": {
+    "bytes": 20778,
+    "cutPercent": 41.4,
+    "durationMs": 8.467
+  },
+  "sync": {
+    "bytes": 20778,
+    "cutPercent": 41.4,
+    "durationMs": 8.724
+  },
+  "async": {
+    "bytes": 20778,
+    "cutPercent": 41.4,
+    "durationMs": 9.682,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 4562,
+    "cutPercent": 87.1,
+    "durationMs": 0.558
+  },
+  "ratings": {
+    "minify": 9,
+    "symbols": 10,
+    "agent": 9.4,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

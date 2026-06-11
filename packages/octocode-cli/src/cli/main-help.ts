@@ -45,6 +45,8 @@ export function showHelp(): void {
     `    ${c('magenta', 'octocode')} tools <name> --queries '<json>'        ${dim('run a tool')}`,
     `    ${c('magenta', 'octocode')} instructions                           ${dim('MCP instructions + all schemas')}`,
     '',
+    `  ${bold('TOOL RUNTIME')}  ${dim('`octocode tools` runs the same Octocode MCP tool implementations under the hood')}`,
+    '',
     `  ${bold('COMMANDS')}  ${dim('(manage Octocode configuration)')}`,
     `    ${c('magenta', 'install')}          Configure octocode-mcp for an IDE`,
     `    ${c('magenta', 'auth')}             Manage GitHub authentication`,

@@ -94,6 +94,7 @@ describe('processFileContentAPI — minify mode', () => {
     expect(result.signaturesExtracted).toBe(true);
     expect(result.contentView).toBe('symbols');
     expect(result.isSkeleton).toBe(true);
+    expect(result.isPartial).toBe(false);
     expect(result.content).toContain('import { useState }');
     expect(result.content).toContain('export function Counter');
     expect(result.content).not.toContain('setCount(c => c + 1)');

@@ -94,7 +94,7 @@ export async function getFileContent(
     startLine: query.startLine,
     endLine: query.endLine,
     matchString: query.matchString,
-    matchStringContextLines: query.matchStringContextLines,
+    contextLines: query.contextLines,
     matchStringIsRegex: query.matchStringIsRegex,
     matchStringCaseSensitive: query.matchStringCaseSensitive,
     charOffset: query.charOffset,

@@ -1,0 +1,48 @@
+{
+  "ext": "sh",
+  "language": "Shell",
+  "source": "sh/nvm.sh",
+  "sourceBytes": 156857,
+  "strategy": "conservative",
+  "commentModel": "hash",
+  "sha256": "cd6f374433a22ec01919a834cf59d03e0ba07c226bed460a50ef5eecc38c39ef",
+  "contentView": {
+    "bytes": 156306,
+    "cutPercent": 0.4,
+    "durationMs": 4.032
+  },
+  "applyMinification": {
+    "bytes": 156306,
+    "cutPercent": 0.4,
+    "durationMs": 4.125
+  },
+  "sync": {
+    "bytes": 156306,
+    "cutPercent": 0.4,
+    "durationMs": 4.181
+  },
+  "async": {
+    "bytes": 156306,
+    "cutPercent": 0.4,
+    "durationMs": 5.44,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 3432,
+    "cutPercent": 97.8,
+    "durationMs": 2.64
+  },
+  "ratings": {
+    "minify": 6.3,
+    "symbols": 10,
+    "agent": 7.6,
+    "label": "good"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

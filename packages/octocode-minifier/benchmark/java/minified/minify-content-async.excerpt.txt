@@ -1,0 +1,68 @@
+package org.springframework.core.annotation;
+
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Array;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
+
+import org.jspecify.annotations.Nullable;
+
+import org.springframework.core.BridgeMethodResolver;
+import org.springframework.core.annotation.AnnotationTypeMapping.MirrorSets.MirrorSet;
+import org.springframework.core.annotation.MergedAnnotation.Adapt;
+import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
+import org.springframework.util.ClassUtils;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.ConcurrentReferenceHashMap;
+import org.springframework.util.ReflectionUtils;
+import org.springframework.util.StringUtils;
+
+public abstract class AnnotationUtils {
+
+	public static final String VALUE = MergedAnnotation.VALUE;
+
+	private static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =
+			A
+
+... [truncated 20471 chars] ...
+
+hesizedMergedAnnotationInvocationHandler);
+		}
+		catch (SecurityException ex) {
+
+			return false;
+		}
+	}
+
+	public static void clearCache() {
+		AnnotationTypeMappings.clearCache();
+		AnnotationsScanner.clearCache();
+		AttributeMethods.cache.clear();
+		RepeatableContainers.cache.clear();
+		OrderUtils.orderCache.clear();
+	}
+
+	private static class DefaultValueHolder {
+
+		final Object defaultValue;
+
+		public DefaultValueHolder(Object defaultValue) {
+			this.defaultValue = defaultValue;
+		}
+
+		@Override
+		public String toString() {
+			return "*" + this.defaultValue;
+		}
+	}
+
+}

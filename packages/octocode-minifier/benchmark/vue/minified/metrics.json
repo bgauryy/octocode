@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 118,
+      "cutPercent": 0.8,
+      "durationMs": 0.033
+    },
+    "content": "<script setup>\nimport HelloWorld from './components/HelloWorld.vue'\n</script>\n\n<template>\n  <HelloWorld />\n</template>",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 112,
+      "cutPercent": 5.9,
+      "durationMs": 0.036
+    },
+    "content": "<script setup> import HelloWorld from './components/HelloWorld.vue' </script><template><HelloWorld /></template>",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 112,
+      "cutPercent": 5.9,
+      "durationMs": 0.024
+    },
+    "content": "<script setup> import HelloWorld from './components/HelloWorld.vue' </script><template><HelloWorld /></template>",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 110,
+      "cutPercent": 7.6,
+      "durationMs": 0.172,
+      "failed": false,
+      "type": "aggressive",
+      "reason": null
+    },
+    "content": "<script setup>import HelloWorld from\"./components/HelloWorld.vue\";</script><template><HelloWorld /></template>",
+    "api": "minifyContent"
+  }
+}

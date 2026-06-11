@@ -33,8 +33,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
         data: {
           path: 'src/a.ts',
           content: 'hello world',
-          contentView: 'symbols',
-          isSkeleton: true,
+          contentView: 'standard',
           totalLines: 12,
           resolvedBranch: 'main',
           pagination: {
@@ -64,8 +63,8 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     const file = data.results[0]!.files![0]!;
     expect(file.path).toBe('src/a.ts');
     expect(file.content).toBe('hello world');
-    expect(file.contentView).toBe('symbols');
-    expect(file.isSkeleton).toBe(true);
+    expect(file.contentView).toBe('standard');
+    expect(file.isSkeleton).toBeUndefined();
     expect(file.isPartial).toBe(true);
     expect(file.totalLines).toBe(12);
     expect(file.warnings).toEqual(['w1', 'w2']);
@@ -73,6 +72,34 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
     expect(pg.charOffset).toBe(0);
     expect(pg.totalBytes).toBeUndefined();
     expect(pg.filesPerPage).toBeUndefined();
+  });
+
+  it('keeps whole symbols skeletons distinct from partial file slices', () => {
+    const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'src/a.ts' }];
+    const results: FlatQueryResult[] = [
+      {
+        id: 'q1',
+        data: {
+          path: 'src/a.ts',
+          content: '001| export function a(): void',
+          contentView: 'symbols',
+          isSkeleton: true,
+          isPartial: false,
+          totalLines: 50,
+        },
+      },
+    ];
+
+    const out = run(queries, results);
+    const data = out.structuredContent as {
+      evidence?: { incompleteReasons?: string[] };
+      results: Array<{ files?: Array<Record<string, unknown>> }>;
+    };
+    const file = data.results[0]!.files![0]!;
+    expect(file.contentView).toBe('symbols');
+    expect(file.isSkeleton).toBe(true);
+    expect(file.isPartial).toBeUndefined();
+    expect(data.evidence?.incompleteReasons ?? []).toEqual([]);
   });
 
   it('falls back to query.path and empty content when data fields are missing/invalid', () => {

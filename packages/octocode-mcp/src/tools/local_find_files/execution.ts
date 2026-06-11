@@ -45,15 +45,7 @@ export async function executeFindFiles(
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          // `entryType` is the agent-facing fs-entry filter. Map it to the
-          // internal `type` field that the find command builder reads.
-          const normalized = validation.data as FindFilesQuery & {
-            entryType?: string;
-          };
-          if (normalized.entryType != null) {
-            normalized.type = normalized.entryType;
-          }
-          const result = await findFiles(normalized);
+          const result = await findFiles(validation.data);
           return attachEvidence(
             result as ProcessedBulkResult,
             buildFindFilesEvidence(result)

@@ -51,12 +51,8 @@ import {
   LocalViewStructureBulkQuerySchema,
 } from './local_view_structure/scheme.js';
 import {
-  BulkLspGetDiagnosticsQuerySchema,
-  LspGetDiagnosticsQuerySchema,
-} from './lsp/diagnostics/scheme.js';
-import {
   BulkLspGetSemanticContentQuerySchema,
-  LspGetSemanticContentQuerySchema,
+  LspGetSemanticContentQueryDisplaySchema,
 } from './lsp/semantic_content/scheme.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { registerGitHubSearchCodeTool } from './github_search_code/github_search_code.js';
@@ -80,14 +76,9 @@ import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
 import { registerLocalViewStructureTool } from './local_view_structure/register.js';
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
-import { executeLspGetDiagnostics } from './lsp/diagnostics/execution.js';
-import { registerLspGetDiagnosticsTool } from './lsp/diagnostics/register.js';
 import { executeLspGetSemanticContent } from './lsp/semantic_content/execution.js';
 import { registerLspGetSemanticContentTool } from './lsp/semantic_content/register.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from './lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
@@ -165,7 +156,6 @@ interface ToolCatalog {
   LOCAL_FIND_FILES: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_GET_SEMANTIC_CONTENT: ToolConfig;
-  LSP_GET_DIAGNOSTICS: ToolConfig;
   ALL_TOOLS: ToolConfig[];
 }
 
@@ -344,34 +334,16 @@ function createToolCatalog(
 
   const LSP_GET_SEMANTIC_CONTENT: ToolConfig = {
     name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-    description:
-      'Return typed semantic content from a local language server for a symbol or file.',
+    description: getDescription(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME, gateway),
     isDefault: true,
     isLocal: true,
     skipMetadataCheck: true,
     type: 'content',
     fn: registerLspGetSemanticContentTool,
     direct: {
-      schema: LspGetSemanticContentQuerySchema,
+      schema: LspGetSemanticContentQueryDisplaySchema,
       inputSchema: BulkLspGetSemanticContentQuerySchema,
       executionFn: executeLspGetSemanticContent,
-      security: 'basic',
-      requiresServerRuntime: true,
-    },
-  };
-
-  const LSP_GET_DIAGNOSTICS: ToolConfig = {
-    name: LSP_GET_DIAGNOSTICS_TOOL_NAME,
-    description: 'Return language-server diagnostics for a local file.',
-    isDefault: true,
-    isLocal: true,
-    skipMetadataCheck: true,
-    type: 'content',
-    fn: registerLspGetDiagnosticsTool,
-    direct: {
-      schema: LspGetDiagnosticsQuerySchema,
-      inputSchema: BulkLspGetDiagnosticsQuerySchema,
-      executionFn: executeLspGetDiagnostics,
       security: 'basic',
       requiresServerRuntime: true,
     },
@@ -390,7 +362,6 @@ function createToolCatalog(
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
-    LSP_GET_DIAGNOSTICS,
   ];
 
   return {
@@ -406,7 +377,6 @@ function createToolCatalog(
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
-    LSP_GET_DIAGNOSTICS,
     ALL_TOOLS,
   };
 }
@@ -429,5 +399,4 @@ export const LOCAL_FIND_FILES = DEFAULT_TOOL_CATALOG.LOCAL_FIND_FILES;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_GET_SEMANTIC_CONTENT =
   DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;
-export const LSP_GET_DIAGNOSTICS = DEFAULT_TOOL_CATALOG.LSP_GET_DIAGNOSTICS;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

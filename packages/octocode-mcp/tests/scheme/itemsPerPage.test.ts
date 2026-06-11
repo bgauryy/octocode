@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DEFAULT_PAGE_SIZE,
-  STRUCTURE_PAGE_SIZE,
-} from '../../src/scheme/localSchemaOverlay.js';
+  GITHUB_SEARCH_MAX_LIMIT,
+  GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE,
+  LOCAL_DEFAULT_FILES_PER_PAGE,
+  PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
+} from '../../src/config.js';
 import { LocalRipgrepBulkQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
 import { LocalFindFilesBulkQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 import { LocalViewStructureBulkQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
@@ -11,17 +13,25 @@ import { GitHubCodeSearchBulkQueryLocalSchema } from '../../src/tools/github_sea
 import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../src/tools/github_view_repo_structure/scheme.js';
 import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
 
-describe('Page size constants', () => {
-  it('DEFAULT_PAGE_SIZE is 20', () => {
-    expect(DEFAULT_PAGE_SIZE).toBe(20);
+describe('Pagination config constants', () => {
+  it('LOCAL_DEFAULT_FILES_PER_PAGE is 20', () => {
+    expect(LOCAL_DEFAULT_FILES_PER_PAGE).toBe(20);
   });
 
-  it('STRUCTURE_PAGE_SIZE is 100', () => {
-    expect(STRUCTURE_PAGE_SIZE).toBe(100);
+  it('PR_CONTENT_DEFAULT_ITEMS_PER_PAGE is 20', () => {
+    expect(PR_CONTENT_DEFAULT_ITEMS_PER_PAGE).toBe(20);
+  });
+
+  it('GITHUB_SEARCH_MAX_LIMIT is 100', () => {
+    expect(GITHUB_SEARCH_MAX_LIMIT).toBe(100);
+  });
+
+  it('GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE is 200', () => {
+    expect(GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE).toBe(200);
   });
 });
 
-describe('GitHub search: page-based pagination, no legacy fields', () => {
+describe('GitHub search: page-based pagination, exact fields', () => {
   it('defaults page to 1 when omitted', () => {
     const parsed = GitHubReposSearchBulkQueryLocalSchema.parse({
       queries: [{ keywordsToSearch: ['x'] }],
@@ -38,69 +48,79 @@ describe('GitHub search: page-based pagination, no legacy fields', () => {
     expect(q.page).toBe(3);
   });
 
-  it('does not expose itemsPerPage or githubAPILimit', () => {
+  it('exposes limit but not githubAPILimit; limit undefined when not provided', () => {
     const parsed = GitHubCodeSearchBulkQueryLocalSchema.parse({
       queries: [{ keywordsToSearch: ['x'] }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
-    expect('itemsPerPage' in q).toBe(false);
     expect('githubAPILimit' in q).toBe(false);
-    expect('limit' in q).toBe(false);
+    // limit is now exposed so agents can set page size; undefined when not provided
+    expect(q.limit).toBeUndefined();
   });
 });
 
-describe('Local tools: page-based pagination, legacy names gone', () => {
+describe('Local tools: page-based pagination, exact fields', () => {
   const q0 = (
     schema: { parse: (v: unknown) => { queries: unknown[] } },
     query: unknown
   ) => schema.parse({ queries: [query] }).queries[0] as Record<string, unknown>;
 
-  it('ripgrep: accepts page, no itemsPerPage, no filesPerPage', () => {
+  it('ripgrep: accepts page + itemsPerPage; removed filesPerPage/matchesPerPage stay absent', () => {
     const q = q0(LocalRipgrepBulkQuerySchema, {
       pattern: 'x',
       path: '.',
       page: 2,
+      itemsPerPage: 10,
     });
     expect(q.page).toBe(2);
-    expect('itemsPerPage' in q).toBe(false);
+    expect(q.itemsPerPage).toBe(10);
     expect('filesPerPage' in q).toBe(false);
     expect('matchesPerPage' in q).toBe(false);
     expect('filePageNumber' in q).toBe(false);
   });
 
-  it('localFindFiles: accepts page, no filesPerPage', () => {
+  it('localFindFiles: accepts page + itemsPerPage; removed filesPerPage stays absent', () => {
     const q = q0(LocalFindFilesBulkQuerySchema, {
       path: '.',
       name: '*.ts',
       page: 2,
+      itemsPerPage: 25,
     });
     expect(q.page).toBe(2);
+    expect(q.itemsPerPage).toBe(25);
     expect('filesPerPage' in q).toBe(false);
-    expect('itemsPerPage' in q).toBe(false);
   });
 
-  it('localViewStructure: accepts page, no entriesPerPage', () => {
-    const q = q0(LocalViewStructureBulkQuerySchema, { path: '.', page: 2 });
+  it('localViewStructure: accepts page + itemsPerPage; removed entriesPerPage stays absent', () => {
+    const q = q0(LocalViewStructureBulkQuerySchema, {
+      path: '.',
+      page: 2,
+      itemsPerPage: 30,
+    });
     expect(q.page).toBe(2);
+    expect(q.itemsPerPage).toBe(30);
     expect('entriesPerPage' in q).toBe(false);
-    expect('itemsPerPage' in q).toBe(false);
   });
 
-  it('githubViewRepoStructure: accepts page, no entriesPerPage', () => {
+  it('githubViewRepoStructure: accepts page + itemsPerPage; removed entriesPerPage stays absent', () => {
     const q = q0(GitHubViewRepoStructureBulkQueryLocalSchema, {
       owner: 'o',
       repo: 'r',
       page: 2,
+      itemsPerPage: 50,
     });
     expect(q.page).toBe(2);
+    expect(q.itemsPerPage).toBe(50);
     expect('entriesPerPage' in q).toBe(false);
-    expect('itemsPerPage' in q).toBe(false);
   });
 
-  it('packageSearch: accepts page, no searchLimit', () => {
-    const q = q0(PackageSearchBulkQueryLocalSchema, { name: 'react', page: 2 });
-    expect(q.page).toBe(2);
-    expect('searchLimit' in q).toBe(false);
+  it('packageSearch: accepts page; removed page-size fields stay absent', () => {
+    const q = q0(PackageSearchBulkQueryLocalSchema, {
+      name: 'hono',
+      page: 1,
+    });
+    expect(q.page).toBe(1);
     expect('itemsPerPage' in q).toBe(false);
+    expect('searchLimit' in q).toBe(false);
   });
 });

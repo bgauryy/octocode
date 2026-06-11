@@ -709,14 +709,22 @@ const cFamilyStrategy: SignatureStrategy = {
       }
 
       if (C_TYPE_BLOCK.test(line)) {
-        kept.push(i);
-        // struct/union/enum/class body = member signatures: keep whole
-        // (the closing `} Name;` of a typedef is part of the block).
+        kept.push(i); // always keep the opening head line
+        // Enums (plain `enum`, `enum class`, `enum struct`, `typedef enum`):
+        // body entries are pure data values, not structural signatures — keep
+        // only the head and the closing `}` so agents know the type exists
+        // without inheriting a 100+ entry value table verbatim.
+        // Structs/unions/classes: keep the whole body (field/method signatures).
+        const isEnum = /^(?:typedef\s+)?enum\b/.test(line.trim());
         let depth = braceDelta(line);
         while (depth > 0 && i + 1 < lines.length) {
           i++;
-          kept.push(i);
           depth += braceDelta(lines[i]!);
+          // struct/union/class: keep every member line
+          // enum: keep only the closing brace line (depth just reached 0)
+          if (!isEnum || depth <= 0) {
+            kept.push(i);
+          }
         }
         continue;
       }
@@ -774,6 +782,12 @@ const javaCsStrategy = lineStrategy('c', [
   /^\s*(public|private|protected|static|abstract|final|override)\s+/,
   /^\s*(class|interface|enum|record)\s+\w+/,
   /^\s*(import|using|package|namespace)\s+/,
+]);
+
+const scalaStrategy = lineStrategy('c', [
+  /^\s*(package|import)\s+/,
+  /^\s*(sealed\s+|abstract\s+|final\s+|case\s+)*(class|object|trait|enum)\s+\w+/,
+  /^\s*(override\s+|private\s+|protected\s+|implicit\s+|given\s+)*(def|val|var|type)\s+\w+/,
 ]);
 
 const rustStrategy = lineStrategy('c', [
@@ -1154,6 +1168,7 @@ const STRATEGY_REGISTRY: Record<string, SignatureStrategy> = {
   cs: javaCsStrategy,
   kt: javaCsStrategy,
   kotlin: javaCsStrategy,
+  scala: scalaStrategy,
   rs: rustStrategy,
   rust: rustStrategy,
   c: cFamilyStrategy,

@@ -73,14 +73,19 @@ describe('minifierStrategies - Branch Coverage', () => {
         label: 'c-style',
         type: 'c-style' as const,
         content:
-          'const url = "https://example.com"; // remove\nconst marker = "/* keep */";\nconst escaped = "quote \\" // keep";\n/* remove block */\nconst done = true;',
+          'const url = "https://example.com"; // remove\nconst marker = "/* keep */";\nconst regex = /[/*]{2}/g;\nconst escapedRegex = /https?:\\/\\/example\\.com/;\nconst rust = r#"quote " /* keep raw */ // keep raw"#;\nconst verbatim = @"quote "" // keep verbatim";\nconst interpolated = $@"quote "" // keep interpolated";\nconst escaped = "quote \\" // keep";\n/* remove block */\nconst done = true;',
         kept: [
           '"https://example.com"',
           '"/* keep */"',
+          '/[/*]{2}/g',
+          '/https?:\\/\\/example\\.com/',
+          'r#"quote " /* keep raw */ // keep raw"#',
+          '@"quote "" // keep verbatim"',
+          '$@"quote "" // keep interpolated"',
           '"quote \\" // keep"',
           'const done = true',
         ],
-        removed: ['// remove', 'remove block'],
+        removed: ['// remove', 'remove block */'],
       },
       {
         label: 'hash',
@@ -97,6 +102,14 @@ describe('minifierStrategies - Branch Coverage', () => {
           "SELECT '-- keep'; -- remove\n/* remove block */\nSELECT '/* keep */';",
         kept: ["'-- keep'", "'/* keep */'"],
         removed: ['-- remove', 'remove block'],
+      },
+      {
+        label: 'html',
+        type: 'html' as const,
+        content:
+          '<div data-note="<!-- keep -->">keep</div>\n<!-- remove block -->',
+        kept: ['"<!-- keep -->"', '>keep</div>'],
+        removed: ['remove block'],
       },
       {
         label: 'lua',
@@ -122,11 +135,41 @@ describe('minifierStrategies - Branch Coverage', () => {
         removed: ['; remove'],
       },
       {
+        label: 'wasm-text',
+        type: 'wasm-text' as const,
+        content:
+          '(module\n  (data ";; keep") ;; remove\n  (; remove block ;)\n  (func (export "run"))\n)',
+        kept: ['";; keep"', '(func (export "run"))'],
+        removed: [';; remove', 'remove block'],
+      },
+      {
         label: 'percent',
         type: 'percent' as const,
         content: 'Value = "% keep" % remove\nnext().',
         kept: ['"% keep"', 'next().'],
         removed: ['% remove'],
+      },
+      {
+        label: 'template',
+        type: 'template' as const,
+        content:
+          '<div data-note="{{! keep }}">{{ name }}</div>\n{{!-- remove hbs --}}\n<%# remove ejs %>\n{# remove twig #}',
+        kept: ['"{{! keep }}"', '{{ name }}'],
+        removed: ['remove hbs', 'remove ejs', 'remove twig'],
+      },
+      {
+        label: 'haml',
+        type: 'haml' as const,
+        content: '%div{title: "-# keep"}\n-# remove\n%span keep',
+        kept: ['"-# keep"', '%span keep'],
+        removed: ['-# remove'],
+      },
+      {
+        label: 'slim',
+        type: 'slim' as const,
+        content: 'a href="/keep" keep\n/ remove\nspan keep',
+        kept: ['"/keep"', 'span keep'],
+        removed: ['/ remove'],
       },
     ])('$label comments outside strings only', testCase => {
       const result = removeComments(testCase.content, testCase.type);
@@ -137,6 +180,29 @@ describe('minifierStrategies - Branch Coverage', () => {
       for (const removed of testCase.removed) {
         expect(result).not.toContain(removed);
       }
+    });
+
+    it('leaves unterminated regex-like text intact while stripping later comments', () => {
+      const content = 'const re = /unterminated\nconst x = 1; // remove';
+      const result = removeComments(content, 'c-style');
+
+      expect(result).toContain('/unterminated');
+      expect(result).toContain('const x = 1;');
+      expect(result).not.toContain('// remove');
+    });
+
+    it('leaves end-of-file regex-like text intact when no closing slash exists', () => {
+      const content = 'const re = /unterminated';
+      const result = removeComments(content, 'c-style');
+
+      expect(result).toBe(content);
+    });
+
+    it('leaves unterminated verbatim strings intact', () => {
+      const content = 'const value = @"unterminated // keep';
+      const result = removeComments(content, 'c-style');
+
+      expect(result).toBe(content);
     });
   });
 

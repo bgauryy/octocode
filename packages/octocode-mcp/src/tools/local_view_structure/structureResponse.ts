@@ -32,18 +32,18 @@ export function paginateEntries(
   const entriesPerPage =
     query.itemsPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
   const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-  const entryPageNumber = Math.min(query.page || 1, totalPages);
-  const startIdx = (entryPageNumber - 1) * entriesPerPage;
+  const currentPage = Math.min(query.page || 1, totalPages);
+  const startIdx = (currentPage - 1) * entriesPerPage;
   const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
   return {
     paginatedEntries: entries.slice(startIdx, endIdx),
     endIdx,
     pagination: {
-      currentPage: entryPageNumber,
+      currentPage,
       totalPages,
       entriesPerPage,
       totalEntries,
-      hasMore: entryPageNumber < totalPages,
+      hasMore: currentPage < totalPages,
     },
   };
 }

@@ -13,18 +13,14 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
-  LSP_GET_DIAGNOSTICS,
 } from '../../src/tools/toolConfig.js';
 import {
   TOOL_NAMES,
   DESCRIPTIONS,
 } from '../../src/tools/toolMetadata/proxies.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from '../../src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 
-const legacyLspToolNames = [
+const removedLspToolNames = [
   `lsp${'Goto'}Definition`,
   `lsp${'Find'}References`,
   `lsp${'Call'}Hierarchy`,
@@ -32,8 +28,8 @@ const legacyLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 2 LSP = 13)', () => {
-      expect(ALL_TOOLS).toHaveLength(13);
+    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP = 12)', () => {
+      expect(ALL_TOOLS).toHaveLength(12);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
 
@@ -49,9 +45,8 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
-      expect(toolNames).toContain(LSP_GET_DIAGNOSTICS_TOOL_NAME);
-      for (const legacyName of legacyLspToolNames) {
-        expect(toolNames).not.toContain(legacyName);
+      for (const removedName of removedLspToolNames) {
+        expect(toolNames).not.toContain(removedName);
       }
     });
 
@@ -78,7 +73,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for Local tools', () => {
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
-      expect(localTools).toHaveLength(7);
+      expect(localTools).toHaveLength(6);
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
       });
@@ -182,17 +177,13 @@ describe('Tool Configuration', () => {
       expect(LOCAL_FETCH_CONTENT.fn).toBeTypeOf('function');
     });
 
-    it('new LSP tools should have correct config', () => {
+    it('LSP semantic tool should have correct config', () => {
       expect(LSP_GET_SEMANTIC_CONTENT.name).toBe(
         LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
       );
       expect(LSP_GET_SEMANTIC_CONTENT.type).toBe('content');
       expect(LSP_GET_SEMANTIC_CONTENT.isLocal).toBe(true);
       expect(LSP_GET_SEMANTIC_CONTENT.skipMetadataCheck).toBe(true);
-      expect(LSP_GET_DIAGNOSTICS.name).toBe(LSP_GET_DIAGNOSTICS_TOOL_NAME);
-      expect(LSP_GET_DIAGNOSTICS.type).toBe('content');
-      expect(LSP_GET_DIAGNOSTICS.isLocal).toBe(true);
-      expect(LSP_GET_DIAGNOSTICS.skipMetadataCheck).toBe(true);
     });
   });
 
@@ -217,7 +208,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(12);
+      expect(nonCloneTools).toHaveLength(11);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

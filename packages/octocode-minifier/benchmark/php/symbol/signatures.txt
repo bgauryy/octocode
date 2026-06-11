@@ -1,0 +1,49 @@
+   3| namespace Illuminate\Support;
+   5| use ArgumentCountError;
+   6| use ArrayAccess;
+   7| use Closure;
+   8| use Illuminate\Contracts\Support\Arrayable;
+   9| use Illuminate\Contracts\Support\Jsonable;
+  10| use Illuminate\Support\Traits\Macroable;
+  11| use InvalidArgumentException;
+  12| use JsonSerializable;
+  13| use Random\Randomizer;
+  14| use Traversable;
+  15| use WeakMap;
+  17| class Arr
+  19|     use Macroable;
+  27|     public static function accessible($value)
+  50|     public static function arrayable($value)
+  67|     public static function add($array, $key, $value)
+  81|     public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array
+  99|     public static function boolean(ArrayAccess|array $array, string|int|null $key, ?bool $default = null): bool
+ 118|     public static function collapse($array)
+ 141|     public static function crossJoin(...$arrays)
+ 171|     public static function divide($array)
+ 184|     public static function dot($array, $prepend = '', $depth = INF)
+ 214|     public static function undot($array)
+ 232|     public static function except($array, $keys)
+ 247|     public static function exceptValues($array, $values, $strict = false)
+ 263|     public static function exists($array, $key)
+ 292|     public static function first($array, ?callable $callback = null, $default = null)
+ 329|     public static function last($array, ?callable $callback = null, $default = null)
+ 345|     public static function take($array, $limit)
+ 361|     public static function flatten($array, $depth = INF)
+ 389|     public static function float(ArrayAccess|array $array, string|int|null $key, ?float $default = null): float
+ 409|     public static function forget(&$array, $keys)
+ 45
+
+... [truncated 1962 chars] ...
+
+tatic function sort($array, $callback = null)
+1112|     public static function sortDesc($array, $callback = null)
+1128|     public static function sortRecursive($array, $options = SORT_REGULAR, $descending = false)
+1159|     public static function sortRecursiveDesc($array, $options = SORT_REGULAR)
+1169|     public static function string(ArrayAccess|array $array, string|int|null $key, ?string $default = null): string
+1188|     public static function toCssClasses($array)
+1211|     public static function toCssStyles($array)
+1238|     public static function where($array, callable $callback)
+1253|     public static function reject($array, callable $callback)
+1268|     public static function partition($array, callable $callback)
+1290|     public static function whereNotNull($array)
+1304|     public static function wrap($value)

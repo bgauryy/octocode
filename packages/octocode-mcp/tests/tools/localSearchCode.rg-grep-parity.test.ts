@@ -57,13 +57,10 @@ const query = {
   pattern: 'needle',
   path: '/workspace',
   fixedString: true,
-  smartCase: true,
-  binaryFiles: 'without-match',
   matchContentLength: 200,
   itemsPerPage: 10,
   page: 1,
-  matchesPerFile: 10,
-  includeStats: false,
+  maxMatchesPerFile: 10,
 };
 
 describe('localSearchCode ripgrep vs grep fallback parity', () => {

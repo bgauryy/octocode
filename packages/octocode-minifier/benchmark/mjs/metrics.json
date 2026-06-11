@@ -1,0 +1,48 @@
+{
+  "ext": "mjs",
+  "language": "ESM JavaScript",
+  "source": "mjs/llhttp-eslint.config.mjs",
+  "sourceBytes": 1259,
+  "strategy": "terser",
+  "commentModel": "c-style",
+  "sha256": "0b88b2e96538159ff27a3665374bbdf14cfc63302a8fd31354693435a1ad243b",
+  "contentView": {
+    "bytes": 1240,
+    "cutPercent": 1.5,
+    "durationMs": 0.129
+  },
+  "applyMinification": {
+    "bytes": 866,
+    "cutPercent": 31.2,
+    "durationMs": 0.914
+  },
+  "sync": {
+    "bytes": 866,
+    "cutPercent": 31.2,
+    "durationMs": 0.927
+  },
+  "async": {
+    "bytes": 866,
+    "cutPercent": 31.2,
+    "durationMs": 0.506,
+    "failed": false,
+    "type": "terser",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 268,
+    "cutPercent": 78.7,
+    "durationMs": 0.65
+  },
+  "ratings": {
+    "minify": 9,
+    "symbols": 9,
+    "agent": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

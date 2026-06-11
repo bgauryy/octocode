@@ -1,0 +1,119 @@
+require "concurrent/map"
+
+class Object
+
+  def blank?
+    respond_to?(:empty?) ? !!empty? : false
+  end
+
+  def present?
+    !blank?
+  end
+
+  def presence
+    self if present?
+  end
+end
+
+class NilClass
+
+  def blank?
+    true
+  end
+
+  def present?
+    false
+  end
+end
+
+class FalseClass
+
+  def blank?
+    true
+  end
+
+  def present?
+    false
+  end
+end
+
+class TrueClass
+
+  def blank?
+    false
+  end
+
+  def present?
+    true
+  end
+end
+
+class Array
+
+  alias_method :blank?, :empty?
+
+  def present?
+    !empty?
+  end
+end
+
+class Hash
+
+  alias_method :blank?, :empty?
+
+  def present?
+    !empty?
+  end
+end
+
+class Symbol
+
+  alias_method :blank?, :empty?
+
+  def present?
+    !empty?
+  end
+end
+
+class String
+  BLANK_RE = /\A[[:space:]]*\z/
+  ENCODED_BLANKS = Concurrent::Map.new do |h, enc|
+    h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)
+  end
+
+  def blank?
+
+    empty? ||
+      begin
+        BLANK_RE.match?(self)
+      rescue Encoding::CompatibilityError
+        ENCODED_BLANKS[self.encoding].match?(self)
+      end
+  end
+
+  def present?
+    !blank?
+  end
+end
+
+class Numeric
+
+  def blank?
+    false
+  end
+
+  def present?
+    true
+  end
+end
+
+class Time
+
+  def blank?
+    false
+  end
+
+  def present?
+    true
+  end
+end

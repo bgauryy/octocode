@@ -13,7 +13,7 @@ Octocode MCP has two worlds of tools:
 | World | Tools | Strengths | Limitations |
 |-------|-------|-----------|-------------|
 | **GitHub** | `githubSearchCode`, `githubGetFileContent`, `githubViewRepoStructure` | Fast, no disk usage, works on any repo | No LSP, no semantic analysis, API rate limits |
-| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemanticContent`, `lspGetDiagnostics` | Semantic navigation, diagnostics, call tracing, full ripgrep power | Only works on files on disk |
+| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemanticContent` | Semantic navigation, call tracing, full ripgrep power | Only works on files on disk |
 
 **Two tools bridge these worlds** — they download content to `~/.octocode/repos/` so local and LSP tools can analyze it:
 
@@ -35,7 +35,7 @@ Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) wit
 │  githubGetFileContent│       │                            │       │  localGetFileContent     │
 │                      │       │  githubGetFileContent      │       │  localFindFiles          │
 │                      │       │  (type: "directory")       │       │  lspGetSemanticContent   │
-│                      │       │  (lightweight, no git)     │       │  lspGetDiagnostics       │
+│                      │       │  (lightweight, no git)     │       │                          │
 │                      │       │  Both return: localPath    │       │                          │
 └─────────────────────┘       └────────────────────────────┘       └──────────────────────────┘
 ```
@@ -256,5 +256,5 @@ For TypeScript/JavaScript LSP:
 
 - [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — Full `githubCloneRepo` parameter reference
 - [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local filesystem search, structure, metadata, and content tools
-- [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) — Semantic content and diagnostics tools
+- [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) — Semantic content tool
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — `ENABLE_LOCAL`, `ENABLE_CLONE`, and other settings

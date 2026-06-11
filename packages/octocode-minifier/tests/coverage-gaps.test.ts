@@ -266,9 +266,9 @@ export GREETING=hello
 });
 
 describe('minifyContentSync — strategy routing edge cases', () => {
-  it('routes sql through the aggressive core (comments stripped, collapsed)', () => {
+  it('routes sql through the conservative core (comments stripped, spacing preserved)', () => {
     const result = minifyContentSync('SELECT  1;  -- note\n', 'q.sql');
-    expect(result).toContain('SELECT 1;');
+    expect(result).toContain('SELECT  1;');
     expect(result).not.toContain('note');
   });
 

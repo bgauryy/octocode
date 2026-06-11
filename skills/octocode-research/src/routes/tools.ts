@@ -8,13 +8,13 @@ import {
   GitHubViewRepoStructureQuerySchema,
   GitHubReposSearchSingleQuerySchema,
   GitHubPullRequestSearchQuerySchema,
+  CloneRepoQuerySchema,
   FileContentQuerySchema,
   RipgrepQuerySchema,
   FetchContentQuerySchema,
   FindFilesQuerySchema,
   ViewStructureQuerySchema,
   LspGetSemanticContentQuerySchema,
-  LspGetDiagnosticsQuerySchema,
   PackageSearchQuerySchema,
 } from 'octocode-mcp/public';
 import {
@@ -23,13 +23,13 @@ import {
   githubViewRepoStructure,
   githubSearchRepositories,
   githubSearchPullRequests,
+  githubCloneRepo,
   packageSearch,
   localSearchCode,
   localGetFileContent,
   localFindFiles,
   localViewStructure,
   lspGetSemanticContent,
-  lspGetDiagnostics,
   logToolCall,
 } from '../index.js';
 import {
@@ -62,12 +62,12 @@ const TOOL_ZOD_SCHEMAS: Record<string, z.ZodType> = {
   githubViewRepoStructure: GitHubViewRepoStructureQuerySchema,
   githubSearchRepositories: GitHubReposSearchSingleQuerySchema,
   githubSearchPullRequests: GitHubPullRequestSearchQuerySchema,
+  githubCloneRepo: CloneRepoQuerySchema,
   localSearchCode: RipgrepQuerySchema,
   localGetFileContent: FetchContentQuerySchema,
   localFindFiles: FindFilesQuerySchema,
   localViewStructure: ViewStructureQuerySchema,
   lspGetSemanticContent: LspGetSemanticContentQuerySchema,
-  lspGetDiagnostics: LspGetDiagnosticsQuerySchema,
   packageSearch: PackageSearchQuerySchema,
 };
 
@@ -95,13 +95,13 @@ toolsRoutes.get('/list', (_req: Request, res: Response) => {
         { name: 'githubViewRepoStructure', description: 'View GitHub repo tree' },
         { name: 'githubSearchRepositories', description: 'Search GitHub repositories' },
         { name: 'githubSearchPullRequests', description: 'Search pull requests' },
+        { name: 'githubCloneRepo', description: 'Clone GitHub repos or subtrees for local analysis' },
         { name: 'packageSearch', description: 'Search npm/PyPI packages' },
         { name: 'localSearchCode', description: 'Search local code with ripgrep' },
         { name: 'localGetFileContent', description: 'Read local file content' },
         { name: 'localFindFiles', description: 'Find files by pattern/metadata' },
         { name: 'localViewStructure', description: 'View local directory tree' },
         { name: 'lspGetSemanticContent', description: 'Go to definition, find references, call hierarchy, hover, document symbols' },
-        { name: 'lspGetDiagnostics', description: 'Get LSP diagnostics (errors/warnings) for a file' },
       ],
     },
     hints: ['GET /tools/info/{name} for full schema before calling'],
@@ -347,6 +347,7 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
   githubViewRepoStructure: { fn: githubViewRepoStructure, resilience: withGitHubResilience, category: 'github' },
   githubSearchRepositories: { fn: githubSearchRepositories, resilience: withGitHubResilience, category: 'github' },
   githubSearchPullRequests: { fn: githubSearchPullRequests, resilience: withGitHubResilience, category: 'github' },
+  githubCloneRepo: { fn: githubCloneRepo, resilience: withGitHubResilience, category: 'github' },
 
   localSearchCode: { fn: localSearchCode, resilience: withLocalResilience, category: 'local' },
   localGetFileContent: { fn: localGetFileContent, resilience: withLocalResilience, category: 'local' },
@@ -354,7 +355,6 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
   localViewStructure: { fn: localViewStructure, resilience: withLocalResilience, category: 'local' },
 
   lspGetSemanticContent: { fn: lspGetSemanticContent, resilience: withLspResilience, category: 'lsp' },
-  lspGetDiagnostics: { fn: lspGetDiagnostics, resilience: withLspResilience, category: 'lsp' },
 
   packageSearch: { fn: packageSearch, resilience: withPackageResilience, category: 'package' },
 };

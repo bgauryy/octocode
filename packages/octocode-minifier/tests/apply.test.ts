@@ -16,12 +16,11 @@ describe('applyMinification', () => {
 const   x   =   1;
 const   y   =   2;
 
-`;
+    `;
     const result = applyMinification(content, 'test.ts');
-    // Conservative strategy strips comments + trailing whitespace → shorter
+    // Parser-backed TypeScript minification removes comments and collapses syntax.
     expect(result).not.toContain('// This is a comment');
-    expect(result).toContain('const   x   =   1;');
-    expect(result).toContain('const   y   =   2;');
+    expect(result).toContain('const x=1,y=2;');
     expect(result.length).toBeLessThan(content.length);
   });
 
@@ -30,7 +29,7 @@ const   y   =   2;
     const once = applyMinification(content, 'test.ts');
     const twice = applyMinification(once, 'test.ts');
 
-    expect(once).toBe('const x = 1;');
+    expect(once).toBe('const x=1;');
     expect(twice).toBe(once);
   });
 

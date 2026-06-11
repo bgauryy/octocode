@@ -27,8 +27,9 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
-// `minify` is optional at the type level: the schema default ("none") is
-// applied at the MCP input boundary, while direct impl callers may omit it.
+// `minify` is optional at the type level: the provider mapper/API boundary
+// applies the configured content-view default, while direct impl callers may
+// omit it.
 type PartialFileContentQuery = Omit<
   z.infer<typeof FileContentQueryLocalSchema>,
   'minify'

@@ -1,0 +1,48 @@
+{
+  "ext": "rb",
+  "language": "Ruby",
+  "source": "rb/blank.rb",
+  "sourceBytes": 3507,
+  "strategy": "conservative",
+  "commentModel": "hash",
+  "sha256": "203eefc5b094f4a0f5bf68b4c34198891127f52ed7825e146c2fa089a46f8ec7",
+  "contentView": {
+    "bytes": 1254,
+    "cutPercent": 64.2,
+    "durationMs": 0.23
+  },
+  "applyMinification": {
+    "bytes": 1254,
+    "cutPercent": 64.2,
+    "durationMs": 0.22
+  },
+  "sync": {
+    "bytes": 1254,
+    "cutPercent": 64.2,
+    "durationMs": 0.211
+  },
+  "async": {
+    "bytes": 1254,
+    "cutPercent": 64.2,
+    "durationMs": 0.219,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 650,
+    "cutPercent": 81.5,
+    "durationMs": 0.244
+  },
+  "ratings": {
+    "minify": 9.5,
+    "symbols": 10,
+    "agent": 9.7,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

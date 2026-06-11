@@ -692,8 +692,8 @@ describe('GitHub View Repository Structure Tool', () => {
             owner: 'test',
             repo: 'repo',
             branch: 'main',
-            entriesPerPage: 10,
-            entryPageNumber: 1,
+            itemsPerPage: 10,
+            page: 1,
           },
         ],
       }

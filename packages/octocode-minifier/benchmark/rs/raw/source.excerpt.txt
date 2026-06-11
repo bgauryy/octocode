@@ -1,0 +1,60 @@
+//! Optional values.
+//!
+//! Type [`Option`] represents an optional value: every [`Option`]
+//! is either [`Some`] and contains a value, or [`None`], and
+//! does not. [`Option`] types are very common in Rust code, as
+//! they have a number of uses:
+//!
+//! * Initial values
+//! * Return values for functions that are not defined
+//!   over their entire input range (partial functions)
+//! * Return value for otherwise reporting simple errors, where [`None`] is
+//!   returned on error
+//! * Optional struct fields
+//! * Struct fields that can be loaned or "taken"
+//! * Optional function arguments
+//! * Nullable pointers
+//! * Swapping things out of difficult situations
+//!
+//! [`Option`]s are commonly paired with pattern matching to query the presence
+//! of a value and take action, always accounting for the [`None`] case.
+//!
+//! ```
+//! fn divide(numerator: f64, denominator: f64) -> Option<f64> {
+//!     if denominator == 0.0 {
+//!         None
+//!     } else {
+//!         Some(numerator / denominator)
+//!     }
+//! }
+//!
+//! // The return value of the function is an option
+//! let result = divide(2.0, 3.0);
+//!
+//! // Pattern match to retrieve the value
+//! match result {
+//!     // The division was valid
+/
+
+... [truncated 98257 chars] ...
+
+mples
+    ///
+    /// ```
+    /// #![feature(option_array_transpose)]
+    /// # use std::option::Option;
+    ///
+    /// let data = [Some(0); 1000];
+    /// let data: Option<[u8; 1000]> = data.transpose();
+    /// assert_eq!(data, Some([0; 1000]));
+    ///
+    /// let data = [Some(0), None];
+    /// let data: Option<[u8; 2]> = data.transpose();
+    /// assert_eq!(data, None);
+    /// ```
+    #[inline]
+    #[unstable(feature = "option_array_transpose", issue = "130828")]
+    pub fn transpose(self) -> Option<[T; N]> {
+        self.try_map(core::convert::identity)
+    }
+}

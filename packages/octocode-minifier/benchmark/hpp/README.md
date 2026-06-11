@@ -1,0 +1,498 @@
+# C++ Header (.hpp)
+
+Source sample: `hpp/fmt-color.hpp`
+
+Strategy: `conservative`
+
+Agent rating: **8.7/10 (strong)**
+
+Artifacts:
+
+- `raw/source.excerpt.txt`
+- `minified/content-view.excerpt.txt`
+- `minified/apply-minification.excerpt.txt`
+- `minified/minify-content-sync.excerpt.txt`
+- `minified/minify-content-async.excerpt.txt`
+- `symbol/signatures.txt`
+
+| Tool | Bytes | Cut | Time | Rating |
+| --- | ---: | ---: | ---: | ---: |
+| input | 25322 | - | - | - |
+| content-view | 15620 | 38.3% | 3.542 ms | 8.5/10 |
+| applyMinification | 15620 | 38.3% | 4.002 ms | 8.5/10 |
+| sync minify | 15620 | 38.3% | 3.5 ms | 8.5/10 |
+| async minify | 15620 | 38.3% | 3.47 ms | 8.5/10 |
+| symbols | 7208 | 71.5% | 0.44 ms | 9/10 |
+
+## Notes
+
+- conservative text strategy.
+
+## Before Excerpt
+
+```cpp
+// Formatting library for C++ - color support
+//
+// Copyright (c) 2018 - present, Victor Zverovich and {fmt} contributors
+// All rights reserved.
+//
+// For the license information refer to format.h.
+
+#ifndef FMT_COLOR_H_
+#define FMT_COLOR_H_
+
+#include "format.h"
+
+FMT_BEGIN_NAMESPACE
+FMT_BEGIN_EXPORT
+
+enum class color : uint32_t {
+  alice_blue = 0xF0F8FF,               // rgb(240,248,255)
+  antique_white = 0xFAEBD7,            // rgb(250,235,215)
+  aqua = 0x00FFFF,                     // rgb(0,255,255)
+  aquamarine = 0x7FFFD4,               // rgb(127,255,212)
+  azure = 0xF0FFFF,                    // rgb(240,255,255)
+  beige = 0xF5F5DC,                    // rgb(245,245,220)
+  bisque = 0xFFE4C4,                   // rgb(255,228,196)
+  black = 0x000000,                    // rgb(0,0,0)
+  blanched_almond = 0xFFEBCD,          // rgb(255,235,205)
+  blue = 0x0000FF,                     // rgb(0,0,255)
+  blue_violet = 0x8A2BE2,              // rgb(138,43,226)
+  brown = 0xA52A2A,                    // rgb(165,42,42)
+  burly_wood = 0xDEB887,               // rgb(222,184,135)
+  cadet_blue = 0x5F9EA0,               // rgb(95,158,160)
+  chartreuse = 0x7FFF00,               // rgb(127,255,0)
+  chocolate = 0xD2691E,  
+
+... [truncated 23290 chars] ...
+
+};
+
+/**
+ * Returns an argument that will be formatted using ANSI escape sequences,
+ * to be used in a formatting function.
+ *
+ * **Example**:
+ *
+ *     fmt::print("Elapsed time: {0:.2f} seconds",
+ *                fmt::styled(1.23, fmt::fg(fmt::color::green) |
+ *                                  fmt::bg(fmt::color::blue)));
+ */
+template <typename T>
+FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+    -> detail::styled_arg<remove_cvref_t<T>> {
+  return detail::styled_arg<remove_cvref_t<T>>{value, ts};
+}
+
+FMT_END_EXPORT
+FMT_END_NAMESPACE
+
+#endif  // FMT_COLOR_H_
+
+```
+
+## Content-View Excerpt
+
+```cpp
+#ifndef FMT_COLOR_H_
+#define FMT_COLOR_H_
+
+#include "format.h"
+
+FMT_BEGIN_NAMESPACE
+FMT_BEGIN_EXPORT
+
+enum class color : uint32_t {
+  alice_blue = 0xF0F8FF,
+  antique_white = 0xFAEBD7,
+  aqua = 0x00FFFF,
+  aquamarine = 0x7FFFD4,
+  azure = 0xF0FFFF,
+  beige = 0xF5F5DC,
+  bisque = 0xFFE4C4,
+  black = 0x000000,
+  blanched_almond = 0xFFEBCD,
+  blue = 0x0000FF,
+  blue_violet = 0x8A2BE2,
+  brown = 0xA52A2A,
+  burly_wood = 0xDEB887,
+  cadet_blue = 0x5F9EA0,
+  chartreuse = 0x7FFF00,
+  chocolate = 0xD2691E,
+  coral = 0xFF7F50,
+  cornflower_blue = 0x6495ED,
+  cornsilk = 0xFFF8DC,
+  crimson = 0xDC143C,
+  cyan = 0x00FFFF,
+  dark_blue = 0x00008B,
+  dark_cyan = 0x008B8B,
+  dark_golden_rod = 0xB8860B,
+  dark_gray = 0xA9A9A9,
+  dark_green = 0x006400,
+  dark_khaki = 0xBDB76B,
+  dark_magenta = 0x8B008B,
+  dark_olive_green = 0x556B2F,
+  dark_orange = 0xFF8C00,
+  dark_orchid = 0x9932CC,
+  dark_red = 0x8B0000,
+  dark_salmon = 0xE9967A,
+  dark_sea_green = 0x8FBC8F,
+  dark_slate_blue = 0x483D8B,
+  dark_slate_gray = 0x2F4F4F,
+  dark_turquoise = 0x00CED1,
+  dark_violet = 0x9400D3,
+  deep_pink = 0xFF1493,
+  deep_sky_blue = 0x00BFFF,
+  dim_gray = 0x696969,
+  dodger_blue = 0x1E90FF,
+  fire_brick = 0xB22222,
+  floral_white = 0xFFFAF0
+
+... [truncated 13820 chars] ...
+
+d_color<Char>(ts.get_background());
+      out = detail::copy<Char>(background.begin(), background.end(), out);
+    }
+    out = formatter<T, Char>::format(arg.value, ctx);
+    if (has_style) {
+      auto reset_color = string_view("\x1b[0m");
+      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
+    }
+    return out;
+  }
+};
+
+template <typename T>
+FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+    -> detail::styled_arg<remove_cvref_t<T>> {
+  return detail::styled_arg<remove_cvref_t<T>>{value, ts};
+}
+
+FMT_END_EXPORT
+FMT_END_NAMESPACE
+
+#endif
+```
+
+## Apply Minification Excerpt
+
+```cpp
+#ifndef FMT_COLOR_H_
+#define FMT_COLOR_H_
+
+#include "format.h"
+
+FMT_BEGIN_NAMESPACE
+FMT_BEGIN_EXPORT
+
+enum class color : uint32_t {
+  alice_blue = 0xF0F8FF,
+  antique_white = 0xFAEBD7,
+  aqua = 0x00FFFF,
+  aquamarine = 0x7FFFD4,
+  azure = 0xF0FFFF,
+  beige = 0xF5F5DC,
+  bisque = 0xFFE4C4,
+  black = 0x000000,
+  blanched_almond = 0xFFEBCD,
+  blue = 0x0000FF,
+  blue_violet = 0x8A2BE2,
+  brown = 0xA52A2A,
+  burly_wood = 0xDEB887,
+  cadet_blue = 0x5F9EA0,
+  chartreuse = 0x7FFF00,
+  chocolate = 0xD2691E,
+  coral = 0xFF7F50,
+  cornflower_blue = 0x6495ED,
+  cornsilk = 0xFFF8DC,
+  crimson = 0xDC143C,
+  cyan = 0x00FFFF,
+  dark_blue = 0x00008B,
+  dark_cyan = 0x008B8B,
+  dark_golden_rod = 0xB8860B,
+  dark_gray = 0xA9A9A9,
+  dark_green = 0x006400,
+  dark_khaki = 0xBDB76B,
+  dark_magenta = 0x8B008B,
+  dark_olive_green = 0x556B2F,
+  dark_orange = 0xFF8C00,
+  dark_orchid = 0x9932CC,
+  dark_red = 0x8B0000,
+  dark_salmon = 0xE9967A,
+  dark_sea_green = 0x8FBC8F,
+  dark_slate_blue = 0x483D8B,
+  dark_slate_gray = 0x2F4F4F,
+  dark_turquoise = 0x00CED1,
+  dark_violet = 0x9400D3,
+  deep_pink = 0xFF1493,
+  deep_sky_blue = 0x00BFFF,
+  dim_gray = 0x696969,
+  dodger_blue = 0x1E90FF,
+  fire_brick = 0xB22222,
+  floral_white = 0xFFFAF0
+
+... [truncated 13820 chars] ...
+
+d_color<Char>(ts.get_background());
+      out = detail::copy<Char>(background.begin(), background.end(), out);
+    }
+    out = formatter<T, Char>::format(arg.value, ctx);
+    if (has_style) {
+      auto reset_color = string_view("\x1b[0m");
+      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
+    }
+    return out;
+  }
+};
+
+template <typename T>
+FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+    -> detail::styled_arg<remove_cvref_t<T>> {
+  return detail::styled_arg<remove_cvref_t<T>>{value, ts};
+}
+
+FMT_END_EXPORT
+FMT_END_NAMESPACE
+
+#endif
+```
+
+## Sync Minify Excerpt
+
+```cpp
+#ifndef FMT_COLOR_H_
+#define FMT_COLOR_H_
+
+#include "format.h"
+
+FMT_BEGIN_NAMESPACE
+FMT_BEGIN_EXPORT
+
+enum class color : uint32_t {
+  alice_blue = 0xF0F8FF,
+  antique_white = 0xFAEBD7,
+  aqua = 0x00FFFF,
+  aquamarine = 0x7FFFD4,
+  azure = 0xF0FFFF,
+  beige = 0xF5F5DC,
+  bisque = 0xFFE4C4,
+  black = 0x000000,
+  blanched_almond = 0xFFEBCD,
+  blue = 0x0000FF,
+  blue_violet = 0x8A2BE2,
+  brown = 0xA52A2A,
+  burly_wood = 0xDEB887,
+  cadet_blue = 0x5F9EA0,
+  chartreuse = 0x7FFF00,
+  chocolate = 0xD2691E,
+  coral = 0xFF7F50,
+  cornflower_blue = 0x6495ED,
+  cornsilk = 0xFFF8DC,
+  crimson = 0xDC143C,
+  cyan = 0x00FFFF,
+  dark_blue = 0x00008B,
+  dark_cyan = 0x008B8B,
+  dark_golden_rod = 0xB8860B,
+  dark_gray = 0xA9A9A9,
+  dark_green = 0x006400,
+  dark_khaki = 0xBDB76B,
+  dark_magenta = 0x8B008B,
+  dark_olive_green = 0x556B2F,
+  dark_orange = 0xFF8C00,
+  dark_orchid = 0x9932CC,
+  dark_red = 0x8B0000,
+  dark_salmon = 0xE9967A,
+  dark_sea_green = 0x8FBC8F,
+  dark_slate_blue = 0x483D8B,
+  dark_slate_gray = 0x2F4F4F,
+  dark_turquoise = 0x00CED1,
+  dark_violet = 0x9400D3,
+  deep_pink = 0xFF1493,
+  deep_sky_blue = 0x00BFFF,
+  dim_gray = 0x696969,
+  dodger_blue = 0x1E90FF,
+  fire_brick = 0xB22222,
+  floral_white = 0xFFFAF0
+
+... [truncated 13820 chars] ...
+
+d_color<Char>(ts.get_background());
+      out = detail::copy<Char>(background.begin(), background.end(), out);
+    }
+    out = formatter<T, Char>::format(arg.value, ctx);
+    if (has_style) {
+      auto reset_color = string_view("\x1b[0m");
+      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
+    }
+    return out;
+  }
+};
+
+template <typename T>
+FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+    -> detail::styled_arg<remove_cvref_t<T>> {
+  return detail::styled_arg<remove_cvref_t<T>>{value, ts};
+}
+
+FMT_END_EXPORT
+FMT_END_NAMESPACE
+
+#endif
+```
+
+## Async Minify Excerpt
+
+```cpp
+#ifndef FMT_COLOR_H_
+#define FMT_COLOR_H_
+
+#include "format.h"
+
+FMT_BEGIN_NAMESPACE
+FMT_BEGIN_EXPORT
+
+enum class color : uint32_t {
+  alice_blue = 0xF0F8FF,
+  antique_white = 0xFAEBD7,
+  aqua = 0x00FFFF,
+  aquamarine = 0x7FFFD4,
+  azure = 0xF0FFFF,
+  beige = 0xF5F5DC,
+  bisque = 0xFFE4C4,
+  black = 0x000000,
+  blanched_almond = 0xFFEBCD,
+  blue = 0x0000FF,
+  blue_violet = 0x8A2BE2,
+  brown = 0xA52A2A,
+  burly_wood = 0xDEB887,
+  cadet_blue = 0x5F9EA0,
+  chartreuse = 0x7FFF00,
+  chocolate = 0xD2691E,
+  coral = 0xFF7F50,
+  cornflower_blue = 0x6495ED,
+  cornsilk = 0xFFF8DC,
+  crimson = 0xDC143C,
+  cyan = 0x00FFFF,
+  dark_blue = 0x00008B,
+  dark_cyan = 0x008B8B,
+  dark_golden_rod = 0xB8860B,
+  dark_gray = 0xA9A9A9,
+  dark_green = 0x006400,
+  dark_khaki = 0xBDB76B,
+  dark_magenta = 0x8B008B,
+  dark_olive_green = 0x556B2F,
+  dark_orange = 0xFF8C00,
+  dark_orchid = 0x9932CC,
+  dark_red = 0x8B0000,
+  dark_salmon = 0xE9967A,
+  dark_sea_green = 0x8FBC8F,
+  dark_slate_blue = 0x483D8B,
+  dark_slate_gray = 0x2F4F4F,
+  dark_turquoise = 0x00CED1,
+  dark_violet = 0x9400D3,
+  deep_pink = 0xFF1493,
+  deep_sky_blue = 0x00BFFF,
+  dim_gray = 0x696969,
+  dodger_blue = 0x1E90FF,
+  fire_brick = 0xB22222,
+  floral_white = 0xFFFAF0
+
+... [truncated 13820 chars] ...
+
+d_color<Char>(ts.get_background());
+      out = detail::copy<Char>(background.begin(), background.end(), out);
+    }
+    out = formatter<T, Char>::format(arg.value, ctx);
+    if (has_style) {
+      auto reset_color = string_view("\x1b[0m");
+      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
+    }
+    return out;
+  }
+};
+
+template <typename T>
+FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+    -> detail::styled_arg<remove_cvref_t<T>> {
+  return detail::styled_arg<remove_cvref_t<T>>{value, ts};
+}
+
+FMT_END_EXPORT
+FMT_END_NAMESPACE
+
+#endif
+```
+
+## Symbols
+
+```txt
+  9| #define FMT_COLOR_H_
+ 11| #include "format.h"
+ 16| enum class color : uint32_t {
+158| };  // enum class color
+160| enum class terminal_color : uint8_t {
+177| };
+179| enum class emphasis : uint8_t {
+188| };
+192| struct rgb {
+193|   constexpr rgb() : r(0), g(0), b(0) {}
+194|   constexpr rgb(uint8_t r_, uint8_t g_, uint8_t b_) : r(r_), g(g_), b(b_) {}
+195|   constexpr rgb(uint32_t hex)
+196|       : r((hex >> 16) & 0xFF), g((hex >> 8) & 0xFF), b(hex & 0xFF) {}
+197|   constexpr rgb(color hex)
+198|       : r((uint32_t(hex) >> 16) & 0xFF),
+199|         g((uint32_t(hex) >> 8) & 0xFF),
+200|         b(uint32_t(hex) & 0xFF) {}
+201|   uint8_t r;
+202|   uint8_t g;
+203|   uint8_t b;
+204| };
+206| namespace detail {
+210| struct color_type {
+211|   constexpr color_type() noexcept = default;
+212|   constexpr color_type(color rgb_color) noexcept
+213|       : value_(static_cast<uint32_t>(rgb_color) | (1 << 24)) {}
+214|   constexpr color_type(rgb rgb_color) noexcept
+215|       : color_type(static_cast<color>(
+216|             (static_cast<uint32_t>(rgb_color.r) << 16) |
+217|             (static_cast<uint32_t>(rgb_color.g) << 8) | rgb_color.b)) {}
+218|   constexpr color_type(terminal_color term_color) noexcept
+219|       : value_(static_cast<uint32_t>(term_color) | (3 << 24)) {}
+221|   constexpr auto is_terminal_color() const noexcept -> bool {
+222|     return (value_ & (1 << 25)) != 0;
+223|   }
+225|   constexpr auto value() const noexcept -> uint32_t {
+226|     return value_ & 0xFFFFFF;
+227|   }
+229|   constexpr color_type(uint32_t value) noexcept : value_(value) {}
+231|   uint32_t value_ = 0;
+232| };
+236| class text_style {
+289|  public:
+290|   FMT_CONSTEXPR text_style(emphasis em = emphasis()) noexcept
+291|       : style_(static_cast<uint64_t>(em) << 5
+
+... [truncated 4608 chars] ...
+
+     has_style = true;
+635|       auto foreground =
+636|           detail::make_foreground_color<Char>(ts.get_foreground());
+637|       out = detail::copy<Char>(foreground.begin(), foreground.end(), out);
+638|     }
+639|     if (ts.has_background()) {
+640|       has_style = true;
+641|       auto background =
+642|           detail::make_background_color<Char>(ts.get_background());
+643|       out = detail::copy<Char>(background.begin(), background.end(), out);
+644|     }
+645|     out = formatter<T, Char>::format(arg.value, ctx);
+646|     if (has_style) {
+647|       auto reset_color = string_view("\x1b[0m");
+648|       out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
+649|     }
+650|     return out;
+651|   }
+652| };
+664| template <typename T>
+665| FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+```

@@ -236,7 +236,7 @@ describe('GitHub File Operations - Pagination', () => {
         repo: 'repo',
         path: 'functions.ts',
         matchString: 'function',
-        matchStringContextLines: 50,
+        contextLines: 50,
       });
 
       expect(result).toHaveProperty('data');

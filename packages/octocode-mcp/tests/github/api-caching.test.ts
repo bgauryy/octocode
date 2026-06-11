@@ -436,8 +436,8 @@ describe('GitHub API Caching', () => {
         branch: 'main',
         path: 'src',
         depth: 1,
-        entriesPerPage: 2,
-        entryPageNumber: 1,
+        itemsPerPage: 2,
+        page: 1,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
         reasoning: 'Testing',
@@ -449,8 +449,8 @@ describe('GitHub API Caching', () => {
         branch: 'main',
         path: 'src',
         depth: 1,
-        entriesPerPage: 2,
-        entryPageNumber: 2,
+        itemsPerPage: 2,
+        page: 2,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
         reasoning: 'Testing',
@@ -462,14 +462,14 @@ describe('GitHub API Caching', () => {
       expect(mockOctokit.rest.repos.getContent).toHaveBeenCalledTimes(1);
     });
 
-    it('returns the correct page per entryPageNumber from one cached tree (not a stale fixed page)', async () => {
+    it('returns the correct page per page from one cached tree (not a stale fixed page)', async () => {
       const base = {
         owner: 'facebook',
         repo: 'react',
         branch: 'main',
         path: 'src',
         depth: 1,
-        entriesPerPage: 2,
+        itemsPerPage: 2,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
         reasoning: 'Testing',
@@ -477,14 +477,14 @@ describe('GitHub API Caching', () => {
 
       const r1 = (await viewGitHubRepositoryStructureAPI({
         ...base,
-        entryPageNumber: 1,
+        page: 1,
       })) as {
         pagination?: { currentPage?: number; totalEntries?: number };
         structure?: unknown;
       };
       const r2 = (await viewGitHubRepositoryStructureAPI({
         ...base,
-        entryPageNumber: 2,
+        page: 2,
       })) as {
         pagination?: { currentPage?: number; totalEntries?: number };
         structure?: unknown;

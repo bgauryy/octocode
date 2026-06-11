@@ -1,0 +1,68 @@
+ 120| @frozen
+ 121| public enum Optional<Wrapped: ~Copyable & ~Escapable>: ~Copyable, ~Escapable {
+ 135| extension Optional: Copyable where Wrapped: Copyable & ~Escapable {}
+ 137| extension Optional: Escapable where Wrapped: Escapable & ~Copyable {}
+ 139| extension Optional: BitwiseCopyable
+ 142| extension Optional: Sendable where Wrapped: ~Copyable & ~Escapable & Sendable {}
+ 145| @_preInverseGenerics
+ 146| extension Optional: ExpressibleByNilLiteral
+ 157|   @_transparent
+ 158|   @_preInverseGenerics
+ 159|   @_lifetime(immortal)
+ 160|   public init(nilLiteral: ()) {
+ 165| extension Optional where Wrapped: ~Copyable & ~Escapable {
+ 167|   @_transparent
+ 168|   @_preInverseGenerics
+ 169|   @_lifetime(copy value)
+ 170|   public init(_ value: consuming Wrapped) {
+ 175| extension Optional {
+ 197|   @_alwaysEmitIntoClient
+ 198|   public func map<E: Error, U: ~Copyable>(
+ 199|     _ transform: (Wrapped) throws(E) -> U
+ 200|   ) throws(E) -> U? {
+ 210|   @usableFromInline
+ 211|   internal func map<U>(
+ 212|     _ transform: (Wrapped) throws -> U
+ 213|   ) rethrows -> U? {
+ 223| extension Optional where Wrapped: ~Copyable {
+ 225|   @_alwaysEmitIntoClient
+ 238|   @_alwaysEmitIntoClient
+ 251| extension Optional {
+ 271|   @_alwaysEmitIntoClient
+ 272|   public func flatMap<E: Error, U: ~Copyable>(
+ 273|     _ transform: (Wrapped) throws(E) -> U?
+ 274|   ) throws(E) -> U? {
+ 284|   @usableFromInline
+ 285|   internal func flatMap<U>(
+ 286|     _ transform: (Wrapped) throws -> U?
+ 287|   ) rethrows -> U? {
+ 297| extension Optional where Wrapped: ~Copyable {
+ 299|   @_alwaysEmitIntoClient
+ 312|   @_alwaysEmitIntoClient
+ 313|   public func _borrowingFlatMap<U: ~Copyable, E: Error>(
+ 314|     _ transform: (borrowing Wrapped) throws(E) -> U?
+ 315|   ) throw
+
+... [truncated 3735 chars] ...
+
+ped throws
+ 914| ) rethrows -> T? {
+ 929| @usableFromInline
+ 930| internal func ?? <T>(
+ 931|   optional: T?,
+ 932|   defaultValue: @autoclosure () throws -> T?
+ 933| ) rethrows -> T? {
+ 947| extension Optional: _ObjectiveCBridgeable {
+ 949|   internal static var _nilSentinel: AnyObject {
+ 950|     @_silgen_name("_swift_Foundation_getOptionalNilSentinelObject")
+ 954|   public func _bridgeToObjectiveC() -> AnyObject {
+ 963|   public static func _forceBridgeFromObjectiveC(
+ 964|     _ source: AnyObject,
+ 965|     result: inout Optional<Wrapped>?
+ 966|   ) {
+ 980|   public static func _conditionallyBridgeFromObjectiveC(
+ 981|     _ source: AnyObject,
+ 982|     result: inout Optional<Wrapped>?
+ 983|   ) -> Bool {
+1003|   @_effects(readonly)
+1004|   public static func _unconditionallyBridgeFromObjectiveC(_ source: AnyObject?)

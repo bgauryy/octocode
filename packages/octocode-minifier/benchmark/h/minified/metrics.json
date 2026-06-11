@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 20155,
+      "cutPercent": 39,
+      "durationMs": 4.046
+    },
+    "content": "#ifndef GIT_COMPAT_UTIL_H\n#define GIT_COMPAT_UTIL_H\n\n#if __STDC_VERSION__ - 0 < 199901L\n\n#error \"Required C99 support is in a test phase.  Please see git-compat-util.h for more details.\"\n#endif\n\n#ifdef USE_MSVC_CRTDBG\n\n#include <stdlib.h>\n#include <crtdbg.h>\n#endif\n\n#include \"compat/posix.h\"\n\nstruct strbuf;\n\n#if defined(__GNUC__) || defined(__clang__)\n#  define PRAGMA(pragma)           _Pragma(#pragma)\n#  define DISABLE_WARNING(warning) PRAGMA(GCC diagnostic ignored #warning)\n#else\n#  define DISABLE_WARNING(warning)\n#endif\n\n#undef FLEX_ARRAY\n#define FLEX_ARRAY\n\n#define BUILD_ASSERT_OR_ZERO(cond) \\\n\t(sizeof(char [1 - 2*!(cond)]) - 1)\n\n#if GIT_GNUC_PREREQ(3, 1)\n\n# define BARF_UNLESS_AN_ARRAY(arr)\t\t\t\t\t\t\\\n\tBUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(arr), \\\n\t\t\t\t\t\t\t   __typeof__(&(arr)[0])))\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_ASSERT_OR_ZERO(__builtin_types_compatible_p(__typeof__(*(dst)), \\\n\t\t\t\t\t\t\t  __typeof__(*(src))))\n\n# define BARF_UNLESS_SIGNED(var)   BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) < 0)\n# define BARF_UNLESS_UNSIGNED(var) BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) > 0)\n#else\n# define BARF_UNLESS_AN_ARRAY(arr) 0\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_AS\n\n... [truncated 18355 chars] ...\n\n member))\n\n#if defined(__GNUC__)\n#define OFFSETOF_VAR(ptr, member) offsetof(__typeof__(*ptr), member)\n#else\n#define OFFSETOF_VAR(ptr, member) \\\n\t((uintptr_t)&(ptr)->member - (uintptr_t)(ptr))\n#endif\n\n#define NOT_CONSTANT(expr) ((expr) || false_but_the_compiler_does_not_know_it_)\nextern int false_but_the_compiler_does_not_know_it_;\n\n#ifdef CHECK_ASSERTION_SIDE_EFFECTS\n#undef assert\nextern int not_supposed_to_survive;\n#define assert(expr) ((void)(not_supposed_to_survive || (expr)))\n#endif\n\n#endif\n\n#ifdef DISABLE_SIGN_COMPARE_WARNINGS\nDISABLE_WARNING(-Wsign-compare)\n#endif",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 20155,
+      "cutPercent": 39,
+      "durationMs": 4.56
+    },
+    "content": "#ifndef GIT_COMPAT_UTIL_H\n#define GIT_COMPAT_UTIL_H\n\n#if __STDC_VERSION__ - 0 < 199901L\n\n#error \"Required C99 support is in a test phase.  Please see git-compat-util.h for more details.\"\n#endif\n\n#ifdef USE_MSVC_CRTDBG\n\n#include <stdlib.h>\n#include <crtdbg.h>\n#endif\n\n#include \"compat/posix.h\"\n\nstruct strbuf;\n\n#if defined(__GNUC__) || defined(__clang__)\n#  define PRAGMA(pragma)           _Pragma(#pragma)\n#  define DISABLE_WARNING(warning) PRAGMA(GCC diagnostic ignored #warning)\n#else\n#  define DISABLE_WARNING(warning)\n#endif\n\n#undef FLEX_ARRAY\n#define FLEX_ARRAY\n\n#define BUILD_ASSERT_OR_ZERO(cond) \\\n\t(sizeof(char [1 - 2*!(cond)]) - 1)\n\n#if GIT_GNUC_PREREQ(3, 1)\n\n# define BARF_UNLESS_AN_ARRAY(arr)\t\t\t\t\t\t\\\n\tBUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(arr), \\\n\t\t\t\t\t\t\t   __typeof__(&(arr)[0])))\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_ASSERT_OR_ZERO(__builtin_types_compatible_p(__typeof__(*(dst)), \\\n\t\t\t\t\t\t\t  __typeof__(*(src))))\n\n# define BARF_UNLESS_SIGNED(var)   BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) < 0)\n# define BARF_UNLESS_UNSIGNED(var) BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) > 0)\n#else\n# define BARF_UNLESS_AN_ARRAY(arr) 0\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_AS\n\n... [truncated 18355 chars] ...\n\n member))\n\n#if defined(__GNUC__)\n#define OFFSETOF_VAR(ptr, member) offsetof(__typeof__(*ptr), member)\n#else\n#define OFFSETOF_VAR(ptr, member) \\\n\t((uintptr_t)&(ptr)->member - (uintptr_t)(ptr))\n#endif\n\n#define NOT_CONSTANT(expr) ((expr) || false_but_the_compiler_does_not_know_it_)\nextern int false_but_the_compiler_does_not_know_it_;\n\n#ifdef CHECK_ASSERTION_SIDE_EFFECTS\n#undef assert\nextern int not_supposed_to_survive;\n#define assert(expr) ((void)(not_supposed_to_survive || (expr)))\n#endif\n\n#endif\n\n#ifdef DISABLE_SIGN_COMPARE_WARNINGS\nDISABLE_WARNING(-Wsign-compare)\n#endif",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 20155,
+      "cutPercent": 39,
+      "durationMs": 3.752
+    },
+    "content": "#ifndef GIT_COMPAT_UTIL_H\n#define GIT_COMPAT_UTIL_H\n\n#if __STDC_VERSION__ - 0 < 199901L\n\n#error \"Required C99 support is in a test phase.  Please see git-compat-util.h for more details.\"\n#endif\n\n#ifdef USE_MSVC_CRTDBG\n\n#include <stdlib.h>\n#include <crtdbg.h>\n#endif\n\n#include \"compat/posix.h\"\n\nstruct strbuf;\n\n#if defined(__GNUC__) || defined(__clang__)\n#  define PRAGMA(pragma)           _Pragma(#pragma)\n#  define DISABLE_WARNING(warning) PRAGMA(GCC diagnostic ignored #warning)\n#else\n#  define DISABLE_WARNING(warning)\n#endif\n\n#undef FLEX_ARRAY\n#define FLEX_ARRAY\n\n#define BUILD_ASSERT_OR_ZERO(cond) \\\n\t(sizeof(char [1 - 2*!(cond)]) - 1)\n\n#if GIT_GNUC_PREREQ(3, 1)\n\n# define BARF_UNLESS_AN_ARRAY(arr)\t\t\t\t\t\t\\\n\tBUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(arr), \\\n\t\t\t\t\t\t\t   __typeof__(&(arr)[0])))\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_ASSERT_OR_ZERO(__builtin_types_compatible_p(__typeof__(*(dst)), \\\n\t\t\t\t\t\t\t  __typeof__(*(src))))\n\n# define BARF_UNLESS_SIGNED(var)   BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) < 0)\n# define BARF_UNLESS_UNSIGNED(var) BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) > 0)\n#else\n# define BARF_UNLESS_AN_ARRAY(arr) 0\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_AS\n\n... [truncated 18355 chars] ...\n\n member))\n\n#if defined(__GNUC__)\n#define OFFSETOF_VAR(ptr, member) offsetof(__typeof__(*ptr), member)\n#else\n#define OFFSETOF_VAR(ptr, member) \\\n\t((uintptr_t)&(ptr)->member - (uintptr_t)(ptr))\n#endif\n\n#define NOT_CONSTANT(expr) ((expr) || false_but_the_compiler_does_not_know_it_)\nextern int false_but_the_compiler_does_not_know_it_;\n\n#ifdef CHECK_ASSERTION_SIDE_EFFECTS\n#undef assert\nextern int not_supposed_to_survive;\n#define assert(expr) ((void)(not_supposed_to_survive || (expr)))\n#endif\n\n#endif\n\n#ifdef DISABLE_SIGN_COMPARE_WARNINGS\nDISABLE_WARNING(-Wsign-compare)\n#endif",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 20155,
+      "cutPercent": 39,
+      "durationMs": 3.86,
+      "failed": false,
+      "type": "conservative",
+      "reason": null
+    },
+    "content": "#ifndef GIT_COMPAT_UTIL_H\n#define GIT_COMPAT_UTIL_H\n\n#if __STDC_VERSION__ - 0 < 199901L\n\n#error \"Required C99 support is in a test phase.  Please see git-compat-util.h for more details.\"\n#endif\n\n#ifdef USE_MSVC_CRTDBG\n\n#include <stdlib.h>\n#include <crtdbg.h>\n#endif\n\n#include \"compat/posix.h\"\n\nstruct strbuf;\n\n#if defined(__GNUC__) || defined(__clang__)\n#  define PRAGMA(pragma)           _Pragma(#pragma)\n#  define DISABLE_WARNING(warning) PRAGMA(GCC diagnostic ignored #warning)\n#else\n#  define DISABLE_WARNING(warning)\n#endif\n\n#undef FLEX_ARRAY\n#define FLEX_ARRAY\n\n#define BUILD_ASSERT_OR_ZERO(cond) \\\n\t(sizeof(char [1 - 2*!(cond)]) - 1)\n\n#if GIT_GNUC_PREREQ(3, 1)\n\n# define BARF_UNLESS_AN_ARRAY(arr)\t\t\t\t\t\t\\\n\tBUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(arr), \\\n\t\t\t\t\t\t\t   __typeof__(&(arr)[0])))\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_ASSERT_OR_ZERO(__builtin_types_compatible_p(__typeof__(*(dst)), \\\n\t\t\t\t\t\t\t  __typeof__(*(src))))\n\n# define BARF_UNLESS_SIGNED(var)   BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) < 0)\n# define BARF_UNLESS_UNSIGNED(var) BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) > 0)\n#else\n# define BARF_UNLESS_AN_ARRAY(arr) 0\n# define BARF_UNLESS_COPYABLE(dst, src) \\\n\tBUILD_AS\n\n... [truncated 18355 chars] ...\n\n member))\n\n#if defined(__GNUC__)\n#define OFFSETOF_VAR(ptr, member) offsetof(__typeof__(*ptr), member)\n#else\n#define OFFSETOF_VAR(ptr, member) \\\n\t((uintptr_t)&(ptr)->member - (uintptr_t)(ptr))\n#endif\n\n#define NOT_CONSTANT(expr) ((expr) || false_but_the_compiler_does_not_know_it_)\nextern int false_but_the_compiler_does_not_know_it_;\n\n#ifdef CHECK_ASSERTION_SIDE_EFFECTS\n#undef assert\nextern int not_supposed_to_survive;\n#define assert(expr) ((void)(not_supposed_to_survive || (expr)))\n#endif\n\n#endif\n\n#ifdef DISABLE_SIGN_COMPARE_WARNINGS\nDISABLE_WARNING(-Wsign-compare)\n#endif",
+    "api": "minifyContent"
+  }
+}

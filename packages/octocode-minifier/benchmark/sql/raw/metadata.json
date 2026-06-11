@@ -1,0 +1,7 @@
+{
+  "source": "sql/postgres-select.sql",
+  "sourceBytes": 8415,
+  "sha256": "60b3a78701ed950e2540f150b8d791a005be29545c9430182cf4c11e76a19b9c",
+  "excerptBytes": 1834,
+  "truncated": true
+}

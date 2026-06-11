@@ -1,0 +1,69 @@
+  9| #define FMT_COLOR_H_
+ 11| #include "format.h"
+ 16| enum class color : uint32_t {
+158| };  // enum class color
+160| enum class terminal_color : uint8_t {
+177| };
+179| enum class emphasis : uint8_t {
+188| };
+192| struct rgb {
+193|   constexpr rgb() : r(0), g(0), b(0) {}
+194|   constexpr rgb(uint8_t r_, uint8_t g_, uint8_t b_) : r(r_), g(g_), b(b_) {}
+195|   constexpr rgb(uint32_t hex)
+196|       : r((hex >> 16) & 0xFF), g((hex >> 8) & 0xFF), b(hex & 0xFF) {}
+197|   constexpr rgb(color hex)
+198|       : r((uint32_t(hex) >> 16) & 0xFF),
+199|         g((uint32_t(hex) >> 8) & 0xFF),
+200|         b(uint32_t(hex) & 0xFF) {}
+201|   uint8_t r;
+202|   uint8_t g;
+203|   uint8_t b;
+204| };
+206| namespace detail {
+210| struct color_type {
+211|   constexpr color_type() noexcept = default;
+212|   constexpr color_type(color rgb_color) noexcept
+213|       : value_(static_cast<uint32_t>(rgb_color) | (1 << 24)) {}
+214|   constexpr color_type(rgb rgb_color) noexcept
+215|       : color_type(static_cast<color>(
+216|             (static_cast<uint32_t>(rgb_color.r) << 16) |
+217|             (static_cast<uint32_t>(rgb_color.g) << 8) | rgb_color.b)) {}
+218|   constexpr color_type(terminal_color term_color) noexcept
+219|       : value_(static_cast<uint32_t>(term_color) | (3 << 24)) {}
+221|   constexpr auto is_terminal_color() const noexcept -> bool {
+222|     return (value_ & (1 << 25)) != 0;
+223|   }
+225|   constexpr auto value() const noexcept -> uint32_t {
+226|     return value_ & 0xFFFFFF;
+227|   }
+229|   constexpr color_type(uint32_t value) noexcept : value_(value) {}
+231|   uint32_t value_ = 0;
+232| };
+236| class text_style {
+289|  public:
+290|   FMT_CONSTEXPR text_style(emphasis em = emphasis()) noexcept
+291|       : style_(static_cast<uint64_t>(em) << 5
+
+... [truncated 4608 chars] ...
+
+     has_style = true;
+635|       auto foreground =
+636|           detail::make_foreground_color<Char>(ts.get_foreground());
+637|       out = detail::copy<Char>(foreground.begin(), foreground.end(), out);
+638|     }
+639|     if (ts.has_background()) {
+640|       has_style = true;
+641|       auto background =
+642|           detail::make_background_color<Char>(ts.get_background());
+643|       out = detail::copy<Char>(background.begin(), background.end(), out);
+644|     }
+645|     out = formatter<T, Char>::format(arg.value, ctx);
+646|     if (has_style) {
+647|       auto reset_color = string_view("\x1b[0m");
+648|       out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
+649|     }
+650|     return out;
+651|   }
+652| };
+664| template <typename T>
+665| FMT_CONSTEXPR auto styled(const T& value, text_style ts)

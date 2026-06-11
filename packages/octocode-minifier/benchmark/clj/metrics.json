@@ -1,0 +1,49 @@
+{
+  "ext": "clj",
+  "language": "Clojure",
+  "source": "clj/clojure-core.clj",
+  "sourceBytes": 276207,
+  "strategy": "aggressive",
+  "commentModel": "semicolon",
+  "sha256": "66952fe1b060c086804cdfd9e9863277a020fb0cfe27167e709ce75e955ed72c",
+  "contentView": {
+    "bytes": 274661,
+    "cutPercent": 0.6,
+    "durationMs": 30.15
+  },
+  "applyMinification": {
+    "bytes": 229282,
+    "cutPercent": 17,
+    "durationMs": 22.236
+  },
+  "sync": {
+    "bytes": 229282,
+    "cutPercent": 17,
+    "durationMs": 24.101
+  },
+  "async": {
+    "bytes": 229282,
+    "cutPercent": 17,
+    "durationMs": 22.187,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.016
+  },
+  "ratings": {
+    "minify": 7.8,
+    "symbols": null,
+    "agent": 7.8,
+    "label": "good"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

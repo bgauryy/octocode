@@ -6,7 +6,6 @@ import {
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node.js';
 import {
-  Diagnostic,
   InitializeResult,
   InitializedParams,
 } from 'vscode-languageserver-protocol';
@@ -28,8 +27,6 @@ import { buildInitializeParams } from './initParams.js';
 import { toUri } from './uri.js';
 
 const STDERR_RETENTION_LINES = 200;
-const DEFAULT_DIAGNOSTIC_SETTLE_MS = 3_000;
-const DIAGNOSTIC_POLL_INTERVAL_MS = 100;
 
 async function raceWithTimeout<T>(
   promise: Promise<T>,
@@ -62,7 +59,6 @@ export class LSPClient {
   private documentManager: LSPDocumentManager;
   private operations: LSPOperations;
   private stderrBuffer: string[] = [];
-  private diagnosticsBuffer = new Map<string, Diagnostic[]>();
 
   // Indexing-wait: resolved once all $/progress tokens have ended (or fallback fires).
   // tsserver only starts loading the project on the first textDocument/didOpen,
@@ -217,13 +213,6 @@ export class LSPClient {
 
     connection.onNotification('window/logMessage', () => undefined);
     connection.onNotification('window/showMessage', () => undefined);
-    connection.onNotification(
-      'textDocument/publishDiagnostics',
-      (params: { uri?: string; diagnostics?: Diagnostic[] }) => {
-        if (!params.uri) return;
-        this.storeDiagnostics(params.uri, params.diagnostics ?? []);
-      }
-    );
 
     connection.onNotification(
       '$/progress',
@@ -361,44 +350,6 @@ export class LSPClient {
     return this.operations.documentSymbols(filePath, content);
   }
 
-  async getDiagnostics(
-    filePath: string,
-    content?: string
-  ): Promise<{
-    diagnostics: Diagnostic[];
-    source: 'pull' | 'push' | 'unavailable';
-  }> {
-    await this.ensureDocumentSynced(filePath, content);
-    const uri = toUri(filePath);
-
-    if (this.hasCapability('diagnosticProvider')) {
-      const result = await this.connection!.sendRequest(
-        'textDocument/diagnostic',
-        { textDocument: { uri } }
-      );
-      return {
-        diagnostics: normalizeDiagnosticReport(result),
-        source: 'pull',
-      };
-    }
-
-    const settleMs = parseDiagnosticSettleMs();
-    let elapsedMs = 0;
-    while (!this.diagnosticsBuffer.has(uri) && elapsedMs < settleMs) {
-      const delayMs = Math.min(
-        DIAGNOSTIC_POLL_INTERVAL_MS,
-        settleMs - elapsedMs
-      );
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      elapsedMs += delayMs;
-    }
-
-    return {
-      diagnostics: this.diagnosticsBuffer.get(uri) ?? [],
-      source: this.diagnosticsBuffer.has(uri) ? 'push' : 'unavailable',
-    };
-  }
-
   getRecentStderr(): string[] {
     return [...this.stderrBuffer];
   }
@@ -407,20 +358,6 @@ export class LSPClient {
     if (!this.initializeResult?.capabilities) return false;
     const caps = this.initializeResult.capabilities as Record<string, unknown>;
     return !!caps[capability];
-  }
-
-  private storeDiagnostics(uri: string, diagnostics: Diagnostic[]): void {
-    if (this.diagnosticsBuffer.has(uri)) {
-      this.diagnosticsBuffer.delete(uri);
-    }
-    this.diagnosticsBuffer.set(uri, diagnostics);
-    while (this.diagnosticsBuffer.size > 100) {
-      const oldest = this.diagnosticsBuffer.keys().next().value as
-        | string
-        | undefined;
-      if (!oldest) break;
-      this.diagnosticsBuffer.delete(oldest);
-    }
   }
 
   async stop(): Promise<void> {
@@ -459,43 +396,4 @@ export class LSPClient {
       this.operations.setConnection(null, false);
     }
   }
-}
-
-function parseDiagnosticSettleMs(): number {
-  const parsed = parseInt(
-    process.env.OCTOCODE_LSP_DIAGNOSTIC_SETTLE_MS ??
-      String(DEFAULT_DIAGNOSTIC_SETTLE_MS),
-    10
-  );
-  return Number.isFinite(parsed) && parsed >= 0
-    ? parsed
-    : DEFAULT_DIAGNOSTIC_SETTLE_MS;
-}
-
-function normalizeDiagnosticReport(report: unknown): Diagnostic[] {
-  if (!report || typeof report !== 'object') return [];
-
-  const diagnostics: Diagnostic[] = [];
-  const root = report as {
-    items?: unknown;
-    relatedDocuments?: unknown;
-  };
-
-  if (Array.isArray(root.items)) {
-    diagnostics.push(...(root.items as Diagnostic[]));
-  }
-
-  if (root.relatedDocuments && typeof root.relatedDocuments === 'object') {
-    for (const related of Object.values(
-      root.relatedDocuments as Record<string, unknown>
-    )) {
-      if (!related || typeof related !== 'object') continue;
-      const relatedItems = (related as { items?: unknown }).items;
-      if (Array.isArray(relatedItems)) {
-        diagnostics.push(...(relatedItems as Diagnostic[]));
-      }
-    }
-  }
-
-  return diagnostics;
 }

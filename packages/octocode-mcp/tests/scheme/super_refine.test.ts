@@ -214,13 +214,17 @@ describe('LocalRipgrepQuerySchema mutex checks', () => {
     expect(result.success).toBe(true);
   });
 
-  it('allows count + countMatches together (warning, not error)', () => {
+  it('rejects countLinesPerFile together with countMatchesPerFile', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      count: true,
-      countMatches: true,
+      countLinesPerFile: true,
+      countMatchesPerFile: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map(i => i.message).join('\n');
+      expect(messages.toLowerCase()).toMatch(/mutually exclusive/);
+    }
   });
 });
 
@@ -232,13 +236,10 @@ describe('PackageSearch schema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts packageName as an alias for name', () => {
+  it('rejects packageName because the exact param is name', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
       queries: [{ packageName: 'zod' }],
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.queries[0]).toMatchObject({ name: 'zod' });
-    }
+    expect(result.success).toBe(false);
   });
 });

@@ -1,0 +1,49 @@
+{
+  "ext": "yml",
+  "language": "YAML",
+  "source": "yaml/typescript-ci.yml",
+  "sourceBytes": 12508,
+  "strategy": "conservative",
+  "commentModel": "hash",
+  "sha256": "0b0ea330ad9dc5b70034955a8324778bdca5b8ea67bf9d204e0e9f91a1911406",
+  "contentView": {
+    "bytes": 11733,
+    "cutPercent": 6.2,
+    "durationMs": 3.73
+  },
+  "applyMinification": {
+    "bytes": 11733,
+    "cutPercent": 6.2,
+    "durationMs": 3.394
+  },
+  "sync": {
+    "bytes": 11733,
+    "cutPercent": 6.2,
+    "durationMs": 3.273
+  },
+  "async": {
+    "bytes": 11733,
+    "cutPercent": 6.2,
+    "durationMs": 2.639,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.007
+  },
+  "ratings": {
+    "minify": 7,
+    "symbols": null,
+    "agent": 7,
+    "label": "good"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

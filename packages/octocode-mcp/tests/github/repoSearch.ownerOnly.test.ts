@@ -61,7 +61,9 @@ describe('repoSearch — owner-only mode (listForOrg / listForUser path, lines 9
 
   it('returns error when both listForOrg and listForUser fail (line 128-130)', async () => {
     const listForOrg = vi.fn().mockRejectedValue(new Error('Not an org'));
-    const listForUser = vi.fn().mockRejectedValue({ status: 404, error: 'Not Found' });
+    const listForUser = vi
+      .fn()
+      .mockRejectedValue({ status: 404, error: 'Not Found' });
     vi.mocked(getOctokit).mockResolvedValue({
       rest: { repos: { listForOrg, listForUser } },
     } as never);

@@ -119,7 +119,7 @@ export type OptimizedCodeSearchResult = {
     currentPage: number;
     totalPages: number;
     perPage: number;
-    totalMatches: number;
+    totalMatches?: number;
     hasMore: boolean;
   };
 

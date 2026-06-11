@@ -26,12 +26,9 @@ import {
   acquirePooledClient,
   isLanguageServerAvailable,
 } from '../../src/lsp/manager.js';
-import { executeLspGetDiagnostics } from '../../src/tools/lsp/diagnostics/execution.js';
-import { hints as diagnosticToolHints } from '../../src/tools/lsp/diagnostics/hints.js';
 import { executeLspGetSemanticContent } from '../../src/tools/lsp/semantic_content/execution.js';
 import { hints as semanticToolHints } from '../../src/tools/lsp/semantic_content/hints.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
-import { LspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 import { LspGetSemanticContentOutputSchema } from '../../src/tools/lsp/semantic_content/outputSchema.js';
 import {
   gatherIncomingCallsRecursive,
@@ -72,94 +69,6 @@ describe('new public LSP tool execution', () => {
   afterEach(async () => {
     vi.clearAllMocks();
     await rm(tempDir, { recursive: true, force: true });
-  });
-
-  it('returns unavailable diagnostics without acquiring a client', async () => {
-    vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
-    vi.mocked(acquirePooledClient).mockResolvedValue(null);
-
-    const result = await executeLspGetDiagnostics({
-      queries: [{ uri: filePath, severity: 'all' }],
-    } as never);
-
-    expect(textOf(result)).toContain('Language server unavailable');
-    expect(acquirePooledClient).not.toHaveBeenCalled();
-  });
-
-  it('filters diagnostics by severity and source', async () => {
-    vi.mocked(acquirePooledClient).mockResolvedValue(
-      createClient({
-        getDiagnostics: vi.fn().mockResolvedValue({
-          source: 'pull',
-          diagnostics: [
-            {
-              range,
-              severity: 1,
-              message: 'target is broken',
-              source: 'typescript',
-              code: 'TS1',
-            },
-            {
-              range,
-              severity: 2,
-              message: 'target is suspicious',
-              source: 'eslint',
-              code: 'ES1',
-            },
-          ],
-        }),
-      }) as never
-    );
-
-    const result = await executeLspGetDiagnostics({
-      queries: [{ uri: filePath, severity: 'error', source: 'typescript' }],
-    } as never);
-    const text = textOf(result);
-
-    expect(text).toContain('target is broken');
-    expect(text).not.toContain('target is suspicious');
-    expect(text).toContain('errors: 1');
-  });
-
-  it('summarizes diagnostic severities and unavailable diagnostic sources', async () => {
-    vi.mocked(acquirePooledClient).mockResolvedValue(
-      createClient({
-        getDiagnostics: vi.fn().mockResolvedValue({
-          source: 'unavailable',
-          diagnostics: [
-            { range, message: 'implicit error' },
-            { range, severity: 2, message: 'warning' },
-            { range, severity: 3, message: 'information' },
-            { range, severity: 4, message: 'hint' },
-          ],
-        }),
-      }) as never
-    );
-
-    const result = await executeLspGetDiagnostics({
-      queries: [{ uri: filePath, severity: 'all' }],
-    } as never);
-    const text = textOf(result);
-
-    expect(text).toContain('errors: 1');
-    expect(text).toContain('warnings: 1');
-    expect(text).toContain('information: 1');
-    expect(text).toContain('hints: 1');
-    expect(text).toContain('Diagnostics unavailable');
-  });
-
-  it('returns structured file-read errors for missing files inside the workspace', async () => {
-    const missingFile = join(tempDir, 'missing.ts');
-
-    const result = await executeLspGetDiagnostics({
-      queries: [{ uri: missingFile, severity: 'all' }],
-    } as never);
-
-    const text = textOf(result);
-    // File-not-found errors are returned as a schema-conformant result with
-    // serverAvailable: false and the ENOENT message in warnings
-    expect(text).toContain('serverAvailable: false');
-    expect(text).toMatch(/no such file|missing\.ts|Could not read/);
   });
 
   it('returns semantic locations, references, hover, type, and implementation content', async () => {
@@ -212,6 +121,48 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('dynamicCallsExcluded: true');
     expect(text).toContain('truncatedByDepth: true');
     expect(text).toContain('cycleCount: 1');
+  });
+
+  it('supports compact semantic format for high-volume rows', async () => {
+    vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
+      calls: [
+        {
+          from: { ...callItem('callerFn'), content: 'function callerFn() {}' },
+          fromRanges: [range, range],
+        },
+      ],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+    vi.mocked(gatherOutgoingCallsRecursive).mockResolvedValue({
+      calls: [],
+      truncatedByDepth: false,
+      cycleCount: 0,
+      failedRequestCount: 0,
+    } as never);
+
+    const result = await executeLspGetSemanticContent({
+      queries: [
+        { uri: filePath, type: 'documentSymbols', format: 'compact' },
+        anchored('references', { groupByFile: true, format: 'compact' }),
+        anchored('callers', { contextLines: 2, format: 'compact' }),
+      ],
+    } as never);
+    const text = textOf(result);
+
+    expect(text).toContain('format: "compact"');
+    expect(text).toContain('- "1:16');
+    expect(text).toContain('count=2 lines=');
+    expect(text).toContain('incoming callerFn');
+    expect(text).not.toContain('childCount:');
+    const parsed = LspGetSemanticContentOutputSchema.safeParse(
+      result.structuredContent
+    );
+    expect(
+      parsed.success,
+      parsed.success ? '' : JSON.stringify(parsed.error.issues, null, 2)
+    ).toBe(true);
   });
 
   it('marks evidence.complete=true even when references or calls return zero results', async () => {
@@ -322,28 +273,13 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('No callable symbol found');
   });
 
-  it('handles invalid path input and schema aliases', async () => {
-    const diagnosticsParse = LspGetDiagnosticsQuerySchema.safeParse({
-      filePath,
-    });
+  it('requires uri and does not rewrite filePath', async () => {
     const semanticParse = LspGetSemanticContentQuerySchema.safeParse({
       filePath,
       type: 'documentSymbols',
     });
 
-    expect(diagnosticsParse.success).toBe(true);
-    expect(semanticParse.success).toBe(true);
-    if (diagnosticsParse.success)
-      expect(diagnosticsParse.data.uri).toBe(filePath);
-    if (semanticParse.success) expect(semanticParse.data.uri).toBe(filePath);
-
-    const result = await executeLspGetDiagnostics({
-      queries: [{ severity: 'all' }],
-    } as never);
-
-    // Path validation errors are now returned as schema-conformant results with
-    // serverAvailable: false and the validation message in warnings
-    expect(textOf(result)).toContain('serverAvailable: false');
+    expect(semanticParse.success).toBe(false);
   });
 
   it('normalizes hover content variants', async () => {
@@ -643,15 +579,7 @@ describe('new public LSP tool execution', () => {
     expect(result).toBeDefined();
   });
 
-  it('exposes direct hint branches for the new public LSP tools', () => {
-    expect(diagnosticToolHints.empty({ uri: filePath })).toContain(
-      `No diagnostics returned for ${filePath}.`
-    );
-    expect(diagnosticToolHints.error({ errorType: 'lsp_unavailable' })).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('Language server unavailable'),
-      ])
-    );
+  it('exposes direct hint branches for the public LSP tool', () => {
     expect(semanticToolHints.empty({ symbolName: 'target' })).toEqual(
       expect.arrayContaining([expect.stringContaining('target')])
     );
@@ -698,10 +626,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
       .mockResolvedValue([location('implementation target')]),
     documentSymbols: vi.fn().mockResolvedValue([callItem('target')]),
     prepareCallHierarchy: vi.fn().mockResolvedValue([callItem('target')]),
-    getDiagnostics: vi.fn().mockResolvedValue({
-      source: 'publish',
-      diagnostics: [],
-    }),
     ...overrides,
   };
 }

@@ -20,7 +20,6 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   localFindFiles: ['page'],
   localGetFileContent: ['startLine', 'endLine'],
   lspGetSemanticContent: ['uri', 'lineHint', 'type'],
-  lspGetDiagnostics: ['uri', 'severity'],
 };
 
 describe('all-tools pagination contract', () => {

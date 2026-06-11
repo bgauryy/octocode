@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 3031,
+      "cutPercent": 4.8,
+      "durationMs": 0.656
+    },
+    "content": "const path = require('node:path');\n\nmodule.exports = {\n  babelrcRoots: ['packages/*'],\n  ignore: ['**/*.d.ts'],\n  env: {\n    cjs: {\n      browserslistEnv: 'isomorphic-production',\n      presets: [\n        [\n          '@babel/preset-env',\n          {\n            debug: false,\n            modules: 'commonjs',\n            loose: true,\n            useBuiltIns: false,\n            forceAllTransforms: false,\n            ignoreBrowserslistConfig: false,\n            exclude: ['transform-function-name'],\n          },\n        ],\n        [\n          '@babel/preset-typescript',\n          {\n            allowDeclareFields: true,\n          },\n        ],\n      ],\n      plugins: [\n        ['babel-plugin-transform-import-meta'],\n        [\n          '@babel/plugin-transform-runtime',\n          {\n            corejs: { version: 3, proposals: false },\n            absoluteRuntime: false,\n            helpers: true,\n            regenerator: false,\n            version: '^7.22.15',\n          },\n        ],\n        process.env.NODE_ENV !== 'test'\n          ? [\n              path.join(__dirname, './scripts/babel-plugin-add-import-extension.cjs'),\n              { extension: 'cjs' },\n            ]\n          : false,\n      ].filter(Boolea\n\n... [truncated 1231 chars] ...\n\norms: false,\n            ignoreBrowserslistConfig: false,\n            exclude: ['transform-function-name'],\n          },\n        ],\n        [\n          '@babel/preset-typescript',\n          {\n            allowDeclareFields: true,\n          },\n        ],\n      ],\n      plugins: [\n        [\n          '@babel/plugin-transform-runtime',\n          {\n            corejs: { version: 3, proposals: false },\n            absoluteRuntime: false,\n            helpers: true,\n            regenerator: false,\n            version: '^7.22.15',\n          },\n        ],\n      ],\n    },\n  },\n};",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 1603,
+      "cutPercent": 49.7,
+      "durationMs": 9.921
+    },
+    "content": "const path=require(\"node:path\");module.exports={babelrcRoots:[\"packages/*\"],ignore:[\"**/*.d.ts\"],env:{cjs:{browserslistEnv:\"isomorphic-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:\"commonjs\",loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"babel-plugin-transform-import-meta\"],[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:\"^7.22.15\"}],\"test\"!==process.env.NODE_ENV&&[path.join(__dirname,\"./scripts/babel-plugin-add-import-extension.cjs\"),{extension:\"cjs\"}]].filter(Boolean)},es:{browserslistEnv:\"isomorphic-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:\"^7.22.15\"}],[path.join(__dirname,\"./scripts/babel-plugin-add-import-extension.cjs\"),{extension:\"mjs\"}]]},browser:{browserslistEnv:\"browser-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:\"auto\",useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:\"^7.22.15\"}]]}}};",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 1603,
+      "cutPercent": 49.7,
+      "durationMs": 2.229
+    },
+    "content": "const path=require(\"node:path\");module.exports={babelrcRoots:[\"packages/*\"],ignore:[\"**/*.d.ts\"],env:{cjs:{browserslistEnv:\"isomorphic-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:\"commonjs\",loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"babel-plugin-transform-import-meta\"],[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:\"^7.22.15\"}],\"test\"!==process.env.NODE_ENV&&[path.join(__dirname,\"./scripts/babel-plugin-add-import-extension.cjs\"),{extension:\"cjs\"}]].filter(Boolean)},es:{browserslistEnv:\"isomorphic-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:\"^7.22.15\"}],[path.join(__dirname,\"./scripts/babel-plugin-add-import-extension.cjs\"),{extension:\"mjs\"}]]},browser:{browserslistEnv:\"browser-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:\"auto\",useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:\"^7.22.15\"}]]}}};",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 1603,
+      "cutPercent": 49.7,
+      "durationMs": 2.492,
+      "failed": false,
+      "type": "terser",
+      "reason": null
+    },
+    "content": "const path=require(\"node:path\");module.exports={babelrcRoots:[\"packages/*\"],ignore:[\"**/*.d.ts\"],env:{cjs:{browserslistEnv:\"isomorphic-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:\"commonjs\",loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"babel-plugin-transform-import-meta\"],[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:\"^7.22.15\"}],\"test\"!==process.env.NODE_ENV&&[path.join(__dirname,\"./scripts/babel-plugin-add-import-extension.cjs\"),{extension:\"cjs\"}]].filter(Boolean)},es:{browserslistEnv:\"isomorphic-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:\"^7.22.15\"}],[path.join(__dirname,\"./scripts/babel-plugin-add-import-extension.cjs\"),{extension:\"mjs\"}]]},browser:{browserslistEnv:\"browser-production\",presets:[[\"@babel/preset-env\",{debug:!1,modules:\"auto\",useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[\"transform-function-name\"]}],[\"@babel/preset-typescript\",{allowDeclareFields:!0}]],plugins:[[\"@babel/plugin-transform-runtime\",{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:\"^7.22.15\"}]]}}};",
+    "api": "minifyContent"
+  }
+}

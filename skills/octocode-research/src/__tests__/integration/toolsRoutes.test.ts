@@ -62,11 +62,11 @@ vi.mock('../../index.js', () => ({
   githubSearchPullRequests: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      pull_requests: []' }],
   }),
+  githubCloneRepo: vi.fn().mockResolvedValue({
+    content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      clonePath: /tmp/repo' }],
+  }),
   lspGetSemanticContent: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      definition: null' }],
-  }),
-  lspGetDiagnostics: vi.fn().mockResolvedValue({
-    content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      diagnostics: []' }],
   }),
   packageSearch: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      packages: []' }],

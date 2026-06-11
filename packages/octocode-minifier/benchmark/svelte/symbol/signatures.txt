@@ -1,0 +1,10 @@
+ 1| <script>
+ 2|   import svelteLogo from './assets/svelte.svg'
+ 3|   import viteLogo from './assets/vite.svg'
+ 4|   import heroImg from './assets/hero.png'
+ 5|   import Counter from './lib/Counter.svelte'
+ 8| <section id="center">
+23| <section id="next-steps">
+24|   <div id="docs">
+45|   <div id="social">
+89| <section id="spacer"></section>

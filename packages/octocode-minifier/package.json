@@ -43,6 +43,9 @@
     "test:quiet": "vitest run --reporter=dot --silent",
     "test:watch": "vitest --watch",
     "typecheck": "tsc --noEmit",
+    "benchmark": "vitest bench --reporter=verbose",
+    "benchmark:quality": "vitest run tests/language-quality-benchmark.test.ts --reporter=verbose",
+    "benchmark:report": "vitest run tests/real-language-cut-report.test.ts --reporter=verbose",
     "verify": "yarn lint && yarn typecheck && yarn test && yarn build"
   },
   "dependencies": {

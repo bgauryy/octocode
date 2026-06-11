@@ -412,38 +412,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     },
   }),
-
-  lspGetDiagnostics: () => ({
-    content: [
-      {
-        type: 'text',
-        text: [
-          'Diagnostics for /workspace/src/config.ts:',
-          `  error: API key literal "${SECRETS.OPENAI_KEY}" should not be committed`,
-          `  warning: token ${SECRETS.GITHUB_TOKEN}`,
-          `  information: stripe secret ${SECRETS.STRIPE_KEY}`,
-        ].join('\n'),
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              diagnostics: [
-                {
-                  message: `API key literal "${SECRETS.OPENAI_KEY}" should not be committed`,
-                  source: `security-${SECRETS.STRIPE_KEY}`,
-                  code: SECRETS.GITHUB_TOKEN,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-  }),
 };
 
 describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization proxy', () => {
@@ -519,14 +487,14 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
   });
 
   describe('Proxy chain integrity', () => {
-    it('all 13 tools register through the proxy', () => {
+    it('all 12 tools register through the proxy', () => {
       const { mockServer, proxy } = createProxyChain();
 
       for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
         proxy.registerTool(toolName, {} as never, (() => {}) as never);
       }
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(13);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(12);
     });
 
     it('tool names are forwarded correctly to the real server', () => {

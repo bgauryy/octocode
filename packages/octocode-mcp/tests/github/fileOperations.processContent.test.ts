@@ -204,6 +204,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         data: {
           content: string;
           pagination?: { hasMore: boolean };
+          isPartial?: boolean;
           signaturesExtracted?: boolean;
         };
       };
@@ -215,6 +216,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       expect(result.data.content).toContain('fn399(');
       // Extraction ran (signatures present), not full bodies.
       expect(result.data.content).not.toContain('doStuff');
+      expect(result.data.isPartial).toBe(false);
       // Internal bypass flag must not leak into the API result.
       expect(result.data.signaturesExtracted).toBeUndefined();
     });
@@ -542,7 +544,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         repo: 'repo',
         path: 'test.txt',
         matchString: 'TARGET LINE',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result.status).toBe(200);
@@ -586,7 +588,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         repo: 'repo',
         path: 'test.txt',
         matchString: 'attachPingListener(root,wakeable,rootRenderLanes)',
-        matchStringContextLines: 0,
+        contextLines: 0,
       });
 
       expect(result.status).toBe(200);
@@ -633,7 +635,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         repo: 'repo',
         path: 'test.txt',
         matchString: 'Target Line',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result).toHaveProperty('data');

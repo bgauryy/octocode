@@ -1,0 +1,48 @@
+{
+  "ext": "vue",
+  "language": "Vue",
+  "source": "vue/vite-app.vue",
+  "sourceBytes": 119,
+  "strategy": "aggressive",
+  "commentModel": "html",
+  "sha256": "10e38230639e6305791413e147c85aa4ce429a13d772e0ecdec5dc5238249b06",
+  "contentView": {
+    "bytes": 118,
+    "cutPercent": 0.8,
+    "durationMs": 0.033
+  },
+  "applyMinification": {
+    "bytes": 112,
+    "cutPercent": 5.9,
+    "durationMs": 0.036
+  },
+  "sync": {
+    "bytes": 112,
+    "cutPercent": 5.9,
+    "durationMs": 0.024
+  },
+  "async": {
+    "bytes": 110,
+    "cutPercent": 7.6,
+    "durationMs": 0.172,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 87,
+    "cutPercent": 26.9,
+    "durationMs": 0.077
+  },
+  "ratings": {
+    "minify": 7.5,
+    "symbols": 6.5,
+    "agent": 7.2,
+    "label": "good"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

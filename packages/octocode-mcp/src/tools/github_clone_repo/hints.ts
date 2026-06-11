@@ -3,11 +3,16 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
-    const sparsePath = typeof c.path === 'string' ? c.path : undefined;
+    const sparsePath =
+      typeof c.sparsePath === 'string'
+        ? c.sparsePath
+        : typeof c.path === 'string'
+          ? c.path
+          : undefined;
     if (sparsePath) {
       return [
-        `Clone succeeded but 'sparse_path="${sparsePath}"' matched no files.`,
-        'Broaden or omit `sparse_path` to check out the full repo, then inspect with `localViewStructure`.',
+        `Clone succeeded but 'sparsePath="${sparsePath}"' matched no files.`,
+        'Broaden or omit `sparsePath` to check out the full repo, then inspect with `localViewStructure`.',
         'Use `githubViewRepoStructure` first to confirm the exact directory path before cloning sparse.',
       ];
     }
@@ -33,7 +38,7 @@ export const hints: ToolHintGenerators = {
     }
     if (ctx.errorType === 'timeout') {
       return [
-        'Clone timed out — use `sparse_path` to check out only the relevant subdirectory.',
+        'Clone timed out — use `sparsePath` to check out only the relevant subdirectory.',
       ];
     }
     return [];

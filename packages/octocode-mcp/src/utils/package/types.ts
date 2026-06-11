@@ -1,10 +1,12 @@
+export type PackageSearchMode = 'smart' | 'full' | 'lean';
+
 export interface PackageSearchInput {
   name: string;
   itemsPerPage?: number;
 
   page?: number;
 
-  npmFetchMetadata?: boolean;
+  mode?: PackageSearchMode;
   mainResearchGoal?: string;
   researchGoal?: string;
   reasoning?: string;
@@ -25,7 +27,7 @@ export interface NpmPackageResult {
   path?: string;
   version: string;
 
-  source?: 'cli' | 'registry' | 'web';
+  source?: 'cli' | 'registry' | 'cdn' | 'web';
 
   mainEntry?: string | null;
   moduleEntry?: string | null;

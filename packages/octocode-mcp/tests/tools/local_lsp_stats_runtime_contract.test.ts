@@ -3,10 +3,7 @@ import { incrementToolCharSavings } from 'octocode-shared';
 import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
 import { attachRawResponseChars } from '../../src/utils/response/charSavings.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from '../../src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 
 const mockSearchContentRipgrep = vi.hoisted(() => vi.fn());
 const mockViewStructure = vi.hoisted(() => vi.fn());
@@ -44,7 +41,6 @@ import { registerLocalViewStructureTool } from '../../src/tools/local_view_struc
 import { registerLocalFindFilesTool } from '../../src/tools/local_find_files/register.js';
 import { registerLocalFetchContentTool } from '../../src/tools/local_fetch_content/register.js';
 import { registerLspGetSemanticContentTool } from '../../src/tools/lsp/semantic_content/register.js';
-import { registerLspGetDiagnosticsTool } from '../../src/tools/lsp/diagnostics/register.js';
 
 const RAW_BY_TOOL: Record<string, number> = {
   [TOOL_NAMES.LOCAL_RIPGREP]: 11_111,
@@ -52,7 +48,6 @@ const RAW_BY_TOOL: Record<string, number> = {
   [TOOL_NAMES.LOCAL_FIND_FILES]: 33_333,
   [TOOL_NAMES.LOCAL_FETCH_CONTENT]: 44_444,
   [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: 55_555,
-  [LSP_GET_DIAGNOSTICS_TOOL_NAME]: 66_666,
 };
 
 describe('local + LSP tool stats runtime contract', () => {
@@ -127,7 +122,6 @@ describe('local + LSP tool stats runtime contract', () => {
     registerLocalFindFilesTool(mockServer.server);
     registerLocalFetchContentTool(mockServer.server);
     registerLspGetSemanticContentTool(mockServer.server);
-    registerLspGetDiagnosticsTool(mockServer.server);
 
     await mockServer.callTool(TOOL_NAMES.LOCAL_RIPGREP, {
       queries: [
@@ -186,18 +180,6 @@ describe('local + LSP tool stats runtime contract', () => {
       ],
     });
 
-    await mockServer.callTool(LSP_GET_DIAGNOSTICS_TOOL_NAME, {
-      queries: [
-        {
-          id: 'diagnostics',
-          researchGoal: 'exercise lspGetDiagnostics stats',
-          reasoning: 'prove runtime char savings emission',
-          uri: `${process.cwd()}/package.json`,
-          severity: 'all',
-        },
-      ],
-    });
-
     const statsCalls = vi.mocked(incrementToolCharSavings).mock.calls;
     const recordedToolNames = statsCalls.map(([toolName]) => toolName);
 
@@ -207,7 +189,6 @@ describe('local + LSP tool stats runtime contract', () => {
       TOOL_NAMES.LOCAL_FIND_FILES,
       TOOL_NAMES.LOCAL_FETCH_CONTENT,
       LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-      LSP_GET_DIAGNOSTICS_TOOL_NAME,
     ];
 
     expect(recordedToolNames).toEqual(expectedToolNames);

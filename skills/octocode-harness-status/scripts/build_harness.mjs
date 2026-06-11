@@ -215,6 +215,7 @@ function readSkillMeta(skillDir) {
 }
 
 function collectVendorData(vendor) {
+  const skillsDirAliases = Array.isArray(vendor.skillsDirAliases) ? vendor.skillsDirAliases : [];
   const result = {
     id: vendor.id, name: vendor.name, emoji: vendor.emoji,
     category: vendor.category || 'other', installUrl: vendor.installUrl || '', color: vendor.color || '#6366f1',
@@ -223,6 +224,7 @@ function collectVendorData(vendor) {
     mcpConfigFormat: vendor.mcpConfigFormat || 'json', mcpReadOnly: false,
     mcpSupport: vendor.mcpSupport !== false, skillsSupport: vendor.skillsSupport === true,
     skillsDir: vendor.skillsDir,
+    skillsDirAliases,
     mcpServers: [],
     skills: [],
     configured: false, skillsConfigured: false,
@@ -248,13 +250,21 @@ function collectVendorData(vendor) {
     }
   }
 
-  if (vendor.skillsDir && existsSync(vendor.skillsDir)) {
+  // Scan primary skills dir + all alias dirs
+  const allSkillDirs = [
+    ...(vendor.skillsDir ? [vendor.skillsDir] : []),
+    ...(Array.isArray(vendor.skillsDirAliases) ? vendor.skillsDirAliases : []),
+  ];
+  for (const skillDir of allSkillDirs) {
+    if (!skillDir || !existsSync(skillDir)) continue;
     result.skillsConfigured = true;
     try {
-      for (const entry of readdirSync(vendor.skillsDir, { withFileTypes: true })) {
+      for (const entry of readdirSync(skillDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
-        const meta = readSkillMeta(join(vendor.skillsDir, entry.name));
+        const meta = readSkillMeta(join(skillDir, entry.name));
         if (meta) {
+          // Tag each skill with its parent directory so the remove API uses the right path
+          meta.parentDir = skillDir;
           result.skills.push(meta);
           result.totalSkillBytes += meta.bytes;
           result.totalDescBytes += meta.descBytes;
@@ -404,7 +414,8 @@ function buildHtml(data) {
   // Serialise vendor data for client-side JS edits
   const vendorMeta = JSON.stringify(
     vendors.map(v => ({
-      id: v.id, mcpConfigPath: v.mcpConfigPath, mcpKey: v.mcpKey, skillsDir: v.skillsDir,
+      id: v.id, mcpConfigPath: v.mcpConfigPath, mcpKey: v.mcpKey,
+      skillsDir: v.skillsDir, skillsDirAliases: v.skillsDirAliases || [],
       mcpServers: v.mcpServers.map(m => ({ name: m.name, command: m.command, args: m.args, env: m.env, type: m.type })),
     }))
   );
@@ -487,7 +498,7 @@ function buildHtml(data) {
         <td class="td-desc" title="${esc(s.description||'')}">${esc(desc)}${(s.description||'').length>120?'&hellip;':''}</td>
         <td class="td-size mono td-num">${fmtBytes(s.bytes)}<span class="desc-size muted">desc ${fmtBytes(s.descBytes)}</span></td>
         <td class="td-actions">
-          <button class="btn-icon btn-del" title="Delete skill" aria-label="Delete ${esc(s.name)}" onclick="confirmRemove('skill','${escJs(v.id)}','${escJs(s.name)}','${escJs(v.skillsDir||'')}','')">&times;</button>
+          <button class="btn-icon btn-del" title="Delete skill" aria-label="Delete ${esc(s.name)}" onclick="confirmRemove('skill','${escJs(v.id)}','${escJs(s.name)}','${escJs(s.parentDir||v.skillsDir||'')}','')">&times;</button>
         </td>
       </tr>
       ${scriptRows}`;
@@ -538,6 +549,7 @@ function buildHtml(data) {
       <div class="vendor-body" id="body-${esc(v.id)}">
         ${v.mcpConfigPath ? `<div class="config-path mono copyable" onclick="copyText('${escJs(v.mcpConfigPath)}')" title="Click to copy"><span class="cfg-ico">&#128196;</span>${esc(v.mcpConfigPath)}${v.mcpReadOnly?` <span class="ro-note">&#128274; ${esc(v.mcpConfigFormat.toUpperCase())}</span>`:''}<span class="copy-hint">copy</span></div>` : ''}
         ${v.skillsDir ? `<div class="config-path mono copyable" onclick="copyText('${escJs(v.skillsDir)}')" title="Click to copy"><span class="cfg-ico">&#128193;</span>${esc(v.skillsDir)}<span class="copy-hint">copy</span></div>` : ''}
+        ${(v.skillsDirAliases || []).map(d => existsSync(d) ? `<div class="config-path mono copyable" onclick="copyText('${escJs(d)}')" title="Click to copy"><span class="cfg-ico">&#128193;</span>${esc(d)} <span class="ro-note" style="background:rgba(109,107,246,.15);color:var(--primary2)">alias</span><span class="copy-hint">copy</span></div>` : '').join('')}
         ${budgetBars.join('')}
         ${itemCount ? `
         <div class="card-toolbar">
@@ -1421,14 +1433,17 @@ async function startServer(html, vendors, port, timeout) {
 
           if (req.url === '/api/remove') {
             // Paths come from the trusted server-side vendor record, never the client payload.
-            const { type, vendorId, itemName } = payload;
+            const { type, vendorId, itemName, configPath: clientParentDir } = payload;
             const vendor = vendors.find(v => v.id === vendorId);
             if (!vendor) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'Vendor not found' })); return; }
             if (type === 'mcp') {
               if (vendor.mcpReadOnly) throw new Error(`${(vendor.mcpConfigFormat||'').toUpperCase()} config is read-only`);
               removeMcpFromConfig(vendor.mcpConfigPath, vendor.mcpKey || 'mcpServers', itemName);
             } else if (type === 'skill') {
-              removeSkillFolder(vendor.skillsDir, itemName);
+              // Validate that clientParentDir (if provided) is one of the vendor's authorised skill dirs.
+              const allowedDirs = [vendor.skillsDir, ...(vendor.skillsDirAliases || [])].filter(Boolean);
+              const targetDir = clientParentDir && allowedDirs.includes(clientParentDir) ? clientParentDir : vendor.skillsDir;
+              removeSkillFolder(targetDir, itemName);
             } else { throw new Error('Unknown type'); }
             res.writeHead(200); res.end(JSON.stringify({ ok: true }));
             return;

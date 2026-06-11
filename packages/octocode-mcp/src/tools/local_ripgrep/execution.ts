@@ -68,23 +68,7 @@ export async function executeRipgrepSearch(
               .join('; ');
             return createErrorResult(`Validation error: ${messages}`, query);
           }
-          // Map agent-facing renamed fields to the internal names that the
-          // ripgrep command builder reads.
-          const normalized = validation.data as RipgrepQuery & {
-            langType?: string;
-            countLinesPerFile?: boolean;
-            countMatchesPerFile?: boolean;
-          };
-          if (normalized.langType != null) {
-            normalized.type = normalized.langType;
-          }
-          if (normalized.countLinesPerFile != null) {
-            normalized.count = normalized.countLinesPerFile;
-          }
-          if (normalized.countMatchesPerFile != null) {
-            normalized.countMatches = normalized.countMatchesPerFile;
-          }
-          const result = await searchContentRipgrep(normalized);
+          const result = await searchContentRipgrep(validation.data);
           return attachEvidence(
             result as ProcessedBulkResult,
             buildRipgrepEvidence(result)

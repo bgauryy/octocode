@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 358,
+      "cutPercent": 0.3,
+      "durationMs": 0.127
+    },
+    "content": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Vite + JS</title>\n  </head>\n  <body>\n    <div id=\"app\"></div>\n    <script type=\"module\" src=\"/src/main.js\"></script>\n  </body>\n</html>",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 314,
+      "cutPercent": 12.5,
+      "durationMs": 0.118
+    },
+    "content": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\" /><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>Vite + JS</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script></body></html>",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 314,
+      "cutPercent": 12.5,
+      "durationMs": 0.068
+    },
+    "content": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\" /><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>Vite + JS</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script></body></html>",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 305,
+      "cutPercent": 15,
+      "durationMs": 2.963,
+      "failed": false,
+      "type": "aggressive",
+      "reason": null
+    },
+    "content": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Vite + JS</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script></body></html>",
+    "api": "minifyContent"
+  }
+}

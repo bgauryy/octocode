@@ -1,0 +1,48 @@
+{
+  "ext": "swift",
+  "language": "Swift",
+  "source": "swift/Optional.swift",
+  "sourceBytes": 33805,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "65ca156c2e4848b10c2cfcaece662bbb4374509bf6ebf3835392a6a5b5cae813",
+  "contentView": {
+    "bytes": 11652,
+    "cutPercent": 65.5,
+    "durationMs": 2.412
+  },
+  "applyMinification": {
+    "bytes": 11652,
+    "cutPercent": 65.5,
+    "durationMs": 2.663
+  },
+  "sync": {
+    "bytes": 11652,
+    "cutPercent": 65.5,
+    "durationMs": 2.419
+  },
+  "async": {
+    "bytes": 11652,
+    "cutPercent": 65.5,
+    "durationMs": 2.287,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 6335,
+    "cutPercent": 81.3,
+    "durationMs": 0.499
+  },
+  "ratings": {
+    "minify": 9.5,
+    "symbols": 10,
+    "agent": 9.7,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

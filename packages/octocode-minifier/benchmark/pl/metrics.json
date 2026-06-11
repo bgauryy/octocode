@@ -1,0 +1,49 @@
+{
+  "ext": "pl",
+  "language": "Perl",
+  "source": "pl/perl-checkcfgvar.pl",
+  "sourceBytes": 4523,
+  "strategy": "aggressive",
+  "commentModel": "hash",
+  "sha256": "e87b4e8690fdbbecc576e4595664259920eab7b4129ab9f4f65adf86598c4e38",
+  "contentView": {
+    "bytes": 3761,
+    "cutPercent": 16.8,
+    "durationMs": 0.313
+  },
+  "applyMinification": {
+    "bytes": 3101,
+    "cutPercent": 31.4,
+    "durationMs": 0.331
+  },
+  "sync": {
+    "bytes": 3101,
+    "cutPercent": 31.4,
+    "durationMs": 0.333
+  },
+  "async": {
+    "bytes": 3101,
+    "cutPercent": 31.4,
+    "durationMs": 0.643,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.005
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": null,
+    "agent": 8.5,
+    "label": "strong"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

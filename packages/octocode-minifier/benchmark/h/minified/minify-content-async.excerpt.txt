@@ -1,0 +1,72 @@
+#ifndef GIT_COMPAT_UTIL_H
+#define GIT_COMPAT_UTIL_H
+
+#if __STDC_VERSION__ - 0 < 199901L
+
+#error "Required C99 support is in a test phase.  Please see git-compat-util.h for more details."
+#endif
+
+#ifdef USE_MSVC_CRTDBG
+
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
+#include "compat/posix.h"
+
+struct strbuf;
+
+#if defined(__GNUC__) || defined(__clang__)
+#  define PRAGMA(pragma)           _Pragma(#pragma)
+#  define DISABLE_WARNING(warning) PRAGMA(GCC diagnostic ignored #warning)
+#else
+#  define DISABLE_WARNING(warning)
+#endif
+
+#undef FLEX_ARRAY
+#define FLEX_ARRAY
+
+#define BUILD_ASSERT_OR_ZERO(cond) \
+	(sizeof(char [1 - 2*!(cond)]) - 1)
+
+#if GIT_GNUC_PREREQ(3, 1)
+
+# define BARF_UNLESS_AN_ARRAY(arr)						\
+	BUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(arr), \
+							   __typeof__(&(arr)[0])))
+# define BARF_UNLESS_COPYABLE(dst, src) \
+	BUILD_ASSERT_OR_ZERO(__builtin_types_compatible_p(__typeof__(*(dst)), \
+							  __typeof__(*(src))))
+
+# define BARF_UNLESS_SIGNED(var)   BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) < 0)
+# define BARF_UNLESS_UNSIGNED(var) BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) > 0)
+#else
+# define BARF_UNLESS_AN_ARRAY(arr) 0
+# define BARF_UNLESS_COPYABLE(dst, src) \
+	BUILD_AS
+
+... [truncated 18355 chars] ...
+
+ member))
+
+#if defined(__GNUC__)
+#define OFFSETOF_VAR(ptr, member) offsetof(__typeof__(*ptr), member)
+#else
+#define OFFSETOF_VAR(ptr, member) \
+	((uintptr_t)&(ptr)->member - (uintptr_t)(ptr))
+#endif
+
+#define NOT_CONSTANT(expr) ((expr) || false_but_the_compiler_does_not_know_it_)
+extern int false_but_the_compiler_does_not_know_it_;
+
+#ifdef CHECK_ASSERTION_SIDE_EFFECTS
+#undef assert
+extern int not_supposed_to_survive;
+#define assert(expr) ((void)(not_supposed_to_survive || (expr)))
+#endif
+
+#endif
+
+#ifdef DISABLE_SIGN_COMPARE_WARNINGS
+DISABLE_WARNING(-Wsign-compare)
+#endif

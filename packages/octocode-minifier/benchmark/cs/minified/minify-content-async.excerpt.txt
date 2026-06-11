@@ -1,0 +1,60 @@
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+using System.Runtime.Serialization;
+
+namespace System
+{
+
+    [Serializable]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    public class ArgumentException : SystemException
+    {
+        private readonly string? _paramName;
+
+        public ArgumentException()
+            : base(SR.Arg_ArgumentException)
+        {
+            HResult = HResults.COR_E_ARGUMENT;
+        }
+
+        public ArgumentException(string? message)
+            : base(message)
+        {
+            HResult = HResults.COR_E_ARGUMENT;
+        }
+
+        public ArgumentException(string? message, Exception? innerException)
+            : base(message, innerException)
+        {
+            HResult = HResults.COR_E_ARGUMENT;
+        }
+
+        public ArgumentException(string? message, string? paramName, Exception? innerException)
+            : base(message, innerException)
+        {
+            _paramName = paramName;
+            HResult = HResults.COR_E_ARGUMENT;
+        }
+
+        public ArgumentException(string? message, string? paramName)
+            : base(message)
+        {
+
+... [truncated 2217 chars] ...
+
+DoesNotReturn]
+        private static void ThrowNullOrEmptyException(string? argument, string? paramName)
+        {
+            ArgumentNullException.ThrowIfNull(argument, paramName);
+            throw new ArgumentException(SR.Argument_EmptyString, paramName);
+        }
+
+        [DoesNotReturn]
+        private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)
+        {
+            ArgumentNullException.ThrowIfNull(argument, paramName);
+            throw new ArgumentException(SR.Argument_EmptyOrWhiteSpaceString, paramName);
+        }
+    }
+}

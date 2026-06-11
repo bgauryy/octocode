@@ -1,0 +1,49 @@
+{
+  "ext": "jsx",
+  "language": "JSX",
+  "source": "jsx/vite-app.jsx",
+  "sourceBytes": 3646,
+  "strategy": "terser",
+  "commentModel": "c-style",
+  "sha256": "7f89394a67eee963118aa51f09a6596af2d1e22632f205f4d073bb362f990ea5",
+  "contentView": {
+    "bytes": 3645,
+    "cutPercent": 0,
+    "durationMs": 1.359
+  },
+  "applyMinification": {
+    "bytes": 2894,
+    "cutPercent": 20.6,
+    "durationMs": 26.478
+  },
+  "sync": {
+    "bytes": 2894,
+    "cutPercent": 20.6,
+    "durationMs": 8.834
+  },
+  "async": {
+    "bytes": 2894,
+    "cutPercent": 20.6,
+    "durationMs": 6.705,
+    "failed": false,
+    "type": "terser",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 246,
+    "cutPercent": 93.3,
+    "durationMs": 0.658
+  },
+  "ratings": {
+    "minify": 8.3,
+    "symbols": 10,
+    "agent": 8.9,
+    "label": "strong"
+  },
+  "notes": [
+    "engine-backed or parser-backed path",
+    "content-view kept original because the readable output was not shorter"
+  ]
+}

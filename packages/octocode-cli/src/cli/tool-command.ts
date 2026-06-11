@@ -196,6 +196,9 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
+  console.log(
+    `  ${dim('Runtime: same Octocode MCP tool implementation under the hood.')}`
+  );
   console.log();
 
   console.log(`  ${bold('Input Schema')}`);
@@ -293,6 +296,7 @@ export async function getToolsContextString(
   const sections: string[] = [
     'Octocode CLI — Agent Protocol',
     [
+      'Tool runtime: `octocode tools` runs the same Octocode MCP tool implementations under the hood.',
       'You are an agent driving the octocode CLI. Follow this protocol:',
       '  1. This output lists every tool with its name, description, and key input fields below' +
         (full ? ' (full JSON schemas included).' : '.'),
@@ -551,7 +555,8 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
 export const toolCommand: CLICommand = {
   name: 'tool',
-  description: 'Run an Octocode tool directly',
+  description:
+    'Run an Octocode MCP tool directly using the same implementation under the hood',
   usage: `octocode --tool <toolName> --queries '<json-stringified-input>'`,
   options: [
     {

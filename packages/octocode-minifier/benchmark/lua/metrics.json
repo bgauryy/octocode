@@ -1,0 +1,49 @@
+{
+  "ext": "lua",
+  "language": "Lua",
+  "source": "lua/plenary-path.lua",
+  "sourceBytes": 23250,
+  "strategy": "aggressive",
+  "commentModel": "lua",
+  "sha256": "47b9716ff84dc8e64906139bcb9158152b08061bed62d6c9aa362eec6487b50d",
+  "contentView": {
+    "bytes": 19630,
+    "cutPercent": 15.6,
+    "durationMs": 3.796
+  },
+  "applyMinification": {
+    "bytes": 16800,
+    "cutPercent": 27.7,
+    "durationMs": 4.253
+  },
+  "sync": {
+    "bytes": 16800,
+    "cutPercent": 27.7,
+    "durationMs": 3.341
+  },
+  "async": {
+    "bytes": 16800,
+    "cutPercent": 27.7,
+    "durationMs": 4.302,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.012
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": null,
+    "agent": 8.5,
+    "label": "strong"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

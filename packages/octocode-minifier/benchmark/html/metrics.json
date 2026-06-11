@@ -1,0 +1,48 @@
+{
+  "ext": "html",
+  "language": "HTML",
+  "source": "html/vite-index.html",
+  "sourceBytes": 359,
+  "strategy": "aggressive",
+  "commentModel": "html",
+  "sha256": "b56c70e2f1939591fd0b25b6fc80c9cf2878ee951666b45ac0b5bd5843152337",
+  "contentView": {
+    "bytes": 358,
+    "cutPercent": 0.3,
+    "durationMs": 0.127
+  },
+  "applyMinification": {
+    "bytes": 314,
+    "cutPercent": 12.5,
+    "durationMs": 0.118
+  },
+  "sync": {
+    "bytes": 314,
+    "cutPercent": 12.5,
+    "durationMs": 0.068
+  },
+  "async": {
+    "bytes": 305,
+    "cutPercent": 15,
+    "durationMs": 2.963,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 257,
+    "cutPercent": 28.4,
+    "durationMs": 0.359
+  },
+  "ratings": {
+    "minify": 8.3,
+    "symbols": 6.5,
+    "agent": 7.7,
+    "label": "good"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

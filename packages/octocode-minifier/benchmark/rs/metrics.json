@@ -1,0 +1,48 @@
+{
+  "ext": "rs",
+  "language": "Rust",
+  "source": "rs/option.rs",
+  "sourceBytes": 100057,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "6d0f607bd44a4853f8c394bac7e77dea1ab5aeaef65427be9fc1e61ba7143ef7",
+  "contentView": {
+    "bytes": 37827,
+    "cutPercent": 62.2,
+    "durationMs": 6.518
+  },
+  "applyMinification": {
+    "bytes": 37827,
+    "cutPercent": 62.2,
+    "durationMs": 6.458
+  },
+  "sync": {
+    "bytes": 37827,
+    "cutPercent": 62.2,
+    "durationMs": 6.673
+  },
+  "async": {
+    "bytes": 37827,
+    "cutPercent": 62.2,
+    "durationMs": 6.965,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 7552,
+    "cutPercent": 92.5,
+    "durationMs": 0.464
+  },
+  "ratings": {
+    "minify": 9.5,
+    "symbols": 10,
+    "agent": 9.7,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

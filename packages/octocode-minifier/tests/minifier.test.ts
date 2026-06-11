@@ -103,7 +103,7 @@ function greet(user: User): string {
       expect(result.content).toContain('name: string');
       expect(result.content).toContain('function greet(user: User): string');
 
-      expect(mockMinify).not.toHaveBeenCalled();
+      expect(mockMinify).toHaveBeenCalled();
     });
 
     it('should handle TSX files with conservative strategy', async () => {
@@ -131,7 +131,7 @@ export const Header: React.FC<Props> = ({ title }) => {
       expect(result.content).toContain('title: string');
       expect(result.content).toContain('React.FC<Props>');
 
-      expect(mockMinify).not.toHaveBeenCalled();
+      expect(mockMinify).toHaveBeenCalled();
     });
 
     it('should handle complex TypeScript with generics preserving structure', async () => {
@@ -485,14 +485,15 @@ WHERE active = 1;
 
       const result = await minifyContent(sqlCode, 'query.sql');
 
-      expect(result.type).toBe('aggressive');
+      expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
 
       expect(result.content).not.toContain('-- This is a SQL comment');
       expect(result.content).not.toContain('/* Multi-line SQL comment');
       expect(result.content).not.toContain('-- Another comment');
 
-      expect(result.content).toContain('SELECT * FROM users WHERE active = 1;');
+      expect(result.content).toContain('SELECT * FROM users');
+      expect(result.content).toContain('WHERE active = 1;');
     });
 
     it('should preserve mid-line shebang sequences when stripping hash comments', async () => {
@@ -1068,7 +1069,7 @@ resource "aws_instance" "example" {
 
       const result = await minifyContent(tfContent, 'main.tf');
 
-      expect(result.type).toBe('aggressive');
+      expect(result.type).toBe('conservative');
       expect(result.failed).toBe(false);
     });
   });

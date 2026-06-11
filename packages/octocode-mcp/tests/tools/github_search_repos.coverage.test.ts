@@ -210,31 +210,6 @@ describe('GitHub Search Repositories Coverage', () => {
       });
     });
 
-    it('sorts by created date when sort=created, handling missing dates', async () => {
-      mockProvider.searchRepos.mockResolvedValue(
-        okResponse([
-          repo({ id: '1', fullPath: 'a/nodate', createdAt: undefined }),
-          repo({ id: '2', fullPath: 'b/dated', createdAt: '2024-06-01' }),
-        ])
-      );
-
-      const result = await call({
-        id: 'sort_created',
-        keywordsToSearch: ['x'],
-        sort: 'created',
-      });
-
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
-        }>;
-      };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'dated',
-      });
-    });
-
     it('falls back to relevance/stars when sort=best-match', async () => {
       mockProvider.searchRepos.mockResolvedValue(
         okResponse([

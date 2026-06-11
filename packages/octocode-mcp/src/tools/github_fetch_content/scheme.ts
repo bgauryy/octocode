@@ -1,13 +1,12 @@
 import { z } from 'zod';
-import { FileContentQuerySchema as UpstreamFileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { completeMetadata } from '@octocodeai/octocode-core';
+import { MAX_CHAR_LENGTH } from '../../config.js';
 import {
   clampedInt,
   contextLinesField,
   createRelaxedBulkQuerySchema,
   lineNumberField,
   minifyFieldWithSymbols,
-  optionalMetaFields,
-  withCoreSchemaDescriptions,
 } from '../../scheme/localSchemaOverlay.js';
 import { validateFileContentExtractionMode } from '../../scheme/fileContentModeValidation.js';
 import {
@@ -15,6 +14,11 @@ import {
   responseEnvelopeFields,
 } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
+
+const QUERY_DESCRIPTIONS = {
+  ...completeMetadata.baseSchema,
+  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]?.schema,
+} as Record<string, string>;
 
 const PaginationInfoSchema = z.object({
   currentPage: z.number(),
@@ -43,7 +47,6 @@ const GitHubFetchFileEntrySchema = z.object({
   isPartial: z.boolean().optional(),
   startLine: z.number().optional(),
   endLine: z.number().optional(),
-  // Slice ranges when matchString hits multiple separated spots in the file.
   matchRanges: z
     .array(z.object({ start: z.number(), end: z.number() }))
     .optional(),
@@ -60,45 +63,66 @@ const GitHubFetchDirectoryEntrySchema = z.object({
   fileCount: z.number(),
   totalSize: z.number(),
   files: z
-    .array(
-      z.object({
-        path: z.string(),
-        size: z.number(),
-        type: z.string(),
-      })
-    )
+    .array(z.object({ path: z.string(), size: z.number(), type: z.string() }))
     .optional(),
   cached: z.boolean().optional(),
   resolvedBranch: z.string().optional(),
 });
 
-export const FileContentQueryBaseLocalSchema = withCoreSchemaDescriptions(
-  STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-  UpstreamFileContentQuerySchema.omit({
-    matchStringContextLines: true,
-  } as const).extend({
-    ...optionalMetaFields,
-    type: z.enum(['file', 'directory']).optional(),
-    startLine: lineNumberField,
-    endLine: lineNumberField,
-    contextLines: contextLinesField,
-    matchString: z.string().optional(),
-    matchStringIsRegex: z.boolean().optional(),
-    matchStringCaseSensitive: z.boolean().optional(),
-    charOffset: clampedInt(0, 100_000_000).optional(),
-    charLength: clampedInt(1, 50_000).optional(),
-    minify: minifyFieldWithSymbols,
-  })
-);
+const FileContentQueryShape = z.object({
+  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.researchGoal!),
+  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
+  owner: z.string().describe(QUERY_DESCRIPTIONS.owner!),
+  repo: z.string().describe(QUERY_DESCRIPTIONS.repo!),
+  branch: z.string().optional().describe(QUERY_DESCRIPTIONS.branch!),
+  path: z.string().describe(QUERY_DESCRIPTIONS.path!),
+  startLine: lineNumberField.describe(QUERY_DESCRIPTIONS.startLine!),
+  endLine: lineNumberField.describe(QUERY_DESCRIPTIONS.endLine!),
+  fullContent: z.boolean().optional().describe(QUERY_DESCRIPTIONS.fullContent!),
+  matchString: z.string().optional().describe(QUERY_DESCRIPTIONS.matchString!),
+  matchStringIsRegex: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.matchStringIsRegex!),
+  matchStringCaseSensitive: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.matchStringCaseSensitive!),
+  forceRefresh: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.forceRefresh!),
+  type: z
+    .enum(['file', 'directory'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.type!),
+  contextLines: contextLinesField.describe(QUERY_DESCRIPTIONS.contextLines!),
+  charOffset: clampedInt(0, 100_000_000)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.charOffset!),
+  charLength: clampedInt(1, MAX_CHAR_LENGTH)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.charLength!),
+  minify: minifyFieldWithSymbols.describe(QUERY_DESCRIPTIONS.minify!),
+});
 
-export const FileContentQueryLocalSchema =
-  FileContentQueryBaseLocalSchema.superRefine(
-    validateFileContentExtractionMode
-  );
+export const FileContentQueryBaseLocalSchema = FileContentQueryShape;
+
+export const FileContentQueryLocalSchema = FileContentQueryShape.superRefine(
+  validateFileContentExtractionMode
+);
 
 export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-  FileContentQueryBaseLocalSchema
+  FileContentQueryShape
 );
 
 export const GitHubFetchContentOutputLocalSchema = z.object({

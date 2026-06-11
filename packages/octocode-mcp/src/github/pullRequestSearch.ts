@@ -1,3 +1,7 @@
+import {
+  GITHUB_SEARCH_DEFAULT_LIMIT,
+  GITHUB_SEARCH_MAX_LIMIT,
+} from '../config.js';
 import type {
   GitHubAPIError,
   GitHubPullRequestsSearchParams,
@@ -49,7 +53,10 @@ function createPullRequestErrorResult(
 function createPullRequestEmptyResult(
   params: GitHubPullRequestsSearchParams
 ): GitHubPullRequestSearchApiResult {
-  const perPage = Math.min(params.limit || 30, 100);
+  const perPage = Math.min(
+    params.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
+    GITHUB_SEARCH_MAX_LIMIT
+  );
   return {
     pull_requests: [],
     total_count: 0,
@@ -179,7 +186,10 @@ async function searchGitHubPullRequestsAPIInternal(
     const sortValue =
       params.sort && params.sort !== 'best-match' ? params.sort : undefined;
 
-    const perPage = Math.min(params.limit || 30, 100);
+    const perPage = Math.min(
+      params.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
+      GITHUB_SEARCH_MAX_LIMIT
+    );
     const currentPage = params.page || 1;
 
     const searchResult = await octokit.rest.search.issuesAndPullRequests({
@@ -262,7 +272,10 @@ async function searchPullRequestsWithREST(
     const owner = params.owner as string;
     const repo = params.repo as string;
 
-    const perPage = Math.min(params.limit || 30, 100);
+    const perPage = Math.min(
+      params.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
+      GITHUB_SEARCH_MAX_LIMIT
+    );
     const currentPage = params.page || 1;
 
     const result = await octokit.rest.pulls.list({
@@ -305,7 +318,7 @@ async function searchPullRequestsWithREST(
         currentPage,
         totalPages: hasMore ? currentPage + 1 : currentPage,
         perPage,
-        totalMatches: formattedPRs.length,
+        ...(!hasMore ? { totalMatches: formattedPRs.length } : {}),
         hasMore,
       },
       rawResponseChars:

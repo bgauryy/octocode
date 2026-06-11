@@ -608,6 +608,56 @@ describe('extractSignatures — java', () => {
   });
 });
 
+// ───────────────────────────── Scala ─────────────────────────────
+
+const SCALA_SOURCE = `package com.example
+
+import scala.concurrent.Future
+
+// comment should vanish
+final case class User(id: String)
+
+object UserService {
+  type Result = Future[List[User]]
+
+  def findAll(limit: Int): Result = {
+    Future.successful(List.empty)
+  }
+
+  private val CacheKey = "users"
+}
+
+trait Repository {
+  def load(): List[User]
+}
+`;
+
+describe('extractSignatures — scala', () => {
+  const sigs = extractSignatures(SCALA_SOURCE, 'UserService.scala')!;
+
+  it('keeps package, imports, case classes, objects, types, vals, traits, and defs', () => {
+    expectGutter(sigs, 1, 'package com.example');
+    expectGutter(sigs, 3, 'import scala.concurrent.Future');
+    expectGutter(sigs, 6, 'final case class User(id: String)');
+    expectGutter(sigs, 8, 'object UserService {');
+    expectGutter(sigs, 9, 'type Result = Future[List[User]]');
+    expectGutter(sigs, 11, 'def findAll(limit: Int): Result = {');
+    expectGutter(sigs, 15, 'private val CacheKey = "users"');
+    expectGutter(sigs, 18, 'trait Repository {');
+    expectGutter(sigs, 19, 'def load(): List[User]');
+  });
+
+  it('drops bodies and comments', () => {
+    expect(sigs).not.toContain('Future.successful');
+    expect(sigs).not.toContain('comment should vanish');
+    expectNoCommentLines(sigs, 'c');
+  });
+
+  it('emits no blank gutter lines', () => {
+    expectNoBlankGutterLines(sigs);
+  });
+});
+
 // ───────────────────────────── Rust ─────────────────────────────
 
 const RUST_SOURCE = `use std::collections::HashMap;

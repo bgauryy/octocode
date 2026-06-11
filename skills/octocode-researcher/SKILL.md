@@ -74,7 +74,6 @@ Proceed with whatever tools are available — do not block on setup.
 | `lspGetSemanticContent` (type=callers) | Trace incoming callers (who calls this function) |
 | `lspGetSemanticContent` (type=callees) | Trace outgoing callees (what this function calls) |
 | `lspGetSemanticContent` (type=callHierarchy) | Full call hierarchy — both directions |
-| `lspGetDiagnostics` | File-level errors/warnings with severity filter |
 
 ### External (GitHub, packages, repos)
 

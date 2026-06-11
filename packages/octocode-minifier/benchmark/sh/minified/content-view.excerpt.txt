@@ -1,0 +1,95 @@
+{
+
+NVM_SCRIPT_SOURCE="$_"
+
+nvm_is_zsh() {
+  [ -n "${ZSH_VERSION-}" ]
+}
+
+nvm_stdout_is_terminal() {
+  [ -t 1 ]
+}
+
+nvm_echo() {
+  command printf %s\\n "$*" 2>/dev/null
+}
+
+nvm_echo_with_colors() {
+  command printf %b\\n "$*" 2>/dev/null
+}
+
+nvm_cd() {
+  \cd "$@"
+}
+
+nvm_err() {
+  >&2 nvm_echo "$@"
+}
+
+nvm_err_with_colors() {
+  >&2 nvm_echo_with_colors "$@"
+}
+
+nvm_grep() {
+  GREP_OPTIONS='' command grep "$@"
+}
+
+nvm_has() {
+  type "${1-}" >/dev/null 2>&1
+}
+
+nvm_has_non_aliased() {
+  nvm_has "${1-}" && ! nvm_is_alias "${1-}"
+}
+
+nvm_is_alias() {
+
+  \alias "${1-}" >/dev/null 2>&1
+}
+
+nvm_command_info() {
+  local COMMAND
+  local INFO
+  COMMAND="${1}"
+  if type "${COMMAND}" | nvm_grep -q hashed; then
+    INFO="$(type "${COMMAND}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
+  elif type "${COMMAND}" | nvm_grep -q aliased; then
+
+    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
+  elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
+    # shellcheck disable=SC2230
+    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
+  elif t
+
+... [truncated 154484 chars] ...
+
+VERSION}" >/dev/null
+      elif nvm_rc_version 3>/dev/null >/dev/null 2>&1; then
+        nvm install >/dev/null
+      else
+        return 0
+      fi
+    ;;
+    *)
+      nvm_err 'Invalid auto mode supplied.'
+      return 1
+    ;;
+  esac
+}
+
+nvm_process_parameters() {
+  local NVM_AUTO_MODE
+  NVM_AUTO_MODE='use'
+  while [ "$#" -ne 0 ]; do
+    case "$1" in
+      --install) NVM_AUTO_MODE='install' ;;
+      --no-use) NVM_AUTO_MODE='none' ;;
+    esac
+    shift
+  done
+  nvm_auto "${NVM_AUTO_MODE}"
+}
+
+nvm_process_parameters "$@"
+
+} # this ensures the entire script is downloaded #

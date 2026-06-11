@@ -1,0 +1,48 @@
+{
+  "ext": "tsx",
+  "language": "TSX",
+  "source": "tsx/next-index.tsx",
+  "sourceBytes": 285,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "cb59c64951ff645b8e16a8d6e0827624c82195027e74d3c0be2571223607d1ff",
+  "contentView": {
+    "bytes": 284,
+    "cutPercent": 0.4,
+    "durationMs": 0.108
+  },
+  "applyMinification": {
+    "bytes": 284,
+    "cutPercent": 0.4,
+    "durationMs": 3.252
+  },
+  "sync": {
+    "bytes": 284,
+    "cutPercent": 0.4,
+    "durationMs": 1.822
+  },
+  "async": {
+    "bytes": 284,
+    "cutPercent": 0.4,
+    "durationMs": 4.598,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 147,
+    "cutPercent": 48.4,
+    "durationMs": 0.161
+  },
+  "ratings": {
+    "minify": 6.8,
+    "symbols": 8,
+    "agent": 7.2,
+    "label": "good"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

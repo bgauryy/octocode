@@ -58,7 +58,7 @@ function createTestParams(overrides: Record<string, unknown> = {}) {
     repo: 'repo',
     path: 'test.txt',
     fullContent: false,
-    matchStringContextLines: 5,
+    contextLines: 5,
     ...overrides,
   };
 }
@@ -427,7 +427,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       });
     });
 
-    it('should find match and return context with default matchStringContextLines (5)', async () => {
+    it('should find match and return context with default contextLines (5)', async () => {
       const params = createTestParams({
         matchString: 'function MyComponent()',
       });
@@ -446,10 +446,10 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       }
     });
 
-    it('should respect custom matchStringContextLines', async () => {
+    it('should respect custom contextLines', async () => {
       const params = createTestParams({
         matchString: 'function MyComponent()',
-        matchStringContextLines: 2,
+        contextLines: 2,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -463,10 +463,10 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       }
     });
 
-    it('should handle matchStringContextLines=0 (only matching line)', async () => {
+    it('should handle contextLines=0 (only matching line)', async () => {
       const params = createTestParams({
         matchString: 'function MyComponent()',
-        matchStringContextLines: 0,
+        contextLines: 0,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -517,7 +517,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
 
       const params = createTestParams({
         matchString: 'export function createRef',
-        matchStringContextLines: 3,
+        contextLines: 3,
         minified: false,
       });
 
@@ -567,7 +567,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     it('should handle matchString with multiple occurrences', async () => {
       const params = createTestParams({
         matchString: 'import',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -608,7 +608,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         startLine: 1,
         endLine: 5,
         matchString: 'line 10',
-        matchStringContextLines: 2,
+        contextLines: 2,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -643,7 +643,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     it('returns match-selected content verbatim (no base minify)', async () => {
       const params = createTestParams({
         matchString: 'line 15',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -664,7 +664,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         startLine: 5,
         endLine: 10,
         matchString: 'search term',
-        matchStringContextLines: 3,
+        contextLines: 3,
       });
 
       mockOctokit.rest.repos.getContent.mockResolvedValue({

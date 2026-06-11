@@ -70,7 +70,7 @@ Direct CLI runs auto-fill `id`, `mainResearchGoal`, `researchGoal`, and `reasoni
 |----------|-------|
 | GitHub | `githubSearchCode`, `githubGetFileContent`, `githubViewRepoStructure`, `githubSearchRepositories`, `githubSearchPullRequests`, `githubCloneRepo` |
 | Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
-| LSP | `lspGetSemanticContent`, `lspGetDiagnostics` |
+| LSP | `lspGetSemanticContent` |
 | Package | `packageSearch` |
 
 Examples:
@@ -79,7 +79,6 @@ Examples:
 octocode tools localSearchCode
 octocode tools localSearchCode --queries '{"path":".","pattern":"runCLI"}'
 octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
-octocode tools lspGetDiagnostics --queries '{"uri":"/abs/path/file.ts","severity":"all"}'
 ```
 
 ## Commands

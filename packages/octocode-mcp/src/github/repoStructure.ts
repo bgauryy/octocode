@@ -32,13 +32,7 @@ import type { Octokit } from 'octokit';
 
 const TOOL_NAME = TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE;
 
-type GitHubStructureFetchQuery = Omit<
-  GitHubViewRepoStructureQuery,
-  'entriesPerPage' | 'entryPageNumber'
-> &
-  Partial<
-    Pick<GitHubViewRepoStructureQuery, 'entriesPerPage' | 'entryPageNumber'>
-  >;
+type GitHubStructureFetchQuery = GitHubViewRepoStructureQuery;
 
 interface ContentResolution {
   data: unknown;
@@ -211,9 +205,9 @@ export async function viewGitHubRepositoryStructureAPI(
       return await viewGitHubRepositoryStructureAPIInternal(
         {
           ...params,
-          entriesPerPage:
-            params.entriesPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
-          entryPageNumber: params.entryPageNumber ?? 1,
+          itemsPerPage:
+            params.itemsPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
+          page: params.page ?? 1,
         },
         authInfo
       );
@@ -287,11 +281,11 @@ async function viewGitHubRepositoryStructureAPIInternal(
     });
 
     const entriesPerPage =
-      params.entriesPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
-    const entryPageNumber = params.entryPageNumber ?? 1;
+      params.itemsPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
+    const currentPage = params.page ?? 1;
     const totalEntries = filteredItems.length;
     const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-    const startIdx = (entryPageNumber - 1) * entriesPerPage;
+    const startIdx = (currentPage - 1) * entriesPerPage;
     const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
     const paginatedItems = filteredItems.slice(startIdx, endIdx);
 
@@ -301,10 +295,10 @@ async function viewGitHubRepositoryStructureAPIInternal(
     const pageFolders = paginatedItems.filter(i => i.type === 'dir').length;
     const allFiles = filteredItems.filter(i => i.type === 'file').length;
     const allFolders = filteredItems.filter(i => i.type === 'dir').length;
-    const hasMore = entryPageNumber < totalPages;
+    const hasMore = currentPage < totalPages;
 
     const paginationInfo = {
-      currentPage: entryPageNumber,
+      currentPage,
       totalPages,
       hasMore,
       entriesPerPage,

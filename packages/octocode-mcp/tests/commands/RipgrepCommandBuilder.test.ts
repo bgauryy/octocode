@@ -58,31 +58,34 @@ describe('RipgrepCommandBuilder', () => {
       );
     });
 
-    it('prefers -C contextLines over -A/-B', () => {
-      const args = buildArgs({
-        contextLines: 3,
-        beforeContext: 9,
-        afterContext: 9,
-      });
+    it('maps contextLines to ripgrep context', () => {
+      const args = buildArgs({ contextLines: 3 });
       expect(args).toContain('-C');
       expect(args[args.indexOf('-C') + 1]).toBe('3');
       expect(args).not.toContain('-A');
       expect(args).not.toContain('-B');
     });
 
-    it('falls back to -A/-B when contextLines is absent', () => {
-      const args = buildArgs({ beforeContext: 2, afterContext: 4 });
-      expect(args[args.indexOf('-B') + 1]).toBe('2');
-      expect(args[args.indexOf('-A') + 1]).toBe('4');
+    it('does not emit context flags when contextLines is absent', () => {
+      const args = buildArgs({});
       expect(args).not.toContain('-C');
+      expect(args).not.toContain('-A');
+      expect(args).not.toContain('-B');
     });
 
     it('switches output modes off --json for plain-text flags', () => {
       expect(buildArgs({ filesOnly: true })).toContain('-l');
       expect(buildArgs({ filesOnly: true })).not.toContain('--json');
-      expect(buildArgs({ count: true })).toContain('-c');
-      expect(buildArgs({ count: true })).not.toContain('--json');
-      expect(buildArgs({ countMatches: true })).toContain('--count-matches');
+      expect(buildArgs({ countLinesPerFile: true })).toContain('-c');
+      expect(buildArgs({ countLinesPerFile: true })).not.toContain('--json');
+      expect(buildArgs({ countMatchesPerFile: true })).toContain(
+        '--count-matches'
+      );
+    });
+
+    it('maps langType to ripgrep type filter', () => {
+      const args = buildArgs({ langType: 'ts' });
+      expect(args[args.indexOf('-t') + 1]).toBe('ts');
     });
 
     it('consolidates simple extension globs into a brace pattern', () => {
@@ -105,9 +108,8 @@ describe('RipgrepCommandBuilder', () => {
       expect(args).not.toContain('--sort');
     });
 
-    it('passes through threads, multiline, hidden and no-ignore flags', () => {
+    it('passes through multiline, hidden and no-ignore flags', () => {
       const args = buildArgs({
-        threads: 4,
         multiline: true,
         multilineDotall: true,
         hidden: true,
@@ -131,8 +133,6 @@ describe('RipgrepCommandBuilder', () => {
         include: ['*.ts'],
         excludeDir: ['dist'],
         hidden: true,
-        threads: 8,
-        includeStats: true,
         maxMatchesPerFile: 5,
       });
       expect(args).toMatchInlineSnapshot(`
@@ -152,7 +152,6 @@ describe('RipgrepCommandBuilder', () => {
           "--json",
           "-j",
           "4",
-          "--stats",
           "--sort",
           "path",
           "--color",

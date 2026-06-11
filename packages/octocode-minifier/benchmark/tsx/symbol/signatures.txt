@@ -1,0 +1,5 @@
+ 1| import Link from "next/link";
+ 2| import Layout from "../components/Layout";
+ 4| const IndexPage = () => (
+11| );
+13| export default IndexPage;

@@ -35,6 +35,15 @@ describe('jsonToYamlString', () => {
       expect(yaml).toContain('\\r');
     });
 
+    it('keeps quoted form for multiline strings containing NUL escapes', () => {
+      const input = { mixed: 'first\0second\nthird' };
+      const yaml = jsonToYamlString(input);
+
+      expect(load(yaml)).toEqual(input);
+      expect(yaml).not.toContain('mixed: |-');
+      expect(yaml).toContain('\\0');
+    });
+
     it('does not block-convert strings without a real newline', () => {
       const input = { pattern: 'a\\nb' };
       const yaml = jsonToYamlString(input);
@@ -151,6 +160,17 @@ describe('jsonToYamlString', () => {
 
     it('returns diagnostic text when YAML and JSON conversion both fail', () => {
       const yaml = jsonToYamlString({ invalid: 1n });
+
+      expect(yaml).toContain('# YAML conversion failed:');
+      expect(yaml).toContain('# JSON conversion also failed:');
+      expect(yaml).toContain('# Object: [Unconvertible]');
+    });
+
+    it('returns diagnostic text for circular structures', () => {
+      const circular: { name: string; self?: unknown } = { name: 'loop' };
+      circular.self = circular;
+
+      const yaml = jsonToYamlString(circular);
 
       expect(yaml).toContain('# YAML conversion failed:');
       expect(yaml).toContain('# JSON conversion also failed:');

@@ -12,7 +12,6 @@ import { GitHubPullRequestSearchBulkQueryLocalSchema } from '../../src/tools/git
 import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
 import { BulkCloneRepoLocalSchema } from '../../src/tools/github_clone_repo/scheme.js';
 import { BulkLspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
-import { BulkLspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 
 const ALL_BULK_SCHEMAS = [
   ['LocalRipgrepBulkQuerySchema', LocalRipgrepBulkQuerySchema],
@@ -42,7 +41,6 @@ const ALL_BULK_SCHEMAS = [
     'BulkLspGetSemanticContentQuerySchema',
     BulkLspGetSemanticContentQuerySchema,
   ],
-  ['BulkLspGetDiagnosticsQuerySchema', BulkLspGetDiagnosticsQuerySchema],
 ] as const;
 
 describe('bulk envelope numeric bounds', () => {

@@ -1,0 +1,10 @@
+147| CREATE TEMP TABLE nocols();
+155| CREATE TEMP TABLE foo (f1 int);
+166| CREATE INDEX fooi ON foo (f1);
+175| CREATE INDEX fooi ON foo (f1 DESC);
+183| CREATE INDEX fooi ON foo (f1 DESC NULLS LAST);
+240| create index onek2_index_full on onek2 (stringu1, unique2);
+254| create function sillysrf(int) returns setof int as
+255|   'values (1),(10),(2),($1)' language sql immutable;
+269| create table list_parted_tbl (a int,b int) partition by list (a);
+270| create table list_parted_tbl1 partition of list_parted_tbl

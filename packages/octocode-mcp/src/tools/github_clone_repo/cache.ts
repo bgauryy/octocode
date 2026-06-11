@@ -68,7 +68,7 @@ function parseCacheMeta(raw: unknown): CloneCacheMeta | null {
     branch: raw.branch,
     source: raw.source,
   };
-  if (typeof raw.sparse_path === 'string') meta.sparse_path = raw.sparse_path;
+  if (typeof raw.sparsePath === 'string') meta.sparsePath = raw.sparsePath;
   if (typeof raw.sizeBytes === 'number') meta.sizeBytes = raw.sizeBytes;
   return meta;
 }
@@ -152,7 +152,7 @@ export function createCacheMeta(
     repo,
     branch,
     source,
-    ...(sparsePath ? { sparse_path: sparsePath } : {}),
+    ...(sparsePath ? { sparsePath } : {}),
     ...(sizeBytes != null ? { sizeBytes } : {}),
   };
 }

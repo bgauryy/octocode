@@ -42,7 +42,8 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'App.jsx');
-        expect(result).toContain('<div>Hello</div>');
+        expect(result).toContain('react/jsx-runtime');
+        expect(result).toContain('_jsx("div",{children:"Hello"})');
         expect(result).toContain('const App');
         expect(result.length).toBeLessThan(content.length);
       });
@@ -55,8 +56,9 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'App.tsx');
-        expect(result).toContain('React.FC');
-        expect(result).toContain('<div>Hello</div>');
+        expect(result).toContain('react/jsx-runtime');
+        expect(result).toContain('_jsx("div",{children:"Hello"})');
+        expect(result).not.toContain('React.FC');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -66,7 +68,7 @@ describe('minifierSync', () => {
         `;
 
         const result = minifyContentSync(content, 'test.mjs');
-        expect(result).toBe("export const foo = 'bar';");
+        expect(result).toBe('export const foo="bar";');
         expect(result.length).toBeLessThan(content.length);
       });
 
@@ -77,7 +79,7 @@ describe('minifierSync', () => {
 
         const result = minifyContentSync(content, 'test.cjs');
         expect(result).toContain('module.exports');
-        expect(result).toContain("foo:'bar'");
+        expect(result).toContain('foo:"bar"');
         expect(result.length).toBeLessThan(content.length);
       });
     });
@@ -423,6 +425,54 @@ And more content    `;
       removedNoise: string;
     }> = [
       {
+        extension: 'vb',
+        content:
+          '\' hidden visual basic comment\nDim name As String = "demo" \' hidden inline visual basic comment\n',
+        expectedCode: 'Dim name',
+        removedNoise: 'hidden visual basic comment',
+      },
+      {
+        extension: 'vbs',
+        content:
+          '\' hidden vbscript comment\nDim name\nname = "demo" \' hidden inline vbscript comment\n',
+        expectedCode: 'name = "demo"',
+        removedNoise: 'hidden vbscript comment',
+      },
+      {
+        extension: 'pas',
+        content:
+          '{ hidden pascal brace comment }\n(* hidden pascal paren comment *)\nprocedure Run;\nbegin\nend;\n',
+        expectedCode: 'procedure Run',
+        removedNoise: 'hidden pascal',
+      },
+      {
+        extension: 'adb',
+        content:
+          '-- hidden ada body comment\nprocedure Run is\nbegin\n  null;\nend Run;\n',
+        expectedCode: 'procedure Run',
+        removedNoise: 'hidden ada body comment',
+      },
+      {
+        extension: 'ads',
+        content: '-- hidden ada spec comment\nprocedure Run;\n',
+        expectedCode: 'procedure Run',
+        removedNoise: 'hidden ada spec comment',
+      },
+      ...['f', 'for', 'f90', 'f95', 'f03', 'f08'].map(extension => ({
+        extension,
+        content:
+          '! hidden fortran comment\nprogram demo\n  print *, "hi"\nend program demo ! hidden inline fortran comment\n',
+        expectedCode: 'program demo',
+        removedNoise: 'hidden fortran comment',
+      })),
+      ...['ps1', 'psm1', 'psd1'].map(extension => ({
+        extension,
+        content:
+          '# hidden powershell comment\n$Value = "# keep"\nWrite-Output $Value # hidden inline powershell comment\n<# hidden powershell block #>\n',
+        expectedCode: 'Write-Output',
+        removedNoise: 'hidden powershell',
+      })),
+      {
         extension: 'haml',
         content: '-# hidden haml comment\n%main\n  %h1 Title\n',
         expectedCode: '%main',
@@ -495,6 +545,12 @@ And more content    `;
         expectedCode: 'SELECT * FROM users;',
         removedNoise: 'hidden sql comment',
       },
+      ...['tsql', 'plsql', 'pls', 'pks', 'pkb'].map(extension => ({
+        extension,
+        content: '-- hidden sql dialect comment\nSELECT 1 AS value;\n',
+        expectedCode: 'SELECT 1 AS value;',
+        removedNoise: 'hidden sql dialect comment',
+      })),
       {
         extension: 'tf',
         content:
@@ -541,6 +597,47 @@ And more content    `;
         removedNoise: 'hidden proto comment',
       },
       {
+        extension: 'h',
+        content:
+          '// hidden c header comment\n#ifndef APP_H\nvoid run(void);\n#endif\n',
+        expectedCode: 'void run(void);',
+        removedNoise: 'hidden c header comment',
+      },
+      {
+        extension: 'hpp',
+        content:
+          '/* hidden c++ header comment */\n#pragma once\nclass App {};\n',
+        expectedCode: 'class App',
+        removedNoise: 'hidden c++ header comment',
+      },
+      {
+        extension: 'cc',
+        content:
+          '// hidden c++ implementation comment\nint run() {\n  return 1;\n}\n',
+        expectedCode: 'int run()',
+        removedNoise: 'hidden c++ implementation comment',
+      },
+      {
+        extension: 'mm',
+        content:
+          '// hidden objc++ comment\n@implementation App\n- (void)run {}\n@end\n',
+        expectedCode: '@implementation App',
+        removedNoise: 'hidden objc++ comment',
+      },
+      {
+        extension: 'zig',
+        content:
+          '// hidden zig comment\npub fn main() void {\n  std.debug.print("hi", .{});\n}\n',
+        expectedCode: 'pub fn main()',
+        removedNoise: 'hidden zig comment',
+      },
+      {
+        extension: 'v',
+        content: '// hidden v comment\nfn main() {\n  println("hi")\n}\n',
+        expectedCode: 'fn main()',
+        removedNoise: 'hidden v comment',
+      },
+      {
         extension: 'rs',
         content: '// hidden rust comment\nfn main() {\n  println!("hi");\n}\n',
         expectedCode: 'fn main()',
@@ -577,10 +674,99 @@ And more content    `;
         removedNoise: 'hidden elixir comment',
       },
       {
+        extension: 'exs',
+        content: '# hidden elixir script comment\nMix.install([])\n',
+        expectedCode: 'Mix.install',
+        removedNoise: 'hidden elixir script comment',
+      },
+      {
         extension: 'erl',
         content: '% hidden erlang comment\n-module(app).\nstart() -> ok.\n',
         expectedCode: '-module(app).',
         removedNoise: 'hidden erlang comment',
+      },
+      {
+        extension: 'zsh',
+        content: '# hidden zsh comment\nautoload -Uz compinit\ncompinit\n',
+        expectedCode: 'autoload -Uz compinit',
+        removedNoise: 'hidden zsh comment',
+      },
+      {
+        extension: 'fish',
+        content: '# hidden fish comment\nfunction demo\n  echo hi\nend\n',
+        expectedCode: 'function demo',
+        removedNoise: 'hidden fish comment',
+      },
+      {
+        extension: 'jl',
+        content:
+          '# hidden julia comment\nfunction run()\n  println("hi")\nend\n',
+        expectedCode: 'function run()',
+        removedNoise: 'hidden julia comment',
+      },
+      {
+        extension: 'nix',
+        content:
+          '# hidden nix comment\n/* hidden nix block */\n{ pkgs }: pkgs.hello\n',
+        expectedCode: '{ pkgs }: pkgs.hello',
+        removedNoise: 'hidden nix',
+      },
+      {
+        extension: 'groovy',
+        content: '// hidden groovy comment\nclass App {\n  void run() {}\n}\n',
+        expectedCode: 'class App',
+        removedNoise: 'hidden groovy comment',
+      },
+      {
+        extension: 'gradle',
+        content: '// hidden gradle comment\nplugins {\n  id "java"\n}\n',
+        expectedCode: 'plugins',
+        removedNoise: 'hidden gradle comment',
+      },
+      ...['xsl', 'xslt'].map(extension => ({
+        extension,
+        content:
+          '<!-- hidden xsl comment --><xsl:stylesheet><xsl:template match="/"/></xsl:stylesheet>',
+        expectedCode: '<xsl:stylesheet>',
+        removedNoise: 'hidden xsl comment',
+      })),
+      {
+        extension: 'awk',
+        content: '# hidden awk comment\n{ print $1 }\n',
+        expectedCode: '{ print $1 }',
+        removedNoise: 'hidden awk comment',
+      },
+      ...['lisp', 'lsp', 'scm', 'rkt'].map(extension => ({
+        extension,
+        content: '; hidden lisp comment\n(defun demo () :ok)\n',
+        expectedCode: '(defun demo',
+        removedNoise: 'hidden lisp comment',
+      })),
+      ...['vhd', 'vhdl'].map(extension => ({
+        extension,
+        content: '-- hidden vhdl comment\nentity demo is\nend demo;\n',
+        expectedCode: 'entity demo',
+        removedNoise: 'hidden vhdl comment',
+      })),
+      ...['asm', 'nasm'].map(extension => ({
+        extension,
+        content: '; hidden assembly comment\nsection .text\n',
+        expectedCode: 'section .text',
+        removedNoise: 'hidden assembly comment',
+      })),
+      {
+        extension: 'wat',
+        content:
+          ';; hidden wat comment\n(module\n  (; hidden wat block ;)\n  (func (export "run"))\n)\n',
+        expectedCode: '(module',
+        removedNoise: 'hidden wat',
+      },
+      {
+        extension: 'wast',
+        content:
+          ';; hidden wast comment\n(module\n  (; hidden wast block ;)\n  (func (export "run"))\n)\n',
+        expectedCode: '(module',
+        removedNoise: 'hidden wast',
       },
     ];
 

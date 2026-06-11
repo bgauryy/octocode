@@ -1,8 +1,4 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod';
-import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 import { getDirectorySizeBytes } from 'octocode-shared';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
@@ -23,6 +19,10 @@ import {
   providerSupports,
 } from '../providerExecution.js';
 import { cloneRepo } from './cloneRepo.js';
+import type { CloneRepoQueryLocalSchema } from './scheme.js';
+import type { z } from 'zod';
+
+type CloneRepoQuery = z.infer<typeof CloneRepoQueryLocalSchema>;
 
 const CACHE_HIT_HINT = 'Served from 24-hour cache.';
 
@@ -58,24 +58,9 @@ export async function executeCloneRepo(
             );
           }
 
-          const normalizedQuery = query as PartialCloneRepoQuery & {
-            sparsePath?: string;
-            sparse_path?: string;
-          };
-          if (
-            normalizedQuery.sparsePath != null &&
-            !normalizedQuery.sparse_path
-          ) {
-            normalizedQuery.sparse_path = normalizedQuery.sparsePath;
-          }
-
           let result;
           try {
-            result = await cloneRepo(
-              normalizedQuery,
-              authInfo,
-              providerContext.token
-            );
+            result = await cloneRepo(query, authInfo, providerContext.token);
           } catch (error) {
             // executeWithToolBoundary would swallow this into a bare error
             // with no recovery guidance — attach actionable hints here.
@@ -118,7 +103,7 @@ export async function executeCloneRepo(
                 confidence: 'high',
                 complete: true,
                 reason:
-                  (result.sparse_path ?? normalizedQuery.sparsePath)
+                  (result.sparsePath ?? query.sparsePath)
                     ? 'Repository sparse checkout is available locally.'
                     : 'Repository full shallow clone is available locally.',
               },

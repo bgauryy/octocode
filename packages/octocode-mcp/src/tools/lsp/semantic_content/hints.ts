@@ -40,12 +40,38 @@ export function semanticHints(
   type: SemanticContentType,
   complete: boolean
 ): string[] {
-  // On a successful result we deliberately emit NO coaching hints. The
-  // "what to query next" chains (type="references"/"callers"/"callees", depth,
-  // contextLines) and the typical research flow are already spelled out in the
-  // tool description (TYPES + FLOW). Repeating them on every successful call —
-  // including back-to-back repeat calls — is pure token waste.
-  if (complete) return [];
+  if (complete) {
+    const success: Partial<Record<SemanticContentType, string[]>> = {
+      documentSymbols: [
+        'Use returned symbol line values as lineHint for hover, definition, references, callers, or callees.',
+      ],
+      hover: [
+        'Use type="definition" on the same symbol and lineHint to jump to source, or type="references" to find usage.',
+      ],
+      definition: [
+        'Use localGetFileContent on returned locations for surrounding code, then type="references" or "callHierarchy" for impact.',
+      ],
+      typeDefinition: [
+        'Use localGetFileContent on returned type locations, then type="implementation" to find concrete implementations.',
+      ],
+      implementation: [
+        'Use localGetFileContent on returned implementation locations, then type="references" for call sites.',
+      ],
+      references: [
+        'Use groupByFile=true for a compact file summary, or localGetFileContent around returned lines for context.',
+      ],
+      callers: [
+        'Increase depth for a wider caller tree, or use localGetFileContent on returned call sites for context.',
+      ],
+      callees: [
+        'Increase depth for a wider callee tree, or use type="definition" on returned calls for source.',
+      ],
+      callHierarchy: [
+        'Increase depth for broader flow, or use localGetFileContent on returned call sites for context.',
+      ],
+    };
+    return [...(success[type] ?? [])];
+  }
 
   // Incomplete / not-found results keep targeted recovery guidance: this is
   // context-specific (why nothing was found + how to re-anchor) and is not

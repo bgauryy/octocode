@@ -235,6 +235,60 @@ describe('Pull Request Search', () => {
       });
     });
 
+    it('does not invent totalMatches for full REST pages', async () => {
+      mockShouldUseSearchForPRs.mockReturnValue(false);
+
+      const mockPRs = [
+        {
+          number: 1,
+          title: 'PR 1',
+          state: 'open',
+          draft: false,
+          user: { login: 'user1' },
+          labels: [],
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-02T00:00:00Z',
+          closed_at: null,
+          html_url: 'https://github.com/test/repo/pull/1',
+          head: { ref: 'feature1', sha: 'abc1' },
+          base: { ref: 'main', sha: 'def1' },
+          body: 'Description 1',
+        },
+        {
+          number: 2,
+          title: 'PR 2',
+          state: 'open',
+          draft: false,
+          user: { login: 'user2' },
+          labels: [],
+          created_at: '2023-01-03T00:00:00Z',
+          updated_at: '2023-01-04T00:00:00Z',
+          closed_at: null,
+          html_url: 'https://github.com/test/repo/pull/2',
+          head: { ref: 'feature2', sha: 'abc2' },
+          base: { ref: 'main', sha: 'def2' },
+          body: 'Description 2',
+        },
+      ];
+
+      mockOctokit.rest.pulls.list.mockResolvedValue({ data: mockPRs });
+
+      const result = await searchGitHubPullRequestsAPI({
+        owner: 'test',
+        repo: 'repo',
+        state: 'open',
+        limit: 2,
+      });
+
+      expect(result.pagination).toMatchObject({
+        currentPage: 1,
+        totalPages: 2,
+        perPage: 2,
+        hasMore: true,
+      });
+      expect(result.pagination?.totalMatches).toBeUndefined();
+    });
+
     it('should use Search API for complex queries', async () => {
       mockShouldUseSearchForPRs.mockReturnValue(true);
       mockBuildPullRequestSearchQuery.mockReturnValue(

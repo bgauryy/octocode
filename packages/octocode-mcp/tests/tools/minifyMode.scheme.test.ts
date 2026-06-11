@@ -28,16 +28,20 @@ describe('minify enum — githubGetFileContent scheme', () => {
     ).toBe(value);
   });
 
-  it('maps legacy minify:true → "standard"', () => {
-    expect(
-      parseMinify(FileContentQueryLocalSchema, { ...GH_BASE, minify: true })
-    ).toBe('standard');
+  it('rejects boolean minify:true', () => {
+    const result = FileContentQueryLocalSchema.safeParse({
+      ...GH_BASE,
+      minify: true,
+    });
+    expect(result.success).toBe(false);
   });
 
-  it('maps legacy minify:false → "none"', () => {
-    expect(
-      parseMinify(FileContentQueryLocalSchema, { ...GH_BASE, minify: false })
-    ).toBe('none');
+  it('rejects boolean minify:false', () => {
+    const result = FileContentQueryLocalSchema.safeParse({
+      ...GH_BASE,
+      minify: false,
+    });
+    expect(result.success).toBe(false);
   });
 
   it('rejects unknown minify values', () => {
@@ -60,7 +64,9 @@ describe('minify enum — githubGetFileContent scheme', () => {
 
 describe('minify enum — localGetFileContent scheme', () => {
   it('returns undefined when omitted (runtime default applied by getOutputMinifyDefault)', () => {
-    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBeUndefined();
+    expect(
+      parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)
+    ).toBeUndefined();
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
@@ -72,16 +78,19 @@ describe('minify enum — localGetFileContent scheme', () => {
     ).toBe(value);
   });
 
-  it('maps legacy minify:true → "standard" and minify:false → "none"', () => {
+  it('rejects boolean minify values', () => {
     expect(
-      parseMinify(LocalFetchContentQuerySchema, { ...LOCAL_BASE, minify: true })
-    ).toBe('standard');
+      LocalFetchContentQuerySchema.safeParse({
+        ...LOCAL_BASE,
+        minify: true,
+      }).success
+    ).toBe(false);
     expect(
-      parseMinify(LocalFetchContentQuerySchema, {
+      LocalFetchContentQuerySchema.safeParse({
         ...LOCAL_BASE,
         minify: false,
-      })
-    ).toBe('none');
+      }).success
+    ).toBe(false);
   });
 
   it('rejects unknown minify values', () => {
@@ -103,8 +112,10 @@ describe('minify enum — localGetFileContent scheme', () => {
 });
 
 describe('minify enum — githubSearchPullRequests scheme', () => {
-  it('returns undefined when omitted (runtime default applied by getOutputMinifyDefault)', () => {
-    expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBeUndefined();
+  it('returns undefined when omitted (runtime keeps PR patches raw by default)', () => {
+    expect(
+      parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)
+    ).toBeUndefined();
   });
 
   it.each(['none', 'standard'])('accepts "%s"', value => {
@@ -124,18 +135,18 @@ describe('minify enum — githubSearchPullRequests scheme', () => {
     expect(result.success).toBe(false);
   });
 
-  it('maps legacy minify:true → "standard" and minify:false → "none"', () => {
+  it('rejects boolean minify values', () => {
     expect(
-      parseMinify(GitHubPullRequestSearchQueryLocalSchema, {
+      GitHubPullRequestSearchQueryLocalSchema.safeParse({
         ...PR_BASE,
         minify: true,
-      })
-    ).toBe('standard');
+      }).success
+    ).toBe(false);
     expect(
-      parseMinify(GitHubPullRequestSearchQueryLocalSchema, {
+      GitHubPullRequestSearchQueryLocalSchema.safeParse({
         ...PR_BASE,
         minify: false,
-      })
-    ).toBe('none');
+      }).success
+    ).toBe(false);
   });
 });

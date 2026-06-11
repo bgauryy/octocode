@@ -1,0 +1,61 @@
+/*
+ * Scala (https://www.scala-lang.org)
+ *
+ * Copyright EPFL and Lightbend, Inc. dba Akka
+ *
+ * Licensed under Apache License 2.0
+ * (http://www.apache.org/licenses/LICENSE-2.0).
+ *
+ * See the NOTICE file distributed with this work for
+ * additional information regarding copyright ownership.
+ */
+
+package scala
+
+object Option {
+
+  import scala.language.implicitConversions
+
+  /** An implicit conversion that converts an option to an iterable value. */
+  implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
+    if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
+
+  /** An `Option` factory which creates `Some(x)` if the argument is not `null`,
+   *  and `None` if it is `null`.
+   *
+   *  @param  x the value
+   *  @return   `Some(value)` if value != null, `None` if value == null
+   */
+  def apply[A](x: A): Option[A] = if (x == null) None else Some(x)
+
+  /** An Option factory which returns `None` in a manner consistent with
+   *  the collections hierarchy.
+   */
+  def empty[A] : Option[A] = None
+
+  /** When a given condition is true, evaluates the `a` argument and returns
+   *  `Some(a)`. When the condition is false, `a` is not evaluated and `None` is
+   *  returned.
+   */
+  def when[A](cond: Bo
+
+... [truncated 18267 chars] ...
+
+y) Right(right) else Left(this.get)
+}
+
+/** Class `Some[A]` represents existing values of type
+ *  `A`.
+ */
+@SerialVersionUID(1234815782226070388L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
+final case class Some[+A](value: A) extends Option[A] {
+  def get: A = value
+}
+
+
+/** This case object represents non-existent values.
+ */
+@SerialVersionUID(5066590221178148012L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
+case object None extends Option[Nothing] {
+  def get: Nothing = throw new NoSuchElementException("None.get")
+}

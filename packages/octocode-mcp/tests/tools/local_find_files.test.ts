@@ -138,26 +138,6 @@ describe('localFindFiles', () => {
       });
     });
 
-    it('should handle case-insensitive search', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/FILE.JS\0',
-        stderr: '',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        iname: '*.js',
-      });
-
-      expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-iname', '*.js'])
-      );
-    });
-
     it('should handle empty results', async () => {
       mockSafeExec.mockResolvedValue({
         success: true,
@@ -224,7 +204,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        type: 'f',
+        entryType: 'f',
       });
 
       expect(result.status).toBeUndefined();
@@ -244,7 +224,7 @@ describe('localFindFiles', () => {
 
       const result = await findFiles({
         path: '/test/path',
-        type: 'd',
+        entryType: 'd',
       });
 
       expect(result.status).toBeUndefined();

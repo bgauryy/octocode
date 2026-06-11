@@ -1,0 +1,21 @@
+  4| using System.ComponentModel;
+  5| using System.Diagnostics.CodeAnalysis;
+  6| using System.Runtime.CompilerServices;
+  7| using System.Runtime.Serialization;
+  9| namespace System
+ 16|     public class ArgumentException : SystemException
+ 18|         private readonly string? _paramName;
+ 22|         public ArgumentException()
+ 31|         public ArgumentException(string? message)
+ 37|         public ArgumentException(string? message, Exception? innerException)
+ 43|         public ArgumentException(string? message, string? paramName, Exception? innerException)
+ 50|         public ArgumentException(string? message, string? paramName)
+ 59|         protected ArgumentException(SerializationInfo info, StreamingContext context)
+ 67|         public override void GetObjectData(SerializationInfo info, StreamingContext context)
+ 73|         public override string Message
+ 89|         private void SetMessageField()
+ 97|         public virtual string? ParamName => _paramName;
+104|         public static void ThrowIfNullOrEmpty([NotNull] string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+117|         public static void ThrowIfNullOrWhiteSpace([NotNull] string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+126|         private static void ThrowNullOrEmptyException(string? argument, string? paramName)
+133|         private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)

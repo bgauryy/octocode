@@ -1,0 +1,65 @@
+#![stable(feature = "rust1", since = "1.0.0")]
+
+use crate::clone::TrivialClone;
+use crate::iter::{self, FusedIterator, TrustedLen};
+use crate::marker::Destruct;
+use crate::ops::{self, ControlFlow, Deref, DerefMut, Residual, Try};
+use crate::panicking::{panic, panic_display};
+use crate::pin::Pin;
+use crate::{cmp, convert, hint, mem, slice};
+
+#[doc(search_unbox)]
+#[derive(Copy, Debug, Hash)]
+#[derive_const(Eq)]
+#[rustc_diagnostic_item = "Option"]
+#[lang = "Option"]
+#[stable(feature = "rust1", since = "1.0.0")]
+#[allow(clippy::derived_hash_with_manual_eq)]
+pub enum Option<T> {
+
+    #[lang = "None"]
+    #[stable(feature = "rust1", since = "1.0.0")]
+    None,
+
+    #[lang = "Some"]
+    #[stable(feature = "rust1", since = "1.0.0")]
+    Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+}
+
+impl<T> Option<T> {
+
+    #[must_use = "if you intended to assert that this has a value, consider `.unwrap()` instead"]
+    #[inline]
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[rustc_const_stable(feature = "const_option_basics", since = "1.48.0")]
+    pub const fn is_some(&self) -> bool {
+        matches!(*self, Some(_))
+    }
+
+    #[must_use]
+    #[inline]
+    #[stable(feature = "is_some_and", since = "1.70.0")
+
+... [truncated 36027 chars] ...
+
+et x: Option<&mut Option<u32>> = None;
+    /// assert_eq!(None, x.flatten_mut());
+    /// ```
+    #[inline]
+    #[unstable(feature = "option_reference_flattening", issue = "149221")]
+    pub const fn flatten_mut(self) -> Option<&'a mut T> {
+        match self {
+            Some(inner) => inner.as_mut(),
+            None => None,
+        }
+    }
+}
+
+impl<T, const N: usize> [Option<T>; N] {
+
+    #[inline]
+    #[unstable(feature = "option_array_transpose", issue = "130828")]
+    pub fn transpose(self) -> Option<[T; N]> {
+        self.try_map(core::convert::identity)
+    }
+}

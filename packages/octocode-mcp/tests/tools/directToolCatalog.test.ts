@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from '../../src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
 import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
@@ -112,7 +109,9 @@ describe('directToolCatalog', () => {
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
       'Local'
     );
-    expect(getDirectToolCategory(LSP_GET_DIAGNOSTICS_TOOL_NAME)).toBe('LSP');
+    expect(getDirectToolCategory(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)).toBe(
+      'LSP'
+    );
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.PACKAGE_SEARCH)).toBe(
       'Package'
     );
@@ -189,11 +188,11 @@ describe('directToolCatalog', () => {
     const query = {
       path: '.',
       pattern: 'DIRECT_TOOL_CATEGORIES',
-      fixed_string: true,
+      fixedString: true,
       matchContentLength: 200,
-      filesPerPage: 1,
-      filePageNumber: 1,
-      matchesPerPage: 1,
+      itemsPerPage: 1,
+      page: 1,
+      maxMatchesPerFile: 1,
     };
 
     expect(
@@ -281,7 +280,7 @@ describe('directToolCatalog', () => {
     );
   });
 
-  it('reports unknown fields instead of dropping them silently', () => {
+  it('reports unknown fields instead of rewriting old keys', () => {
     const warnings: Array<{ fields: string[]; index: number }> = [];
 
     prepareDirectToolInput(
@@ -296,9 +295,10 @@ describe('directToolCatalog', () => {
       }
     );
 
-    // limit/bogusKey are not LOCAL_RIPGREP fields; fixed_string normalizes
-    // to the known fixedString field and must not be reported.
-    expect(warnings).toEqual([{ fields: ['limit', 'bogusKey'], index: 0 }]);
+    expect(warnings).toEqual([
+      { fields: ['limit', 'bogusKey'], index: 0 },
+      { fields: ['fixed_string'], index: 1 },
+    ]);
   });
 
   it('preserves envelope-level fields alongside rebuilt queries', () => {
@@ -374,9 +374,9 @@ describe('directToolCatalog', () => {
         path: '.',
         pattern: 123,
         matchContentLength: 200,
-        filesPerPage: 1,
-        filePageNumber: 1,
-        matchesPerPage: 1,
+        itemsPerPage: 1,
+        page: 1,
+        maxMatchesPerFile: 1,
       })
     ).toThrow('Tool input does not match the expected schema.');
   });
@@ -387,9 +387,9 @@ describe('directToolCatalog', () => {
       pattern: 'DIRECT_TOOL_CATEGORIES',
       fixedString: true,
       matchContentLength: 200,
-      filesPerPage: 1,
-      filePageNumber: 1,
-      matchesPerPage: 1,
+      itemsPerPage: 1,
+      page: 1,
+      maxMatchesPerFile: 1,
     });
 
     const result = await executeDirectTool(

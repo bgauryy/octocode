@@ -8,6 +8,7 @@ import type { PaginationInfo } from '../../utils/core/types.js';
 export type FileContentExecutionQuery = FileContentQuery & {
   noTimestamp?: boolean;
   minify?: MinifyMode;
+  contextLines?: number;
   matchStringIsRegex?: boolean;
   matchStringCaseSensitive?: boolean;
   charOffset?: number;

@@ -1,3 +1,4 @@
+import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../config.js';
 import type { NormalizedPrContentRequest } from './contentRequest.js';
 import { applyContentViewMinification } from '@octocodeai/octocode-minifier';
 
@@ -41,7 +42,7 @@ type Pagination = {
 function paginateItems<T>(
   items: T[],
   page = 1,
-  itemsPerPage = 20
+  itemsPerPage = PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
 ): {
   items: T[];
   pagination: Pagination;
@@ -208,7 +209,7 @@ function shapeComments(
   const { items, pagination } = paginateItems(
     matched,
     query.commentPage ?? query.page ?? 1,
-    query.itemsPerPage ?? 20
+    query.itemsPerPage ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
   );
   return {
     comments: items.map(comment => {
@@ -279,7 +280,7 @@ function shapeCommits(
   const { items, pagination } = paginateItems(
     allCommits,
     query.commitPage ?? query.page ?? 1,
-    query.itemsPerPage ?? 20
+    query.itemsPerPage ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
   );
   return {
     commits: items.map(commit => ({
@@ -322,7 +323,7 @@ function shapeFileSurfaces(
   const { items, pagination } = paginateItems(
     matched,
     query.filePage ?? query.page ?? 1,
-    query.itemsPerPage ?? 20
+    query.itemsPerPage ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
   );
 
   const includePatch = request.patches.mode !== 'none';

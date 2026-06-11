@@ -83,7 +83,7 @@ The [Octocode MCP Server](https://github.com/bgauryy/octocode-mcp/tree/main/pack
 
 - **GitHub**: Search repositories, find usage patterns, read implementations, explore PRs
 - **Local Tools**: Search code (ripgrep), browse directories, find files in your local codebase
-- **LSP Intelligence**: Semantic content and diagnostics (compiler-level understanding)
+- **LSP Intelligence**: Semantic navigation and call-flow analysis
 - **Package Discovery**: Resolve npm/PyPI packages to their source repos
 
 https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
@@ -92,7 +92,7 @@ https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
 
 ## 💻 As a CLI
 
-The same 13 tools, straight from your terminal — no MCP server, no IDE required.
+The same 12 tools, straight from your terminal — no MCP server, no IDE required.
 
 ### Install
 
@@ -144,7 +144,7 @@ The CLI is two things in one binary:
 
 Top-level flags: `--version`/`-v`, `--help`/`-h`, `--json`/`-j`, `--agent` (agent bootstrap).
 
-### The 13 tools
+### The 12 tools
 
 Run any directly with `octocode tools <name> --queries '<json>'`:
 
@@ -152,7 +152,7 @@ Run any directly with `octocode tools <name> --queries '<json>'`:
 |-------|-------|
 | GitHub | `githubSearchCode` · `githubSearchRepositories` · `githubSearchPullRequests` · `githubGetFileContent` · `githubViewRepoStructure` · `githubCloneRepo` |
 | Local | `localSearchCode` (ripgrep) · `localFindFiles` · `localGetFileContent` · `localViewStructure` |
-| LSP | `lspGetSemanticContent` · `lspGetDiagnostics` |
+| LSP | `lspGetSemanticContent` |
 | Package | `packageSearch` (npm / PyPI → source repo) |
 
 ```bash

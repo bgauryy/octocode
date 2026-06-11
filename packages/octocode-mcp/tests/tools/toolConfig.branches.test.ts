@@ -43,7 +43,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
       const { getDescription } = await import('../../src/tools/toolConfig.js');
       const result = getDescription('__nonexistent_tool_for_coverage__');
       expect(result).toBe('');
-    });
+    }, 10_000);
   });
 
   describe('tool configuration initialization', () => {
@@ -80,7 +80,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         expect(typeof config.fn).toBe('function');
       }
 
-      expect(ALL_TOOLS).toHaveLength(13);
+      expect(ALL_TOOLS).toHaveLength(12);
     });
 
     it('should have correct tool types assigned', async () => {

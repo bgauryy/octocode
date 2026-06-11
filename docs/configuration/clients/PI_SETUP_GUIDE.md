@@ -98,7 +98,6 @@ Expected output includes the 13 Octocode tools below — this confirms `ENABLE_L
 "name":"localGetFileContent"
 "name":"localSearchCode"
 "name":"localViewStructure"
-"name":"lspGetDiagnostics"
 "name":"lspGetSemanticContent"
 "name":"packageSearch"
 ```

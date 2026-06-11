@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 1240,
+      "cutPercent": 1.5,
+      "durationMs": 0.129
+    },
+    "content": "import eslint from \"@eslint/js\";\nimport tseslint from \"typescript-eslint\";\nimport stylistic from \"@stylistic/eslint-plugin\";\n\nexport default tseslint.config(\n  eslint.configs.recommended,\n  ...tseslint.configs.recommended,\n  {\n    ignores: [\"build\", \"lib\"],\n  },\n  {\n    files: [\n      \"bin/**/*.ts\",\n      \"bench/**/*.ts\",\n      \"src/**/*.ts\",\n      \"scripts/**/*.ts\",\n      \"test/**/*.ts\",\n      \"eslint.config.js\",\n    ],\n    plugins: {\n      \"@stylistic\": stylistic,\n    },\n    languageOptions: {\n      parser: tseslint.parser,\n      parserOptions: {\n        project: \"./tsconfig.test.json\",\n      },\n    },\n    rules: {\n      \"@stylistic/max-len\": [\n        2,\n        {\n          code: 120,\n          ignoreComments: true,\n        },\n      ],\n      \"@stylistic/array-bracket-spacing\": [\"error\", \"always\"],\n      \"@stylistic/operator-linebreak\": [\"error\", \"after\"],\n      \"@stylistic/linebreak-style\": [\"error\", \"unix\"],\n      \"@stylistic/brace-style\": [\"error\", \"1tbs\", { allowSingleLine: true }],\n      \"@stylistic/indent\": [\n        \"error\",\n        2,\n        {\n          SwitchCase: 1,\n          FunctionDeclaration: { parameters: \"first\" },\n          FunctionExpression: { parameters: \"first\" },\n        },\n      ],\n    },\n  }\n);",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 866,
+      "cutPercent": 31.2,
+      "durationMs": 0.914
+    },
+    "content": "import eslint from\"@eslint/js\";import tseslint from\"typescript-eslint\";import stylistic from\"@stylistic/eslint-plugin\";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores:[\"build\",\"lib\"]},{files:[\"bin/**/*.ts\",\"bench/**/*.ts\",\"src/**/*.ts\",\"scripts/**/*.ts\",\"test/**/*.ts\",\"eslint.config.js\"],plugins:{\"@stylistic\":stylistic},languageOptions:{parser:tseslint.parser,parserOptions:{project:\"./tsconfig.test.json\"}},rules:{\"@stylistic/max-len\":[2,{code:120,ignoreComments:!0}],\"@stylistic/array-bracket-spacing\":[\"error\",\"always\"],\"@stylistic/operator-linebreak\":[\"error\",\"after\"],\"@stylistic/linebreak-style\":[\"error\",\"unix\"],\"@stylistic/brace-style\":[\"error\",\"1tbs\",{allowSingleLine:!0}],\"@stylistic/indent\":[\"error\",2,{SwitchCase:1,FunctionDeclaration:{parameters:\"first\"},FunctionExpression:{parameters:\"first\"}}]}});",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 866,
+      "cutPercent": 31.2,
+      "durationMs": 0.927
+    },
+    "content": "import eslint from\"@eslint/js\";import tseslint from\"typescript-eslint\";import stylistic from\"@stylistic/eslint-plugin\";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores:[\"build\",\"lib\"]},{files:[\"bin/**/*.ts\",\"bench/**/*.ts\",\"src/**/*.ts\",\"scripts/**/*.ts\",\"test/**/*.ts\",\"eslint.config.js\"],plugins:{\"@stylistic\":stylistic},languageOptions:{parser:tseslint.parser,parserOptions:{project:\"./tsconfig.test.json\"}},rules:{\"@stylistic/max-len\":[2,{code:120,ignoreComments:!0}],\"@stylistic/array-bracket-spacing\":[\"error\",\"always\"],\"@stylistic/operator-linebreak\":[\"error\",\"after\"],\"@stylistic/linebreak-style\":[\"error\",\"unix\"],\"@stylistic/brace-style\":[\"error\",\"1tbs\",{allowSingleLine:!0}],\"@stylistic/indent\":[\"error\",2,{SwitchCase:1,FunctionDeclaration:{parameters:\"first\"},FunctionExpression:{parameters:\"first\"}}]}});",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 866,
+      "cutPercent": 31.2,
+      "durationMs": 0.506,
+      "failed": false,
+      "type": "terser",
+      "reason": null
+    },
+    "content": "import eslint from\"@eslint/js\";import tseslint from\"typescript-eslint\";import stylistic from\"@stylistic/eslint-plugin\";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores:[\"build\",\"lib\"]},{files:[\"bin/**/*.ts\",\"bench/**/*.ts\",\"src/**/*.ts\",\"scripts/**/*.ts\",\"test/**/*.ts\",\"eslint.config.js\"],plugins:{\"@stylistic\":stylistic},languageOptions:{parser:tseslint.parser,parserOptions:{project:\"./tsconfig.test.json\"}},rules:{\"@stylistic/max-len\":[2,{code:120,ignoreComments:!0}],\"@stylistic/array-bracket-spacing\":[\"error\",\"always\"],\"@stylistic/operator-linebreak\":[\"error\",\"after\"],\"@stylistic/linebreak-style\":[\"error\",\"unix\"],\"@stylistic/brace-style\":[\"error\",\"1tbs\",{allowSingleLine:!0}],\"@stylistic/indent\":[\"error\",2,{SwitchCase:1,FunctionDeclaration:{parameters:\"first\"},FunctionExpression:{parameters:\"first\"}}]}});",
+    "api": "minifyContent"
+  }
+}

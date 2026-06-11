@@ -74,6 +74,7 @@ describe('localGetFileContent', () => {
       expect(result.content).toBe(testContent);
       expect(result.isPartial).toBe(false);
       expect(result.totalLines).toBe(3);
+      expect(result.hints?.join('\n')).toContain('lspGetSemanticContent');
     });
 
     it('strips comments by default (minify omitted → inherits "standard" from config)', async () => {
@@ -124,6 +125,7 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('MATCH');
       expect(result.content).toContain('line 4');
       expect(result.isPartial).toBe(true);
+      expect(result.hints?.join('\n')).toContain('lineHint anchors');
     });
 
     it('strips inline comments from JS files in the matchString slice with minify:"standard"', async () => {
@@ -209,7 +211,7 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('fn0(');
       expect(result.content).toContain('fn799(');
       expect(result.content).not.toContain('doStuff');
-      expect(result.isPartial).toBe(true);
+      expect(result.isPartial).toBe(false);
       expect(result.contentView).toBe('symbols');
       expect(result.isSkeleton).toBe(true);
       expect(result.totalLines).toBe(src.split('\n').length);

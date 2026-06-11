@@ -1,10 +1,5 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
-import type { z } from 'zod';
-import type { FindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type FindFilesQuery = z.infer<typeof FindFilesQuerySchema> & {
-  modifiedAfter?: string;
-};
+import type { FindFilesQuery } from '../tools/local_find_files/scheme.js';
 
 export class FindCommandBuilder extends BaseCommandBuilder {
   private isMacOS: boolean;
@@ -74,8 +69,8 @@ export class FindCommandBuilder extends BaseCommandBuilder {
   }
 
   private addFilters(query: Partial<FindFilesQuery>): void {
-    if (query.type) {
-      this.addOption('-type', query.type);
+    if (query.entryType) {
+      this.addOption('-type', query.entryType);
     }
 
     if (query.names && query.names.length > 0) {
@@ -93,10 +88,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
       }
     } else if (query.name) {
       this.addOption('-name', query.name);
-    }
-
-    if (query.iname) {
-      this.addOption('-iname', query.iname);
     }
 
     if (query.pathPattern) {
@@ -139,11 +130,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
       if (parsed) this.addOption(parsed.unit, `+${parsed.value}`);
     }
 
-    if (query.modifiedAfter) {
-      const parsed = this.parseTimeString(query.modifiedAfter);
-      if (parsed) this.addOption(parsed.unit, `-${parsed.value}`);
-    }
-
     if (query.accessedWithin) {
       const parsed = this.parseTimeStringAccess(query.accessedWithin);
       if (parsed) this.addOption(parsed.unit, `-${parsed.value}`);
@@ -184,18 +170,13 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     return this;
   }
 
-  type(type: 'f' | 'd' | 'l'): this {
-    this.addOption('-type', type);
+  entryType(entryType: 'f' | 'd' | 'l'): this {
+    this.addOption('-type', entryType);
     return this;
   }
 
   name(pattern: string): this {
     this.addOption('-name', pattern);
-    return this;
-  }
-
-  iname(pattern: string): this {
-    this.addOption('-iname', pattern);
     return this;
   }
 

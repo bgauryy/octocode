@@ -1,0 +1,49 @@
+{
+  "ext": "graphql",
+  "language": "GraphQL",
+  "source": "graphql/graphql-go-kitchen-sink.graphql",
+  "sourceBytes": 1300,
+  "strategy": "conservative",
+  "commentModel": "hash",
+  "sha256": "ad03ac3c13640ebadc3d4ba444603cd8157793a320e34414f436ee98a87fe2cf",
+  "contentView": {
+    "bytes": 1258,
+    "cutPercent": 3.2,
+    "durationMs": 0.433
+  },
+  "applyMinification": {
+    "bytes": 1258,
+    "cutPercent": 3.2,
+    "durationMs": 0.169
+  },
+  "sync": {
+    "bytes": 1258,
+    "cutPercent": 3.2,
+    "durationMs": 0.157
+  },
+  "async": {
+    "bytes": 1258,
+    "cutPercent": 3.2,
+    "durationMs": 0.165,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.002
+  },
+  "ratings": {
+    "minify": 6.3,
+    "symbols": null,
+    "agent": 6.3,
+    "label": "fair"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

@@ -1,6 +1,3 @@
-import type { z } from 'zod';
-import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 
@@ -16,8 +13,7 @@ import { getHints } from '../../hints/index.js';
 import { buildSearchResult } from './ripgrepResultBuilder.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
-
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
+import { LocalRipgrepQuerySchema, type RipgrepQuery } from './scheme.js';
 
 const GREP_FALLBACK_WARNING =
   'Using grep fallback because bundled ripgrep is unavailable; advanced ripgrep-only options may be ignored.';
@@ -26,30 +22,29 @@ export async function executeGrepFallbackSearch(
   configuredQuery: RipgrepQuery,
   unavailableReason?: string
 ): Promise<LocalSearchCodeToolResult> {
-  const validation = validateRipgrepQuery(configuredQuery);
-  if (!validation.isValid) {
+  const validationWarnings: string[] = [];
+  const validation = LocalRipgrepQuerySchema.safeParse(configuredQuery);
+  if (!validation.success) {
+    const errors = validation.error.issues.map(issue => issue.message);
     return createErrorResult(
-      new Error(`Query validation failed: ${validation.errors.join(', ')}`),
+      new Error(`Query validation failed: ${errors.join(', ')}`),
       configuredQuery,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        extra: { warnings: validation.warnings },
+        extra: { warnings: validationWarnings },
       }
     ) as LocalSearchCodeToolResult;
   }
+  const query = validation.data;
 
-  if (!configuredQuery.path) {
-    return createErrorResult(
-      new Error('Path is required for search'),
-      configuredQuery,
-      {
-        toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        extra: { warnings: validation.warnings },
-      }
-    ) as LocalSearchCodeToolResult;
+  if (!query.path) {
+    return createErrorResult(new Error('Path is required for search'), query, {
+      toolName: TOOL_NAMES.LOCAL_RIPGREP,
+      extra: { warnings: validationWarnings },
+    }) as LocalSearchCodeToolResult;
   }
 
-  const queryWithPath = configuredQuery as RipgrepQuery & { path: string };
+  const queryWithPath = query as RipgrepQuery & { path: string };
   const pathValidation = validateToolPath(
     queryWithPath,
     TOOL_NAMES.LOCAL_RIPGREP
@@ -59,7 +54,7 @@ export async function executeGrepFallbackSearch(
   }
 
   const queryForExec: RipgrepQuery & { path: string } = {
-    ...configuredQuery,
+    ...query,
     path: pathValidation.sanitizedPath,
   };
 
@@ -71,21 +66,21 @@ export async function executeGrepFallbackSearch(
   if (!patternCheck.isValid) {
     return createErrorResult(
       new Error(`Pattern validation failed: ${patternCheck.errors.join('; ')}`),
-      configuredQuery,
+      query,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
         extra: {
-          warnings: [...validation.warnings, ...patternCheck.warnings],
+          warnings: [...validationWarnings, ...patternCheck.warnings],
         },
       }
     ) as LocalSearchCodeToolResult;
   }
 
   const warnings = buildGrepFallbackWarnings(
-    validation.warnings,
+    validationWarnings,
     patternCheck.warnings,
     unavailableReason,
-    configuredQuery
+    query
   );
 
   const { args, outputMode } = buildGrepArgs(queryForExec);
@@ -118,14 +113,14 @@ export async function executeGrepFallbackSearch(
         warnings,
         hints: [
           ...getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty', {
-            pattern: configuredQuery.pattern,
-            path: configuredQuery.path,
-            type: configuredQuery.type,
-            include: configuredQuery.include,
-            excludeDir: configuredQuery.excludeDir,
-            fixedString: configuredQuery.fixedString,
-            caseSensitive: configuredQuery.caseSensitive,
-            mode: configuredQuery.mode,
+            pattern: query.pattern,
+            path: query.path,
+            langType: query.langType,
+            include: query.include,
+            excludeDir: query.excludeDir,
+            fixedString: query.fixedString,
+            caseSensitive: query.caseSensitive,
+            mode: query.mode,
           } as Record<string, unknown>),
           'Try with ripgrep for better results when bundled ripgrep is repaired.',
         ],
@@ -139,7 +134,7 @@ export async function executeGrepFallbackSearch(
       new Error(
         `grep fallback failed (exit code ${result.code}): ${result.stderr}`
       ),
-      configuredQuery,
+      query,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
         rawResponse: result.stdout.length + result.stderr.length,
@@ -150,7 +145,7 @@ export async function executeGrepFallbackSearch(
   const parsed = parseGrepOutput(result.stdout, outputMode);
   const searchResult = await buildSearchResult(
     parsed.files,
-    configuredQuery,
+    query,
     'grep',
     warnings,
     { matchCount: parsed.matchCount }
@@ -184,28 +179,16 @@ function buildGrepArgs(query: RipgrepQuery & { path: string }): {
 
   if (query.wholeWord) args.push('-w');
   if (query.invertMatch) args.push('-v');
-  if (query.lineRegexp) args.push('-x');
-  if (query.followSymlinks) args.push('-r');
-
-  if (query.binaryFiles !== 'text') {
-    args.push('-I');
-  }
+  args.push('-I');
 
   const context = query.contextLines;
   if (context !== undefined && context > 0) {
     args.push('-C', String(context));
-  } else {
-    if (query.beforeContext !== undefined && query.beforeContext > 0) {
-      args.push('-B', String(query.beforeContext));
-    }
-    if (query.afterContext !== undefined && query.afterContext > 0) {
-      args.push('-A', String(query.afterContext));
-    }
   }
 
   const outputMode: GrepOutputMode = query.filesOnly
     ? 'files'
-    : query.count || query.countMatches
+    : query.countLinesPerFile || query.countMatchesPerFile
       ? 'count'
       : 'matches';
 
@@ -226,8 +209,8 @@ function buildGrepArgs(query: RipgrepQuery & { path: string }): {
   for (const dir of query.excludeDir ?? []) {
     args.push(`--exclude-dir=${dir}`);
   }
-  if (query.type) {
-    args.push(`--include=*.${query.type}`);
+  if (query.langType) {
+    args.push(`--include=*.${query.langType}`);
   }
 
   args.push('--', query.pattern, query.path);
@@ -239,7 +222,6 @@ function shouldApplySmartCase(query: RipgrepQuery): boolean {
   return (
     query.caseSensitive !== true &&
     query.caseInsensitive !== true &&
-    query.smartCase !== false &&
     query.pattern === query.pattern.toLowerCase()
   );
 }
@@ -258,19 +240,13 @@ function buildGrepFallbackWarnings(
 
   const ignored: string[] = [];
   if (query.filesWithoutMatch) ignored.push('filesWithoutMatch');
-  if (query.countMatches) ignored.push('countMatches uses grep -c line counts');
+  if (query.countMatchesPerFile)
+    ignored.push('countMatchesPerFile uses grep -c line counts');
   if (query.hidden) ignored.push('hidden');
   if (query.noIgnore) ignored.push('noIgnore');
   if (query.multiline) ignored.push('multiline');
   if (query.multilineDotall) ignored.push('multilineDotall');
-  if (query.noUnicode) ignored.push('noUnicode');
-  if (query.encoding) ignored.push('encoding');
-  if (query.threads) ignored.push('threads');
-  if (query.mmap !== undefined) ignored.push('mmap');
   if (query.sort || query.sortReverse) ignored.push('sort');
-  if (query.includeStats) ignored.push('includeStats');
-  if (query.passthru) ignored.push('passthru');
-  if (query.debug) ignored.push('debug');
 
   if (ignored.length > 0) {
     warnings.push(

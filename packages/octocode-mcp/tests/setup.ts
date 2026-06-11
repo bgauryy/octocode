@@ -304,24 +304,6 @@ const lspGetSemanticContentSchema = {
   },
 };
 
-const lspGetDiagnosticsSchema = {
-  name: 'lspGetDiagnostics',
-  description: 'Get diagnostics using Language Server Protocol',
-  schema: {
-    uri: 'File URI',
-    severity: 'Diagnostic severity filter',
-    source: 'Diagnostic source filter',
-  },
-  hints: {
-    ...mockToolHints,
-    dynamic: {
-      diagnostics: ['Diagnostics returned'],
-      noDiagnostics: ['No diagnostics returned'],
-      lspUnavailable: ['Language server unavailable'],
-    },
-  },
-};
-
 const localRipgrepSchema = {
   name: 'localSearchCode',
   description: 'Search code with ripgrep',
@@ -388,7 +370,6 @@ const mockContent = {
     LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemanticContent',
-    LSP_GET_DIAGNOSTICS: 'lspGetDiagnostics',
   },
   baseSchema: {
     id: 'Stable query identifier.',
@@ -410,7 +391,7 @@ const mockContent = {
         owner: 'Repository owner (user or org)',
         repo: 'Repository name',
         branch: 'Branch/tag/SHA to clone',
-        sparse_path: 'Fetch only this subdirectory (sparse checkout)',
+        sparsePath: 'Fetch only this subdirectory (sparse checkout)',
         forceRefresh: 'Bypass cache and force a fresh clone',
         charOffset: 'Character offset for output pagination',
         charLength: 'Character budget for output pagination',
@@ -422,7 +403,6 @@ const mockContent = {
     localFindFiles: localFindFilesSchema,
     localViewStructure: localViewStructureSchema,
     lspGetSemanticContent: lspGetSemanticContentSchema,
-    lspGetDiagnostics: lspGetDiagnosticsSchema,
   },
   baseHints: {
     hasResults: ['Base hint for hasResults'],
@@ -509,7 +489,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemanticContent',
-    LSP_GET_DIAGNOSTICS: 'lspGetDiagnostics',
     validateRipgrepQuery: identityValidator,
     validateFindFilesQuery: identityValidator,
     validateViewStructureQuery: identityValidator,
@@ -537,7 +516,11 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
       return _coreMock.ref;
     },
     get completeMetadata() {
-      return _coreMock.ref;
+      return {
+        ...(_coreMock.ref as Record<string, unknown>),
+        baseSchema: actual.completeMetadata.baseSchema,
+        tools: actual.completeMetadata.tools,
+      };
     },
   };
 });

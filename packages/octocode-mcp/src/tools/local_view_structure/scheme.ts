@@ -1,43 +1,75 @@
 import { z } from 'zod';
-import { ViewStructureQuerySchema as UpstreamViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { completeMetadata } from '@octocodeai/octocode-core';
+import { LOCAL_MAX_FILES_PER_PAGE } from '../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
   depthField,
   LOCAL_OVERLAY_MAX_LIMIT,
-  optionalMetaFields,
   relaxedPageNumberField,
-  withCoreSchemaDescriptions,
-  WithLocalOverlay,
 } from '../../scheme/localSchemaOverlay.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-const VIEW_STRUCTURE_HIDDEN_FIELDS = {
-  extension: true,
-  recursive: true,
-  entriesPerPage: true,
-  entryPageNumber: true,
-} as const;
+const QUERY_DESCRIPTIONS = {
+  ...completeMetadata.baseSchema,
+  ...completeMetadata.tools[STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]?.schema,
+} as Record<string, string>;
 
-const limitField = clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT).optional();
+const LOCAL_VIEW_SORT_FIELDS = ['name', 'size', 'time', 'extension'] as const;
 
-export const LocalViewStructureQuerySchema = withCoreSchemaDescriptions(
-  STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-  UpstreamViewStructureQuerySchema.omit(VIEW_STRUCTURE_HIDDEN_FIELDS).extend({
-    ...optionalMetaFields,
-    page: relaxedPageNumberField.default(1),
-    itemsPerPage: clampedInt(1, 50).optional(),
-    limit: limitField,
-    depth: depthField,
-  })
-);
+const ViewStructureQueryShape = z.object({
+  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.researchGoal!),
+  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
+  path: z.string().describe(QUERY_DESCRIPTIONS.path!),
+  details: z.boolean().optional().describe(QUERY_DESCRIPTIONS.details!),
+  hidden: z.boolean().optional().describe(QUERY_DESCRIPTIONS.hidden!),
+  humanReadable: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.humanReadable!),
+  sortBy: z
+    .enum(LOCAL_VIEW_SORT_FIELDS)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.sortBy!),
+  reverse: z.boolean().optional().describe(QUERY_DESCRIPTIONS.reverse!),
+  pattern: z.string().optional().describe(QUERY_DESCRIPTIONS.pattern!),
+  directoriesOnly: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.directoriesOnly!),
+  filesOnly: z.boolean().optional().describe(QUERY_DESCRIPTIONS.filesOnly!),
+  recursive: z.boolean().optional().describe(QUERY_DESCRIPTIONS.recursive!),
+  extensions: z
+    .array(z.string())
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.extensions!),
+  depth: depthField.describe(QUERY_DESCRIPTIONS.depth!),
+  limit: clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.limit!),
+  showFileLastModified: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.showFileLastModified!),
+  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
+  itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.itemsPerPage!),
+});
 
-export type ViewStructureQuery = WithLocalOverlay<
-  z.infer<typeof UpstreamViewStructureQuerySchema>
->;
+export const LocalViewStructureQuerySchema = ViewStructureQueryShape;
+export type ViewStructureQuery = z.infer<typeof ViewStructureQueryShape>;
 
 export const LocalViewStructureBulkQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-  LocalViewStructureQuerySchema,
+  ViewStructureQueryShape,
   { maxQueries: 5 }
 );

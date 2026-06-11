@@ -8,7 +8,7 @@ export const hints: ToolHintGenerators = {
     return [
       `File '${path}' exists but returned no content (may be an empty file).`,
       'Verify the path points to a file, not a directory — use `githubViewRepoStructure` to inspect the tree.',
-      'To fetch a directory subtree to disk, use `githubCloneRepo` with `sparse_path`.',
+      'To fetch a directory subtree to disk, use `githubCloneRepo` with `sparsePath`.',
     ];
   },
 

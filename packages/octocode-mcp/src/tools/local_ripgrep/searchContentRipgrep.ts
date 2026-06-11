@@ -1,12 +1,7 @@
 import { checkCommandAvailability } from '../../utils/exec/commandAvailability.js';
-import type { z } from 'zod';
-import { applyWorkflowMode } from '@octocodeai/octocode-core/schemas/runtime';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { RipgrepQuery as LocalRipgrepQuery } from './scheme.js';
 
-type UpstreamRipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
-import type { WithOptionalMeta } from '../../types/execution.js';
-
-type RipgrepQuery = WithOptionalMeta<UpstreamRipgrepQuery>;
+type RipgrepQuery = LocalRipgrepQuery;
 import { createErrorResult } from '../../utils/file/toolHelpers.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
@@ -14,10 +9,23 @@ import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-
 import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 import { executeGrepFallbackSearch } from './grepFallbackExecutor.js';
 
+function applyWorkflowMode(query: RipgrepQuery): RipgrepQuery {
+  const mode = query.mode;
+  if (!mode) return query;
+
+  const next: RipgrepQuery = { ...query };
+  if (mode === 'discovery' && next.filesOnly === undefined) {
+    next.filesOnly = true;
+  } else if (mode === 'detailed' && next.contextLines === undefined) {
+    next.contextLines = 3;
+  }
+  return next;
+}
+
 export async function searchContentRipgrep(
   query: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
-  const configuredQuery = applyWorkflowMode(query as UpstreamRipgrepQuery);
+  const configuredQuery = applyWorkflowMode(query);
   // Default context AFTER workflow-mode resolution — a zod default would
   // pre-fill the field and turn mode="detailed" (contextLines=3 when
   // undefined) into a no-op.
@@ -47,7 +55,7 @@ export async function searchContentRipgrep(
         hints: [
           'Output exceeded 10MB - your pattern matched too broadly. Think about why results exploded:',
           'Is the pattern too generic? Make it specific to target what you actually need',
-          'Searching everything? Add type filters or path restrictions to focus scope',
+          'Searching everything? Add langType filters or path restrictions to focus scope',
           'For node_modules: Target specific packages rather than searching the entire directory',
           'Need file names only? FIND_FILES searches metadata without reading content',
           'Strategy: Start with filesOnly=true to see what matched, then narrow before reading content',

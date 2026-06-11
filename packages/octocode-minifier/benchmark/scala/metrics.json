@@ -1,0 +1,48 @@
+{
+  "ext": "scala",
+  "language": "Scala",
+  "source": "scala/Option.scala",
+  "sourceBytes": 20107,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "2d64050477836528db8ddfd16582f33e90c78f94b4240c82bf3eab35a763ebcf",
+  "contentView": {
+    "bytes": 3882,
+    "cutPercent": 80.7,
+    "durationMs": 0.809
+  },
+  "applyMinification": {
+    "bytes": 3882,
+    "cutPercent": 80.7,
+    "durationMs": 1.136
+  },
+  "sync": {
+    "bytes": 3882,
+    "cutPercent": 80.7,
+    "durationMs": 0.844
+  },
+  "async": {
+    "bytes": 3882,
+    "cutPercent": 80.7,
+    "durationMs": 1.042,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 1189,
+    "cutPercent": 94.1,
+    "durationMs": 0.364
+  },
+  "ratings": {
+    "minify": 9.5,
+    "symbols": 10,
+    "agent": 9.7,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

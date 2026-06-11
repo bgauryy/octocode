@@ -22,6 +22,7 @@ import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { LOCAL_OVERLAY_MAX_LIMIT } from '../../scheme/localSchemaOverlay.js';
+import { LOCAL_DEFAULT_FILES_PER_PAGE } from '../../config.js';
 
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
@@ -88,7 +89,7 @@ async function enrichFileDetails(
 
 function buildFindFilesHints(ctx: {
   query: FindFilesQuery;
-  filePageNumber: number;
+  currentPage: number;
   totalPages: number;
   shownCount: number;
   totalFiles: number;
@@ -104,7 +105,7 @@ function buildFindFilesHints(ctx: {
 }): string[] {
   const {
     query,
-    filePageNumber,
+    currentPage,
     totalPages,
     shownCount,
     totalFiles,
@@ -118,18 +119,16 @@ function buildFindFilesHints(ctx: {
 
   const q = query as Record<string, unknown>;
   const activeFilters: string[] = [];
-  const namePattern =
-    (q.name as string | undefined) ?? (q.iname as string | undefined);
+  const namePattern = q.name as string | undefined;
   if (namePattern) {
-    const caseNote = q.iname ? ' (case-insensitive)' : '';
-    activeFilters.push(`name: ${namePattern}${caseNote}`);
+    activeFilters.push(`name: ${namePattern}`);
   }
   if (Array.isArray(q.names) && q.names.length > 0) {
     activeFilters.push(`names: ${(q.names as string[]).join(', ')}`);
   }
-  if (q.type)
+  if (q.entryType)
     activeFilters.push(
-      `type: ${q.type === 'f' ? 'files' : q.type === 'd' ? 'directories' : String(q.type)}`
+      `entryType: ${q.entryType === 'f' ? 'files' : q.entryType === 'd' ? 'directories' : String(q.entryType)}`
     );
   // Time filters with an invalid format are skipped by the command builder —
   // annotate them so the hint doesn't assert a filter that never ran.
@@ -137,10 +136,6 @@ function buildFindFilesHints(ctx: {
     typeof value === 'string' && !VALID_TIME_STRING_RE.test(value)
       ? ' (skipped: invalid format)'
       : '';
-  if (q.modifiedAfter)
-    activeFilters.push(
-      `modified after: ${q.modifiedAfter}${timeFilterNote(q.modifiedAfter)}`
-    );
   if (q.modifiedBefore)
     activeFilters.push(
       `modified before: ${q.modifiedBefore}${timeFilterNote(q.modifiedBefore)}`
@@ -160,19 +155,19 @@ function buildFindFilesHints(ctx: {
     ...(activeFilters.length > 0
       ? [`Active filters — ${activeFilters.join(' | ')}`]
       : []),
-    ...(filePageNumber < totalPages
+    ...(currentPage < totalPages
       ? [
-          `Page ${filePageNumber}/${totalPages} (${shownCount} of ${totalFiles}). Next: page=${filePageNumber + 1}`,
+          `Page ${currentPage}/${totalPages} (${shownCount} of ${totalFiles}). Next: page=${currentPage + 1}`,
         ]
       : []),
-    ...(totalPages > 0 && filePageNumber > totalPages
+    ...(totalPages > 0 && currentPage > totalPages
       ? [
-          `Requested page ${filePageNumber} is outside available range (1-${totalPages}). Use page=${totalPages} for the last page.`,
+          `Requested page ${currentPage} is outside available range (1-${totalPages}). Use page=${totalPages} for the last page.`,
         ]
       : []),
     ...(wasFileCapped
       ? [
-          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with name/type/time filters. Note: sorting applies only within the capped set — limit is a pre-sort discovery cap.`,
+          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with name/entryType/time filters. Note: sorting applies only within the capped set — limit is a pre-sort discovery cap.`,
         ]
       : []),
     ...(totalFiles === 0
@@ -180,16 +175,16 @@ function buildFindFilesHints(ctx: {
           fileCount: totalFiles,
           hasConfigFiles,
           path: query.path,
-          name: query.name ?? query.iname,
+          name: query.name,
           names: query.names,
           modifiedWithin: query.modifiedWithin,
           sizeGreater: query.sizeGreater,
           sizeLess: query.sizeLess,
         } as Record<string, unknown>)
       : [
-          q.type === 'f'
+          q.entryType === 'f'
             ? `Found ${totalFiles} file${totalFiles === 1 ? '' : 's'}. Use localSearchCode to search or localGetFileContent to read.`
-            : q.type === 'd'
+            : q.entryType === 'd'
               ? `Found ${totalFiles} director${totalFiles === 1 ? 'y' : 'ies'}. Use localViewStructure to browse or localSearchCode to search.`
               : `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} — pass entryType="f" for files, entryType="d" for directories. Use localSearchCode or localGetFileContent.`,
         ]),
@@ -293,10 +288,11 @@ export async function findFiles(
     const totalFiles = filesForOutput.length;
 
     const filesPerPage =
-      (query as { itemsPerPage?: number }).itemsPerPage || 20;
-    const filePageNumber = (query as { page?: number }).page || 1;
+      (query as { itemsPerPage?: number }).itemsPerPage ||
+      LOCAL_DEFAULT_FILES_PER_PAGE;
+    const currentPage = (query as { page?: number }).page || 1;
     const totalPages = Math.ceil(totalFiles / filesPerPage);
-    const startIdx = (filePageNumber - 1) * filesPerPage;
+    const startIdx = (currentPage - 1) * filesPerPage;
     const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
     const paginatedFiles = filesForOutput.slice(startIdx, endIdx);
 
@@ -332,17 +328,17 @@ export async function findFiles(
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
       files: finalFiles,
       pagination: {
-        currentPage: filePageNumber,
+        currentPage,
         totalPages,
         filesPerPage,
         totalFiles,
-        hasMore: filePageNumber < totalPages,
+        hasMore: currentPage < totalPages,
         ...(wasFileCapped ? { totalFilesFound: discoveredFileCount } : {}),
       },
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
       hints: buildFindFilesHints({
         query,
-        filePageNumber,
+        currentPage,
         totalPages,
         shownCount: finalFiles.length,
         totalFiles,
@@ -483,12 +479,6 @@ const VALID_TIME_STRING_RE = /^\d+[hdwm]$/;
 function validateTimeFilterFormats(query: FindFilesQuery): string[] {
   const warnings: string[] = [];
   const fields: Array<{ key: string; value: string | undefined }> = [
-    {
-      key: 'modifiedAfter',
-      value: (query as Record<string, unknown>).modifiedAfter as
-        | string
-        | undefined,
-    },
     { key: 'modifiedBefore', value: query.modifiedBefore },
     { key: 'modifiedWithin', value: query.modifiedWithin },
     {

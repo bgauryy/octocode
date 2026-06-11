@@ -285,6 +285,84 @@ describe('githubSearchPullRequests output size limits', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).not.toContain('outputPagination');
     });
+
+    it('keeps PR patches raw by default and minifies only when explicitly requested', async () => {
+      const response = {
+        data: {
+          items: [
+            {
+              number: 7,
+              title: 'Patch review PR',
+              state: 'open',
+              draft: false,
+              createdAt: '2023-01-01T00:00:00Z',
+              updatedAt: '2023-01-01T00:00:00Z',
+              author: { login: 'user', id: '1' },
+              body: 'Small body',
+              url: 'https://github.com/test/repo/pull/7',
+              fileChanges: [
+                {
+                  path: 'src/a.ts',
+                  status: 'modified',
+                  additions: 2,
+                  deletions: 0,
+                  patch: [
+                    '@@ -1,2 +1,2 @@',
+                    '+const value = 1; // exact review comment',
+                    '+// comment-only change',
+                  ].join('\n'),
+                },
+              ],
+            },
+          ],
+          totalCount: 1,
+          pagination: { currentPage: 1, totalPages: 1, hasMore: false },
+        },
+        status: 200,
+        provider: 'github',
+      };
+      mockProvider.searchPullRequests
+        .mockResolvedValueOnce(response)
+        .mockResolvedValueOnce(response);
+
+      const rawResult = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              prNumber: 7,
+              content: { changedFiles: true, patches: { mode: 'all' } },
+              charLength: 5000,
+            },
+          ],
+        }
+      );
+      const standardResult = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              prNumber: 7,
+              content: { changedFiles: true, patches: { mode: 'all' } },
+              minify: 'standard',
+              charLength: 5000,
+            },
+          ],
+        }
+      );
+
+      const rawText = getTextContent(rawResult.content);
+      const standardText = getTextContent(standardResult.content);
+      expect(rawText).toContain('// exact review comment');
+      expect(rawText).toContain('// comment-only change');
+      expect(standardText).not.toContain('// exact review comment');
+      expect(standardText).not.toContain('// comment-only change');
+      expect(standardText).toContain('const value = 1;');
+    });
   });
 
   describe('edge cases for branch coverage', () => {

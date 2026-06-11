@@ -156,6 +156,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('Server instructions.');
     expect(output).toContain('Exit codes:');
     expect(output).toContain('evidence.answerReady');
+    expect(output).toContain('same Octocode MCP tool implementations');
   });
 
   it('A2: default context uses compact field lists, not full JSON schemas', async () => {
@@ -352,7 +353,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '[{"path":".","pattern":"foo","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1},{"path":"src","pattern":"bar","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}]',
+        '[{"path":".","pattern":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","pattern":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -374,7 +375,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"queries":[{"path":".","pattern":"foo","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}],"responseCharOffset":500}',
+        '{"queries":[{"path":".","pattern":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -395,7 +396,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         'extra',
       ],
       options: { tool: 'localSearchCode' },
@@ -434,23 +435,38 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(2);
   });
 
-  it('normaliseKey: converts kebab-case query keys to camelCase', async () => {
+  it('uses canonical query keys for localSearchCode pagination', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
 
-    await toolCommand.handler!({
-      command: 'tool',
-      args: [
-        'localSearchCode',
-        '{"path":".","pattern":"x","fixed-string":true,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
-      ],
-      options: { tool: 'localSearchCode' },
-    });
+    try {
+      await toolCommand.handler!({
+        command: 'tool',
+        args: [
+          'localSearchCode',
+          '{"path":".","pattern":"x","fixedString":true,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        ],
+        options: { tool: 'localSearchCode' },
+      });
 
-    expect(mocks.localSearchCode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        queries: [expect.objectContaining({ fixedString: true })],
-      })
-    );
+      expect(mocks.localSearchCode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queries: [
+            expect.objectContaining({
+              fixedString: true,
+              itemsPerPage: 1,
+              page: 1,
+              maxMatchesPerFile: 1,
+            }),
+          ],
+        })
+      );
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it('printToolResult: falls back to structuredContent when content is empty', async () => {
@@ -465,7 +481,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -485,7 +501,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -507,7 +523,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -537,7 +553,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -563,7 +579,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', o: 'json' },
     });
@@ -586,7 +602,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -603,7 +619,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -622,7 +638,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -721,7 +737,7 @@ describe('tool-command coverage', () => {
 
       args: [
         'localSearchCode',
-        '[{"path":".","pattern":"ok","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1},{"path":".","pattern":999,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}]',
+        '[{"path":".","pattern":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","pattern":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -803,7 +819,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -827,7 +843,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -849,7 +865,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -871,7 +887,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -896,20 +912,6 @@ describe('tool-command coverage', () => {
     expect(out).toContain('definition');
   });
 
-  it('buildExampleValue: lspGetDiagnostics example exercises severity enum branch', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
-
-    await toolCommand.handler!({
-      command: 'tool',
-      args: ['lspGetDiagnostics'],
-      options: { tool: 'lspGetDiagnostics', schema: true },
-    });
-
-    const out = consoleSpy.mock.calls.flat().join('\n');
-    expect(out).toContain('severity');
-    expect(out).toContain('all');
-  });
-
   it('resolves tool name from --tool option when no positional arg given', async () => {
     const { executeToolCommand } =
       await import('../../src/cli/tool-command.js');
@@ -920,7 +922,7 @@ describe('tool-command coverage', () => {
       options: {
         tool: 'localSearchCode',
         queries:
-          '{"path":".","pattern":"x","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+          '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 

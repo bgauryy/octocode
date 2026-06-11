@@ -11,14 +11,11 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import type { z } from 'zod';
-import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
-
-type UpstreamViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
+import type { ViewStructureQuery as LocalViewStructureQuery } from './scheme.js';
 
-type ViewStructureQuery = WithOptionalMeta<UpstreamViewStructureQuery>;
+type ViewStructureQuery = WithOptionalMeta<LocalViewStructureQuery>;
 
 /**
  * Sanitize raw `ls` stderr for agent-facing output: strip the `ls:` prefix
@@ -47,7 +44,6 @@ function sanitizeLsStderr(
 function buildActiveViewStructureFilters(query: ViewStructureQuery): string[] {
   const activeFilters: string[] = [`path: ${query.path}`];
   if (query.depth !== undefined) activeFilters.push(`depth: ${query.depth}`);
-  if (query.extension) activeFilters.push(`extension: ${query.extension}`);
   if (query.extensions?.length) {
     activeFilters.push(`extensions: ${query.extensions.join(', ')}`);
   }
@@ -202,7 +198,7 @@ export async function viewStructure(
               ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
                   entryCount: totalEntries,
                   path: query.path,
-                  extension: query.extension,
+                  extensions: query.extensions,
                   pattern:
                     typeof (query as { pattern?: unknown }).pattern === 'string'
                       ? (query as { pattern?: string }).pattern
@@ -333,13 +329,21 @@ async function viewStructureRecursive(
     ...buildWalkWarnings(walkStats),
     ...(walkStats.wasCapped
       ? [
-          `Results capped at ${maxEntries} entries — add a pattern/extension filter or reduce depth to narrow the scope.`,
+          `Results capped at ${maxEntries} entries — add a pattern/extensions filter or reduce depth to narrow the scope.`,
         ]
       : []),
   ];
   const isEmpty = totalEntries === 0;
   const baseHints = isEmpty
-    ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty')
+    ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
+        entryCount: totalEntries,
+        path: query.path,
+        extensions: query.extensions,
+        pattern:
+          typeof (query as { pattern?: unknown }).pattern === 'string'
+            ? (query as { pattern?: string }).pattern
+            : undefined,
+      } as Record<string, unknown>)
     : [
         'Use localSearchCode to search or localGetFileContent to read discovered files.',
       ];

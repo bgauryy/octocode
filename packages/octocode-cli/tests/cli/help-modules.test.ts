@@ -32,6 +32,7 @@ describe('main-help', () => {
     expect(output).toContain('instructions');
     expect(output).toContain('tools');
     expect(output).toContain('--queries');
+    expect(output).toContain('same Octocode MCP tool implementations');
   });
 });
 

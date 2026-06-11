@@ -22,7 +22,6 @@ const TOOL_CIRCUIT_MAP: Record<string, string> = {
   githubViewRepoStructure: 'github:content',
 
   lspGetSemanticContent: 'lsp:navigation',
-  lspGetDiagnostics: 'lsp:navigation',
 
   localSearchCode: 'local',
   localGetFileContent: 'local',

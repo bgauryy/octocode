@@ -1,0 +1,48 @@
+{
+  "ext": "cs",
+  "language": "C#",
+  "source": "cs/dotnet-argument-exception.cs",
+  "sourceBytes": 5603,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "23b393789bb834fac80f4c285f7e317cf0a0b42874eedab1321366c17501016c",
+  "contentView": {
+    "bytes": 4017,
+    "cutPercent": 28.3,
+    "durationMs": 0.645
+  },
+  "applyMinification": {
+    "bytes": 4017,
+    "cutPercent": 28.3,
+    "durationMs": 0.866
+  },
+  "sync": {
+    "bytes": 4017,
+    "cutPercent": 28.3,
+    "durationMs": 0.605
+  },
+  "async": {
+    "bytes": 4017,
+    "cutPercent": 28.3,
+    "durationMs": 0.592,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 1484,
+    "cutPercent": 73.5,
+    "durationMs": 0.38
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": 9,
+    "agent": 8.7,
+    "label": "strong"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

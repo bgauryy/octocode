@@ -1,0 +1,49 @@
+{
+  "ext": "hs",
+  "language": "Haskell",
+  "source": "hs/cabal-simple.hs",
+  "sourceBytes": 41400,
+  "strategy": "conservative",
+  "commentModel": "haskell",
+  "sha256": "a975970385accfb0dfef40bb4b2c8c7b3924504947790cd5fe0666cf8a8fae30",
+  "contentView": {
+    "bytes": 36301,
+    "cutPercent": 12.3,
+    "durationMs": 8.311
+  },
+  "applyMinification": {
+    "bytes": 36301,
+    "cutPercent": 12.3,
+    "durationMs": 6.728
+  },
+  "sync": {
+    "bytes": 36301,
+    "cutPercent": 12.3,
+    "durationMs": 4.546
+  },
+  "async": {
+    "bytes": 36301,
+    "cutPercent": 12.3,
+    "durationMs": 5.812,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.026
+  },
+  "ratings": {
+    "minify": 7,
+    "symbols": null,
+    "agent": 7,
+    "label": "good"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

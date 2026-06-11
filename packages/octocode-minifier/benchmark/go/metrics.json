@@ -1,0 +1,48 @@
+{
+  "ext": "go",
+  "language": "Go",
+  "source": "go/print.go",
+  "sourceBytes": 33315,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "10d7cd625d83a15f70b6e61641d3cebd4e4d49d7e0f2a24d5d2b59988074d2f7",
+  "contentView": {
+    "bytes": 21954,
+    "cutPercent": 34.1,
+    "durationMs": 4.092
+  },
+  "applyMinification": {
+    "bytes": 21954,
+    "cutPercent": 34.1,
+    "durationMs": 4.846
+  },
+  "sync": {
+    "bytes": 21954,
+    "cutPercent": 34.1,
+    "durationMs": 4.371
+  },
+  "async": {
+    "bytes": 21954,
+    "cutPercent": 34.1,
+    "durationMs": 3.95,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 22351,
+    "cutPercent": 32.9,
+    "durationMs": 0.915
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": 6.5,
+    "agent": 7.8,
+    "label": "good"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

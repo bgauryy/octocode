@@ -457,11 +457,11 @@ describe('source field attribution', () => {
   });
 
   it('result from web fallback has source=web', async () => {
-    mockFetchWithRetries
-      .mockRejectedValueOnce(new Error('fetch failed'))
-      .mockRejectedValueOnce(new Error('fetch failed'))
-      .mockRejectedValueOnce(new Error('fetch failed'))
-      .mockResolvedValueOnce({
+    mockFetchWithRetries.mockImplementation(async (url: string) => {
+      if (!url.includes('api.npms.io')) {
+        throw new Error('fetch failed');
+      }
+      return {
         results: [
           {
             package: {
@@ -476,7 +476,8 @@ describe('source field attribution', () => {
           },
         ],
         total: 1,
-      });
+      };
+    });
 
     const result = await searchNpmPackage('react-query', 5, false);
     expect('packages' in result).toBe(true);
@@ -681,6 +682,96 @@ describe('isExactPackageName', () => {
 
     expect(mockFetchWithRetries).toHaveBeenCalledWith(
       expect.stringContaining('/react/latest'),
+      expect.any(Object)
+    );
+  });
+
+  it('should use npm CDN package.json fallback for exact packages when registry is unreachable', async () => {
+    mockFetchWithRetries.mockImplementation(async (url: string) => {
+      if (url.includes('registry.npmjs.org')) {
+        throw new Error('fetch failed');
+      }
+      if (url.includes('cdn.jsdelivr.net/npm/zod/package.json')) {
+        return {
+          name: 'zod',
+          version: '4.4.3',
+          type: 'module',
+          repository: { url: 'https://github.com/colinhacks/zod' },
+          description: 'TypeScript-first schema validation',
+        };
+      }
+      return {};
+    });
+
+    const result = await searchNpmPackage('zod', 1, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      const pkg = result.packages[0] as NpmPackageResult;
+      expect(pkg.name).toBe('zod');
+      expect(pkg.version).toBe('4.4.3');
+      expect(pkg.source).toBe('cdn');
+      expect(pkg.repoUrl).toBe('https://github.com/colinhacks/zod');
+    }
+  });
+
+  it('should treat npm command timeout as registry/network failure for CDN fallback', async () => {
+    mockExecuteNpmCommand.mockResolvedValue({
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      error: new Error('Command timeout after 8000ms'),
+    });
+    mockFetchWithRetries.mockImplementation(async (url: string) => {
+      if (url.includes('registry.npmjs.org')) {
+        throw new Error('fetch failed');
+      }
+      if (url.includes('cdn.jsdelivr.net/npm/zod/package.json')) {
+        return {
+          name: 'zod',
+          version: '4.4.3',
+        };
+      }
+      return {};
+    });
+
+    const result = await searchNpmPackage('zod', 1, false);
+
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect((result.packages[0] as NpmPackageResult).source).toBe('cdn');
+    }
+  });
+
+  it('should preserve scoped package slash in CDN fallback URL', async () => {
+    mockFetchWithRetries.mockImplementation(async (url: string) => {
+      if (url.includes('registry.npmjs.org')) {
+        throw new Error('fetch failed');
+      }
+      if (
+        url.includes(
+          'cdn.jsdelivr.net/npm/@modelcontextprotocol/sdk/package.json'
+        )
+      ) {
+        return {
+          name: '@modelcontextprotocol/sdk',
+          version: '1.29.0',
+        };
+      }
+      return {};
+    });
+
+    const result = await searchNpmPackage(
+      '@modelcontextprotocol/sdk',
+      1,
+      false
+    );
+
+    expect('packages' in result).toBe(true);
+    expect(mockFetchWithRetries).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'cdn.jsdelivr.net/npm/@modelcontextprotocol/sdk/package.json'
+      ),
       expect.any(Object)
     );
   });
@@ -1635,7 +1726,7 @@ describe('circuit breaker bypass', () => {
       total: 1,
     });
 
-    const result = await searchNpmPackage('open-pkg', 5, false);
+    const result = await searchNpmPackage('open pkg', 5, false);
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
       expect((result.packages[0] as NpmPackageResult).source).toBe('web');

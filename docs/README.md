@@ -43,7 +43,7 @@ How to use, extend, and contribute to Octocode.
 |-----|--------------|
 | [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) | Schemas + behavior for remote-host tools |
 | [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) | Schemas + behavior for local filesystem tools |
-| [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) | Canonical reference for semantic content and diagnostics |
+| [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) | Canonical reference for semantic navigation |
 | [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md) | All `octocode-cli` commands and flags |
 
 **Workflows**

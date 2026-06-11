@@ -1,0 +1,49 @@
+{
+  "ext": "erl",
+  "language": "Erlang",
+  "source": "erl/erlang-lists.erl",
+  "sourceBytes": 123312,
+  "strategy": "aggressive",
+  "commentModel": "percent",
+  "sha256": "d429e541ca76aca8c56bb9ff31130a3b636f33d3e1923a08683157bf5709ab47",
+  "contentView": {
+    "bytes": 116175,
+    "cutPercent": 5.8,
+    "durationMs": 24.504
+  },
+  "applyMinification": {
+    "bytes": 94193,
+    "cutPercent": 23.6,
+    "durationMs": 21.955
+  },
+  "sync": {
+    "bytes": 94193,
+    "cutPercent": 23.6,
+    "durationMs": 20.873
+  },
+  "async": {
+    "bytes": 94193,
+    "cutPercent": 23.6,
+    "durationMs": 20.796,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.012
+  },
+  "ratings": {
+    "minify": 7.8,
+    "symbols": null,
+    "agent": 7.8,
+    "label": "good"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

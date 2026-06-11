@@ -581,9 +581,12 @@ describe('minifyContent (async) — all registered extensions', () => {
     expect(r.type).toBe('aggressive');
   });
 
-  it('ts → conservative (no terser)', async () => {
+  it('ts → parser-backed conservative path uses terser after transpile', async () => {
     const r = await minifyContent('// c\nconst x = 1;\n', 'f.ts');
-    expect(mockMinify).not.toHaveBeenCalled();
+    expect(mockMinify).toHaveBeenCalledWith(
+      'const x = 1;\n',
+      expect.objectContaining({ mangle: false, sourceMap: false })
+    );
     expect(r.type).toBe('conservative');
     expect(r.content).not.toContain('// c');
   });

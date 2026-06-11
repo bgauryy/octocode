@@ -49,56 +49,30 @@ beforeEach(() => {
   } as any);
 });
 
-describe('buildSearchResult - showFileLastModified (lines 44, 116, 257-259)', () => {
-  it('stats each file and attaches modified time when showFileLastModified is set', async () => {
+describe('buildSearchResult - exact localSearchCode output fields', () => {
+  it('does not attach modified timestamps because localSearchCode does not expose that option', async () => {
     const files = [makeFile('/test/a.ts', 1), makeFile('/test/b.ts', 1)];
-    const result = await buildSearchResult(
-      files,
-      baseQuery({ showFileLastModified: true }),
-      'rg',
-      []
-    );
-    expect(mockFsStat).toHaveBeenCalled();
-    expect(result.files?.[0]?.modified).toBe('2024-01-01T00:00:00.000Z');
-  });
-
-  it('falls back to path tiebreak using modified time when match counts tie', async () => {
-    mockFsStat
-      .mockResolvedValueOnce({
-        mtime: new Date('2020-01-01T00:00:00.000Z'),
-      } as any)
-      .mockResolvedValueOnce({
-        mtime: new Date('2024-01-01T00:00:00.000Z'),
-      } as any);
-    const files = [makeFile('/test/old.ts', 1), makeFile('/test/new.ts', 1)];
-    const result = await buildSearchResult(
-      files,
-      baseQuery({ showFileLastModified: true }),
-      'rg',
-      []
-    );
+    const result = await buildSearchResult(files, baseQuery(), 'rg', []);
+    expect(mockFsStat).not.toHaveBeenCalled();
     expect(result.files?.map(f => f.path)).toEqual([
-      '/test/new.ts',
-      '/test/old.ts',
+      '/test/a.ts',
+      '/test/b.ts',
     ]);
+    expect(result.files?.[0]?.modified).toBeUndefined();
   });
 
-  it('does not call fs.stat when showFileLastModified is absent', async () => {
+  it('does not call fs.stat for regular results', async () => {
     const files = [makeFile('/test/a.ts', 1)];
     await buildSearchResult(files, baseQuery(), 'rg', []);
     expect(mockFsStat).not.toHaveBeenCalled();
   });
 
-  it('handles fs.stat rejection by leaving modified undefined', async () => {
-    mockFsStat.mockRejectedValueOnce(new Error('nope'));
+  it('emits concrete next-step hints for regular match results', async () => {
     const files = [makeFile('/test/a.ts', 1)];
-    const result = await buildSearchResult(
-      files,
-      baseQuery({ showFileLastModified: true }),
-      'rg',
-      []
-    );
-    expect(result.files?.[0]?.modified).toBeUndefined();
+    const result = await buildSearchResult(files, baseQuery(), 'rg', []);
+    const hints = (result.hints ?? []).join('\n');
+    expect(hints).toContain('localGetFileContent');
+    expect(hints).toContain('lspGetSemanticContent');
   });
 });
 
@@ -139,7 +113,7 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
     const files = [makeFile('/test/a.ts', 0, 0)];
     const result = await buildSearchResult(
       files,
-      baseQuery({ count: true }),
+      baseQuery({ countLinesPerFile: true }),
       'rg',
       [],
       { matchCount: 42, fileCount: 1 } as any
@@ -149,11 +123,11 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
     expect(result.files?.[0]?.pagination).toBeUndefined();
   });
 
-  it('countMatches mode: file-list mode summed fallback when stats absent', async () => {
+  it('countMatchesPerFile mode: file-list mode summed fallback when stats absent', async () => {
     const files = [makeFile('/test/a.ts', 5, 5), makeFile('/test/b.ts', 3, 3)];
     const result = await buildSearchResult(
       files,
-      baseQuery({ countMatches: true }),
+      baseQuery({ countMatchesPerFile: true }),
       'rg',
       []
     );
@@ -298,7 +272,7 @@ describe('finalizeRipgrepResult - pass-through contract', () => {
 
   it(' — all hints preserved', () => {
     const allHints = [
-      'Large result set - narrow: add type',
+      'Large result set - narrow: add langType',
       'keep me 1',
       'keep me 2',
       'payload is large advisory',
@@ -340,59 +314,14 @@ describe('buildSearchResult - empty results', () => {
   });
 });
 
-describe('buildSearchResult - compareModifiedDescending branches (266-274)', () => {
-  it('both modified missing -> stable path order (line 266)', async () => {
+describe('buildSearchResult - stable path tiebreak branches', () => {
+  it('sorts tied match counts by path', async () => {
     mockFsStat.mockRejectedValue(new Error('nope'));
     const files = [makeFile('/test/b.ts', 1), makeFile('/test/a.ts', 1)];
-    const result = await buildSearchResult(
-      files,
-      baseQuery({ showFileLastModified: true }),
-      'rg',
-      []
-    );
+    const result = await buildSearchResult(files, baseQuery(), 'rg', []);
     expect(result.files?.map(f => f.path)).toEqual([
       '/test/a.ts',
       '/test/b.ts',
-    ]);
-  });
-
-  it('one modified present sorts before one missing (lines 267-268)', async () => {
-    mockFsStat
-      .mockResolvedValueOnce({
-        mtime: new Date('2024-01-01T00:00:00.000Z'),
-      } as any)
-      .mockRejectedValueOnce(new Error('nope'));
-    const files = [makeFile('/test/has.ts', 1), makeFile('/test/none.ts', 1)];
-    const result = await buildSearchResult(
-      files,
-      baseQuery({ showFileLastModified: true }),
-      'rg',
-      []
-    );
-    expect(result.files?.[0]?.path).toBe('/test/has.ts');
-  });
-
-  it('valid dates sort newest first (line 275)', async () => {
-    mockFsStat
-      .mockResolvedValueOnce({
-        mtime: new Date('2020-06-01T00:00:00.000Z'),
-      } as any)
-      .mockResolvedValueOnce({
-        mtime: new Date('2025-06-01T00:00:00.000Z'),
-      } as any);
-    const files = [
-      makeFile('/test/older.ts', 1),
-      makeFile('/test/newer.ts', 1),
-    ];
-    const result = await buildSearchResult(
-      files,
-      baseQuery({ showFileLastModified: true }),
-      'rg',
-      []
-    );
-    expect(result.files?.map(f => f.path)).toEqual([
-      '/test/newer.ts',
-      '/test/older.ts',
     ]);
   });
 });

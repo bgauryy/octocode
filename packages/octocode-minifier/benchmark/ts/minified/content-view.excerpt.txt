@@ -1,0 +1,67 @@
+import {
+    CharacterCodes,
+    Comparer,
+    Comparison,
+    Debug,
+    EqualityComparer,
+    MapLike,
+    Queue,
+    SortedArray,
+    SortedReadonlyArray,
+    TextSpan,
+} from "./_namespaces/ts.js";
+
+export const emptyArray: never[] = [] as never[];
+
+export const emptyMap: ReadonlyMap<never, never> = new Map<never, never>();
+
+export function length(array: readonly any[] | undefined): number {
+    return array !== undefined ? array.length : 0;
+}
+
+export function forEach<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {
+    if (array !== undefined) {
+        for (let i = 0; i < array.length; i++) {
+            const result = callback(array[i], i);
+            if (result) {
+                return result;
+            }
+        }
+    }
+    return undefined;
+}
+
+export function forEachRight<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {
+    if (array !== undefined) {
+        for (let i = array.length - 1; i >= 0; i--) {
+            const result = callback(array[i], i);
+            if (result) {
+                return result;
+            }
+        }
+    }
+    return undefined;
+}
+
+expor
+
+... [truncated 63254 chars] ...
+
+ction skipWhile<T, U extends T>(array: readonly T[] | undefined, predicate: (element: T) => element is U): Exclude<T, U>[] | undefined {
+    if (array !== undefined) {
+        const len = array.length;
+        let index = 0;
+        while (index < len && predicate(array[index])) {
+            index++;
+        }
+        return array.slice(index) as Exclude<T, U>[];
+    }
+}
+
+export function isNodeLikeSystem(): boolean {
+
+    return typeof process !== "undefined"
+        && !!process.nextTick
+        && !(process as any).browser
+        && typeof require !== "undefined";
+}

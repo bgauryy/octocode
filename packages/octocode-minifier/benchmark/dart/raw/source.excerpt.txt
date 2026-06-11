@@ -1,0 +1,55 @@
+// Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
+part of "dart:core";
+
+/// A sequence of UTF-16 code units.
+///
+/// Strings are mainly used to represent text. A character may be represented by
+/// multiple code points, each code point consisting of one or two code
+/// units. For example, the Papua New Guinea flag character requires four code
+/// units to represent two code points, but should be treated like a single
+/// character: "🇵🇬". Platforms that do not support the flag character may show
+/// the letters "PG" instead. If the code points are swapped, it instead becomes
+/// the Guadeloupe flag "🇬🇵" ("GP").
+///
+/// A string can be either single or multiline. Single line strings are
+/// written using matching single or double quotes, and multiline strings are
+/// written using triple quotes. The following are all valid Dart strings:
+/// ```dart
+/// 'Single quotes';
+/// "Double quotes";
+/// 'Double quotes in "single" quotes';
+/// "Single quotes in 'double' quotes";
+///
+/// '''A
+/// multiline
+/// string''';
+///
+/// """
+/// Another
+/// mu
+
+... [truncated 35227 chars] ...
+
+ _nextPosition = _position;
+    if (_position == 0) {
+      _currentCodePoint = -1;
+      return false;
+    }
+    int position = _position - 1;
+    int codeUnit = string.codeUnitAt(position);
+    if (_isTrailSurrogate(codeUnit) && position > 0) {
+      int prevCodeUnit = string.codeUnitAt(position - 1);
+      if (_isLeadSurrogate(prevCodeUnit)) {
+        _position = position - 1;
+        _currentCodePoint = _combineSurrogatePair(prevCodeUnit, codeUnit);
+        return true;
+      }
+    }
+    _position = position;
+    _currentCodePoint = codeUnit;
+    return true;
+  }
+}

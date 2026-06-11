@@ -33,28 +33,11 @@ vi.mock('../../src/hints/dynamic.js', () => ({
   getLargeFileWorkflowHints: vi.fn().mockReturnValue(['narrow your search']),
 }));
 
-vi.mock('@octocodeai/octocode-core/schemas/runtime', async importOriginal => {
-  const actual =
-    await importOriginal<
-      typeof import('@octocodeai/octocode-core/schemas/runtime')
-    >();
-  return {
-    ...actual,
-    validateRipgrepQuery: vi.fn().mockReturnValue({
-      isValid: true,
-      errors: [],
-      warnings: [],
-    }),
-  };
-});
-
 import { safeExec } from '../../src/utils/exec/safe.js';
-import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
 import { executeRipgrepSearchInternal } from '../../src/tools/local_ripgrep/ripgrepExecutor.js';
 import { RESOURCE_LIMITS } from '../../src/utils/core/constants.js';
 
 const mockSafeExec = vi.mocked(safeExec);
-const mockValidateRipgrepQuery = vi.mocked(validateRipgrepQuery);
 
 const baseQuery = {
   id: 'exec_test',
@@ -69,11 +52,6 @@ const baseQuery = {
 describe('executeRipgrepSearchInternal - branch coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockValidateRipgrepQuery.mockReturnValue({
-      isValid: true,
-      errors: [],
-      warnings: [],
-    });
     mockSafeExec.mockResolvedValue({
       success: true,
       code: 0,
@@ -82,23 +60,20 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
     });
   });
 
-  it('returns error when validateRipgrepQuery fails (line 33)', async () => {
-    mockValidateRipgrepQuery.mockReturnValue({
-      isValid: false,
-      errors: ['pattern is required'],
-      warnings: [],
-    });
-
-    const result = await executeRipgrepSearchInternal(baseQuery as any);
+  it('returns error when local schema validation fails', async () => {
+    const result = await executeRipgrepSearchInternal({
+      ...baseQuery,
+      pattern: undefined,
+    } as any);
     expect(result.status).toBe('error');
-    expect(result.error).toContain('pattern is required');
+    expect(result.error).toContain('pattern');
   });
 
   it('returns error when path is not provided (line 44)', async () => {
     const queryWithoutPath = { ...baseQuery, path: undefined };
     const result = await executeRipgrepSearchInternal(queryWithoutPath as any);
     expect(result.status).toBe('error');
-    expect(result.error).toContain('Path is required');
+    expect(result.error).toContain('Query validation failed');
   });
 
   it('returns error when pattern preflight validation fails (line 75)', async () => {
@@ -198,13 +173,7 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
     expect(result.status).toBe('empty');
   });
 
-  it('propagates warnings from validateRipgrepQuery', async () => {
-    mockValidateRipgrepQuery.mockReturnValue({
-      isValid: true,
-      errors: [],
-      warnings: ['pattern might be slow'],
-    });
-
+  it('returns empty without runtime validation warnings', async () => {
     mockSafeExec.mockResolvedValue({
       success: false,
       code: 1,
@@ -214,5 +183,6 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
 
     const result = await executeRipgrepSearchInternal(baseQuery as any);
     expect(result.status).toBe('empty');
+    expect(result.warnings).toEqual([]);
   });
 });

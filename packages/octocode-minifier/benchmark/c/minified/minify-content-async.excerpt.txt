@@ -1,0 +1,73 @@
+#include "builtin.h"
+#include "advice.h"
+#include "config.h"
+#include "environment.h"
+#include "lockfile.h"
+#include "editor.h"
+#include "dir.h"
+#include "gettext.h"
+#include "pathspec.h"
+#include "run-command.h"
+#include "object-file.h"
+#include "odb.h"
+#include "odb/transaction.h"
+#include "parse-options.h"
+#include "path.h"
+#include "preload-index.h"
+#include "diff.h"
+#include "read-cache.h"
+#include "revision.h"
+#include "strvec.h"
+#include "submodule.h"
+#include "add-interactive.h"
+
+static const char * const builtin_add_usage[] = {
+	N_("git add [<options>] [--] <pathspec>..."),
+	NULL
+};
+static int patch_interactive, add_interactive, edit_interactive;
+static struct interactive_options interactive_opts = INTERACTIVE_OPTIONS_INIT;
+static int take_worktree_changes;
+static int add_renormalize;
+static int pathspec_file_nul;
+static int include_sparse;
+static const char *pathspec_from_file;
+
+static int chmod_pathspec(struct repository *repo,
+			  struct pathspec *pathspec,
+			  char flip,
+			  int show_only)
+{
+	int ret = 0;
+
+	for (size_t i = 0; i < repo->index->cache_nr; i++) {
+		struct cache_entry *ce = repo->index->cache[i];
+		int err;
+
+		if (!include_sparse &&
+		    (ce_skip_worktree(ce) ||
+		     !path_i
+
+... [truncated 15613 chars] ...
+
+ (take_worktree_changes && !add_renormalize && !ignore_add_errors &&
+	    report_path_error(ps_matched, &pathspec))
+		exit(128);
+
+	if (add_new_files)
+		exit_status |= add_files(repo, &dir, flags);
+
+	if (chmod_arg && pathspec.nr)
+		exit_status |= chmod_pathspec(repo, &pathspec, chmod_arg[0], show_only);
+	odb_transaction_commit(transaction);
+
+finish:
+	if (write_locked_index(repo->index, &lock_file,
+			       COMMIT_LOCK | SKIP_IF_UNCHANGED))
+		die(_("unable to write new index file"));
+
+	free(ps_matched);
+	dir_clear(&dir);
+	clear_pathspec(&pathspec);
+	return exit_status;
+}

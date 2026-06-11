@@ -12,7 +12,6 @@ import { hints as ghViewHints } from '../../../src/tools/github_view_repo_struct
 import { hints as cloneHints } from '../../../src/tools/github_clone_repo/hints.js';
 import { hints as pkgHints } from '../../../src/tools/package_search/hints.js';
 import { hints as semanticContentHints } from '../../../src/tools/lsp/semantic_content/hints.js';
-import { hints as diagnosticsHints } from '../../../src/tools/lsp/diagnostics/hints.js';
 
 import { buildPaginationHints } from '../../../src/tools/providerMappers.js';
 import {
@@ -33,7 +32,6 @@ const ALL_HINTS = {
   githubCloneRepo: cloneHints,
   packageSearch: pkgHints,
   lspGetSemanticContent: semanticContentHints,
-  lspGetDiagnostics: diagnosticsHints,
 };
 
 describe('per-tool hints — structural contract', () => {
@@ -63,9 +61,9 @@ describe('per-tool hints — structural contract', () => {
 });
 
 describe('localSearchCode (ripgrep) — empty permutations', () => {
-  it('emits filter list when type is set', () => {
-    const h = ripgrepHints.empty({ type: 'ts', path: 'src' } as never);
-    expect(h.some(s => s?.includes('type="ts"'))).toBe(true);
+  it('emits filter list when langType is set', () => {
+    const h = ripgrepHints.empty({ langType: 'ts', path: 'src' } as never);
+    expect(h.some(s => s?.includes('langType="ts"'))).toBe(true);
     expect(h.some(s => s?.includes("'src'") || s?.includes('src'))).toBe(true);
   });
 
@@ -124,12 +122,12 @@ describe('localFindFiles — empty permutations', () => {
 });
 
 describe('localViewStructure — empty + error', () => {
-  it('empty with extension filter', () => {
+  it('empty with extensions filter', () => {
     const h = viewStructureHints.empty({
       path: 'src',
-      extension: 'ts',
+      extensions: ['ts'],
     } as never);
-    expect(h[0]).toContain('extension="ts"');
+    expect(h[0]).toContain('extensions=["ts"]');
   });
 
   it('empty with pattern filter', () => {
@@ -618,9 +616,9 @@ describe('githubCloneRepo — empty', () => {
   });
 
   it('returns guidance when sparsePath provided but matched nothing', () => {
-    const h = cloneHints.empty({ path: 'src/utils' } as never);
+    const h = cloneHints.empty({ sparsePath: 'src/utils' } as never);
     expect(h[0]).toContain('src/utils');
-    expect(h[1]).toContain('sparse_path');
+    expect(h[1]).toContain('sparsePath');
   });
 });
 
@@ -629,14 +627,14 @@ describe('packageSearch — hints coverage', () => {
     expect(pkgHints.empty({} as never)).toEqual([]);
   });
 
-  it('empty returns package guidance when query exists', () => {
-    const h = pkgHints.empty({ query: 'left-pad' } as never);
+  it('empty returns package guidance when name exists', () => {
+    const h = pkgHints.empty({ name: 'left-pad' } as never);
     expect(h[0]).toContain("Package 'left-pad' not found on npm.");
     expect(h[1]).toContain('remove any version suffix');
   });
 
-  it('empty resolves name from keywords array', () => {
-    const h = pkgHints.empty({ keywords: ['lodash'] } as never);
+  it('empty uses the exact name field', () => {
+    const h = pkgHints.empty({ name: 'lodash' } as never);
     expect(h[0]).toContain("Package 'lodash' not found on npm.");
   });
 
@@ -678,20 +676,6 @@ describe('lspGetSemanticContent — empty + error', () => {
       errorType: 'lsp_unavailable',
     } as never);
     expect(h[0]).toContain('localSearchCode');
-  });
-});
-
-describe('lspGetDiagnostics — empty + error', () => {
-  it('empty with uri cites the file', () => {
-    const h = diagnosticsHints.empty({ uri: 'src/file.ts' } as never);
-    expect(h[0]).toContain('src/file.ts');
-  });
-
-  it('error lsp_unavailable points to project verification', () => {
-    const h = diagnosticsHints.error({
-      errorType: 'lsp_unavailable',
-    } as never);
-    expect(h[0]).toContain('lint/typecheck/tests');
   });
 });
 
@@ -803,17 +787,10 @@ describe('pagination hints — fire only on hasMore=true', () => {
         .filter((s): s is string => typeof s === 'string');
       expect(h.some(s => s.includes('localSearchCode'))).toBe(true);
     });
-
-    it('diagnostics unavailable points to project verification', () => {
-      const h = diagnosticsHints
-        .error({ errorType: 'lsp_unavailable' as never })
-        .filter((s): s is string => typeof s === 'string');
-      expect(h.some(s => s.includes('lint/typecheck/tests'))).toBe(true);
-    });
   });
 
   describe('generateStructurePaginationHints (repo structure)', () => {
-    it('emits entryPageNumber cursor', () => {
+    it('emits page cursor', () => {
       const h = generateStructurePaginationHints(
         {
           currentPage: 1,

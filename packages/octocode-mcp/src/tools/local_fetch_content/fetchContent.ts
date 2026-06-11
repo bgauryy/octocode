@@ -13,7 +13,10 @@ import {
 } from '../../utils/pagination/core.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
-import { getOutputCharLimit, getOutputMinifyDefault } from '../../utils/pagination/charLimit.js';
+import {
+  getOutputCharLimit,
+  getOutputMinifyDefault,
+} from '../../utils/pagination/charLimit.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   validateToolPath,
@@ -511,6 +514,25 @@ function lineRangeContinuationHints(r: {
   return [];
 }
 
+function buildContentNextStepHints(
+  query: FetchContentQuery,
+  extraction: ExtractionState
+): string[] {
+  if (extraction.matchRanges !== undefined) {
+    return [
+      'Use the matched line numbers as lineHint anchors for lspGetSemanticContent, or increase contextLines for more surrounding code.',
+    ];
+  }
+
+  if (query.minify === 'symbols') {
+    return [];
+  }
+
+  return [
+    'Use localSearchCode to find related occurrences, or lspGetSemanticContent with a symbolName + lineHint from this file.',
+  ];
+}
+
 function buildSuccessResult(
   query: FetchContentQuery,
   extraction: ExtractionState,
@@ -565,6 +587,7 @@ function buildSuccessResult(
     totalLines,
     matchRanges: extraction.matchRanges,
   });
+  const nextStepHints = buildContentNextStepHints(query, extraction);
 
   const paginationHints =
     effectiveCharLength || autoPaginated
@@ -618,7 +641,12 @@ function buildSuccessResult(
       pagination: createPaginationInfo(pagination),
     }),
     ...(warnings.length > 0 && { warnings }),
-    hints: [...baseHints, ...paginationHints, ...largeFileHints],
+    hints: [
+      ...baseHints,
+      ...paginationHints,
+      ...largeFileHints,
+      ...nextStepHints,
+    ],
   };
 }
 
@@ -716,13 +744,15 @@ export async function fetchContent(
         // Skeletons are indexes — they always come back WHOLE in one response
         // (paging an index is confusing). charOffset/charLength inputs are
         // intentionally ignored for minify:"symbols", mirroring the GitHub path.
+        // isSkeleton carries the lossy "bodies omitted" signal; isPartial stays
+        // false so agents do not try to paginate a complete skeleton index.
         return attachRawResponseChars(
           {
             path: query.path,
             content: sigsProcessed,
             contentView: 'symbols',
             isSkeleton: true,
-            isPartial: true,
+            isPartial: false,
             totalLines: totalLinesOrig,
             hints: [
               SIGNATURES_ONLY_HINT,

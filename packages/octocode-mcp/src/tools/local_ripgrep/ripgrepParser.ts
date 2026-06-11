@@ -1,8 +1,6 @@
-import type { z } from 'zod';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
+import type { RipgrepQuery } from './scheme.js';
 import type { SearchStats } from '../../utils/core/types.js';
 import { parseRipgrepJson } from '../../utils/parsers/ripgrep.js';
 
@@ -50,7 +48,8 @@ export function parseRipgrepOutput(
   files: LocalSearchCodeFile[];
   stats: SearchStats;
 } {
-  const isCountOutput = configuredQuery.count || configuredQuery.countMatches;
+  const isCountOutput =
+    configuredQuery.countLinesPerFile || configuredQuery.countMatchesPerFile;
   const isPlainTextOutput =
     configuredQuery.filesOnly || configuredQuery.filesWithoutMatch;
 

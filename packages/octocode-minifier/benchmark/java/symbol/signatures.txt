@@ -1,0 +1,46 @@
+  17| package org.springframework.core.annotation;
+  19| import java.lang.annotation.Annotation;
+  20| import java.lang.reflect.AnnotatedElement;
+  21| import java.lang.reflect.Array;
+  22| import java.lang.reflect.InvocationHandler;
+  23| import java.lang.reflect.Method;
+  24| import java.lang.reflect.Modifier;
+  25| import java.lang.reflect.Proxy;
+  26| import java.util.Collection;
+  27| import java.util.Collections;
+  28| import java.util.List;
+  29| import java.util.Map;
+  30| import java.util.NoSuchElementException;
+  31| import java.util.Set;
+  33| import org.jspecify.annotations.Nullable;
+  35| import org.springframework.core.BridgeMethodResolver;
+  36| import org.springframework.core.annotation.AnnotationTypeMapping.MirrorSets.MirrorSet;
+  37| import org.springframework.core.annotation.MergedAnnotation.Adapt;
+  38| import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
+  39| import org.springframework.util.ClassUtils;
+  40| import org.springframework.util.CollectionUtils;
+  41| import org.springframework.util.ConcurrentReferenceHashMap;
+  42| import org.springframework.util.ReflectionUtils;
+  43| import org.springframework.util.StringUtils;
+ 110| public abstract class AnnotationUtils {
+ 115| 	public static final String VALUE = MergedAnnotation.VALUE;
+ 117| 	private static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =
+ 120| 	private static final Map<Class<? extends Annotation>, Map<String, DefaultValueHolder>> defaultValuesCache =
+ 136| 	public static boolean isCandidateClass(Class<?> clazz, Collection<Class<? extends Annotation>> annotationTypes) {
+ 156| 	public static boolean isCandidateClass(Class<?> clazz, @Nullable Class<? extends Annotation> annotationType) {
+ 171| 	public static boolean isCandida
+
+... [truncated 5457 chars] ...
+
+1222| 	public static <A extends Annotation> A synthesizeAnnotation(
+1223| 			A annotation, @Nullable AnnotatedElement annotatedElement) {
+1246| 	public static <A extends Annotation> A synthesizeAnnotation(Class<A> annotationType) {
+1279| 	public static <A extends Annotation> A synthesizeAnnotation(Map<String, Object> attributes,
+1280| 			Class<A> annotationType, @Nullable AnnotatedElement annotatedElement) {
+1307| 	static Annotation[] synthesizeAnnotationArray(Annotation[] annotations, AnnotatedElement annotatedElement) {
+1327| 	public static boolean isSynthesizedAnnotation(@Nullable Annotation annotation) {
+1343| 	public static void clearCache() {
+1355| 	private static class DefaultValueHolder {
+1357| 		final Object defaultValue;
+1359| 		public DefaultValueHolder(Object defaultValue) {
+1364| 		public String toString() {

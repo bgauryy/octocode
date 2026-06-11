@@ -1,4 +1,5 @@
-import { dirname, join } from 'path';
+import { existsSync } from 'fs';
+import { delimiter, dirname, join } from 'path';
 import {
   TOOLING_ALLOWED_ENV_VARS,
   PROXY_ENV_VARS,
@@ -7,10 +8,57 @@ import {
   validateArgs,
 } from './spawn.js';
 
+type NpmInvocation = {
+  command: string;
+  argsPrefix: string[];
+};
+
+function npmBinaryName(): string {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
 function getNpmScriptPath(): string {
   const nodeDir = dirname(process.execPath);
-  const npmBinary = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  return join(nodeDir, npmBinary);
+  return join(nodeDir, npmBinaryName());
+}
+
+function commonNpmSearchDirs(): string[] {
+  if (process.platform === 'win32') return [];
+  return ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'];
+}
+
+function uniqueSearchDirs(): string[] {
+  const pathDirs = (process.env.PATH ?? '')
+    .split(delimiter)
+    .map(dir => dir.trim())
+    .filter(Boolean);
+  return [...new Set([...pathDirs, ...commonNpmSearchDirs()])];
+}
+
+function resolveNpmInvocation(): NpmInvocation {
+  const siblingNpmScript = getNpmScriptPath();
+  if (existsSync(siblingNpmScript)) {
+    return {
+      command: process.execPath,
+      argsPrefix: [siblingNpmScript],
+    };
+  }
+
+  const npmBinary = npmBinaryName();
+  for (const dir of uniqueSearchDirs()) {
+    const candidate = join(dir, npmBinary);
+    if (existsSync(candidate)) {
+      return {
+        command: candidate,
+        argsPrefix: [],
+      };
+    }
+  }
+
+  return {
+    command: npmBinary,
+    argsPrefix: [],
+  };
 }
 
 const ALLOWED_NPM_COMMANDS = [
@@ -44,9 +92,10 @@ const NETWORK_ALLOWED_ENV_VARS = [
 export async function checkNpmAvailability(
   timeoutMs: number = 10000
 ): Promise<boolean> {
+  const invocation = resolveNpmInvocation();
   return spawnCheckSuccess(
-    process.execPath,
-    [getNpmScriptPath(), '--version'],
+    invocation.command,
+    [...invocation.argsPrefix, '--version'],
     timeoutMs
   );
 }
@@ -74,10 +123,11 @@ export async function executeNpmCommand(
   }
 
   const { timeout = 30000, cwd, env } = options;
+  const invocation = resolveNpmInvocation();
 
   const result = await spawnWithTimeout(
-    process.execPath,
-    [getNpmScriptPath(), command, ...args],
+    invocation.command,
+    [...invocation.argsPrefix, command, ...args],
     {
       timeout,
       cwd,

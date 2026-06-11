@@ -55,7 +55,6 @@ export type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 export type PackageSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
 
 export type {
-  LspDiagnosticsQuery,
   LspEvidence,
   LspGetSemanticContentQuery,
   LspSemanticEnvelope,
@@ -109,7 +108,6 @@ export { executeFindFiles } from './tools/local_find_files/execution.js';
 export { executeRipgrepSearch } from './tools/local_ripgrep/execution.js';
 export { executeViewStructure } from './tools/local_view_structure/execution.js';
 export { executeLspGetSemanticContent } from './tools/lsp/semantic_content/execution.js';
-export { executeLspGetDiagnostics } from './tools/lsp/diagnostics/execution.js';
 export { searchPackages } from './tools/package_search/execution.js';
 export { executeCloneRepo } from './tools/github_clone_repo/execution.js';
 export {
@@ -159,11 +157,6 @@ export {
   LspGetSemanticContentQuerySchema,
 } from './tools/lsp/semantic_content/scheme.js';
 export { LspGetSemanticContentOutputSchema } from './tools/lsp/semantic_content/outputSchema.js';
-export {
-  BulkLspGetDiagnosticsQuerySchema,
-  LspGetDiagnosticsQuerySchema,
-} from './tools/lsp/diagnostics/scheme.js';
-export { LspGetDiagnosticsOutputSchema } from './tools/lsp/diagnostics/outputSchema.js';
 
 export { loadToolContent } from './tools/toolMetadata/state.js';
 

@@ -15,8 +15,8 @@ function makeQuery(
     repo: 'repo',
     path: '',
     depth: 1,
-    entriesPerPage: 50,
-    entryPageNumber: 1,
+    itemsPerPage: 50,
+    page: 1,
     ...overrides,
   };
 }
@@ -81,7 +81,7 @@ describe('applyStructurePagination — direct unit tests', () => {
       });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10 })
+        makeQuery({ itemsPerPage: 10 })
       );
       expect(result.structure['.']).toEqual({
         files: ['a.ts', 'b.ts'],
@@ -117,7 +117,7 @@ describe('applyStructurePagination — direct unit tests', () => {
       });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10 })
+        makeQuery({ itemsPerPage: 10 })
       );
       expect(result.structure['.']).toEqual({
         files: ['index.ts'],
@@ -143,7 +143,7 @@ describe('applyStructurePagination — direct unit tests', () => {
       });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10 })
+        makeQuery({ itemsPerPage: 10 })
       );
       expect(result.structure['.']?.files).toContain('README.md');
       expect(result.structure['.']?.files).toContain('index.ts');
@@ -161,7 +161,7 @@ describe('applyStructurePagination — direct unit tests', () => {
       });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10 })
+        makeQuery({ itemsPerPage: 10 })
       );
       const keys = Object.keys(result.structure);
       expect(keys[0]).toBe('.');
@@ -179,7 +179,7 @@ describe('applyStructurePagination — direct unit tests', () => {
       const cached = makeCached({ _cachedItems: items });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10, entryPageNumber: 1 })
+        makeQuery({ itemsPerPage: 10, page: 1 })
       );
       expect(result.structure['.']?.files.length).toBe(10);
       expect(result.pagination?.hasMore).toBe(true);
@@ -190,7 +190,7 @@ describe('applyStructurePagination — direct unit tests', () => {
       const cached = makeCached({ _cachedItems: items });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10, entryPageNumber: 2 })
+        makeQuery({ itemsPerPage: 10, page: 2 })
       );
       expect(result.structure['.']?.files.length).toBe(10);
       expect(result.pagination?.hasMore).toBe(true);
@@ -200,18 +200,18 @@ describe('applyStructurePagination — direct unit tests', () => {
       const cached = makeCached({ _cachedItems: items });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10, entryPageNumber: 3 })
+        makeQuery({ itemsPerPage: 10, page: 3 })
       );
       expect(result.structure['.']?.files.length).toBe(5);
       expect(result.pagination?.hasMore).toBe(false);
       expect(result.summary.truncated).toBe(false);
     });
 
-    it('returns an empty page when entryPageNumber is beyond totalPages', () => {
+    it('returns an empty page when page is beyond totalPages', () => {
       const cached = makeCached({ _cachedItems: items });
       const result = applyStructurePagination(
         cached,
-        makeQuery({ entriesPerPage: 10, entryPageNumber: 99 })
+        makeQuery({ itemsPerPage: 10, page: 99 })
       );
       expect(Object.keys(result.structure).length).toBe(0);
       expect(result.pagination?.hasMore).toBe(false);

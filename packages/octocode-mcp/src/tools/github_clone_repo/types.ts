@@ -6,7 +6,7 @@ export interface CloneCacheMeta {
   owner: string;
   repo: string;
   branch: string;
-  sparse_path?: string;
+  sparsePath?: string;
   source: CacheSource;
   sizeBytes?: number;
 }
@@ -17,5 +17,5 @@ export interface CloneRepoResult {
   owner: string;
   repo: string;
   branch: string;
-  sparse_path?: string;
+  sparsePath?: string;
 }

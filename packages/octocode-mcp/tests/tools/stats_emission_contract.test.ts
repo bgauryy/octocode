@@ -94,13 +94,6 @@ const registeredTools = [
       /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
     ],
   },
-  {
-    name: 'lspGetDiagnostics',
-    executionFiles: ['src/tools/lsp/diagnostics/execution.ts'],
-    rawEvidence: [
-      /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
-    ],
-  },
 ] as const;
 
 async function readProjectFile(relativePath: string): Promise<string> {
@@ -112,7 +105,7 @@ describe('tool stats emission contract', () => {
     const catalogNames = ALL_TOOLS.map(tool => tool.name).sort();
     const coveredNames = registeredTools.map(tool => tool.name).sort();
 
-    expect(catalogNames).toHaveLength(13);
+    expect(catalogNames).toHaveLength(12);
     expect(coveredNames).toEqual(catalogNames);
   });
 

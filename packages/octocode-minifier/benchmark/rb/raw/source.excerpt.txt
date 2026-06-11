@@ -1,0 +1,113 @@
+# frozen_string_literal: true
+
+require "concurrent/map"
+
+class Object
+  # An object is blank if it's false, empty, or a whitespace string.
+  # For example, +nil+, '', '   ', [], {}, and +false+ are all blank.
+  #
+  # This simplifies
+  #
+  #   !address || address.empty?
+  #
+  # to
+  #
+  #   address.blank?
+  #
+  # @return [true, false]
+  def blank?
+    respond_to?(:empty?) ? !!empty? : false
+  end
+
+  # An object is present if it's not blank.
+  #
+  # @return [true, false]
+  def present?
+    !blank?
+  end
+
+  # Returns the receiver if it's present otherwise returns +nil+.
+  # <tt>object.presence</tt> is equivalent to
+  #
+  #    object.present? ? object : nil
+  #
+  # For example, something like
+  #
+  #   state   = params[:state]   if params[:state].present?
+  #   country = params[:country] if params[:country].present?
+  #   region  = state || country || 'US'
+  #
+  # becomes
+  #
+  #   region = params[:state].presence || params[:country].presence || 'US'
+  #
+  # @return [Object]
+  def presence
+    self if present?
+  end
+end
+
+class NilClass
+  # +nil+ is blank:
+  #
+  #   nil.blank? # => true
+  #
+  # @return [true]
+  def blank?
+    true
+  end
+
+  def present? # :nodoc:
+    false
+  end
+end
+
+class FalseClass
+  # +false
+
+... [truncated 1707 chars] ...
+
+
+    empty? ||
+      begin
+        BLANK_RE.match?(self)
+      rescue Encoding::CompatibilityError
+        ENCODED_BLANKS[self.encoding].match?(self)
+      end
+  end
+
+  def present? # :nodoc:
+    !blank?
+  end
+end
+
+class Numeric # :nodoc:
+  # No number is blank:
+  #
+  #   1.blank? # => false
+  #   0.blank? # => false
+  #
+  # @return [false]
+  def blank?
+    false
+  end
+
+  def present?
+    true
+  end
+end
+
+class Time # :nodoc:
+  # No Time is blank:
+  #
+  #   Time.now.blank? # => false
+  #
+  # @return [false]
+  def blank?
+    false
+  end
+
+  def present?
+    true
+  end
+end

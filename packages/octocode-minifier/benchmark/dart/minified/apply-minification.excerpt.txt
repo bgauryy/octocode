@@ -1,0 +1,86 @@
+part of "dart:core";
+
+@pragma('vm:entry-point')
+abstract final class String implements Comparable<String>, Pattern {
+
+  external factory String.fromCharCodes(
+    Iterable<int> charCodes, [
+    int start = 0,
+    int? end,
+  ]);
+
+  external factory String.fromCharCode(int charCode);
+
+  external const factory String.fromEnvironment(
+    String name, {
+    String defaultValue = "",
+  });
+
+  String operator [](int index);
+
+  int codeUnitAt(int index);
+
+  int get length;
+
+  int get hashCode;
+
+  bool operator ==(Object other);
+
+  int compareTo(String other);
+
+  bool endsWith(String other);
+
+  bool startsWith(Pattern pattern, [int index = 0]);
+
+  int indexOf(Pattern pattern, [int start = 0]);
+
+  int lastIndexOf(Pattern pattern, [int? start]);
+
+  bool get isEmpty;
+
+  bool get isNotEmpty;
+
+  String operator +(String other);
+
+  String substring(int start, [int? end]);
+
+  String trim();
+
+  String trimLeft();
+
+  String trimRight();
+
+  String operator *(int times);
+
+  String padLeft(int width, [String padding = ' ']);
+
+  String padRight(int width, [String padding = ' ']);
+
+  bool contains(Pattern other, [int startIndex = 0]);
+
+  String replaceFirst(Pattern from, String to, [int startIndex = 0]);
+
+  String replaceFirs
+
+... [truncated 3583 chars] ...
+
+  _nextPosition = _position;
+    if (_position == 0) {
+      _currentCodePoint = -1;
+      return false;
+    }
+    int position = _position - 1;
+    int codeUnit = string.codeUnitAt(position);
+    if (_isTrailSurrogate(codeUnit) && position > 0) {
+      int prevCodeUnit = string.codeUnitAt(position - 1);
+      if (_isLeadSurrogate(prevCodeUnit)) {
+        _position = position - 1;
+        _currentCodePoint = _combineSurrogatePair(prevCodeUnit, codeUnit);
+        return true;
+      }
+    }
+    _position = position;
+    _currentCodePoint = codeUnit;
+    return true;
+  }
+}

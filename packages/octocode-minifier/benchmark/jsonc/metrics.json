@@ -1,0 +1,50 @@
+{
+  "ext": "jsonc",
+  "language": "JSONC",
+  "source": "jsonc/grammy-deno.jsonc",
+  "sourceBytes": 1427,
+  "strategy": "json",
+  "commentModel": null,
+  "sha256": "e496c0630dc101c0207bd64ec07ba940a7d688a31d370ca0e34e7fcaf076ca59",
+  "contentView": {
+    "bytes": 1427,
+    "cutPercent": 0,
+    "durationMs": 0.036
+  },
+  "applyMinification": {
+    "bytes": 1210,
+    "cutPercent": 15.2,
+    "durationMs": 0.009
+  },
+  "sync": {
+    "bytes": 1210,
+    "cutPercent": 15.2,
+    "durationMs": 0.004
+  },
+  "async": {
+    "bytes": 1210,
+    "cutPercent": 15.2,
+    "durationMs": 0.012,
+    "failed": false,
+    "type": "json",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.002
+  },
+  "ratings": {
+    "minify": 8.3,
+    "symbols": null,
+    "agent": 8.3,
+    "label": "strong"
+  },
+  "notes": [
+    "engine-backed or parser-backed path",
+    "content-view kept original because the readable output was not shorter",
+    "symbols are not implemented for this extension"
+  ]
+}

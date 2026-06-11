@@ -1,0 +1,49 @@
+{
+  "ext": "svelte",
+  "language": "Svelte",
+  "source": "svelte/vite-app.svelte",
+  "sourceBytes": 2665,
+  "strategy": "aggressive",
+  "commentModel": "html",
+  "sha256": "c48758a2850311620583fe34a51457c8760576901fb9b72d7dd09fba05852844",
+  "contentView": {
+    "bytes": 2664,
+    "cutPercent": 0,
+    "durationMs": 0.431
+  },
+  "applyMinification": {
+    "bytes": 2105,
+    "cutPercent": 21,
+    "durationMs": 0.429
+  },
+  "sync": {
+    "bytes": 2105,
+    "cutPercent": 21,
+    "durationMs": 0.513
+  },
+  "async": {
+    "bytes": 2106,
+    "cutPercent": 21,
+    "durationMs": 1.57,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 343,
+    "cutPercent": 87.1,
+    "durationMs": 0.661
+  },
+  "ratings": {
+    "minify": 8.3,
+    "symbols": 10,
+    "agent": 8.9,
+    "label": "strong"
+  },
+  "notes": [
+    "engine-backed or parser-backed path",
+    "content-view kept original because the readable output was not shorter"
+  ]
+}

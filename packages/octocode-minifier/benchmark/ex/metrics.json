@@ -1,0 +1,49 @@
+{
+  "ext": "ex",
+  "language": "Elixir",
+  "source": "ex/elixir-enum.ex",
+  "sourceBytes": 154291,
+  "strategy": "aggressive",
+  "commentModel": "hash",
+  "sha256": "3c0f136b6c603591150c115f9a0b0c03bafc707111cdc2c134239adcd909ad43",
+  "contentView": {
+    "bytes": 152002,
+    "cutPercent": 1.5,
+    "durationMs": 25.32
+  },
+  "applyMinification": {
+    "bytes": 129270,
+    "cutPercent": 16.2,
+    "durationMs": 21.194
+  },
+  "sync": {
+    "bytes": 129270,
+    "cutPercent": 16.2,
+    "durationMs": 20.357
+  },
+  "async": {
+    "bytes": 129270,
+    "cutPercent": 16.2,
+    "durationMs": 19.703,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.008
+  },
+  "ratings": {
+    "minify": 7.8,
+    "symbols": null,
+    "agent": 7.8,
+    "label": "good"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

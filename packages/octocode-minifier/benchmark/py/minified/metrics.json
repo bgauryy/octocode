@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 26625,
+      "cutPercent": 21.9,
+      "durationMs": 3.998
+    },
+    "content": "\"\"\"\nrequests.sessions\n~~~~~~~~~~~~~~~~~\n\nThis module provides a Session object to manage and persist settings across\nrequests (cookies, auth, proxies).\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\nimport time\nfrom collections import OrderedDict\nfrom collections.abc import Generator, Mapping, MutableMapping\nfrom datetime import timedelta\nfrom typing import TYPE_CHECKING, Any, cast\n\nfrom ._internal_utils import to_native_string\nfrom ._types import is_prepared as _is_prepared\nfrom .adapters import HTTPAdapter\nfrom .auth import _basic_auth_str\nfrom .compat import cookielib, urljoin, urlparse\nfrom .cookies import (\n    RequestsCookieJar,\n    cookiejar_from_dict,\n    extract_cookies_to_jar,\n    merge_cookies,\n)\nfrom .exceptions import (\n    ChunkedEncodingError,\n    ContentDecodingError,\n    InvalidSchema,\n    TooManyRedirects,\n)\nfrom .hooks import default_hooks, dispatch_hook\n\nfrom .models import (\n    DEFAULT_REDIRECT_LIMIT,\n    REDIRECT_STATI,\n    PreparedRequest,\n    Request,\n    Response,\n)\nfrom .status_codes import codes\nfrom .structures import CaseInsensitiveDict\nfrom .utils import (\n    DEFAULT_PORTS,\n    default_headers,\n    get_auth_from_url,\n    get_environ_proxies,\n    get_netrc_aut\n\n... [truncated 24825 chars] ...\n\n_attrs__}\n        return state\n\n    def __setstate__(self, state: dict[str, Any]) -> None:\n        for attr, value in state.items():\n            setattr(self, attr, value)\n\ndef session() -> Session:\n    \"\"\"\n    Returns a :class:`Session` for context-management.\n\n    .. deprecated:: 1.0.0\n\n        This method has been deprecated since version 1.0.0 and is only kept for\n        backwards compatibility. New code should use :class:`~requests.sessions.Session`\n        to create a session. This may be removed at a future date.\n\n    :rtype: Session\n    \"\"\"\n    return Session()",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 26625,
+      "cutPercent": 21.9,
+      "durationMs": 3.712
+    },
+    "content": "\"\"\"\nrequests.sessions\n~~~~~~~~~~~~~~~~~\n\nThis module provides a Session object to manage and persist settings across\nrequests (cookies, auth, proxies).\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\nimport time\nfrom collections import OrderedDict\nfrom collections.abc import Generator, Mapping, MutableMapping\nfrom datetime import timedelta\nfrom typing import TYPE_CHECKING, Any, cast\n\nfrom ._internal_utils import to_native_string\nfrom ._types import is_prepared as _is_prepared\nfrom .adapters import HTTPAdapter\nfrom .auth import _basic_auth_str\nfrom .compat import cookielib, urljoin, urlparse\nfrom .cookies import (\n    RequestsCookieJar,\n    cookiejar_from_dict,\n    extract_cookies_to_jar,\n    merge_cookies,\n)\nfrom .exceptions import (\n    ChunkedEncodingError,\n    ContentDecodingError,\n    InvalidSchema,\n    TooManyRedirects,\n)\nfrom .hooks import default_hooks, dispatch_hook\n\nfrom .models import (\n    DEFAULT_REDIRECT_LIMIT,\n    REDIRECT_STATI,\n    PreparedRequest,\n    Request,\n    Response,\n)\nfrom .status_codes import codes\nfrom .structures import CaseInsensitiveDict\nfrom .utils import (\n    DEFAULT_PORTS,\n    default_headers,\n    get_auth_from_url,\n    get_environ_proxies,\n    get_netrc_aut\n\n... [truncated 24825 chars] ...\n\n_attrs__}\n        return state\n\n    def __setstate__(self, state: dict[str, Any]) -> None:\n        for attr, value in state.items():\n            setattr(self, attr, value)\n\ndef session() -> Session:\n    \"\"\"\n    Returns a :class:`Session` for context-management.\n\n    .. deprecated:: 1.0.0\n\n        This method has been deprecated since version 1.0.0 and is only kept for\n        backwards compatibility. New code should use :class:`~requests.sessions.Session`\n        to create a session. This may be removed at a future date.\n\n    :rtype: Session\n    \"\"\"\n    return Session()",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 26625,
+      "cutPercent": 21.9,
+      "durationMs": 4.445
+    },
+    "content": "\"\"\"\nrequests.sessions\n~~~~~~~~~~~~~~~~~\n\nThis module provides a Session object to manage and persist settings across\nrequests (cookies, auth, proxies).\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\nimport time\nfrom collections import OrderedDict\nfrom collections.abc import Generator, Mapping, MutableMapping\nfrom datetime import timedelta\nfrom typing import TYPE_CHECKING, Any, cast\n\nfrom ._internal_utils import to_native_string\nfrom ._types import is_prepared as _is_prepared\nfrom .adapters import HTTPAdapter\nfrom .auth import _basic_auth_str\nfrom .compat import cookielib, urljoin, urlparse\nfrom .cookies import (\n    RequestsCookieJar,\n    cookiejar_from_dict,\n    extract_cookies_to_jar,\n    merge_cookies,\n)\nfrom .exceptions import (\n    ChunkedEncodingError,\n    ContentDecodingError,\n    InvalidSchema,\n    TooManyRedirects,\n)\nfrom .hooks import default_hooks, dispatch_hook\n\nfrom .models import (\n    DEFAULT_REDIRECT_LIMIT,\n    REDIRECT_STATI,\n    PreparedRequest,\n    Request,\n    Response,\n)\nfrom .status_codes import codes\nfrom .structures import CaseInsensitiveDict\nfrom .utils import (\n    DEFAULT_PORTS,\n    default_headers,\n    get_auth_from_url,\n    get_environ_proxies,\n    get_netrc_aut\n\n... [truncated 24825 chars] ...\n\n_attrs__}\n        return state\n\n    def __setstate__(self, state: dict[str, Any]) -> None:\n        for attr, value in state.items():\n            setattr(self, attr, value)\n\ndef session() -> Session:\n    \"\"\"\n    Returns a :class:`Session` for context-management.\n\n    .. deprecated:: 1.0.0\n\n        This method has been deprecated since version 1.0.0 and is only kept for\n        backwards compatibility. New code should use :class:`~requests.sessions.Session`\n        to create a session. This may be removed at a future date.\n\n    :rtype: Session\n    \"\"\"\n    return Session()",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 26625,
+      "cutPercent": 21.9,
+      "durationMs": 3.439,
+      "failed": false,
+      "type": "conservative",
+      "reason": null
+    },
+    "content": "\"\"\"\nrequests.sessions\n~~~~~~~~~~~~~~~~~\n\nThis module provides a Session object to manage and persist settings across\nrequests (cookies, auth, proxies).\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\nimport time\nfrom collections import OrderedDict\nfrom collections.abc import Generator, Mapping, MutableMapping\nfrom datetime import timedelta\nfrom typing import TYPE_CHECKING, Any, cast\n\nfrom ._internal_utils import to_native_string\nfrom ._types import is_prepared as _is_prepared\nfrom .adapters import HTTPAdapter\nfrom .auth import _basic_auth_str\nfrom .compat import cookielib, urljoin, urlparse\nfrom .cookies import (\n    RequestsCookieJar,\n    cookiejar_from_dict,\n    extract_cookies_to_jar,\n    merge_cookies,\n)\nfrom .exceptions import (\n    ChunkedEncodingError,\n    ContentDecodingError,\n    InvalidSchema,\n    TooManyRedirects,\n)\nfrom .hooks import default_hooks, dispatch_hook\n\nfrom .models import (\n    DEFAULT_REDIRECT_LIMIT,\n    REDIRECT_STATI,\n    PreparedRequest,\n    Request,\n    Response,\n)\nfrom .status_codes import codes\nfrom .structures import CaseInsensitiveDict\nfrom .utils import (\n    DEFAULT_PORTS,\n    default_headers,\n    get_auth_from_url,\n    get_environ_proxies,\n    get_netrc_aut\n\n... [truncated 24825 chars] ...\n\n_attrs__}\n        return state\n\n    def __setstate__(self, state: dict[str, Any]) -> None:\n        for attr, value in state.items():\n            setattr(self, attr, value)\n\ndef session() -> Session:\n    \"\"\"\n    Returns a :class:`Session` for context-management.\n\n    .. deprecated:: 1.0.0\n\n        This method has been deprecated since version 1.0.0 and is only kept for\n        backwards compatibility. New code should use :class:`~requests.sessions.Session`\n        to create a session. This may be removed at a future date.\n\n    :rtype: Session\n    \"\"\"\n    return Session()",
+    "api": "minifyContent"
+  }
+}

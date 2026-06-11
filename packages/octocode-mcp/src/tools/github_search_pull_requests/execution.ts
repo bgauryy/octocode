@@ -40,7 +40,6 @@ import {
   buildContentHints,
   shapePullRequestForContent,
 } from './contentResponse.js';
-import { getOutputMinifyDefault } from '../../utils/pagination/charLimit.js';
 
 export async function searchMultipleGitHubPullRequests(
   args: ToolExecutionArgs<PartialPRQuery>
@@ -129,8 +128,12 @@ export async function searchMultipleGitHubPullRequests(
           !hasPrNumber &&
           (Boolean((query as { content?: unknown }).content) ||
             Boolean((query as { reviewMode?: unknown }).reviewMode));
-        const explicitMinify = (effectiveQuery as { minify?: 'none' | 'standard' }).minify;
-        const prMinify = (explicitMinify ?? getOutputMinifyDefault()) === 'standard';
+        const explicitMinify = (
+          effectiveQuery as { minify?: 'none' | 'standard' }
+        ).minify;
+        // Patch hunks are code-review evidence. Keep them exact by default;
+        // minify:"standard" is an explicit token-saving/lossy view.
+        const prMinify = explicitMinify === 'standard';
         const leanRequest = {
           ...contentRequest,
           body: false,

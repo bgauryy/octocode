@@ -1,0 +1,68 @@
+package scala
+
+object Option {
+
+  import scala.language.implicitConversions
+
+  implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
+    if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
+
+  def apply[A](x: A): Option[A] = if (x == null) None else Some(x)
+
+  def empty[A] : Option[A] = None
+
+  def when[A](cond: Boolean)(a: => A): Option[A] =
+    if (cond) Some(a) else None
+
+  @inline def unless[A](cond: Boolean)(a: => A): Option[A] =
+    when(!cond)(a)
+}
+
+@SerialVersionUID(-114498752079829388L)
+sealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {
+  self =>
+
+  final def isEmpty: Boolean = this eq None
+
+  final def isDefined: Boolean = !isEmpty
+
+  override final def knownSize: Int = if (isEmpty) 0 else 1
+
+  def get: A
+
+  @inline final def getOrElse[B >: A](default: => B): B =
+    if (isEmpty) default else this.get
+
+  @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)
+
+  @inline final def map[B](f: A => B): Option[B] =
+    if (isEmpty) None else Some(f(this.get))
+
+  @inline final def fold[B](ifEmpty: => B)(f: A => B): B =
+    if (isEmpty) ifEmpty else f(this.get)
+
+  @inline final def flatMap[B](f: A => Option[B]): Opt
+
+... [truncated 2082 chars] ...
+
+is.get)
+
+  def toList: List[A] =
+    if (isEmpty) List() else new ::(this.get, Nil)
+
+  @inline final def toRight[X](left: => X): Either[X, A] =
+    if (isEmpty) Left(left) else Right(this.get)
+
+  @inline final def toLeft[X](right: => X): Either[A, X] =
+    if (isEmpty) Right(right) else Left(this.get)
+}
+
+@SerialVersionUID(1234815782226070388L)
+final case class Some[+A](value: A) extends Option[A] {
+  def get: A = value
+}
+
+@SerialVersionUID(5066590221178148012L)
+case object None extends Option[Nothing] {
+  def get: Nothing = throw new NoSuchElementException("None.get")
+}

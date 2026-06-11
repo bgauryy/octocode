@@ -122,12 +122,12 @@ describe('localViewStructure', () => {
     const result = await viewStructure({
       path: '/test/path',
       depth: 1,
-      extension: 'ts',
+      extensions: ['ts'],
     });
 
     expect(result.status).toBeUndefined();
     expect(result.hints).toContain(
-      'Active filters — path: /test/path | depth: 1 | extension: ts'
+      'Active filters — path: /test/path | depth: 1 | extensions: ts'
     );
   });
 
@@ -382,7 +382,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        extension: 'ts',
+        extensions: ['ts'],
         depth: 1,
       });
 

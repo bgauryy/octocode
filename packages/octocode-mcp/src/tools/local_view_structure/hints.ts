@@ -4,18 +4,24 @@ export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
-    const extension = typeof c.extension === 'string' ? c.extension : undefined;
+    const extensions = Array.isArray(c.extensions)
+      ? c.extensions.filter(
+          (value): value is string => typeof value === 'string'
+        )
+      : [];
     const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
 
     const filters: string[] = [];
-    if (extension) filters.push(`extension="${extension}"`);
+    if (extensions.length > 0) {
+      filters.push(`extensions=${JSON.stringify(extensions)}`);
+    }
     if (pattern) filters.push(`pattern="${pattern}"`);
 
     if (filters.length === 0) return [];
 
     return [
       `No entries in ${path ?? 'this directory'} matching ${filters.join(' + ')}.`,
-      'Remove the `extension` or `pattern` filter to list all entries, then look for the target manually.',
+      'Remove the `extensions` or `pattern` filter to list all entries, then look for the target manually.',
     ];
   },
 

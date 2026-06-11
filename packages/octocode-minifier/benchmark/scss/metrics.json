@@ -1,0 +1,48 @@
+{
+  "ext": "scss",
+  "language": "SCSS",
+  "source": "scss/_buttons.scss",
+  "sourceBytes": 7057,
+  "strategy": "aggressive",
+  "commentModel": "c-style",
+  "sha256": "1b3b05d4373aa664739d785aed07cd6edc6e5eb3e8de99195a2c94b4ad4851ff",
+  "contentView": {
+    "bytes": 6289,
+    "cutPercent": 10.9,
+    "durationMs": 1.101
+  },
+  "applyMinification": {
+    "bytes": 5411,
+    "cutPercent": 23.3,
+    "durationMs": 0.967
+  },
+  "sync": {
+    "bytes": 5411,
+    "cutPercent": 23.3,
+    "durationMs": 1.205
+  },
+  "async": {
+    "bytes": 752,
+    "cutPercent": 89.3,
+    "durationMs": 3.208,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 1690,
+    "cutPercent": 76.1,
+    "durationMs": 0.128
+  },
+  "ratings": {
+    "minify": 10,
+    "symbols": 9,
+    "agent": 9.7,
+    "label": "excellent"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

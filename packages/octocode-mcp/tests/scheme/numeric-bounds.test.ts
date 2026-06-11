@@ -11,7 +11,6 @@ import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/sche
 import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
 import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
-import { LspGetDiagnosticsQuerySchema } from '../../src/tools/lsp/diagnostics/scheme.js';
 
 const SENTINEL = 9007199254740991;
 
@@ -27,7 +26,6 @@ const schemas: Record<string, z.ZodTypeAny> = {
   ripgrep: LocalRipgrepQuerySchema,
   viewStructure: LocalViewStructureQuerySchema,
   lspSemantic: LspGetSemanticContentQuerySchema,
-  lspDiagnostics: LspGetDiagnosticsQuerySchema,
 };
 
 describe('numeric schema fields are bounded (#C1)', () => {
@@ -49,12 +47,13 @@ describe('numeric schema fields are bounded (#C1)', () => {
     });
   }
 
-  it('githubSearchCode rejects page 0 instead of silently clamping to page 1', () => {
+  it('githubSearchCode clamps page 0 to page 1 (relaxed page field)', () => {
     const r = GitHubCodeSearchQueryLocalSchema.safeParse({
       keywordsToSearch: ['x'],
       page: 0,
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.page).toBe(1);
   });
 
   it('clamps contextLines:120 to 100 instead of rejecting (FC-2)', () => {

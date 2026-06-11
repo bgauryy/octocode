@@ -1,29 +1,10 @@
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
-
-export function withCoreSchemaDescriptions<
-  T extends z.ZodObject<z.ZodRawShape>,
->(toolName: string, schema: T): T {
-  const tool = completeMetadata.tools[toolName];
-  const descriptions = {
-    ...completeMetadata.baseSchema,
-    ...(tool?.schema ?? {}),
-  } as Record<string, unknown>;
-  const describedShape = Object.fromEntries(
-    Object.entries(schema.shape).map(([fieldName, fieldSchema]) => {
-      const fs = fieldSchema as z.ZodTypeAny;
-      const alreadyDescribed =
-        typeof (fs as { description?: string }).description === 'string';
-      if (alreadyDescribed) return [fieldName, fs];
-      const description = descriptions[fieldName];
-      return [
-        fieldName,
-        typeof description === 'string' ? fs.describe(description) : fs,
-      ];
-    })
-  ) as z.ZodRawShape;
-  return schema.extend(describedShape) as unknown as T;
-}
+import {
+  LOCAL_MAX_DEPTH,
+  LOCAL_MAX_LIMIT,
+  MAX_CONTEXT_LINES,
+  MAX_PAGE_NUMBER,
+} from '../config.js';
 
 export function clampedInt(min: number, max: number) {
   return z.preprocess(
@@ -35,13 +16,13 @@ export function clampedInt(min: number, max: number) {
   );
 }
 
-export const LOCAL_OVERLAY_MAX_LIMIT = 10_000;
-export const LOCAL_OVERLAY_MAX_DEPTH = 20;
+export const LOCAL_OVERLAY_MAX_LIMIT = LOCAL_MAX_LIMIT;
+export const LOCAL_OVERLAY_MAX_DEPTH = LOCAL_MAX_DEPTH;
 
 const LOCAL_OVERLAY_MAX_LINE = 1_000_000_000;
 const LOCAL_OVERLAY_MAX_ORDER_HINT = 100_000;
-const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = 1_000;
-const LOCAL_OVERLAY_MAX_CONTEXT_LINES = 100;
+const LOCAL_OVERLAY_MAX_PAGINATION_LIMIT = MAX_PAGE_NUMBER;
+const LOCAL_OVERLAY_MAX_CONTEXT_LINES = MAX_CONTEXT_LINES;
 
 export const lineNumberField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE).optional();
 export const requiredLineHintField = clampedInt(1, LOCAL_OVERLAY_MAX_LINE);
@@ -62,9 +43,6 @@ export const relaxedPageNumberField = clampedInt(
   .optional()
   .default(1);
 
-export const DEFAULT_PAGE_SIZE = 20;
-export const STRUCTURE_PAGE_SIZE = 100;
-
 const responsePaginationFields = {
   responseCharOffset: clampedInt(0, 100_000_000)
     .optional()
@@ -83,22 +61,13 @@ export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH).optional();
 /** View level for content-returning tools. */
 export type MinifyMode = 'none' | 'standard' | 'symbols';
 
-// Legacy boolean inputs (pre-enum `minify`) are still accepted but
-// undocumented: true → "standard", false → "none".
-const legacyMinifyBoolean = (value: unknown): unknown =>
-  value === true ? 'standard' : value === false ? 'none' : value;
-
 /** minify enum for the fetch-content tools: none (raw) | standard | symbols. */
-export const minifyFieldWithSymbols = z.preprocess(
-  legacyMinifyBoolean,
-  z.enum(['none', 'standard', 'symbols']).optional()
-);
+export const minifyFieldWithSymbols = z
+  .enum(['none', 'standard', 'symbols'])
+  .optional();
 
-/** minify enum for PR patches: none (raw diffs) | standard. */
-export const minifyFieldStandard = z.preprocess(
-  legacyMinifyBoolean,
-  z.enum(['none', 'standard']).optional()
-);
+/** minify enum for PR patches: none (raw exact diffs) | standard (token-saving view). */
+export const minifyFieldStandard = z.enum(['none', 'standard']).optional();
 
 export type WithQueryMeta<T> = T & {
   id?: string;
@@ -148,10 +117,3 @@ export function createRelaxedBulkQuerySchema(
       });
     });
 }
-
-export const optionalMetaFields = {
-  id: z.string().optional(),
-  mainResearchGoal: z.string().optional(),
-  researchGoal: z.string().optional(),
-  reasoning: z.string().optional(),
-} as const;

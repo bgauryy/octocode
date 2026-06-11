@@ -1,12 +1,13 @@
-import type { z } from 'zod';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { RESOURCE_LIMITS } from '../core/constants.js';
 import type {
   LocalSearchCodeFile,
   LocalSearchCodeMatch,
 } from '@octocodeai/octocode-core/types';
 
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
+interface RipgrepParserQuery {
+  contextLines?: number;
+  matchContentLength?: number;
+}
 import type { SearchStats } from '../core/types.js';
 import { RipgrepJsonMessageSchema } from './schemas.js';
 
@@ -16,7 +17,7 @@ function stripOneTrailingLineBreak(text: string): string {
 
 export function parseRipgrepJson(
   jsonOutput: string,
-  query: RipgrepQuery
+  query: RipgrepParserQuery
 ): {
   files: LocalSearchCodeFile[];
   stats: SearchStats;
@@ -105,8 +106,8 @@ export function parseRipgrepJson(
     }
   }
 
-  const before = query.beforeContext ?? query.contextLines ?? 0;
-  const after = query.afterContext ?? query.contextLines ?? 0;
+  const before = query.contextLines ?? 0;
+  const after = query.contextLines ?? 0;
   const maxLength =
     query.matchContentLength || RESOURCE_LIMITS.DEFAULT_MATCH_CONTENT_LENGTH;
 

@@ -152,7 +152,7 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
           scheme/, hints/, tools/ (54), utils/ (37), integration/, helpers/, fixtures/
 ```
 
-### Tools (13)
+### Tools (12)
 
 | Tool | Type | Local | Description |
 |------|------|-------|-------------|
@@ -168,9 +168,8 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
 | `localFindFiles` | search | ✅ | Find files by metadata |
 | `localGetFileContent` | content | ✅ | Read local file content |
 | `lspGetSemanticContent` | LSP | ✅ | Unified semantic navigation: definition, references, callers, callees, callHierarchy, hover, documentSymbols, typeDefinition, implementation (8 types via `type` param) |
-| `lspGetDiagnostics` | LSP | ✅ | File-level error/warning counts with severity filter and relatedInformation |
 
-LSP tools are standalone (no IDE required); TS/JS bundled, 30+ other langs via installed servers; cross-platform.
+The LSP tool is standalone (no IDE required); TS/JS bundled, 30+ other langs via installed servers; cross-platform.
 
 ### Tool registration flow
 

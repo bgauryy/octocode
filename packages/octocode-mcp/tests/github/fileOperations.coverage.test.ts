@@ -987,7 +987,7 @@ describe('File Operations - Additional Coverage Tests', () => {
         repo: 'repo',
         path: 'multi-match.txt',
         matchString: 'TODO',
-        matchStringContextLines: 1,
+        contextLines: 1,
       });
 
       expect(result).toHaveProperty('data');

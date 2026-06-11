@@ -1,5 +1,8 @@
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
-import { getOutputCharLimit, getOutputMinifyDefault } from '../utils/pagination/charLimit.js';
+import {
+  getOutputCharLimit,
+  getOutputMinifyDefault,
+} from '../utils/pagination/charLimit.js';
 import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
 import {
   applyContentViewMinification,
@@ -99,7 +102,7 @@ export async function processFileContentAPI(
   fullContent: boolean,
   startLine?: number,
   endLine?: number,
-  matchStringContextLines: number = 5,
+  contextLines: number = 5,
   matchString?: string,
   matchStringIsRegex?: boolean,
   matchStringCaseSensitive?: boolean,
@@ -134,8 +137,10 @@ export async function processFileContentAPI(
         isSkeleton: true,
         branch,
         totalLines: decodedContent.split('\n').length,
-        isPartial: true,
-        // Skeletons bypass applyContentPagination — returned whole.
+        // Skeletons bypass applyContentPagination — returned whole. isSkeleton
+        // carries the lossy "bodies omitted" signal, while isPartial remains
+        // false so agents do not try to paginate a complete skeleton index.
+        isPartial: false,
         signaturesExtracted: true,
         hints: sanitized.hasSecrets
           ? [
@@ -171,7 +176,7 @@ export async function processFileContentAPI(
       extraction = extractMatchingLines(
         originalLines,
         matchString,
-        matchStringContextLines,
+        contextLines,
         matchStringIsRegex ?? false,
         isCaseSensitive
       );
@@ -232,7 +237,7 @@ export async function processFileContentAPI(
         : '';
     matchLocationsSet.add(
       extraction.matchCount > 1
-        ? `Found ${extraction.matchCount} occurrences of "${matchString}" on lines ${shownLines}${extraCount} — all shown as ${extraction.matchRanges.length} slice${extraction.matchRanges.length === 1 ? '' : 's'}, ±${matchStringContextLines} lines of context each.`
+        ? `Found ${extraction.matchCount} occurrences of "${matchString}" on lines ${shownLines}${extraCount} — all shown as ${extraction.matchRanges.length} slice${extraction.matchRanges.length === 1 ? '' : 's'}, ±${contextLines} lines of context each.`
         : `Found "${matchString}" on line ${extraction.matchingLines[0]}`
     );
   } else if (startLine !== undefined || endLine !== undefined) {

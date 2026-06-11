@@ -3,9 +3,15 @@ export type {
   CommentPatternGroup,
   Strategy,
   FileTypeMinifyConfig,
+  MinificationMode,
+  MinificationModeInfo,
   MinifyResult,
 } from './types/index.js';
-export { MINIFY_CONFIG, INDENTATION_SENSITIVE_NAMES } from './types/index.js';
+export {
+  MINIFY_CONFIG,
+  MINIFICATION_MODES,
+  INDENTATION_SENSITIVE_NAMES,
+} from './types/index.js';
 
 // Core strategies (exported for consumers that need fine-grained control)
 export {
@@ -20,9 +26,13 @@ export {
   minifyCSSCore,
   minifyHTMLCore,
   minifyJavaScriptCore,
+  minifyTypeScriptLikeSync,
+  minifyTypeScriptLike,
+  minifyWithTerserSync,
   minifyWithTerser,
   minifyCSSAsync,
   minifyHTMLAsync,
+  minifyComponentAsync,
 } from './core/strategies.js';
 
 // Main minification API

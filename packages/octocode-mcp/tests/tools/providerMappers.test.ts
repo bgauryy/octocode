@@ -22,14 +22,14 @@ describe('providerMappers', () => {
     expect(mapped.minify).toBe('symbols');
   });
 
-  it('leaves minify undefined when not requested', () => {
+  it('applies the configured content-view default when minify is not requested', () => {
     const mapped = mapFileContentToolQuery({
       owner: 'facebook',
       repo: 'react',
       path: 'packages/react/index.js',
     } as Parameters<typeof mapFileContentToolQuery>[0]);
 
-    expect(mapped.minify).toBeUndefined();
+    expect(mapped.minify).toBe('standard');
   });
 
   it('should map code search tool queries to provider queries', () => {
@@ -255,6 +255,19 @@ describe('providerMappers', () => {
     expect(result.query).toBe('hydration');
   });
 
+  it('should forward PR search limit independently from content itemsPerPage', () => {
+    const result = mapPullRequestToolQuery({
+      owner: 'facebook',
+      repo: 'react',
+      query: 'hydration',
+      limit: 2,
+      itemsPerPage: 50,
+    });
+
+    expect(result.limit).toBe(2);
+    expect(result.itemsPerPage).toBe(50);
+  });
+
   it('should preserve every provider PR response field in tool output', () => {
     const { resultData } = mapPullRequestProviderResultData({
       items: [
@@ -456,6 +469,22 @@ describe('providerMappers', () => {
     expect(hints[0]).toContain('Page 2/3');
     expect(hints[0]).toContain('Next: page=3');
     expect(hints.some(h => h.includes('paginated'))).toBe(true);
+  });
+
+  it('emits cursor hint without invented total when totalMatches is unknown', () => {
+    const hints = buildPaginationHints(
+      {
+        currentPage: 1,
+        totalPages: 2,
+        hasMore: true,
+        perPage: 2,
+      },
+      'PRs'
+    );
+
+    expect(hints[0]).toContain('Page 1/2');
+    expect(hints[0]).toContain('showing 1-2 PRs; total unknown');
+    expect(hints[0]).toContain('Next: page=2');
   });
 
   it('emits no hint on the final page (no tautology)', () => {

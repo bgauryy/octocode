@@ -1,0 +1,48 @@
+{
+  "ext": "h",
+  "language": "C Header",
+  "source": "h/git-compat-util.h",
+  "sourceBytes": 33059,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "af6c2cca3c61ea752fd747879105737abf99ec01b8879da53dbe79c1bac54d71",
+  "contentView": {
+    "bytes": 20155,
+    "cutPercent": 39,
+    "durationMs": 4.046
+  },
+  "applyMinification": {
+    "bytes": 20155,
+    "cutPercent": 39,
+    "durationMs": 4.56
+  },
+  "sync": {
+    "bytes": 20155,
+    "cutPercent": 39,
+    "durationMs": 3.752
+  },
+  "async": {
+    "bytes": 20155,
+    "cutPercent": 39,
+    "durationMs": 3.86,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 12379,
+    "cutPercent": 62.6,
+    "durationMs": 0.367
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": 9,
+    "agent": 8.7,
+    "label": "strong"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

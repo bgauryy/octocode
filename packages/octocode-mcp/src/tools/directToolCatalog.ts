@@ -11,10 +11,7 @@ import {
   withSecurityValidation,
 } from '../utils/securityBridge.js';
 import { STATIC_TOOL_NAMES } from './toolNames.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from './lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import { ALL_TOOLS, type ToolConfig } from './toolConfig.js';
 
 export type DirectToolInput = Record<string, unknown> & {
@@ -57,7 +54,6 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-    LSP_GET_DIAGNOSTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
   ].map((name, index) => [name, index])
 );
@@ -519,31 +515,22 @@ function normalizeQueryObject(
     ...getDirectToolDisplayFields(toolName).map(field => field.name),
     ...DIRECT_TOOL_AUTO_FILLED_FIELDS,
   ]);
-  const normalized: Record<string, unknown> = {};
+  const exactQuery: Record<string, unknown> = {};
   const unknownFields: string[] = [];
   for (const [key, value] of Object.entries(query)) {
     if (schemaFields.has(key)) {
-      normalized[key] = value;
+      exactQuery[key] = value;
       continue;
     }
-    const normalizedKey = normalizeKey(key);
-    if (!schemaFields.has(normalizedKey)) {
-      unknownFields.push(key);
-    }
-    normalized[schemaFields.has(normalizedKey) ? normalizedKey : key] = value;
+    unknownFields.push(key);
+    exactQuery[key] = value;
   }
 
   if (unknownFields.length > 0 && schemaFields.size > 0) {
     options.onUnknownFields?.(unknownFields, queryIndex);
   }
 
-  return normalized;
-}
-
-function normalizeKey(key: string): string {
-  return key.replace(/[-_]+([a-zA-Z0-9])/g, (_, char: string) =>
-    char.toUpperCase()
-  );
+  return exactQuery;
 }
 
 function describeSchemaType(schema: JsonSchemaObject): string {

@@ -106,7 +106,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -172,7 +172,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -202,6 +202,9 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Input Schema')
     );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('same Octocode MCP tool implementation')
+    );
   });
 
   it('shows schema help when --schema is provided', async () => {
@@ -226,7 +229,7 @@ describe('toolCommand', () => {
       options: {
         tool: 'localSearchCode',
         input:
-          '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+          '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -282,7 +285,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":999,"matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -310,7 +313,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -331,7 +334,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","matchContentLength":200,"filesPerPage":1,"filePageNumber":1,"matchesPerPage":1}',
+        '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',

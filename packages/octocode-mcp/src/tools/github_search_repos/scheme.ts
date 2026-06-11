@@ -1,33 +1,68 @@
 import { z } from 'zod';
-import { GitHubReposSearchSingleQuerySchema as UpstreamGitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
-import { GitHubSearchRepositoriesOutputSchema as UpstreamReposOutput } from '@octocodeai/octocode-core/schemas/outputs';
+import { completeMetadata } from '@octocodeai/octocode-core';
+import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
+  clampedInt,
   createRelaxedBulkQuerySchema,
-  optionalMetaFields,
   relaxedPageNumberField,
-  withCoreSchemaDescriptions,
 } from '../../scheme/localSchemaOverlay.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
+const QUERY_DESCRIPTIONS = {
+  ...completeMetadata.baseSchema,
+  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]
+    ?.schema,
+} as Record<string, string>;
+
+const GitHubReposSearchQuerySchema = z.object({
+  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.researchGoal!),
+  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
+  keywordsToSearch: z
+    .array(z.string())
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.keywordsToSearch!),
+  topicsToSearch: z
+    .array(z.string())
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.topicsToSearch!),
+  language: z.string().optional().describe(QUERY_DESCRIPTIONS.language!),
+  owner: z.string().optional().describe(QUERY_DESCRIPTIONS.owner!),
+  stars: z.string().optional().describe(QUERY_DESCRIPTIONS.stars!),
+  size: z.string().optional().describe(QUERY_DESCRIPTIONS.size!),
+  created: z.string().optional().describe(QUERY_DESCRIPTIONS.created!),
+  updated: z.string().optional().describe(QUERY_DESCRIPTIONS.updated!),
+  match: z
+    .array(z.enum(['name', 'description', 'readme']))
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.match!),
+  sort: z
+    .enum(['stars', 'forks', 'help-wanted-issues', 'updated', 'best-match'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.sort!),
+  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.limit!),
+  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
+  archived: z.boolean().optional().describe(QUERY_DESCRIPTIONS.archived!),
+  verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
+});
+
 export const GitHubReposSearchSingleQueryLocalSchema =
-  withCoreSchemaDescriptions(
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-    UpstreamGitHubReposSearchSingleQuerySchema.omit({ limit: true }).extend({
-      ...optionalMetaFields,
-      language: z.string().optional(),
-      archived: z.boolean().optional(),
-      sort: z
-        .enum(['stars', 'forks', 'help-wanted-issues', 'updated', 'best-match'])
-        .optional(),
-      page: relaxedPageNumberField.default(1),
-    })
-  );
+  GitHubReposSearchQuerySchema;
 
 export const GitHubReposSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(
     STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-    GitHubReposSearchSingleQueryLocalSchema
+    GitHubReposSearchQuerySchema
   );
 
 const LocalRepositoryDetailSchema = z.object({
@@ -41,16 +76,14 @@ const LocalRepositoryDetailSchema = z.object({
   defaultBranch: z.string().optional(),
   topics: z.array(z.string()).optional(),
   visibility: z.string().optional(),
-  // verbose-mode extras (query.verbose=true)
   url: z.string().optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
   openIssuesCount: z.number().optional(),
 });
 
-export const GitHubSearchRepositoriesOutputLocalSchema =
-  UpstreamReposOutput.extend({
-    ...responseEnvelopeFields,
+export const GitHubSearchRepositoriesOutputLocalSchema = z
+  .object({
     data: z
       .object({
         repositories: z.array(LocalRepositoryDetailSchema),
@@ -65,4 +98,5 @@ export const GitHubSearchRepositoriesOutputLocalSchema =
           .optional(),
       })
       .optional(),
-  });
+  })
+  .extend(responseEnvelopeFields);

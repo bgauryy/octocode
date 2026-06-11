@@ -1,14 +1,11 @@
 import { RipgrepCommandBuilder } from '../../commands/RipgrepCommandBuilder.js';
 import { safeExec } from '../../utils/exec/safe.js';
-import type { z } from 'zod';
-import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
+import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
+import { LocalRipgrepQuerySchema, type RipgrepQuery } from './scheme.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
@@ -22,29 +19,43 @@ import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 export async function executeRipgrepSearchInternal(
   configuredQuery: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
-  const validation = validateRipgrepQuery(configuredQuery);
-  if (!validation.isValid) {
+  const validationWarnings: string[] = [];
+  const runtimeValidation = validateRipgrepQuery(configuredQuery);
+  if (!runtimeValidation.isValid) {
     return createErrorResult(
-      new Error(`Query validation failed: ${validation.errors.join(', ')}`),
+      new Error(
+        `Query validation failed: ${runtimeValidation.errors.join('; ')}`
+      ),
       configuredQuery,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        extra: { warnings: validation.warnings },
+        extra: { warnings: runtimeValidation.warnings },
       }
     ) as LocalSearchCodeToolResult;
   }
+  validationWarnings.push(...runtimeValidation.warnings);
 
-  if (!configuredQuery.path) {
+  const validation = LocalRipgrepQuerySchema.safeParse(configuredQuery);
+  if (!validation.success) {
+    const errors = validation.error.issues.map(issue => issue.message);
     return createErrorResult(
-      new Error('Path is required for search'),
+      new Error(`Query validation failed: ${errors.join(', ')}`),
       configuredQuery,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        extra: { warnings: validation.warnings },
+        extra: { warnings: validationWarnings },
       }
     ) as LocalSearchCodeToolResult;
   }
-  const queryWithPath = configuredQuery as RipgrepQuery & { path: string };
+  const query = validation.data;
+
+  if (!query.path) {
+    return createErrorResult(new Error('Path is required for search'), query, {
+      toolName: TOOL_NAMES.LOCAL_RIPGREP,
+      extra: { warnings: validationWarnings },
+    }) as LocalSearchCodeToolResult;
+  }
+  const queryWithPath = query as RipgrepQuery & { path: string };
   const pathValidation = validateToolPath(
     queryWithPath,
     TOOL_NAMES.LOCAL_RIPGREP
@@ -54,7 +65,7 @@ export async function executeRipgrepSearchInternal(
   }
 
   const queryForExec = {
-    ...configuredQuery,
+    ...query,
     path: pathValidation.sanitizedPath,
   };
 
@@ -66,11 +77,11 @@ export async function executeRipgrepSearchInternal(
   if (!patternCheck.isValid) {
     return createErrorResult(
       new Error(`Pattern validation failed: ${patternCheck.errors.join('; ')}`),
-      configuredQuery,
+      query,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
         extra: {
-          warnings: [...validation.warnings, ...patternCheck.warnings],
+          warnings: [...validationWarnings, ...patternCheck.warnings],
         },
       }
     ) as LocalSearchCodeToolResult;
@@ -93,7 +104,7 @@ export async function executeRipgrepSearchInternal(
         searchEngine: 'rg',
         hints: [
           `Search timed out after ${timeoutMs / 1000} seconds.`,
-          'Try a more specific path or add type/include filters to narrow the search.',
+          'Try a more specific path or add langType/include filters to narrow the search.',
           'Use filesOnly=true for faster discovery.',
           'Consider excluding large directories with excludeDir.',
           ...chunkingWarnings,
@@ -108,16 +119,16 @@ export async function executeRipgrepSearchInternal(
       {
         status: 'empty',
         searchEngine: 'rg',
-        warnings: [...validation.warnings, ...chunkingWarnings],
+        warnings: [...validationWarnings, ...chunkingWarnings],
         hints: getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty', {
-          pattern: configuredQuery.pattern,
-          path: configuredQuery.path,
-          type: configuredQuery.type,
-          include: configuredQuery.include,
-          excludeDir: configuredQuery.excludeDir,
-          fixedString: configuredQuery.fixedString,
-          caseSensitive: configuredQuery.caseSensitive,
-          mode: configuredQuery.mode,
+          pattern: query.pattern,
+          path: query.path,
+          langType: query.langType,
+          include: query.include,
+          excludeDir: query.excludeDir,
+          fixedString: query.fixedString,
+          caseSensitive: query.caseSensitive,
+          mode: query.mode,
         } as Record<string, unknown>),
       } as LocalSearchCodeToolResult,
       result.stdout.length
@@ -130,15 +141,15 @@ export async function executeRipgrepSearchInternal(
     const isMissingPath =
       result.code === 2 && /No such file or directory/.test(result.stderr);
     const message = isMissingPath
-      ? `Search path not found: ${configuredQuery.path}. Verify it with localViewStructure or localFindFiles.`
+      ? `Search path not found: ${query.path}. Verify it with localViewStructure or localFindFiles.`
       : `Ripgrep failed (exit code ${result.code}): ${result.stderr}`;
-    return createErrorResult(new Error(message), configuredQuery, {
+    return createErrorResult(new Error(message), query, {
       toolName: TOOL_NAMES.LOCAL_RIPGREP,
       rawResponse: result.stdout.length + result.stderr.length,
     }) as LocalSearchCodeToolResult;
   }
 
-  const parsed = parseRipgrepOutput(result.stdout, configuredQuery);
+  const parsed = parseRipgrepOutput(result.stdout, query);
 
   if (
     !queryForExec.filesOnly &&
@@ -151,9 +162,9 @@ export async function executeRipgrepSearchInternal(
 
   const searchResult = await buildSearchResult(
     parsed.files,
-    configuredQuery,
+    query,
     'rg',
-    [...validation.warnings, ...chunkingWarnings],
+    [...validationWarnings, ...chunkingWarnings],
     parsed.stats
   );
   return attachRawResponseChars(searchResult, result.stdout.length);

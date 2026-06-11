@@ -1,0 +1,80 @@
+module Distribution.Simple
+  ( module Distribution.Package
+  , module Distribution.Version
+  , module Distribution.License
+  , module Distribution.Simple.Compiler
+  , module Language.Haskell.Extension
+
+  , defaultMain
+  , defaultMainNoRead
+  , defaultMainArgs
+  , defaultMainArgsWithHandles
+
+  , UserHooks (..)
+  , Args
+  , defaultMainWithHooks
+  , defaultMainWithSetupHooks
+  , defaultMainWithSetupHooksArgs
+  , defaultMainWithHooksArgs
+  , defaultMainWithHooksNoRead
+  , defaultMainWithHooksNoReadArgs
+
+  , simpleUserHooks
+  , simpleUserHooksWithHandles
+  , autoconfUserHooks
+  , autoconfSetupHooks
+  , emptyUserHooks
+
+  , configureAction
+  , buildAction
+  , replAction
+  , installAction
+  , copyAction
+  , haddockAction
+  , cleanAction
+  , sdistAction
+  , hscolourAction
+  , registerAction
+  , unregisterAction
+  , testAction
+  , benchAction
+  ) where
+
+import Control.Exception (try)
+
+import Distribution.Compat.Prelude
+import Distribution.Compat.ResponseFile (expandResponse)
+import Prelude ()
+
+import Distribution.Package
+import Distribution.PackageDescription
+import Distribution.PackageDescription.Configuration
+import Distribution.Simple.Command
+import Distribution.Simple.Compiler
+import Distribution.Simple.Package
+
+... [truncated 34501 chars] ...
+
+s
+      (allSuffixHandlers hooks)
+      args
+
+defaultRegHook
+  :: VerbosityHandles
+  -> PackageDescription
+  -> LocalBuildInfo
+  -> UserHooks
+  -> RegisterFlags
+  -> IO ()
+defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
+  | hasLibs pkg_descr =
+      registerWithHandles verbHandles pkg_descr localbuildinfo flags
+  | otherwise =
+      setupMessage
+        verbosity
+        "Package contains no library to register:"
+        (packageId pkg_descr)
+  where
+    verbosity =
+      mkVerbosity verbHandles $
+        fromFlag (setupVerbosity $ registerCommonFlags flags)

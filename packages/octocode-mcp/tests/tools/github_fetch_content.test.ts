@@ -464,7 +464,7 @@ describe('GitHub Fetch Content Tool', () => {
               path: 'file.js',
               branch: 'main',
               matchString: 'function',
-              matchStringContextLines: 5,
+              contextLines: 5,
             },
           ],
         }
@@ -510,7 +510,7 @@ describe('GitHub Fetch Content Tool', () => {
       expect(responseText).toMatch(/no matches|not found/i);
     });
 
-    it('should use default matchStringContextLines when not specified', async () => {
+    it('should use default contextLines when not specified', async () => {
       mockProvider.getFileContent.mockResolvedValue({
         data: {
           path: 'file.js',

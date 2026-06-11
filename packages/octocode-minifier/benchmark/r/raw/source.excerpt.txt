@@ -1,0 +1,75 @@
+#' Create, modify, and delete columns
+#'
+#' `mutate()` creates new columns that are functions of existing variables.
+#' It can also modify (if the name is the same as an existing
+#' column) and delete columns (by setting their value to `NULL`).
+#'
+#' @section Useful mutate functions:
+#'
+#' * [`+`], [`-`], [log()], etc., for their usual mathematical meanings
+#'
+#' * [lead()], [lag()]
+#'
+#' * [dense_rank()], [min_rank()], [percent_rank()], [row_number()],
+#'   [cume_dist()], [ntile()]
+#'
+#' * [cumsum()], [cummean()], [cummin()], [cummax()], [cumany()], [cumall()]
+#'
+#' * [na_if()], [coalesce()]
+#'
+#' * [if_else()], [recode()], [case_when()]
+#'
+#' @section Grouped tibbles:
+#'
+#' Because mutating expressions are computed within groups, they may
+#' yield different results on grouped tibbles. This will be the case
+#' as soon as an aggregating, lagging, or ranking function is
+#' involved. Compare this ungrouped mutate:
+#'
+#' ```
+#' starwars |>
+#'   select(name, mass, species) |>
+#'   mutate(mass_norm = mass / mean(mass, na.rm = TRUE))
+#' ```
+#'
+#' With the grouped equivalent:
+#'
+#' ```
+#' starwars |>
+#'   select(name, mass, species) |>
+#'   group_by(species) |>
+#'   mutate(mass_norm = mass / mean(mass, na.rm = T
+
+... [truncated 13996 chars] ...
+
+  data_size <- cnd$data_size
+  c(
+    glue(
+      "Inlined constant `{label}` must be size {or_1(data_size)}, not {constant_size}."
+    )
+  )
+}
+
+check_muffled_warning <- function(cnd) {
+  early_exit <- TRUE
+
+  # Cancel early exits, e.g. from an exiting handler. This way we can
+  # still instrument caught warnings to avoid confusing
+  # inconsistencies.
+  on.exit(
+    if (early_exit) {
+      return(FALSE)
+    }
+  )
+
+  muffled <- withRestarts(
+    muffleWarning = function(...) TRUE,
+    {
+      signalCondition(cnd)
+      FALSE
+    }
+  )
+
+  early_exit <- FALSE
+  muffled
+}

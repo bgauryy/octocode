@@ -433,7 +433,7 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       expect(providerQuery.match).toBe('file');
     });
 
-    it('provider uses default page size when no limit overrides are set', async () => {
+    it('provider receives undefined limit when agent omits it (execution layer applies default)', async () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [],
@@ -456,10 +456,11 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       });
 
       const providerQuery = mockProvider.searchCode.mock.calls[0]?.[0];
-      expect(providerQuery.limit).toBeGreaterThan(0);
+      // limit is undefined when not set — codeSearch.ts applies GITHUB_SEARCH_DEFAULT_LIMIT
+      expect(providerQuery.limit).toBeUndefined();
     });
 
-    it('leaves the provider-bound limit at the fixed page size by default', async () => {
+    it('provider receives agent-supplied limit when limit is set', async () => {
       mockProvider.searchCode.mockResolvedValue({
         data: {
           items: [],
@@ -477,12 +478,13 @@ describe('GitHub Search Code - match Parameter Modes', () => {
             owner: 'test',
             repo: 'repo',
             match: 'file',
+            limit: 100,
           },
         ],
       });
 
       const providerQuery = mockProvider.searchCode.mock.calls[0]?.[0];
-      expect(providerQuery.limit).toBeGreaterThan(0);
+      expect(providerQuery.limit).toBe(100);
     });
 
     it('should pass match="path" to the provider searchCode call', async () => {

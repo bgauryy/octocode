@@ -1,0 +1,102 @@
+package fmt
+
+import (
+	"internal/fmtsort"
+	"io"
+	"os"
+	"reflect"
+	"strconv"
+	"sync"
+	"unicode/utf8"
+)
+
+const (
+	commaSpaceString  = ", "
+	nilAngleString    = "<nil>"
+	nilParenString    = "(nil)"
+	nilString         = "nil"
+	mapString         = "map["
+	percentBangString = "%!"
+	missingString     = "(MISSING)"
+	badIndexString    = "(BADINDEX)"
+	panicString       = "(PANIC="
+	extraString       = "%!(EXTRA "
+	badWidthString    = "%!(BADWIDTH)"
+	badPrecString     = "%!(BADPREC)"
+	noVerbString      = "%!(NOVERB)"
+	invReflectString  = "<invalid reflect.Value>"
+)
+
+type State interface {
+
+	Write(b []byte) (n int, err error)
+
+	Width() (wid int, ok bool)
+
+	Precision() (prec int, ok bool)
+
+	Flag(c int) bool
+}
+
+type Formatter interface {
+	Format(f State, verb rune)
+}
+
+type Stringer interface {
+	String() string
+}
+
+type GoStringer interface {
+	GoString() string
+}
+
+func FormatString(state State, verb rune) string {
+	var tmp [16]byte
+	b := append(tmp[:0], '%')
+	for _, c := range " +-#0" {
+		if state.Flag(int(c)) {
+			b = append(b, byte(c))
+		}
+	}
+	if w, ok := state.Width(); ok {
+		b = strconv.AppendInt(b, int64(w), 10)
+	}
+	if p, ok := state.Precision(); ok {
+		b = append(b, '.')
+		b = strconv.AppendInt(b, int64(p), 10)
+	}
+
+
+... [truncated 20154 chars] ...
+
+f.writeString(reflect.TypeOf(arg).String())
+				p.buf.writeByte('=')
+				p.printArg(arg, 'v')
+			}
+		}
+		p.buf.writeByte(')')
+	}
+}
+
+func (p *pp) doPrint(a []any) {
+	prevString := false
+	for argNum, arg := range a {
+		isString := arg != nil && reflect.TypeOf(arg).Kind() == reflect.String
+
+		if argNum > 0 && !isString && !prevString {
+			p.buf.writeByte(' ')
+		}
+		p.printArg(arg, 'v')
+		prevString = isString
+	}
+}
+
+func (p *pp) doPrintln(a []any) {
+	for argNum, arg := range a {
+		if argNum > 0 {
+			p.buf.writeByte(' ')
+		}
+		p.printArg(arg, 'v')
+	}
+	p.buf.writeByte('\n')
+}

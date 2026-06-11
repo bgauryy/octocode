@@ -3,12 +3,7 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
-    const name =
-      typeof c.query === 'string'
-        ? c.query
-        : Array.isArray(c.keywords) && typeof c.keywords[0] === 'string'
-          ? c.keywords[0]
-          : undefined;
+    const name = typeof c.name === 'string' ? c.name : undefined;
 
     if (!name) return [];
     return [

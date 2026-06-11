@@ -1,7 +1,6 @@
 import type { ExactPosition, LSPRange } from '../../../lsp/types.js';
 
 export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME = 'lspGetSemanticContent';
-export const LSP_GET_DIAGNOSTICS_TOOL_NAME = 'lspGetDiagnostics';
 
 export const SEMANTIC_CONTENT_TYPES = [
   'definition',
@@ -16,16 +15,17 @@ export const SEMANTIC_CONTENT_TYPES = [
 ] as const;
 
 export type SemanticContentType = (typeof SEMANTIC_CONTENT_TYPES)[number];
+export type SemanticOutputFormat = 'structured' | 'compact';
 
 export type SemanticQueryBase = {
   id?: string;
   type: SemanticContentType;
   uri?: string;
-  filePath?: string;
   workspaceRoot?: string;
   page?: number;
   itemsPerPage?: number;
   contextLines?: number;
+  format?: SemanticOutputFormat;
   mainResearchGoal?: string;
   researchGoal?: string;
   reasoning?: string;
@@ -110,6 +110,7 @@ export type LspEvidence = {
 export type LspSemanticEnvelope = {
   type: SemanticContentType;
   uri: string;
+  format?: SemanticOutputFormat;
   resolvedSymbol?: CompactResolvedSymbol;
   lsp: {
     serverAvailable?: boolean;
@@ -119,11 +120,11 @@ export type LspSemanticEnvelope = {
   evidence: LspEvidence;
   summary?: unknown;
   payload:
-    | { kind: 'definition'; locations: CompactLocation[] }
+    | { kind: 'definition'; locations: Array<CompactLocation | string> }
     | {
         kind: 'references';
         // groupByFile=true emits byFile INSTEAD OF the flat locations list.
-        locations?: unknown[];
+        locations?: Array<CompactLocation | string>;
         byFile?: unknown[];
         totalReferences: number;
         totalFiles: number;
@@ -145,8 +146,8 @@ export type LspSemanticEnvelope = {
         };
       }
     | { kind: 'hover'; markdown?: string; text?: string; range?: LSPRange }
-    | { kind: 'typeDefinition'; locations: CompactLocation[] }
-    | { kind: 'implementation'; locations: CompactLocation[] }
+    | { kind: 'typeDefinition'; locations: Array<CompactLocation | string> }
+    | { kind: 'implementation'; locations: Array<CompactLocation | string> }
     | {
         kind: 'documentSymbols';
         symbols: unknown[];
@@ -157,18 +158,4 @@ export type LspSemanticEnvelope = {
   pagination?: unknown;
   warnings?: string[];
   hints?: string[];
-};
-
-export type LspDiagnosticsQuery = {
-  id?: string;
-  uri?: string;
-  filePath?: string;
-  workspaceRoot?: string;
-  severity?: 'error' | 'warning' | 'information' | 'hint' | 'all';
-  source?: string;
-  page?: number;
-  itemsPerPage?: number;
-  mainResearchGoal?: string;
-  researchGoal?: string;
-  reasoning?: string;
 };

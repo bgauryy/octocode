@@ -1,0 +1,48 @@
+{
+  "ext": "ts",
+  "language": "TypeScript",
+  "source": "ts/core.ts",
+  "sourceBytes": 92419,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "c35b2cfa5216d4979aff3f963071c979d0b57d2242649df3dc6cb7c9f4a10b1b",
+  "contentView": {
+    "bytes": 65054,
+    "cutPercent": 29.6,
+    "durationMs": 15.144
+  },
+  "applyMinification": {
+    "bytes": 29680,
+    "cutPercent": 67.9,
+    "durationMs": 123.404
+  },
+  "sync": {
+    "bytes": 29680,
+    "cutPercent": 67.9,
+    "durationMs": 94.24
+  },
+  "async": {
+    "bytes": 29680,
+    "cutPercent": 67.9,
+    "durationMs": 73.268,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 28537,
+    "cutPercent": 69.1,
+    "durationMs": 12.611
+  },
+  "ratings": {
+    "minify": 10,
+    "symbols": 9,
+    "agent": 9.7,
+    "label": "excellent"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

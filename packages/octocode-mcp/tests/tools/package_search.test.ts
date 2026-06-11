@@ -389,7 +389,59 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should return full NPM package results when npmFetchMetadata is true', async () => {
+  it('mode full enriches every package in keyword results', async () => {
+    const searchItems = JSON.stringify([
+      { name: 'pkg-a', version: '1.0.0', description: 'a' },
+      { name: 'pkg-b', version: '2.0.0', description: 'b' },
+    ]);
+    mockNpmViewFull('pkg-a', {
+      name: 'pkg-a',
+      version: '1.0.0',
+      description: 'a',
+      keywords: ['alpha'],
+      repository: 'https://github.com/octo/pkg-a',
+    });
+    mockNpmViewFull('pkg-b', {
+      name: 'pkg-b',
+      version: '2.0.0',
+      description: 'b',
+      keywords: ['beta'],
+      repository: 'https://github.com/octo/pkg-b',
+    });
+    mockExecuteNpmCommand.mockImplementation(
+      createNpmCommandMock({ stdout: searchItems, stderr: '', exitCode: 0 })
+    );
+
+    const result = await searchPackage({
+      name: 'react state management',
+      mode: 'full',
+      mainResearchGoal: 'Test',
+      researchGoal: 'Test',
+      reasoning: 'Test',
+    });
+
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
+      'view',
+      ['pkg-a', '--json'],
+      expect.any(Object)
+    );
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
+      'view',
+      ['pkg-b', '--json'],
+      expect.any(Object)
+    );
+    expect('packages' in result).toBe(true);
+    if ('packages' in result) {
+      expect((result.packages[0] as NpmPackageResult).keywords).toEqual([
+        'alpha',
+      ]);
+      expect((result.packages[1] as NpmPackageResult).keywords).toEqual([
+        'beta',
+      ]);
+    }
+  });
+
+  it('should return full NPM package results in mode full', async () => {
     mockNpmViewFull('axios', {
       name: 'axios',
       version: '1.6.0',
@@ -409,7 +461,7 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const query: PackageSearchInput = {
       name: 'axios',
-      npmFetchMetadata: true,
+      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -436,7 +488,7 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should always return full package metadata (npmFetchMetadata defaults to true)', async () => {
+  it('should return full exact-package metadata in smart mode by default', async () => {
     mockNpmViewFull('full-meta-pkg', {
       name: 'full-meta-pkg',
       version: '2.0.0',
@@ -589,7 +641,7 @@ describe('searchPackage - NPM (CLI)', () => {
     );
   });
 
-  it('should return package details when npmFetchMetadata is true', async () => {
+  it('should return package details in mode full', async () => {
     mockNpmViewFull('test-package', {
       name: 'test-package',
       version: '1.0.0',
@@ -606,7 +658,7 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const query: PackageSearchInput = {
       name: 'test-package',
-      npmFetchMetadata: true,
+      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -966,7 +1018,7 @@ describe('Package search response structure', () => {
     }
   });
 
-  it('should return full structure when npmFetchMetadata is true', async () => {
+  it('should return full structure in mode full', async () => {
     mockNpmViewFull('express', {
       name: 'express',
       version: '4.18.2',
@@ -977,7 +1029,7 @@ describe('Package search response structure', () => {
 
     const query: PackageSearchInput = {
       name: 'express',
-      npmFetchMetadata: true,
+      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -1187,7 +1239,67 @@ describe('registerPackageSearchTool', () => {
       expect(text).toContain('1000');
     });
 
-    it('should return lean package shape when npmFetchMetadata is false', async () => {
+    it('should not report hasMore on the last package result page', async () => {
+      mockExecuteNpmCommand.mockRejectedValue(new Error('npm not found'));
+
+      mockFetch.mockImplementation((url: string | URL | Request) => {
+        const urlStr = fetchUrlString(url);
+        if (urlStr.includes('/-/v1/search')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                objects: Array.from({ length: 20 }, (_, index) => ({
+                  package: {
+                    name: `react-hook-page-two-${index}`,
+                    version: '1.0.0',
+                    description: 'React hook package',
+                  },
+                })),
+                total: 40,
+              }),
+            body: null,
+          });
+        }
+        if (/^https?:\/\/[^/]+\/?$/.test(urlStr)) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ db_name: 'registry' }),
+            body: null,
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          body: { cancel: vi.fn().mockResolvedValue(undefined) },
+          headers: new Headers(),
+        });
+      });
+
+      await registerPackageSearchTool(mockServer.server);
+
+      const result = await mockServer.callTool('packageSearch', {
+        queries: [
+          {
+            name: 'react hooks',
+            page: 2,
+            mainResearchGoal: 'Test pagination',
+            researchGoal: 'Test',
+            reasoning: 'Validate final page output',
+          },
+        ],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('totalFound: 40');
+      expect(text).not.toContain('hasMore: true');
+    });
+
+    it('should return lean package shape in mode lean', async () => {
       mockNpmViewFull('lodash', {
         name: 'lodash',
         version: '4.17.21',
@@ -1204,7 +1316,7 @@ describe('registerPackageSearchTool', () => {
         queries: [
           {
             name: 'lodash',
-            npmFetchMetadata: false,
+            mode: 'lean',
             mainResearchGoal: 'Test lean path',
             researchGoal: 'Test',
             reasoning: 'Cover shapeLeanPackage branch',
@@ -1215,6 +1327,10 @@ describe('registerPackageSearchTool', () => {
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('lodash');
+      expect(text).toContain('repoUrl');
+      expect(text).not.toContain('entrypoints');
+      expect(text).not.toContain('researchTargets');
+      expect(text).not.toContain('packageType');
     });
 
     it('should suggest underscore-based name variations on error', async () => {
@@ -1782,7 +1898,7 @@ describe('searchPackage - NPM CLI Repository Fetching', () => {
       repository: {
         type: 'git',
         url: 'https://github.com/wix-private/yoshi.git',
-        directory: 'legacy-packages/yoshi-style-dependencies',
+        directory: 'old-packages/yoshi-style-dependencies',
       },
     });
 

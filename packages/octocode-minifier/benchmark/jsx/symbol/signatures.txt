@@ -1,0 +1,7 @@
+  1| import { useState } from 'react'
+  2| import reactLogo from './assets/react.svg'
+  3| import viteLogo from './assets/vite.svg'
+  4| import heroImg from './assets/hero.png'
+  5| import './App.css'
+  7| function App() {
+122| export default App

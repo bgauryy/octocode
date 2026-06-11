@@ -4,7 +4,12 @@ export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
-    const type = typeof c.type === 'string' ? c.type : undefined;
+    const langType =
+      typeof c.langType === 'string'
+        ? c.langType
+        : typeof c.type === 'string'
+          ? c.type
+          : undefined;
     const include = Array.isArray(c.include) ? (c.include as unknown[]) : [];
     const excludeDir = Array.isArray(c.excludeDir)
       ? (c.excludeDir as unknown[])
@@ -15,7 +20,7 @@ export const hints: ToolHintGenerators = {
     if (
       !pattern &&
       !path &&
-      !type &&
+      !langType &&
       include.length === 0 &&
       excludeDir.length === 0
     ) {
@@ -23,7 +28,7 @@ export const hints: ToolHintGenerators = {
     }
 
     const filters: string[] = [];
-    if (type) filters.push(`type="${type}"`);
+    if (langType) filters.push(`langType="${langType}"`);
     if (include.length > 0) filters.push(`include=${JSON.stringify(include)}`);
     if (excludeDir.length > 0)
       filters.push(`excludeDir=${JSON.stringify(excludeDir)}`);
@@ -34,7 +39,7 @@ export const hints: ToolHintGenerators = {
         `No matches in ${path ?? 'this scope'} with ${filters.join(' + ')}.`
       );
       out.push(
-        'Remove filters one at a time (type → include → excludeDir) to widen the search.'
+        'Remove filters one at a time (langType → include → excludeDir) to widen the search.'
       );
     } else {
       out.push(`No matches for "${pattern}" in ${path ?? 'this scope'}.`);
@@ -71,7 +76,7 @@ export const hints: ToolHintGenerators = {
     if (ctx.errorType === 'size_limit') {
       const count = ctx.matchCount ? ` (${ctx.matchCount} matches)` : '';
       return [
-        `Too many results${count} — narrow the pattern, add a type/path filter, or use fixedString=true.`,
+        `Too many results${count} — narrow the pattern, add a langType/path filter, or use fixedString=true.`,
       ];
     }
     if (ctx.errorType === 'not_found') {

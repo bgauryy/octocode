@@ -1,0 +1,55 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift.org open source project
+//
+// Copyright (c) 2014 - 2026 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+// See https://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
+
+/// A type that represents either a wrapped value or the absence of a value.
+///
+/// You use the `Optional` type whenever you use optional values, even if you
+/// never type the word `Optional`. Swift's type system usually shows the
+/// wrapped type's name with a trailing question mark (`?`) instead of showing
+/// the full type name. For example, if a variable has the type `Int?`, that's
+/// just another way of writing `Optional<Int>`. The shortened form is
+/// preferred for ease of reading and writing code.
+///
+/// The types of `shortForm` and `longForm` in the following code sample are
+/// the same:
+///
+///     let shortForm: Int? = Int("42")
+///     let longForm: Optional<Int> = Int("42")
+///
+
+... [truncated 32005 chars] ...
+
+t = .some(.some(unwrappedResult))
+      return true
+    } else {
+      result = .none
+      return false
+    }
+  }
+
+  @_effects(readonly)
+  public static func _unconditionallyBridgeFromObjectiveC(_ source: AnyObject?)
+      -> Optional<Wrapped> {
+    if let nonnullSource = source {
+      // Map the nil sentinel back to none.
+      if nonnullSource === _nilSentinel {
+        return .none
+      } else {
+        return .some(nonnullSource as! Wrapped)
+      }
+    } else {
+      // If we unexpectedly got nil, just map it to `none` too.
+      return .none
+    }
+  }
+}
+#endif

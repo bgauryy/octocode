@@ -1,0 +1,65 @@
+  9| from __future__ import annotations
+ 11| import os
+ 12| import sys
+ 13| import time
+ 14| from collections import OrderedDict
+ 15| from collections.abc import Generator, Mapping, MutableMapping
+ 16| from datetime import timedelta
+ 17| from typing import TYPE_CHECKING, Any, cast
+ 19| from ._internal_utils import to_native_string
+ 20| from ._types import is_prepared as _is_prepared
+ 21| from .adapters import HTTPAdapter
+ 22| from .auth import _basic_auth_str
+ 23| from .compat import cookielib, urljoin, urlparse
+ 24| from .cookies import (
+ 30| from .exceptions import (
+ 36| from .hooks import default_hooks, dispatch_hook
+ 39| from .models import (  # noqa: F401
+ 46| from .status_codes import codes
+ 47| from .structures import CaseInsensitiveDict
+ 48| from .utils import (  # noqa: F401
+ 62|     from http.cookiejar import CookieJar
+ 64|     from typing_extensions import Self, Unpack
+ 66|     from . import _types as _t
+ 67|     from .adapters import BaseAdapter
+ 76| def merge_setting(
+ 77|     request_setting: Any, session_setting: Any, dict_class: type = OrderedDict
+ 78| ) -> Any:
+108| def merge_hooks(
+109|     request_hooks: _t.HooksType,
+110|     session_hooks: _t.HooksType,
+111|     dict_class: type = OrderedDict,
+112| ) -> _t.HooksType:
+127| class SessionRedirectMixin:
+132|     def send(self, request: PreparedRequest, **kwargs: Any) -> Response: ...
+134|     def get_redirect_target(self, resp: Response) -> str | None:
+154|     def should_strip_auth(self, old_url: str, new_url: str) -> bool:
+186|     def resolve_redirects(
+187|         self,
+188|         resp: Response,
+189|         req: PreparedRequest,
+190|         stream: bool = False,
+191|         timeout: _t.TimeoutType = None,
+192|         verify: _t.VerifyType = True,
+193|       
+
+... [truncated 2395 chars] ...
+
+riType, data: _t.DataType = None, **kwargs: Unpack[_t.DataKwargs]
+730|     ) -> Response:
+742|     def delete(self, url: _t.UriType, **kwargs: Unpack[_t.RequestKwargs]) -> Response:
+752|     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+831|     def merge_environment_settings(
+832|         self,
+833|         url: str,
+834|         proxies: dict[str, str] | None,
+835|         stream: bool | None,
+836|         verify: _t.VerifyType | None,
+837|         cert: _t.CertType,
+838|     ) -> dict[str, Any]:
+870|     def get_adapter(self, url: str) -> BaseAdapter:
+883|     def close(self) -> None:
+888|     def mount(self, prefix: str, adapter: BaseAdapter) -> None:
+899|     def __getstate__(self) -> dict[str, Any]:
+903|     def __setstate__(self, state: dict[str, Any]) -> None:
+908| def session() -> Session:

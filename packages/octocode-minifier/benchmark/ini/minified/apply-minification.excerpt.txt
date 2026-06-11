@@ -1,0 +1,72 @@
+[tox]
+requires =
+    tox >= 4
+envlist =
+    linting
+    py310
+    py311
+    py312
+    py313
+    py314
+    py315
+    pypy3
+    py310-{pexpect,xdist,twisted24,twisted25,asynctest,numpy,pluggymain,pylib}
+    doctesting
+    doctesting-coverage
+    plugins
+    py310-freeze
+    docs
+    docs-checklinks
+
+    py311-exceptiongroup
+
+[pkgenv]
+
+pass_env =
+  SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST
+
+[testenv]
+description =
+    run the tests
+    coverage: collecting coverage
+    exceptiongroup: against `exceptiongroup`
+    nobyte: in no-bytecode mode
+    lsof: with `--lsof` pytest CLI option
+    numpy: against `numpy`
+    pexpect: against `pexpect`
+    pluggymain: against the bleeding edge `pluggy` from Git
+    pylib: against `py` lib
+    twisted24: against the unit test extras with twisted prior to 24.0
+    twisted25: against the unit test extras with twisted 25.0 or later
+    asynctest: against the unit test extras with asynctest
+    xdist: with pytest in parallel mode
+    under `{basepython}`
+    doctesting: including doctests
+commands =
+    {env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:{env:_PYTEST_TOX_DEFAULT_POSARGS:}}
+    doctesting: {env:_PYTEST_TOX_COVERAGE_RUN:} pytest --doctest-modules {env:_PYTEST_TOX_PO
+
+... [truncated 3946 chars] ...
+
+elease]passenv}
+deps = {[testenv:release]deps}
+commands = python scripts/prepare-release-pr.py {posargs}
+
+[testenv:generate-gh-release-notes]
+description = generate release notes that can be published as GitHub Release
+usedevelop = True
+deps =
+    pypandoc_binary
+commands = python scripts/generate-gh-release-notes.py {posargs}
+
+[testenv:update-plugin-list]
+description = update the plugin list
+skip_install = True
+deps =
+    packaging
+    requests
+    tabulate[widechars]
+    tqdm
+    requests-cache
+    platformdirs
+commands = python scripts/update-plugin-list.py {posargs}

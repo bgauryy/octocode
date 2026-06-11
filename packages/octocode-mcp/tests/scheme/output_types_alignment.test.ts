@@ -48,7 +48,6 @@ import type {
   RipgrepFileMatches,
   RipgrepMatch,
   ViewStructureResult,
-  LspDiagnosticsQuery,
   LspGetSemanticContentQuery,
   SemanticContentType,
   PackageSearchResult,
@@ -56,7 +55,7 @@ import type {
 } from '../../src/public.js';
 
 describe('Output type alignment', () => {
-  it('derives GitHub tool output aliases from the output schemas', () => {
+  it('derives GitHub tool output types from the output schemas', () => {
     expectTypeOf<ContentResultData>().toEqualTypeOf<GitHubFileContentData>();
     expectTypeOf<ContentResult>().toEqualTypeOf<GitHubFetchContentToolResult>();
     expectTypeOf<GitHubDirectoryFileEntry>().toEqualTypeOf<{
@@ -102,7 +101,7 @@ describe('Output type alignment', () => {
     >();
   });
 
-  it('derives local tool output aliases from the output schemas', () => {
+  it('derives local tool output types from the output schemas', () => {
     expectTypeOf<FetchContentResult>().toEqualTypeOf<LocalGetFileContentToolResult>();
 
     expectTypeOf<FoundFile>().toEqualTypeOf<LocalFindFilesEntry>();
@@ -127,7 +126,7 @@ describe('Output type alignment', () => {
     expectTypeOf<ViewStructureResult>().toEqualTypeOf<LocalViewStructureToolResult>();
   });
 
-  it('exports current LSP semantic query aliases', () => {
+  it('exports current LSP semantic query types', () => {
     expectTypeOf<SemanticContentType>().toEqualTypeOf<
       | 'definition'
       | 'references'
@@ -142,12 +141,9 @@ describe('Output type alignment', () => {
     expectTypeOf<
       LspGetSemanticContentQuery['type']
     >().toEqualTypeOf<SemanticContentType>();
-    expectTypeOf<LspDiagnosticsQuery['severity']>().toEqualTypeOf<
-      'error' | 'warning' | 'information' | 'hint' | 'all' | undefined
-    >();
   });
 
-  it('derives package output aliases from the output schemas', () => {
+  it('derives package output types from the output schemas', () => {
     expectTypeOf<PackageResultWithRepo>().toEqualTypeOf<PackageItem>();
     expectTypeOf<PackageSearchResult>().toEqualTypeOf<PackageSearchData>();
     expectTypeOf<PackageSearchResult['packages']>().toEqualTypeOf<

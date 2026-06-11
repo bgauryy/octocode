@@ -7,11 +7,9 @@ import {
   spawnWithTimeout,
   TOOLING_ALLOWED_ENV_VARS,
 } from '../../utils/exec/spawn.js';
-import type { z } from 'zod';
-import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
+import type { CloneRepoQueryLocalSchema } from './scheme.js';
+import type { z } from 'zod';
 import type { CloneRepoResult } from './types.js';
 import {
   getCloneDir,
@@ -33,13 +31,13 @@ const GIT_ALLOWED_ENV_VARS = [
 ] as const;
 
 export async function cloneRepo(
-  query: WithOptionalMeta<CloneRepoQuery>,
+  query: WithOptionalMeta<z.infer<typeof CloneRepoQueryLocalSchema>>,
   authInfo?: AuthInfo,
   token?: string
 ): Promise<CloneRepoResult> {
   const owner = query.owner!;
   const repo = query.repo!;
-  const { sparse_path, forceRefresh } = query;
+  const { sparsePath, forceRefresh } = query;
 
   await assertGitAvailable();
 
@@ -47,7 +45,7 @@ export async function cloneRepo(
     query.branch ?? (await resolveDefaultBranch(owner, repo, authInfo));
 
   const octocodeDir = getOctocodeDir();
-  const cloneDir = getCloneDir(octocodeDir, owner, repo, branch, sparse_path);
+  const cloneDir = getCloneDir(octocodeDir, owner, repo, branch, sparsePath);
 
   const cacheResult = isCacheHit(cloneDir);
   if (!forceRefresh && cacheResult.hit && cacheResult.meta.source === 'clone') {
@@ -57,7 +55,7 @@ export async function cloneRepo(
       owner,
       repo,
       branch,
-      ...(sparse_path ? { sparse_path } : {}),
+      ...(sparsePath ? { sparsePath } : {}),
     };
   }
 
@@ -67,30 +65,30 @@ export async function cloneRepo(
 
   const resolvedToken = pickToken(authInfo, token);
 
-  if (sparse_path) {
+  if (sparsePath) {
     await executeSparseClone(
       owner,
       repo,
       branch,
       cloneDir,
-      sparse_path,
+      sparsePath,
       resolvedToken
     );
     // git sparse-checkout "succeeds" for nonexistent paths — the clone just
     // silently lacks the requested directory. Verify it actually materialized
     // so the agent gets an error instead of a false answerReady:true.
-    if (!existsSync(join(cloneDir, sparse_path))) {
+    if (!existsSync(join(cloneDir, sparsePath))) {
       removeCloneDir(cloneDir); // don't cache a clone missing its sparse dir
       throw new Error(
-        `sparse_path "${sparse_path}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
-          'Verify the directory path with githubViewRepoStructure, then retry with the correct sparse_path (or omit it for a full clone).'
+        `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
+          'Verify the directory path with githubViewRepoStructure, then retry with the correct sparsePath (or omit it for a full clone).'
       );
     }
   } else {
     await executeFullClone(owner, repo, branch, cloneDir, resolvedToken);
   }
 
-  const newMeta = createCacheMeta(owner, repo, branch, 'clone', sparse_path);
+  const newMeta = createCacheMeta(owner, repo, branch, 'clone', sparsePath);
   writeCacheMeta(cloneDir, newMeta);
 
   return {
@@ -99,7 +97,7 @@ export async function cloneRepo(
     owner,
     repo,
     branch,
-    ...(sparse_path ? { sparse_path } : {}),
+    ...(sparsePath ? { sparsePath } : {}),
   };
 }
 

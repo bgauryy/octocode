@@ -1,0 +1,49 @@
+{
+  "ext": "toml",
+  "language": "TOML",
+  "source": "toml/rust-cargo.toml",
+  "sourceBytes": 3039,
+  "strategy": "conservative",
+  "commentModel": "hash",
+  "sha256": "d77ef539b48dad3cba76b8d17badf7b5c7ebdbd6ca2b42e52b206e9d03c9fe39",
+  "contentView": {
+    "bytes": 1881,
+    "cutPercent": 38.1,
+    "durationMs": 0.115
+  },
+  "applyMinification": {
+    "bytes": 1881,
+    "cutPercent": 38.1,
+    "durationMs": 0.108
+  },
+  "sync": {
+    "bytes": 1881,
+    "cutPercent": 38.1,
+    "durationMs": 0.108
+  },
+  "async": {
+    "bytes": 1881,
+    "cutPercent": 38.1,
+    "durationMs": 0.113,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.001
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": null,
+    "agent": 8.5,
+    "label": "strong"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

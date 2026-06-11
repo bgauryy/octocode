@@ -26,10 +26,10 @@ export type AnchorResolutionResult<T> =
   | { ok: false; error: Record<string, unknown> };
 
 export async function resolveFileAnchor(
-  query: { uri?: string; filePath?: string },
+  query: { uri?: string },
   toolName: string
 ): Promise<AnchorResolutionResult<FileAnchor>> {
-  const uri = query.uri ?? query.filePath;
+  const uri = query.uri;
   const pathValidation = validateToolPath({ ...query, path: uri }, toolName);
   if (!pathValidation.isValid) {
     return {

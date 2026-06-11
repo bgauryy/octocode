@@ -1,0 +1,49 @@
+{
+  "ext": "pm",
+  "language": "Perl Module",
+  "source": "pm/perl-strict.pm",
+  "sourceBytes": 5491,
+  "strategy": "aggressive",
+  "commentModel": "hash",
+  "sha256": "0872f18b118ef3a8b4a77449d43c16b98e6dbfd0c58b5ea310736d91b557d62e",
+  "contentView": {
+    "bytes": 5005,
+    "cutPercent": 8.9,
+    "durationMs": 0.944
+  },
+  "applyMinification": {
+    "bytes": 4387,
+    "cutPercent": 20.1,
+    "durationMs": 0.658
+  },
+  "sync": {
+    "bytes": 4387,
+    "cutPercent": 20.1,
+    "durationMs": 1.095
+  },
+  "async": {
+    "bytes": 4387,
+    "cutPercent": 20.1,
+    "durationMs": 0.607,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.007
+  },
+  "ratings": {
+    "minify": 7.8,
+    "symbols": null,
+    "agent": 7.8,
+    "label": "good"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

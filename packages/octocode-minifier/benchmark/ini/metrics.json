@@ -1,0 +1,52 @@
+{
+  "ext": "ini",
+  "language": "INI",
+  "source": "ini/pytest-tox.ini",
+  "sourceBytes": 7518,
+  "strategy": "conservative",
+  "commentModel": [
+    "hash",
+    "semicolon"
+  ],
+  "sha256": "cfec44f3d81d294668de27a055a756c744686968ff5d22e184a9c44c4d2a6f62",
+  "contentView": {
+    "bytes": 5746,
+    "cutPercent": 23.6,
+    "durationMs": 3.435
+  },
+  "applyMinification": {
+    "bytes": 5746,
+    "cutPercent": 23.6,
+    "durationMs": 2.857
+  },
+  "sync": {
+    "bytes": 5746,
+    "cutPercent": 23.6,
+    "durationMs": 2.825
+  },
+  "async": {
+    "bytes": 5746,
+    "cutPercent": 23.6,
+    "durationMs": 2.497,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.01
+  },
+  "ratings": {
+    "minify": 7.8,
+    "symbols": null,
+    "agent": 7.8,
+    "label": "good"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

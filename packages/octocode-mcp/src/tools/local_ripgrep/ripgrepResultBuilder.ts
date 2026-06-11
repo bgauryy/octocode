@@ -1,14 +1,9 @@
-import type { z } from 'zod';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 
-type UpstreamRipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import type { SearchStats } from '../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
-import { compareIsoDateDescending } from '../../utils/core/compare.js';
-import { promises as fs } from 'fs';
-type RipgrepQuery = UpstreamRipgrepQuery;
+import type { RipgrepQuery } from './scheme.js';
 
 export async function buildSearchResult(
   parsedFiles: LocalSearchCodeFile[],
@@ -17,17 +12,7 @@ export async function buildSearchResult(
   warnings: string[],
   stats?: SearchStats
 ): Promise<LocalSearchCodeToolResult> {
-  const filesWithCharOffsets = parsedFiles;
-
-  const filesWithMetadata = await Promise.all(
-    filesWithCharOffsets.map(async f => {
-      const file: typeof f & { modified?: string } = { ...f };
-      if (configuredQuery.showFileLastModified) {
-        file.modified = await getFileModifiedTime(f.path);
-      }
-      return file;
-    })
-  );
+  const filesWithMetadata = parsedFiles;
 
   filesWithMetadata.sort((a, b) =>
     compareRipgrepFilesByRelevance(a, b, configuredQuery)
@@ -50,7 +35,7 @@ export async function buildSearchResult(
     configuredQuery.filesOnly || configuredQuery.filesWithoutMatch
   );
   const isCountMode = Boolean(
-    configuredQuery.count || configuredQuery.countMatches
+    configuredQuery.countLinesPerFile || configuredQuery.countMatchesPerFile
   );
   const isFileListMode = isPathListMode || isCountMode;
   const summedMatches = limitedFiles.reduce(
@@ -64,26 +49,23 @@ export async function buildSearchResult(
 
   const aligned = configuredQuery as {
     itemsPerPage?: number;
-    matchesPerFile?: number;
     maxMatchesPerFile?: number;
     matchPage?: number;
     page?: number;
   };
   const filesPerPage =
     aligned.itemsPerPage || RESOURCE_LIMITS.DEFAULT_FILES_PER_PAGE;
-  const filePageNumber = aligned.page || 1;
+  const currentPage = aligned.page || 1;
   const totalFilePages = Math.ceil(totalFiles / filesPerPage);
-  const startIdx = (filePageNumber - 1) * filesPerPage;
+  const startIdx = (currentPage - 1) * filesPerPage;
   const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
   const paginatedFiles = limitedFiles.slice(startIdx, endIdx);
 
   const matchesPerPage =
-    aligned.maxMatchesPerFile ||
-    aligned.matchesPerFile ||
-    RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
+    aligned.maxMatchesPerFile || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
 
   const finalFiles: LocalSearchCodeFile[] = paginatedFiles.map(
-    (file: LocalSearchCodeFile & { modified?: string }) => {
+    (file: LocalSearchCodeFile) => {
       const totalFileMatches = file.matches?.length ?? 0;
       const totalMatchPages = Math.ceil(totalFileMatches / matchesPerPage);
       const matchPage = Math.max(1, aligned.matchPage || 1);
@@ -118,21 +100,18 @@ export async function buildSearchResult(
               }
             : undefined,
       } as LocalSearchCodeFile;
-      if (configuredQuery.showFileLastModified && file.modified) {
-        result.modified = file.modified;
-      }
       return result;
     }
   );
 
   const paginationHints: string[] =
-    filePageNumber < totalFilePages
+    currentPage < totalFilePages
       ? [
-          `Page ${filePageNumber}/${totalFilePages} (${finalFiles.length} of ${totalFiles} files${isPathListMode ? '' : `, ${totalMatches} matches`}). Next: page=${filePageNumber + 1}`,
+          `Page ${currentPage}/${totalFilePages} (${finalFiles.length} of ${totalFiles} files${isPathListMode ? '' : `, ${totalMatches} matches`}). Next: page=${currentPage + 1}`,
         ]
-      : totalFilePages > 0 && filePageNumber > totalFilePages
+      : totalFilePages > 0 && currentPage > totalFilePages
         ? [
-            `Page ${filePageNumber} is outside range (1–${totalFilePages}). Use page=${totalFilePages}.`,
+            `Page ${currentPage} is outside range (1–${totalFilePages}). Use page=${totalFilePages}.`,
           ]
         : [];
 
@@ -169,8 +148,8 @@ export async function buildSearchResult(
   if (Array.isArray(excludeDir) && excludeDir.length > 0) {
     activeFilters.push(`excludeDir: ${excludeDir.join(', ')}`);
   }
-  const fileType = (q.type ?? q.langType) as string | undefined;
-  if (fileType) activeFilters.push(`type: ${fileType}`);
+  const fileType = q.langType as string | undefined;
+  if (fileType) activeFilters.push(`langType: ${fileType}`);
   if (q.caseSensitive) activeFilters.push('case-sensitive');
   if (q.wholeWord) activeFilters.push('whole-word');
   if (activeFilters.length > 0) {
@@ -180,20 +159,26 @@ export async function buildSearchResult(
   const fullResult: LocalSearchCodeToolResult = {
     files: finalFiles,
     pagination: {
-      currentPage: filePageNumber,
+      currentPage,
       totalPages: totalFilePages,
       filesPerPage,
       totalFiles,
       // Omitted in filesOnly/discovery mode — rg -l reports no match counts.
       ...(isPathListMode ? {} : { totalMatches }),
-      hasMore: filePageNumber < totalFilePages,
+      hasMore: currentPage < totalFilePages,
       ...(wasLimited ? { totalFilesFound: filesWithMetadata.length } : {}),
     },
     ...(warnings.length > 0 ? { warnings } : {}),
     hints: [
       ...(totalFiles > 0 && !isFileListMode
         ? [
+            'Use localGetFileContent with the returned path and line numbers to read surrounding code.',
             'Pass line numbers as lineHint to lspGetSemanticContent for definitions, references, or call flow.',
+          ]
+        : []),
+      ...(totalFiles > 0 && isFileListMode
+        ? [
+            'Use localGetFileContent to read listed files, or rerun localSearchCode without filesOnly/count mode for matched snippets.',
           ]
         : []),
       ...paginationHints,
@@ -224,7 +209,8 @@ function _getStructuredResultSizeHints(
 
   if (totalMatches > 100 || files.length > 20) {
     const recoveries: string[] = [];
-    if (!query.type && !query.include) recoveries.push('add type or include');
+    if (!query.langType && !query.include)
+      recoveries.push('add langType or include');
     if (!query.excludeDir?.length) recoveries.push('add excludeDir');
     if (query.pattern.length < 5) recoveries.push('lengthen pattern');
     if (recoveries.length > 0) {
@@ -237,29 +223,13 @@ function _getStructuredResultSizeHints(
   return hints;
 }
 
-async function getFileModifiedTime(
-  filePath: string
-): Promise<string | undefined> {
-  try {
-    const stats = await fs.stat(filePath);
-    return stats.mtime.toISOString();
-  } catch {
-    return undefined;
-  }
-}
-
 function compareRipgrepFilesByRelevance(
-  a: LocalSearchCodeFile & { modified?: string },
-  b: LocalSearchCodeFile & { modified?: string },
-  query: RipgrepQuery
+  a: LocalSearchCodeFile,
+  b: LocalSearchCodeFile,
+  _query: RipgrepQuery
 ): number {
   const matchDelta = (b.matchCount ?? 0) - (a.matchCount ?? 0);
   if (matchDelta !== 0) return matchDelta;
-
-  if (query.showFileLastModified) {
-    const modifiedDelta = compareIsoDateDescending(a.modified, b.modified);
-    if (modifiedDelta !== 0) return modifiedDelta;
-  }
 
   return a.path.localeCompare(b.path);
 }

@@ -50,13 +50,6 @@ export function buildInitializeParams(
       callHierarchy: {
         dynamicRegistration: true,
       },
-      diagnostic: {
-        dynamicRegistration: true,
-        relatedDocumentSupport: true,
-      },
-      publishDiagnostics: {
-        relatedInformation: true,
-      },
     },
     workspace: {
       workspaceFolders: true,

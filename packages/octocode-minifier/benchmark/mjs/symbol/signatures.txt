@@ -1,0 +1,9 @@
+ 3| import eslint from "@eslint/js";
+ 4| import tseslint from "typescript-eslint";
+ 5| import stylistic from "@stylistic/eslint-plugin";
+ 7| export default tseslint.config(
+ 8|   eslint.configs.recommended,
+ 9|   ...tseslint.configs.recommended,
+10|   {
+13|   {
+54| );

@@ -22,7 +22,12 @@ import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
 
-const RAW_API_DEFAULT_LIMIT = 30;
+import {
+  GITHUB_SEARCH_DEFAULT_LIMIT,
+  GITHUB_SEARCH_MAX_LIMIT,
+} from '../config.js';
+
+const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
 
 interface RepoSearchPagination {
   currentPage: number;
@@ -91,7 +96,10 @@ async function listGitHubOrgReposAPIInternal(
   },
   octokit: Awaited<ReturnType<typeof getOctokit>>
 ): Promise<GitHubAPIResponse<RepoSearchAPIData>> {
-  const perPage = Math.min(params.limit || 100, 100);
+  const perPage = Math.min(
+    params.limit || GITHUB_SEARCH_MAX_LIMIT,
+    GITHUB_SEARCH_MAX_LIMIT
+  );
   const currentPage = params.page || 1;
 
   // Accepted sort values differ between org and user listing endpoints.
@@ -230,7 +238,10 @@ async function searchGitHubReposAPIInternal(
       };
     }
 
-    const perPage = Math.min(params.limit || RAW_API_DEFAULT_LIMIT, 100);
+    const perPage = Math.min(
+      params.limit || RAW_API_DEFAULT_LIMIT,
+      GITHUB_SEARCH_MAX_LIMIT
+    );
     const currentPage = params.page || 1;
 
     const searchParams: SearchReposParameters = {
@@ -302,7 +313,10 @@ async function searchGitHubReposAPIInternal(
     };
   } catch (error: unknown) {
     if (isNoResultsSearchError(error)) {
-      const perPage = Math.min(params.limit || RAW_API_DEFAULT_LIMIT, 100);
+      const perPage = Math.min(
+        params.limit || RAW_API_DEFAULT_LIMIT,
+        GITHUB_SEARCH_MAX_LIMIT
+      );
       return {
         data: {
           repositories: [],

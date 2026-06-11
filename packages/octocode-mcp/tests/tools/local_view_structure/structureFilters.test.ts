@@ -90,8 +90,8 @@ describe('structureFilters - applyEntryFilters', () => {
     });
   });
 
-  describe('line 126: query.extension filter', () => {
-    it('should filter by extension when query.extension is set', () => {
+  describe('line 126: query.extensions filter', () => {
+    it('should filter by extension when query.extensions is set', () => {
       const entries: DirectoryEntry[] = [
         { name: 'foo.ts', type: 'file', extension: 'ts' },
         { name: 'bar.js', type: 'file', extension: 'js' },
@@ -100,7 +100,7 @@ describe('structureFilters - applyEntryFilters', () => {
 
       const filtered = applyEntryFilters(entries, {
         ...baseQuery,
-        extension: 'ts',
+        extensions: ['ts'],
       });
 
       expect(filtered).toHaveLength(2);

@@ -74,9 +74,11 @@ describe('FindCommandBuilder', () => {
       expect(args).toContain('2');
     });
 
-    it('should handle type filter', () => {
+    it('should handle entryType filter', () => {
       const builder = new FindCommandBuilder();
-      const { args } = builder.fromQuery({ path: '/test', type: 'f' }).build();
+      const { args } = builder
+        .fromQuery({ path: '/test', entryType: 'f' })
+        .build();
 
       expect(args).toContain('-type');
       expect(args).toContain('f');
@@ -115,16 +117,6 @@ describe('FindCommandBuilder', () => {
       expect(args).toContain('-name');
       expect(args).toContain('*.ts');
       expect(args).not.toContain('(');
-    });
-
-    it('should handle iname (case-insensitive)', () => {
-      const builder = new FindCommandBuilder();
-      const { args } = builder
-        .fromQuery({ path: '/test', iname: 'README*' })
-        .build();
-
-      expect(args).toContain('-iname');
-      expect(args).toContain('README*');
     });
 
     it('should handle pathPattern', () => {
@@ -424,9 +416,9 @@ describe('FindCommandBuilder', () => {
   });
 
   describe('chainable methods', () => {
-    it('should chain type method', () => {
+    it('should chain entryType method', () => {
       const builder = new FindCommandBuilder();
-      const { args } = builder.path('/test').type('d').build();
+      const { args } = builder.path('/test').entryType('d').build();
 
       expect(args).toContain('-type');
       expect(args).toContain('d');
@@ -438,14 +430,6 @@ describe('FindCommandBuilder', () => {
 
       expect(args).toContain('-name');
       expect(args).toContain('*.ts');
-    });
-
-    it('should chain iname method', () => {
-      const builder = new FindCommandBuilder();
-      const { args } = builder.path('/test').iname('readme*').build();
-
-      expect(args).toContain('-iname');
-      expect(args).toContain('readme*');
     });
 
     it('should chain maxDepth method', () => {
@@ -706,12 +690,12 @@ describe('FindCommandBuilder', () => {
   });
 
   describe('command structure with excludeDir (BUG-002 fix)', () => {
-    it('should place type filter AFTER prune when excludeDir is used', () => {
+    it('should place entryType filter AFTER prune when excludeDir is used', () => {
       const builder = new FindCommandBuilder();
       const { args } = builder
         .fromQuery({
           path: '/test',
-          type: 'f',
+          entryType: 'f',
           excludeDir: ['node_modules'],
         })
         .build();
@@ -749,7 +733,7 @@ describe('FindCommandBuilder', () => {
       const { args } = builder
         .fromQuery({
           path: '/test',
-          type: 'f',
+          entryType: 'f',
           name: '*.ts',
           excludeDir: ['node_modules'],
         })
@@ -767,7 +751,7 @@ describe('FindCommandBuilder', () => {
       const { args } = builder
         .fromQuery({
           path: '/test',
-          type: 'f',
+          entryType: 'f',
           names: ['*.json', '*.md'],
           excludeDir: ['node_modules', 'coverage', 'dist'],
           maxDepth: 5,

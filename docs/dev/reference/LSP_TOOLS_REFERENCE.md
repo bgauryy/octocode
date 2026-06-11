@@ -2,12 +2,11 @@
 
 This is the canonical reference for Octocode's public Language Server Protocol tools.
 
-Octocode exposes **two** public LSP tools:
+Octocode exposes **one** public LSP tool:
 
 | Tool | Use it for |
 |------|------------|
 | `lspGetSemanticContent` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
-| `lspGetDiagnostics` | File diagnostics from the active language server. |
 
 LSP tools are local-only. They require `ENABLE_LOCAL=true` and a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`.
 
@@ -16,8 +15,7 @@ LSP tools are local-only. They require `ENABLE_LOCAL=true` and a file that exist
 1. Search textually with `localSearchCode` and capture the exact `lineHint`.
 2. Query `lspGetSemanticContent` with `uri`, `type`, `symbolName`, and `lineHint`.
 3. Page large symbol or call-flow results with `page` and `itemsPerPage`.
-4. Run `lspGetDiagnostics` on impacted files after edits.
-5. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
+4. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
 
 ## `lspGetSemanticContent`
 
@@ -73,36 +71,6 @@ All semantic responses use this envelope:
 | `hints` | Suggested next steps. |
 
 Call-flow payloads are compact by default. Each call includes the target item, sampled call ranges, `rangeCount`, and `rangeSampleCount`. Use `contextLines>0` only when source previews are useful.
-
-## `lspGetDiagnostics`
-
-Required fields:
-
-| Field | Required | Notes |
-|-------|----------|-------|
-| `uri` or `filePath` | Yes | Absolute local file path. |
-
-Optional fields:
-
-| Field | Notes |
-|-------|-------|
-| `workspaceRoot` | Overrides automatic project-root detection. |
-| `severity` | `error`, `warning`, `information`, `hint`, or `all`. Defaults to `all`. |
-| `source` | Filters diagnostics by source, such as `typescript` or `eslint`. |
-
-Response shape:
-
-| Field | Meaning |
-|-------|---------|
-| `uri` | Resolved local file path. |
-| `lsp.serverAvailable` | Whether a language server was available. |
-| `lsp.source` | `push`, `pull`, or `unavailable`. |
-| `diagnostics[]` | Range, severity, message, source, code, and related information. |
-| `summary` | Counts by severity. |
-| `warnings` | Missing diagnostics-source explanations. |
-| `hints` | Verification guidance. |
-
-Diagnostics wait for push diagnostics by default. The default settle window is `3000ms`; override it with `OCTOCODE_LSP_DIAGNOSTIC_SETTLE_MS`.
 
 ## Root Selection
 

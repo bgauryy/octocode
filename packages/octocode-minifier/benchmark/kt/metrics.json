@@ -1,0 +1,48 @@
+{
+  "ext": "kt",
+  "language": "Kotlin",
+  "source": "kt/Collections.kt",
+  "sourceBytes": 20559,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "593761df94aa0729ab64a88d20638f6aebc59c2778b0d936cf16462dbd8e375a",
+  "contentView": {
+    "bytes": 10457,
+    "cutPercent": 49.1,
+    "durationMs": 2.492
+  },
+  "applyMinification": {
+    "bytes": 10457,
+    "cutPercent": 49.1,
+    "durationMs": 1.986
+  },
+  "sync": {
+    "bytes": 10457,
+    "cutPercent": 49.1,
+    "durationMs": 1.785
+  },
+  "async": {
+    "bytes": 10457,
+    "cutPercent": 49.1,
+    "durationMs": 2.25,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 4690,
+    "cutPercent": 77.2,
+    "durationMs": 0.163
+  },
+  "ratings": {
+    "minify": 9,
+    "symbols": 9,
+    "agent": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

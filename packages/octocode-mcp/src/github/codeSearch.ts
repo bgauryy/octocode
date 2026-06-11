@@ -24,7 +24,12 @@ import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
 
-const RAW_API_DEFAULT_LIMIT = 30;
+import {
+  GITHUB_SEARCH_DEFAULT_LIMIT,
+  GITHUB_SEARCH_MAX_LIMIT,
+} from '../config.js';
+
+const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
 
 export async function searchGitHubCodeAPI(
   params: WithOptionalMeta<GitHubCodeSearchQuery>,
@@ -103,7 +108,7 @@ async function searchGitHubCodeAPIInternal(
 
     const perPage = Math.min(
       typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
-      100
+      GITHUB_SEARCH_MAX_LIMIT
     );
     const currentPage = params.page || 1;
 
@@ -151,7 +156,7 @@ async function searchGitHubCodeAPIInternal(
     if (isNoResultsSearchError(error)) {
       const perPage = Math.min(
         typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
-        100
+        GITHUB_SEARCH_MAX_LIMIT
       );
       return {
         data: {

@@ -1,5 +1,6 @@
 
 export {
+  executeCloneRepo as githubCloneRepo,
   fetchMultipleGitHubFileContents as githubGetFileContent,
   searchMultipleGitHubCode as githubSearchCode,
   searchMultipleGitHubPullRequests as githubSearchPullRequests,
@@ -18,7 +19,6 @@ export {
 
 export {
   executeLspGetSemanticContent as lspGetSemanticContent,
-  executeLspGetDiagnostics as lspGetDiagnostics,
 } from 'octocode-mcp/public';
 
 

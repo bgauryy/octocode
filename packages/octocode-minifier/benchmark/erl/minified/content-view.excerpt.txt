@@ -1,0 +1,58 @@
+-module(lists).
+-moduledoc """
+List processing functions.
+
+This module contains functions for list processing.
+
+Unless otherwise stated, all functions assume that position numbering starts
+at 1. That is, the first element of a list is at position 1.
+
+Two terms `T1` and `T2` compare equal if `T1 == T2` evaluates to `true`. They
+match if `T1 =:= T2` evaluates to `true`.
+
+Whenever an _ordering function_{: #ordering_function } `F` is expected as
+argument, it is assumed that the following properties hold of `F` for all x, y,
+and z:
+
+- If x `F` y and y `F` x, then x = y (`F` is antisymmetric).
+- If x `F` y and y `F` z, then x `F` z (`F` is transitive).
+- x `F` y or y `F` x (`F` is total).
+
+An example of a typical ordering function is less than or equal to: `=</2`.
+""".
+
+-compile({no_auto_import,[max/2]}).
+-compile({no_auto_import,[min/2]}).
+
+-export([keyfind/3, keymember/3, keysearch/3, member/2, reverse/2]).
+
+-export([append/1, append/2, concat/1,
+         delete/2, droplast/1, duplicate/2,
+         enumerate/1, enumerate/2, enumerate/3,
+         flatlength/1, flatten/1, flatten/2,
+         join/2, last/1, min/1, max/1,
+         nth/2, nthtail/2,
+         prefix/2, reverse/1, seq/2, seq/3,
+         split/2, su
+
+... [truncated 114371 chars] ...
+
+2_2(H1, T1, Fun, [H2 | T2], M, H2M) ->
+    case Fun(H1, H2) of
+        true ->
+            rufmerge2_2(H1, T1, Fun, T2, [H2M | M], H2);
+        false ->
+            case Fun(H2M, H1) of
+                true ->
+                    rufmerge2_1(T1, H2, Fun, T2, [H1 | M]);
+                false ->
+                    rufmerge2_1(T1, H2, Fun, T2, [H1, H2M | M])
+            end
+    end;
+rufmerge2_2(H1, T1, Fun, [], M, H2M) ->
+    case Fun(H2M, H1) of
+        true ->
+            lists:reverse(T1, [H1 | M]);
+        false ->
+            lists:reverse(T1, [H1, H2M | M])
+    end.

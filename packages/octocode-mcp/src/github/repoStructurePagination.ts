@@ -20,11 +20,11 @@ export function applyStructurePagination(
   }
 
   const entriesPerPage =
-    params.entriesPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
-  const entryPageNumber = params.entryPageNumber ?? 1;
+    params.itemsPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
+  const currentPage = params.page ?? 1;
   const totalEntries = cachedItems.length;
   const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-  const startIdx = (entryPageNumber - 1) * entriesPerPage;
+  const startIdx = (currentPage - 1) * entriesPerPage;
   const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
 
   const paginatedItems = cachedItems.slice(startIdx, endIdx);
@@ -98,9 +98,9 @@ export function applyStructurePagination(
   const allFiles = cachedItems.filter(i => i.type === 'file').length;
   const allFolders = cachedItems.filter(i => i.type === 'dir').length;
 
-  const hasMore = entryPageNumber < totalPages;
+  const hasMore = currentPage < totalPages;
   const paginationInfo = {
-    currentPage: entryPageNumber,
+    currentPage,
     totalPages,
     hasMore,
     entriesPerPage,

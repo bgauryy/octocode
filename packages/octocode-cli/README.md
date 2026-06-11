@@ -57,7 +57,7 @@ octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
 
 ---
 
-## The 13 Tools
+## The 12 Tools
 
 Call any tool directly from the terminal. Great for scripts, pipelines, and one-off queries. No MCP server required.
 
@@ -74,7 +74,6 @@ Call any tool directly from the terminal. Great for scripts, pipelines, and one-
 | | `localGetFileContent` | Read local file content |
 | | `localViewStructure` | View a local directory tree |
 | **LSP** | `lspGetSemanticContent` | Definitions, references, call flow, hover, symbols, type definitions, implementations |
-| | `lspGetDiagnostics` | File diagnostics from the language server |
 | **Package** | `packageSearch` | Resolve an npm package to its source repo + metadata |
 
 ```bash

@@ -4,7 +4,7 @@ This playbook verifies that every Octocode MCP tool works as a research tool, no
 
 ## Source Of Truth
 
-The active MCP tool catalog is defined in [packages/octocode-mcp/src/tools/toolConfig.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/toolConfig.ts). The public local and remote schema overlays live in [packages/octocode-mcp/src/scheme/localSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/localSchemaOverlay.ts) and [packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/remoteSchemaOverlay.ts); LSP schemas live with the tools in [packages/octocode-mcp/src/tools/lsp/semantic_content/scheme.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/lsp/semantic_content/scheme.ts) and [packages/octocode-mcp/src/tools/lsp/diagnostics/scheme.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/lsp/diagnostics/scheme.ts).
+The active MCP tool catalog is defined in [packages/octocode-mcp/src/tools/toolConfig.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/toolConfig.ts). Local schema helpers live in [packages/octocode-mcp/src/scheme/localSchemaOverlay.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/localSchemaOverlay.ts); each GitHub/package/LSP tool owns its independent `scheme.ts` beside the tool implementation, for example [packages/octocode-mcp/src/tools/github_search_pull_requests/scheme.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/github_search_pull_requests/scheme.ts) and [packages/octocode-mcp/src/tools/lsp/semantic_content/scheme.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/tools/lsp/semantic_content/scheme.ts).
 
 Response behavior is shared through [packages/octocode-mcp/src/utils/response/bulk.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/bulk.ts), [packages/octocode-mcp/src/utils/response/structuredPagination.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/response/structuredPagination.ts), [packages/octocode-mcp/src/utils/pagination/hints.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/utils/pagination/hints.ts), and [packages/octocode-mcp/src/scheme/responseEnvelope.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-mcp/src/scheme/responseEnvelope.ts).
 
@@ -203,17 +203,6 @@ Primary code: [src/tools/lsp/semantic_content/](https://github.com/bgauryy/octoc
 | Pagination | Large semantic payloads page without losing target identity. |
 | Empty | Symbol-not-found, unsupported capability, and LSP-unavailable paths are explicit. |
 | Semantic quality | Definition/reference/call/hover/symbol outputs identify URI, range, symbol identity, completeness, and static-vs-dynamic limits where applicable. |
-
-### `lspGetDiagnostics`
-
-Primary code: [src/tools/lsp/diagnostics/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp/diagnostics). Schema: `LspGetDiagnosticsQuerySchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify `uri`/`filePath`, `severity`, `source`, and response pagination. |
-| Implementation | Synchronizes the current file into the LSP document manager, uses pull diagnostics when advertised, otherwise falls back to buffered `publishDiagnostics`. |
-| Empty | Distinguishes clean files from unavailable diagnostics. |
-| Semantic quality | Diagnostics include severity, range, message, source, code, related information, and summary counts. |
 
 ## Cross-Tool Research Quality Suites
 

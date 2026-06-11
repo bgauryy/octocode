@@ -1,0 +1,61 @@
+//===--- raw_ostream.cpp - Implement the raw_ostream classes --------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This implements support for bulk buffered stream output.
+//
+//===----------------------------------------------------------------------===//
+
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/Config/config.h"
+#include "llvm/Support/AutoConvert.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Duration.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/IOSandbox.h"
+#include "llvm/Support/MathExtras.h"
+#include "llvm/Support/NativeFormatting.h"
+#include "llvm/Support/Process.h"
+#include "llvm/Support/Program.h"
+#include <algorithm>
+#include <cerrno>
+#include <cstdio>
+#include <sys/stat.h>
+
+// <fcntl.h> may provide O_BINARY.
+# include <fcntl.h>
+
+#if defined(HAVE_UNISTD
+
+... [truncated 30821 chars] ...
+
+ + ".temp-stream-%%%%%%", Mode);
+  if (!Temp)
+    return createFileError(OutputFileName, Temp.takeError());
+
+  raw_fd_ostream Out(Temp->FD, false);
+
+#if defined(__MVS__)
+  if (auto EC = llvm::copyFileTagAttributes(OutputFileName.str(), Temp->FD)) {
+    if (EC != std::errc::no_such_file_or_directory)
+      return createFileError(OutputFileName, EC);
+  }
+#endif
+
+  if (Error E = Write(Out)) {
+    if (Error DiscardError = Temp->discard())
+      return joinErrors(std::move(E), std::move(DiscardError));
+    return E;
+  }
+  Out.flush();
+
+  return Temp->keep(OutputFileName);
+}

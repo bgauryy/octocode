@@ -34,14 +34,6 @@ describe('resolveFileAnchor', () => {
     }
   });
 
-  it('resolves using filePath when uri is absent', async () => {
-    const result = await resolveFileAnchor({ filePath }, TOOL_NAME);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.absolutePath).toBe(filePath);
-    }
-  });
-
   it('returns ok:false for missing files', async () => {
     const result = await resolveFileAnchor(
       { uri: join(tempDir, 'nonexistent.ts') },
@@ -64,19 +56,6 @@ describe('resolveSymbolAnchor', () => {
   it('resolves symbol anchor with uri field', async () => {
     const result = await resolveSymbolAnchor(
       { uri: filePath, type: 'definition', symbolName: 'target', lineHint: 1 },
-      TOOL_NAME
-    );
-    expect(result.ok).toBe(true);
-  });
-
-  it('resolves symbol anchor using filePath fallback (no uri)', async () => {
-    const result = await resolveSymbolAnchor(
-      {
-        filePath,
-        type: 'definition',
-        symbolName: 'target',
-        lineHint: 1,
-      } as never,
       TOOL_NAME
     );
     expect(result.ok).toBe(true);

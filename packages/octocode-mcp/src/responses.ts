@@ -382,8 +382,6 @@ const PAGINATION_KEYS = new Set([
   'itemsPerPage',
   'entriesPerPage',
   'filesPerPage',
-  'referencesPerPage',
-  'callsPerPage',
   'totalMatches',
   'totalFiles',
   'totalEntries',

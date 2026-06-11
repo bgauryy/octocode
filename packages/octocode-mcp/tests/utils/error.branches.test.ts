@@ -157,7 +157,8 @@ describe('createErrorResult - branch coverage', () => {
       const result = createErrorResult('main error', baseQuery, {
         hintSourceError,
       });
-      const rateHints = result.hints?.filter(h => h.includes('Rate limit:')) ?? [];
+      const rateHints =
+        result.hints?.filter(h => h.includes('Rate limit:')) ?? [];
       expect(rateHints).toHaveLength(0);
     });
   });

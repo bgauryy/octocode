@@ -214,7 +214,6 @@ describe('commonDirPrefix', () => {
     expect(commonDirPrefix(['abc', 'xyz', 'mno'])).toBe('');
   });
   it('handles sparse/undefined array items via ?? fallback (lines 3, 5)', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(commonDirPrefix([undefined as any, undefined as any])).toBe('');
   });
 });
@@ -241,7 +240,12 @@ describe('hoistSharedFields — collectLeaves branch coverage', () => {
   it('skips null/undefined results and non-object data in collectLeaves (lines 64-66)', () => {
     // null and { data: null } should trigger the continue branch
     expect(
-      hoistSharedFields([null, undefined, { data: null }, { data: 42 as never }])
+      hoistSharedFields([
+        null,
+        undefined,
+        { data: null },
+        { data: 42 as never },
+      ])
     ).toBeUndefined();
   });
 });

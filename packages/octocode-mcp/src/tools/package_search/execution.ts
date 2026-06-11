@@ -21,6 +21,9 @@ import { createSuccessResult, createErrorResult } from '../utils.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import { LOCAL_DEFAULT_FILES_PER_PAGE } from '../../config.js';
+
+type PackageSearchMode = 'smart' | 'full' | 'lean';
 
 function isPackageSearchError(
   result: PackageSearchAPIResult | PackageSearchError
@@ -158,6 +161,19 @@ function buildPackageType(pkg: PackageResult): string {
   return getPackageField<string>(pkg, 'packageType') ?? 'unknown';
 }
 
+function canCheckNpmDeprecation(pkg: PackageResult): boolean {
+  const source = getPackageField<string>(pkg, 'source');
+  return source !== 'cdn' && source !== 'web';
+}
+
+function resolvePackageSearchMode(
+  query: PackageSearchQuery
+): PackageSearchMode {
+  const mode = (query as { mode?: PackageSearchMode }).mode;
+  if (mode === 'smart' || mode === 'full' || mode === 'lean') return mode;
+  return 'smart';
+}
+
 const EXPORT_ARROW = ' → ';
 const ROOT_EXPORT_PREFIX = `.${EXPORT_ARROW}`;
 
@@ -171,7 +187,7 @@ function buildEntrypoints(pkg: PackageResult) {
   // `exports` supersedes `main` (npm spec): when the exports map has a "."
   // entry, that IS the package entry, so we promote it to `main` and list only
   // the OTHER subpaths under `exports` — "." is never shown twice. With no
-  // exports map, `main`/`module` stay as the legacy fallback.
+  // exports map, `main`/`module` stay as the package metadata fallback.
   let main = rawMain;
   let module2: string | null = module;
   let subpathExports: string[] | undefined = exportsAll;
@@ -249,7 +265,7 @@ function buildResearchTargets(
 }
 
 /**
- * npmFetchMetadata=false is documented as "a lean exact-name pointer" — keep
+ * mode:"lean" is the compact package handoff — keep
  * only the identity + handoff fields (name/version/description/repoUrl/
  * npmUrl/owner/repo) and drop everything research-grade (entrypoints,
  * researchTargets, downloads, license, packageType, lastPublished).
@@ -341,8 +357,10 @@ export async function searchPackages(
             query
           );
         }
+        const mode = resolvePackageSearchMode(query);
         const validatedQuery = {
           ...query,
+          mode,
         } as PackageSearchQuery & {
           name: string;
         };
@@ -369,10 +387,8 @@ export async function searchPackages(
         }
 
         const rawPackages = apiResult.packages as PackageResult[];
-        const lean =
-          (query as { npmFetchMetadata?: boolean }).npmFetchMetadata === false;
         const packages = rawPackages.map(pkg =>
-          lean ? shapeLeanPackage(pkg) : shapePackage(pkg)
+          mode === 'lean' ? shapeLeanPackage(pkg) : shapePackage(pkg)
         );
 
         const result = {
@@ -383,7 +399,11 @@ export async function searchPackages(
         const hasContent = result.packages.length > 0;
 
         let deprecationInfo: DeprecationInfo | null = null;
-        if (hasContent && rawPackages[0]) {
+        if (
+          hasContent &&
+          rawPackages[0] &&
+          canCheckNpmDeprecation(rawPackages[0])
+        ) {
           deprecationInfo = await checkNpmDeprecation(
             getPackageName(rawPackages[0])
           );
@@ -397,10 +417,16 @@ export async function searchPackages(
           : generateEmptyHints(validatedQuery);
 
         const itemsPerPage =
-          (query as { itemsPerPage?: number }).itemsPerPage ?? 20;
+          (query as { itemsPerPage?: number }).itemsPerPage ??
+          LOCAL_DEFAULT_FILES_PER_PAGE;
+        const currentPage = (query as { page?: number }).page ?? 1;
+        const totalPages =
+          typeof result.totalFound === 'number'
+            ? Math.max(1, Math.ceil(result.totalFound / itemsPerPage))
+            : undefined;
         const isPartial =
           typeof result.totalFound === 'number'
-            ? result.totalFound > result.packages.length
+            ? currentPage < (totalPages ?? 1)
             : result.packages.length >= itemsPerPage;
         const partialReason =
           typeof result.totalFound === 'number'
@@ -413,10 +439,8 @@ export async function searchPackages(
                 hasMore: true,
                 totalFound: result.totalFound,
                 returnedCount: result.packages.length,
-                currentPage: (query as { page?: number }).page ?? 1,
-                totalPages: Math.ceil(
-                  result.totalFound / itemsPerPage
-                ),
+                currentPage,
+                totalPages,
               }
             : undefined;
 
@@ -481,10 +505,21 @@ function generateSuccessHints(
   if (!pkg) return hints;
 
   const name = getPackageName(pkg);
+  const source = getPackageField<string>(pkg, 'source');
 
   if (deprecationInfo?.deprecated) {
     const msg = deprecationInfo.message || 'This package is deprecated';
     hints.push(`DEPRECATED: ${name} - ${msg}`);
+  }
+
+  if (source === 'cdn') {
+    hints.push(
+      'Package metadata came from npm CDN package.json fallback because the npm registry was unavailable.'
+    );
+  } else if (source === 'web') {
+    hints.push(
+      'Package metadata came from npms.io web search fallback; verify the version with npm when registry access is restored.'
+    );
   }
 
   hints.push(`Install: npm install ${name}`);

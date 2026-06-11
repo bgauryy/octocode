@@ -1,0 +1,79 @@
+(ns ^{:doc "The core Clojure language."
+       :author "Rich Hickey"}
+  clojure.core)
+
+(def unquote)
+(def unquote-splicing)
+
+(def
+ ^{:arglists '([& items])
+   :doc "Creates a new list containing the items."
+   :added "1.0"}
+  list (. clojure.lang.PersistentList creator))
+
+(def
+ ^{:arglists '([x seq])
+    :doc "Returns a new seq where x is the first element and seq is
+    the rest."
+   :added "1.0"
+   :static true}
+
+ cons (fn* ^:static cons [x seq] (. clojure.lang.RT (cons x seq))))
+
+(def
+  ^{:macro true
+    :added "1.0"}
+  let (fn* let [&form &env & decl] (cons 'let* decl)))
+
+(def
+ ^{:macro true
+   :added "1.0"}
+ loop (fn* loop [&form &env & decl] (cons 'loop* decl)))
+
+(def
+ ^{:macro true
+   :added "1.0"}
+ fn (fn* fn [&form &env & decl]
+         (.withMeta ^clojure.lang.IObj (cons 'fn* decl)
+                    (.meta ^clojure.lang.IMeta &form))))
+
+(def
+ ^{:arglists '([coll])
+   :doc "Returns the first item in the collection. Calls seq on its
+    argument. If coll is nil, returns nil."
+   :added "1.0"
+   :static true}
+ first (fn ^:static first [coll] (. clojure.lang.RT (first coll))))
+
+(def
+ ^{:arglists '([coll])
+   :tag clojure.lang.ISeq
+   :doc "Returns a seq of the items after the first. Calls seq on i
+
+... [truncated 272861 chars] ...
+
+ :added "1.11"}
+  [^String s]
+  (if (string? s)
+    (case s
+      "true" true
+      "false" false
+      nil)
+    (throw (IllegalArgumentException. (parsing-err s)))))
+
+(defn NaN?
+  {:doc "Returns true if num is NaN, else false"
+   :inline-arities #{1}
+   :inline (fn [num] `(Double/isNaN ~num))
+   :added "1.11"}
+
+  [^double num]
+  (Double/isNaN num))
+
+(defn infinite?
+  {:doc "Returns true if num is negative or positive infinity, else false"
+   :inline-arities #{1}
+   :inline (fn [num] `(Double/isInfinite ~num))
+   :added "1.11"}
+  [^double num]
+  (Double/isInfinite num))

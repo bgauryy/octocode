@@ -1,0 +1,72 @@
+ 10| import type {Dispatcher} from 'react-reconciler/src/ReactInternalTypes';
+ 11| import type {
+ 12|   ReactContext,
+ 13|   StartTransitionOptions,
+ 14|   Usable,
+ 15|   Awaited,
+ 16| } from 'shared/ReactTypes';
+ 17| import {REACT_CONSUMER_TYPE} from 'shared/ReactSymbols';
+ 19| import ReactSharedInternals from 'shared/ReactSharedInternals';
+ 21| type BasicStateAction<S> = (S => S) | S;
+ 22| type Dispatch<A> = A => void;
+ 24| function resolveDispatcher() {
+ 44| export function getCacheForType<T>(resourceType: () => T): T {
+ 53| export function useContext<T>(Context: ReactContext<T>): T {
+ 66| export function useState<S>(
+ 67|   initialState: (() => S) | S,
+ 68| ): [S, Dispatch<BasicStateAction<S>>] {
+ 73| export function useReducer<S, I, A>(
+ 74|   reducer: (S, A) => S,
+ 75|   initialArg: I,
+ 76|   init?: I => S,
+ 77| ): [S, Dispatch<A>] {
+ 82| export function useRef<T>(initialValue: T): {current: T} {
+ 87| export function useEffect(
+ 88|   create: () => (() => void) | void,
+ 89|   deps: Array<mixed> | void | null,
+ 90| ): void {
+103| export function useInsertionEffect(
+104|   create: () => (() => void) | void,
+105|   deps: Array<mixed> | void | null,
+106| ): void {
+119| export function useLayoutEffect(
+120|   create: () => (() => void) | void,
+121|   deps: Array<mixed> | void | null,
+122| ): void {
+135| export function useCallback<T>(
+136|   callback: T,
+137|   deps: Array<mixed> | void | null,
+138| ): T {
+143| export function useMemo<T>(
+144|   create: () => T,
+145|   deps: Array<mixed> | void | null,
+146| ): T {
+151| export function useImperativeHandle<T>(
+152|   ref: {current: T | null} | ((inst: T | null) => mixed) | null | void,
+153|   create: () => T,
+154|   deps: Array<mixed> | void | null,
+155| ): void {
+160| export function useD
+
+... [truncated 57 chars] ...
+
+e: T) => mixed,
+163| ): void {
+170| export function useTransition(): [
+171|   boolean,
+172|   (callback: () => void, options?: StartTransitionOptions) => void,
+173| ] {
+178| export function useDeferredValue<T>(value: T, initialValue?: T): T {
+183| export function useId(): string {
+188| export function useSyncExternalStore<T>(
+189|   subscribe: (() => void) => () => void,
+201| export function useCacheRefresh(): <T>(?() => T, ?T) => void {
+207| export function use<T>(usable: Usable<T>): T {
+212| export function useMemoCache(size: number): Array<mixed> {
+218| export function useEffectEvent<Args, F: (...Array<Args>) => mixed>(
+226| export function useOptimistic<S, A>(
+227|   passthrough: S,
+228|   reducer: ?(S, A) => S,
+229| ): [S, (A) => void] {
+234| export function useActionState<S, P>(
+235|   action: (Awaited<S>, P) => S,

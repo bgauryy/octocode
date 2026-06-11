@@ -1,0 +1,23 @@
+ 13| package scala
+ 15| object Option {
+ 17|   import scala.language.implicitConversions
+ 20|   implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
+ 29|   def apply[A](x: A): Option[A] = if (x == null) None else Some(x)
+ 34|   def empty[A] : Option[A] = None
+ 40|   def when[A](cond: Boolean)(a: => A): Option[A] =
+144| sealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {
+185|   def get: A
+303|   def flatten[B](implicit ev: A <:< Option[B]): Option[B] =
+358|   class WithFilter(p: A => Boolean) {
+359|     def map[B](f: A => B): Option[B] = self filter p map f
+360|     def flatMap[B](f: A => Option[B]): Option[B] = self filter p flatMap f
+361|     def foreach[U](f: A => U): Unit = self filter p foreach f
+362|     def withFilter(q: A => Boolean): WithFilter = new WithFilter(x => p(x) && q(x))
+526|       val e = asPair(this.get)
+552|       val e = asTriple(this.get)
+560|   def iterator: Iterator[A] =
+574|   def toList: List[A] =
+618| final case class Some[+A](value: A) extends Option[A] {
+619|   def get: A = value
+626| case object None extends Option[Nothing] {
+627|   def get: Nothing = throw new NoSuchElementException("None.get")

@@ -280,7 +280,6 @@ describe('remote tool stats runtime contract', () => {
           researchGoal: 'exercise packageSearch stats',
           reasoning: 'prove runtime char savings emission',
           name: 'lodash',
-          searchLimit: 1,
         },
       ],
     });

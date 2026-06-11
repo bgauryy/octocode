@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
-import type { z } from 'zod';
+import type { RipgrepQuery } from '../../src/tools/local_ripgrep/scheme.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 
 const mocks = vi.hoisted(() => ({
@@ -24,12 +23,6 @@ vi.mock('../../src/tools/local_ripgrep/grepFallbackExecutor.js', () => ({
 const { searchContentRipgrep } =
   await import('../../src/tools/local_ripgrep/searchContentRipgrep.js');
 
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema> & {
-  id?: string;
-  researchGoal?: string;
-  reasoning?: string;
-};
-
 function makeRipgrepQuery(overrides: Partial<RipgrepQuery> = {}): RipgrepQuery {
   return {
     id: 'q-test',
@@ -37,15 +30,11 @@ function makeRipgrepQuery(overrides: Partial<RipgrepQuery> = {}): RipgrepQuery {
     reasoning: 'cover branches',
     pattern: 'foo',
     path: '/tmp',
-    smartCase: true,
     matchContentLength: 200,
-    filesPerPage: 10,
-    filePageNumber: 1,
-    matchesPerPage: 10,
-    binaryFiles: 'without-match',
-    includeStats: true,
+    itemsPerPage: 10,
+    page: 1,
+    maxMatchesPerFile: 10,
     sort: 'path',
-    showFileLastModified: false,
     ...overrides,
   };
 }

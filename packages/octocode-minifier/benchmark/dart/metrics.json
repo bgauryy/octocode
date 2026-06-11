@@ -1,0 +1,49 @@
+{
+  "ext": "dart",
+  "language": "Dart",
+  "source": "dart/dart-string.dart",
+  "sourceBytes": 37049,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "d6676a9cc1b761b1b322713ec72a3276aed7b84c20111d8c262bfe096b4ec2b7",
+  "contentView": {
+    "bytes": 5383,
+    "cutPercent": 85.5,
+    "durationMs": 2.25
+  },
+  "applyMinification": {
+    "bytes": 5383,
+    "cutPercent": 85.5,
+    "durationMs": 1.698
+  },
+  "sync": {
+    "bytes": 5383,
+    "cutPercent": 85.5,
+    "durationMs": 1.178
+  },
+  "async": {
+    "bytes": 5383,
+    "cutPercent": 85.5,
+    "durationMs": 1.338,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.005
+  },
+  "ratings": {
+    "minify": 9.5,
+    "symbols": null,
+    "agent": 9.5,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

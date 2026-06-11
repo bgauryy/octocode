@@ -1,9 +1,6 @@
 import { BaseCommandBuilder } from './BaseCommandBuilder.js';
-import type { z } from 'zod';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 import { resolveRipgrepBinary } from '../utils/exec/ripgrepBinary.js';
+import type { RipgrepQuery } from '../tools/local_ripgrep/scheme.js';
 
 export class RipgrepCommandBuilder extends BaseCommandBuilder {
   constructor() {
@@ -19,11 +16,6 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     this.addArg('--');
     this.addArg(pattern);
     this.addArg(path);
-    return this;
-  }
-
-  smartCase(): this {
-    this.addFlag('-S');
     return this;
   }
 
@@ -87,7 +79,7 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
       this.addFlag('--json');
     }
 
-    this._applyExecutionFlags(query, isPlainTextOutput);
+    this._applyExecutionFlags();
     this._applySortFlags(query);
     this._applyDiagnosticFlags(query);
 
@@ -102,8 +94,8 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     return !!(
       query.filesOnly ||
       query.filesWithoutMatch ||
-      query.count ||
-      query.countMatches
+      query.countLinesPerFile ||
+      query.countMatchesPerFile
     );
   }
 
@@ -118,16 +110,8 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
       this.addFlag('-s');
     } else if (query.caseInsensitive) {
       this.addFlag('-i');
-    } else if (query.smartCase !== false) {
+    } else {
       this.addFlag('-S');
-    }
-
-    if (query.noUnicode) {
-      this.addFlag('--no-unicode');
-    }
-
-    if (query.encoding) {
-      this.addOption('-E', query.encoding);
     }
 
     if (query.wholeWord) {
@@ -137,30 +121,11 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     if (query.invertMatch) {
       this.addFlag('-v');
     }
-
-    if (query.binaryFiles) {
-      if (query.binaryFiles === 'text') {
-        this.addFlag('-a');
-      } else if (query.binaryFiles === 'binary') {
-        this.addFlag('--binary');
-      }
-    }
-
-    if (query.followSymlinks) {
-      this.addFlag('-L');
-    }
   }
 
   private _applyContextFlags(query: RipgrepQuery): void {
     if (query.contextLines !== undefined && query.contextLines > 0) {
       this.addOption('-C', query.contextLines);
-    } else {
-      if (query.beforeContext !== undefined && query.beforeContext > 0) {
-        this.addOption('-B', query.beforeContext);
-      }
-      if (query.afterContext !== undefined && query.afterContext > 0) {
-        this.addOption('-A', query.afterContext);
-      }
     }
   }
 
@@ -169,9 +134,9 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
       this.addFlag('-l');
     } else if (query.filesWithoutMatch) {
       this.addFlag('--files-without-match');
-    } else if (query.countMatches) {
+    } else if (query.countMatchesPerFile) {
       this.addFlag('--count-matches');
-    } else if (query.count) {
+    } else if (query.countLinesPerFile) {
       this.addFlag('-c');
     }
 
@@ -179,8 +144,8 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
   }
 
   private _applyFilterFlags(query: RipgrepQuery): void {
-    if (query.type) {
-      this.addOption('-t', query.type);
+    if (query.langType) {
+      this.addOption('-t', query.langType);
     }
 
     if (query.include && query.include.length > 0) {
@@ -220,24 +185,9 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     }
   }
 
-  private _applyExecutionFlags(
-    query: RipgrepQuery,
-    isPlainTextOutput: boolean
-  ): void {
+  private _applyExecutionFlags(): void {
     const MAX_MCP_THREADS = 4;
-    if (query.threads !== undefined) {
-      this.addOption('-j', Math.min(query.threads, MAX_MCP_THREADS));
-    } else {
-      this.addOption('-j', MAX_MCP_THREADS);
-    }
-
-    if (query.mmap === false) {
-      this.addFlag('--no-mmap');
-    }
-
-    if (query.includeStats && !isPlainTextOutput) {
-      this.addFlag('--stats');
-    }
+    this.addOption('-j', MAX_MCP_THREADS);
   }
 
   private _applySortFlags(query: RipgrepQuery): void {
@@ -254,22 +204,7 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
 
   private _applyDiagnosticFlags(query: RipgrepQuery): void {
     this.addOption('--color', 'never');
-
-    if (query.noMessages) {
-      this.addFlag('--no-messages');
-    }
-
-    if (query.lineRegexp) {
-      this.addFlag('-x');
-    }
-
-    if (query.passthru) {
-      this.addFlag('--passthru');
-    }
-
-    if (query.debug) {
-      this.addFlag('--debug');
-    }
+    void query;
   }
 
   private _consolidateGlobs(globs: string[]): string[] {

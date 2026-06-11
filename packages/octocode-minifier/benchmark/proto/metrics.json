@@ -1,0 +1,49 @@
+{
+  "ext": "proto",
+  "language": "Protocol Buffers",
+  "source": "proto/protobuf-descriptor.proto",
+  "sourceBytes": 60347,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "caacd2067f8e78252ccf223ce5dcfadb01c8d3c5a0d9715c6f0641c1fa0b4c78",
+  "contentView": {
+    "bytes": 18638,
+    "cutPercent": 69.1,
+    "durationMs": 4.476
+  },
+  "applyMinification": {
+    "bytes": 18638,
+    "cutPercent": 69.1,
+    "durationMs": 3.323
+  },
+  "sync": {
+    "bytes": 18638,
+    "cutPercent": 69.1,
+    "durationMs": 3.73
+  },
+  "async": {
+    "bytes": 18638,
+    "cutPercent": 69.1,
+    "durationMs": 4.598,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.01
+  },
+  "ratings": {
+    "minify": 9.5,
+    "symbols": null,
+    "agent": 9.5,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

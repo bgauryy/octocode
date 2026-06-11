@@ -1,0 +1,49 @@
+{
+  "ext": "r",
+  "language": "R",
+  "source": "r/dplyr-mutate.R",
+  "sourceBytes": 15796,
+  "strategy": "aggressive",
+  "commentModel": "hash",
+  "sha256": "563acd4e01da98c6476447e01ba254e57c2b0cd23661835746ef8d7a0c07590e",
+  "contentView": {
+    "bytes": 8436,
+    "cutPercent": 46.6,
+    "durationMs": 1.573
+  },
+  "applyMinification": {
+    "bytes": 6740,
+    "cutPercent": 57.3,
+    "durationMs": 1.332
+  },
+  "sync": {
+    "bytes": 6740,
+    "cutPercent": 57.3,
+    "durationMs": 1.42
+  },
+  "async": {
+    "bytes": 6740,
+    "cutPercent": 57.3,
+    "durationMs": 1.324,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.007
+  },
+  "ratings": {
+    "minify": 9,
+    "symbols": null,
+    "agent": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "aggressive text strategy",
+    "symbols are not implemented for this extension"
+  ]
+}

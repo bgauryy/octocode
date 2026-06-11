@@ -201,10 +201,10 @@ describe('local_view_structure hints — uncovered branches', () => {
     expect(lvsHints.error({})).toEqual([]);
   });
 
-  it('empty() with extension filter returns hints', () => {
-    const result = lvsHints.empty({ extension: '.ts' } as never);
+  it('empty() with extensions filter returns hints', () => {
+    const result = lvsHints.empty({ extensions: ['ts'] } as never);
     expect(result.length).toBeGreaterThan(0);
-    expect(result[0]).toContain('.ts');
+    expect(result[0]).toContain('ts');
   });
 });
 

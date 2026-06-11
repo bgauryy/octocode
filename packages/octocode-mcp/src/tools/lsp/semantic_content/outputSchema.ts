@@ -24,6 +24,7 @@ const LocationSchema = z.object({
   displayRange: DisplayRangeSchema.optional(),
   isDefinition: z.boolean().optional(),
 });
+const LocationRowSchema = z.string();
 
 // range/position are 0-based internals derived from the same location as
 // foundAtLine (1-based) — the envelope emits only the agent-facing facts.
@@ -64,6 +65,7 @@ const CompactSymbolSchema = z.object({
   childCount: z.number(),
   containerName: z.string().optional(),
 });
+const CompactSymbolRowSchema = z.string();
 
 const CompactCallTargetSchema = z.object({
   name: z.string(),
@@ -73,6 +75,7 @@ const CompactCallTargetSchema = z.object({
   endLine: z.number(),
   selectionLine: z.number().optional(),
 });
+const CompactCallTargetRowSchema = z.string();
 
 const CompactCallSchema = z.object({
   direction: z.enum(['incoming', 'outgoing']),
@@ -82,6 +85,7 @@ const CompactCallSchema = z.object({
   rangeSampleCount: z.number(),
   contentPreview: z.string().optional(),
 });
+const CompactCallRowSchema = z.string();
 
 const CompletenessSchema = z.object({
   complete: z.boolean(),
@@ -100,34 +104,39 @@ const ReferencesByFileSchema = z.object({
   lines: z.array(z.number()),
   hasDefinition: z.boolean().optional(),
 });
+const ReferencesByFileRowSchema = z.string();
 
 const PayloadSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('definition'),
-    locations: z.array(LocationSchema),
+    locations: z.array(z.union([LocationSchema, LocationRowSchema])),
   }),
   z.object({
     kind: z.literal('typeDefinition'),
-    locations: z.array(LocationSchema),
+    locations: z.array(z.union([LocationSchema, LocationRowSchema])),
   }),
   z.object({
     kind: z.literal('implementation'),
-    locations: z.array(LocationSchema),
+    locations: z.array(z.union([LocationSchema, LocationRowSchema])),
   }),
   z.object({
     kind: z.literal('references'),
     // groupByFile=true emits byFile INSTEAD OF the flat locations list.
-    locations: z.array(LocationSchema).optional(),
-    byFile: z.array(ReferencesByFileSchema).optional(),
+    locations: z.array(z.union([LocationSchema, LocationRowSchema])).optional(),
+    byFile: z
+      .array(z.union([ReferencesByFileSchema, ReferencesByFileRowSchema]))
+      .optional(),
     totalReferences: z.number(),
     totalFiles: z.number(),
   }),
   ...(['callers', 'callees', 'callHierarchy'] as const).map(k =>
     z.object({
       kind: z.literal(k),
-      root: CompactCallTargetSchema.optional(),
+      root: z
+        .union([CompactCallTargetSchema, CompactCallTargetRowSchema])
+        .optional(),
       direction: z.enum(['incoming', 'outgoing', 'both']),
-      calls: z.array(CompactCallSchema),
+      calls: z.array(z.union([CompactCallSchema, CompactCallRowSchema])),
       // total count lives in pagination.totalResults; only the
       // incoming/outgoing split is unique information here.
       incomingCalls: z.number(),
@@ -143,7 +152,7 @@ const PayloadSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('documentSymbols'),
-    symbols: z.array(CompactSymbolSchema),
+    symbols: z.array(z.union([CompactSymbolSchema, CompactSymbolRowSchema])),
     totalSymbols: z.number().optional(),
     topLevelSymbols: z.number().optional(),
   }),
@@ -153,6 +162,7 @@ const PayloadSchema = z.discriminatedUnion('kind', [
 const SemanticDataSchema = z.object({
   type: z.string(),
   uri: z.string(),
+  format: z.enum(['structured', 'compact']).optional(),
   resolvedSymbol: ResolvedSymbolSchema.optional(),
   lsp: LspSchema,
   evidence: EvidenceSchema.optional(),

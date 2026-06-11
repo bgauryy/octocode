@@ -14,13 +14,15 @@ import type {
 } from '@octocodeai/octocode-core/schemas';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../types/execution.js';
-import { DEFAULT_PAGE_SIZE } from '../scheme/localSchemaOverlay.js';
+
+import { GITHUB_SEARCH_DEFAULT_LIMIT } from '../config.js';
+import { getOutputMinifyDefault } from '../utils/pagination/charLimit.js';
 import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constants.js';
 import { FileContentQueryLocalSchema } from './github_fetch_content/scheme.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-// `minify` is optional at the type level: the schema default ("none") is
-// applied at the MCP input boundary, while direct impl callers may omit it.
+// `minify` is optional at the type level: the provider mapper applies the
+// configured content-view default so local and GitHub file reads stay aligned.
 type LocalFileContentQuery = Omit<
   z.infer<typeof FileContentQueryLocalSchema>,
   'minify'
@@ -66,13 +68,18 @@ export function buildPaginationHints(
 
   const hints: string[] = [];
   const perPage = pagination.entriesPerPage || pagination.perPage || 10;
-  const totalMatches = pagination.totalMatches || 0;
+  const totalMatches = pagination.totalMatches;
   const startItem = (pagination.currentPage - 1) * perPage + 1;
-  const endItem = Math.min(pagination.currentPage * perPage, totalMatches);
+  const endItem =
+    typeof totalMatches === 'number'
+      ? Math.min(pagination.currentPage * perPage, totalMatches)
+      : pagination.currentPage * perPage;
 
   if (pagination.hasMore) {
     hints.push(
-      `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label}). Next: page=${pagination.currentPage + 1}`
+      typeof totalMatches === 'number'
+        ? `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label}). Next: page=${pagination.currentPage + 1}`
+        : `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} ${label}; total unknown). Next: page=${pagination.currentPage + 1}`
     );
     hints.push(
       `Results are paginated — use page=2, page=3 … to retrieve all ${label} before reporting a total count or enumerating exhaustively.`
@@ -93,7 +100,7 @@ export function mapCodeSearchToolQuery(
     filename: query.filename,
     extension: query.extension,
     match: query.match,
-    limit: DEFAULT_PAGE_SIZE,
+    limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -254,7 +261,7 @@ export function mapRepoSearchToolQuery(
       | 'created'
       | 'best-match'
       | undefined,
-    limit: DEFAULT_PAGE_SIZE,
+    limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
@@ -354,8 +361,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
       | 'reactions'
       | undefined,
     order: query.order as 'asc' | 'desc' | undefined,
-    limit:
-      (query as { itemsPerPage?: number }).itemsPerPage ?? DEFAULT_PAGE_SIZE,
+    limit: (query as { limit?: number }).limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
     page: query.page,
     charOffset: (query as { charOffset?: number }).charOffset,
     charLength: (query as { charLength?: number }).charLength,
@@ -500,7 +506,9 @@ export function mapPullRequestProviderResultData(
         currentPage: data.pagination.currentPage,
         totalPages: data.pagination.totalPages,
         perPage: data.pagination.entriesPerPage || 10,
-        totalMatches: data.pagination.totalMatches || 0,
+        ...(typeof data.pagination.totalMatches === 'number'
+          ? { totalMatches: data.pagination.totalMatches }
+          : {}),
         hasMore: data.pagination.hasMore,
       }
     : undefined;
@@ -530,12 +538,11 @@ export function mapFileContentToolQuery(query: LocalFileContentQuery) {
     endLine: fullContent ? undefined : query.endLine,
     matchString:
       fullContent || !query.matchString ? undefined : String(query.matchString),
-    matchStringContextLines:
-      (query as { contextLines?: number }).contextLines ?? 5,
+    contextLines: (query as { contextLines?: number }).contextLines ?? 5,
     fullContent,
     charOffset: query.charOffset,
     charLength: query.charLength,
-    minify: query.minify,
+    minify: query.minify ?? getOutputMinifyDefault(),
     matchStringIsRegex: query.matchStringIsRegex,
     matchStringCaseSensitive: query.matchStringCaseSensitive,
     mainResearchGoal: query.mainResearchGoal,
@@ -595,12 +602,12 @@ export function mapRepoStructureToolQuery(
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
     depth: typeof query.depth === 'number' ? query.depth : undefined,
-    entriesPerPage:
+    itemsPerPage:
       (query as { itemsPerPage?: number }).itemsPerPage ??
       GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
-    entryPageNumber: (() => {
-      const p = (query as { page?: number }).page;
-      return typeof p === 'number' ? p : undefined;
+    page: (() => {
+      const page = (query as { page?: number }).page;
+      return typeof page === 'number' ? page : undefined;
     })(),
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,

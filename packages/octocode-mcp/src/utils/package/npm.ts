@@ -16,6 +16,7 @@ import {
 import { countSerializedChars } from '../response/charSavings.js';
 
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
+const NPM_VIEW_TIMEOUT_MS = 3000;
 
 let _cachedRegistryUrl: string | null = null;
 
@@ -174,6 +175,7 @@ function isNetworkFetchError(error: string | undefined): boolean {
     lower.includes('etimedout') ||
     lower.includes('socket hang up') ||
     lower.includes('connect timeout') ||
+    lower.includes('command timeout') ||
     lower.includes('circuit open') ||
     lower.includes('circuit breaker')
   );
@@ -249,7 +251,7 @@ function inferPackageType(
 function mapToResult(
   data: NpmViewResult,
   includeExtendedMetadata: boolean = false,
-  source: 'cli' | 'registry' = 'cli'
+  source: 'cli' | 'registry' | 'cdn' = 'cli'
 ): NpmPackageResult {
   let repoUrl: string | null = null;
   let repositoryDirectory: string | undefined;
@@ -464,7 +466,7 @@ async function fetchPackageDetailsFromCli(
 ): Promise<PackageDetailsLookupResult> {
   try {
     const result = await executeNpmCommand('view', [packageName, '--json'], {
-      timeout: 8000,
+      timeout: NPM_VIEW_TIMEOUT_MS,
     });
     if (!result) return { pkg: null, rawResponseChars: 0 };
     if (result.error || result.exitCode !== 0) {
@@ -580,6 +582,67 @@ async function fetchPackageDetailsFromRegistry(
   }
 }
 
+function cdnPackageJsonUrls(packageName: string): string[] {
+  // Exact package names have already passed isExactPackageName(), so preserving
+  // the scoped slash here is safe and required by jsDelivr/unpkg URLs.
+  return [
+    `https://cdn.jsdelivr.net/npm/${packageName}/package.json`,
+    `https://unpkg.com/${packageName}/package.json`,
+  ];
+}
+
+async function fetchPackageDetailsFromCdn(
+  packageName: string,
+  includeExtendedMetadata: boolean
+): Promise<PackageDetailsLookupResult> {
+  let rawResponseChars = 0;
+  let errorDetail: string | undefined;
+
+  for (const url of cdnPackageJsonUrls(packageName)) {
+    let raw: unknown;
+    try {
+      raw = await fetchWithRetries(url, {
+        maxRetries: 0,
+        initialDelayMs: 300,
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (fetchErr) {
+      const msg =
+        fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      if (!isNotFoundMessage(msg)) {
+        errorDetail = msg;
+      }
+      continue;
+    }
+
+    rawResponseChars += countRawPayloadChars(raw);
+    if (!raw || typeof raw !== 'object') {
+      continue;
+    }
+
+    const validation = NpmViewResultSchema.safeParse(raw);
+    if (!validation.success) {
+      errorDetail = 'Invalid npm CDN package.json response format';
+      continue;
+    }
+
+    const pkg = mapToResult(
+      validation.data as NpmViewResult,
+      includeExtendedMetadata,
+      'cdn'
+    );
+
+    return { pkg, rawResponseChars };
+  }
+
+  return {
+    pkg: null,
+    ...(errorDetail ? { errorDetail } : {}),
+    rawResponseChars,
+  };
+}
+
 async function fetchPackageDetailsWithError(
   packageName: string,
   includeExtendedMetadata: boolean = false
@@ -621,7 +684,8 @@ async function fetchPackageDetailsWithError(
 
 async function fetchNpmPackageByView(
   packageName: string,
-  fetchMetadata: boolean
+  fetchMetadata: boolean,
+  allowCdnFallback: boolean = false
 ): Promise<PackageSearchAPIResult | PackageSearchError> {
   const { pkg, errorDetail, rawResponseChars } =
     await fetchPackageDetailsWithError(packageName, fetchMetadata);
@@ -629,6 +693,24 @@ async function fetchNpmPackageByView(
   if (!pkg) {
     if (errorDetail) {
       const isNetwork = isNetworkFetchError(errorDetail);
+      if (isNetwork && allowCdnFallback) {
+        const cdnResult = await fetchPackageDetailsFromCdn(
+          packageName,
+          fetchMetadata
+        );
+        if (cdnResult.pkg) {
+          const enriched = await enrichPackageDetails(
+            packageName,
+            cdnResult.pkg,
+            cdnResult.rawResponseChars
+          );
+          return {
+            packages: enriched.pkg ? [enriched.pkg] : [],
+            totalFound: enriched.pkg ? 1 : 0,
+            rawResponseChars: rawResponseChars + enriched.rawResponseChars,
+          };
+        }
+      }
       return {
         error: `NPM view failed for '${packageName}': ${errorDetail}`,
         rawResponseChars,
@@ -1035,6 +1117,25 @@ export async function searchNpmPackage(
       const registryCircuitOpen = isCircuitOpen(DEFAULT_NPM_REGISTRY);
 
       if (registryCircuitOpen) {
+        if (from === 0 && limit === 1 && isExactPackageName(packageName)) {
+          const cdnResult = await fetchPackageDetailsFromCdn(
+            packageName,
+            fetchMetadata
+          );
+          if (cdnResult.pkg) {
+            const enriched = await enrichPackageDetails(
+              packageName,
+              cdnResult.pkg,
+              cdnResult.rawResponseChars
+            );
+            return {
+              packages: enriched.pkg ? [enriched.pkg] : [],
+              totalFound: enriched.pkg ? 1 : 0,
+              rawResponseChars: enriched.rawResponseChars,
+            };
+          }
+        }
+
         const webResult = await searchNpmPackageViaWebSearch(
           packageName,
           limit
@@ -1054,7 +1155,8 @@ export async function searchNpmPackage(
       if (from === 0 && isExactPackageName(packageName)) {
         const exactResult = await fetchNpmPackageByView(
           packageName,
-          fetchMetadata
+          fetchMetadata,
+          limit === 1
         );
         if ('error' in exactResult) {
           if (!isNetworkFetchError(exactResult.error)) return exactResult;

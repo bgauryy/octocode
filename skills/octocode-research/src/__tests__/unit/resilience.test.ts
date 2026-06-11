@@ -141,14 +141,6 @@ describe('Resilience Wrappers', () => {
         expect.any(Function)
       );
     });
-
-    it('maps lspGetDiagnostics to lsp:navigation circuit', async () => {
-      await withLspResilience(async () => 'ok', 'lspGetDiagnostics');
-      expect(withCircuitBreaker).toHaveBeenCalledWith(
-        'lsp:navigation',
-        expect.any(Function)
-      );
-    });
   });
 
   describe('withPackageResilience', () => {

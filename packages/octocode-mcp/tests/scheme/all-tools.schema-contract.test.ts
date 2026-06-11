@@ -1,11 +1,32 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
+import { completeMetadata } from '@octocodeai/octocode-core';
+import { readFileSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from '../../src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
+
+const SHARED_FIELDS = [
+  'id',
+  'mainResearchGoal',
+  'researchGoal',
+  'reasoning',
+] as const;
+
+const SCHEME_FILES = [
+  '../../src/tools/github_clone_repo/scheme.ts',
+  '../../src/tools/github_fetch_content/scheme.ts',
+  '../../src/tools/github_search_code/scheme.ts',
+  '../../src/tools/github_search_pull_requests/scheme.ts',
+  '../../src/tools/github_search_repos/scheme.ts',
+  '../../src/tools/github_view_repo_structure/scheme.ts',
+  '../../src/tools/local_fetch_content/scheme.ts',
+  '../../src/tools/local_find_files/scheme.ts',
+  '../../src/tools/local_ripgrep/scheme.ts',
+  '../../src/tools/local_view_structure/scheme.ts',
+  '../../src/tools/lsp/semantic_content/scheme.ts',
+  '../../src/tools/package_search/scheme.ts',
+] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { pattern: 'foo', path: '.' },
@@ -17,10 +38,6 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     type: 'definition',
     symbolName: 'myFn',
     lineHint: 10,
-  },
-  [LSP_GET_DIAGNOSTICS_TOOL_NAME]: {
-    uri: '/tmp/test.ts',
-    severity: 'all',
   },
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: {
     keywordsToSearch: ['useState'],
@@ -58,7 +75,49 @@ function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
   return null;
 }
 
+function getJsonProperties(schema: z.ZodTypeAny): Record<string, unknown> {
+  const jsonSchema = z.toJSONSchema(schema);
+  const properties = (jsonSchema as { properties?: unknown }).properties;
+  return properties &&
+    typeof properties === 'object' &&
+    !Array.isArray(properties)
+    ? (properties as Record<string, unknown>)
+    : {};
+}
+
+function getCoreQueryDescriptions(toolName: string): Record<string, string> {
+  const tool = completeMetadata.tools[toolName];
+  return {
+    id: completeMetadata.baseSchema.id,
+    mainResearchGoal: completeMetadata.baseSchema.mainResearchGoal,
+    researchGoal: completeMetadata.baseSchema.researchGoal,
+    reasoning: completeMetadata.baseSchema.reasoning,
+    ...(tool?.schema ?? {}),
+  };
+}
+
+function getPropertyDescription(property: unknown): string | undefined {
+  return property && typeof property === 'object'
+    ? (property as { description?: string }).description
+    : undefined;
+}
+
 describe('all-tools schema contract', () => {
+  describe.each(SCHEME_FILES)('scheme source: %s', schemeFile => {
+    const source = readFileSync(new URL(schemeFile, import.meta.url), 'utf8');
+
+    it('imports completeMetadata directly from octocode-core', () => {
+      expect(source).toContain(
+        "import { completeMetadata } from '@octocodeai/octocode-core';"
+      );
+    });
+
+    it('does not use shared description/meta-field injection', () => {
+      expect(source).not.toContain('withCoreSchemaDescriptions');
+      expect(source).not.toContain('optionalMetaFields');
+    });
+  });
+
   describe.each(ALL_TOOLS.map(t => [t.name, t] as const))(
     'tool: %s',
     (toolName, tool) => {
@@ -118,13 +177,6 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      const SHARED_FIELDS = [
-        'id',
-        'mainResearchGoal',
-        'researchGoal',
-        'reasoning',
-      ] as const;
-
       it('per-query schema (tool.direct.schema) exposes all cross-tool shared fields', () => {
         const shape = (querySchema as any)?.shape;
         if (!shape) {
@@ -164,6 +216,44 @@ describe('all-tools schema contract', () => {
             `Input: ${JSON.stringify({ queries: [minQuery] })}\n` +
             `Errors: ${!result.success ? JSON.stringify(result.error.issues) : ''}`
         ).toBe(true);
+      });
+
+      it('uses octocode-core for the tool description', () => {
+        expect(tool.description).toBe(
+          completeMetadata.tools[toolName]?.description
+        );
+      });
+
+      it('uses octocode-core descriptions for every query parameter', () => {
+        const properties = getJsonProperties(querySchema);
+        const expectedDescriptions = getCoreQueryDescriptions(toolName);
+        const actualFields = Object.keys(properties);
+        const missingFields = Object.keys(expectedDescriptions).filter(
+          field => !(field in properties)
+        );
+        const undocumentedFields = actualFields.filter(
+          field => !(field in expectedDescriptions)
+        );
+        const mismatchedDescriptions = actualFields.filter(field => {
+          const expected = expectedDescriptions[field];
+          return (
+            expected !== undefined &&
+            getPropertyDescription(properties[field]) !== expected
+          );
+        });
+
+        expect(
+          missingFields,
+          `${toolName}: query schema is missing core-described fields`
+        ).toEqual([]);
+        expect(
+          undocumentedFields,
+          `${toolName}: query schema fields must be described in octocode-core`
+        ).toEqual([]);
+        expect(
+          mismatchedDescriptions,
+          `${toolName}: query field descriptions must match octocode-core`
+        ).toEqual([]);
       });
 
       it('parses with all research metadata', () => {
@@ -257,8 +347,8 @@ describe('all-tools schema contract', () => {
   );
 
   describe('global invariants', () => {
-    it('ALL_TOOLS contains exactly 13 tools', () => {
-      expect(ALL_TOOLS).toHaveLength(13);
+    it('ALL_TOOLS contains exactly 12 tools', () => {
+      expect(ALL_TOOLS).toHaveLength(12);
     });
 
     it('every tool has a MINIMAL_QUERY entry in this test', () => {

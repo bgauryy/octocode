@@ -125,6 +125,39 @@ describe('package_search execution branches', () => {
       expect(text).toContain('DEPRECATED');
       expect(text).toContain('Use new-pkg instead');
     });
+
+    it('skips npm deprecation checks for CDN fallback metadata', async () => {
+      mockSearchPackage.mockResolvedValue({
+        packages: [
+          {
+            name: 'zod',
+            npmUrl: 'https://www.npmjs.com/package/zod',
+            path: 'zod',
+            version: '4.4.3',
+            repoUrl: 'https://github.com/colinhacks/zod',
+            mainEntry: 'index.cjs',
+            typeDefinitions: 'index.d.ts',
+            source: 'cdn',
+          },
+        ],
+        totalFound: 1,
+      });
+
+      const result = await searchPackages({
+        queries: [
+          {
+            ...baseQuery,
+            name: 'zod',
+          } as never,
+        ],
+      });
+
+      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
+      expect(packageCommon.checkNpmDeprecation).not.toHaveBeenCalled();
+      expect(text).toContain(
+        'metadata came from npm CDN package.json fallback'
+      );
+    });
   });
 
   describe('network error recovery hints', () => {
@@ -274,7 +307,7 @@ describe('package_search execution branches', () => {
             npmUrl: 'https://www.npmjs.com/package/clitool',
             version: '2.0.0',
             repoUrl: 'https://github.com/owner/clitool',
-            mainEntry: './dist/index.cjs', // legacy fallback; should be superseded
+            mainEntry: './dist/index.cjs', // package metadata fallback; should be superseded
             typeDefinitions: './dist/index.d.ts',
             // collapsed exports (one per subpath) as produced upstream
             exports: ['. → ./dist/index.js', './sub → ./dist/sub.js'],
@@ -289,7 +322,7 @@ describe('package_search execution branches', () => {
       });
 
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      // "." promoted to main from exports (supersedes the legacy ./dist/index.cjs)
+      // "." promoted to main from exports (supersedes ./dist/index.cjs)
       expect(text).toContain('main: "./dist/index.js"');
       expect(text).not.toContain('./dist/index.cjs');
       // exports lists only the OTHER subpaths — "." is not shown twice

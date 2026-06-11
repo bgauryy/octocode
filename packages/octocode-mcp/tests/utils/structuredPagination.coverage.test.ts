@@ -1093,7 +1093,10 @@ describe('githubSearchPullRequests pagination fixes', () => {
     const response = applyBulkResponsePagination(
       {
         results: [
-          { id: 'q1', data: 'not-a-plain-object' as unknown as Record<string, unknown> },
+          {
+            id: 'q1',
+            data: 'not-a-plain-object' as unknown as Record<string, unknown>,
+          },
         ],
       } as never,
       { length: 10 },
@@ -1112,7 +1115,9 @@ describe('githubSearchPullRequests pagination fixes', () => {
     }));
     const largeResult = { id: 'ql', data: { packages: bigPackages } };
     const response = applyBulkResponsePagination(
-      { results: [smallResult, smallResult, smallResult, largeResult] } as never,
+      {
+        results: [smallResult, smallResult, smallResult, largeResult],
+      } as never,
       { length: 500 },
       TOOL_NAMES.PACKAGE_SEARCH
     );

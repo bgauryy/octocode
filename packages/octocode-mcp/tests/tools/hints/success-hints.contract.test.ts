@@ -49,8 +49,8 @@ describe('localSearchCode — LSP lineHint success hint', () => {
   });
 });
 
-describe('lspGetSemanticContent — success-path emits no coaching hints', () => {
-  it('successful results return no hints (navigation chains live in the tool description)', async () => {
+describe('lspGetSemanticContent — success-path handoff hints', () => {
+  it('successful results return concise next-step hints', async () => {
     const { semanticHints } =
       await import('../../../src/tools/lsp/semantic_content/hints.js');
 
@@ -65,7 +65,7 @@ describe('lspGetSemanticContent — success-path emits no coaching hints', () =>
       'typeDefinition',
       'implementation',
     ] as const) {
-      expect(semanticHints(type, true)).toEqual([]);
+      expect(semanticHints(type, true).length).toBeGreaterThan(0);
     }
   });
 
@@ -101,6 +101,23 @@ describe('githubSearchCode — chain hint', () => {
     );
     expect(src).toContain('githubGetFileContent');
     expect(src).toContain('extraHints');
+  });
+});
+
+describe('lspGetSemanticContent — success handoff hints', () => {
+  it('semanticHints returns concrete next steps on successful definition', async () => {
+    const { semanticHints } =
+      await import('../../../src/tools/lsp/semantic_content/hints.js');
+    const hints = semanticHints('definition', true);
+    expect(hints.join('\n')).toContain('localGetFileContent');
+    expect(hints.join('\n')).toContain('references');
+  });
+
+  it('semanticHints returns lineHint guidance on successful documentSymbols', async () => {
+    const { semanticHints } =
+      await import('../../../src/tools/lsp/semantic_content/hints.js');
+    const hints = semanticHints('documentSymbols', true);
+    expect(hints.join('\n')).toContain('lineHint');
   });
 });
 

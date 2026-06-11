@@ -1,0 +1,48 @@
+{
+  "ext": "sql",
+  "language": "SQL",
+  "source": "sql/postgres-select.sql",
+  "sourceBytes": 8415,
+  "strategy": "conservative",
+  "commentModel": "sql",
+  "sha256": "60b3a78701ed950e2540f150b8d791a005be29545c9430182cf4c11e76a19b9c",
+  "contentView": {
+    "bytes": 5419,
+    "cutPercent": 35.6,
+    "durationMs": 2.222
+  },
+  "applyMinification": {
+    "bytes": 5419,
+    "cutPercent": 35.6,
+    "durationMs": 1.249
+  },
+  "sync": {
+    "bytes": 5419,
+    "cutPercent": 35.6,
+    "durationMs": 1.442
+  },
+  "async": {
+    "bytes": 5419,
+    "cutPercent": 35.6,
+    "durationMs": 1.138,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 512,
+    "cutPercent": 93.9,
+    "durationMs": 0.607
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": 10,
+    "agent": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

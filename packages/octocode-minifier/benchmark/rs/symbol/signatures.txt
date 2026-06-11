@@ -1,0 +1,48 @@
+ 581| use crate::clone::TrivialClone;
+ 582| use crate::iter::{self, FusedIterator, TrustedLen};
+ 583| use crate::marker::Destruct;
+ 584| use crate::ops::{self, ControlFlow, Deref, DerefMut, Residual, Try};
+ 585| use crate::panicking::{panic, panic_display};
+ 586| use crate::pin::Pin;
+ 587| use crate::{cmp, convert, hint, mem, slice};
+ 597| pub enum Option<T> {
+ 632|     pub const fn is_some(&self) -> bool {
+ 658|     pub const fn is_some_and(self, f: impl [const] FnOnce(T) -> bool + [const] Destruct) -> bool {
+ 681|     pub const fn is_none(&self) -> bool {
+ 707|     pub const fn is_none_or(self, f: impl [const] FnOnce(T) -> bool + [const] Destruct) -> bool {
+ 741|     pub const fn as_ref(&self) -> Option<&T> {
+ 763|     pub const fn as_mut(&mut self) -> Option<&mut T> {
+ 777|     pub const fn as_pin_ref(self: Pin<&Self>) -> Option<Pin<&T>> {
+ 794|     pub const fn as_pin_mut(self: Pin<&mut Self>) -> Option<Pin<&mut T>> {
+ 807|     const fn len(&self) -> usize {
+ 841|     pub const fn as_slice(&self) -> &[T] {
+ 896|     pub const fn as_mut_slice(&mut self) -> &mut [T] {
+ 965|     pub const fn expect(self, msg: &str) -> T {
+1010|     pub const fn unwrap(self) -> T {
+1035|     pub const fn unwrap_or(self, default: T) -> T
+1058|     pub const fn unwrap_or_else<F>(self, f: F) -> T
+1090|     pub const fn unwrap_or_default(self) -> T
+1125|     pub const unsafe fn unwrap_unchecked(self) -> T {
+1157|     pub const fn map<U, F>(self, f: F) -> Option<U>
+1188|     pub const fn inspect<F>(self, f: F) -> Self
+1221|     pub const fn map_or<U, F>(self, default: U, f: F) -> U
+1268|     pub const fn map_or_else<U, D, F>(self, default: D, f: F) -> U
+1297|     pub const fn map_or_default<U, F>(self, f: F) -> U
+1332|     pub const fn ok_or<E: [const] Destruc
+
+... [truncated 4952 chars] ...
+
+nfallible>;
+2772|     fn from_output(output: Self::Output) -> Self {
+2777|     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+2789| const impl<T> ops::FromResidual<Option<convert::Infallible>> for Option<T> {
+2791|     fn from_residual(residual: Option<convert::Infallible>) -> Self {
+2801| const impl<T> ops::FromResidual<ops::Yeet<()>> for Option<T> {
+2803|     fn from_residual(ops::Yeet(()): ops::Yeet<()>) -> Self {
+2810| const impl<T> ops::Residual<T> for Option<convert::Infallible> {
+2811|     type TryType = Option<T>;
+2843|     pub const fn flatten(self) -> Option<T> {
+2873|     pub const fn flatten_ref(self) -> Option<&'a T> {
+2904|     pub const fn flatten_ref(self) -> Option<&'a T> {
+2933|     pub const fn flatten_mut(self) -> Option<&'a mut T> {
+2960|     pub fn transpose(self) -> Option<[T; N]> {

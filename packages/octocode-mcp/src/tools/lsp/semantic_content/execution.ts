@@ -29,6 +29,7 @@ import {
   compactLocation,
   compactResolvedSymbol,
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  type CompactLocation,
   type LspGetSemanticContentQuery,
   type LspSemanticEnvelope,
   type SemanticContentType,
@@ -98,8 +99,10 @@ export async function executeLspGetSemanticContent(
         toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
         query,
         contextMessage: 'lspGetSemanticContent execution failed',
-        execute: async () =>
-          attachSemanticRawEvidence(await getSemanticContent(query)),
+        execute: async () => {
+          const result = await getSemanticContent(query);
+          return attachSemanticRawEvidence(formatSemanticResult(query, result));
+        },
       }),
     {
       toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
@@ -113,6 +116,198 @@ export async function executeLspGetSemanticContent(
 
 function attachSemanticRawEvidence<T extends object>(result: T): T {
   return attachRawResponseChars(result, countSerializedChars(result));
+}
+
+function formatSemanticResult(
+  query: LspGetSemanticContentQuery,
+  result: LspSemanticEnvelope | Record<string, unknown>
+): LspSemanticEnvelope | Record<string, unknown> {
+  if (query.format !== 'compact' || !isSemanticEnvelope(result)) return result;
+  return compactSemanticEnvelope(result);
+}
+
+function isSemanticEnvelope(
+  value: LspSemanticEnvelope | Record<string, unknown>
+): value is LspSemanticEnvelope {
+  return (
+    isRecord(value) &&
+    typeof value.type === 'string' &&
+    typeof value.uri === 'string' &&
+    isRecord(value.payload)
+  );
+}
+
+function compactSemanticEnvelope(
+  envelope: LspSemanticEnvelope
+): LspSemanticEnvelope {
+  return {
+    ...envelope,
+    format: 'compact',
+    payload: compactSemanticPayload(envelope.payload),
+  };
+}
+
+function compactSemanticPayload(
+  payload: LspSemanticEnvelope['payload']
+): LspSemanticEnvelope['payload'] {
+  switch (payload.kind) {
+    case 'definition':
+    case 'typeDefinition':
+    case 'implementation':
+      return {
+        kind: payload.kind,
+        locations: payload.locations.map(formatLocationRow),
+      };
+    case 'references':
+      return {
+        kind: 'references',
+        ...(payload.byFile
+          ? { byFile: payload.byFile.map(formatReferenceFileRow) }
+          : { locations: (payload.locations ?? []).map(formatLocationRow) }),
+        totalReferences: payload.totalReferences,
+        totalFiles: payload.totalFiles,
+      };
+    case 'callers':
+    case 'callees':
+    case 'callHierarchy':
+      return {
+        kind: payload.kind,
+        ...(payload.root ? { root: formatCallTargetRow(payload.root) } : {}),
+        direction: payload.direction,
+        calls: payload.calls.map(formatCallRow),
+        ...(payload.incomingCalls !== undefined
+          ? { incomingCalls: payload.incomingCalls }
+          : {}),
+        ...(payload.outgoingCalls !== undefined
+          ? { outgoingCalls: payload.outgoingCalls }
+          : {}),
+        completeness: payload.completeness,
+      };
+    case 'documentSymbols':
+      return {
+        kind: 'documentSymbols',
+        symbols: payload.symbols.map(formatSymbolRow),
+      };
+    case 'hover':
+    case 'empty':
+      return payload;
+  }
+}
+
+function formatSymbolRow(value: unknown): string {
+  if (!isRecord(value)) return String(value);
+  const line = numberField(value, 'line');
+  const character = numberField(value, 'character');
+  const endLine = numberField(value, 'endLine');
+  const kind = stringField(value, 'kind');
+  const name = stringField(value, 'name');
+  const childCount = numberField(value, 'childCount');
+  const containerName = stringField(value, 'containerName');
+  return [
+    `${line}:${character}${endLine !== line ? `-${endLine}` : ''}`,
+    kind,
+    name,
+    containerName ? `< ${containerName}` : '',
+    childCount > 0 ? `children=${childCount}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function formatLocationRow(location: CompactLocation | string): string {
+  if (typeof location === 'string') return location;
+  const range = location.displayRange
+    ? `${location.displayRange.startLine}-${location.displayRange.endLine}`
+    : '?';
+  const definition = location.isDefinition ? ' def' : '';
+  const content = location.content
+    ? ` | ${oneLine(location.content, 180)}`
+    : '';
+  return `${location.uri}:${range}${definition}${content}`;
+}
+
+function formatReferenceFileRow(value: unknown): string {
+  if (!isRecord(value)) return String(value);
+  const uri = stringField(value, 'uri');
+  const firstLine = numberField(value, 'firstLine');
+  const firstCharacter = numberField(value, 'firstCharacter');
+  const count = numberField(value, 'count');
+  const lines = arrayField(value, 'lines')
+    .map(line => (typeof line === 'number' ? line : undefined))
+    .filter(line => line !== undefined)
+    .join(',');
+  const definition = value.hasDefinition === true ? ' def' : '';
+  return `${uri}:${firstLine}:${firstCharacter} count=${count} lines=${lines}${definition}`;
+}
+
+function formatCallRow(value: unknown): string {
+  if (!isRecord(value)) return String(value);
+  const direction = stringField(value, 'direction');
+  const item = formatCallTargetRow(value.item);
+  const ranges = arrayField(value, 'ranges').map(formatRangeRow).join(',');
+  const rangeCount = numberField(value, 'rangeCount');
+  const rangeSampleCount = numberField(value, 'rangeSampleCount');
+  const preview = stringField(value, 'contentPreview');
+  return [
+    direction,
+    item,
+    ranges ? `ranges=${ranges}` : '',
+    rangeCount > rangeSampleCount ? `totalRanges=${rangeCount}` : '',
+    preview ? `| ${oneLine(preview, 180)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function formatCallTargetRow(value: unknown): string {
+  if (!isRecord(value)) return String(value);
+  const name = stringField(value, 'name');
+  const kind = stringField(value, 'kind');
+  const uri = stringField(value, 'uri');
+  const line = numberField(value, 'line');
+  const endLine = numberField(value, 'endLine');
+  const selectionLine = numberField(value, 'selectionLine');
+  const selection = selectionLine > 0 ? ` sel=${selectionLine}` : '';
+  return `${name} ${kind} ${uri}:${line}-${endLine}${selection}`;
+}
+
+function formatRangeRow(value: unknown): string {
+  if (!isRecord(value)) return String(value);
+  return `${numberField(value, 'line')}:${numberField(value, 'character')}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function stringField(
+  record: Record<string, unknown>,
+  key: string,
+  fallback = ''
+): string {
+  const value = record[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
+function numberField(
+  record: Record<string, unknown>,
+  key: string,
+  fallback = 0
+): number {
+  const value = record[key];
+  return typeof value === 'number' ? value : fallback;
+}
+
+function arrayField(record: Record<string, unknown>, key: string): unknown[] {
+  const value = record[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function oneLine(value: string, maxLength: number): string {
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  return singleLine.length > maxLength
+    ? `${singleLine.slice(0, Math.max(0, maxLength - 3))}...`
+    : singleLine;
 }
 
 async function getSemanticContent(
@@ -838,7 +1033,7 @@ function failedAnchorEnvelope(
   reason: string,
   hints?: string[]
 ): LspSemanticEnvelope {
-  const uri = query.uri ?? query.filePath ?? '';
+  const uri = query.uri ?? '';
   return {
     type: query.type,
     uri,

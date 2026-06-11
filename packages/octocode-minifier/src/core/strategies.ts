@@ -1,6 +1,8 @@
-import { minify } from 'terser';
+import { minify, minify_sync } from 'terser';
+import type { MinifyOptions } from 'terser';
 import CleanCSS from 'clean-css';
 import { minify as htmlMinifierTerser } from 'html-minifier-terser';
+import ts from 'typescript';
 import type {
   CommentPatternGroup,
   FileTypeMinifyConfig,
@@ -10,6 +12,7 @@ import { MINIFY_CONFIG } from '../types/index.js';
 type BlockCommentRule = {
   start: string;
   end: string;
+  nested?: boolean;
 };
 
 type LineCommentRule = {
@@ -21,6 +24,48 @@ type LineCommentRule = {
 type StringAwareCommentRules = {
   block?: BlockCommentRule[];
   line?: LineCommentRule[];
+  regex?: boolean;
+  powershellHereStrings?: boolean;
+  quoteDelimiters?: readonly string[];
+};
+
+type StrategyMinifyResult = {
+  content: string;
+  failed: boolean;
+  reason?: string;
+};
+
+const TERSER_OPTIONS: MinifyOptions = {
+  compress: {
+    drop_console: false,
+    drop_debugger: false,
+    sequences: true,
+    conditionals: true,
+    comparisons: true,
+    evaluate: true,
+    booleans: true,
+    loops: false,
+    unused: false,
+    dead_code: true,
+    side_effects: false,
+  },
+  mangle: false,
+  format: {
+    comments: false,
+    beautify: false,
+    semicolons: true,
+  },
+  sourceMap: false,
+};
+
+const TYPESCRIPT_COMPILER_OPTIONS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.ESNext,
+  jsx: ts.JsxEmit.ReactJSX,
+  removeComments: true,
+  sourceMap: false,
+  inlineSourceMap: false,
+  importHelpers: false,
 };
 
 function stringAwareRulesFor(
@@ -31,10 +76,15 @@ function stringAwareRulesFor(
       return {
         block: [{ start: '/*', end: '*/' }],
         line: [{ token: '//' }],
+        regex: true,
       };
     case 'hash':
       return {
         line: [{ token: '#', preserveShebang: true }],
+      };
+    case 'html':
+      return {
+        block: [{ start: '<!--', end: '-->' }],
       };
     case 'sql':
       return {
@@ -53,19 +103,221 @@ function stringAwareRulesFor(
       };
     case 'semicolon':
       return { line: [{ token: ';' }] };
+    case 'wasm-text':
+      return {
+        block: [{ start: '(;', end: ';)' }],
+        line: [{ token: ';;' }],
+      };
     case 'percent':
       return { line: [{ token: '%' }] };
+    case 'template':
+      return {
+        block: [
+          { start: '{{!--', end: '--}}' },
+          { start: '{{!', end: '}}' },
+          { start: '<%#', end: '%>' },
+          { start: '{#', end: '#}' },
+        ],
+      };
+    case 'haml':
+      return { line: [{ token: '-#' }] };
+    case 'slim':
+      return { line: [{ token: '/' }] };
+    case 'powershell':
+      return {
+        block: [{ start: '<#', end: '#>' }],
+        line: [{ token: '#', preserveShebang: true }],
+        powershellHereStrings: true,
+      };
+    case 'bang':
+      return { line: [{ token: '!' }] };
+    case 'apostrophe':
+      return {
+        line: [{ token: "'" }],
+        quoteDelimiters: ['"""', '"', '`'],
+      };
+    case 'double-dash':
+      return { line: [{ token: '--' }] };
+    case 'fsharp-block':
+      return {
+        block: [{ start: '(*', end: '*)', nested: true }],
+      };
+    case 'pascal':
+      return {
+        block: [
+          { start: '(*', end: '*)', nested: true },
+          { start: '{', end: '}' },
+        ],
+        line: [{ token: '//' }],
+        quoteDelimiters: ["'", '"'],
+      };
     default:
       return null;
   }
 }
 
-function quoteDelimiterAt(content: string, index: number): string | null {
-  if (content.startsWith('"""', index)) return '"""';
-  if (content.startsWith("'''", index)) return "'''";
+const DEFAULT_QUOTE_DELIMITERS = ['"""', "'''", '"', "'", '`'] as const;
 
-  const char = content[index];
-  return char === '"' || char === "'" || char === '`' ? char : null;
+function quoteDelimiterAt(
+  content: string,
+  index: number,
+  rules: StringAwareCommentRules
+): string | null {
+  const delimiters = rules.quoteDelimiters ?? DEFAULT_QUOTE_DELIMITERS;
+  const orderedDelimiters = [...delimiters].sort(
+    (left, right) => right.length - left.length
+  );
+
+  return (
+    orderedDelimiters.find(delimiter => content.startsWith(delimiter, index)) ??
+    null
+  );
+}
+
+function findRustRawStringEnd(content: string, index: number): number | null {
+  const match = /^(?:b?r)(#*)"/.exec(content.slice(index));
+  if (!match) return null;
+
+  const hashes = match[1]!;
+  const endMarker = `"${hashes}`;
+  const bodyStart = index + match[0].length;
+  const endIndex = content.indexOf(endMarker, bodyStart);
+  return endIndex === -1 ? content.length : endIndex + endMarker.length;
+}
+
+function findCSharpVerbatimStringEnd(
+  content: string,
+  index: number
+): number | null {
+  let bodyStart: number | null = null;
+
+  if (content.startsWith('@"', index)) {
+    bodyStart = index + 2;
+  } else if (
+    content.startsWith('$@"', index) ||
+    content.startsWith('@$"', index)
+  ) {
+    bodyStart = index + 3;
+  }
+
+  if (bodyStart === null) return null;
+
+  for (let i = bodyStart; i < content.length; i++) {
+    if (content[i] !== '"') continue;
+    if (content[i + 1] === '"') {
+      i++;
+      continue;
+    }
+    return i + 1;
+  }
+
+  return content.length;
+}
+
+function isRegexLiteralStart(content: string, index: number): boolean {
+  if (
+    content[index] !== '/' ||
+    content[index + 1] === '/' ||
+    content[index + 1] === '*'
+  ) {
+    return false;
+  }
+
+  let previousIndex = index - 1;
+  while (previousIndex >= 0 && /\s/.test(content[previousIndex]!)) {
+    previousIndex--;
+  }
+
+  if (previousIndex < 0) return true;
+
+  const previous = content[previousIndex]!;
+  if ('([{=,:;!&|?+-*~^<>'.includes(previous)) return true;
+
+  const before = content.slice(
+    Math.max(0, previousIndex - 12),
+    previousIndex + 1
+  );
+  return /\b(?:return|throw|case|delete|typeof|void|yield|await)$/.test(before);
+}
+
+function findRegexLiteralEnd(content: string, index: number): number | null {
+  let escaped = false;
+  let inCharacterClass = false;
+
+  for (let i = index + 1; i < content.length; i++) {
+    const char = content[i]!;
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '[') {
+      inCharacterClass = true;
+      continue;
+    }
+
+    if (char === ']') {
+      inCharacterClass = false;
+      continue;
+    }
+
+    if (char === '/' && !inCharacterClass) {
+      let end = i + 1;
+      while (/[A-Za-z]/.test(content[end] ?? '')) end++;
+      return end;
+    }
+
+    if (char === '\n' || char === '\r') return null;
+  }
+
+  return null;
+}
+
+function findPowerShellHereStringEnd(
+  content: string,
+  index: number
+): number | null {
+  const quote = content.startsWith('@"', index)
+    ? '"'
+    : content.startsWith("@'", index)
+      ? "'"
+      : null;
+
+  if (!quote) return null;
+
+  const afterStart = index + 2;
+  if (content[afterStart] !== '\n' && content[afterStart] !== '\r') {
+    return null;
+  }
+
+  const endPattern = new RegExp(`(?:^|\\r?\\n)${quote}@`, 'g');
+  endPattern.lastIndex = afterStart;
+  const endMatch = endPattern.exec(content);
+
+  return endMatch ? endMatch.index + endMatch[0]!.length : content.length;
+}
+
+function findLexicalIslandEnd(
+  content: string,
+  index: number,
+  rules: StringAwareCommentRules
+): number | null {
+  return (
+    (rules.powershellHereStrings
+      ? findPowerShellHereStringEnd(content, index)
+      : null) ??
+    findRustRawStringEnd(content, index) ??
+    findCSharpVerbatimStringEnd(content, index) ??
+    (rules.regex && isRegexLiteralStart(content, index)
+      ? findRegexLiteralEnd(content, index)
+      : null)
+  );
 }
 
 function hasLineCommentBoundary(content: string, index: number): boolean {
@@ -94,6 +346,37 @@ function shouldStripLineComment(
 
 function preserveLineBreaks(content: string): string {
   return content.replace(/[^\r\n]/g, '');
+}
+
+function findBlockCommentEnd(
+  content: string,
+  afterStart: number,
+  rule: BlockCommentRule
+): number {
+  if (!rule.nested) {
+    const endIndex = content.indexOf(rule.end, afterStart);
+    return endIndex === -1 ? content.length : endIndex + rule.end.length;
+  }
+
+  let depth = 1;
+  for (let cursor = afterStart; cursor < content.length; ) {
+    if (content.startsWith(rule.start, cursor)) {
+      depth++;
+      cursor += rule.start.length;
+      continue;
+    }
+
+    if (content.startsWith(rule.end, cursor)) {
+      depth--;
+      cursor += rule.end.length;
+      if (depth === 0) return cursor;
+      continue;
+    }
+
+    cursor++;
+  }
+
+  return content.length;
 }
 
 function stripStringAwareComments(
@@ -129,7 +412,14 @@ function stripStringAwareComments(
       continue;
     }
 
-    const quote = quoteDelimiterAt(content, i);
+    const lexicalIslandEnd = findLexicalIslandEnd(content, i, rules);
+    if (lexicalIslandEnd !== null) {
+      result += content.slice(i, lexicalIslandEnd);
+      i = lexicalIslandEnd;
+      continue;
+    }
+
+    const quote = quoteDelimiterAt(content, i, rules);
     if (quote) {
       quoteEnd = quote;
       escaped = false;
@@ -144,9 +434,7 @@ function stripStringAwareComments(
     if (blockRule) {
       const commentStart = i;
       const afterStart = i + blockRule.start.length;
-      const endIndex = content.indexOf(blockRule.end, afterStart);
-      const commentEnd =
-        endIndex === -1 ? content.length : endIndex + blockRule.end.length;
+      const commentEnd = findBlockCommentEnd(content, afterStart, blockRule);
       result += preserveLineBreaks(content.slice(commentStart, commentEnd));
       i = commentEnd;
       continue;
@@ -498,6 +786,109 @@ export function minifyJavaScriptCore(content: string): string {
   } /* v8 ignore stop */
 }
 
+export function minifyWithTerserSync(content: string): {
+  content: string;
+  failed: boolean;
+  reason?: string;
+} {
+  try {
+    if (!content.trim()) {
+      return { content, failed: false };
+    }
+
+    const result = minify_sync(content, TERSER_OPTIONS);
+    return { content: result.code || content, failed: false };
+  } catch (error: unknown) {
+    return {
+      content: minifyJavaScriptCore(content),
+      failed: true,
+      reason: `Terser sync minification failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+function transpileTypeScriptLike(
+  content: string,
+  filePath: string
+): StrategyMinifyResult {
+  try {
+    if (!content.trim()) {
+      return { content, failed: false };
+    }
+
+    const result = ts.transpileModule(content, {
+      fileName: filePath,
+      compilerOptions: TYPESCRIPT_COMPILER_OPTIONS,
+      reportDiagnostics: true,
+    });
+    const errorDiagnostic = result.diagnostics?.find(
+      diagnostic => diagnostic.category === ts.DiagnosticCategory.Error
+    );
+
+    if (errorDiagnostic) {
+      const message = ts.flattenDiagnosticMessageText(
+        errorDiagnostic.messageText,
+        '\n'
+      );
+      return {
+        content,
+        failed: true,
+        reason: `TypeScript transpilation failed: ${message}`,
+      };
+    }
+
+    return { content: result.outputText || content, failed: false };
+  } catch (error: unknown) {
+    return {
+      content,
+      failed: true,
+      reason: `TypeScript transpilation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+export function minifyTypeScriptLikeSync(
+  content: string,
+  filePath: string
+): StrategyMinifyResult {
+  const transpiled = transpileTypeScriptLike(content, filePath);
+  if (transpiled.failed) return transpiled;
+
+  try {
+    const result = minify_sync(transpiled.content, TERSER_OPTIONS);
+    return { content: result.code || transpiled.content, failed: false };
+  } catch (error: unknown) {
+    return {
+      content: transpiled.content,
+      failed: true,
+      reason: `Terser minification failed after TypeScript transpilation: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`,
+    };
+  }
+}
+
+export async function minifyTypeScriptLike(
+  content: string,
+  filePath: string
+): Promise<StrategyMinifyResult> {
+  const transpiled = transpileTypeScriptLike(content, filePath);
+  if (transpiled.failed) return transpiled;
+
+  try {
+    const result = await minify(transpiled.content, TERSER_OPTIONS);
+    return { content: result.code || transpiled.content, failed: false };
+  } catch (error: unknown) {
+    return {
+      content: transpiled.content,
+      failed: true,
+      reason: `Terser minification failed after TypeScript transpilation: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`,
+    };
+  }
+}
+
 export async function minifyWithTerser(
   content: string
 ): Promise<{ content: string; failed: boolean; reason?: string }> {
@@ -506,28 +897,7 @@ export async function minifyWithTerser(
       return { content, failed: false };
     }
 
-    const result = await minify(content, {
-      compress: {
-        drop_console: false,
-        drop_debugger: false,
-        sequences: true,
-        conditionals: true,
-        comparisons: true,
-        evaluate: true,
-        booleans: true,
-        loops: false,
-        unused: false,
-        dead_code: true,
-        side_effects: false,
-      },
-      mangle: false,
-      format: {
-        comments: false,
-        beautify: false,
-        semicolons: true,
-      },
-      sourceMap: false,
-    });
+    const result = await minify(content, TERSER_OPTIONS);
 
     return { content: result.code || content, failed: false };
   } catch (error: unknown) {
@@ -566,6 +936,71 @@ export async function minifyCSSAsync(
   }
 }
 
+type EmbeddedBlockReplacer = (
+  attributes: string,
+  body: string
+) => Promise<string>;
+
+async function replaceEmbeddedBlocks(
+  content: string,
+  pattern: RegExp,
+  replacer: EmbeddedBlockReplacer
+): Promise<string> {
+  let output = '';
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = pattern.exec(content);
+
+  while (match) {
+    const matchIndex = match.index;
+    const fullMatch = match[0] ?? '';
+    const attributes = match[1] ?? '';
+    const body = match[2] ?? '';
+
+    output += content.slice(lastIndex, matchIndex);
+    output += await replacer(attributes, body);
+    lastIndex = matchIndex + fullMatch.length;
+    match = pattern.exec(content);
+  }
+
+  return output + content.slice(lastIndex);
+}
+
+function isTypeScriptLikeScript(attributes: string): boolean {
+  return /\blang\s*=\s*["']tsx?["']/i.test(attributes);
+}
+
+async function minifyEmbeddedScript(
+  attributes: string,
+  body: string
+): Promise<string> {
+  const result = isTypeScriptLikeScript(attributes)
+    ? await minifyTypeScriptLike(body, 'component.tsx')
+    : await minifyWithTerser(body);
+  const fallback = minifyJavaScriptCore(body);
+  const candidate =
+    !result.failed && result.content.length <= body.length
+      ? result.content
+      : fallback;
+  const minifiedBody = candidate.length < body.length ? candidate : body.trim();
+
+  return `<script${attributes}>${minifiedBody}</script>`;
+}
+
+async function minifyEmbeddedStyle(
+  attributes: string,
+  body: string
+): Promise<string> {
+  const result = await minifyCSSAsync(body);
+  const fallback = minifyCSSCore(body);
+  const candidate =
+    !result.failed && result.content.length <= body.length
+      ? result.content
+      : fallback;
+  const minifiedBody = candidate.length < body.length ? candidate : body.trim();
+
+  return `<style${attributes}>${minifiedBody}</style>`;
+}
+
 export async function minifyHTMLAsync(
   content: string
 ): Promise<{ content: string; failed: boolean; reason?: string }> {
@@ -580,8 +1015,8 @@ export async function minifyHTMLAsync(
       removeRedundantAttributes: true,
       removeScriptTypeAttributes: true,
       removeStyleLinkTypeAttributes: true,
-      minifyCSS: false,
-      minifyJS: false,
+      minifyCSS: true,
+      minifyJS: TERSER_OPTIONS,
       caseSensitive: false,
     });
 
@@ -591,6 +1026,41 @@ export async function minifyHTMLAsync(
       content: minifyHTMLCore(content),
       failed: false,
       reason: `html-minifier fallback: ${error instanceof Error ? error.message : 'unknown'}`,
+    };
+  }
+}
+
+export async function minifyComponentAsync(
+  content: string
+): Promise<{ content: string; failed: boolean; reason?: string }> {
+  try {
+    if (!content.trim()) {
+      return { content, failed: false };
+    }
+
+    const withScripts = await replaceEmbeddedBlocks(
+      content,
+      /<script\b([^>]*)>([\s\S]*?)<\/script>/gi,
+      minifyEmbeddedScript
+    );
+    const withStyles = await replaceEmbeddedBlocks(
+      withScripts,
+      /<style\b([^>]*)>([\s\S]*?)<\/style>/gi,
+      minifyEmbeddedStyle
+    );
+    const compact = minifyHTMLCore(withStyles);
+
+    return {
+      content: compact.length < withStyles.length ? compact : withStyles.trim(),
+      failed: false,
+    };
+  } catch (error: unknown) {
+    return {
+      content: minifyHTMLCore(content),
+      failed: false,
+      reason: `component minifier fallback: ${
+        error instanceof Error ? error.message : 'unknown'
+      }`,
     };
   }
 }

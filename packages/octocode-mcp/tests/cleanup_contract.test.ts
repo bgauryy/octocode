@@ -107,10 +107,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
 
   it('LSP tools never assign lspMode into result objects (LSP-only, absent ≡ semantic)', async () => {
     const { readFile } = await import('fs/promises');
-    const files = [
-      'src/tools/lsp/semantic_content/execution.ts',
-      'src/tools/lsp/diagnostics/execution.ts',
-    ];
+    const files = ['src/tools/lsp/semantic_content/execution.ts'];
     for (const file of files) {
       const src = await readFile(`${ROOT}/${file}`, 'utf-8');
       const assignPattern = /lspMode\s*:\s*(?!_)/g;

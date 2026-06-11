@@ -1,1 +1,0 @@
-{"calls":2,"in_chars":2655,"out_chars":6938,"elapsed_ms":14897,"calls_detail":[{"cmd":"githubSearchCode","in_chars":1238,"out_chars":4532,"elapsed_ms":12756,"exit":0},{"cmd":"githubGetFileContent","in_chars":1417,"out_chars":2406,"elapsed_ms":2141,"exit":0}],"tool_elapsed_ms":14897,"q_elapsed_ms":46425}

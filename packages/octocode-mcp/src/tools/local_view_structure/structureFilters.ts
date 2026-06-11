@@ -1,7 +1,3 @@
-import type { z } from 'zod';
-import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 import { checkRegexSafety } from '../../utils/core/safeRegex.js';
 
 export interface DirectoryEntry {
@@ -17,9 +13,18 @@ export interface DirectoryEntry {
 }
 
 type EntryFilterQuery = Pick<
-  Partial<ViewStructureQuery>,
-  'pattern' | 'extension' | 'extensions' | 'directoriesOnly' | 'filesOnly'
+  {
+    pattern?: string;
+    extensions?: string[];
+    directoriesOnly?: boolean;
+    filesOnly?: boolean;
+  },
+  'pattern' | 'extensions' | 'directoriesOnly' | 'filesOnly'
 >;
+
+function normalizeExtension(extension: string): string {
+  return extension.startsWith('.') ? extension.slice(1) : extension;
+}
 
 export function applyEntryFilters(
   entries: DirectoryEntry[],
@@ -80,14 +85,11 @@ export function applyEntryFilters(
     }
   }
 
-  if (query.extension) {
-    filtered = filtered.filter(
-      e => e.type === 'directory' || e.extension === query.extension
-    );
-  }
-
-  if (query.extensions && query.extensions.length > 0) {
-    const extensions = query.extensions;
+  const extensions =
+    query.extensions && query.extensions.length > 0
+      ? query.extensions.map(normalizeExtension)
+      : [];
+  if (extensions.length > 0) {
     filtered = filtered.filter(
       e =>
         e.type === 'directory' ||

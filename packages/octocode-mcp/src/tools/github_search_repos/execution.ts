@@ -317,8 +317,6 @@ function compareByRequestedSort(
       return (right.forksCount ?? 0) - (left.forksCount ?? 0);
     case 'updated':
       return compareIsoDateDescending(left.updatedAt, right.updatedAt);
-    case 'created':
-      return compareIsoDateDescending(left.createdAt, right.createdAt);
     case 'best-match':
     case undefined:
       return 0;

@@ -51,18 +51,18 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(result.hints).toBeDefined();
     const hintsStr = result.hints!.join('\n');
     expect(hintsStr).toContain('Large result set');
-    expect(hintsStr).toContain('add type or include');
+    expect(hintsStr).toContain('add langType or include');
     expect(hintsStr).toContain('add excludeDir');
     expect(hintsStr).toContain('lengthen pattern');
   });
 
-  it('A1: itemsPerPage pages FILES (top-level), matchesPerFile caps matches/file', async () => {
+  it('A1: itemsPerPage pages FILES (top-level), maxMatchesPerFile caps matches/file', async () => {
     const files = makeFiles(5, 4);
     const query = {
       path: '/test',
       pattern: 'match',
       itemsPerPage: 2,
-      matchesPerFile: 1,
+      maxMatchesPerFile: 1,
       page: 1,
       researchGoal: 'test',
       reasoning: 'test',
@@ -93,7 +93,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(hintsStr).toMatch(/outside available range|page 999 is/i);
   });
 
-  it('suggests type/include when neither is set', async () => {
+  it('suggests langType/include when neither is set', async () => {
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
@@ -104,7 +104,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
 
     const result = await buildSearchResult(files, query, 'rg', []);
 
-    expect(result.hints?.some(h => h.includes('add type or include'))).toBe(
+    expect(result.hints?.some(h => h.includes('add langType or include'))).toBe(
       true
     );
   });
@@ -137,19 +137,19 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(result.hints?.some(h => h.includes('lengthen pattern'))).toBe(true);
   });
 
-  it('does NOT suggest type/include when query.type is already set', async () => {
+  it('does NOT suggest langType/include when query.langType is already set', async () => {
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
       pattern: 'ab',
-      type: 'ts',
+      langType: 'ts',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
 
     const result = await buildSearchResult(files, query, 'rg', []);
 
-    expect(result.hints?.some(h => h.includes('add type or include'))).toBe(
+    expect(result.hints?.some(h => h.includes('add langType or include'))).toBe(
       false
     );
   });

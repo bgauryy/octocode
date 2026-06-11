@@ -61,7 +61,7 @@ export async function fetchGitHubFileContentAPI(
     params.fullContent || false,
     params.startLine,
     params.endLine,
-    params.matchStringContextLines ?? 5,
+    params.contextLines ?? 5,
     params.matchString,
     params.matchStringIsRegex,
     params.matchStringCaseSensitive,

@@ -1,0 +1,48 @@
+{
+  "ext": "hpp",
+  "language": "C++ Header",
+  "source": "hpp/fmt-color.hpp",
+  "sourceBytes": 25322,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "80db3364b9f5b8247f4012d05d1353be1d0aed7c1b5bd65bdcd2817d50b64e7c",
+  "contentView": {
+    "bytes": 15620,
+    "cutPercent": 38.3,
+    "durationMs": 3.542
+  },
+  "applyMinification": {
+    "bytes": 15620,
+    "cutPercent": 38.3,
+    "durationMs": 4.002
+  },
+  "sync": {
+    "bytes": 15620,
+    "cutPercent": 38.3,
+    "durationMs": 3.5
+  },
+  "async": {
+    "bytes": 15620,
+    "cutPercent": 38.3,
+    "durationMs": 3.47,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 7208,
+    "cutPercent": 71.5,
+    "durationMs": 0.44
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": 9,
+    "agent": 8.7,
+    "label": "strong"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

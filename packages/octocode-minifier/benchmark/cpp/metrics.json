@@ -1,0 +1,48 @@
+{
+  "ext": "cpp",
+  "language": "C++",
+  "source": "cpp/llvm-raw-ostream.cpp",
+  "sourceBytes": 32621,
+  "strategy": "conservative",
+  "commentModel": "c-style",
+  "sha256": "2d0cb78f742f7cac63321f423c51a7c41e72312b7c8f55565f4b0e47ac82477a",
+  "contentView": {
+    "bytes": 22759,
+    "cutPercent": 30.2,
+    "durationMs": 6.594
+  },
+  "applyMinification": {
+    "bytes": 22759,
+    "cutPercent": 30.2,
+    "durationMs": 6.683
+  },
+  "sync": {
+    "bytes": 22759,
+    "cutPercent": 30.2,
+    "durationMs": 6.119
+  },
+  "async": {
+    "bytes": 22759,
+    "cutPercent": 30.2,
+    "durationMs": 4.105,
+    "failed": false,
+    "type": "conservative",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 6335,
+    "cutPercent": 80.6,
+    "durationMs": 0.376
+  },
+  "ratings": {
+    "minify": 8.5,
+    "symbols": 10,
+    "agent": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "conservative text strategy"
+  ]
+}

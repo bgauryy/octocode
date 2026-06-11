@@ -1,0 +1,48 @@
+{
+  "ext": "css",
+  "language": "CSS",
+  "source": "css/bootstrap.css",
+  "sourceBytes": 280311,
+  "strategy": "aggressive",
+  "commentModel": "c-style",
+  "sha256": "4a50207b956a4ab943640ee993118b554a34e96a23261cfe58b9aa1807a7849b",
+  "contentView": {
+    "bytes": 279205,
+    "cutPercent": 0.4,
+    "durationMs": 65.696
+  },
+  "applyMinification": {
+    "bytes": 237337,
+    "cutPercent": 15.3,
+    "durationMs": 64.235
+  },
+  "sync": {
+    "bytes": 237337,
+    "cutPercent": 15.3,
+    "durationMs": 66.163
+  },
+  "async": {
+    "bytes": 230255,
+    "cutPercent": 17.9,
+    "durationMs": 139.73,
+    "failed": false,
+    "type": "aggressive",
+    "reason": null
+  },
+  "symbols": {
+    "supported": true,
+    "returned": true,
+    "bytes": 90076,
+    "cutPercent": 67.9,
+    "durationMs": 5.125
+  },
+  "ratings": {
+    "minify": 8.3,
+    "symbols": 9,
+    "agent": 8.5,
+    "label": "strong"
+  },
+  "notes": [
+    "engine-backed or parser-backed path"
+  ]
+}

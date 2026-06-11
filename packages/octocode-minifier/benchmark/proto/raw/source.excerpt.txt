@@ -1,0 +1,55 @@
+// Protocol Buffers - Google's data interchange format
+// Copyright 2008 Google LLC.  All rights reserved.
+//
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file or at
+// https://developers.google.com/open-source/licenses/bsd
+
+// Author: kenton@google.com (Kenton Varda)
+//  Based on original Protocol Buffers design by
+//  Sanjay Ghemawat, Jeff Dean, and others.
+//
+// The messages in this file describe the definitions found in .proto files.
+// A valid .proto file can be translated directly to a FileDescriptorProto
+// without any other information (e.g. without reading its imports).
+
+syntax = "proto2";
+
+package google.protobuf;
+
+option go_package = "google.golang.org/protobuf/types/descriptorpb";
+option java_package = "com.google.protobuf";
+option java_outer_classname = "DescriptorProtos";
+option csharp_namespace = "Google.Protobuf.Reflection";
+option objc_class_prefix = "GPB";
+option cc_enable_arenas = true;
+
+// descriptor.proto must be optimized for speed because reflection-based
+// algorithms don't work during bootstrapping.
+option optimize_for = SPEED;
+
+// The protocol compiler can output a FileDescriptorSet containing the .proto
+// files it parses.
+mes
+
+... [truncated 58547 chars] ...
+
+e mutated.
+      SET = 1;
+      // An alias to the element is returned.
+      ALIAS = 2;
+    }
+    optional Semantic semantic = 5;
+  }
+}
+
+// Describes the 'visibility' of a symbol with respect to the proto import
+// system. Symbols can only be imported when the visibility rules do not prevent
+// it (ex: local symbols cannot be imported).  Visibility modifiers can only set
+// on `message` and `enum` as they are the only types available to be referenced
+// from other files.
+enum SymbolVisibility {
+  VISIBILITY_UNSET = 0;
+  VISIBILITY_LOCAL = 1;
+  VISIBILITY_EXPORT = 2;
+}

@@ -1,130 +1,141 @@
 import { z } from 'zod';
-import { RipgrepQuerySchema as UpstreamRipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { completeMetadata } from '@octocodeai/octocode-core';
+import { MAX_MATCH_CONTENT_LENGTH, MAX_PAGE_NUMBER } from '../../config.js';
 import {
   clampedInt,
   contextLinesField,
   createRelaxedBulkQuerySchema,
-  optionalMetaFields,
   relaxedPageNumberField,
-  withCoreSchemaDescriptions,
-  WithLocalOverlay,
 } from '../../scheme/localSchemaOverlay.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-const RIPGREP_HIDDEN_FIELDS = {
-  type: true,
-  count: true,
-  countMatches: true,
-  matchesPerPage: true,
-  filesPerPage: true,
-  filePageNumber: true,
-  smartCase: true,
-  beforeContext: true,
-  afterContext: true,
-  binaryFiles: true,
-  encoding: true,
-  includeStats: true,
-  noMessages: true,
-  lineRegexp: true,
-  passthru: true,
-  debug: true,
-  showFileLastModified: true,
-  noUnicode: true,
-  threads: true,
-  mmap: true,
-  followSymlinks: true,
-} as const;
+const QUERY_DESCRIPTIONS = {
+  ...completeMetadata.baseSchema,
+  ...completeMetadata.tools[STATIC_TOOL_NAMES.LOCAL_RIPGREP]?.schema,
+} as Record<string, string>;
 
-const matchContentLengthField = clampedInt(1, 100_000).optional().default(500);
+const LOCAL_SEARCH_MODES = ['paginated', 'discovery', 'detailed'] as const;
 
-const RipgrepQueryBaseSchema = withCoreSchemaDescriptions(
-  STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-  UpstreamRipgrepQuerySchema.omit(RIPGREP_HIDDEN_FIELDS).extend({
-    ...optionalMetaFields,
-    langType: UpstreamRipgrepQuerySchema.shape.type,
-    countLinesPerFile: UpstreamRipgrepQuerySchema.shape.count.optional(),
-    countMatchesPerFile:
-      UpstreamRipgrepQuerySchema.shape.countMatches.optional(),
-    matchContentLength: matchContentLengthField,
-    sort: z
-      .enum(['path', 'modified', 'accessed', 'created'])
-      .optional()
-      .default('path'),
-    // No zod default here: applyWorkflowMode (mode="detailed") only expands
-    // context when contextLines is undefined. The default (2) is applied
-    // AFTER workflow-mode resolution in searchContentRipgrep.ts.
-    contextLines: contextLinesField,
-    maxFiles: clampedInt(1, 100_000).optional(),
-    maxMatchesPerFile: clampedInt(1, 100_000).optional(),
-    matchPage: relaxedPageNumberField.default(1),
-    page: relaxedPageNumberField.default(1),
-  })
-);
+const RipgrepQueryShape = z.object({
+  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.researchGoal!),
+  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
+  pattern: z.string().describe(QUERY_DESCRIPTIONS.pattern!),
+  path: z.string().describe(QUERY_DESCRIPTIONS.path!),
+  mode: z
+    .enum(LOCAL_SEARCH_MODES)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mode!),
+  fixedString: z.boolean().optional().describe(QUERY_DESCRIPTIONS.fixedString!),
+  perlRegex: z.boolean().optional().describe(QUERY_DESCRIPTIONS.perlRegex!),
+  caseInsensitive: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.caseInsensitive!),
+  caseSensitive: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.caseSensitive!),
+  wholeWord: z.boolean().optional().describe(QUERY_DESCRIPTIONS.wholeWord!),
+  invertMatch: z.boolean().optional().describe(QUERY_DESCRIPTIONS.invertMatch!),
+  include: z.array(z.string()).optional().describe(QUERY_DESCRIPTIONS.include!),
+  exclude: z.array(z.string()).optional().describe(QUERY_DESCRIPTIONS.exclude!),
+  excludeDir: z
+    .array(z.string())
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.excludeDir!),
+  noIgnore: z.boolean().optional().describe(QUERY_DESCRIPTIONS.noIgnore!),
+  hidden: z.boolean().optional().describe(QUERY_DESCRIPTIONS.hidden!),
+  filesOnly: z.boolean().optional().describe(QUERY_DESCRIPTIONS.filesOnly!),
+  filesWithoutMatch: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.filesWithoutMatch!),
+  contextLines: contextLinesField.describe(QUERY_DESCRIPTIONS.contextLines!),
+  matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
+    .optional()
+    .default(500)
+    .describe(QUERY_DESCRIPTIONS.matchContentLength!),
+  maxMatchesPerFile: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.maxMatchesPerFile!),
+  maxFiles: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.maxFiles!),
+  multiline: z.boolean().optional().describe(QUERY_DESCRIPTIONS.multiline!),
+  multilineDotall: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.multilineDotall!),
+  sort: z
+    .enum(['path', 'modified', 'accessed', 'created'])
+    .optional()
+    .default('path')
+    .describe(QUERY_DESCRIPTIONS.sort!),
+  sortReverse: z.boolean().optional().describe(QUERY_DESCRIPTIONS.sortReverse!),
+  langType: z.string().optional().describe(QUERY_DESCRIPTIONS.langType!),
+  countLinesPerFile: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.countLinesPerFile!),
+  countMatchesPerFile: z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.countMatchesPerFile!),
+  matchPage: relaxedPageNumberField
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.matchPage!),
+  itemsPerPage: clampedInt(1, MAX_PAGE_NUMBER)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.itemsPerPage!),
+  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
+});
 
-export const LocalRipgrepQuerySchema = RipgrepQueryBaseSchema.superRefine(
+export const LocalRipgrepQuerySchema = RipgrepQueryShape.superRefine(
   (data, ctx) => {
     const d = data as {
       filesOnly?: boolean;
       filesWithoutMatch?: boolean;
       fixedString?: boolean;
       perlRegex?: boolean;
-      caseSensitive?: boolean;
-      caseInsensitive?: boolean;
-      multiline?: boolean;
-      multilineDotall?: boolean;
+      countLinesPerFile?: boolean;
+      countMatchesPerFile?: boolean;
     };
-    if (d.filesOnly === true && d.filesWithoutMatch === true) {
+    if (d.filesOnly && d.filesWithoutMatch)
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          '`filesOnly` and `filesWithoutMatch` are mutually exclusive. Choose ONE: filesOnly=true for paths with matches, OR filesWithoutMatch=true for paths without matches.',
+        code: 'custom',
+        message: 'filesOnly and filesWithoutMatch are mutually exclusive.',
         path: ['filesWithoutMatch'],
       });
-    }
-    if (d.fixedString === true && d.perlRegex === true) {
+    if (d.fixedString && d.perlRegex)
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          '`fixedString` and `perlRegex` are mutually exclusive. fixedString treats the pattern as a literal string; perlRegex treats it as a Perl-compatible regex. Choose ONE.',
+        code: 'custom',
+        message: 'fixedString and perlRegex are mutually exclusive.',
         path: ['perlRegex'],
       });
-    }
-    if (d.caseSensitive === true && d.caseInsensitive === true) {
+    if (d.countLinesPerFile && d.countMatchesPerFile)
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         message:
-          '`caseSensitive` and `caseInsensitive` are mutually exclusive. Choose ONE.',
-        path: ['caseInsensitive'],
-      });
-    }
-    if (
-      (d as { countLinesPerFile?: boolean }).countLinesPerFile === true &&
-      (d as { countMatchesPerFile?: boolean }).countMatchesPerFile === true
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          '`countLinesPerFile` and `countMatchesPerFile` are mutually exclusive. Choose ONE: countLinesPerFile for matching-line counts, OR countMatchesPerFile for total match counts.',
+          'countLinesPerFile and countMatchesPerFile are mutually exclusive.',
         path: ['countMatchesPerFile'],
       });
-    }
-    if (d.multilineDotall === true && d.multiline !== true) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          '`multilineDotall` requires `multiline=true`. Set multiline=true to enable cross-line matching first.',
-        path: ['multilineDotall'],
-      });
-    }
   }
 );
 
-export type RipgrepQuery = WithLocalOverlay<
-  z.infer<typeof UpstreamRipgrepQuerySchema>
->;
+export type RipgrepQuery = z.infer<typeof RipgrepQueryShape>;
 
+// Bulk uses the base shape (no mutex superRefine) so one invalid query
+// does not reject the whole batch. Per-query mutex checks run at execution.
 export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
   STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-  RipgrepQueryBaseSchema,
+  RipgrepQueryShape,
   { maxQueries: 5 }
 );

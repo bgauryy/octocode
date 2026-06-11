@@ -1,0 +1,68 @@
+// Copyright 2009 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package fmt
+
+import (
+	"internal/fmtsort"
+	"io"
+	"os"
+	"reflect"
+	"strconv"
+	"sync"
+	"unicode/utf8"
+)
+
+// Strings for use with buffer.WriteString.
+// This is less overhead than using buffer.Write with byte arrays.
+const (
+	commaSpaceString  = ", "
+	nilAngleString    = "<nil>"
+	nilParenString    = "(nil)"
+	nilString         = "nil"
+	mapString         = "map["
+	percentBangString = "%!"
+	missingString     = "(MISSING)"
+	badIndexString    = "(BADINDEX)"
+	panicString       = "(PANIC="
+	extraString       = "%!(EXTRA "
+	badWidthString    = "%!(BADWIDTH)"
+	badPrecString     = "%!(BADPREC)"
+	noVerbString      = "%!(NOVERB)"
+	invReflectString  = "<invalid reflect.Value>"
+)
+
+// State represents the printer state passed to custom formatters.
+// It provides access to the [io.Writer] interface plus information about
+// the flags and options for the operand's format specifier.
+type State interface {
+	// Write is the function to call to emit formatted output to be printed.
+	Write(b []byte) (n int, err error)
+	// Width returns the value of the width option and whet
+
+... [truncated 31511 chars] ...
+
+	prevString := false
+	for argNum, arg := range a {
+		isString := arg != nil && reflect.TypeOf(arg).Kind() == reflect.String
+		// Add a space between two non-string arguments.
+		if argNum > 0 && !isString && !prevString {
+			p.buf.writeByte(' ')
+		}
+		p.printArg(arg, 'v')
+		prevString = isString
+	}
+}
+
+// doPrintln is like doPrint but always adds a space between arguments
+// and a newline after the last argument.
+func (p *pp) doPrintln(a []any) {
+	for argNum, arg := range a {
+		if argNum > 0 {
+			p.buf.writeByte(' ')
+		}
+		p.printArg(arg, 'v')
+	}
+	p.buf.writeByte('\n')
+}

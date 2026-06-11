@@ -1,0 +1,29 @@
+  3| require "concurrent/map"
+  5| class Object
+ 18|   def blank?
+ 25|   def present?
+ 45|   def presence
+ 50| class NilClass
+ 56|   def blank?
+ 60|   def present? # :nodoc:
+ 65| class FalseClass
+ 71|   def blank?
+ 75|   def present? # :nodoc:
+ 80| class TrueClass
+ 86|   def blank?
+ 90|   def present? # :nodoc:
+ 95| class Array
+104|   def present? # :nodoc:
+109| class Hash
+118|   def present? # :nodoc:
+123| class Symbol
+130|   def present? # :nodoc:
+135| class String
+153|   def blank?
+165|   def present? # :nodoc:
+170| class Numeric # :nodoc:
+177|   def blank?
+181|   def present?
+186| class Time # :nodoc:
+192|   def blank?
+196|   def present?

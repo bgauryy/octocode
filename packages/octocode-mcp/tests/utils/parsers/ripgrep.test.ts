@@ -5,10 +5,7 @@ import {
   parseFilesOnlyOutput,
   parseRipgrepOutput,
 } from '../../../src/tools/local_ripgrep/ripgrepParser.js';
-import type { z } from 'zod';
-import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
+import type { RipgrepQuery } from '../../../src/tools/local_ripgrep/scheme.js';
 
 const baseQuery = {
   pattern: 'test',
@@ -132,8 +129,7 @@ describe('parseRipgrepJson', () => {
 
     const { files } = parseRipgrepJson(jsonOutput, {
       ...baseQuery,
-      beforeContext: 1,
-      afterContext: 1,
+      contextLines: 1,
     });
 
     expect(files).toHaveLength(1);
@@ -515,7 +511,7 @@ describe('parseFilesOnlyOutput', () => {
 describe('parseRipgrepOutput routing', () => {
   it('should route count queries to parseCountOutput', () => {
     const stdout = '/src/file.ts:7\n/src/other.ts:3\n';
-    const query = { ...baseQuery, count: true } as RipgrepQuery;
+    const query = { ...baseQuery, countLinesPerFile: true } as RipgrepQuery;
 
     const { files, stats } = parseRipgrepOutput(stdout, query);
 
@@ -525,9 +521,12 @@ describe('parseRipgrepOutput routing', () => {
     expect(stats.matchCount).toBe(10);
   });
 
-  it('should route countMatches queries to parseCountOutput', () => {
+  it('should route countMatchesPerFile queries to parseCountOutput', () => {
     const stdout = '/src/file.ts:15\n';
-    const query = { ...baseQuery, countMatches: true } as RipgrepQuery;
+    const query = {
+      ...baseQuery,
+      countMatchesPerFile: true,
+    } as RipgrepQuery;
 
     const { files, stats } = parseRipgrepOutput(stdout, query);
 

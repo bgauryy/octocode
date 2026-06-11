@@ -1,34 +1,33 @@
 import { z } from 'zod';
-import { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { completeMetadata } from '@octocodeai/octocode-core';
 import { GitHubSearchPullRequestsOutputSchema as UpstreamPRsOutput } from '@octocodeai/octocode-core/schemas/outputs';
+import {
+  GITHUB_SEARCH_MAX_LIMIT,
+  MAX_CHAR_LENGTH,
+  PR_CONTENT_MAX_ITEMS_PER_PAGE,
+} from '../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
   minifyFieldStandard,
-  optionalMetaFields,
   relaxedPageNumberField,
-  withCoreSchemaDescriptions,
 } from '../../scheme/localSchemaOverlay.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-const PrPartialContentMetadataLocalSchema = z.object({
-  file: z
-    .string()
-    .describe(
-      'File path relative to repo root, exactly as returned in metadata/changedFiles output (e.g. "src/utils/foo.ts").'
-    ),
-  additions: z
-    .array(clampedInt(1, 1_000_000_000))
-    .optional()
-    .describe('New-file line numbers to keep from the patch.'),
-  deletions: z
-    .array(clampedInt(1, 1_000_000_000))
-    .optional()
-    .describe('Original-file line numbers to keep from the patch.'),
+const QUERY_DESCRIPTIONS = {
+  ...completeMetadata.baseSchema,
+  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]
+    ?.schema,
+} as Record<string, string>;
+
+const PrPartialContentMetadataSchema = z.object({
+  file: z.string(),
+  additions: z.array(clampedInt(1, 1_000_000_000)).optional(),
+  deletions: z.array(clampedInt(1, 1_000_000_000)).optional(),
 });
 
-const PrContentSelectorLocalSchema = z
+const PrContentSelectorSchema = z
   .object({
     metadata: z.boolean().optional(),
     body: z.boolean().optional(),
@@ -37,7 +36,7 @@ const PrContentSelectorLocalSchema = z
       .object({
         mode: z.enum(['none', 'selected', 'all']).optional(),
         files: z.array(z.string()).optional(),
-        ranges: z.array(PrPartialContentMetadataLocalSchema).optional(),
+        ranges: z.array(PrPartialContentMetadataSchema).optional(),
       })
       .optional(),
     comments: z
@@ -58,41 +57,120 @@ const PrContentSelectorLocalSchema = z
   })
   .optional();
 
+const GitHubPullRequestSearchQuerySchema = z.object({
+  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
+  mainResearchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
+  researchGoal: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.researchGoal!),
+  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
+  query: z.string().optional().describe(QUERY_DESCRIPTIONS.query!),
+  prNumber: clampedInt(1, 1_000_000_000)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.prNumber!),
+  owner: z.string().optional().describe(QUERY_DESCRIPTIONS.owner!),
+  repo: z.string().optional().describe(QUERY_DESCRIPTIONS.repo!),
+  verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
+  state: z
+    .enum(['open', 'closed', 'merged'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.state!),
+  assignee: z.string().optional().describe(QUERY_DESCRIPTIONS.assignee!),
+  author: z.string().optional().describe(QUERY_DESCRIPTIONS.author!),
+  commenter: z.string().optional().describe(QUERY_DESCRIPTIONS.commenter!),
+  involves: z.string().optional().describe(QUERY_DESCRIPTIONS.involves!),
+  mentions: z.string().optional().describe(QUERY_DESCRIPTIONS.mentions!),
+  'review-requested': z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS['review-requested']!),
+  'reviewed-by': z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS['reviewed-by']!),
+  label: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.label!),
+  'no-label': z.boolean().optional().describe(QUERY_DESCRIPTIONS['no-label']!),
+  'no-milestone': z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS['no-milestone']!),
+  'no-project': z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS['no-project']!),
+  'no-assignee': z
+    .boolean()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS['no-assignee']!),
+  head: z.string().optional().describe(QUERY_DESCRIPTIONS.head!),
+  base: z.string().optional().describe(QUERY_DESCRIPTIONS.base!),
+  created: z.string().optional().describe(QUERY_DESCRIPTIONS.created!),
+  updated: z.string().optional().describe(QUERY_DESCRIPTIONS.updated!),
+  closed: z.string().optional().describe(QUERY_DESCRIPTIONS.closed!),
+  'merged-at': z.string().optional().describe(QUERY_DESCRIPTIONS['merged-at']!),
+  comments: z.string().optional().describe(QUERY_DESCRIPTIONS.comments!),
+  reactions: z.string().optional().describe(QUERY_DESCRIPTIONS.reactions!),
+  interactions: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.interactions!),
+  draft: z.boolean().optional().describe(QUERY_DESCRIPTIONS.draft!),
+  matchScope: z
+    .array(z.enum(['title', 'body', 'comments']))
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.matchScope!),
+  sort: z
+    .enum(['created', 'updated', 'best-match', 'comments', 'reactions'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.sort!),
+  order: z.enum(['asc', 'desc']).optional().describe(QUERY_DESCRIPTIONS.order!),
+  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.limit!),
+  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
+  archived: z.boolean().optional().describe(QUERY_DESCRIPTIONS.archived!),
+  filePage: relaxedPageNumberField
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.filePage!),
+  commentPage: relaxedPageNumberField
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.commentPage!),
+  commitPage: relaxedPageNumberField
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.commitPage!),
+  itemsPerPage: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.itemsPerPage!),
+  reviewMode: z
+    .enum(['summary', 'full'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.reviewMode!),
+  content: PrContentSelectorSchema.describe(QUERY_DESCRIPTIONS.content!),
+  matchString: z.string().optional().describe(QUERY_DESCRIPTIONS.matchString!),
+  charOffset: clampedInt(0, 100_000_000)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.charOffset!),
+  charLength: clampedInt(1, MAX_CHAR_LENGTH)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.charLength!),
+  includeBots: z.boolean().optional().describe(QUERY_DESCRIPTIONS.includeBots!),
+  minify: minifyFieldStandard.describe(QUERY_DESCRIPTIONS.minify!),
+});
+
 export const GitHubPullRequestSearchQueryLocalSchema =
-  withCoreSchemaDescriptions(
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-    GitHubPullRequestSearchQuerySchema.omit({
-      limit: true,
-      merged: true,
-    }).extend({
-      ...optionalMetaFields,
-      prNumber: clampedInt(1, 1_000_000_000).optional(),
-      state: z.enum(['open', 'closed', 'merged']).optional(),
-      matchScope: z.array(z.enum(['title', 'body', 'comments'])).optional(),
-      sort: z
-        .enum(['created', 'updated', 'best-match', 'comments', 'reactions'])
-        .optional(),
-      order: z.enum(['asc', 'desc']).optional(),
-      archived: z.boolean().optional(),
-      page: relaxedPageNumberField.default(1),
-      filePage: relaxedPageNumberField.optional(),
-      commentPage: relaxedPageNumberField.optional(),
-      commitPage: relaxedPageNumberField.optional(),
-      itemsPerPage: clampedInt(1, 100).optional(),
-      reviewMode: z.enum(['summary', 'full']).optional(),
-      content: PrContentSelectorLocalSchema,
-      charOffset: clampedInt(0, 100_000_000).optional(),
-      charLength: clampedInt(1, 50_000).optional(),
-      label: z.union([z.string(), z.array(z.string())]).optional(),
-      includeBots: z.boolean().optional(),
-      minify: minifyFieldStandard,
-    })
-  );
+  GitHubPullRequestSearchQuerySchema;
 
 export const GitHubPullRequestSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(
     STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-    GitHubPullRequestSearchQueryLocalSchema
+    GitHubPullRequestSearchQuerySchema
   );
 
 export const GitHubSearchPullRequestsOutputLocalSchema =

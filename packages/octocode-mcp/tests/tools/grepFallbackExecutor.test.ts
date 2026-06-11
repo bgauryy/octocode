@@ -61,9 +61,7 @@ const baseQuery = {
   matchContentLength: 200,
   itemsPerPage: 10,
   page: 1,
-  matchesPerFile: 10,
-  binaryFiles: 'without-match',
-  smartCase: true,
+  maxMatchesPerFile: 10,
 };
 
 describe('executeGrepFallbackSearch', () => {

@@ -3,10 +3,7 @@ import {
   checkLargeOutputSafety,
   validateToolPath,
 } from '../../../src/utils/file/toolHelpers.js';
-import {
-  LSP_GET_DIAGNOSTICS_TOOL_NAME,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from '../../../src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../src/tools/lsp/shared/semanticTypes.js';
 
 describe('toolHelpers', () => {
   describe('validateToolPath', () => {
@@ -90,7 +87,10 @@ describe('toolHelpers', () => {
           reasoning: 'test reasoning',
         };
 
-        const result = validateToolPath(query, LSP_GET_DIAGNOSTICS_TOOL_NAME);
+        const result = validateToolPath(
+          query,
+          LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
+        );
 
         expect(result.isValid).toBe(true);
         expect(result.sanitizedPath).toBeDefined();

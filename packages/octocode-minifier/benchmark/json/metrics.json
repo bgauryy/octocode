@@ -1,0 +1,50 @@
+{
+  "ext": "json",
+  "language": "JSON",
+  "source": "json/typescript-package.json",
+  "sourceBytes": 3468,
+  "strategy": "json",
+  "commentModel": null,
+  "sha256": "d90afc0188dd4579e93768e2bbefdd12a2cef0aea6358a724c20c81b85ddc0af",
+  "contentView": {
+    "bytes": 3468,
+    "cutPercent": 0,
+    "durationMs": 0.116
+  },
+  "applyMinification": {
+    "bytes": 2464,
+    "cutPercent": 29,
+    "durationMs": 0.03
+  },
+  "sync": {
+    "bytes": 2464,
+    "cutPercent": 29,
+    "durationMs": 0.012
+  },
+  "async": {
+    "bytes": 2464,
+    "cutPercent": 29,
+    "durationMs": 0.02,
+    "failed": false,
+    "type": "json",
+    "reason": null
+  },
+  "symbols": {
+    "supported": false,
+    "returned": false,
+    "bytes": null,
+    "cutPercent": null,
+    "durationMs": 0.002
+  },
+  "ratings": {
+    "minify": 9,
+    "symbols": null,
+    "agent": 9,
+    "label": "excellent"
+  },
+  "notes": [
+    "engine-backed or parser-backed path",
+    "content-view kept original because the readable output was not shorter",
+    "symbols are not implemented for this extension"
+  ]
+}

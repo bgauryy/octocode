@@ -7,6 +7,26 @@ import {
   checkNpmAvailability,
 } from '../../src/utils/exec/npm.js';
 
+function expectNpmSpawnCall(expectedArgs: string[], timeout: number): void {
+  const spawnCall = vi.mocked(spawn).mock.calls[0];
+  const command = spawnCall?.[0];
+  const args = spawnCall?.[1];
+  const options = spawnCall?.[2];
+
+  if (command === process.execPath) {
+    expect(args?.slice(1)).toEqual(expectedArgs);
+  } else {
+    expect(String(command)).toMatch(/npm(\.cmd)?$/);
+    expect(args).toEqual(expectedArgs);
+  }
+
+  expect(options).toEqual(
+    expect.objectContaining({
+      timeout,
+    })
+  );
+}
+
 class MockChildProcess extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
@@ -233,13 +253,7 @@ describe('exec utilities', () => {
       const result = await promise;
 
       expect(result).toBe(true);
-      expect(vi.mocked(spawn)).toHaveBeenCalledWith(
-        process.execPath,
-        [expect.stringMatching(/npm(\.cmd)?$/), '--version'],
-        expect.objectContaining({
-          timeout: 10000,
-        })
-      );
+      expectNpmSpawnCall(['--version'], 10000);
     });
 
     it('should return false when npm --version fails with non-zero exit code', async () => {
@@ -282,13 +296,7 @@ describe('exec utilities', () => {
 
       await promise;
 
-      expect(vi.mocked(spawn)).toHaveBeenCalledWith(
-        process.execPath,
-        [expect.stringMatching(/npm(\.cmd)?$/), '--version'],
-        expect.objectContaining({
-          timeout: 15000,
-        })
-      );
+      expectNpmSpawnCall(['--version'], 15000);
     });
 
     it('should use default timeout of 10 seconds', async () => {
@@ -297,13 +305,7 @@ describe('exec utilities', () => {
 
       await promise;
 
-      expect(vi.mocked(spawn)).toHaveBeenCalledWith(
-        process.execPath,
-        [expect.stringMatching(/npm(\.cmd)?$/), '--version'],
-        expect.objectContaining({
-          timeout: 10000,
-        })
-      );
+      expectNpmSpawnCall(['--version'], 10000);
     });
   });
 });

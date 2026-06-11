@@ -43,7 +43,7 @@ export interface FileContentQuery extends BaseProviderQuery {
 
   matchString?: string;
 
-  matchStringContextLines?: number;
+  contextLines?: number;
 
   matchStringIsRegex?: boolean;
 
@@ -187,7 +187,7 @@ export interface RepoStructureQuery extends BaseProviderQuery {
 
   recursive?: boolean;
 
-  entriesPerPage?: number;
+  itemsPerPage?: number;
 
-  entryPageNumber?: number;
+  page?: number;
 }
