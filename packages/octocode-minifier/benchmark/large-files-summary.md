@@ -1,6 +1,6 @@
 # Large-File Minification Benchmark
 
-> Generated 2026-06-11T17:22:55.186Z
+> Generated 2026-06-11T17:27:35.995Z
 >
 > Each sample is a realistic ~400-line file taken from real open-source
 > projects. All four minification modes are measured.
