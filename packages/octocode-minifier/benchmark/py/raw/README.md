@@ -1,6 +1,6 @@
 # Raw Input
 
-Source sample: `py/sessions.py`
+Source sample: `py/00-httpx-client.py`
 
 This folder stores an excerpt and metadata for the original real-code sample.
 Full third-party source files are intentionally not vendored.

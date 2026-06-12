@@ -1,69 +1,69 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React, { useState } from 'react'
+import { formatDate } from '@fullcalendar/core'
+import FullCalendar from '@fullcalendar/react'
+import dayGridPlugin from '@fullcalendar/daygrid'
+import timeGridPlugin from '@fullcalendar/timegrid'
+import interactionPlugin from '@fullcalendar/interaction'
+import { INITIAL_EVENTS, createEventId } from './event-utils'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function DemoApp() {
+  const [weekendsVisible, setWeekendsVisible] = useState(true)
+  const [currentEvents, setCurrentEvents] = useState([])
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+  function handleWeekendsToggle() {
+    setWeekendsVisible(!weekendsVisible)
+  }
 
-      <div className="ticks"></div>
+  function handleDateSelect(selectInfo) {
+    let title = prompt('Please enter a new title for your event')
+    let calendarApi = selectInfo.view.calendar
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answere
+    calendarApi.unselect()
 
-... [truncated 1845 chars] ...
+    if (title) {
+      calendarApi.addEvent({
+        id: createEventId(),
+        title,
+        start: selectInfo.startStr,
+        end: selectInfo.endStr,
+        allDay: selectInfo.allDay
+      })
+    }
+  }
 
-    </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+  function handleEventClick(clickInfo) {
+    if (confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)) {
+      clickInfo.event.remove()
+    }
+  }
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+  function handleEvents(events) {
+    setCurrentEvents(ev
+
+... [truncated 1666 chars] ...
+
+={handleWeekendsToggle}
+          ></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className='demo-app-sidebar-section'>
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map((event) => (
+            <SidebarEvent key={event.id} event={event} />
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }
 
-export default App
+function SidebarEvent({ event }) {
+  return (
+    <li key={event.id}>
+      <b>{formatDate(event.start, {year: 'numeric', month: 'short', day: 'numeric'})}</b>
+      <i>{event.title}</i>
+    </li>
+  )
+}

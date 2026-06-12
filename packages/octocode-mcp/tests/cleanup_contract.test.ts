@@ -152,7 +152,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
 
   it('security validator accepts the bundled rg absolute path', async () => {
     const { validateCommand } =
-      await import('octocode-security-utils/commandValidator');
+      await import('octocode-security/commandValidator');
     const { resolveRipgrepBinary } =
       await import('../src/utils/exec/ripgrepBinary.js');
     const binary = resolveRipgrepBinary();

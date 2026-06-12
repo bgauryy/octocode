@@ -1,10 +1,12 @@
 # JSX (.jsx)
 
-Source sample: `jsx/vite-app.jsx`
+Source sample: `jsx/00-fullcalendar-demo.jsx`
 
 Strategy: `terser`
 
 Agent rating: **8.9/10 (strong)**
+
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -17,205 +19,232 @@ Artifacts:
 
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
-| input | 3646 | - | - | - |
-| content-view | 3645 | 0% | 1.359 ms | 8.3/10 |
-| applyMinification | 2894 | 20.6% | 26.478 ms | 8.3/10 |
-| sync minify | 2894 | 20.6% | 8.834 ms | 8.3/10 |
-| async minify | 2894 | 20.6% | 6.705 ms | 8.3/10 |
-| symbols | 246 | 93.3% | 0.658 ms | 10/10 |
+| input | 3825 | - | - | - |
+| content-view | 3466 | 9.4% | 2.485 ms | 8.3/10 |
+| applyMinification | 3025 | 20.9% | 57.469 ms | 8.3/10 |
+| sync minify | 3025 | 20.9% | 27.718 ms | 8.3/10 |
+| async minify | 3025 | 20.9% | 29.209 ms | 8.3/10 |
+| symbols | 600 | 84.3% | 3.46 ms | 10/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 7/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 3825 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 3466 | 9.4% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 3025 | 20.9% | 8.5/10 strong | 6.7/10 | 10/10 |
+| symbols | 600 | 84.3% | 8.2/10 strong | 6.7/10 | 8.6/10 |
 
 ## Notes
 
 - engine-backed or parser-backed path.
-- content-view kept original because the readable output was not shorter.
 
 ## Before Excerpt
 
 ```jsx
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React, { useState } from 'react'
+import { formatDate } from '@fullcalendar/core'
+import FullCalendar from '@fullcalendar/react'
+import dayGridPlugin from '@fullcalendar/daygrid'
+import timeGridPlugin from '@fullcalendar/timegrid'
+import interactionPlugin from '@fullcalendar/interaction'
+import { INITIAL_EVENTS, createEventId } from './event-utils'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function DemoApp() {
+  const [weekendsVisible, setWeekendsVisible] = useState(true)
+  const [currentEvents, setCurrentEvents] = useState([])
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+  function handleWeekendsToggle() {
+    setWeekendsVisible(!weekendsVisible)
+  }
 
-      <div className="ticks"></div>
+  function handleDateSelect(selectInfo) {
+    let title = prompt('Please enter a new title for your event')
+    let calendarApi = selectInfo.view.calendar
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answere
+    calendarApi.unselect() // clear date selection
 
-... [truncated 1846 chars] ...
+    if (title) {
+      calendarApi.addEvent({
+        id: createEventId(),
+        title,
+        start: selectInfo.startStr,
+        end: selectInfo.endStr,
+        allDay: selectInfo.allDay
+      })
+    }
+  }
 
-   </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+  function handleEventClick(clickInfo) {
+    if (confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)) {
+      clickInfo.event.remove()
+    }
+  }
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+  function handleEvents(events) {
+
+... [truncated 2025 chars] ...
+
+{handleWeekendsToggle}
+          ></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className='demo-app-sidebar-section'>
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map((event) => (
+            <SidebarEvent key={event.id} event={event} />
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }
 
-export default App
+function SidebarEvent({ event }) {
+  return (
+    <li key={event.id}>
+      <b>{formatDate(event.start, {year: 'numeric', month: 'short', day: 'numeric'})}</b>
+      <i>{event.title}</i>
+    </li>
+  )
+}
 
 ```
 
 ## Content-View Excerpt
 
 ```jsx
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React, { useState } from 'react'
+import { formatDate } from '@fullcalendar/core'
+import FullCalendar from '@fullcalendar/react'
+import dayGridPlugin from '@fullcalendar/daygrid'
+import timeGridPlugin from '@fullcalendar/timegrid'
+import interactionPlugin from '@fullcalendar/interaction'
+import { INITIAL_EVENTS, createEventId } from './event-utils'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function DemoApp() {
+  const [weekendsVisible, setWeekendsVisible] = useState(true)
+  const [currentEvents, setCurrentEvents] = useState([])
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+  function handleWeekendsToggle() {
+    setWeekendsVisible(!weekendsVisible)
+  }
 
-      <div className="ticks"></div>
+  function handleDateSelect(selectInfo) {
+    let title = prompt('Please enter a new title for your event')
+    let calendarApi = selectInfo.view.calendar
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answere
+    calendarApi.unselect()
 
-... [truncated 1845 chars] ...
+    if (title) {
+      calendarApi.addEvent({
+        id: createEventId(),
+        title,
+        start: selectInfo.startStr,
+        end: selectInfo.endStr,
+        allDay: selectInfo.allDay
+      })
+    }
+  }
 
-    </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+  function handleEventClick(clickInfo) {
+    if (confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)) {
+      clickInfo.event.remove()
+    }
+  }
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+  function handleEvents(events) {
+    setCurrentEvents(ev
+
+... [truncated 1666 chars] ...
+
+={handleWeekendsToggle}
+          ></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className='demo-app-sidebar-section'>
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map((event) => (
+            <SidebarEvent key={event.id} event={event} />
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }
 
-export default App
+function SidebarEvent({ event }) {
+  return (
+    <li key={event.id}>
+      <b>{formatDate(event.start, {year: 'numeric', month: 'short', day: 'numeric'})}</b>
+      <i>{event.title}</i>
+    </li>
+  )
+}
 ```
 
 ## Apply Minification Excerpt
 
 ```jsx
-import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import{useState}from"react";import reactLogo from"./assets/react.svg";import viteLogo from"./assets/vite.svg";import heroImg from"./assets/hero.png";import"./App.css";function App(){const[count,setCount]=useState(0);return _jsxs(_Fragment,{children:[_jsxs("section",{id:"center",children:[_jsxs("div",{className:"hero",children:[_jsx("img",{src:heroImg,className:"base",width:"170",height:"179",alt:""}),_jsx("img",{src:reactLogo,className:"framework",alt:"React logo"}),_jsx("img",{src:viteLogo,className:"vite",alt:"Vite logo"})]}),_jsxs("div",{children:[_jsx("h1",{children:"Get started"}),_jsxs("p",{children:["Edit ",_jsx("code",{children:"src/App.jsx"})," and save to test ",_jsx("code",{children:"HMR"})]})]}),_jsxs("button",{type:"button",className:"counter",onClick:()=>setCount(count=>count+1),children:["Count is ",count]})]}),_jsx("div",{className:"ticks"}),_jsxs("section",{id:"next-steps",children:[_jsxs("div",{id:"docs",children:[_jsx("svg",{className:"icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#documentation-icon"})}),_jsx("h2",{children:"Documentation"}),_jsx("p",{children:"Your ques
+import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){const[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt("Please enter a new title for your event"),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title:title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return _jsxs("div",{className:"demo-app",children:[_jsx(Sidebar,{weekendsVisible:weekendsVisible,handleWeekendsTo
 
-... [truncated 1094 chars] ...
+... [truncated 1225 chars] ...
 
-cord"]})}),_jsx("li",{children:_jsxs("a",{href:"https://x.com/vite_js",target:"_blank",children:[_jsx("svg",{className:"button-icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#x-icon"})}),"X.com"]})}),_jsx("li",{children:_jsxs("a",{href:"https://bsky.app/profile/vite.dev",target:"_blank",children:[_jsx("svg",{className:"button-icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#bluesky-icon"})}),"Bluesky"]})})]})]})]}),_jsx("div",{className:"ticks"}),_jsx("section",{id:"spacer"})]})}export default App;
+r-section",children:_jsxs("label",{children:[_jsx("input",{type:"checkbox",checked:weekendsVisible,onChange:handleWeekendsToggle}),"toggle weekends"]})}),_jsxs("div",{className:"demo-app-sidebar-section",children:[_jsxs("h2",{children:["All Events (",currentEvents.length,")"]}),_jsx("ul",{children:currentEvents.map(event=>_jsx(SidebarEvent,{event:event},event.id))})]})]})}function SidebarEvent({event:event}){return _jsxs("li",{children:[_jsx("b",{children:formatDate(event.start,{year:"numeric",month:"short",day:"numeric"})}),_jsx("i",{children:event.title})]},event.id)}
 ```
 
 ## Sync Minify Excerpt
 
 ```jsx
-import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import{useState}from"react";import reactLogo from"./assets/react.svg";import viteLogo from"./assets/vite.svg";import heroImg from"./assets/hero.png";import"./App.css";function App(){const[count,setCount]=useState(0);return _jsxs(_Fragment,{children:[_jsxs("section",{id:"center",children:[_jsxs("div",{className:"hero",children:[_jsx("img",{src:heroImg,className:"base",width:"170",height:"179",alt:""}),_jsx("img",{src:reactLogo,className:"framework",alt:"React logo"}),_jsx("img",{src:viteLogo,className:"vite",alt:"Vite logo"})]}),_jsxs("div",{children:[_jsx("h1",{children:"Get started"}),_jsxs("p",{children:["Edit ",_jsx("code",{children:"src/App.jsx"})," and save to test ",_jsx("code",{children:"HMR"})]})]}),_jsxs("button",{type:"button",className:"counter",onClick:()=>setCount(count=>count+1),children:["Count is ",count]})]}),_jsx("div",{className:"ticks"}),_jsxs("section",{id:"next-steps",children:[_jsxs("div",{id:"docs",children:[_jsx("svg",{className:"icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#documentation-icon"})}),_jsx("h2",{children:"Documentation"}),_jsx("p",{children:"Your ques
+import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){const[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt("Please enter a new title for your event"),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title:title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return _jsxs("div",{className:"demo-app",children:[_jsx(Sidebar,{weekendsVisible:weekendsVisible,handleWeekendsTo
 
-... [truncated 1094 chars] ...
+... [truncated 1225 chars] ...
 
-cord"]})}),_jsx("li",{children:_jsxs("a",{href:"https://x.com/vite_js",target:"_blank",children:[_jsx("svg",{className:"button-icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#x-icon"})}),"X.com"]})}),_jsx("li",{children:_jsxs("a",{href:"https://bsky.app/profile/vite.dev",target:"_blank",children:[_jsx("svg",{className:"button-icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#bluesky-icon"})}),"Bluesky"]})})]})]})]}),_jsx("div",{className:"ticks"}),_jsx("section",{id:"spacer"})]})}export default App;
+r-section",children:_jsxs("label",{children:[_jsx("input",{type:"checkbox",checked:weekendsVisible,onChange:handleWeekendsToggle}),"toggle weekends"]})}),_jsxs("div",{className:"demo-app-sidebar-section",children:[_jsxs("h2",{children:["All Events (",currentEvents.length,")"]}),_jsx("ul",{children:currentEvents.map(event=>_jsx(SidebarEvent,{event:event},event.id))})]})]})}function SidebarEvent({event:event}){return _jsxs("li",{children:[_jsx("b",{children:formatDate(event.start,{year:"numeric",month:"short",day:"numeric"})}),_jsx("i",{children:event.title})]},event.id)}
 ```
 
 ## Async Minify Excerpt
 
 ```jsx
-import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import{useState}from"react";import reactLogo from"./assets/react.svg";import viteLogo from"./assets/vite.svg";import heroImg from"./assets/hero.png";import"./App.css";function App(){const[count,setCount]=useState(0);return _jsxs(_Fragment,{children:[_jsxs("section",{id:"center",children:[_jsxs("div",{className:"hero",children:[_jsx("img",{src:heroImg,className:"base",width:"170",height:"179",alt:""}),_jsx("img",{src:reactLogo,className:"framework",alt:"React logo"}),_jsx("img",{src:viteLogo,className:"vite",alt:"Vite logo"})]}),_jsxs("div",{children:[_jsx("h1",{children:"Get started"}),_jsxs("p",{children:["Edit ",_jsx("code",{children:"src/App.jsx"})," and save to test ",_jsx("code",{children:"HMR"})]})]}),_jsxs("button",{type:"button",className:"counter",onClick:()=>setCount(count=>count+1),children:["Count is ",count]})]}),_jsx("div",{className:"ticks"}),_jsxs("section",{id:"next-steps",children:[_jsxs("div",{id:"docs",children:[_jsx("svg",{className:"icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#documentation-icon"})}),_jsx("h2",{children:"Documentation"}),_jsx("p",{children:"Your ques
+import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){const[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt("Please enter a new title for your event"),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title:title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return _jsxs("div",{className:"demo-app",children:[_jsx(Sidebar,{weekendsVisible:weekendsVisible,handleWeekendsTo
 
-... [truncated 1094 chars] ...
+... [truncated 1225 chars] ...
 
-cord"]})}),_jsx("li",{children:_jsxs("a",{href:"https://x.com/vite_js",target:"_blank",children:[_jsx("svg",{className:"button-icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#x-icon"})}),"X.com"]})}),_jsx("li",{children:_jsxs("a",{href:"https://bsky.app/profile/vite.dev",target:"_blank",children:[_jsx("svg",{className:"button-icon",role:"presentation","aria-hidden":"true",children:_jsx("use",{href:"/icons.svg#bluesky-icon"})}),"Bluesky"]})})]})]})]}),_jsx("div",{className:"ticks"}),_jsx("section",{id:"spacer"})]})}export default App;
+r-section",children:_jsxs("label",{children:[_jsx("input",{type:"checkbox",checked:weekendsVisible,onChange:handleWeekendsToggle}),"toggle weekends"]})}),_jsxs("div",{className:"demo-app-sidebar-section",children:[_jsxs("h2",{children:["All Events (",currentEvents.length,")"]}),_jsx("ul",{children:currentEvents.map(event=>_jsx(SidebarEvent,{event:event},event.id))})]})]})}function SidebarEvent({event:event}){return _jsxs("li",{children:[_jsx("b",{children:formatDate(event.start,{year:"numeric",month:"short",day:"numeric"})}),_jsx("i",{children:event.title})]},event.id)}
 ```
 
 ## Symbols
 
 ```txt
-  1| import { useState } from 'react'
-  2| import reactLogo from './assets/react.svg'
-  3| import viteLogo from './assets/vite.svg'
-  4| import heroImg from './assets/hero.png'
-  5| import './App.css'
-  7| function App() {
-122| export default App
+  1| import React, { useState } from 'react'
+  2| import { formatDate } from '@fullcalendar/core'
+  3| import FullCalendar from '@fullcalendar/react'
+  4| import dayGridPlugin from '@fullcalendar/daygrid'
+  5| import timeGridPlugin from '@fullcalendar/timegrid'
+  6| import interactionPlugin from '@fullcalendar/interaction'
+  7| import { INITIAL_EVENTS, createEventId } from './event-utils'
+  9| export default function DemoApp() {
+ 81| function renderEventContent(eventInfo) {
+ 90| function Sidebar({ weekendsVisible, handleWeekendsToggle, currentEvents }) {
+123| function SidebarEvent({ event }) {
 ```

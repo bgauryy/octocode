@@ -8,7 +8,7 @@ vi.mock('../../src/utils/exec/ripgrepBinary.js', () => ({
   resolveRipgrepBinary: vi.fn().mockReturnValue('rg'),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn().mockReturnValue({
       isValid: true,
@@ -43,7 +43,7 @@ const baseQuery = {
   id: 'exec_test',
   researchGoal: 'Test',
   reasoning: 'branch coverage',
-  pattern: 'myPattern',
+  keywords: 'myPattern',
   path: '/test/path',
   fixedString: false,
   perlRegex: false,
@@ -63,10 +63,10 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
   it('returns error when local schema validation fails', async () => {
     const result = await executeRipgrepSearchInternal({
       ...baseQuery,
-      pattern: undefined,
+      keywords: undefined,
     } as any);
     expect(result.status).toBe('error');
-    expect(result.error).toContain('pattern');
+    expect(result.error).toContain('keywords');
   });
 
   it('returns error when path is not provided (line 44)', async () => {
@@ -79,7 +79,7 @@ describe('executeRipgrepSearchInternal - branch coverage', () => {
   it('returns error when pattern preflight validation fails (line 75)', async () => {
     const queryWithBadPattern = {
       ...baseQuery,
-      pattern: '[invalid-regex-missing-bracket',
+      keywords: '[invalid-regex-missing-bracket',
     };
     const result = await executeRipgrepSearchInternal(
       queryWithBadPattern as any

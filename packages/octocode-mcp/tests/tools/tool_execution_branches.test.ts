@@ -20,7 +20,7 @@ vi.mock('../../src/utils/response/bulk.js', () => ({
   }),
 }));
 
-vi.mock('octocode-security-utils/withSecurityValidation', () => ({
+vi.mock('octocode-security/withSecurityValidation', () => ({
   withSecurityValidation: vi.fn((_toolName, handler) => handler),
   withBasicSecurityValidation: vi.fn(handler => handler),
 }));

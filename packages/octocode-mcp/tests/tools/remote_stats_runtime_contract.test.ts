@@ -255,7 +255,7 @@ describe('remote tool stats runtime contract', () => {
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
-          query: 'fix',
+          keywordsToSearch: ['fix'],
         },
       ],
     });
@@ -279,7 +279,7 @@ describe('remote tool stats runtime contract', () => {
           mainResearchGoal: 'stats telemetry',
           researchGoal: 'exercise packageSearch stats',
           reasoning: 'prove runtime char savings emission',
-          name: 'lodash',
+          packageName: 'lodash',
         },
       ],
     });

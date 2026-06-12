@@ -96,7 +96,7 @@ toolsRoutes.get('/list', (_req: Request, res: Response) => {
         { name: 'githubSearchRepositories', description: 'Search GitHub repositories' },
         { name: 'githubSearchPullRequests', description: 'Search pull requests' },
         { name: 'githubCloneRepo', description: 'Clone GitHub repos or subtrees for local analysis' },
-        { name: 'packageSearch', description: 'Search npm/PyPI packages' },
+        { name: 'packageSearch', description: 'Search npm packages' },
         { name: 'localSearchCode', description: 'Search local code with ripgrep' },
         { name: 'localGetFileContent', description: 'Read local file content' },
         { name: 'localFindFiles', description: 'Find files by pattern/metadata' },

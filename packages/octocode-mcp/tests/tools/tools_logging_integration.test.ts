@@ -19,7 +19,7 @@ vi.mock('../../src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('octocode-security-utils/contentSanitizer', () => ({
+vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: {
     validateInputParameters: vi.fn(params => ({
       isValid: true,

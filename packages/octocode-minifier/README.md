@@ -184,7 +184,7 @@ pl pm erl hrl clj cljs
 
 | Extensions | Behaviour |
 |---|---|
-| `md` `markdown` | Strips HTML comments, quote-reply blocks (`> …`), trailing whitespace, excessive blank lines |
+| `md` `markdown` | Strips HTML comments, pseudo-comments, generated TOCs, badge-only lines, trailing whitespace, excessive blank lines; preserves blockquotes and ASCII data |
 | `txt` `log` | Whitespace-only normalisation |
 | unknown extension | General whitespace fallback |
 
@@ -202,74 +202,99 @@ Pipfile   Buildfile   Capfile  Brewfile
 
 ## Benchmarks
 
-Measured on **two corpora:**
+Reduction is byte reduction vs source. `n/a` means symbols are not available for that extension.
 
-1. **Real-corpus** — actual open-source files per extension, measured against 45 languages.
-2. **Large-file** — authentic ~400-line samples per language, validated by tests in `tests/large-file-benchmark.test.ts`.
+| Column | API |
+|---|---|
+| `content-view` | `applyContentViewMinification` |
+| `apply` | `applyMinification` |
+| `sync` | `minifyContentSync` |
+| `async` | `minifyContent` |
+| `symbols` | `extractSignatures` |
 
-### Large-file benchmark (12 languages, ~400 lines each)
+### Real corpus (`benchmark/*/metrics.json`)
 
-> Source samples: httpx, Spring StringUtils, nlohmann/json, tokio runtime, Lodash-style utils, Kotlin repository pattern, Bootstrap-style design system, GitHub Actions CI/CD, PostgreSQL e-commerce schema, nvm-style deploy script, ActiveRecord model.
+| Ext | Language | Source | content-view | apply | sync | async | symbols |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `.c` | C | 17.7 KB | 3.8% | 3.8% | 3.8% | 3.8% | 88.8% |
+| `.cjs` | CommonJS | 3.1 KB | 4.8% | 49.7% | 49.7% | 49.7% | 97.8% |
+| `.clj` | Clojure | 270 KB | 0.6% | 17.0% | 17.0% | 17.0% | n/a |
+| `.cpp` | C++ | 31.9 KB | 30.2% | 30.2% | 30.2% | 30.2% | 80.6% |
+| `.cs` | C# | 5.5 KB | 28.3% | 28.3% | 28.3% | 28.3% | 73.5% |
+| `.css` | CSS | 274 KB | 0.4% | 15.3% | 15.3% | 17.9% | 67.9% |
+| `.dart` | Dart | 36.2 KB | 85.5% | 85.5% | 85.5% | 85.5% | n/a |
+| `.erl` | Erlang | 120 KB | 5.8% | 23.6% | 23.6% | 23.6% | n/a |
+| `.ex` | Elixir | 151 KB | 1.5% | 16.2% | 16.2% | 16.2% | n/a |
+| `.go` | Go | 32.5 KB | 34.1% | 34.1% | 34.1% | 34.1% | 32.9% |
+| `.graphql` | GraphQL | 1.3 KB | 3.2% | 3.2% | 3.2% | 3.2% | n/a |
+| `.h` | C Header | 32.3 KB | 39.0% | 39.0% | 39.0% | 39.0% | 62.6% |
+| `.hpp` | C++ Header | 24.7 KB | 38.3% | 38.3% | 38.3% | 38.3% | 71.5% |
+| `.hs` | Haskell | 40.4 KB | 12.3% | 12.3% | 12.3% | 12.3% | n/a |
+| `.html` | HTML | 5.0 KB | 0.0% | 9.4% | 9.4% | 10.5% | 95.4% |
+| `.ini` | INI | 7.3 KB | 23.6% | 23.6% | 23.6% | 23.6% | n/a |
+| `.java` | Java | 61.8 KB | 64.8% | 64.8% | 64.8% | 64.8% | 87.3% |
+| `.js` | JavaScript | 6.7 KB | 9.6% | 21.6% | 21.6% | 21.6% | 61.3% |
+| `.json` | JSON | 3.4 KB | 0.0% | 29.0% | 29.0% | 29.0% | n/a |
+| `.jsonc` | JSONC | 1.4 KB | 0.0% | 15.2% | 15.2% | 15.2% | n/a |
+| `.jsx` | JSX | 3.7 KB | 9.4% | 20.9% | 20.9% | 20.9% | 84.3% |
+| `.kt` | Kotlin | 20.1 KB | 49.1% | 49.1% | 49.1% | 49.1% | 77.2% |
+| `.lua` | Lua | 22.7 KB | 15.6% | 27.7% | 27.7% | 27.7% | n/a |
+| `.md` | Markdown | 3.2 KB | 0.0% | 0.0% | 0.0% | 0.0% | n/a |
+| `.mjs` | ESM JavaScript | 1.2 KB | 1.5% | 31.2% | 31.2% | 31.2% | 78.7% |
+| `.php` | PHP | 34.6 KB | 41.4% | 41.4% | 41.4% | 41.4% | 87.1% |
+| `.pl` | Perl | 4.4 KB | 16.8% | 31.4% | 31.4% | 31.4% | n/a |
+| `.pm` | Perl Module | 5.4 KB | 8.9% | 20.1% | 20.1% | 20.1% | n/a |
+| `.proto` | Protocol Buffers | 58.9 KB | 69.1% | 69.1% | 69.1% | 69.1% | n/a |
+| `.py` | Python | 64.2 KB | 21.3% | 21.3% | 21.3% | 21.3% | 63.6% |
+| `.r` | R | 15.4 KB | 46.6% | 57.3% | 57.3% | 57.3% | n/a |
+| `.rb` | Ruby | 3.4 KB | 64.2% | 64.2% | 64.2% | 64.2% | 81.5% |
+| `.rs` | Rust | 97.7 KB | 62.2% | 62.2% | 62.2% | 62.2% | 92.5% |
+| `.rst` | reStructuredText | 2.6 KB | 1.8% | 1.8% | 1.8% | 1.8% | n/a |
+| `.scala` | Scala | 19.6 KB | 80.7% | 80.7% | 80.7% | 80.7% | 94.1% |
+| `.scss` | SCSS | 6.9 KB | 10.9% | 23.3% | 23.3% | 89.3% | 76.1% |
+| `.sh` | Shell | 153 KB | 0.4% | 0.4% | 0.4% | 0.4% | 97.8% |
+| `.sql` | SQL | 8.2 KB | 35.6% | 35.6% | 35.6% | 35.6% | 93.9% |
+| `.svelte` | Svelte | 2.6 KB | 0.0% | 21.0% | 21.0% | 21.0% | 87.1% |
+| `.swift` | Swift | 33.0 KB | 65.5% | 65.5% | 65.5% | 65.5% | 81.3% |
+| `.toml` | TOML | 3.0 KB | 38.1% | 38.1% | 38.1% | 38.1% | n/a |
+| `.ts` | TypeScript | 90.3 KB | 29.6% | 67.9% | 67.9% | 67.9% | 69.1% |
+| `.tsx` | TSX | 22.7 KB | 35.1% | 54.0% | 54.0% | 54.0% | 85.6% |
+| `.vb` | Visual Basic | 88.9 KB | 10.1% | 10.1% | 10.1% | 10.1% | n/a |
+| `.vue` | Vue | 0.1 KB | 0.8% | 5.9% | 5.9% | 7.6% | 26.9% |
+| `.yml` | YAML | 12.2 KB | 6.2% | 6.2% | 6.2% | 6.2% | n/a |
 
-| Ext | Language | Lines | Content-view | Apply | Async | Symbols | Rating |
-|---|---|---:|---:|---:|---:|---:|---|
-| `.js` | JavaScript | 419 | −54.1% | −61.9% | −61.9% | −91.3% | **10/10 excellent** |
-| `.ts` | TypeScript | 322 | −25.9% | −61.4% | −61.4% | −71.3% | **9.5/10 excellent** |
-| `.java` | Java | 394 | −54.7% | −54.7% | −54.7% | −83.3% | **9/10 excellent** |
-| `.rb` | Ruby | 201 | −55.4% | −55.4% | −55.4% | −92.8% | **9/10 excellent** |
-| `.go` | Go | 323 | −34.5% | −34.5% | −34.5% | −77.7% | **7.5/10 good** |
-| `.rs` | Rust | 325 | −33.2% | −33.2% | −33.2% | −80.8% | **7.5/10 good** |
-| `.kt` | Kotlin | 206 | −38.6% | −38.6% | −38.6% | −75.3% | **7.5/10 good** |
-| `.css` | CSS | 363 | −18.8% | −30.8% | −31.6% | −66.2% | **7/10 good** |
-| `.py` | Python | 341 | −16.7% | −16.7% | −16.7% | −60.2% | **6/10 fair** |
-| `.sql` | SQL | 261 | −18.6% | −18.6% | −18.6% | −42.2% | **6/10 fair** |
-| `.sh` | Shell | 294 | −21.5% | −21.5% | −21.5% | −91.9% | **6/10 fair** |
-| `.yml` | YAML | 312 | −21.9% | −21.9% | −21.9% | n/a | **5/10 fair** |
+### Large files (`benchmark/*/large-file-metrics.json`)
 
-**Averages:** content-view −32.8%, apply −37.4%, rating **7.5/10**
+| Ext | Language | Lines | Source | content-view | apply | sync | async | symbols |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `.bash` | Bash | 235 | 7.1 KB | 39.9% | 39.9% | 39.9% | 39.9% | 94.1% |
+| `.c` | C | 852 | 28.4 KB | 15.1% | 15.1% | 15.1% | 15.1% | 86.0% |
+| `.cpp` | C++ | 545 | 17.2 KB | 7.9% | 7.9% | 7.9% | 7.9% | 69.7% |
+| `.cs` | C# | 226 | 8.3 KB | 33.0% | 33.0% | 33.0% | 33.0% | 81.9% |
+| `.css` | CSS | 363 | 10.0 KB | 18.8% | 30.8% | 30.8% | 31.6% | 66.2% |
+| `.go` | Go | 323 | 8.2 KB | 34.5% | 34.5% | 34.5% | 34.5% | 77.7% |
+| `.graphql` | GraphQL | 249 | 6.5 KB | 18.1% | 18.1% | 18.1% | 18.1% | n/a |
+| `.html` | HTML | 185 | 7.6 KB | 26.8% | 42.3% | 42.3% | 42.2% | 74.9% |
+| `.java` | Java | 394 | 14.5 KB | 54.7% | 54.7% | 54.7% | 54.7% | 83.3% |
+| `.js` | JavaScript | 419 | 10.4 KB | 54.1% | 61.9% | 61.9% | 61.9% | 91.3% |
+| `.jsx` | JSX | 330 | 11.7 KB | 12.0% | 17.4% | 17.4% | 17.4% | 98.6% |
+| `.kt` | Kotlin | 206 | 7.1 KB | 38.6% | 38.6% | 38.6% | 38.6% | 75.3% |
+| `.md` | Markdown | 243 | 6.0 KB | 27.4% | 27.4% | 27.4% | 27.4% | n/a |
+| `.php` | PHP | 255 | 7.0 KB | 47.5% | 47.5% | 47.5% | 47.5% | 82.7% |
+| `.proto` | Protobuf | 198 | 6.6 KB | 56.6% | 56.6% | 56.6% | 56.6% | n/a |
+| `.py` | Python | 341 | 10.5 KB | 16.7% | 16.7% | 16.7% | 16.7% | 60.2% |
+| `.rb` | Ruby | 201 | 6.6 KB | 55.4% | 55.4% | 55.4% | 55.4% | 92.8% |
+| `.rs` | Rust | 325 | 9.7 KB | 33.2% | 33.2% | 33.2% | 33.2% | 80.8% |
+| `.scss` | SCSS | 291 | 6.9 KB | 28.2% | 40.6% | 40.6% | 70.4% | 55.7% |
+| `.sh` | Shell | 294 | 8.9 KB | 21.5% | 21.5% | 21.5% | 21.5% | 91.9% |
+| `.sql` | SQL | 261 | 8.8 KB | 18.6% | 18.6% | 18.6% | 18.6% | 42.2% |
+| `.ts` | TypeScript | 322 | 9.9 KB | 25.9% | 61.4% | 61.4% | 61.4% | 71.3% |
+| `.tsx` | TSX | 422 | 10.3 KB | 0.0% | 28.5% | 28.5% | 28.5% | 95.5% |
+| `.vb` | Visual Basic | 539 | 21.0 KB | 8.7% | 8.7% | 8.7% | 8.7% | n/a |
+| `.xml` | XML | 142 | 7.1 KB | 35.1% | 44.3% | 44.3% | 44.3% | n/a |
+| `.yml` | YAML | 297 | 10.1 KB | 67.6% | 67.6% | 67.6% | 67.6% | n/a |
 
-### Real-corpus benchmark (45 languages, open-source files)
-
-| Ext | Language | Bytes | Apply cut | Symbols cut | Rating |
-|---|---|---:|---:|---:|---|
-| `.dart` | Dart | 37 KB | −85.5% | n/a | **9.5/10 excellent** |
-| `.scala` | Scala | 20 KB | −80.7% | −94.1% | **9.7/10 excellent** |
-| `.proto` | Protocol Buffers | 60 KB | −69.1% | n/a | **9.5/10 excellent** |
-| `.ts` | TypeScript | 92 KB | −67.9% | −69.1% | **9.7/10 excellent** |
-| `.swift` | Swift | 34 KB | −65.5% | −81.3% | **9.7/10 excellent** |
-| `.rb` | Ruby | 3.5 KB | −64.2% | −81.5% | **9.7/10 excellent** |
-| `.rs` | Rust | 100 KB | −62.2% | −92.5% | **9.7/10 excellent** |
-| `.java` | Java | 63 KB | −64.8% | −87.3% | **9.7/10 excellent** |
-| `.php` | PHP | 35 KB | −41.4% | −87.1% | **9.4/10 excellent** |
-| `.py` | Python | 34 KB | −21.9% | −85.3% | **8.6/10 strong** |
-| `.kt` | Kotlin | 21 KB | −49.1% | −77.2% | **9/10 excellent** |
-| `.css` | CSS | 280 KB | −17.9% | −67.9% | **8.5/10 strong** |
-
-**Corpus summary:** 17 excellent · 12 strong · 13 good · 3 fair across 45 languages.
-Average content-view cut **23.4%**, apply **31.3%**, async **32.9%**; symbols rating **9.2/10**.
-
-### Why content-view and apply cuts differ
-
-`applyContentViewMinification` preserves original indentation and line structure — that is intentional. It optimises for **agent readability**, not minimum bytes. `applyMinification` / `minifyContent` apply stronger compression (Terser for JS, TypeScript compiler + Terser for TS) that collapses whitespace and type annotations.
-
-For TypeScript: content-view keeps the source shape (−25.9%); apply uses the full TypeScript→Terser pipeline (−61.4%). Both are correct for their intended contexts.
-
-### Symbols mode: highest-value mode for large files
-
-Symbols extraction consistently outperforms full minification for navigation tasks:
-
-| Language | Apply cut | Symbols cut | Delta |
-|---|---:|---:|---:|
-| Shell | −21.5% | **−91.9%** | +70.4pp |
-| Ruby | −55.4% | **−92.8%** | +37.4pp |
-| JavaScript | −61.9% | **−91.3%** | +29.4pp |
-| Java | −54.7% | **−83.3%** | +28.6pp |
-| SQL | −18.6% | **−42.2%** | +23.6pp |
-
-**Recommended workflow for large files (>5 KB):**
-1. Call `extractSignatures` → read the skeleton and find the line range you need.
-2. Fetch only that range with `startLine`/`endLine`.
-3. Never request full minified content when the skeleton is sufficient.
+For large-file navigation, call `extractSignatures` first and fetch the needed line range.
 
 ---
 
@@ -355,7 +380,7 @@ src/
   index.ts             # Public exports
 
 tests/
-  *.test.ts            # 1,399 tests
+  *.test.ts            # 1,463 passing tests
   languageBenchmarkFixtures.ts   # Synthetic fixtures for all 138 extensions
   largeSampleFixtures.ts         # ~400-line real code samples per language
   large-file-benchmark.test.ts   # Large-file benchmark runner
@@ -370,7 +395,7 @@ benchmark/
 ### Test commands
 
 ```bash
-yarn test                          # All tests + v8 coverage (1,399 tests)
+yarn test                          # All tests + v8 coverage
 yarn test:quiet                    # Dot reporter, no output noise
 yarn benchmark:quality             # Synthetic quality assertions (all 138 exts)
 
@@ -392,10 +417,10 @@ node benchmark/generate-real-code-report.mjs /path/to/corpus
 |---|---|---|---|
 | `apply.ts` | 100% | **100%** | 100% |
 | `minifier.ts` | 100% | 95.4% | 100% |
-| `strategies.ts` | 97.6% | 89.0% | 97.9% |
+| `strategies.ts` | 96.7% | 85.1% | 97.8% |
 | `extractSignatures.ts` | 99.8% | 97.0% | 100% |
 | `jsonToYamlString.ts` | 97.6% | 92.1% | 100% |
-| **Total** | **99.0%** | **94.1%** | **99.3%** |
+| **Total** | **98.4%** | **91.3%** | **99.0%** |
 
 Uncovered lines are defensive last-resort catch blocks (e.g., component minifier outer catch, outer `minifyContent` catch). All inner helpers have their own try/catch and never propagate to these fallbacks in practice.
 
@@ -431,17 +456,3 @@ Uncovered lines are defensive last-resort catch blocks (e.g., component minifier
 | Files > 1 MB | Returned unchanged with `failed: true` in async mode. Sync mode has no size guard. | Pre-split large files before passing to the minifier |
 
 ---
-
-## Competitor positioning
-
-This package is an **agent-context compressor**, not a deploy-time optimizer.
-
-| Tool | Best at | Octocode position |
-|---|---|---|
-| [Terser](https://www.npmjs.com/package/terser) | Production JS parsing, compression, mangling | Used internally for JS/CJS/MJS and TS→JS paths |
-| [esbuild](https://www.npmjs.com/package/esbuild) | Fast JS/TS/CSS bundling | Better for production builds; not a runtime dep here |
-| [SWC](https://www.npmjs.com/package/@swc/core) | Rust-backed JS/TS transforms | Better compiler-grade path; Octocode uses TS compiler + Terser |
-| [Lightning CSS](https://www.npmjs.com/package/lightningcss) | Parser-grade CSS transforms | Better production CSS; Octocode uses CleanCSS for async |
-| [html-minifier-terser](https://www.npmjs.com/package/html-minifier-terser) | HTML + embedded asset minification | Used internally for async HTML |
-
-Use a production compiler when you need: executable output, source maps, tree shaking, cross-file dead-code elimination, or guaranteed semantic equivalence. Use this package when you need to pass many source files to an LLM cheaply and readably.

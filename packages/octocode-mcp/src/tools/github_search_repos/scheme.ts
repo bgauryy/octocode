@@ -94,6 +94,12 @@ export const GitHubSearchRepositoriesOutputLocalSchema = z
             hasMore: z.boolean(),
             perPage: z.number().optional(),
             totalMatches: z.number().optional(),
+            reportedTotalMatches: z.number().optional(),
+            reachableTotalMatches: z.number().optional(),
+            totalMatchesKind: z
+              .enum(['exact', 'reported', 'lowerBound'])
+              .optional(),
+            totalMatchesCapped: z.boolean().optional(),
           })
           .optional(),
       })

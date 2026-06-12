@@ -14,7 +14,7 @@ import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_struct
  * directly, so stale keys cannot leak back into the command path.
  */
 describe('localSearchCode langType (one public field)', () => {
-  const base = { pattern: 'foo', path: 'src' };
+  const base = { keywords: 'foo', path: 'src' };
 
   it('accepts langType', () => {
     const result = LocalRipgrepQuerySchema.safeParse({

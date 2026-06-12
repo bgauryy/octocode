@@ -150,6 +150,18 @@ describe('Repository Search - Pagination', () => {
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalMatches
       ).toBe(95);
+      expect(
+        ('data' in result ? result.data : undefined)?.pagination
+          ?.reportedTotalMatches
+      ).toBe(95);
+      expect(
+        ('data' in result ? result.data : undefined)?.pagination
+          ?.reachableTotalMatches
+      ).toBe(95);
+      expect(
+        ('data' in result ? result.data : undefined)?.pagination
+          ?.totalMatchesKind
+      ).toBe('reported');
     });
 
     it('should cap totalPages at 10 (GitHub 1000 result limit)', async () => {
@@ -175,6 +187,18 @@ describe('Repository Search - Pagination', () => {
       expect(
         ('data' in result ? result.data : undefined)?.pagination?.totalMatches
       ).toBe(1000);
+      expect(
+        ('data' in result ? result.data : undefined)?.pagination
+          ?.reportedTotalMatches
+      ).toBe(5000);
+      expect(
+        ('data' in result ? result.data : undefined)?.pagination
+          ?.reachableTotalMatches
+      ).toBe(1000);
+      expect(
+        ('data' in result ? result.data : undefined)?.pagination
+          ?.totalMatchesCapped
+      ).toBe(true);
     });
 
     it('should set hasMore=true when more pages exist', async () => {

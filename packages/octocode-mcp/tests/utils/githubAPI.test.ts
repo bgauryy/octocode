@@ -82,7 +82,7 @@ vi.mock('../../src/mcp/responses.js', () => ({
   optimizeTextMatch: mockOptimizeTextMatch,
 }));
 
-vi.mock('octocode-security-utils/contentSanitizer', () => ({
+vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
@@ -642,6 +642,10 @@ describe('GitHub API Utils', () => {
               totalPages: 1,
               perPage: 30,
               totalMatches: 1,
+              reportedTotalMatches: 1,
+              reachableTotalMatches: 1,
+              totalMatchesCapped: false,
+              totalMatchesKind: 'reported',
               hasMore: false,
             },
           },

@@ -125,11 +125,20 @@ export async function searchMultipleGitHubCode(
         // e.g. 10 pages x 20). When the reported total exceeds that, the
         // surplus matches can never be paged to — say so on every page.
         if (flat.pagination) {
-          const { totalPages, perPage, totalMatches } = flat.pagination;
-          const reachable = totalPages * perPage;
-          if (totalMatches > reachable) {
+          const {
+            totalPages,
+            perPage,
+            totalMatches,
+            reportedTotalMatches,
+            reachableTotalMatches,
+          } = flat.pagination;
+          const reported = reportedTotalMatches ?? totalMatches;
+          const reachable =
+            reachableTotalMatches ??
+            Math.min(totalMatches, totalPages * perPage);
+          if (reported > reachable) {
             successHints.push(
-              `GitHub caps code-search at ${reachable} results — ${totalMatches - reachable} of ${totalMatches} reported matches are unreachable; narrow with path/extension/filename to see the rest.`
+              `GitHub caps code-search at ${reachable} results — ${reported - reachable} of ${reported} reported matches are unreachable; narrow with path/extension/filename to see the rest.`
             );
           }
         }

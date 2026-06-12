@@ -4,7 +4,7 @@
   <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-mcp/assets/logo_white.png" width="400px" alt="Octocode Logo">
   
   <h3>Research like a Senior Staff Engineer.<br/>In every codebase, in seconds.</h3>
-  <p><strong>Stop guessing.</strong> Octocode researches code <strong>locally and externally</strong>: your own workspace (ripgrep + LSP-level go-to-definition, references, call hierarchy) and the world's (GitHub repos, PRs, npm/PyPI packages), turning it into verifiable evidence your AI can search, read, and trace.</p>
+  <p><strong>Stop guessing.</strong> Octocode researches code <strong>locally and externally</strong>: your own workspace (ripgrep + LSP-level go-to-definition, references, call hierarchy) and the world's (GitHub repos, PRs, npm packages), turning it into verifiable evidence your AI can search, read, and trace.</p>
   <p>Use it as an <strong>MCP server</strong> inside your AI assistant, or as a <strong>terminal CLI</strong>.</p>
 
   <p>
@@ -84,7 +84,7 @@ The [Octocode MCP Server](https://github.com/bgauryy/octocode-mcp/tree/main/pack
 - **GitHub**: Search repositories, find usage patterns, read implementations, explore PRs
 - **Local Tools**: Search code (ripgrep), browse directories, find files in your local codebase
 - **LSP Intelligence**: Semantic navigation and call-flow analysis
-- **Package Discovery**: Resolve npm/PyPI packages to their source repos
+- **Package Discovery**: Resolve npm packages to their source repos
 
 https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
 
@@ -153,7 +153,7 @@ Run any directly with `octocode tools <name> --queries '<json>'`:
 | GitHub | `githubSearchCode` · `githubSearchRepositories` · `githubSearchPullRequests` · `githubGetFileContent` · `githubViewRepoStructure` · `githubCloneRepo` |
 | Local | `localSearchCode` (ripgrep) · `localFindFiles` · `localGetFileContent` · `localViewStructure` |
 | LSP | `lspGetSemanticContent` |
-| Package | `packageSearch` (npm / PyPI → source repo) |
+| Package | `packageSearch` (npm → source repo) |
 
 ```bash
 octocode tools                                                              # list all
@@ -223,10 +223,10 @@ This is a yarn-workspaces monorepo. Each package has its own `README.md`; all se
 
 | Skill | What it does |
 |-------|--------------|
-| [**Researcher**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-researcher) | Code search & exploration: local LSP + external (GitHub, npm/PyPI) |
+| [**Researcher**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-researcher) | Code search & exploration: local LSP + external (GitHub, npm) |
 | [**Research**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-research) | Multi-phase research with sessions, checkpoints, state persistence |
 | [**Engineer**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-engineer) | Understand, write, analyze, audit code: AST + LSP + dependency graph |
-| [**Brainstorming**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-brainstorming) | Idea validation grounded in evidence: GitHub, npm/PyPI, web in parallel |
+| [**Brainstorming**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-brainstorming) | Idea validation grounded in evidence: GitHub, npm, web in parallel |
 | [**News**](https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-news) | What's new in AI, dev tools, web platform, security, notable repos |
 
 **Planning & Writing**

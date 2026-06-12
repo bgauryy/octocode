@@ -370,12 +370,28 @@ function buildResultPagination(pagination: {
   hasMore: boolean;
   entriesPerPage?: number;
   totalMatches?: number;
+  reportedTotalMatches?: number;
+  reachableTotalMatches?: number;
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
 }) {
   return {
     currentPage: pagination.currentPage,
     totalPages: pagination.totalPages,
     perPage: pagination.entriesPerPage || 10,
     totalMatches: pagination.totalMatches || 0,
+    ...(typeof pagination.reportedTotalMatches === 'number'
+      ? { reportedTotalMatches: pagination.reportedTotalMatches }
+      : {}),
+    ...(typeof pagination.reachableTotalMatches === 'number'
+      ? { reachableTotalMatches: pagination.reachableTotalMatches }
+      : {}),
+    ...(pagination.totalMatchesKind
+      ? { totalMatchesKind: pagination.totalMatchesKind }
+      : {}),
+    ...(typeof pagination.totalMatchesCapped === 'boolean'
+      ? { totalMatchesCapped: pagination.totalMatchesCapped }
+      : {}),
     hasMore: pagination.hasMore,
   };
 }
@@ -386,6 +402,10 @@ type EffectivePagination = {
   hasMore: boolean;
   entriesPerPage?: number;
   totalMatches?: number;
+  reportedTotalMatches?: number;
+  reachableTotalMatches?: number;
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
 };
 
 function buildMergedPagination(
@@ -402,6 +422,16 @@ function buildMergedPagination(
     hasMore: pages.some(p => p.hasMore),
     entriesPerPage: pages[0]!.entriesPerPage,
     totalMatches: pages.reduce((sum, p) => sum + (p.totalMatches ?? 0), 0),
+    reachableTotalMatches: pages.reduce(
+      (sum, p) => sum + (p.reachableTotalMatches ?? p.totalMatches ?? 0),
+      0
+    ),
+    totalMatchesKind: pages.some(p => p.totalMatchesKind === 'lowerBound')
+      ? 'lowerBound'
+      : pages.some(p => p.totalMatchesKind === 'reported')
+        ? 'reported'
+        : 'exact',
+    totalMatchesCapped: pages.some(p => p.totalMatchesCapped === true),
   };
 }
 

@@ -134,12 +134,13 @@ describe('applyContentViewMinification — Markdown (minifyMarkdownCore)', () =>
     const r = applyContentViewMinification('a\n\n\n\nb\n', 'f.md');
     expect(r).not.toMatch(/\n{3,}/);
   });
-  it('md: strips quoted-reply lines (>)', () => {
+  it('md: preserves blockquote content while compacting marker spacing', () => {
     const r = applyContentViewMinification(
-      'reply\n\n> original\n> line\n\nmy text\n',
+      'reply\n\n>    original\n>       line\n\nmy text\n',
       'notes.md'
     );
-    hasNot(r, '> original', 'md-quote');
+    has(r, '> original', 'md-quote');
+    has(r, '> line', 'md-quote');
   });
   it('markdown ext handled same as md', () => {
     const r = applyContentViewMinification('<!-- c -->\ntext\n', 'f.markdown');
@@ -672,11 +673,12 @@ describe('minifyMarkdownCore — PR body and comments (always-on in PR tool)', (
     hasNot(r, '<!-- auto-generated -->', 'md-html-comment');
     has(r, 'Real content', 'md-body');
   });
-  it('strips quoted-reply lines (> prefix)', () => {
+  it('preserves blockquote lines while compacting them', () => {
     const r = minifyMarkdownCore(
-      'Thanks\n\n> original line\n> more\n\nMy reply\n'
+      'Thanks\n\n>    original line\n>      more\n\nMy reply\n'
     );
-    hasNot(r, '> original line', 'md-quote');
+    has(r, '> original line', 'md-quote');
+    has(r, '> more', 'md-quote');
     has(r, 'My reply', 'md-reply');
   });
   it('compresses 3+ blank lines to ≤2', () => {
@@ -692,12 +694,59 @@ describe('minifyMarkdownCore — PR body and comments (always-on in PR tool)', (
     has(r, '```', 'md-fence-close');
   });
   it('normalises table pipes', () => {
-    const r = minifyMarkdownCore('| col1   |   col2 |\n|--|--|\n| a | b |\n');
-    has(r, '| col1 | col2 |', 'md-table');
+    const r = minifyMarkdownCore('| col1   |   col2 |\n|---|---|\n| a | b |\n');
+    has(r, '|col1|col2|', 'md-table');
+    has(r, '|a|b|', 'md-table');
   });
   it('preserves headings', () => {
     const r = minifyMarkdownCore('## Section\n\nContent\n');
     has(r, '## Section', 'md-heading');
+  });
+  it('strips emojis and decorative Unicode while preserving ASCII data', () => {
+    const r = minifyMarkdownCore(
+      [
+        '# Roadmap 🚀!!!',
+        '',
+        '- Ship feature ✅ now!!!',
+        '- [x] Done & verified #1.',
+        '',
+        '> Note: keep words & numbers #1.',
+        'Paragraph with emoji 😀 and symbols ★ -> done.',
+        'Keep file_name.v1.2, url https://example.com/a_b.c?x=1&y=two.',
+      ].join('\n')
+    );
+    has(r, '# Roadmap !!!', 'md-sanitized-heading');
+    has(r, '- Ship feature now!!!', 'md-sanitized-list');
+    has(r, '- [x] Done & verified #1.', 'md-sanitized-task');
+    has(r, '> Note: keep words & numbers #1.', 'md-sanitized-quote');
+    has(r, 'Paragraph with emoji and symbols -> done.', 'md-sanitized-prose');
+    has(
+      r,
+      'Keep file_name.v1.2, url https://example.com/a_b.c?x=1&y=two.',
+      'md-ascii-data'
+    );
+    expect(r).not.toMatch(/[🚀✅😀★]/u);
+  });
+  it('preserves Markdown syntax spans and surrounding ASCII punctuation', () => {
+    const r = minifyMarkdownCore(
+      [
+        'See [API docs](https://example.com/a?b=1&c=2) now!!!',
+        'Compare `a !== b && call(x, y)` before release!!!',
+        '[ref]: https://example.com/a?b=1&c=2 "Title!"',
+        '<https://example.com/a?b=1&c=2>',
+      ].join('\n')
+    );
+    has(r, '[API docs](https://example.com/a?b=1&c=2)', 'md-link');
+    has(r, '`a !== b && call(x, y)`', 'md-code-span');
+    has(r, '[ref]: https://example.com/a?b=1&c=2 "Title!"', 'md-ref');
+    has(r, '<https://example.com/a?b=1&c=2>', 'md-autolink');
+    has(
+      r,
+      'See [API docs](https://example.com/a?b=1&c=2) now',
+      'md-link-prose'
+    );
+    has(r, 'now!!!', 'md-link-punctuation');
+    has(r, 'release!!!', 'md-code-punctuation');
   });
   it('empty string → empty string', () => {
     expect(minifyMarkdownCore('')).toBe('');

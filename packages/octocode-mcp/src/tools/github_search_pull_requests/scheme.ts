@@ -68,7 +68,10 @@ const GitHubPullRequestSearchQuerySchema = z.object({
     .optional()
     .describe(QUERY_DESCRIPTIONS.researchGoal!),
   reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  query: z.string().optional().describe(QUERY_DESCRIPTIONS.query!),
+  keywordsToSearch: z
+    .array(z.string())
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.keywordsToSearch!),
   prNumber: clampedInt(1, 1_000_000_000)
     .optional()
     .describe(QUERY_DESCRIPTIONS.prNumber!),
@@ -149,7 +152,7 @@ const GitHubPullRequestSearchQuerySchema = z.object({
     .optional()
     .describe(QUERY_DESCRIPTIONS.itemsPerPage!),
   reviewMode: z
-    .enum(['summary', 'full'])
+    .literal('full')
     .optional()
     .describe(QUERY_DESCRIPTIONS.reviewMode!),
   content: PrContentSelectorSchema.describe(QUERY_DESCRIPTIONS.content!),

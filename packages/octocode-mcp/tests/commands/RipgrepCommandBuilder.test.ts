@@ -3,7 +3,7 @@ import { RipgrepCommandBuilder } from '../../src/commands/RipgrepCommandBuilder.
 
 function buildArgs(query: Record<string, unknown>): string[] {
   return new RipgrepCommandBuilder()
-    .fromQuery({ pattern: 'foo', path: '/repo', ...query } as never)
+    .fromQuery({ keywords: 'foo', path: '/repo', ...query } as never)
     .build().args;
 }
 
@@ -37,7 +37,7 @@ describe('RipgrepCommandBuilder', () => {
     });
 
     it('terminates option parsing with -- before pattern and path', () => {
-      const args = buildArgs({ pattern: '-rf', path: '/repo' });
+      const args = buildArgs({ keywords: '-rf', path: '/repo' });
       const dashDash = args.indexOf('--');
       expect(dashDash).toBeGreaterThanOrEqual(0);
       expect(args.slice(dashDash)).toEqual(['--', '-rf', '/repo']);
@@ -124,7 +124,7 @@ describe('RipgrepCommandBuilder', () => {
 
     it('produces a stable full vector for a comprehensive query', () => {
       const args = buildArgs({
-        pattern: 'needle',
+        keywords: 'needle',
         path: '/src',
         fixedString: true,
         caseSensitive: true,

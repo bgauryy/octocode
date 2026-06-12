@@ -84,7 +84,7 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     this._applyDiagnosticFlags(query);
 
     this.addArg('--');
-    this.addArg(query.pattern);
+    this.addArg(query.keywords);
     this.addArg(query.path);
 
     return this;

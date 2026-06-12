@@ -108,7 +108,7 @@ export type OptimizedCodeSearchResult = {
   minificationFailed?: boolean;
   minificationTypes?: string[];
   _researchContext?: {
-    foundFiles: string[];
+    uniqueFileCount: number;
     repositoryContext?: {
       owner: string;
       repo: string;
@@ -120,7 +120,12 @@ export type OptimizedCodeSearchResult = {
     totalPages: number;
     perPage: number;
     totalMatches?: number;
+    reportedTotalMatches?: number;
+    reachableTotalMatches?: number;
+    totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+    totalMatchesCapped?: boolean;
     hasMore: boolean;
+    uniqueFileCount?: number;
   };
 
   nonExistentScope?: boolean;

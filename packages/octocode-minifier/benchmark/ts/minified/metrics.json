@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 65054,
       "cutPercent": 29.6,
-      "durationMs": 15.144
+      "durationMs": 50.511
     },
     "content": "import {\n    CharacterCodes,\n    Comparer,\n    Comparison,\n    Debug,\n    EqualityComparer,\n    MapLike,\n    Queue,\n    SortedArray,\n    SortedReadonlyArray,\n    TextSpan,\n} from \"./_namespaces/ts.js\";\n\nexport const emptyArray: never[] = [] as never[];\n\nexport const emptyMap: ReadonlyMap<never, never> = new Map<never, never>();\n\nexport function length(array: readonly any[] | undefined): number {\n    return array !== undefined ? array.length : 0;\n}\n\nexport function forEach<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {\n    if (array !== undefined) {\n        for (let i = 0; i < array.length; i++) {\n            const result = callback(array[i], i);\n            if (result) {\n                return result;\n            }\n        }\n    }\n    return undefined;\n}\n\nexport function forEachRight<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {\n    if (array !== undefined) {\n        for (let i = array.length - 1; i >= 0; i--) {\n            const result = callback(array[i], i);\n            if (result) {\n                return result;\n            }\n        }\n    }\n    return undefined;\n}\n\nexpor\n\n... [truncated 63254 chars] ...\n\nction skipWhile<T, U extends T>(array: readonly T[] | undefined, predicate: (element: T) => element is U): Exclude<T, U>[] | undefined {\n    if (array !== undefined) {\n        const len = array.length;\n        let index = 0;\n        while (index < len && predicate(array[index])) {\n            index++;\n        }\n        return array.slice(index) as Exclude<T, U>[];\n    }\n}\n\nexport function isNodeLikeSystem(): boolean {\n\n    return typeof process !== \"undefined\"\n        && !!process.nextTick\n        && !(process as any).browser\n        && typeof require !== \"undefined\";\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 29680,
       "cutPercent": 67.9,
-      "durationMs": 123.404
+      "durationMs": 338.707
     },
     "content": "import{CharacterCodes,Comparison,Debug}from\"./_namespaces/ts.js\";export const emptyArray=[];export const emptyMap=new Map;export function length(array){return void 0!==array?array.length:0}export function forEach(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(result)return result}}export function forEachRight(array,callback){if(void 0!==array)for(let i=array.length-1;i>=0;i--){const result=callback(array[i],i);if(result)return result}}export function firstDefined(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(void 0!==result)return result}}export function firstDefinedIterator(iter,callback){for(const value of iter){const result=callback(value);if(void 0!==result)return result}}export function reduceLeftIterator(iterator,f,initial){let result=initial;if(iterator){let pos=0;for(const value of iterator)result=f(result,value,pos),pos++}return result}export function zipWith(arrayA,arrayB,callback){const result=[];Debug.assertEqual(arrayA.length,arrayB.length);for(let i=0;i<arrayA.length;i++)result.push(callback(arrayA[i],arrayB[i],i));return result}export function intersperse(input,element){if(input.\n\n... [truncated 27880 chars] ...\n\nx===arrays.length-1?result.push(inner):cartesianProductWorker(arrays,result,inner,index+1)}}export function takeWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(0,index)}}export function skipWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(index)}}export function isNodeLikeSystem(){return\"undefined\"!=typeof process&&!!process.nextTick&&!process.browser&&\"undefined\"!=typeof require}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 29680,
       "cutPercent": 67.9,
-      "durationMs": 94.24
+      "durationMs": 237.852
     },
     "content": "import{CharacterCodes,Comparison,Debug}from\"./_namespaces/ts.js\";export const emptyArray=[];export const emptyMap=new Map;export function length(array){return void 0!==array?array.length:0}export function forEach(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(result)return result}}export function forEachRight(array,callback){if(void 0!==array)for(let i=array.length-1;i>=0;i--){const result=callback(array[i],i);if(result)return result}}export function firstDefined(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(void 0!==result)return result}}export function firstDefinedIterator(iter,callback){for(const value of iter){const result=callback(value);if(void 0!==result)return result}}export function reduceLeftIterator(iterator,f,initial){let result=initial;if(iterator){let pos=0;for(const value of iterator)result=f(result,value,pos),pos++}return result}export function zipWith(arrayA,arrayB,callback){const result=[];Debug.assertEqual(arrayA.length,arrayB.length);for(let i=0;i<arrayA.length;i++)result.push(callback(arrayA[i],arrayB[i],i));return result}export function intersperse(input,element){if(input.\n\n... [truncated 27880 chars] ...\n\nx===arrays.length-1?result.push(inner):cartesianProductWorker(arrays,result,inner,index+1)}}export function takeWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(0,index)}}export function skipWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(index)}}export function isNodeLikeSystem(){return\"undefined\"!=typeof process&&!!process.nextTick&&!process.browser&&\"undefined\"!=typeof require}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 29680,
       "cutPercent": 67.9,
-      "durationMs": 73.268,
+      "durationMs": 248.05,
       "failed": false,
       "type": "conservative",
       "reason": null

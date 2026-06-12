@@ -154,7 +154,7 @@ describe('directToolCatalog', () => {
     );
 
     expect(localByName['id']).toBeUndefined();
-    expect(localByName['pattern']?.required).toBe(true);
+    expect(localByName['keywords']?.required).toBe(true);
     expect(localByName['include']?.type).toBe('array<string>');
     // Fields with schema defaults are optional from the input side, even
     // though Zod's JSON Schema output lists them as required.
@@ -165,7 +165,7 @@ describe('directToolCatalog', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
-      pattern: 'pattern',
+      keywords: 'keywords',
       path: '.',
     });
     expect(
@@ -187,7 +187,7 @@ describe('directToolCatalog', () => {
   it('prepares direct tool input from every CLI-supported JSON payload shape', () => {
     const query = {
       path: '.',
-      pattern: 'DIRECT_TOOL_CATEGORIES',
+      keywords: 'DIRECT_TOOL_CATEGORIES',
       fixedString: true,
       matchContentLength: 200,
       itemsPerPage: 1,
@@ -286,8 +286,8 @@ describe('directToolCatalog', () => {
     prepareDirectToolInput(
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
       [
-        { pattern: 'a', path: '.', limit: 3, bogusKey: true },
-        { pattern: 'b', path: '.', fixed_string: true },
+        { keywords: 'a', path: '.', limit: 3, bogusKey: true },
+        { keywords: 'b', path: '.', fixed_string: true },
       ],
       {
         sourceLabel: 'unit-test',
@@ -305,7 +305,7 @@ describe('directToolCatalog', () => {
     const prepared = prepareDirectToolInput(
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
       {
-        queries: [{ pattern: 'a', path: '.' }],
+        queries: [{ keywords: 'a', path: '.' }],
         responseCharLength: 500,
       },
       { sourceLabel: 'unit-test' }
@@ -384,7 +384,7 @@ describe('directToolCatalog', () => {
   it('returns an MCP result envelope from the direct execution pipeline', async () => {
     const input = prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
       path: 'src/tools/directToolCatalog.ts',
-      pattern: 'DIRECT_TOOL_CATEGORIES',
+      keywords: 'DIRECT_TOOL_CATEGORIES',
       fixedString: true,
       matchContentLength: 200,
       itemsPerPage: 1,

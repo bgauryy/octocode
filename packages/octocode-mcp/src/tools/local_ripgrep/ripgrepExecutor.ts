@@ -70,7 +70,7 @@ export async function executeRipgrepSearchInternal(
   };
 
   const patternCheck = preflightValidateRipgrepPattern({
-    pattern: queryForExec.pattern,
+    pattern: queryForExec.keywords,
     fixedString: queryForExec.fixedString,
     perlRegex: queryForExec.perlRegex,
   });
@@ -121,7 +121,7 @@ export async function executeRipgrepSearchInternal(
         searchEngine: 'rg',
         warnings: [...validationWarnings, ...chunkingWarnings],
         hints: getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty', {
-          pattern: query.pattern,
+          keywords: query.keywords,
           path: query.path,
           langType: query.langType,
           include: query.include,

@@ -1134,7 +1134,7 @@ describe('registerPackageSearchTool', () => {
 
       const queries = [
         {
-          name: 'axios',
+          packageName: 'axios',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1164,7 +1164,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'lodash',
+            packageName: 'lodash',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1192,7 +1192,7 @@ describe('registerPackageSearchTool', () => {
                 objects: [
                   {
                     package: {
-                      name: 'react-utils',
+                      packageName: 'react-utils',
                       version: '1.0.0',
                       description: 'React utilities',
                     },
@@ -1225,7 +1225,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'react utils library',
+            packageName: 'react utils library',
             mainResearchGoal: 'Test pagination',
             researchGoal: 'Test',
             reasoning: 'Validate pagination output',
@@ -1284,7 +1284,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'react hooks',
+            packageName: 'react hooks',
             page: 2,
             mainResearchGoal: 'Test pagination',
             researchGoal: 'Test',
@@ -1315,7 +1315,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'lodash',
+            packageName: 'lodash',
             mode: 'lean',
             mainResearchGoal: 'Test lean path',
             researchGoal: 'Test',
@@ -1342,7 +1342,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'my_package_name',
+            packageName: 'my_package_name',
             mainResearchGoal: 'Test name variation',
             researchGoal: 'Test',
             reasoning: 'Cover generateNameVariations underscore branch',
@@ -1367,7 +1367,7 @@ describe('registerPackageSearchTool', () => {
 
       const queries = [
         {
-          name: 'test-pkg',
+          packageName: 'test-pkg',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1393,7 +1393,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'test-pkg',
+            packageName: 'test-pkg',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1417,7 +1417,7 @@ describe('registerPackageSearchTool', () => {
       await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'test-pkg',
+            packageName: 'test-pkg',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1447,13 +1447,13 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'pkg1',
+            packageName: 'pkg1',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
           },
           {
-            name: 'pkg2',
+            packageName: 'pkg2',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1486,7 +1486,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'test-pkg',
+            packageName: 'test-pkg',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1514,7 +1514,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'no-repo-pkg',
+            packageName: 'no-repo-pkg',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1544,7 +1544,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'no-repo-pkg',
+            packageName: 'no-repo-pkg',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1571,7 +1571,7 @@ describe('registerPackageSearchTool', () => {
       const result = await mockServer.callTool('packageSearch', {
         queries: [
           {
-            name: 'nonexistent pkg xyz123 keyword',
+            packageName: 'nonexistent pkg xyz123 keyword',
             mainResearchGoal: 'Test',
             researchGoal: 'Test',
             reasoning: 'Test',
@@ -1622,7 +1622,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
-          name: 'date-fns keyword',
+          packageName: 'date-fns keyword',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1648,7 +1648,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
-          name: '@nonexistent/package',
+          packageName: '@nonexistent/package',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1672,7 +1672,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
-          name: 'chart library',
+          packageName: 'chart library',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1710,7 +1710,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
-          name: 'pkg utility library',
+          packageName: 'pkg utility library',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1781,7 +1781,7 @@ describe('Task 3: Deprecation Detection', () => {
     const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
-          name: 'request',
+          packageName: 'request',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',
@@ -1828,7 +1828,7 @@ describe('Task 3: Deprecation Detection', () => {
     const result = await mockServer.callTool('packageSearch', {
       queries: [
         {
-          name: 'lodash',
+          packageName: 'lodash',
           mainResearchGoal: 'Test',
           researchGoal: 'Test',
           reasoning: 'Test',

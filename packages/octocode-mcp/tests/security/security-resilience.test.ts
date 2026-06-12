@@ -453,7 +453,7 @@ describe('[SECURITY] Environment variable leakage prevention', () => {
   });
 });
 
-import { validateCommand } from 'octocode-security-utils/commandValidator';
+import { validateCommand } from 'octocode-security/commandValidator';
 
 describe('[SECURITY] Command injection via rg flags', () => {
   it('rg --pre should be blocked (arbitrary command execution)', () => {
@@ -622,7 +622,7 @@ describe('[RESILIENCE] validateArgs edge cases', () => {
   });
 });
 
-import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 
 describe('[RESILIENCE] ContentSanitizer edge cases', () => {
   it('sanitizeContent with null input should not crash', () => {
@@ -879,7 +879,7 @@ describe('[RESILIENCE] LSPDocumentManager state management', () => {
   });
 });
 
-import { PathValidator } from 'octocode-security-utils/pathValidator';
+import { PathValidator } from 'octocode-security/pathValidator';
 
 describe('[SECURITY] PathValidator edge cases', () => {
   const testTmpDir = join(tmpdir(), `octocode-path-sec-${Date.now()}`);

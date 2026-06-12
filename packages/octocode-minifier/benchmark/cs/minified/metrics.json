@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 4017,
       "cutPercent": 28.3,
-      "durationMs": 0.645
+      "durationMs": 1.194
     },
     "content": "using System.ComponentModel;\nusing System.Diagnostics.CodeAnalysis;\nusing System.Runtime.CompilerServices;\nusing System.Runtime.Serialization;\n\nnamespace System\n{\n\n    [Serializable]\n    [TypeForwardedFrom(\"mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089\")]\n    public class ArgumentException : SystemException\n    {\n        private readonly string? _paramName;\n\n        public ArgumentException()\n            : base(SR.Arg_ArgumentException)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message)\n            : base(message)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, Exception? innerException)\n            : base(message, innerException)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, string? paramName, Exception? innerException)\n            : base(message, innerException)\n        {\n            _paramName = paramName;\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, string? paramName)\n            : base(message)\n        {\n\n... [truncated 2217 chars] ...\n\nDoesNotReturn]\n        private static void ThrowNullOrEmptyException(string? argument, string? paramName)\n        {\n            ArgumentNullException.ThrowIfNull(argument, paramName);\n            throw new ArgumentException(SR.Argument_EmptyString, paramName);\n        }\n\n        [DoesNotReturn]\n        private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)\n        {\n            ArgumentNullException.ThrowIfNull(argument, paramName);\n            throw new ArgumentException(SR.Argument_EmptyOrWhiteSpaceString, paramName);\n        }\n    }\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 4017,
       "cutPercent": 28.3,
-      "durationMs": 0.866
+      "durationMs": 2.137
     },
     "content": "using System.ComponentModel;\nusing System.Diagnostics.CodeAnalysis;\nusing System.Runtime.CompilerServices;\nusing System.Runtime.Serialization;\n\nnamespace System\n{\n\n    [Serializable]\n    [TypeForwardedFrom(\"mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089\")]\n    public class ArgumentException : SystemException\n    {\n        private readonly string? _paramName;\n\n        public ArgumentException()\n            : base(SR.Arg_ArgumentException)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message)\n            : base(message)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, Exception? innerException)\n            : base(message, innerException)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, string? paramName, Exception? innerException)\n            : base(message, innerException)\n        {\n            _paramName = paramName;\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, string? paramName)\n            : base(message)\n        {\n\n... [truncated 2217 chars] ...\n\nDoesNotReturn]\n        private static void ThrowNullOrEmptyException(string? argument, string? paramName)\n        {\n            ArgumentNullException.ThrowIfNull(argument, paramName);\n            throw new ArgumentException(SR.Argument_EmptyString, paramName);\n        }\n\n        [DoesNotReturn]\n        private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)\n        {\n            ArgumentNullException.ThrowIfNull(argument, paramName);\n            throw new ArgumentException(SR.Argument_EmptyOrWhiteSpaceString, paramName);\n        }\n    }\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 4017,
       "cutPercent": 28.3,
-      "durationMs": 0.605
+      "durationMs": 1.678
     },
     "content": "using System.ComponentModel;\nusing System.Diagnostics.CodeAnalysis;\nusing System.Runtime.CompilerServices;\nusing System.Runtime.Serialization;\n\nnamespace System\n{\n\n    [Serializable]\n    [TypeForwardedFrom(\"mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089\")]\n    public class ArgumentException : SystemException\n    {\n        private readonly string? _paramName;\n\n        public ArgumentException()\n            : base(SR.Arg_ArgumentException)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message)\n            : base(message)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, Exception? innerException)\n            : base(message, innerException)\n        {\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, string? paramName, Exception? innerException)\n            : base(message, innerException)\n        {\n            _paramName = paramName;\n            HResult = HResults.COR_E_ARGUMENT;\n        }\n\n        public ArgumentException(string? message, string? paramName)\n            : base(message)\n        {\n\n... [truncated 2217 chars] ...\n\nDoesNotReturn]\n        private static void ThrowNullOrEmptyException(string? argument, string? paramName)\n        {\n            ArgumentNullException.ThrowIfNull(argument, paramName);\n            throw new ArgumentException(SR.Argument_EmptyString, paramName);\n        }\n\n        [DoesNotReturn]\n        private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)\n        {\n            ArgumentNullException.ThrowIfNull(argument, paramName);\n            throw new ArgumentException(SR.Argument_EmptyOrWhiteSpaceString, paramName);\n        }\n    }\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 4017,
       "cutPercent": 28.3,
-      "durationMs": 0.592,
+      "durationMs": 2.741,
       "failed": false,
       "type": "conservative",
       "reason": null

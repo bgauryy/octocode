@@ -6,6 +6,7 @@ import {
   minifyMarkdownCore,
   removeComments,
 } from './strategies.js';
+import type { FileTypeMinifyConfig } from '../types/index.js';
 import { INDENTATION_SENSITIVE_NAMES, MINIFY_CONFIG } from '../types/index.js';
 import { getExtension } from '../utils/fileExtension.js';
 
@@ -24,6 +25,25 @@ function getBaseName(filePath: string): string {
   return (filePath.split(/[\\/]/).pop() || '').toLowerCase();
 }
 
+function getStandardContentConfig(
+  filePath: string,
+  ext: string
+): FileTypeMinifyConfig | undefined {
+  const baseName = getBaseName(filePath);
+  if (INDENTATION_SENSITIVE_NAMES.has(baseName)) {
+    return { strategy: 'conservative', comments: 'hash' };
+  }
+
+  return MINIFY_CONFIG.fileTypes[ext];
+}
+
+function stripConfiguredComments(
+  content: string,
+  config: FileTypeMinifyConfig | undefined
+): string {
+  return config?.comments ? removeComments(content, config.comments) : content;
+}
+
 /**
  * Content-safe minification for file viewing tools (localGetFileContent,
  * githubGetFileContent, PR patches).
@@ -31,15 +51,15 @@ function getBaseName(filePath: string): string {
  * Designed for AGENT READABILITY — preserves structure and indentation.
  *
  * Pipeline per file type:
- *   JSON/JSONC/JSON5  → minifyJsonReadable (strip JSONC comments/trailing commas
- *                        then re-pretty-print with 2-space indent — readable);
- *                        only returned if result is shorter (i.e. JSONC had comments)
+ *   JSON/JSONC/JSON5 → minifyJsonReadable (strip JSONC comments/trailing commas
+ *                       while preserving readable layout);
+ *                       only returned if result is shorter (i.e. JSONC had comments)
  *   Markdown          → minifyMarkdownCore (HTML comments, quote-replies stripped)
- *   Code/config files     → removeComments(configured) + minifyCodeCore
- *                                (trailing whitespace + blank-line compression;
- *                                 original indentation PRESERVED for agent readability)
+ *   Code/config files → strip all configured comment syntaxes, then minifyCodeCore
+ *                       (trailing whitespace + blank-line compression;
+ *                        original indentation PRESERVED for agent readability)
  *   Plain text (txt/log/unknown) → minifyGeneralCore (whitespace + indent compression)
- *   Indentation-sensitive names → conservative hash comments + minifyCodeCore
+ *   Indentation-sensitive names → strip hash comments, then minifyCodeCore
  *
  * Always returns the original if the minified version is not shorter.
  */
@@ -49,10 +69,7 @@ export function applyContentViewMinification(
 ): string {
   try {
     const ext = getExtension(filePath, { lowercase: true, fallback: 'txt' });
-    const baseName = getBaseName(filePath);
-    const config = INDENTATION_SENSITIVE_NAMES.has(baseName)
-      ? ({ strategy: 'conservative', comments: 'hash' } as const)
-      : MINIFY_CONFIG.fileTypes[ext];
+    const config = getStandardContentConfig(filePath, ext);
 
     let minified: string;
 
@@ -63,9 +80,7 @@ export function applyContentViewMinification(
     } else if (config?.strategy === 'markdown') {
       minified = minifyMarkdownCore(content);
     } else {
-      const stripped = config?.comments
-        ? removeComments(content, config.comments)
-        : content;
+      const stripped = stripConfiguredComments(content, config);
       // Code files: preserve indentation so agents keep structural context.
       // Plain-text files (txt/log/no registered type): allow indent compression.
       minified =

@@ -29,6 +29,7 @@ type GitHubReposSearchSingleQuery = z.infer<
 import type { OptimizedCodeSearchResult } from '../../github/githubAPI.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
+import type { PaginationInfo } from '../../types/toolResults.js';
 
 import {
   createGitHubProviderError,
@@ -36,6 +37,26 @@ import {
   parseGitHubProjectId,
 } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
+
+function countMetadata(pagination: PaginationInfo | undefined) {
+  return {
+    ...(typeof pagination?.reportedTotalMatches === 'number'
+      ? { reportedTotalMatches: pagination.reportedTotalMatches }
+      : {}),
+    ...(typeof pagination?.reachableTotalMatches === 'number'
+      ? { reachableTotalMatches: pagination.reachableTotalMatches }
+      : {}),
+    ...(pagination?.totalMatchesKind
+      ? { totalMatchesKind: pagination.totalMatchesKind }
+      : {}),
+    ...(typeof pagination?.totalMatchesCapped === 'boolean'
+      ? { totalMatchesCapped: pagination.totalMatchesCapped }
+      : {}),
+    ...(typeof pagination?.uniqueFileCount === 'number'
+      ? { uniqueFileCount: pagination.uniqueFileCount }
+      : {}),
+  };
+}
 
 export function transformCodeSearchResult(
   data: OptimizedCodeSearchResult
@@ -65,6 +86,7 @@ export function transformCodeSearchResult(
       totalMatches: data.pagination?.totalMatches,
       entriesPerPage: (data.pagination as { perPage?: number } | undefined)
         ?.perPage,
+      ...countMetadata(data.pagination),
     },
     repositoryContext: data._researchContext?.repositoryContext,
     nonExistentScope: data.nonExistentScope,
@@ -106,6 +128,7 @@ export function transformRepoSearchResult(
       totalMatches: data.pagination?.totalMatches,
       entriesPerPage: (data.pagination as { perPage?: number } | undefined)
         ?.perPage,
+      ...countMetadata(data.pagination),
     },
     nonExistentScope: (data as { nonExistentScope?: boolean }).nonExistentScope,
   };

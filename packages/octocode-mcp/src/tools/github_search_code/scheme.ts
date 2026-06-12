@@ -88,7 +88,12 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
       totalPages: z.number(),
       perPage: z.number(),
       totalMatches: z.number(),
+      reportedTotalMatches: z.number().optional(),
+      reachableTotalMatches: z.number().optional(),
+      totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
+      totalMatchesCapped: z.boolean().optional(),
       hasMore: z.boolean(),
+      uniqueFileCount: z.number().optional(),
     })
     .optional(),
   hints: z.array(z.string()).optional(),

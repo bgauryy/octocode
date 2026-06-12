@@ -29,7 +29,7 @@ const SCHEME_FILES = [
 ] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
-  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { pattern: 'foo', path: '.' },
+  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { keywords: 'foo', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
@@ -59,7 +59,7 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     owner: 'facebook',
     repo: 'react',
   },
-  [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: { name: 'zod' },
+  [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: { packageName: 'zod' },
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: {
     owner: 'facebook',
     repo: 'react',

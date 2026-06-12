@@ -99,7 +99,7 @@ function markdownFixture(): Fixture {
 
 <!-- ${DROP_MARKER} html comment -->
 
-> ${DROP_MARKER} quoted reply
+> ${KEEP_MARKER} quoted note
 
 Body text for ${KEEP_MARKER}.
 `);

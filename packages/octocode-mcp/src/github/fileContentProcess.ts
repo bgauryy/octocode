@@ -3,7 +3,7 @@ import {
   getOutputCharLimit,
   getOutputMinifyDefault,
 } from '../utils/pagination/charLimit.js';
-import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyContentViewMinification,
   extractSignatures,
@@ -108,6 +108,8 @@ export async function processFileContentAPI(
   matchStringCaseSensitive?: boolean,
   minify: MinifyMode = getOutputMinifyDefault()
 ): Promise<GitHubFileContentApiResult> {
+  const sourceChars = decodedContent.length;
+  const sourceBytes = Buffer.byteLength(decodedContent, 'utf-8');
   // "symbols" implies the standard comment/whitespace strip on whatever
   // content leaves this function (skeleton, or full-content fallback).
   const applyStandardMinify = minify === 'standard' || minify === 'symbols';
@@ -137,6 +139,8 @@ export async function processFileContentAPI(
         isSkeleton: true,
         branch,
         totalLines: decodedContent.split('\n').length,
+        sourceChars,
+        sourceBytes,
         // Skeletons bypass applyContentPagination — returned whole. isSkeleton
         // carries the lossy "bodies omitted" signal, while isPartial remains
         // false so agents do not try to paginate a complete skeleton index.
@@ -188,6 +192,8 @@ export async function processFileContentAPI(
         content: '',
         branch,
         totalLines,
+        sourceChars,
+        sourceBytes,
         matchNotFound: true,
         searchedFor: matchString,
         hints: [
@@ -211,6 +217,8 @@ export async function processFileContentAPI(
         content: '',
         branch,
         totalLines,
+        sourceChars,
+        sourceBytes,
         matchNotFound: true,
         searchedFor: matchString,
         hints: notFoundHints,
@@ -318,6 +326,8 @@ export async function processFileContentAPI(
     contentView: fallbackContentView,
     branch,
     totalLines,
+    sourceChars,
+    sourceBytes,
     ...(isPartial && {
       startLine: actualStartLine,
       endLine: actualEndLine,

@@ -25,7 +25,7 @@ export const nodeExternals = [
 // Deriving this list from package.json `dependencies` (rather than hardcoding)
 // guarantees it can never drift when deps are added or removed.
 //
-// NOTE: workspace packages (octocode-shared, octocode-security-utils) live in
+// NOTE: workspace packages (octocode-shared, octocode-security) live in
 // `devDependencies`, so they are deliberately NOT external — they get bundled,
 // because consumers never install them.
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {});

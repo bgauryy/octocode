@@ -404,7 +404,7 @@ describe('Local Tools Execution', () => {
         {
           researchGoal: 'Test',
           reasoning: 'Schema validation',
-          pattern: 'test',
+          keywords: 'test',
           path: '/test',
         },
       ] as RipgrepQuery[];
@@ -430,7 +430,7 @@ describe('Local Tools Execution', () => {
         {
           researchGoal: 'Test',
           reasoning: 'Schema validation',
-          pattern: 'test',
+          keywords: 'test',
           path: '/test',
         },
       ] as RipgrepQuery[];
@@ -443,7 +443,7 @@ describe('Local Tools Execution', () => {
       const query = {
         researchGoal: 'Test',
         reasoning: 'Schema validation',
-        pattern: 'test',
+        keywords: 'test',
         path: '/test',
       } as RipgrepQuery;
       await callback(query, 0);
@@ -487,7 +487,7 @@ describe('Local Tools Execution', () => {
       const query = {
         researchGoal: 'Test',
         reasoning: 'limited evidence',
-        pattern: 'test',
+        keywords: 'test',
         path: '/test',
       } as RipgrepQuery;
       await executeRipgrepSearch({ queries: [query] });

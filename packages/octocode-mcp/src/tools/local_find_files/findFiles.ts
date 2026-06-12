@@ -119,10 +119,6 @@ function buildFindFilesHints(ctx: {
 
   const q = query as Record<string, unknown>;
   const activeFilters: string[] = [];
-  const namePattern = q.name as string | undefined;
-  if (namePattern) {
-    activeFilters.push(`name: ${namePattern}`);
-  }
   if (Array.isArray(q.names) && q.names.length > 0) {
     activeFilters.push(`names: ${(q.names as string[]).join(', ')}`);
   }
@@ -175,7 +171,6 @@ function buildFindFilesHints(ctx: {
           fileCount: totalFiles,
           hasConfigFiles,
           path: query.path,
-          name: query.name,
           names: query.names,
           modifiedWithin: query.modifiedWithin,
           sizeGreater: query.sizeGreater,

@@ -1,10 +1,12 @@
 # Java (.java)
 
-Source sample: `java/AnnotationUtils.java`
+Source sample: `java/00-spring-annotation-utils.java`
 
 Strategy: `conservative`
 
 Agent rating: **9.7/10 (excellent)**
+
+Agent understanding from minified output: **9.8/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 63265 | - | - | - |
-| content-view | 22271 | 64.8% | 5.64 ms | 9.5/10 |
-| applyMinification | 22271 | 64.8% | 5.134 ms | 9.5/10 |
-| sync minify | 22271 | 64.8% | 5.488 ms | 9.5/10 |
-| async minify | 22271 | 64.8% | 5.284 ms | 9.5/10 |
-| symbols | 8057 | 87.3% | 0.39 ms | 10/10 |
+| content-view | 22271 | 64.8% | 16.748 ms | 9.5/10 |
+| applyMinification | 22271 | 64.8% | 17.847 ms | 9.5/10 |
+| sync minify | 22271 | 64.8% | 15.342 ms | 9.5/10 |
+| async minify | 22271 | 64.8% | 15.326 ms | 9.5/10 |
+| symbols | 8057 | 87.3% | 0.904 ms | 10/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 9/10 |
+| context budget | 10/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 63265 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 22271 | 64.8% | 9.8/10 excellent | 10/10 | 10/10 |
+| minify | 22271 | 64.8% | 9.8/10 excellent | 10/10 | 10/10 |
+| symbols | 8057 | 87.3% | 7.8/10 good | 6.7/10 | 6.7/10 |
 
 ## Notes
 

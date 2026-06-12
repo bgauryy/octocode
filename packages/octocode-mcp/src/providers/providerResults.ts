@@ -82,6 +82,14 @@ export interface FileContentResult {
 
   totalLines?: number;
 
+  sourceChars?: number;
+
+  sourceBytes?: number;
+
+  contentView?: 'none' | 'standard' | 'symbols';
+
+  isSkeleton?: boolean;
+
   ref: string;
 
   lastModified?: string;

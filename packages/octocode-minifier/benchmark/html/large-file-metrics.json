@@ -1,0 +1,42 @@
+{
+  "ext": "html",
+  "language": "HTML",
+  "description": "Documentation page with nav, sidebar, API reference section",
+  "inputBytes": 7795,
+  "inputLines": 185,
+  "contentView": {
+    "bytes": 5704,
+    "cutPct": 26.8,
+    "ms": 2.54
+  },
+  "applyMinify": {
+    "bytes": 4496,
+    "cutPct": 42.3,
+    "ms": 1.99
+  },
+  "syncMinify": {
+    "bytes": 4496,
+    "cutPct": 42.3,
+    "ms": 1.9
+  },
+  "asyncMinify": {
+    "bytes": 4508,
+    "cutPct": 42.2,
+    "ms": 6.76,
+    "type": "aggressive"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 1955,
+    "cutPct": 74.9,
+    "ms": 0.67
+  },
+  "rating": {
+    "score": 8.5,
+    "label": "strong"
+  },
+  "notes": [
+    "HTML comments stripped by aggressive strategy",
+    "html-minifier-terser async path for whitespace compression"
+  ]
+}

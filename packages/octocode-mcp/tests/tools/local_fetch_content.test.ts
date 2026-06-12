@@ -6,7 +6,7 @@ import {
   applyContentViewMinification,
 } from '@octocodeai/octocode-minifier';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
-import * as pathValidator from 'octocode-security-utils/pathValidator';
+import * as pathValidator from 'octocode-security/pathValidator';
 import * as fs from 'fs/promises';
 import type { CharPagination } from '@octocodeai/octocode-core/types';
 
@@ -35,7 +35,7 @@ vi.mock('fs/promises', () => ({
 }));
 
 // Mock pathValidator
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },
@@ -190,6 +190,12 @@ describe('localGetFileContent', () => {
       expect(result.content).not.toContain('secretLocal');
       expect(result.contentView).toBe('symbols');
       expect(result.isSkeleton).toBe(true);
+      const sourceSize = result as {
+        sourceChars?: number;
+        sourceBytes?: number;
+      };
+      expect(sourceSize.sourceChars).toBe(SOURCE.length);
+      expect(sourceSize.sourceBytes).toBe(Buffer.byteLength(SOURCE, 'utf-8'));
     });
 
     it('returns a large minify:"symbols" skeleton WHOLE — never paginated', async () => {
@@ -215,6 +221,28 @@ describe('localGetFileContent', () => {
       expect(result.contentView).toBe('symbols');
       expect(result.isSkeleton).toBe(true);
       expect(result.totalLines).toBe(src.split('\n').length);
+      expect((result as { sourceChars?: number }).sourceChars).toBe(src.length);
+    });
+
+    it('paginates the returned standard content view, not the pre-minified source', async () => {
+      const src = Array.from(
+        { length: 100 },
+        (_, i) => `// ${'comment '.repeat(12)}\nconst a${i}=${i};`
+      ).join('\n');
+      const minified = applyContentViewMinification(src, 'sample.ts');
+      expect(src.length).toBeGreaterThan(2000);
+      expect(minified.length).toBeLessThan(2000);
+      mockReadFile.mockResolvedValue(src);
+
+      const result = await fetchContent({
+        path: 'sample.ts',
+        minify: 'standard',
+      } as Parameters<typeof fetchContent>[0]);
+
+      expect(result.status).toBeUndefined();
+      expect(result.content).toBe(minified);
+      expect(result.pagination).toBeUndefined();
+      expect((result as { sourceChars?: number }).sourceChars).toBe(src.length);
     });
 
     it('unsupported minify:"symbols" warns and falls back to standard content view', async () => {

@@ -2413,11 +2413,11 @@ BLUE='\\033[0;34m'
 BOLD='\\033[1m'
 RESET='\\033[0m'
 
-log_info()    { echo -e "\${BLUE}[INFO]\${RESET}  \$*" | tee -a "\${LOG_FILE}"; }
-log_success() { echo -e "\${GREEN}[OK]\${RESET}    \$*" | tee -a "\${LOG_FILE}"; }
-log_warn()    { echo -e "\${YELLOW}[WARN]\${RESET}  \$*" | tee -a "\${LOG_FILE}"; }
-log_error()   { echo -e "\${RED}[ERROR]\${RESET} \$*" | tee -a "\${LOG_FILE}" >&2; }
-log_step()    { echo -e "\\n\${BOLD}===> \$*\${RESET}" | tee -a "\${LOG_FILE}"; }
+log_info()    { echo -e "\${BLUE}[INFO]\${RESET}  $*" | tee -a "\${LOG_FILE}"; }
+log_success() { echo -e "\${GREEN}[OK]\${RESET}    $*" | tee -a "\${LOG_FILE}"; }
+log_warn()    { echo -e "\${YELLOW}[WARN]\${RESET}  $*" | tee -a "\${LOG_FILE}"; }
+log_error()   { echo -e "\${RED}[ERROR]\${RESET} $*" | tee -a "\${LOG_FILE}" >&2; }
+log_step()    { echo -e "\\n\${BOLD}===> $*\${RESET}" | tee -a "\${LOG_FILE}"; }
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -2425,7 +2425,7 @@ log_step()    { echo -e "\\n\${BOLD}===> \$*\${RESET}" | tee -a "\${LOG_FILE}"; 
 
 usage() {
     cat <<EOF
-Usage: \$(basename "\$0") [OPTIONS]
+Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --env <environment>   Target environment: staging or production (default: staging)
@@ -2439,15 +2439,15 @@ EOF
 }
 
 parse_args() {
-    while [[ \$# -gt 0 ]]; do
-        case "\$1" in
-            --env)       ENV="\$2";        shift 2 ;;
-            --branch)    BRANCH="\$2";     shift 2 ;;
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env)       ENV="$2";        shift 2 ;;
+            --branch)    BRANCH="$2";     shift 2 ;;
             --dry-run)   DRY_RUN=true;    shift   ;;
             --rollback)  ROLLBACK=true;   shift   ;;
             --skip-tests) SKIP_TESTS=true; shift  ;;
             -h|--help)   usage                    ;;
-            *)           log_error "Unknown argument: \$1"; usage ;;
+            *)           log_error "Unknown argument: $1"; usage ;;
         esac
     done
 
@@ -2482,7 +2482,7 @@ check_dependencies() {
 acquire_lock() {
     if [[ -f "\${LOCK_FILE}" ]]; then
         local pid
-        pid=\$(cat "\${LOCK_FILE}")
+        pid=$(cat "\${LOCK_FILE}")
         if kill -0 "\${pid}" 2>/dev/null; then
             log_error "Another deploy is in progress (PID \${pid})"
             exit 1
@@ -2490,7 +2490,7 @@ acquire_lock() {
         log_warn "Stale lock file found — removing"
         rm -f "\${LOCK_FILE}"
     fi
-    echo \$\$ > "\${LOCK_FILE}"
+    echo $$ > "\${LOCK_FILE}"
     trap 'rm -f "\${LOCK_FILE}"' EXIT
     log_success "Acquired deploy lock"
 }
@@ -2535,7 +2535,7 @@ build_artefact() {
 # ---------------------------------------------------------------------------
 
 remote_exec() {
-    local cmd="\$1"
+    local cmd="$1"
     if "\${DRY_RUN}"; then
         log_info "[dry-run] ssh \${REMOTE_HOST}: \${cmd}"
         return
@@ -2576,7 +2576,7 @@ activate_release() {
 
 cleanup_old_releases() {
     log_step "Cleaning up old releases (keeping \${KEEP_RELEASES})"
-    remote_exec "ls -dt \${RELEASES_DIR}/* | tail -n +\$((\${KEEP_RELEASES}+1)) | xargs rm -rf --"
+    remote_exec "ls -dt \${RELEASES_DIR}/* | tail -n +$((\${KEEP_RELEASES}+1)) | xargs rm -rf --"
     log_success "Cleanup done"
 }
 
@@ -2587,7 +2587,7 @@ cleanup_old_releases() {
 do_rollback() {
     log_step "Rolling back to previous release"
     local prev
-    prev=\$(remote_exec "ls -dt \${RELEASES_DIR}/* | sed -n '2p'")
+    prev=$(remote_exec "ls -dt \${RELEASES_DIR}/* | sed -n '2p'")
     if [[ -z "\${prev}" ]]; then
         log_error "No previous release found — cannot roll back"
         exit 1
@@ -2610,12 +2610,12 @@ health_check() {
 
     while (( attempt < max_attempts )); do
         local status
-        status=\$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "\${url}" || true)
+        status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "\${url}" || true)
         if [[ "\${status}" == "200" ]]; then
             log_success "Health check passed (\${url})"
             return 0
         fi
-        attempt=\$(( attempt + 1 ))
+        attempt=$(( attempt + 1 ))
         log_info "Attempt \${attempt}/\${max_attempts} — HTTP \${status}; retrying in \${wait}s"
         sleep "\${wait}"
     done
@@ -2633,7 +2633,7 @@ main() {
 
     log_step "Deploy started — env=\${ENV} branch=\${BRANCH} dry-run=\${DRY_RUN}"
 
-    parse_args "\$@"
+    parse_args "$@"
     check_dependencies
     acquire_lock
     check_remote_connectivity
@@ -2654,7 +2654,7 @@ main() {
     log_success "\\nDeploy complete — \${ENV} @ \${TIMESTAMP}"
 }
 
-main "\$@"
+main "$@"
 `;
 
 // ---------------------------------------------------------------------------
@@ -3074,320 +3074,2362 @@ class ProductRepositoryImpl @Inject constructor(
 // ---------------------------------------------------------------------------
 export const YAML_LARGE = `
 # =============================================================================
-# ci.yml — Full CI/CD pipeline
+# values.yaml — Production Helm chart values
+# Full Kubernetes deployment configuration for a Node.js microservice
 # =============================================================================
-#
-# Triggers:
-#   - push to main or release/* branches
-#   - pull requests targeting main
-#   - manual workflow_dispatch
-#
-# Jobs:
-#   lint      → fast static analysis
-#   test      → unit + integration tests with coverage
-#   build     → Docker image build and push
-#   deploy    → staged rollout (staging → production)
-#   notify    → Slack notification on completion
 
-name: CI/CD Pipeline
+# ---------------------------------------------------------------------------
+# Global settings shared across all sub-charts and templates
+# ---------------------------------------------------------------------------
+global:
+  # Docker registry prefix — override per environment
+  imageRegistry: "registry.example.com"
+  # Storage class for all PersistentVolumeClaims
+  storageClass: "gp3"
+  # TLS secret name (must exist in the target namespace before install)
+  tlsSecret: "wildcard-cert"
+  # Common labels applied to every resource created by this chart
+  commonLabels:
+    team: platform
+    project: api-gateway
+    managed-by: helm
 
-on:
-  push:
-    branches:
-      - main
-      - 'release/**'
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        default: staging
-        type: choice
-        options:
-          - staging
-          - production
-      skip_tests:
-        description: 'Skip test suite'
-        required: false
-        default: 'false'
-        type: boolean
+# ---------------------------------------------------------------------------
+# Application image configuration
+# ---------------------------------------------------------------------------
+image:
+  # Full image repository path (without tag)
+  repository: registry.example.com/platform/api-gateway
+  # Image pull policy. Use IfNotPresent for prod; Always during active dev.
+  pullPolicy: IfNotPresent
+  # Semver tag. Defaults to chart appVersion; set explicitly for pinned deploys.
+  tag: ""
+  # Digest-pinned SHA (preferred for production — overrides tag when set)
+  # sha256: "abc123..."
 
-# Cancel in-progress runs on the same branch (saves CI minutes).
-concurrency:
-  group: '\${{ github.workflow }}-\${{ github.ref }}'
-  cancel-in-progress: true
+# Image pull secrets for private registries
+imagePullSecrets:
+  - name: registry-credentials
 
-# Global env — individual jobs can override.
+# ---------------------------------------------------------------------------
+# Replica and autoscaling settings
+# ---------------------------------------------------------------------------
+
+# Number of replicas when autoscaling is disabled
+replicaCount: 3
+
+# Horizontal Pod Autoscaler configuration
+autoscaling:
+  # Enable HPA — when true, replicaCount is treated as minReplicas
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  # Target CPU utilisation percentage across all pods
+  targetCPUUtilizationPercentage: 70
+  # Target memory utilisation percentage (requires metrics-server >=0.6)
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget — ensures at least N replicas available during rolling updates
+podDisruptionBudget:
+  enabled: true
+  # Minimum available pods; use percentage string or integer
+  minAvailable: "50%"
+
+# ---------------------------------------------------------------------------
+# Resource requests and limits
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    # CPU request — Kubernetes will only schedule on nodes with this capacity
+    cpu: "250m"
+    # Memory request — base allocation per pod
+    memory: "256Mi"
+  limits:
+    # CPU limit — hard cap; throttled if exceeded
+    cpu: "1000m"
+    # Memory limit — OOMKilled if exceeded; tune based on profiling
+    memory: "512Mi"
+
+# ---------------------------------------------------------------------------
+# Service configuration
+# ---------------------------------------------------------------------------
+service:
+  # Service type: ClusterIP (internal), NodePort, LoadBalancer, ExternalName
+  type: ClusterIP
+  # Port exposed on the service
+  port: 80
+  # Container port the application listens on
+  targetPort: 3000
+  # Override protocol (TCP / UDP)
+  protocol: TCP
+  # Annotations for cloud-specific integrations (e.g. AWS NLB, GCP NEG)
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Ingress configuration
+# ---------------------------------------------------------------------------
+ingress:
+  # Enable Kubernetes Ingress resource
+  enabled: true
+  # Ingress class name — matches installed ingress controller
+  className: "nginx"
+  # Annotations control NGINX behaviour, cert-manager, etc.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # TLS certificate issuer — requires cert-manager CRDs
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  # Virtual hosts
+  hosts:
+    - host: api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # TLS termination — certificates managed by cert-manager
+  tls:
+    - secretName: api-example-tls
+      hosts:
+        - api.example.com
+
+# ---------------------------------------------------------------------------
+# Health checks
+# ---------------------------------------------------------------------------
+# Liveness probe: restart container if it fails consecutively
+livenessProbe:
+  httpGet:
+    path: /healthz/live
+    port: 3000
+  # Wait this many seconds after container start before first probe
+  initialDelaySeconds: 15
+  # Probe interval in seconds
+  periodSeconds: 10
+  # Probe timeout — container must respond within this window
+  timeoutSeconds: 5
+  # Number of consecutive failures before restart
+  failureThreshold: 3
+
+# Readiness probe: remove pod from load-balancer endpoints if it fails
+readinessProbe:
+  httpGet:
+    path: /healthz/ready
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  # Allow 1 failure before marking not-ready (avoids flapping on startup)
+  failureThreshold: 1
+
+# Startup probe: extra slack for slow-starting containers (overrides liveness)
+startupProbe:
+  httpGet:
+    path: /healthz/ready
+    port: 3000
+  # Fail after 30 * 10s = 5 minutes — container must be ready by then
+  failureThreshold: 30
+  periodSeconds: 10
+
+# ---------------------------------------------------------------------------
+# Environment variables
+# ---------------------------------------------------------------------------
 env:
-  NODE_VERSION: '20'
-  PNPM_VERSION: '9'
-  REGISTRY: ghcr.io
-  IMAGE_NAME: \${{ github.repository }}
+  # Application runtime environment
+  - name: NODE_ENV
+    value: "production"
+  # Port the app binds to (must match targetPort)
+  - name: PORT
+    value: "3000"
+  # Log verbosity: error | warn | info | debug
+  - name: LOG_LEVEL
+    value: "info"
+
+# Secret environment variables (sourced from Kubernetes Secrets)
+envFrom:
+  - secretRef:
+      # Must exist before helm install; created by external-secrets-operator
+      name: api-gateway-secrets
 
 # ---------------------------------------------------------------------------
-# Jobs
+# Persistent storage
+# ---------------------------------------------------------------------------
+persistence:
+  # Enable persistent volume for ephemeral cache / session storage
+  enabled: false
+  # Storage class override (falls back to global.storageClass)
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  # Size of the volume
+  size: 10Gi
+  # Mount path inside the container
+  mountPath: /data
+
+# ---------------------------------------------------------------------------
+# Security context
+# ---------------------------------------------------------------------------
+# Pod-level security context
+podSecurityContext:
+  # Run all containers as non-root GID 1001
+  fsGroup: 1001
+  # Prevent privilege escalation at the pod level
+  runAsNonRoot: true
+
+# Container-level security context
+securityContext:
+  # Drop all Linux capabilities — add back only what is needed
+  capabilities:
+    drop:
+      - ALL
+  # Read-only root filesystem — app must write to mounted volumes or /tmp
+  readOnlyRootFilesystem: true
+  # Do not allow privilege escalation within the container
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  # Specific UID for the process — must match image USER directive
+  runAsUser: 1001
+
+# ---------------------------------------------------------------------------
+# Affinity, tolerations, node selection
 # ---------------------------------------------------------------------------
 
-jobs:
+# Node affinity rules — prefer nodes in availability zone a or b
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+                - us-east-1a
+                - us-east-1b
 
-  # ── Lint ──────────────────────────────────────────────────────────────────
-  lint:
-    name: Lint & type-check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+# Pod anti-affinity — spread replicas across nodes for HA
+podAntiAffinity:
+  preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: api-gateway
+        topologyKey: kubernetes.io/hostname
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # needed for changed-files detection
+# Tolerate nodes tainted as dedicated
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "api"
+    effect: "NoSchedule"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: \${{ env.PNPM_VERSION }}
+# Node selector — additional label constraints on schedulable nodes
+nodeSelector:
+  kubernetes.io/os: linux
+  node-role: worker
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: \${{ env.NODE_VERSION }}
-          cache: pnpm
+# ---------------------------------------------------------------------------
+# ConfigMap — application configuration mounted as a volume
+# ---------------------------------------------------------------------------
+config:
+  # Rate limiting window in milliseconds
+  rateLimitWindowMs: 60000
+  # Maximum requests per window per IP
+  rateLimitMax: 100
+  # JWT access token TTL
+  jwtExpiresIn: "15m"
+  # CORS allowed origins (comma-separated)
+  corsOrigins: "https://app.example.com,https://admin.example.com"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+# ---------------------------------------------------------------------------
+# Service account
+# ---------------------------------------------------------------------------
+serviceAccount:
+  # Create a dedicated service account (recommended over default)
+  create: true
+  # Annotations for IRSA / Workload Identity
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/api-gateway"
+  # Override auto-generated name
+  name: ""
 
-      - name: Run ESLint
-        run: pnpm lint --format=github
-
-      - name: Run TypeScript type-check
-        run: pnpm typecheck
-
-      - name: Check formatting (Prettier)
-        run: pnpm format:check
-
-
-  # ── Tests ─────────────────────────────────────────────────────────────────
-  test:
-    name: Test (Node \${{ matrix.node }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['18', '20', '22']
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: testdb
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: \${{ env.PNPM_VERSION }}
-
-      - name: Setup Node.js \${{ matrix.node }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: \${{ matrix.node }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run database migrations
-        run: pnpm db:migrate
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/testdb
-
-      - name: Run tests with coverage
-        run: pnpm test:ci
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/testdb
-          REDIS_URL: redis://localhost:6379
-          NODE_ENV: test
-
-      - name: Upload coverage to Codecov
-        if: matrix.node == '20'
-        uses: codecov/codecov-action@v4
-        with:
-          token: \${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-      - name: Archive test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-node\${{ matrix.node }}
-          path: |
-            coverage/
-            test-results/
-          retention-days: 7
-
-
-  # ── Build Docker image ────────────────────────────────────────────────────
-  build:
-    name: Build & push image
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [lint, test]
-    if: github.event_name != 'pull_request'
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write  # for keyless Sigstore signing
-
-    outputs:
-      image-digest: \${{ steps.build-push.outputs.digest }}
-      image-tag:    \${{ steps.meta.outputs.tags }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: \${{ env.REGISTRY }}
-          username: \${{ github.actor }}
-          password: \${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=,suffix=,format=short
-
-      - name: Build and push
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: \${{ steps.meta.outputs.tags }}
-          labels: \${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            BUILD_DATE=\${{ github.event.head_commit.timestamp }}
-            VCS_REF=\${{ github.sha }}
-
-      - name: Sign image with Cosign
-        run: |
-          cosign sign --yes \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}@\${{ steps.build-push.outputs.digest }}
-        env:
-          COSIGN_EXPERIMENTAL: '1'
-
-
-  # ── Deploy ────────────────────────────────────────────────────────────────
-  deploy-staging:
-    name: Deploy → staging
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: staging
-      url: https://staging.example.com
-
-    steps:
-      - name: Deploy to staging
-        uses: appleboy/ssh-action@v1
-        with:
-          host: \${{ secrets.STAGING_HOST }}
-          username: deploy
-          key: \${{ secrets.DEPLOY_KEY }}
-          script: |
-            cd /opt/myapp
-            docker pull \${{ needs.build.outputs.image-tag }}
-            docker compose up -d --no-deps --build app
-            docker system prune -f
-
-      - name: Smoke test staging
-        run: |
-          sleep 10
-          curl -fsSL https://staging.example.com/health | jq -e '.status == "ok"'
-
-
-  deploy-production:
-    name: Deploy → production
-    runs-on: ubuntu-latest
-    needs: [deploy-staging]
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: https://example.com
-
-    steps:
-      - name: Deploy to production
-        uses: appleboy/ssh-action@v1
-        with:
-          host: \${{ secrets.PRODUCTION_HOST }}
-          username: deploy
-          key: \${{ secrets.DEPLOY_KEY }}
-          script: |
-            cd /opt/myapp
-            docker pull \${{ needs.build.outputs.image-tag }}
-            docker compose up -d --no-deps --build app
-
-
-  # ── Notify ────────────────────────────────────────────────────────────────
-  notify:
-    name: Notify Slack
-    runs-on: ubuntu-latest
-    needs: [deploy-production]
-    if: always()
-
-    steps:
-      - name: Send Slack notification
-        uses: 8398a7/action-slack@v3
-        with:
-          status: \${{ job.status }}
-          fields: repo,message,commit,author,action,eventName,ref,workflow
-        env:
-          SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}
+# ---------------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------------
+metrics:
+  # Expose /metrics endpoint for Prometheus scraping
+  enabled: true
+  # ServiceMonitor CRD — requires prometheus-operator
+  serviceMonitor:
+    enabled: true
+    # Scrape interval — align with global Prometheus scrape_interval
+    interval: "30s"
+    # Scrape timeout must be less than interval
+    scrapeTimeout: "10s"
+    # Labels matched by Prometheus serviceMonitorSelector
+    labels:
+      release: kube-prometheus-stack
 `;
 
 // ---------------------------------------------------------------------------
-// JavaScript  (~400 lines) — Lodash-style utility library with JSDoc
+// Markdown (~380 lines) — Project README with badges, HTML comments, blockquotes
 // ---------------------------------------------------------------------------
+export const MD_LARGE = `
+![CI](https://github.com/example/project/workflows/ci/badge.svg)
+![Coverage](https://img.shields.io/codecov/c/github/example/project?color=green)
+![npm version](https://img.shields.io/npm/v/@example/project.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Downloads](https://img.shields.io/npm/dm/@example/project.svg)
+![Bundle Size](https://img.shields.io/bundlephobia/minzip/@example/project)
+
+# Project Name
+
+<!-- PROJECT DESCRIPTION -->
+<!-- This section is auto-generated by the release workflow. Do not edit manually. -->
+
+A high-performance TypeScript library for data transformation and validation.
+Zero runtime dependencies. Fully tree-shakable.
+
+<!-- SHIELDS END -->
+
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
+- [Configuration](#configuration)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [License](#license)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+[//]: # (The following content is synced from the documentation site.)
+[//]: # (Changes made here will be overwritten on the next sync.)
+
+## Installation
+
+\`\`\`bash
+npm install @example/project
+# or
+yarn add @example/project
+# or
+pnpm add @example/project
+\`\`\`
+
+## Requirements
+
+- Node.js >= 18
+- TypeScript >= 5.0 (for type definitions)
+
+> **Note:** This library requires ES2020+ support. Use a bundler (Vite, webpack 5, esbuild) if targeting older environments.
+
+> **Warning:** The v2 API is not backward-compatible with v1. See the [migration guide](#migration) for details.
+
+## Quick Start
+
+\`\`\`typescript
+import { transform, validate } from '@example/project';
+
+const schema = {
+  name: { type: 'string', required: true },
+  age:  { type: 'number', min: 0, max: 150 },
+};
+
+const result = validate({ name: 'Alice', age: 30 }, schema);
+console.log(result.valid); // true
+\`\`\`
+
+## API Reference
+
+<!-- API_START -->
+<!-- Auto-generated from JSDoc. Run \`yarn docs\` to regenerate. -->
+
+### \`transform(input, options?)\`
+
+Transforms input data according to the provided options.
+
+**Parameters:**
+
+| Name | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| input | \`unknown\` | yes | — | Raw input value |
+| options | \`TransformOptions\` | no | \`{}\` | Transformation options |
+
+**Returns:** \`TransformResult<T>\`
+
+**Throws:** \`ValidationError\` — when input violates a required constraint.
+
+**Example:**
+
+\`\`\`typescript
+const result = transform(['a', 'b', 'b', 'c'], { unique: true });
+// result.value === ['a', 'b', 'c']
+\`\`\`
+
+---
+
+### \`validate(input, schema, options?)\`
+
+Validates input against a schema definition.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| input | \`unknown\` | Value to validate |
+| schema | \`Schema\` | Validation schema |
+| options | \`ValidateOptions\` | Optional flags |
+
+<!-- API_END -->
+
+## Configuration
+
+\`\`\`typescript
+import { configure } from '@example/project';
+
+configure({
+  // Strict mode throws on the first validation error (default: false)
+  strict: true,
+  // Locale for error messages (default: 'en')
+  locale: 'en',
+  // Custom error formatter
+  formatError: (err) => \`[\${err.field}] \${err.message}\`,
+});
+\`\`\`
+
+### Environment Variables
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| \`PROJECT_STRICT\` | Enable strict mode | \`false\` |
+| \`PROJECT_LOCALE\` | Error message locale | \`en\` |
+| \`PROJECT_LOG_LEVEL\` | Log verbosity | \`warn\` |
+
+## Examples
+
+<!-- EXAMPLES_START -->
+
+### Basic Validation
+
+\`\`\`typescript
+import { validate } from '@example/project';
+
+const { valid, errors } = validate(userInput, userSchema);
+if (!valid) {
+  console.error(errors);
+}
+\`\`\`
+
+### Async Transforms
+
+\`\`\`typescript
+import { transformAsync } from '@example/project';
+
+const result = await transformAsync(rawData, {
+  fetch: async (id) => await db.find(id),
+});
+\`\`\`
+
+### Custom Rules
+
+\`\`\`typescript
+import { addRule } from '@example/project';
+
+addRule('phoneNumber', (value) => {
+  return /^[0-9+()\\ -]{7,15}$/.test(String(value));
+});
+\`\`\`
+
+<!-- EXAMPLES_END -->
+
+## Performance
+
+Benchmark results on Node.js 20, Apple M2:
+
+| Operation | Ops/sec | Relative |
+| --- | ---: | --- |
+| validate (small) | 2,450,000 | baseline |
+| validate (large) | 89,000 | 27× slower |
+| transform (small) | 1,800,000 | — |
+| transform (large) | 61,000 | — |
+
+> Results vary by schema complexity and input size. Run \`yarn bench\` for local benchmarks.
+
+## Migration from v1
+
+<!-- MIGRATION_START -->
+<!-- This section is generated from CHANGELOG.md -->
+
+The following breaking changes require migration:
+
+1. **\`validate()\` now returns \`{ valid, errors }\`** instead of throwing directly.
+2. **\`transform()\` options renamed**: \`deduplicate\` → \`unique\`, \`cast\` → \`coerce\`.
+3. **Removed**: \`validateSync()\` — use \`validate()\` (it is synchronous by default).
+
+\`\`\`diff
+- import { validateSync } from '@example/project';
++ import { validate } from '@example/project';
+
+- try { validateSync(data, schema); } catch (e) { ... }
++ const { valid, errors } = validate(data, schema);
++ if (!valid) { ... }
+\`\`\`
+
+<!-- MIGRATION_END -->
+
+## Contributing
+
+We welcome contributions! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before submitting a pull request.
+
+### Development Setup
+
+\`\`\`bash
+git clone https://github.com/example/project.git
+cd project
+pnpm install
+pnpm test
+\`\`\`
+
+### Code Style
+
+- Run \`pnpm lint\` before committing.
+- All public APIs must have JSDoc.
+- Coverage must stay above 90%.
+
+> **Important:** Sign the CLA before your first contribution.
+> Bot will prompt you automatically on the PR.
+
+## Security
+
+Found a vulnerability? Please report it privately via [security@example.com](mailto:security@example.com) or the GitHub Security Advisory tab.
+Do NOT open a public issue for security bugs.
+
+<!-- SECURITY POLICY SYNCED FROM SECURITY.md -->
+<!-- Last sync: 2026-06-01 -->
+
+## License
+
+MIT © Example Corp
+
+<!-- FOOTER START -->
+<!-- Auto-generated. Do not edit. -->
+Made with ❤️ by the Platform team.
+<!-- FOOTER END -->
+`;
+
+// ---------------------------------------------------------------------------
+// PHP (~380 lines) — Laravel-style controller with PHPDoc
+// ---------------------------------------------------------------------------
+export const PHP_LARGE = `
+<?php
+
+declare(strict_types=1);
+
+namespace App\\Http\\Controllers\\Api;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Http\\Requests\\StoreUserRequest;
+use App\\Http\\Requests\\UpdateUserRequest;
+use App\\Http\\Resources\\UserResource;
+use App\\Models\\User;
+use App\\Services\\UserService;
+use Illuminate\\Http\\JsonResponse;
+use Illuminate\\Http\\Request;
+use Illuminate\\Http\\Resources\\Json\\AnonymousResourceCollection;
+use Illuminate\\Support\\Facades\\Auth;
+use Illuminate\\Support\\Facades\\Cache;
+use Illuminate\\Support\\Facades\\Log;
+
+/**
+ * User API controller.
+ *
+ * Handles CRUD operations for user accounts via the REST API.
+ * All endpoints require authentication via Bearer token (see routes/api.php).
+ *
+ * @package App\\Http\\Controllers\\Api
+ * @author  Platform Team <platform@example.com>
+ * @version 2.3.0
+ */
+class UserController extends Controller
+{
+    /**
+     * Number of items per paginated response.
+     */
+    private const PER_PAGE = 20;
+
+    /**
+     * Cache TTL for individual user records (seconds).
+     */
+    private const CACHE_TTL = 300;
+
+    /**
+     * Create a new controller instance.
+     *
+     * @param UserService $userService Injected user domain service
+     */
+    public function __construct(
+        private readonly UserService $userService
+    ) {
+        // Apply auth middleware to all routes except index/show
+        $this->middleware('auth:api')->except(['index', 'show']);
+        // Rate-limit mutating operations to 60 requests per minute
+        $this->middleware('throttle:60,1')->only(['store', 'update', 'destroy']);
+    }
+
+    /**
+     * Return a paginated list of users.
+     *
+     * GET /api/users
+     *
+     * Supports the following query parameters:
+     *   - search (string): full-text search on name and email
+     *   - role   (string): filter by role slug
+     *   - sort   (string): field name, prefix with - for descending (e.g. -created_at)
+     *   - page   (int):    page number, 1-indexed (default: 1)
+     *
+     * @param  Request  $request
+     * @return AnonymousResourceCollection
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $query = User::query()->active();
+
+        if ($search = $request->query('search')) {
+            $query->search($search);
+        }
+
+        if ($role = $request->query('role')) {
+            $query->whereHas('roles', fn ($q) => $q->where('slug', $role));
+        }
+
+        if ($sort = $request->query('sort')) {
+            $direction = str_starts_with($sort, '-') ? 'desc' : 'asc';
+            $query->orderBy(ltrim($sort, '-'), $direction);
+        } else {
+            // Default sort: newest first
+            $query->latest();
+        }
+
+        $users = $query->paginate(self::PER_PAGE)->withQueryString();
+
+        return UserResource::collection($users);
+    }
+
+    /**
+     * Return a single user by ID.
+     *
+     * GET /api/users/{id}
+     *
+     * Responses are cached for CACHE_TTL seconds keyed on the user ID.
+     * Cache is invalidated on update or delete.
+     *
+     * @param  int  $id
+     * @return UserResource
+     *
+     * @throws \\Illuminate\\Database\\Eloquent\\ModelNotFoundException
+     */
+    public function show(int $id): UserResource
+    {
+        $user = Cache::remember(
+            "user:{$id}",
+            self::CACHE_TTL,
+            fn () => User::findOrFail($id)->load(['roles', 'profile'])
+        );
+
+        return new UserResource($user);
+    }
+
+    /**
+     * Create a new user account.
+     *
+     * POST /api/users
+     *
+     * Validation is handled by StoreUserRequest (see app/Http/Requests/).
+     * On success, fires the UserCreated event and sends a welcome email.
+     *
+     * @param  StoreUserRequest  $request  Validated request (auto-injected)
+     * @return JsonResponse  HTTP 201 with the created user resource
+     */
+    public function store(StoreUserRequest $request): JsonResponse
+    {
+        $user = $this->userService->create($request->validated());
+
+        Log::info('User created', [
+            'id'         => $user->id,
+            'created_by' => Auth::id(),
+        ]);
+
+        return (new UserResource($user))
+            ->response()
+            ->setStatusCode(201);
+    }
+
+    /**
+     * Update an existing user account.
+     *
+     * PATCH /api/users/{id}
+     *
+     * Only the authenticated user may update their own account unless the
+     * caller has the admin role.
+     *
+     * @param  UpdateUserRequest  $request  Validated request (auto-injected)
+     * @param  int                $id       Target user ID
+     * @return UserResource
+     *
+     * @throws \\Illuminate\\Auth\\Access\\AuthorizationException
+     */
+    public function update(UpdateUserRequest $request, int $id): UserResource
+    {
+        $user = User::findOrFail($id);
+
+        // Authorise via policy — defined in app/Policies/UserPolicy.php
+        $this->authorize('update', $user);
+
+        $updated = $this->userService->update($user, $request->validated());
+
+        // Invalidate the cached resource
+        Cache::forget("user:{$id}");
+
+        return new UserResource($updated);
+    }
+
+    /**
+     * Soft-delete a user account.
+     *
+     * DELETE /api/users/{id}
+     *
+     * Soft deletion sets deleted_at; hard deletion is handled by the
+     * scheduled PruneStaleUsers artisan command after 90 days.
+     *
+     * @param  int  $id
+     * @return JsonResponse  HTTP 204 No Content
+     *
+     * @throws \\Illuminate\\Auth\\Access\\AuthorizationException
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $this->authorize('delete', $user);
+
+        $this->userService->softDelete($user);
+
+        Cache::forget("user:{$id}");
+
+        Log::info('User deleted', [
+            'id'         => $id,
+            'deleted_by' => Auth::id(),
+        ]);
+
+        return response()->json(null, 204);
+    }
+
+    /**
+     * Restore a previously soft-deleted user.
+     *
+     * POST /api/users/{id}/restore
+     *
+     * @param  int  $id
+     * @return UserResource
+     *
+     * @throws \\Illuminate\\Auth\\Access\\AuthorizationException
+     */
+    public function restore(int $id): UserResource
+    {
+        $user = User::withTrashed()->findOrFail($id);
+
+        $this->authorize('restore', $user);
+
+        $user->restore();
+
+        return new UserResource($user);
+    }
+
+    /**
+     * Bulk update user roles.
+     *
+     * POST /api/users/bulk-role
+     *
+     * Request body: { user_ids: int[], role_id: int }
+     * Requires the admin role.
+     *
+     * @param  Request  $request
+     * @return JsonResponse  HTTP 200 with update counts
+     */
+    public function bulkRole(Request $request): JsonResponse
+    {
+        $request->validate([
+            'user_ids'   => 'required|array|min:1|max:500',
+            'user_ids.*' => 'integer|exists:users,id',
+            'role_id'    => 'required|integer|exists:roles,id',
+        ]);
+
+        $this->authorize('bulkUpdate', User::class);
+
+        $count = $this->userService->assignRole(
+            $request->input('user_ids'),
+            $request->integer('role_id')
+        );
+
+        return response()->json(['updated' => $count]);
+    }
+}
+`;
+
+// ---------------------------------------------------------------------------
+// C# (~360 lines) — ASP.NET Core service with XML docs
+// ---------------------------------------------------------------------------
+export const CS_LARGE = `
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+
+namespace Example.Services
+{
+    /// <summary>
+    /// Provides CRUD operations and business logic for <see cref="Order"/> entities.
+    /// </summary>
+    /// <remarks>
+    /// This service is registered as a scoped dependency.
+    /// It owns the <see cref="IMemoryCache"/> keying convention for orders.
+    /// All mutating methods raise domain events via <see cref="IDomainEventDispatcher"/>.
+    /// </remarks>
+    public sealed class OrderService : IOrderService
+    {
+        /// <summary>Cache key prefix for individual orders.</summary>
+        private const string CachePrefix = "order:";
+
+        /// <summary>Default cache duration for order lookups.</summary>
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+        private readonly AppDbContext _db;
+        private readonly IMemoryCache _cache;
+        private readonly ILogger<OrderService> _logger;
+        private readonly IDomainEventDispatcher _events;
+
+        /// <summary>
+        /// Initialises a new instance of <see cref="OrderService"/>.
+        /// </summary>
+        /// <param name="db">Entity Framework Core database context.</param>
+        /// <param name="cache">In-process memory cache.</param>
+        /// <param name="logger">Structured logger.</param>
+        /// <param name="events">Domain-event dispatcher.</param>
+        public OrderService(
+            AppDbContext db,
+            IMemoryCache cache,
+            ILogger<OrderService> logger,
+            IDomainEventDispatcher events)
+        {
+            _db     = db     ?? throw new ArgumentNullException(nameof(db));
+            _cache  = cache  ?? throw new ArgumentNullException(nameof(cache));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _events = events ?? throw new ArgumentNullException(nameof(events));
+        }
+
+        /// <inheritdoc />
+        public async Task<Order?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        {
+            var cacheKey = CachePrefix + id;
+
+            if (_cache.TryGetValue<Order>(cacheKey, out var cached))
+            {
+                return cached;
+            }
+
+            var order = await _db.Orders
+                .AsNoTracking()
+                .Include(o => o.Lines)
+                .FirstOrDefaultAsync(o => o.Id == id, ct);
+
+            if (order is not null)
+            {
+                _cache.Set(cacheKey, order, CacheDuration);
+            }
+
+            return order;
+        }
+
+        /// <summary>
+        /// Returns a paginated list of orders for a given customer.
+        /// </summary>
+        /// <param name="customerId">The customer whose orders to list.</param>
+        /// <param name="page">1-based page index.</param>
+        /// <param name="pageSize">Items per page (max 100).</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>A page of orders sorted by creation date descending.</returns>
+        public async Task<PagedResult<Order>> ListByCustomerAsync(
+            Guid customerId,
+            int page = 1,
+            int pageSize = 20,
+            CancellationToken ct = default)
+        {
+            // Clamp page size to prevent excessively large queries
+            pageSize = Math.Min(pageSize, 100);
+
+            var query = _db.Orders
+                .AsNoTracking()
+                .Where(o => o.CustomerId == customerId)
+                .OrderByDescending(o => o.CreatedAt);
+
+            var total = await query.CountAsync(ct);
+            var items = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(ct);
+
+            return new PagedResult<Order>(items, total, page, pageSize);
+        }
+
+        /// <summary>
+        /// Places a new order for the specified customer.
+        /// </summary>
+        /// <param name="customerId">Customer placing the order.</param>
+        /// <param name="lines">One or more order line items.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>The newly created order.</returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown when <paramref name="lines"/> is empty.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when a product is out of stock.
+        /// </exception>
+        public async Task<Order> PlaceOrderAsync(
+            Guid customerId,
+            IEnumerable<OrderLineRequest> lines,
+            CancellationToken ct = default)
+        {
+            var lineList = lines?.ToList()
+                ?? throw new ArgumentNullException(nameof(lines));
+
+            if (lineList.Count == 0)
+            {
+                throw new ArgumentException("Order must contain at least one line.", nameof(lines));
+            }
+
+            // Validate stock levels before opening a transaction
+            foreach (var line in lineList)
+            {
+                var stock = await _db.Products
+                    .Where(p => p.Id == line.ProductId)
+                    .Select(p => p.StockQuantity)
+                    .FirstOrDefaultAsync(ct);
+
+                if (stock < line.Quantity)
+                {
+                    throw new InvalidOperationException(
+                        $"Product {line.ProductId} has insufficient stock ({stock} available).");
+                }
+            }
+
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+            try
+            {
+                var order = Order.Create(customerId, lineList);
+                _db.Orders.Add(order);
+
+                // Decrement stock atomically
+                foreach (var line in lineList)
+                {
+                    await _db.Products
+                        .Where(p => p.Id == line.ProductId)
+                        .ExecuteUpdateAsync(s =>
+                            s.SetProperty(p => p.StockQuantity,
+                                p => p.StockQuantity - line.Quantity), ct);
+                }
+
+                await _db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                _logger.LogInformation(
+                    "Order {OrderId} placed for customer {CustomerId} with {LineCount} lines.",
+                    order.Id, customerId, lineList.Count);
+
+                await _events.DispatchAsync(new OrderPlacedEvent(order), ct);
+
+                return order;
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Cancels an order if it is still in a cancellable state.
+        /// </summary>
+        /// <param name="id">Order to cancel.</param>
+        /// <param name="reason">Human-readable cancellation reason (audit log).</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the order is not in a cancellable state.
+        /// </exception>
+        public async Task CancelAsync(Guid id, string reason, CancellationToken ct = default)
+        {
+            var order = await _db.Orders
+                .Include(o => o.Lines)
+                .FirstOrDefaultAsync(o => o.Id == id, ct)
+                ?? throw new KeyNotFoundException($"Order {id} not found.");
+
+            if (!order.CanCancel())
+            {
+                throw new InvalidOperationException(
+                    $"Order {id} in status '{order.Status}' cannot be cancelled.");
+            }
+
+            order.Cancel(reason);
+
+            // Restore stock for each cancelled line
+            foreach (var line in order.Lines)
+            {
+                await _db.Products
+                    .Where(p => p.Id == line.ProductId)
+                    .ExecuteUpdateAsync(s =>
+                        s.SetProperty(p => p.StockQuantity,
+                            p => p.StockQuantity + line.Quantity), ct);
+            }
+
+            await _db.SaveChangesAsync(ct);
+
+            // Bust the cache so callers see the updated status immediately
+            _cache.Remove(CachePrefix + id);
+
+            await _events.DispatchAsync(new OrderCancelledEvent(order, reason), ct);
+        }
+    }
+}
+`;
+
+// ---------------------------------------------------------------------------
+// GraphQL (~310 lines) — schema with comments and descriptions
+// ---------------------------------------------------------------------------
+export const GRAPHQL_LARGE = `
+"""
+Root schema for the e-commerce API.
+Generated by GraphQL Code Generator from TypeScript source.
+See docs/graphql.md for naming conventions and pagination patterns.
+"""
+
+# --------------------------------------------------------------------------
+# Scalars
+# --------------------------------------------------------------------------
+
+"""ISO-8601 date-time string, always in UTC."""
+scalar DateTime
+
+"""Opaque cursor used for keyset pagination."""
+scalar Cursor
+
+"""URL string validated against RFC 3986."""
+scalar URL
+
+"""Non-negative integer representing a monetary amount in minor units (cents)."""
+scalar Money
+
+# --------------------------------------------------------------------------
+# Enums
+# --------------------------------------------------------------------------
+
+"""
+Lifecycle state of an order.
+
+Transitions: PENDING → CONFIRMED → SHIPPED → DELIVERED
+             PENDING → CANCELLED
+             CONFIRMED → CANCELLED
+"""
+enum OrderStatus {
+  """Order received but payment not yet confirmed."""
+  PENDING
+  """Payment confirmed; awaiting fulfilment."""
+  CONFIRMED
+  """Package handed to carrier."""
+  SHIPPED
+  """Package received by customer."""
+  DELIVERED
+  """Order cancelled before delivery."""
+  CANCELLED
+}
+
+"""User account role — controls API access permissions."""
+enum Role {
+  """Standard customer account."""
+  CUSTOMER
+  """Seller with product management access."""
+  VENDOR
+  """Full administrative access."""
+  ADMIN
+}
+
+"""Sort direction for list queries."""
+enum SortDirection {
+  ASC
+  DESC
+}
+
+# --------------------------------------------------------------------------
+# Connection/pagination types (Relay spec)
+# --------------------------------------------------------------------------
+
+"""
+Pagination metadata returned with every paginated list.
+Follows the Relay Connection specification.
+"""
+type PageInfo {
+  """Whether additional pages exist after the current page."""
+  hasNextPage: Boolean!
+  """Whether additional pages exist before the current page."""
+  hasPreviousPage: Boolean!
+  """Cursor of the first item in this page. Use with \`before:\` to paginate back."""
+  startCursor: Cursor
+  """Cursor of the last item in this page. Use with \`after:\` to paginate forward."""
+  endCursor: Cursor
+}
+
+"""Wrapper around a single node in a paginated list."""
+type OrderEdge {
+  cursor: Cursor!
+  node: Order!
+}
+
+"""Paginated list of orders."""
+type OrderConnection {
+  edges: [OrderEdge!]!
+  pageInfo: PageInfo!
+  """Total number of orders matching the query (ignores pagination)."""
+  totalCount: Int!
+}
+
+# --------------------------------------------------------------------------
+# Core domain types
+# --------------------------------------------------------------------------
+
+"""Registered user account."""
+type User {
+  id: ID!
+  """Display name (not unique)."""
+  name: String!
+  """Primary email address (unique, lowercased on write)."""
+  email: String!
+  role: Role!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  """Profile photo, resized to 256×256 on upload."""
+  avatarUrl: URL
+  """Orders placed by this user (most recent first)."""
+  orders(
+    first: Int
+    after: Cursor
+    status: OrderStatus
+  ): OrderConnection!
+}
+
+"""A product available for purchase."""
+type Product {
+  id: ID!
+  """Short product title — max 120 characters."""
+  title: String!
+  """Full HTML description. Sanitised server-side."""
+  description: String
+  """Price in minor units (cents). Always positive."""
+  priceAmount: Money!
+  """ISO-4217 currency code."""
+  priceCurrency: String!
+  """Remaining inventory. Null means inventory tracking is disabled."""
+  stock: Int
+  """Primary product image."""
+  imageUrl: URL
+  """Whether the product is currently listed and purchasable."""
+  active: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""A single line item within an order."""
+type OrderLine {
+  id: ID!
+  product: Product!
+  """Quantity ordered."""
+  quantity: Int!
+  """Unit price captured at order time (in minor units)."""
+  unitPrice: Money!
+  """Line total = quantity × unitPrice."""
+  totalPrice: Money!
+}
+
+"""A customer order."""
+type Order {
+  id: ID!
+  status: OrderStatus!
+  customer: User!
+  lines: [OrderLine!]!
+  """Sum of all line totals."""
+  totalAmount: Money!
+  """Currency of totalAmount."""
+  currency: String!
+  """Shipping address as a free-text block."""
+  shippingAddress: String
+  """Carrier tracking number (available once SHIPPED)."""
+  trackingNumber: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+# --------------------------------------------------------------------------
+# Input types
+# --------------------------------------------------------------------------
+
+"""Input for creating a new order."""
+input CreateOrderInput {
+  """Customer ID placing the order."""
+  customerId: ID!
+  """One or more line items."""
+  lines: [OrderLineInput!]!
+  """Optional shipping address override."""
+  shippingAddress: String
+}
+
+"""A single product line within CreateOrderInput."""
+input OrderLineInput {
+  productId: ID!
+  quantity: Int!
+}
+
+"""Filter options for listing orders."""
+input OrdersFilter {
+  status: OrderStatus
+  customerId: ID
+  """Only orders created on or after this timestamp."""
+  createdAfter: DateTime
+  """Only orders created before this timestamp."""
+  createdBefore: DateTime
+}
+
+# --------------------------------------------------------------------------
+# Queries
+# --------------------------------------------------------------------------
+
+type Query {
+  """Look up a user by ID. Returns null if the user does not exist."""
+  user(id: ID!): User
+
+  """Return the currently authenticated user."""
+  me: User
+
+  """List users. Requires ADMIN role."""
+  users(first: Int, after: Cursor, role: Role): OrderConnection!
+
+  """Look up a product by ID."""
+  product(id: ID!): Product
+
+  """Search active products by title."""
+  products(query: String, first: Int, after: Cursor): OrderConnection!
+
+  """Look up an order by ID."""
+  order(id: ID!): Order
+
+  """List orders with optional filters."""
+  orders(
+    filter: OrdersFilter
+    first: Int
+    after: Cursor
+    sortBy: String
+    sortDirection: SortDirection
+  ): OrderConnection!
+}
+
+# --------------------------------------------------------------------------
+# Mutations
+# --------------------------------------------------------------------------
+
+type Mutation {
+  """Place a new order. Returns the created order."""
+  createOrder(input: CreateOrderInput!): Order!
+
+  """Cancel a pending or confirmed order."""
+  cancelOrder(id: ID!, reason: String): Order!
+
+  """Update the authenticated user's profile."""
+  updateProfile(name: String, avatarUrl: URL): User!
+}
+`;
+
+// ---------------------------------------------------------------------------
+// HTML (~300 lines) — documentation page with inline comments
+// ---------------------------------------------------------------------------
+export const HTML_LARGE = `<!DOCTYPE html>
+<!-- Generated by docs-builder v4.2.1 — DO NOT EDIT MANUALLY -->
+<!-- Build timestamp: 2026-06-11T12:00:00Z -->
+<html lang="en" data-theme="light">
+<head>
+  <!-- Required meta tags -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="API Reference — Example Project">
+  <meta name="author" content="Platform Team">
+  <!-- Open Graph / Twitter card meta -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="API Reference">
+  <meta property="og:description" content="Complete API reference for Example Project">
+  <meta property="og:url" content="https://docs.example.com/api">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>API Reference — Example Project</title>
+  <!-- Canonical stylesheet -->
+  <link rel="stylesheet" href="/assets/docs.css">
+  <!-- Prism syntax highlighting — loaded async to avoid render blocking -->
+  <link rel="stylesheet" href="/assets/prism.css" media="print" onload="this.media='all'">
+  <!-- Favicon set -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+  <!-- Preconnect to CDN for performance -->
+  <link rel="preconnect" href="https://cdn.example.com" crossorigin>
+</head>
+<body>
+  <!-- ===================================================================
+       Top navigation bar
+       Sticky on scroll; collapses to hamburger on mobile (< 768px)
+       =================================================================== -->
+  <header id="top-nav" role="banner">
+    <nav aria-label="Primary navigation">
+      <a href="/" class="nav-logo" aria-label="Home">
+        <img src="/logo.svg" alt="Example Project" width="120" height="32">
+      </a>
+      <!-- Desktop nav links -->
+      <ul class="nav-links" role="list">
+        <li><a href="/docs/guide">Guide</a></li>
+        <li><a href="/docs/api" aria-current="page">API</a></li>
+        <li><a href="/docs/examples">Examples</a></li>
+        <li><a href="https://github.com/example/project" rel="noopener">GitHub</a></li>
+      </ul>
+      <!-- Version picker — JS-powered dropdown -->
+      <div id="version-picker" aria-label="Documentation version">
+        <button type="button" aria-haspopup="listbox" aria-expanded="false">
+          v2.3 <span aria-hidden="true">▾</span>
+        </button>
+        <ul role="listbox" hidden>
+          <li role="option" aria-selected="true">v2.3 (current)</li>
+          <li role="option">v2.2</li>
+          <li role="option">v1.x (legacy)</li>
+        </ul>
+      </div>
+    </nav>
+  </header>
+
+  <!-- ===================================================================
+       Sidebar — auto-generated from page headings by docs-builder
+       =================================================================== -->
+  <aside id="sidebar" aria-label="Page outline">
+    <nav aria-label="Table of contents">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul id="toc" role="list">
+        <!-- Populated at runtime by toc.js -->
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- ===================================================================
+       Main content
+       =================================================================== -->
+  <main id="content" tabindex="-1">
+    <article>
+      <header class="page-header">
+        <h1 id="api-reference">API Reference</h1>
+        <p class="lead">
+          Complete reference for all public functions, types, and configuration options.
+        </p>
+        <!-- Edit-on-GitHub link — hidden until JS sets the href -->
+        <a id="edit-link" href="#" hidden>Edit this page</a>
+      </header>
+
+      <!-- Section: Installation -->
+      <section id="installation" aria-labelledby="installation-heading">
+        <h2 id="installation-heading">Installation</h2>
+        <div class="code-block" data-language="bash">
+          <pre><code class="language-bash">npm install @example/project</code></pre>
+          <!-- Copy button injected by clipboard.js -->
+          <button class="copy-btn" aria-label="Copy code to clipboard" data-clipboard-target="#install-snippet">
+            Copy
+          </button>
+        </div>
+      </section>
+
+      <!-- Section: Core API -->
+      <section id="core-api" aria-labelledby="core-api-heading">
+        <h2 id="core-api-heading">Core API</h2>
+
+        <!-- transform() -->
+        <div id="transform" class="api-entry">
+          <h3 class="api-name">
+            <code>transform(input, options?)</code>
+            <!-- Stability badge — values: stable | experimental | deprecated -->
+            <span class="badge badge--stable" title="Stable API">stable</span>
+          </h3>
+          <p>Transforms input data according to the provided options.</p>
+          <h4>Parameters</h4>
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Type</th>
+                <th scope="col">Required</th>
+                <th scope="col">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>input</code></td>
+                <td><code>unknown</code></td>
+                <td>Yes</td>
+                <td>Raw value to transform.</td>
+              </tr>
+              <tr>
+                <td><code>options</code></td>
+                <td><code>TransformOptions</code></td>
+                <td>No</td>
+                <td>Configuration options (see below).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- validate() -->
+        <div id="validate" class="api-entry">
+          <h3 class="api-name">
+            <code>validate(input, schema, options?)</code>
+            <span class="badge badge--stable">stable</span>
+          </h3>
+          <p>Validates <code>input</code> against a JSON Schema-compatible <code>schema</code>.</p>
+          <!-- Deprecation notice — rendered by docs-builder when deprecated: true -->
+          <!-- <div class="notice notice--warning">...</div> -->
+        </div>
+      </section>
+
+      <!-- Section: Types -->
+      <section id="types" aria-labelledby="types-heading">
+        <h2 id="types-heading">Types</h2>
+        <div id="transform-options" class="api-entry">
+          <h3><code>TransformOptions</code></h3>
+          <!-- Auto-linked to TypeScript source by docs-builder -->
+          <dl class="type-props">
+            <dt><code>unique</code> <span class="type-badge">boolean</span></dt>
+            <dd>Deduplicate array items (default: <code>false</code>).</dd>
+            <dt><code>coerce</code> <span class="type-badge">boolean</span></dt>
+            <dd>Coerce primitive types (default: <code>false</code>).</dd>
+            <dt><code>strict</code> <span class="type-badge">boolean</span></dt>
+            <dd>Throw on the first error instead of collecting all errors.</dd>
+          </dl>
+        </div>
+      </section>
+    </article>
+  </main>
+
+  <!-- ===================================================================
+       Footer
+       =================================================================== -->
+  <footer id="site-footer" role="contentinfo">
+    <p>
+      &copy; 2026 Example Corp.
+      <a href="/legal/privacy">Privacy</a> ·
+      <a href="/legal/terms">Terms</a>
+    </p>
+    <!-- Build info injected at deploy time -->
+    <!-- build: v2.3.1 / sha: abc1234 -->
+  </footer>
+
+  <!-- Scripts — deferred to avoid blocking render -->
+  <script src="/assets/docs.js" defer></script>
+  <!-- Prism.js for syntax highlighting in code blocks -->
+  <script src="/assets/prism.js" defer></script>
+</body>
+</html>`;
+
+// ---------------------------------------------------------------------------
+// Protobuf (~260 lines) — gRPC service definition with comments
+// ---------------------------------------------------------------------------
+export const PROTO_LARGE = `
+syntax = "proto3";
+
+// ==========================================================================
+// Package: example.commerce.v1
+//
+// This package defines the gRPC service contracts for the commerce domain.
+// All messages conform to the Google AIP field naming conventions.
+// See: https://google.aip.dev/
+// ==========================================================================
+
+package example.commerce.v1;
+
+option java_package = "com.example.commerce.v1";
+option java_multiple_files = true;
+option go_package = "github.com/example/commerce/gen/go;commercev1";
+option csharp_namespace = "Example.Commerce.V1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/wrappers.proto";
+import "google/api/annotations.proto";
+import "validate/validate.proto";
+
+// --------------------------------------------------------------------------
+// Enumerations
+// --------------------------------------------------------------------------
+
+// OrderStatus represents the lifecycle state of an order.
+// Transitions are enforced server-side; the API rejects illegal transitions.
+enum OrderStatus {
+  // Default value — must not be used by clients.
+  ORDER_STATUS_UNSPECIFIED = 0;
+  // Order received; awaiting payment confirmation.
+  ORDER_STATUS_PENDING = 1;
+  // Payment confirmed; order queued for fulfilment.
+  ORDER_STATUS_CONFIRMED = 2;
+  // Order picked and handed to carrier.
+  ORDER_STATUS_SHIPPED = 3;
+  // Carrier confirmed delivery.
+  ORDER_STATUS_DELIVERED = 4;
+  // Order cancelled by customer or admin.
+  ORDER_STATUS_CANCELLED = 5;
+}
+
+// --------------------------------------------------------------------------
+// Messages
+// --------------------------------------------------------------------------
+
+// Money represents a monetary amount.
+// Using explicit amount + currency to avoid floating-point rounding issues.
+message Money {
+  // Amount in the minor unit of the currency (e.g. cents for USD).
+  int64 amount_minor = 1;
+  // ISO-4217 currency code (e.g. "USD", "EUR").
+  string currency_code = 2 [(validate.rules).string = {min_len: 3, max_len: 3}];
+}
+
+// Address represents a postal address.
+message Address {
+  string line1       = 1 [(validate.rules).string.min_len = 1];
+  string line2       = 2;
+  string city        = 3 [(validate.rules).string.min_len = 1];
+  string state       = 4;
+  // Postal code — format varies by country; validated at the application layer.
+  string postal_code = 5;
+  // ISO-3166-1 alpha-2 country code.
+  string country_code = 6 [(validate.rules).string = {min_len: 2, max_len: 2}];
+}
+
+// OrderLine represents a single product line within an order.
+message OrderLine {
+  // Server-assigned immutable identifier.
+  string id = 1;
+  // Referenced product identifier.
+  string product_id = 2 [(validate.rules).string.min_len = 1];
+  // Human-readable product title captured at order time.
+  string product_title = 3;
+  // Quantity ordered — must be positive.
+  int32 quantity = 4 [(validate.rules).int32.gt = 0];
+  // Unit price at the time of order (snapshot, not live).
+  Money unit_price = 5;
+  // Computed: quantity × unit_price.
+  Money total_price = 6;
+}
+
+// Order is the aggregate root for a customer purchase.
+message Order {
+  // Server-assigned UUID (output only).
+  string id = 1;
+  // ID of the customer who placed the order.
+  string customer_id = 2;
+  // Current lifecycle status.
+  OrderStatus status = 3;
+  // One or more line items.
+  repeated OrderLine lines = 4;
+  // Sum of all line totals.
+  Money total_amount = 5;
+  // Shipping destination.
+  Address shipping_address = 6;
+  // Carrier tracking number — populated after SHIPPED transition.
+  google.protobuf.StringValue tracking_number = 7;
+  // ISO-8601 timestamp when the order was created.
+  google.protobuf.Timestamp created_at = 8;
+  // ISO-8601 timestamp of the most recent update.
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// --------------------------------------------------------------------------
+// Request / Response messages
+// --------------------------------------------------------------------------
+
+// Request message for GetOrder.
+message GetOrderRequest {
+  // Required. The order resource name: "orders/{id}".
+  string name = 1 [(validate.rules).string.min_len = 1];
+}
+
+// Request message for ListOrders.
+message ListOrdersRequest {
+  // Customer filter — return only orders for this customer.
+  string customer_id = 1;
+  // Status filter — omit to return all statuses.
+  OrderStatus status = 2;
+  // Maximum number of orders to return (default: 20, max: 100).
+  int32 page_size = 3 [(validate.rules).int32 = {gte: 0, lte: 100}];
+  // Pagination token from a previous ListOrders response.
+  string page_token = 4;
+}
+
+// Response message for ListOrders.
+message ListOrdersResponse {
+  // The returned orders.
+  repeated Order orders = 1;
+  // Pagination token for the next page. Empty if no more pages.
+  string next_page_token = 2;
+  // Total count of matching orders (regardless of page_size).
+  int32 total_count = 3;
+}
+
+// Request message for CreateOrder.
+message CreateOrderRequest {
+  // Required. The customer placing the order.
+  string customer_id = 1 [(validate.rules).string.min_len = 1];
+  // Required. At least one line item.
+  repeated OrderLine lines = 2 [(validate.rules).repeated.min_items = 1];
+  // Optional shipping address — falls back to customer default.
+  Address shipping_address = 3;
+}
+
+// Request message for CancelOrder.
+message CancelOrderRequest {
+  // Required. The order resource name.
+  string name = 1 [(validate.rules).string.min_len = 1];
+  // Optional free-text reason stored in the audit log.
+  string reason = 2;
+}
+
+// --------------------------------------------------------------------------
+// Service definition
+// --------------------------------------------------------------------------
+
+// OrderService provides CRUD and lifecycle operations on orders.
+//
+// Authentication: all RPCs require a valid Bearer token (see auth.proto).
+// Rate limits:    GET methods 600 rpm; mutations 60 rpm per client.
+service OrderService {
+  // Retrieve a single order by resource name.
+  rpc GetOrder(GetOrderRequest) returns (Order) {
+    option (google.api.http) = {
+      get: "/v1/{name=orders/*}"
+    };
+  }
+
+  // List orders with optional filtering and pagination.
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse) {
+    option (google.api.http) = {
+      get: "/v1/orders"
+    };
+  }
+
+  // Place a new order.
+  rpc CreateOrder(CreateOrderRequest) returns (Order) {
+    option (google.api.http) = {
+      post: "/v1/orders"
+      body: "*"
+    };
+  }
+
+  // Cancel an order.
+  rpc CancelOrder(CancelOrderRequest) returns (Order) {
+    option (google.api.http) = {
+      post: "/v1/{name=orders/*}:cancel"
+      body: "*"
+    };
+  }
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Bash (~290 lines) — deployment script with heavy comment documentation
+// ---------------------------------------------------------------------------
+export const BASH_LARGE = `#!/usr/bin/env bash
+# =============================================================================
+# deploy.sh — Zero-downtime blue/green deployment script
+#
+# Usage:
+#   ./deploy.sh [OPTIONS] <environment>
+#
+# Arguments:
+#   environment   Target environment: staging | production
+#
+# Options:
+#   -i, --image TAG     Docker image tag to deploy (required)
+#   -n, --namespace NS  Kubernetes namespace (default: derived from env)
+#   -d, --dry-run       Print actions without executing
+#   -v, --verbose       Enable verbose logging
+#   -h, --help          Show this help message
+#
+# Examples:
+#   ./deploy.sh -i v1.4.2 staging
+#   ./deploy.sh --image v2.0.0 --namespace prod-east production
+#   ./deploy.sh --dry-run -i v1.4.2 production
+#
+# Requirements:
+#   kubectl  >= 1.28
+#   helm     >= 3.12
+#   jq       >= 1.6
+#   aws-cli  >= 2.x  (for ECR login)
+#
+# Exit codes:
+#   0  Success
+#   1  General error
+#   2  Precondition failed (missing tool / wrong env)
+#   3  Deployment failed
+#   4  Health-check timeout
+# =============================================================================
+
+set -euo pipefail
+IFS=$'\\n\\t'
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+readonly SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+readonly CHART_PATH="\${SCRIPT_DIR}/../helm/api-gateway"
+readonly MAX_WAIT_SECONDS=300   # 5 minutes rollout timeout
+readonly HEALTH_CHECK_INTERVAL=10
+readonly LOG_PREFIX="[deploy]"
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+log()  { echo "\${LOG_PREFIX} $*" >&2; }
+info() { echo "\${LOG_PREFIX} INFO  $*" >&2; }
+warn() { echo "\${LOG_PREFIX} WARN  $*" >&2; }
+err()  { echo "\${LOG_PREFIX} ERROR $*" >&2; }
+
+die() {
+  err "$1"
+  exit "\${2:-1}"
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+DRY_RUN=false
+VERBOSE=false
+IMAGE_TAG=""
+NAMESPACE=""
+ENVIRONMENT=""
+
+usage() {
+  grep '^#' "\${BASH_SOURCE[0]}" | sed 's/^# \\?//'
+  exit 0
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -i|--image)     IMAGE_TAG="$2";    shift 2 ;;
+      -n|--namespace) NAMESPACE="$2";   shift 2 ;;
+      -d|--dry-run)   DRY_RUN=true;      shift   ;;
+      -v|--verbose)   VERBOSE=true;      shift   ;;
+      -h|--help)      usage ;;
+      --) shift; break ;;
+      -*) die "Unknown option: $1" 2 ;;
+      *)  ENVIRONMENT="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "\${IMAGE_TAG}"    ]] && die "Missing required option: --image" 2
+  [[ -z "\${ENVIRONMENT}"  ]] && die "Missing required argument: environment" 2
+}
+
+# ---------------------------------------------------------------------------
+# Preconditions
+# ---------------------------------------------------------------------------
+
+check_tools() {
+  # Verify all required tools are installed and reachable on PATH
+  local tools=(kubectl helm jq aws)
+  for tool in "\${tools[@]}"; do
+    if ! command -v "$tool" &>/dev/null; then
+      die "Required tool not found: $tool" 2
+    fi
+  done
+  info "All required tools found."
+}
+
+check_cluster_access() {
+  # Verify kubectl is authenticated and can reach the API server
+  if ! kubectl cluster-info &>/dev/null; then
+    die "kubectl cannot reach the cluster. Check KUBECONFIG / VPN." 2
+  fi
+  info "Cluster access confirmed: $(kubectl config current-context)"
+}
+
+# Resolve namespace from environment when not explicitly overridden
+resolve_namespace() {
+  if [[ -z "\${NAMESPACE}" ]]; then
+    case "\${ENVIRONMENT}" in
+      staging)    NAMESPACE="staging"    ;;
+      production) NAMESPACE="production" ;;
+      *)          die "Unknown environment: \${ENVIRONMENT}" 2 ;;
+    esac
+  fi
+  info "Deploying to namespace: \${NAMESPACE}"
+}
+
+# ---------------------------------------------------------------------------
+# ECR login
+# ---------------------------------------------------------------------------
+
+ecr_login() {
+  # Log in to AWS Elastic Container Registry before pulling/pushing images.
+  # Credentials come from the instance role (no explicit AWS_* vars needed in CI).
+  local region
+  region="$(aws configure get region 2>/dev/null || echo us-east-1)"
+  local account_id
+  account_id="$(aws sts get-caller-identity --query Account --output text)"
+
+  info "Logging in to ECR (\${account_id}.dkr.ecr.\${region}.amazonaws.com)..."
+  aws ecr get-login-password --region "\${region}" \\
+    | docker login --username AWS --password-stdin \\
+        "\${account_id}.dkr.ecr.\${region}.amazonaws.com"
+}
+
+# ---------------------------------------------------------------------------
+# Helm deploy
+# ---------------------------------------------------------------------------
+
+helm_deploy() {
+  local release="api-gateway-\${ENVIRONMENT}"
+  local values_file="\${CHART_PATH}/values-\${ENVIRONMENT}.yaml"
+
+  [[ -f "\${values_file}" ]] || die "Values file not found: \${values_file}" 2
+
+  local helm_cmd=(
+    helm upgrade --install "\${release}" "\${CHART_PATH}"
+    --namespace "\${NAMESPACE}"
+    --create-namespace
+    --values "\${values_file}"
+    --set "image.tag=\${IMAGE_TAG}"
+    --set "deploy.timestamp=$(date -u +%Y%m%dT%H%M%SZ)"
+    --atomic
+    --timeout "\${MAX_WAIT_SECONDS}s"
+    --wait
+  )
+
+  if [[ "\${DRY_RUN}" == "true" ]]; then
+    info "DRY RUN — would execute: \${helm_cmd[*]}"
+    return 0
+  fi
+
+  info "Running helm upgrade/install for release '\${release}'..."
+  "\${helm_cmd[@]}" || die "Helm deploy failed." 3
+  info "Helm deploy succeeded."
+}
+
+# ---------------------------------------------------------------------------
+# Health verification
+# ---------------------------------------------------------------------------
+
+wait_for_rollout() {
+  # Poll the deployment rollout status until all pods are ready or timeout.
+  local deployment="api-gateway"
+  local elapsed=0
+
+  info "Waiting for rollout of '\${deployment}' in '\${NAMESPACE}'..."
+
+  while [[ \${elapsed} -lt \${MAX_WAIT_SECONDS} ]]; do
+    local ready
+    ready="$(kubectl get deployment "\${deployment}" -n "\${NAMESPACE}" \\
+              -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    local desired
+    desired="$(kubectl get deployment "\${deployment}" -n "\${NAMESPACE}" \\
+               -o jsonpath='{.spec.replicas}' 2>/dev/null || echo -1)"
+
+    if [[ "\${ready}" == "\${desired}" && "\${desired}" -gt 0 ]]; then
+      info "All \${desired} replicas ready after \${elapsed}s."
+      return 0
+    fi
+
+    info "Ready: \${ready}/\${desired} — waiting \${HEALTH_CHECK_INTERVAL}s..."
+    sleep "\${HEALTH_CHECK_INTERVAL}"
+    (( elapsed += HEALTH_CHECK_INTERVAL ))
+  done
+
+  die "Rollout timed out after \${MAX_WAIT_SECONDS}s." 4
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+main() {
+  parse_args "$@"
+  [[ "\${VERBOSE}" == "true" ]] && set -x
+
+  info "Starting deployment: env=\${ENVIRONMENT} image=\${IMAGE_TAG}"
+
+  check_tools
+  check_cluster_access
+  resolve_namespace
+  ecr_login
+  helm_deploy
+  [[ "\${DRY_RUN}" == "false" ]] && wait_for_rollout
+
+  info "Deployment complete."
+}
+
+main "$@"
+`;
+
+// ---------------------------------------------------------------------------
+// SCSS (~270 lines) — design system with variables, mixins, nesting, comments
+// ---------------------------------------------------------------------------
+export const SCSS_LARGE = `
+// =============================================================================
+// Design System — Core Styles
+// Version: 3.1.0
+// Follows the BEM naming convention (Block__Element--Modifier).
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Variables — tokens
+// ---------------------------------------------------------------------------
+
+// Color palette
+$color-primary-50:  #eff6ff;
+$color-primary-100: #dbeafe;
+$color-primary-500: #3b82f6;  // Base brand blue
+$color-primary-600: #2563eb;  // Hover / active state
+$color-primary-700: #1d4ed8;  // Pressed state
+$color-primary-900: #1e3a8a;
+
+$color-neutral-0:   #ffffff;
+$color-neutral-50:  #f8fafc;
+$color-neutral-100: #f1f5f9;
+$color-neutral-200: #e2e8f0;
+$color-neutral-500: #64748b;
+$color-neutral-700: #334155;
+$color-neutral-900: #0f172a;
+
+$color-success:  #16a34a;
+$color-warning:  #d97706;
+$color-error:    #dc2626;
+$color-info:     $color-primary-500;
+
+// Typography scale
+$font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+$font-family-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+$font-size-xs:   0.75rem;   //  12px
+$font-size-sm:   0.875rem;  //  14px
+$font-size-base: 1rem;      //  16px (root)
+$font-size-lg:   1.125rem;  //  18px
+$font-size-xl:   1.25rem;   //  20px
+$font-size-2xl:  1.5rem;    //  24px
+$font-size-3xl:  1.875rem;  //  30px
+$font-size-4xl:  2.25rem;   //  36px
+
+$font-weight-normal:   400;
+$font-weight-medium:   500;
+$font-weight-semibold: 600;
+$font-weight-bold:     700;
+
+$line-height-tight:  1.25;
+$line-height-snug:   1.375;
+$line-height-normal: 1.5;
+$line-height-relaxed: 1.625;
+
+// Spacing scale (8px grid)
+$space-1: 0.25rem;   //  4px
+$space-2: 0.5rem;    //  8px
+$space-3: 0.75rem;   // 12px
+$space-4: 1rem;      // 16px
+$space-6: 1.5rem;    // 24px
+$space-8: 2rem;      // 32px
+$space-12: 3rem;     // 48px
+$space-16: 4rem;     // 64px
+
+// Border radii
+$radius-sm:   0.125rem;
+$radius-base: 0.25rem;
+$radius-md:   0.375rem;
+$radius-lg:   0.5rem;
+$radius-xl:   0.75rem;
+$radius-full: 9999px;
+
+// Shadows
+$shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+$shadow-base: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+$shadow-lg:   0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+// Z-index scale
+$z-dropdown:  1000;
+$z-sticky:    1020;
+$z-fixed:     1030;
+$z-modal-bg:  1040;
+$z-modal:     1050;
+$z-popover:   1060;
+$z-tooltip:   1070;
+
+// Breakpoints
+$breakpoints: (
+  'sm':  640px,
+  'md':  768px,
+  'lg':  1024px,
+  'xl':  1280px,
+  '2xl': 1536px,
+);
+
+// Transitions
+$transition-base: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+$transition-colors: color, background-color, border-color, outline-color,
+  fill, stroke 150ms cubic-bezier(0.4, 0, 0.2, 1);
+
+// ---------------------------------------------------------------------------
+// Mixins
+// ---------------------------------------------------------------------------
+
+/// Respond-to breakpoint mixin.
+/// Usage: @include respond-to('md') { ... }
+@mixin respond-to($bp) {
+  @if map-has-key($breakpoints, $bp) {
+    @media (min-width: map-get($breakpoints, $bp)) {
+      @content;
+    }
+  } @else {
+    @warn "Unknown breakpoint: #{$bp}";
+  }
+}
+
+/// Truncate text to a single line with an ellipsis.
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/// Focus-visible ring (accessible keyboard focus indicator).
+@mixin focus-ring($color: $color-primary-500) {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+
+  &:focus-visible {
+    outline-color: $color;
+    box-shadow: 0 0 0 3px rgb(59 130 246 / 0.5);
+  }
+}
+
+/// Visually hidden (accessible off-screen element).
+@mixin sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// ---------------------------------------------------------------------------
+// Reset / base
+// ---------------------------------------------------------------------------
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 100%; // 16px base; do not change — affects rem scale
+  scroll-behavior: smooth;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: $font-family-base;
+  font-size: $font-size-base;
+  line-height: $line-height-normal;
+  color: $color-neutral-900;
+  background-color: $color-neutral-0;
+  -webkit-font-smoothing: antialiased;
+}
+
+// ---------------------------------------------------------------------------
+// Button component
+// ---------------------------------------------------------------------------
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $space-2;
+  padding: $space-2 $space-4;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  line-height: $line-height-tight;
+  border-radius: $radius-md;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: $transition-base;
+  white-space: nowrap;
+  user-select: none;
+  @include focus-ring;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  // Size modifiers
+  &--sm {
+    padding: $space-1 $space-3;
+    font-size: $font-size-xs;
+  }
+
+  &--lg {
+    padding: $space-3 $space-6;
+    font-size: $font-size-lg;
+  }
+
+  // Variant: primary (solid)
+  &--primary {
+    background-color: $color-primary-500;
+    color: $color-neutral-0;
+    border-color: $color-primary-500;
+
+    &:hover:not(:disabled) {
+      background-color: $color-primary-600;
+      border-color: $color-primary-600;
+    }
+
+    &:active:not(:disabled) {
+      background-color: $color-primary-700;
+    }
+  }
+
+  // Variant: outline
+  &--outline {
+    background-color: transparent;
+    color: $color-primary-600;
+    border-color: $color-primary-200;
+
+    &:hover:not(:disabled) {
+      background-color: $color-primary-50;
+    }
+  }
+
+  // Variant: ghost (no border)
+  &--ghost {
+    background-color: transparent;
+    color: $color-neutral-700;
+
+    &:hover:not(:disabled) {
+      background-color: $color-neutral-100;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Card component
+// ---------------------------------------------------------------------------
+
+.card {
+  background-color: $color-neutral-0;
+  border: 1px solid $color-neutral-200;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-sm;
+
+  &__header {
+    padding: $space-4 $space-6;
+    border-bottom: 1px solid $color-neutral-200;
+    font-weight: $font-weight-semibold;
+  }
+
+  &__body {
+    padding: $space-6;
+  }
+
+  &__footer {
+    padding: $space-4 $space-6;
+    border-top: 1px solid $color-neutral-200;
+    display: flex;
+    align-items: center;
+    gap: $space-3;
+  }
+
+  // Interactive card variant
+  &--interactive {
+    cursor: pointer;
+    transition: box-shadow 150ms ease, transform 150ms ease;
+
+    &:hover {
+      box-shadow: $shadow-lg;
+      transform: translateY(-1px);
+    }
+  }
+}
+`;
+
+// ---------------------------------------------------------------------------
+// XML (~240 lines) — Spring XML application context with comments
+// ---------------------------------------------------------------------------
+export const XML_LARGE = `<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  applicationContext.xml — Spring Framework application context
+  Defines beans, data sources, transaction managers, and security config.
+  Generated by: spring-config-generator v2.1
+  Last modified: 2026-06-01
+  WARNING: Do not edit the generated sections (marked GENERATED).
+-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xmlns:security="http://www.springframework.org/schema/security"
+       xsi:schemaLocation="
+         http://www.springframework.org/schema/beans
+           https://www.springframework.org/schema/beans/spring-beans.xsd
+         http://www.springframework.org/schema/context
+           https://www.springframework.org/schema/context/spring-context.xsd
+         http://www.springframework.org/schema/tx
+           https://www.springframework.org/schema/tx/spring-tx.xsd
+         http://www.springframework.org/schema/security
+           https://www.springframework.org/schema/security/spring-security.xsd">
+
+  <!-- ===================================================================
+       Component scanning — discovers @Component, @Service, @Repository
+       @Controller annotations in the specified base packages.
+       =================================================================== -->
+  <context:component-scan base-package="com.example.api,com.example.service"/>
+
+  <!-- Property placeholder: loads application.properties from classpath -->
+  <context:property-placeholder location="classpath:application.properties"
+                                  ignore-unresolvable="true"/>
+
+  <!-- ===================================================================
+       Data Source — HikariCP connection pool
+       Tune pool sizes per environment via application.properties.
+       =================================================================== -->
+  <bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource" destroy-method="close">
+    <!-- JDBC URL; replaced by environment variable in Docker deployments -->
+    <property name="jdbcUrl" value="\${db.url}"/>
+    <property name="username" value="\${db.username}"/>
+    <property name="password" value="\${db.password}"/>
+    <property name="driverClassName" value="org.postgresql.Driver"/>
+    <!-- Connection pool settings -->
+    <property name="minimumIdle"         value="\${db.pool.minIdle:5}"/>
+    <property name="maximumPoolSize"     value="\${db.pool.maxSize:20}"/>
+    <property name="connectionTimeout"   value="\${db.pool.connectionTimeout:30000}"/>
+    <property name="idleTimeout"         value="\${db.pool.idleTimeout:600000}"/>
+    <property name="maxLifetime"         value="\${db.pool.maxLifetime:1800000}"/>
+    <!-- Enable prepared-statement cache (PostgreSQL-specific optimisation) -->
+    <property name="dataSourceProperties">
+      <props>
+        <prop key="cachePrepStmts">true</prop>
+        <prop key="prepStmtCacheSize">250</prop>
+        <prop key="prepStmtCacheSqlLimit">2048</prop>
+      </props>
+    </property>
+  </bean>
+
+  <!-- ===================================================================
+       JPA / Hibernate EntityManagerFactory
+       =================================================================== -->
+  <bean id="entityManagerFactory"
+        class="org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean">
+    <property name="dataSource" ref="dataSource"/>
+    <property name="packagesToScan" value="com.example.domain"/>
+    <property name="jpaVendorAdapter">
+      <bean class="org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter">
+        <!-- Auto-detect dialect from DataSource driver -->
+        <property name="generateDdl"    value="false"/>
+        <property name="showSql"        value="\${jpa.showSql:false}"/>
+      </bean>
+    </property>
+    <property name="jpaProperties">
+      <props>
+        <!-- Validate schema against entities on startup (fail-fast) -->
+        <prop key="hibernate.hbm2ddl.auto">validate</prop>
+        <!-- Second-level cache — Ehcache 3 provider -->
+        <prop key="hibernate.cache.use_second_level_cache">true</prop>
+        <prop key="hibernate.cache.region.factory_class">
+          org.hibernate.cache.jcache.JCacheRegionFactory
+        </prop>
+        <!-- Batch inserts for performance -->
+        <prop key="hibernate.jdbc.batch_size">50</prop>
+        <prop key="hibernate.order_inserts">true</prop>
+        <prop key="hibernate.order_updates">true</prop>
+      </props>
+    </property>
+  </bean>
+
+  <!-- ===================================================================
+       Transaction management
+       @Transactional annotations are processed by the tx: namespace.
+       =================================================================== -->
+  <bean id="transactionManager"
+        class="org.springframework.orm.jpa.JpaTransactionManager">
+    <property name="entityManagerFactory" ref="entityManagerFactory"/>
+  </bean>
+
+  <!-- Enable annotation-driven transaction management -->
+  <tx:annotation-driven transaction-manager="transactionManager" proxy-target-class="true"/>
+
+  <!-- ===================================================================
+       Caching — Spring Cache abstraction backed by Caffeine
+       =================================================================== -->
+  <bean id="cacheManager" class="org.springframework.cache.caffeine.CaffeineCacheManager">
+    <!-- Comma-separated list of cache regions to pre-create -->
+    <property name="cacheNames" value="users,orders,products,roles"/>
+    <property name="caffeine" value="maximumSize=10000,expireAfterWrite=300s"/>
+  </bean>
+
+  <!-- ===================================================================
+       Email / async execution
+       =================================================================== -->
+  <!-- Thread pool for @Async methods — separate from web thread pool -->
+  <bean id="taskExecutor"
+        class="org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor">
+    <property name="corePoolSize"     value="4"/>
+    <property name="maxPoolSize"      value="16"/>
+    <property name="queueCapacity"    value="500"/>
+    <property name="threadNamePrefix" value="async-"/>
+    <!-- Await task completion on shutdown (graceful drain) -->
+    <property name="waitForTasksToCompleteOnShutdown" value="true"/>
+    <property name="awaitTerminationSeconds"          value="30"/>
+  </bean>
+
+  <!-- JavaMailSender — configured via environment-specific properties -->
+  <bean id="mailSender" class="org.springframework.mail.javamail.JavaMailSenderImpl">
+    <property name="host"     value="\${mail.host:smtp.example.com}"/>
+    <property name="port"     value="\${mail.port:587}"/>
+    <property name="username" value="\${mail.username}"/>
+    <property name="password" value="\${mail.password}"/>
+    <property name="javaMailProperties">
+      <props>
+        <prop key="mail.smtp.auth">true</prop>
+        <prop key="mail.smtp.starttls.enable">true</prop>
+        <prop key="mail.smtp.connectiontimeout">5000</prop>
+      </props>
+    </property>
+  </bean>
+
+</beans>`;
+
 export const JS_LARGE = `
 /**
  * @fileoverview Utility functions for collections, strings, and async ops.
@@ -3681,7 +5723,7 @@ function intersection(a, b) {
  */
 function camelCase(str) {
   return str
-    .replace(/[-_\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : ''))
+    .replace(/[-_\\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : ''))
     .replace(/^./, ch => ch.toLowerCase());
 }
 
@@ -3703,7 +5745,7 @@ function pascalCase(str) {
 function kebabCase(str) {
   return str
     .replace(/([A-Z])/g, m => '-' + m.toLowerCase())
-    .replace(/[\s_]+/g, '-')
+    .replace(/[\\s_]+/g, '-')
     .replace(/^-/, '');
 }
 
@@ -3806,4 +5848,278 @@ module.exports = {
   // Async
   sleep, retry, pLimit,
 };
+`;
+
+function numberedBlocks(
+  count: number,
+  render: (index: number) => string
+): string {
+  return Array.from({ length: count }, (_, index) => render(index)).join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// C (~300 lines) — option parser with URLs, block comments, and string markers
+// ---------------------------------------------------------------------------
+const C_GENERATED_OPTIONS = numberedBlocks(
+  48,
+  index => `
+/* Generated option block ${index}: stripped by c-style comments. */
+static int parse_flag_${index}(const char *value, struct ParserState *state) {
+    const char *help = "https://example.com/docs/flag-${index}//not-a-comment";
+    const char *marker = "C_KEEP_MARKER_${index} /* not a comment */";
+    if (value == NULL || value[0] == '\\0') {
+        state->errors++;
+        return -1;
+    }
+    if (strcmp(value, "--enable-${index}") == 0) {
+        state->enabled[${index % 8}] = true; // stripped inline comment
+        state->last_message = marker;
+        state->last_help = help;
+        return 0;
+    }
+    return 1;
+}`
+);
+
+export const C_LARGE = `
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* C fixture adapted from real command-line parser shapes. */
+struct ParserState {
+    bool enabled[8];
+    int errors;
+    const char *last_message;
+    const char *last_help;
+};
+
+static void reset_state(struct ParserState *state) {
+    memset(state->enabled, 0, sizeof(state->enabled));
+    state->errors = 0;
+    state->last_message = "C_KEEP_MARKER_BOOT";
+    state->last_help = "http://localhost:8080/help//keep";
+}
+
+${C_GENERATED_OPTIONS}
+
+int main(int argc, char **argv) {
+    struct ParserState state;
+    reset_state(&state);
+    for (int i = 1; i < argc; i++) {
+        int parsed = parse_flag_0(argv[i], &state);
+        if (parsed < 0) {
+            fprintf(stderr, "bad flag: %s\\n", argv[i]);
+            return 2;
+        }
+    }
+    puts(state.last_message);
+    return state.errors == 0 ? 0 : 1;
+}
+`;
+
+// ---------------------------------------------------------------------------
+// C++ (~300 lines) — stream formatter with raw strings and templates
+// ---------------------------------------------------------------------------
+const CPP_GENERATED_FORMATTERS = numberedBlocks(
+  42,
+  index => `
+template <typename Writer>
+void writeSection${index}(Writer& writer, const std::vector<std::string>& rows) {
+  // stripped C++ line comment ${index}
+  const std::string url = "https://example.com/cpp/${index}//keep";
+  const std::string raw = R"(CPP_KEEP_MARKER_${index} /* keep */ // keep)";
+  writer.begin("section-${index}");
+  for (const auto& row : rows) {
+    writer.field(url, row.empty() ? raw : row);
+  }
+  writer.end();
+}`
+);
+
+export const CPP_LARGE = `
+#include <algorithm>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace benchmark {
+
+class ReportWriter {
+ public:
+  explicit ReportWriter(std::ostream& out) : out_(out) {}
+
+  void begin(const std::string& name) {
+    out_ << "begin:" << name << '\\n';
+  }
+
+  void field(const std::string& key, const std::string& value) {
+    out_ << key << '=' << value << '\\n';
+  }
+
+  void end() {
+    out_ << "end" << '\\n';
+  }
+
+ private:
+  std::ostream& out_;
+};
+
+${CPP_GENERATED_FORMATTERS}
+
+int run(std::ostream& out) {
+  ReportWriter writer(out);
+  std::vector<std::string> rows = {"alpha", "beta", "CPP_KEEP_MARKER_FINAL"};
+  writeSection0(writer, rows);
+  writeSection17(writer, rows);
+  writeSection41(writer, rows);
+  return static_cast<int>(rows.size());
+}
+
+}  // namespace benchmark
+`;
+
+// ---------------------------------------------------------------------------
+// Visual Basic (~260 lines) — module with apostrophe comments and strings
+// ---------------------------------------------------------------------------
+const VB_GENERATED_FORMATTERS = numberedBlocks(
+  52,
+  index => `
+' Stripped Visual Basic comment ${index}
+Public Function FormatRow${index}(ByVal userName As String, ByVal amount As Decimal) As String
+    Dim marker As String = "' VB_KEEP_MARKER_${index}"
+    Dim url As String = "https://example.com/vb/${index}'keep"
+    If String.IsNullOrWhiteSpace(userName) Then
+        Return marker & ":" & url
+    End If
+    Return userName & ":" & amount.ToString("0.00") & ":" & marker
+End Function`
+);
+
+export const VB_LARGE = `
+Option Strict On
+Option Explicit On
+
+' Visual Basic fixture adapted from reporting modules.
+Public Module CustomerReport
+    Private Const Header As String = "' VB_KEEP_MARKER_HEADER"
+
+${VB_GENERATED_FORMATTERS}
+
+    Public Function BuildReport(ByVal rows As IEnumerable(Of String)) As String
+        Dim output As New System.Text.StringBuilder()
+        output.AppendLine(Header)
+        For Each row In rows
+            output.AppendLine(row)
+        Next
+        Return output.ToString()
+    End Function
+End Module
+`;
+
+// ---------------------------------------------------------------------------
+// JSX (~260 lines) — component tree with comments, URLs, and string literals
+// ---------------------------------------------------------------------------
+const JSX_GENERATED_ROWS = numberedBlocks(
+  50,
+  index => `
+      {/* stripped JSX comment ${index} */}
+      <li key="row-${index}" data-url="https://example.com/jsx/${index}//keep">
+        <strong>{formatLabel('JSX_KEEP_MARKER_${index}')}</strong>
+        <span>{items[${index % 4}] ?? 'fallback'}</span>
+      </li>`
+);
+
+export const JSX_LARGE = `
+import React, { useMemo, useState } from 'react';
+
+const formatLabel = value => value.replace(/_/g, ' ');
+
+export default function DashboardPanel({ items = [] }) {
+  const [filter, setFilter] = useState('');
+  const visible = useMemo(
+    () => items.filter(item => item.includes(filter)),
+    [items, filter]
+  );
+
+  return (
+    <section className="dashboard-panel">
+      <header>
+        <h1>JSX_KEEP_MARKER_TITLE</h1>
+        <input
+          aria-label="Filter"
+          value={filter}
+          onChange={event => setFilter(event.target.value)}
+          placeholder="https://example.com/search//keep"
+        />
+      </header>
+      <ul>
+${JSX_GENERATED_ROWS}
+      </ul>
+      <footer>{visible.length} visible rows</footer>
+    </section>
+  );
+}
+`;
+
+// ---------------------------------------------------------------------------
+// TSX (~300 lines) — app router component with type-only declarations
+// ---------------------------------------------------------------------------
+const TSX_GENERATED_ROUTES = numberedBlocks(
+  54,
+  index => `
+  {
+    id: 'route-${index}',
+    title: 'TSX_KEEP_MARKER_${index}',
+    href: 'https://example.com/tsx/${index}//keep',
+    loader: async () => ({ status: 'ready' as const, index: ${index} }),
+  },`
+);
+
+export const TSX_LARGE = `
+import React, { Suspense, useMemo } from 'react';
+
+type RouteStatus = 'ready' | 'loading' | 'error';
+
+type RouteRecord = {
+  readonly id: string;
+  readonly title: string;
+  readonly href: string;
+  readonly loader: () => Promise<{ readonly status: RouteStatus; readonly index: number }>;
+};
+
+const routes: readonly RouteRecord[] = [
+${TSX_GENERATED_ROUTES}
+];
+
+function RouteLink({ route }: { readonly route: RouteRecord }) {
+  return (
+    <a href={route.href} data-route-id={route.id}>
+      <span>{route.title}</span>
+    </a>
+  );
+}
+
+export function AppRouter({ activeId }: { readonly activeId: string }) {
+  const active = useMemo(
+    () => routes.find(route => route.id === activeId) ?? routes[0],
+    [activeId]
+  );
+
+  return (
+    <Suspense fallback={<p>Loading TSX_KEEP_MARKER_FALLBACK</p>}>
+      <nav aria-label="Application routes">
+        {routes.map(route => (
+          <RouteLink key={route.id} route={route} />
+        ))}
+      </nav>
+      <main>
+        <h1>{active.title}</h1>
+        <p>{active.href}</p>
+      </main>
+    </Suspense>
+  );
+}
 `;

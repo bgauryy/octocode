@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
-import { maskSensitiveData } from 'octocode-security-utils/mask';
-import { validateCommand } from 'octocode-security-utils/commandValidator';
-import { PathValidator } from 'octocode-security-utils/pathValidator';
+import { ContentSanitizer } from 'octocode-security/contentSanitizer';
+import { maskSensitiveData } from 'octocode-security/mask';
+import { validateCommand } from 'octocode-security/commandValidator';
+import { PathValidator } from 'octocode-security/pathValidator';
 import {
   shouldIgnore,
   shouldIgnorePath,
   shouldIgnoreFile,
-} from 'octocode-security-utils/ignoredPathFilter';
+} from 'octocode-security/ignoredPathFilter';
 import {
   withSecurityValidation,
   withBasicSecurityValidation,
-} from 'octocode-security-utils/withSecurityValidation';
+} from 'octocode-security/withSecurityValidation';
 import {
   createResponseFormat,
   sanitizeStructuredContent,
@@ -1020,7 +1020,7 @@ export default calculateTotal;
 
 describe('EXTENSIBILITY: SecurityRegistry export', () => {
   it('should export SecurityRegistry class and securityRegistry singleton', async () => {
-    const mod = await import('octocode-security-utils');
+    const mod = await import('octocode-security');
     expect(mod.SecurityRegistry).toBeDefined();
     expect(mod.securityRegistry).toBeDefined();
     expect(mod.securityRegistry.constructor.name).toBe('SecurityRegistry');

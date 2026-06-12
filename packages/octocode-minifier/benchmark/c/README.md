@@ -1,10 +1,12 @@
 # C (.c)
 
-Source sample: `c/git-add.c`
+Source sample: `c/00-git-add.c`
 
 Strategy: `conservative`
 
 Agent rating: **7.6/10 (good)**
+
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 18107 | - | - | - |
-| content-view | 17413 | 3.8% | 8.698 ms | 6.3/10 |
-| applyMinification | 17413 | 3.8% | 4.541 ms | 6.3/10 |
-| sync minify | 17413 | 3.8% | 3.122 ms | 6.3/10 |
-| async minify | 17413 | 3.8% | 2.917 ms | 6.3/10 |
-| symbols | 2036 | 88.8% | 0.789 ms | 10/10 |
+| content-view | 17413 | 3.8% | 15.816 ms | 6.3/10 |
+| applyMinification | 17413 | 3.8% | 24.505 ms | 6.3/10 |
+| sync minify | 17413 | 3.8% | 3.844 ms | 6.3/10 |
+| async minify | 17413 | 3.8% | 10.891 ms | 6.3/10 |
+| symbols | 2036 | 88.8% | 3.366 ms | 10/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 7/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 18107 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 17413 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 17413 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 2036 | 88.8% | 8.5/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 

@@ -11,9 +11,7 @@ import {
   checkAndPrintEnvironmentWithLoader,
   hasEnvironmentIssues,
 } from './install/index.js';
-import { runConfigOptionsFlow, runInspectFlow } from './config/index.js';
-import { runExternalMCPFlow } from './external-mcp/index.js';
-import { runSyncFlow } from './sync/index.js';
+import { runConfigOptionsFlow } from './config/index.js';
 import { printGoodbye, printWelcome } from './header.js';
 import { Spinner } from '../utils/spinner.js';
 import { runSkillsMenu } from './skills-menu/index.js';
@@ -47,7 +45,6 @@ type MenuChoice =
   | 'octocode-skills'
   | 'skills'
   | 'auth'
-  | 'mcp-config'
   | 'terminal'
   | 'exit';
 
@@ -263,12 +260,6 @@ async function showMainMenu(state: AppState): Promise<MenuChoice> {
   choices.push(buildAuthMenuItem(state.githubAuth));
 
   choices.push({
-    name: '- Manage System MCP',
-    value: 'mcp-config',
-    description: 'Add, sync and configure MCP across all IDEs',
-  });
-
-  choices.push({
     name: '- Tool Terminal',
     value: 'terminal',
     description: 'Run Octocode tools directly from an interactive terminal',
@@ -393,93 +384,6 @@ async function runOctocodeFlow(): Promise<void> {
 
       case 'configure':
         await runConfigOptionsFlow();
-        console.log();
-        break;
-
-      case 'back':
-      default:
-        inMenu = false;
-        break;
-    }
-  }
-}
-
-type MCPConfigChoice = 'sync' | 'marketplace' | 'inspect' | 'back';
-
-async function showMCPConfigMenu(): Promise<MCPConfigChoice> {
-  const choices: Array<{
-    name: string;
-    value: MCPConfigChoice;
-    description?: string;
-  }> = [];
-
-  choices.push({
-    name: '- Show MCP details',
-    value: 'inspect',
-    description: 'View and manage configured MCP servers',
-  });
-
-  choices.push({
-    name: '- Sync Configurations',
-    value: 'sync',
-    description: 'Sync MCP configs across all IDEs',
-  });
-
-  choices.push({
-    name: '- MCP Marketplace',
-    value: 'marketplace',
-    description: 'Browse and install community MCP servers',
-  });
-
-  choices.push(
-    new Separator() as unknown as {
-      name: string;
-      value: MCPConfigChoice;
-      description?: string;
-    }
-  );
-
-  choices.push({
-    name: `${c('dim', '- Back to main menu')}`,
-    value: 'back',
-  });
-
-  const choice = await selectWithCancel<MCPConfigChoice>({
-    message: '',
-    choices,
-    pageSize: 12,
-    loop: false,
-    theme: {
-      prefix: '  ',
-      style: {
-        highlight: (text: string) => c('magenta', text),
-      },
-    },
-  });
-
-  return choice;
-}
-
-async function runMCPConfigFlow(): Promise<void> {
-  await loadInquirer();
-  console.log();
-
-  let inMenu = true;
-  while (inMenu) {
-    const choice = await showMCPConfigMenu();
-
-    switch (choice) {
-      case 'inspect':
-        await runInspectFlow();
-        break;
-
-      case 'sync':
-        await runSyncFlow();
-        console.log();
-        break;
-
-      case 'marketplace':
-        await runExternalMCPFlow();
         console.log();
         break;
 
@@ -963,10 +867,6 @@ async function handleMenuChoice(choice: MenuChoice): Promise<boolean> {
 
     case 'auth':
       await runAuthFlow();
-      return true;
-
-    case 'mcp-config':
-      await runMCPConfigFlow();
       return true;
 
     case 'terminal':

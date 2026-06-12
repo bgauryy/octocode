@@ -237,6 +237,156 @@ const COMMON_TYPE_MATRIX_EXTENSIONS = [
   'proto',
 ];
 
+const AGENT_UNDERSTANDING_MARKERS = {
+  c: [/#include\b/, /\b(?:static|extern|int|void|char|struct)\b/, /\breturn\b/],
+  h: [
+    /#(?:include|define|ifndef|pragma)\b/,
+    /\b(?:typedef|struct|enum)\b/,
+    /[;{}]/,
+  ],
+  cpp: [
+    /#include\b/,
+    /\b(?:namespace|class|template|std::|auto)\b/,
+    /\breturn\b/,
+  ],
+  hpp: [
+    /#(?:include|define|ifndef|pragma)\b/,
+    /\b(?:namespace|class|template)\b/,
+    /[;{}]/,
+  ],
+  cs: [
+    /\bnamespace\b/,
+    /\b(?:public|private|internal|class|record|struct)\b/,
+    /\breturn\b/,
+  ],
+  css: [/[.#]?[\w-]+\s*\{/, /--[\w-]+\s*:/, /:\s*[^;{}]+;/],
+  scss: [/[.#]?[\w-]+\s*\{/, /[$@][\w-]+/, /:\s*[^;{}]+;/],
+  dart: [
+    /\b(?:class|mixin|extension|enum)\b/,
+    /\b(?:final|const|var|Future)\b/,
+    /\breturn\b/,
+  ],
+  erl: [/-module\(/, /-export\(/, /\b\w+\([^)]*\)\s*->/],
+  ex: [/\bdefmodule\b/, /\bdef(?:p)?\b/, /\b(?:do|end)\b/],
+  go: [/\bpackage\s+\w+/, /\bfunc\s+\w+/, /\b(?:type|struct|interface)\b/],
+  graphql: [
+    /\b(?:query|mutation|subscription|fragment|type|schema)\b/,
+    /\b\w+\s*[:(]/,
+    /[{}]/,
+  ],
+  hs: [/\bmodule\b/, /::/, /\b(?:data|newtype|class|instance|where)\b/],
+  html: [/<[a-z][^>]*>/i, /<\/[a-z][^>]*>/i, /\b(?:class|id|href|src)=/i],
+  ini: [/^\s*[\w.-]+\s*=/m, /^\s*\[[^\]]+]/m, /[^\s]/],
+  java: [
+    /\bpackage\b/,
+    /\b(?:public|private|protected|class|interface|enum)\b/,
+    /\breturn\b/,
+  ],
+  js: [
+    /\b(?:function|const|let|var|class)\b/,
+    /=>/,
+    /\b(?:import|export|require)\b/,
+  ],
+  cjs: [
+    /\b(?:module\.exports|exports\.|require)\b/,
+    /\b(?:function|const|let|var|class)\b|=>/,
+    /[{}()[\];,]/,
+  ],
+  mjs: [
+    /\bimport\s+[\w*{]/,
+    /\bexport\s+(?:default|const|function|class)\b/,
+    /[{}()[\];,]/,
+  ],
+  json: [/^\s*[{[]/, /"[^"]+"\s*:/, /[:,\]}]/],
+  jsonc: [/^\s*[{[]/, /"[^"]+"\s*:/, /[:,\]}]/],
+  jsx: [
+    /<[A-Z_a-z][\w.:~-]*/,
+    /\b(?:function|const|class)\b|=>/,
+    /\b(?:import|export)\b/,
+  ],
+  kt: [
+    /\bpackage\b/,
+    /\b(?:class|object|interface|fun|val|var)\b/,
+    /\breturn\b/,
+  ],
+  lua: [
+    /\b(?:local\s+function|function)\b/,
+    /\b(?:local|return|end)\b/,
+    /[()]/,
+  ],
+  md: [
+    /^#{1,6}\s+\S/m,
+    /\[[^\]]+](?:\[[^\]]*]|\([^)]+\))/,
+    /^(?:[-+*]|\d+[.)])\s+\S/m,
+  ],
+  php: [/<\?php/, /\b(?:class|function|namespace|use)\b/, /\$[A-Za-z_]\w*/],
+  pl: [/\b(?:sub|my|our|use)\b/, /\$[A-Za-z_]\w*/, /\breturn\b/],
+  pm: [/\b(?:package|sub|my|our|use)\b/, /\$[A-Za-z_]\w*/, /\breturn\b/],
+  proto: [
+    /\bsyntax\s*=/,
+    /\b(?:message|service|enum|rpc)\b/,
+    /\b(?:optional|repeated|reserved)\b/,
+  ],
+  py: [/\b(?:def|class)\s+\w+/, /\b(?:import|from)\s+\w+/, /\breturn\b/],
+  r: [/\bfunction\s*\(/, /<-\s*/, /\b(?:library|return)\b/],
+  rb: [/\b(?:class|module|def)\b/, /\b(?:require|include|extend)\b/, /\bend\b/],
+  rs: [
+    /\b(?:pub\s+)?(?:fn|struct|enum|trait|impl)\b/,
+    /\buse\s+[\w:]+/,
+    /\b(?:match|return|Self)\b/,
+  ],
+  rst: [/^[-=~`#*]{3,}$/m, /::\s*$/m, /^\.\.\s+\w+::/m],
+  scala: [
+    /\b(?:class|object|trait|enum|case class)\b/,
+    /\b(?:def|val|var)\b/,
+    /=>|:/,
+  ],
+  sh: [
+    /^#!|(?:^|\s)(?:function\s+)?[A-Za-z_]\w*\s*\(\)/m,
+    /\b(?:if|then|fi|case|esac|for|do|done)\b/,
+    /\$\{?[A-Za-z_]\w*/,
+  ],
+  sql: [
+    /\bSELECT\b/i,
+    /\bFROM\b/i,
+    /\b(?:WHERE|JOIN|GROUP BY|ORDER BY|INSERT|UPDATE|CREATE)\b/i,
+  ],
+  svelte: [/<script\b/i, /<[A-Z_a-z][\w.:~-]*/, /{[#/:@]?\w+/],
+  swift: [
+    /\b(?:class|struct|enum|protocol|extension)\b/,
+    /\b(?:func|let|var)\b/,
+    /\breturn\b/,
+  ],
+  toml: [/^\s*\[[^\]]+]/m, /^\s*[\w.-]+\s*=/m, /"[^"]*"|'[^']*'/],
+  ts: [
+    /\b(?:interface|type|enum|class|function|const|let)\b/,
+    /=>/,
+    /\b(?:import|export)\b/,
+  ],
+  tsx: [
+    /<[A-Z_a-z][\w.:~-]*/,
+    /\b(?:interface|type|function|const|class)\b|=>/,
+    /\b(?:import|export)\b/,
+  ],
+  vb: [
+    /\b(?:Public|Private|Friend|Class|Module|Function|Sub)\b/i,
+    /\b(?:If|Then|End|Return)\b/i,
+    /\b(?:Dim|As|New)\b/i,
+  ],
+  vue: [
+    /<template\b|<script\b|<style\b/i,
+    /<[A-Z_a-z][\w.:~-]*/,
+    /(?:v-|:|@)[\w-]+=/,
+  ],
+  yml: [/^\s*[\w.-]+:/m, /^\s*-\s+\S/m, /[^\s]/],
+};
+
+const DEFAULT_UNDERSTANDING_MARKERS = [
+  /\b[A-Za-z_]\w{2,}\b/,
+  /[=:;{}()[\]-]/,
+  /\n/,
+];
+
 function extensionFor(filePath) {
   return extname(filePath).slice(1).toLowerCase();
 }
@@ -311,6 +461,222 @@ function hashContent(content) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+function clampScore(score) {
+  return Math.max(0, Math.min(10, round(score)));
+}
+
+function markerPatternsFor(ext) {
+  return AGENT_UNDERSTANDING_MARKERS[ext] ?? DEFAULT_UNDERSTANDING_MARKERS;
+}
+
+function syntaxAnchorRating(ext, output) {
+  const patterns = markerPatternsFor(ext);
+  const hits = patterns.filter(pattern => pattern.test(output)).length;
+  return {
+    score: clampScore((hits / patterns.length) * 10),
+    hits,
+    total: patterns.length,
+  };
+}
+
+function countCharacter(content, target) {
+  let count = 0;
+  for (const character of content) {
+    if (character === target) count++;
+  }
+  return count;
+}
+
+function delimiterStructureScore(output) {
+  const pairs = [
+    ['(', ')'],
+    ['[', ']'],
+    ['{', '}'],
+  ];
+  const activePairs = pairs
+    .map(([open, close]) => {
+      const openCount = countCharacter(output, open);
+      const closeCount = countCharacter(output, close);
+      return { openCount, closeCount };
+    })
+    .filter(pair => pair.openCount + pair.closeCount > 0);
+
+  if (activePairs.length === 0) return 8;
+
+  return round(
+    average(activePairs, pair => {
+      const total = pair.openCount + pair.closeCount;
+      const imbalance = Math.abs(pair.openCount - pair.closeCount) / total;
+      return clampScore(10 - imbalance * 10);
+    })
+  );
+}
+
+function outputHealthScore(sourceBytes, outputBytes, failed, output) {
+  let score = 0;
+  if (output.trim().length > 0) score += 3;
+  if (outputBytes <= sourceBytes) score += 2.5;
+  if (!failed) score += 2;
+  if (!/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(output)) score += 1.5;
+  if (!/\b(?:undefined|null|\[object Object])\b/.test(output)) score += 1;
+  return clampScore(score);
+}
+
+function contextBudgetScore(cutPercent) {
+  if (cutPercent >= 80) return 8;
+  if (cutPercent >= 45) return 10;
+  if (cutPercent >= 25) return 9;
+  if (cutPercent >= 10) return 8;
+  if (cutPercent >= 3) return 7;
+  if (cutPercent > 0) return 6;
+  return 5;
+}
+
+function symbolContextScore(symbols) {
+  if (!symbols.supported) return 7;
+  return symbols.returned ? 10 : 4;
+}
+
+function agentOutputObservation({
+  sample,
+  metric,
+  output,
+  outputName,
+  outputBytes,
+  cutPercent: outputCutPercent,
+  failed = false,
+  symbolScore: outputSymbolScore = symbolContextScore(metric.symbols),
+}) {
+  const syntaxAnchors = syntaxAnchorRating(sample.ext, output);
+  const structure = delimiterStructureScore(output);
+  const outputHealth = outputHealthScore(
+    metric.sourceBytes,
+    outputBytes,
+    failed,
+    output
+  );
+  const contextBudget = contextBudgetScore(outputCutPercent);
+  const symbols = outputSymbolScore;
+  const score = round(
+    syntaxAnchors.score * 0.4 +
+      structure * 0.2 +
+      outputHealth * 0.2 +
+      contextBudget * 0.1 +
+      symbols * 0.1
+  );
+  const signals = [
+    {
+      name: `${outputName} output is non-empty`,
+      passed: output.trim().length > 0,
+    },
+    {
+      name: `${outputName} did not grow`,
+      passed: outputBytes <= metric.sourceBytes,
+    },
+    {
+      name: `${outputName} completed`,
+      passed: !failed,
+    },
+    {
+      name: 'language syntax anchors present',
+      passed: syntaxAnchors.score >= 6.7,
+    },
+    {
+      name: 'delimiter structure is balanced enough',
+      passed: structure >= 7,
+    },
+    {
+      name: 'symbol skeleton returned or not configured',
+      passed: !metric.symbols.supported || metric.symbols.returned,
+    },
+  ];
+
+  return {
+    output: outputName,
+    bytes: outputBytes,
+    cutPercent: outputCutPercent,
+    score,
+    label: ratingLabel(score),
+    syntaxAnchors,
+    structure,
+    outputHealth,
+    contextBudget,
+    symbols,
+    signals,
+  };
+}
+
+function rawAgentObservation(sample, metric) {
+  const output = sample.content;
+  const syntaxAnchors = syntaxAnchorRating(sample.ext, output);
+  const structure = delimiterStructureScore(output);
+  const outputHealth = outputHealthScore(
+    metric.sourceBytes,
+    metric.sourceBytes,
+    false,
+    output
+  );
+
+  return {
+    output: 'none',
+    bytes: metric.sourceBytes,
+    cutPercent: 0,
+    score: 10,
+    label: 'excellent',
+    syntaxAnchors,
+    structure,
+    outputHealth,
+    contextBudget: 5,
+    symbols: symbolContextScore(metric.symbols),
+    signals: [
+      { name: 'none output is exact source', passed: true },
+      { name: 'none output is non-empty', passed: output.trim().length > 0 },
+      { name: 'none preserves source fidelity', passed: true },
+    ],
+  };
+}
+
+function agentObservationsForSample({
+  sample,
+  metric,
+  contentView,
+  asyncContent,
+  symbolContent,
+}) {
+  return {
+    none: rawAgentObservation(sample, metric),
+    standard: agentOutputObservation({
+      sample,
+      metric,
+      output: contentView,
+      outputName: 'standard',
+      outputBytes: metric.contentView.bytes,
+      cutPercent: metric.contentView.cutPercent,
+    }),
+    minify: agentOutputObservation({
+      sample,
+      metric,
+      output: asyncContent,
+      outputName: 'minify',
+      outputBytes: metric.async.bytes,
+      cutPercent: metric.async.cutPercent,
+      failed: metric.async.failed,
+    }),
+    symbols:
+      symbolContent === null || metric.symbols.bytes === null
+        ? null
+        : agentOutputObservation({
+            sample,
+            metric,
+            output: symbolContent,
+            outputName: 'symbols',
+            outputBytes: metric.symbols.bytes,
+            cutPercent: metric.symbols.cutPercent ?? 0,
+            symbolScore: metric.symbols.returned ? 10 : 4,
+          }),
+  };
+}
+
 function minifyScore(metric) {
   const cuts = [
     metric.contentView.cutPercent,
@@ -371,9 +737,77 @@ function ratingLabel(score) {
   return 'needs work';
 }
 
+function readmeReductionScore(cutPercent) {
+  if (cutPercent >= 35) return 10;
+  if (cutPercent >= 20) return 8;
+  if (cutPercent >= 10) return 6;
+  if (cutPercent >= 3) return 4;
+  if (cutPercent > 0) return 2;
+  return 1;
+}
+
+function readmeMinificationRating(metrics) {
+  const metric = metrics.find(candidate => candidate.ext === 'md');
+  if (!metric) return null;
+
+  const output = metric.excerpts.contentView;
+  const signals = [
+    {
+      name: 'no growth',
+      passed: metric.contentView.bytes <= metric.sourceBytes,
+    },
+    {
+      name: 'non-empty output',
+      passed: metric.contentView.bytes > 0,
+    },
+    {
+      name: 'markdown strategy completed',
+      passed: !metric.async.failed && metric.async.type === 'markdown',
+    },
+    {
+      name: 'headings preserved',
+      passed: /^#{1,6}\s+\S/m.test(output),
+    },
+    {
+      name: 'links or references preserved',
+      passed: /\[[^\]]+](?:\[[^\]]*]|\([^)]+\))|^\[[^\]]+]:\s+\S/m.test(output),
+    },
+    {
+      name: 'lists preserved',
+      passed: /^(?:[-+*]|\d+[.)])\s+\S/m.test(output),
+    },
+  ];
+  const passedSignals = signals.filter(signal => signal.passed).length;
+  const readabilityScore = round((passedSignals / signals.length) * 10, 1);
+  const byteReductionScore = readmeReductionScore(
+    metric.contentView.cutPercent
+  );
+  const score = round(readabilityScore * 0.7 + byteReductionScore * 0.3, 1);
+
+  return {
+    source: metric.source,
+    inputBytes: metric.sourceBytes,
+    outputBytes: metric.contentView.bytes,
+    cutPercent: metric.contentView.cutPercent,
+    asyncType: metric.async.type,
+    readabilityScore,
+    byteReductionScore,
+    score,
+    label: ratingLabel(score),
+    signals,
+    notes: [
+      'README score weights semantic preservation at 70% and byte reduction at 30%.',
+      'Low byte cuts are acceptable when the README is already dense and mostly semantic content.',
+      'Use this score to track whether Markdown changes preserve rendered README logic while still removing redundant tokens.',
+    ],
+  };
+}
+
 function average(metrics, selector) {
   if (metrics.length === 0) return 0;
-  return metrics.reduce((sum, metric) => sum + selector(metric), 0) / metrics.length;
+  return (
+    metrics.reduce((sum, metric) => sum + selector(metric), 0) / metrics.length
+  );
 }
 
 function qualitySummary(metrics) {
@@ -398,8 +832,14 @@ function qualitySummary(metrics) {
     }));
 
   return {
-    averageAgent: round(average(metrics, metric => metric.ratings.agent), 2),
-    averageMinify: round(average(metrics, metric => metric.ratings.minify), 2),
+    averageAgent: round(
+      average(metrics, metric => metric.ratings.agent),
+      2
+    ),
+    averageMinify: round(
+      average(metrics, metric => metric.ratings.minify),
+      2
+    ),
     averageSymbolsAllMeasured: round(
       average(metrics, metric => metric.ratings.symbols ?? 0),
       2
@@ -416,9 +856,107 @@ function qualitySummary(metrics) {
     ),
     averageAsyncCut: round(average(metrics, metric => metric.async.cutPercent)),
     symbolsSupported: symbolMetrics.length,
-    symbolsReturned: symbolMetrics.filter(metric => metric.symbols.returned).length,
+    symbolsReturned: symbolMetrics.filter(metric => metric.symbols.returned)
+      .length,
     buckets,
     weakest,
+  };
+}
+
+function agentUnderstandingSummary(metrics) {
+  const buckets = metrics.reduce((accumulator, metric) => {
+    const label = metric.agentUnderstanding.label;
+    accumulator[label] = (accumulator[label] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  const weakest = [...metrics]
+    .sort(
+      (left, right) =>
+        left.agentUnderstanding.score - right.agentUnderstanding.score
+    )
+    .slice(0, 10)
+    .map(metric => ({
+      ext: metric.ext,
+      language: metric.language,
+      score: metric.agentUnderstanding.score,
+      label: metric.agentUnderstanding.label,
+      syntaxAnchors: metric.agentUnderstanding.syntaxAnchors.score,
+      structure: metric.agentUnderstanding.structure,
+      outputHealth: metric.agentUnderstanding.outputHealth,
+      contextBudget: metric.agentUnderstanding.contextBudget,
+      symbols: metric.agentUnderstanding.symbols,
+    }));
+
+  return {
+    averageScore: round(
+      average(metrics, metric => metric.agentUnderstanding.score),
+      2
+    ),
+    buckets,
+    weakest,
+  };
+}
+
+function agentObservationLevelSummary(metrics, level) {
+  const observations = metrics.flatMap(metric => {
+    const observation = metric.agentObservations[level];
+    return observation ? [{ metric, observation }] : [];
+  });
+  const buckets = observations.reduce((accumulator, entry) => {
+    const label = entry.observation.label;
+    accumulator[label] = (accumulator[label] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  const weakest = observations
+    .sort((left, right) => left.observation.score - right.observation.score)
+    .slice(0, 10)
+    .map(entry => ({
+      ext: entry.metric.ext,
+      language: entry.metric.language,
+      score: entry.observation.score,
+      label: entry.observation.label,
+      cutPercent: entry.observation.cutPercent,
+      syntaxAnchors: entry.observation.syntaxAnchors.score,
+      structure: entry.observation.structure,
+      outputHealth: entry.observation.outputHealth,
+    }));
+
+  return {
+    count: observations.length,
+    averageScore: round(
+      average(observations, entry => entry.observation.score),
+      2
+    ),
+    averageCut: round(
+      average(observations, entry => entry.observation.cutPercent),
+      2
+    ),
+    buckets,
+    weakest,
+  };
+}
+
+function agentObservationSummary(metrics) {
+  const levels = {
+    none: agentObservationLevelSummary(metrics, 'none'),
+    standard: agentObservationLevelSummary(metrics, 'standard'),
+    minify: agentObservationLevelSummary(metrics, 'minify'),
+    symbols: agentObservationLevelSummary(metrics, 'symbols'),
+  };
+  const bestNavigationScores = metrics.map(metric =>
+    Math.max(
+      metric.agentObservations.standard.score,
+      metric.agentObservations.symbols?.score ?? 0
+    )
+  );
+
+  return {
+    overallAgentUsefulness: round(
+      bestNavigationScores.reduce((sum, score) => sum + score, 0) /
+        bestNavigationScores.length,
+      2
+    ),
+    levels,
   };
 }
 
@@ -437,7 +975,9 @@ function asyncTypeDistribution(metrics) {
 }
 
 function commonTypeMetrics(metrics) {
-  const metricsByExtension = new Map(metrics.map(metric => [metric.ext, metric]));
+  const metricsByExtension = new Map(
+    metrics.map(metric => [metric.ext, metric])
+  );
   return COMMON_TYPE_MATRIX_EXTENSIONS.flatMap(ext => {
     const metric = metricsByExtension.get(ext);
     return metric ? [metric] : [];
@@ -472,15 +1012,21 @@ function notesFor(metric) {
     notes.push(`${metric.strategy} text strategy`);
   }
   if (metric.contentView.cutPercent === 0) {
-    notes.push('content-view kept original because the readable output was not shorter');
+    notes.push(
+      'content-view kept original because the readable output was not shorter'
+    );
   }
   if (metric.async.failed) {
-    notes.push(`async minifier failed: ${metric.async.reason ?? 'unknown reason'}`);
+    notes.push(
+      `async minifier failed: ${metric.async.reason ?? 'unknown reason'}`
+    );
   }
   if (!metric.symbols.supported) {
     notes.push('symbols are not implemented for this extension');
   } else if (!metric.symbols.returned) {
-    notes.push('symbols extension is registered but this sample produced no skeleton');
+    notes.push(
+      'symbols extension is registered but this sample produced no skeleton'
+    );
   }
   return notes;
 }
@@ -509,7 +1055,9 @@ async function measureSample(sample) {
     sha256: hashContent(sample.content),
     contentView: {
       bytes: byteLength(contentView.value),
-      cutPercent: round(cutPercent(sample.bytes, byteLength(contentView.value))),
+      cutPercent: round(
+        cutPercent(sample.bytes, byteLength(contentView.value))
+      ),
       durationMs: round(contentView.durationMs, 3),
     },
     applyMinification: {
@@ -535,7 +1083,9 @@ async function measureSample(sample) {
       returned: symbolContent !== null,
       bytes: symbolBytes,
       cutPercent:
-        symbolBytes === null ? null : round(cutPercent(sample.bytes, symbolBytes)),
+        symbolBytes === null
+          ? null
+          : round(cutPercent(sample.bytes, symbolBytes)),
       durationMs: round(symbols.durationMs, 3),
     },
     excerpts: {
@@ -554,9 +1104,19 @@ async function measureSample(sample) {
   const minify = minifyScore(metric);
   const symbolsRating = symbolScore(metric);
   const agent = agentScore(metric);
+  const agentObservations = agentObservationsForSample({
+    sample,
+    metric,
+    contentView: contentView.value,
+    asyncContent,
+    symbolContent,
+  });
+  const agentUnderstanding = agentObservations.standard;
 
   return {
     ...metric,
+    agentUnderstanding,
+    agentObservations,
     ratings: {
       minify,
       symbols: symbolsRating,
@@ -569,7 +1129,9 @@ async function measureSample(sample) {
 
 function metricTable(metric) {
   const symbolCut =
-    metric.symbols.cutPercent === null ? 'n/a' : `${metric.symbols.cutPercent}%`;
+    metric.symbols.cutPercent === null
+      ? 'n/a'
+      : `${metric.symbols.cutPercent}%`;
   const symbolRating =
     metric.ratings.symbols === null ? 'n/a' : `${metric.ratings.symbols}/10`;
 
@@ -585,6 +1147,42 @@ function metricTable(metric) {
   ].join('\n');
 }
 
+function agentUnderstandingTable(metric) {
+  const understanding = metric.agentUnderstanding;
+  const signalsPassed = understanding.signals.filter(
+    signal => signal.passed
+  ).length;
+
+  return [
+    '| Component | Score |',
+    '| --- | ---: |',
+    `| syntax anchors | ${understanding.syntaxAnchors.score}/10 (${understanding.syntaxAnchors.hits}/${understanding.syntaxAnchors.total}) |`,
+    `| delimiter structure | ${understanding.structure}/10 |`,
+    `| output health | ${understanding.outputHealth}/10 |`,
+    `| context budget | ${understanding.contextBudget}/10 |`,
+    `| symbol context | ${understanding.symbols}/10 |`,
+    `| signals passed | ${signalsPassed}/${understanding.signals.length} |`,
+  ].join('\n');
+}
+
+function agentObservationTable(metric) {
+  const rows = Object.entries(metric.agentObservations).map(
+    ([level, observation]) => {
+      if (observation === null) {
+        return `| ${level} | n/a | n/a | n/a | n/a | n/a |`;
+      }
+
+      return `| ${level} | ${observation.bytes} | ${observation.cutPercent}% | ${observation.score}/10 ${observation.label} | ${observation.syntaxAnchors.score}/10 | ${observation.structure}/10 |`;
+    }
+  );
+
+  return [
+    '| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |',
+    '| --- | ---: | ---: | ---: | ---: | ---: |',
+    ...rows,
+  ].join('\n');
+}
+
 function renderLanguageReport(metric) {
   const lang = fenceLanguage(metric.ext);
   return `# ${metric.language} (.${metric.ext})
@@ -594,6 +1192,8 @@ Source sample: \`${metric.source}\`
 Strategy: \`${metric.strategy}\`
 
 Agent rating: **${metric.ratings.agent}/10 (${metric.ratings.label})**
+
+Agent understanding from minified output: **${metric.agentUnderstanding.score}/10 (${metric.agentUnderstanding.label})**
 
 Artifacts:
 
@@ -605,6 +1205,19 @@ Artifacts:
 - \`symbol/signatures.txt\`
 
 ${metricTable(metric)}
+
+## Agent Understanding
+
+Measured from \`${metric.agentUnderstanding.output}\` minified output.
+
+${agentUnderstandingTable(metric)}
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+${agentObservationTable(metric)}
 
 ## Notes
 
@@ -660,10 +1273,7 @@ function writeBenchmarkArtifacts(languageDir, metric) {
   mkdirSync(minifiedDir, { recursive: true });
   mkdirSync(symbolDir, { recursive: true });
 
-  writeFileSync(
-    join(rawDir, 'source.excerpt.txt'),
-    metric.excerpts.before
-  );
+  writeFileSync(join(rawDir, 'source.excerpt.txt'), metric.excerpts.before);
   writeJson(join(rawDir, 'metadata.json'), {
     source: metric.source,
     sourceBytes: metric.sourceBytes,
@@ -746,10 +1356,15 @@ Returned symbols for this sample: \`${metric.symbols.returned}\`
 
 function rootSummary(metrics, corpusRoot, missingExtensions) {
   const quality = qualitySummary(metrics);
+  const understanding = agentUnderstandingSummary(metrics);
+  const observations = agentObservationSummary(metrics);
+  const readmeRating = readmeMinificationRating(metrics);
   const typeDistribution = asyncTypeDistribution(metrics);
   const commonTypeRows = commonTypeMetrics(metrics).map(metric => {
     const symbolCut =
-      metric.symbols.cutPercent === null ? 'n/a' : `${metric.symbols.cutPercent}%`;
+      metric.symbols.cutPercent === null
+        ? 'n/a'
+        : `${metric.symbols.cutPercent}%`;
     return `| \`${metric.ext}\` | ${metric.language} | \`${metric.strategy}\` | \`${metric.async.type}\` | ${metric.contentView.cutPercent}% | ${metric.applyMinification.cutPercent}% | ${metric.async.cutPercent}% | ${symbolCut} | \`${metric.source}\` |`;
   });
   const typeDistributionText = Object.entries(typeDistribution)
@@ -757,8 +1372,24 @@ function rootSummary(metrics, corpusRoot, missingExtensions) {
     .join(', ');
   const rows = metrics.map(metric => {
     const symbolCut =
-      metric.symbols.cutPercent === null ? 'n/a' : `${metric.symbols.cutPercent}%`;
+      metric.symbols.cutPercent === null
+        ? 'n/a'
+        : `${metric.symbols.cutPercent}%`;
     return `| \`${metric.ext}\` | ${metric.language} | \`${metric.ext}/README.md\` | ${metric.sourceBytes} | ${metric.contentView.cutPercent}% | ${metric.applyMinification.cutPercent}% | ${metric.sync.cutPercent}% | ${metric.async.cutPercent}% | ${symbolCut} | ${metric.ratings.agent}/10 ${metric.ratings.label} |`;
+  });
+  const understandingRows = metrics.map(metric => {
+    const agentUnderstanding = metric.agentUnderstanding;
+    const signalsPassed = agentUnderstanding.signals.filter(
+      signal => signal.passed
+    ).length;
+    return `| \`${metric.ext}\` | ${metric.language} | ${agentUnderstanding.score}/10 ${agentUnderstanding.label} | ${agentUnderstanding.syntaxAnchors.score}/10 (${agentUnderstanding.syntaxAnchors.hits}/${agentUnderstanding.syntaxAnchors.total}) | ${agentUnderstanding.structure}/10 | ${agentUnderstanding.outputHealth}/10 | ${agentUnderstanding.contextBudget}/10 | ${agentUnderstanding.symbols}/10 | ${signalsPassed}/${agentUnderstanding.signals.length} |`;
+  });
+  const observationRows = metrics.map(metric => {
+    const { none, standard, minify, symbols } = metric.agentObservations;
+    const symbolText = symbols
+      ? `${symbols.score}/10 ${symbols.label} (${symbols.cutPercent}%)`
+      : 'n/a';
+    return `| \`${metric.ext}\` | ${metric.language} | ${none.score}/10 ${none.label} (${none.cutPercent}%) | ${standard.score}/10 ${standard.label} (${standard.cutPercent}%) | ${minify.score}/10 ${minify.label} (${minify.cutPercent}%) | ${symbolText} |`;
   });
 
   return `# Real-Code Minifier Benchmark
@@ -773,11 +1404,86 @@ the generator to recreate reports from a local corpus.
 
 - Agent-context minifier rating: **${quality.averageAgent}/10**
 - Minify rating: **${quality.averageMinify}/10**
+- Agent understanding from minified output: **${understanding.averageScore}/10**
+- Agent usefulness across output levels: **${observations.overallAgentUsefulness}/10**
 - Symbols rating where supported: **${quality.averageSymbolsWhenSupported}/10** (${quality.symbolsReturned}/${quality.symbolsSupported} returned)
 - Average cuts: content-view ${quality.averageContentViewCut}%, apply ${quality.averageApplyCut}%, async ${quality.averageAsyncCut}%
 - Rating buckets: ${Object.entries(quality.buckets)
     .map(([label, count]) => `${label} ${count}`)
     .join(', ')}
+
+${
+  readmeRating
+    ? `## Real README Minification Rating
+
+Source: \`${readmeRating.source}\`
+
+Overall README rating: **${readmeRating.score}/10 (${readmeRating.label})**
+
+| Dimension | Score / Value |
+| --- | ---: |
+| Input bytes | ${readmeRating.inputBytes} |
+| Content-view bytes | ${readmeRating.outputBytes} |
+| Content-view cut | ${readmeRating.cutPercent}% |
+| Readability preservation | ${readmeRating.readabilityScore}/10 |
+| Byte reduction | ${readmeRating.byteReductionScore}/10 |
+
+Signals: ${readmeRating.signals
+        .map(signal => `${signal.passed ? 'passed' : 'failed'} ${signal.name}`)
+        .join(', ')}.
+
+${readmeRating.notes.map(note => `- ${note}`).join('\n')}
+
+`
+    : ''
+}
+## Agent Understanding Quality From Minified Output
+
+Measured from \`content-view\` output, which is the minified form intended for
+agent context. Scores weight syntax anchors 40%, delimiter structure 20%,
+output health 20%, context budget 10%, and symbol context 10%.
+
+Rating buckets: ${Object.entries(understanding.buckets)
+    .map(([label, count]) => `${label} ${count}`)
+    .join(', ')}
+
+| Ext | Format | Understanding | Syntax anchors | Structure | Output health | Context budget | Symbol context | Signals |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${understandingRows.join('\n')}
+
+## Agent Observation By Output Level
+
+Measured from the actual raw and generated outputs for each language. \`none\`
+is exact source fidelity, \`standard\` is the default agent-readable minified
+view, \`minify\` is the full async minifier output, and \`symbols\` is the
+navigation skeleton when available.
+
+| Level | Samples | Avg score | Avg cut | Buckets |
+| --- | ---: | ---: | ---: | --- |
+| none | ${observations.levels.none.count} | ${observations.levels.none.averageScore}/10 | ${observations.levels.none.averageCut}% | ${Object.entries(
+    observations.levels.none.buckets
+  )
+    .map(([label, count]) => `${label} ${count}`)
+    .join(', ')} |
+| standard | ${observations.levels.standard.count} | ${observations.levels.standard.averageScore}/10 | ${observations.levels.standard.averageCut}% | ${Object.entries(
+    observations.levels.standard.buckets
+  )
+    .map(([label, count]) => `${label} ${count}`)
+    .join(', ')} |
+| minify | ${observations.levels.minify.count} | ${observations.levels.minify.averageScore}/10 | ${observations.levels.minify.averageCut}% | ${Object.entries(
+    observations.levels.minify.buckets
+  )
+    .map(([label, count]) => `${label} ${count}`)
+    .join(', ')} |
+| symbols | ${observations.levels.symbols.count} | ${observations.levels.symbols.averageScore}/10 | ${observations.levels.symbols.averageCut}% | ${Object.entries(
+    observations.levels.symbols.buckets
+  )
+    .map(([label, count]) => `${label} ${count}`)
+    .join(', ')} |
+
+| Ext | Format | none | standard | minify | symbols |
+| --- | --- | ---: | ---: | ---: | ---: |
+${observationRows.join('\n')}
 
 ## Competitor Baseline
 
@@ -819,6 +1525,15 @@ ${quality.weakest
   .map(
     metric =>
       `- \`.${metric.ext}\` ${metric.language}: ${metric.agent}/10 ${metric.label}; content-view cut ${metric.contentViewCut}%, async cut ${metric.asyncCut}%, symbols ${metric.symbolsReturned ? 'returned' : 'not returned'}.`
+  )
+  .join('\n')}
+
+## Weakest Agent Understanding Scores
+
+${understanding.weakest
+  .map(
+    metric =>
+      `- \`.${metric.ext}\` ${metric.language}: ${metric.score}/10 ${metric.label}; syntax anchors ${metric.syntaxAnchors}/10, structure ${metric.structure}/10, output health ${metric.outputHealth}/10, context budget ${metric.contextBudget}/10, symbols ${metric.symbols}/10.`
   )
   .join('\n')}
 
@@ -898,6 +1613,9 @@ async function main() {
         coveredExtensions: metrics.length,
         missingExtensions,
         quality: qualitySummary(metrics),
+        agentUnderstanding: agentUnderstandingSummary(metrics),
+        agentObservations: agentObservationSummary(metrics),
+        readmeMinification: readmeMinificationRating(metrics),
         asyncTypeDistribution: asyncTypeDistribution(metrics),
         commonLanguageTypes: commonTypeMetrics(metrics).map(metric => ({
           ext: metric.ext,
@@ -923,6 +1641,8 @@ async function main() {
           sync: metric.sync,
           async: metric.async,
           symbols: metric.symbols,
+          agentUnderstanding: metric.agentUnderstanding,
+          agentObservations: metric.agentObservations,
           ratings: metric.ratings,
           notes: metric.notes,
         })),

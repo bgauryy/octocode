@@ -205,7 +205,7 @@ List every public repository in the `vercel` GitHub organization.
 Look up each of these npm packages: `hono`, `zod`, `vite`.
 For each package, state: current published version, weekly download count, repository URL, and homepage URL.
 
-> *Tests the `packageSearch` exclusive capability. The `gh` CLI has no npm/PyPI registry access — this question documents the full capability gap. Octocode can answer all three in a single bulk call. The `gh` researcher should write `UNKNOWN — out of scope for gh CLI` for this question.*
+> *Tests the `packageSearch` exclusive capability. The `gh` CLI has no npm registry access — this question documents the full capability gap. Octocode can answer all three in a single bulk call. The `gh` researcher should write `UNKNOWN — out of scope for gh CLI` for this question.*
 
 ---
 

@@ -28,6 +28,8 @@ export interface GitHubFileContentApiData {
   endLine?: number;
   isPartial?: boolean;
   totalLines?: number;
+  sourceChars?: number;
+  sourceBytes?: number;
   /** Line ranges of the returned slices when matchString hits multiple spots. */
   matchRanges?: Array<{ start: number; end: number }>;
   matchLocations?: string[];

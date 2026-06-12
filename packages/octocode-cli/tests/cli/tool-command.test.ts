@@ -28,7 +28,7 @@ const publicMocks = vi.hoisted(() => ({
         description: 'Search local code with ripgrep.',
         schema: {
           path: 'Path to search',
-          pattern: 'Pattern to find',
+          keywords: 'Pattern to find',
         },
         hints: { hasResults: [], empty: [] },
       },
@@ -106,7 +106,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -120,7 +120,7 @@ describe('toolCommand', () => {
         queries: [
           expect.objectContaining({
             path: '.',
-            pattern: 'runCLI',
+            keywords: 'runCLI',
             fixedString: true,
             include: ['ts', 'tsx'],
             maxFiles: 5,
@@ -172,7 +172,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -229,7 +229,7 @@ describe('toolCommand', () => {
       options: {
         tool: 'localSearchCode',
         input:
-          '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -249,7 +249,7 @@ describe('toolCommand', () => {
       options: {
         tool: 'localSearchCode',
         path: '.',
-        pattern: 'runCLI',
+        keywords: 'runCLI',
       },
     });
 
@@ -265,7 +265,7 @@ describe('toolCommand', () => {
 
     await toolCommand.handler!({
       command: 'tool',
-      args: ['localSearchCode', '{"path":".","pattern":"runCLI"'],
+      args: ['localSearchCode', '{"path":".","keywords":"runCLI"'],
       options: {
         tool: 'localSearchCode',
       },
@@ -285,7 +285,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -297,7 +297,7 @@ describe('toolCommand', () => {
       expect.stringContaining('Tool input does not match the expected schema.')
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('pattern:')
+      expect.stringContaining('keywords:')
     );
     expect(process.exitCode).toBe(2);
   });
@@ -313,7 +313,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',
@@ -334,7 +334,7 @@ describe('toolCommand', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         tool: 'localSearchCode',

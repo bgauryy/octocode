@@ -125,7 +125,7 @@ The server picks a prompt based on what the agent asks:
 | `githubViewRepoStructure` | GitHub | Repo directory tree |
 | `githubSearchRepositories` | GitHub | Search repos |
 | `githubSearchPullRequests` | GitHub | Search PRs |
-| `packageSearch` | Package | npm / PyPI lookup |
+| `packageSearch` | Package | npm lookup |
 
 ---
 

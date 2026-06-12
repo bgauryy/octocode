@@ -1,4 +1,4 @@
-import type { PaginationInfo } from '@octocodeai/octocode-core/types';
+import type { PaginationInfo } from '../../types/toolResults.js';
 
 export interface GitHubPullRequestApiItem {
   number: number;

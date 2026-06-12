@@ -98,6 +98,8 @@ describe('processFileContentAPI — minify mode', () => {
     expect(result.content).toContain('import { useState }');
     expect(result.content).toContain('export function Counter');
     expect(result.content).not.toContain('setCount(c => c + 1)');
+    expect(result.sourceChars).toBe(TS_CONTENT.length);
+    expect(result.sourceBytes).toBe(Buffer.byteLength(TS_CONTENT, 'utf-8'));
   });
 
   it('minify:"symbols" strips inline comments from import lines in the skeleton', async () => {

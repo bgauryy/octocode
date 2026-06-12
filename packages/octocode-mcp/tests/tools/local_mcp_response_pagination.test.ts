@@ -118,7 +118,7 @@ describe('local tool MCP pagination responses', () => {
           id: 'local_search',
           researchGoal: 'Find local matches',
           reasoning: 'Verify actual MCP output for ripgrep',
-          pattern: 'match',
+          keywords: 'match',
           path: '/workspace',
         },
       ],

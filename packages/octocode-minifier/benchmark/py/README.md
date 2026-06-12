@@ -1,10 +1,12 @@
 # Python (.py)
 
-Source sample: `py/sessions.py`
+Source sample: `py/00-httpx-client.py`
 
 Strategy: `conservative`
 
-Agent rating: **8.6/10 (strong)**
+Agent rating: **8.2/10 (strong)**
+
+Agent understanding from minified output: **9.8/10 (excellent)**
 
 Artifacts:
 
@@ -17,12 +19,37 @@ Artifacts:
 
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
-| input | 34072 | - | - | - |
-| content-view | 26625 | 21.9% | 3.998 ms | 7.8/10 |
-| applyMinification | 26625 | 21.9% | 3.712 ms | 7.8/10 |
-| sync minify | 26625 | 21.9% | 4.445 ms | 7.8/10 |
-| async minify | 26625 | 21.9% | 3.439 ms | 7.8/10 |
-| symbols | 4995 | 85.3% | 0.39 ms | 10/10 |
+| input | 65713 | - | - | - |
+| content-view | 51725 | 21.3% | 20.669 ms | 7.8/10 |
+| applyMinification | 51725 | 21.3% | 29.617 ms | 7.8/10 |
+| sync minify | 51725 | 21.3% | 35.083 ms | 7.8/10 |
+| async minify | 51725 | 21.3% | 20.236 ms | 7.8/10 |
+| symbols | 23947 | 63.6% | 1.415 ms | 9/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 8/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 65713 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 51725 | 21.3% | 9.8/10 excellent | 10/10 | 10/10 |
+| minify | 51725 | 21.3% | 9.8/10 excellent | 10/10 | 10/10 |
+| symbols | 23947 | 63.6% | 8.7/10 strong | 6.7/10 | 9.9/10 |
 
 ## Notes
 
@@ -31,468 +58,461 @@ Artifacts:
 ## Before Excerpt
 
 ```py
-"""
-requests.sessions
-~~~~~~~~~~~~~~~~~
-
-This module provides a Session object to manage and persist settings across
-requests (cookies, auth, proxies).
-"""
-
 from __future__ import annotations
 
-import os
-import sys
+import datetime
+import enum
+import logging
 import time
-from collections import OrderedDict
-from collections.abc import Generator, Mapping, MutableMapping
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+import typing
+import warnings
+from contextlib import asynccontextmanager, contextmanager
+from types import TracebackType
 
-from ._internal_utils import to_native_string
-from ._types import is_prepared as _is_prepared
-from .adapters import HTTPAdapter
-from .auth import _basic_auth_str
-from .compat import cookielib, urljoin, urlparse
-from .cookies import (
-    RequestsCookieJar,
-    cookiejar_from_dict,
-    extract_cookies_to_jar,
-    merge_cookies,
+from .__version__ import __version__
+from ._auth import Auth, BasicAuth, FunctionAuth
+from ._config import (
+    DEFAULT_LIMITS,
+    DEFAULT_MAX_REDIRECTS,
+    DEFAULT_TIMEOUT_CONFIG,
+    Limits,
+    Proxy,
+    Timeout,
 )
-from .exceptions import (
-    ChunkedEncodingError,
-    ContentDecodingError,
-    InvalidSchema,
+from ._decoders import SUPPORTED_DECODERS
+from ._exceptions import (
+    InvalidURL,
+    RemoteProtocolError,
     TooManyRedirects,
+    request_context,
 )
-from .hooks import default_hooks, dispatch_hook
-
-# formerly defined here, reexposed here for backward compatibility
-from .models import (  # noqa: F401
-    DEFAULT_REDIRECT_LIMIT,
-    REDIRECT_STATI,
-    PreparedRequest,
-    Request,
-    Response,
+from ._models import Cookies, Headers, Request, Response
+from ._status_codes import codes
+from ._transports.base import AsyncBaseTransport, BaseTransport
+from ._transports.default import AsyncHTTPTransport, HTTPTransport
+from ._types import (
+    AsyncByteStream,
+    AuthTypes,
+    CertTypes,
+    CookieTypes,
+    HeaderTypes,
+    ProxyTypes,
+    QueryParamTypes,
+    RequestContent,
+    RequestData,
+    RequestExtensions,
+    RequestFiles,
+    SyncByteStream,
+    TimeoutTypes,
 )
-from .status_codes import codes
-from .structures import CaseInsensitiveDict
-from .utils import (  # noqa: F401
-    DEFAUL
+from ._urls import URL, QueryParams
+from ._utils import URLPattern, get_environment_proxies
 
-... [truncated 32272 chars] ...
+if typing.TYPE_CHECKING:
+    import ssl  # pragma: no cove
 
-ttrs__}
-        return state
+... [truncated 63913 chars] ...
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        for attr, value in state.items():
-            setattr(self, attr, value)
+unts.values():
+            if proxy is not None:
+                await proxy.__aenter__()
+        return self
 
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        self._state = ClientState.CLOSED
 
-def session() -> Session:
-    """
-    Returns a :class:`Session` for context-management.
-
-    .. deprecated:: 1.0.0
-
-        This method has been deprecated since version 1.0.0 and is only kept for
-        backwards compatibility. New code should use :class:`~requests.sessions.Session`
-        to create a session. This may be removed at a future date.
-
-    :rtype: Session
-    """
-    return Session()
+        await self._transport.__aexit__(exc_type, exc_value, traceback)
+        for proxy in self._mounts.values():
+            if proxy is not None:
+                await proxy.__aexit__(exc_type, exc_value, traceback)
 
 ```
 
 ## Content-View Excerpt
 
 ```py
-"""
-requests.sessions
-~~~~~~~~~~~~~~~~~
-
-This module provides a Session object to manage and persist settings across
-requests (cookies, auth, proxies).
-"""
-
 from __future__ import annotations
 
-import os
-import sys
+import datetime
+import enum
+import logging
 import time
-from collections import OrderedDict
-from collections.abc import Generator, Mapping, MutableMapping
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+import typing
+import warnings
+from contextlib import asynccontextmanager, contextmanager
+from types import TracebackType
 
-from ._internal_utils import to_native_string
-from ._types import is_prepared as _is_prepared
-from .adapters import HTTPAdapter
-from .auth import _basic_auth_str
-from .compat import cookielib, urljoin, urlparse
-from .cookies import (
-    RequestsCookieJar,
-    cookiejar_from_dict,
-    extract_cookies_to_jar,
-    merge_cookies,
+from .__version__ import __version__
+from ._auth import Auth, BasicAuth, FunctionAuth
+from ._config import (
+    DEFAULT_LIMITS,
+    DEFAULT_MAX_REDIRECTS,
+    DEFAULT_TIMEOUT_CONFIG,
+    Limits,
+    Proxy,
+    Timeout,
 )
-from .exceptions import (
-    ChunkedEncodingError,
-    ContentDecodingError,
-    InvalidSchema,
+from ._decoders import SUPPORTED_DECODERS
+from ._exceptions import (
+    InvalidURL,
+    RemoteProtocolError,
     TooManyRedirects,
+    request_context,
 )
-from .hooks import default_hooks, dispatch_hook
-
-from .models import (
-    DEFAULT_REDIRECT_LIMIT,
-    REDIRECT_STATI,
-    PreparedRequest,
-    Request,
-    Response,
+from ._models import Cookies, Headers, Request, Response
+from ._status_codes import codes
+from ._transports.base import AsyncBaseTransport, BaseTransport
+from ._transports.default import AsyncHTTPTransport, HTTPTransport
+from ._types import (
+    AsyncByteStream,
+    AuthTypes,
+    CertTypes,
+    CookieTypes,
+    HeaderTypes,
+    ProxyTypes,
+    QueryParamTypes,
+    RequestContent,
+    RequestData,
+    RequestExtensions,
+    RequestFiles,
+    SyncByteStream,
+    TimeoutTypes,
 )
-from .status_codes import codes
-from .structures import CaseInsensitiveDict
-from .utils import (
-    DEFAULT_PORTS,
-    default_headers,
-    get_auth_from_url,
-    get_environ_proxies,
-    get_netrc_aut
+from ._urls import URL, QueryParams
+from ._utils import URLPattern, get_environment_proxies
 
-... [truncated 24825 chars] ...
+if typing.TYPE_CHECKING:
+    import ssl
 
-_attrs__}
-        return state
+__all__ = ["USE_C
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        for attr, value in state.items():
-            setattr(self, attr, value)
+... [truncated 49925 chars] ...
 
-def session() -> Session:
-    """
-    Returns a :class:`Session` for context-management.
+ounts.values():
+            if proxy is not None:
+                await proxy.__aenter__()
+        return self
 
-    .. deprecated:: 1.0.0
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        self._state = ClientState.CLOSED
 
-        This method has been deprecated since version 1.0.0 and is only kept for
-        backwards compatibility. New code should use :class:`~requests.sessions.Session`
-        to create a session. This may be removed at a future date.
-
-    :rtype: Session
-    """
-    return Session()
+        await self._transport.__aexit__(exc_type, exc_value, traceback)
+        for proxy in self._mounts.values():
+            if proxy is not None:
+                await proxy.__aexit__(exc_type, exc_value, traceback)
 ```
 
 ## Apply Minification Excerpt
 
 ```py
-"""
-requests.sessions
-~~~~~~~~~~~~~~~~~
-
-This module provides a Session object to manage and persist settings across
-requests (cookies, auth, proxies).
-"""
-
 from __future__ import annotations
 
-import os
-import sys
+import datetime
+import enum
+import logging
 import time
-from collections import OrderedDict
-from collections.abc import Generator, Mapping, MutableMapping
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+import typing
+import warnings
+from contextlib import asynccontextmanager, contextmanager
+from types import TracebackType
 
-from ._internal_utils import to_native_string
-from ._types import is_prepared as _is_prepared
-from .adapters import HTTPAdapter
-from .auth import _basic_auth_str
-from .compat import cookielib, urljoin, urlparse
-from .cookies import (
-    RequestsCookieJar,
-    cookiejar_from_dict,
-    extract_cookies_to_jar,
-    merge_cookies,
+from .__version__ import __version__
+from ._auth import Auth, BasicAuth, FunctionAuth
+from ._config import (
+    DEFAULT_LIMITS,
+    DEFAULT_MAX_REDIRECTS,
+    DEFAULT_TIMEOUT_CONFIG,
+    Limits,
+    Proxy,
+    Timeout,
 )
-from .exceptions import (
-    ChunkedEncodingError,
-    ContentDecodingError,
-    InvalidSchema,
+from ._decoders import SUPPORTED_DECODERS
+from ._exceptions import (
+    InvalidURL,
+    RemoteProtocolError,
     TooManyRedirects,
+    request_context,
 )
-from .hooks import default_hooks, dispatch_hook
-
-from .models import (
-    DEFAULT_REDIRECT_LIMIT,
-    REDIRECT_STATI,
-    PreparedRequest,
-    Request,
-    Response,
+from ._models import Cookies, Headers, Request, Response
+from ._status_codes import codes
+from ._transports.base import AsyncBaseTransport, BaseTransport
+from ._transports.default import AsyncHTTPTransport, HTTPTransport
+from ._types import (
+    AsyncByteStream,
+    AuthTypes,
+    CertTypes,
+    CookieTypes,
+    HeaderTypes,
+    ProxyTypes,
+    QueryParamTypes,
+    RequestContent,
+    RequestData,
+    RequestExtensions,
+    RequestFiles,
+    SyncByteStream,
+    TimeoutTypes,
 )
-from .status_codes import codes
-from .structures import CaseInsensitiveDict
-from .utils import (
-    DEFAULT_PORTS,
-    default_headers,
-    get_auth_from_url,
-    get_environ_proxies,
-    get_netrc_aut
+from ._urls import URL, QueryParams
+from ._utils import URLPattern, get_environment_proxies
 
-... [truncated 24825 chars] ...
+if typing.TYPE_CHECKING:
+    import ssl
 
-_attrs__}
-        return state
+__all__ = ["USE_C
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        for attr, value in state.items():
-            setattr(self, attr, value)
+... [truncated 49925 chars] ...
 
-def session() -> Session:
-    """
-    Returns a :class:`Session` for context-management.
+ounts.values():
+            if proxy is not None:
+                await proxy.__aenter__()
+        return self
 
-    .. deprecated:: 1.0.0
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        self._state = ClientState.CLOSED
 
-        This method has been deprecated since version 1.0.0 and is only kept for
-        backwards compatibility. New code should use :class:`~requests.sessions.Session`
-        to create a session. This may be removed at a future date.
-
-    :rtype: Session
-    """
-    return Session()
+        await self._transport.__aexit__(exc_type, exc_value, traceback)
+        for proxy in self._mounts.values():
+            if proxy is not None:
+                await proxy.__aexit__(exc_type, exc_value, traceback)
 ```
 
 ## Sync Minify Excerpt
 
 ```py
-"""
-requests.sessions
-~~~~~~~~~~~~~~~~~
-
-This module provides a Session object to manage and persist settings across
-requests (cookies, auth, proxies).
-"""
-
 from __future__ import annotations
 
-import os
-import sys
+import datetime
+import enum
+import logging
 import time
-from collections import OrderedDict
-from collections.abc import Generator, Mapping, MutableMapping
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+import typing
+import warnings
+from contextlib import asynccontextmanager, contextmanager
+from types import TracebackType
 
-from ._internal_utils import to_native_string
-from ._types import is_prepared as _is_prepared
-from .adapters import HTTPAdapter
-from .auth import _basic_auth_str
-from .compat import cookielib, urljoin, urlparse
-from .cookies import (
-    RequestsCookieJar,
-    cookiejar_from_dict,
-    extract_cookies_to_jar,
-    merge_cookies,
+from .__version__ import __version__
+from ._auth import Auth, BasicAuth, FunctionAuth
+from ._config import (
+    DEFAULT_LIMITS,
+    DEFAULT_MAX_REDIRECTS,
+    DEFAULT_TIMEOUT_CONFIG,
+    Limits,
+    Proxy,
+    Timeout,
 )
-from .exceptions import (
-    ChunkedEncodingError,
-    ContentDecodingError,
-    InvalidSchema,
+from ._decoders import SUPPORTED_DECODERS
+from ._exceptions import (
+    InvalidURL,
+    RemoteProtocolError,
     TooManyRedirects,
+    request_context,
 )
-from .hooks import default_hooks, dispatch_hook
-
-from .models import (
-    DEFAULT_REDIRECT_LIMIT,
-    REDIRECT_STATI,
-    PreparedRequest,
-    Request,
-    Response,
+from ._models import Cookies, Headers, Request, Response
+from ._status_codes import codes
+from ._transports.base import AsyncBaseTransport, BaseTransport
+from ._transports.default import AsyncHTTPTransport, HTTPTransport
+from ._types import (
+    AsyncByteStream,
+    AuthTypes,
+    CertTypes,
+    CookieTypes,
+    HeaderTypes,
+    ProxyTypes,
+    QueryParamTypes,
+    RequestContent,
+    RequestData,
+    RequestExtensions,
+    RequestFiles,
+    SyncByteStream,
+    TimeoutTypes,
 )
-from .status_codes import codes
-from .structures import CaseInsensitiveDict
-from .utils import (
-    DEFAULT_PORTS,
-    default_headers,
-    get_auth_from_url,
-    get_environ_proxies,
-    get_netrc_aut
+from ._urls import URL, QueryParams
+from ._utils import URLPattern, get_environment_proxies
 
-... [truncated 24825 chars] ...
+if typing.TYPE_CHECKING:
+    import ssl
 
-_attrs__}
-        return state
+__all__ = ["USE_C
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        for attr, value in state.items():
-            setattr(self, attr, value)
+... [truncated 49925 chars] ...
 
-def session() -> Session:
-    """
-    Returns a :class:`Session` for context-management.
+ounts.values():
+            if proxy is not None:
+                await proxy.__aenter__()
+        return self
 
-    .. deprecated:: 1.0.0
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        self._state = ClientState.CLOSED
 
-        This method has been deprecated since version 1.0.0 and is only kept for
-        backwards compatibility. New code should use :class:`~requests.sessions.Session`
-        to create a session. This may be removed at a future date.
-
-    :rtype: Session
-    """
-    return Session()
+        await self._transport.__aexit__(exc_type, exc_value, traceback)
+        for proxy in self._mounts.values():
+            if proxy is not None:
+                await proxy.__aexit__(exc_type, exc_value, traceback)
 ```
 
 ## Async Minify Excerpt
 
 ```py
-"""
-requests.sessions
-~~~~~~~~~~~~~~~~~
-
-This module provides a Session object to manage and persist settings across
-requests (cookies, auth, proxies).
-"""
-
 from __future__ import annotations
 
-import os
-import sys
+import datetime
+import enum
+import logging
 import time
-from collections import OrderedDict
-from collections.abc import Generator, Mapping, MutableMapping
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+import typing
+import warnings
+from contextlib import asynccontextmanager, contextmanager
+from types import TracebackType
 
-from ._internal_utils import to_native_string
-from ._types import is_prepared as _is_prepared
-from .adapters import HTTPAdapter
-from .auth import _basic_auth_str
-from .compat import cookielib, urljoin, urlparse
-from .cookies import (
-    RequestsCookieJar,
-    cookiejar_from_dict,
-    extract_cookies_to_jar,
-    merge_cookies,
+from .__version__ import __version__
+from ._auth import Auth, BasicAuth, FunctionAuth
+from ._config import (
+    DEFAULT_LIMITS,
+    DEFAULT_MAX_REDIRECTS,
+    DEFAULT_TIMEOUT_CONFIG,
+    Limits,
+    Proxy,
+    Timeout,
 )
-from .exceptions import (
-    ChunkedEncodingError,
-    ContentDecodingError,
-    InvalidSchema,
+from ._decoders import SUPPORTED_DECODERS
+from ._exceptions import (
+    InvalidURL,
+    RemoteProtocolError,
     TooManyRedirects,
+    request_context,
 )
-from .hooks import default_hooks, dispatch_hook
-
-from .models import (
-    DEFAULT_REDIRECT_LIMIT,
-    REDIRECT_STATI,
-    PreparedRequest,
-    Request,
-    Response,
+from ._models import Cookies, Headers, Request, Response
+from ._status_codes import codes
+from ._transports.base import AsyncBaseTransport, BaseTransport
+from ._transports.default import AsyncHTTPTransport, HTTPTransport
+from ._types import (
+    AsyncByteStream,
+    AuthTypes,
+    CertTypes,
+    CookieTypes,
+    HeaderTypes,
+    ProxyTypes,
+    QueryParamTypes,
+    RequestContent,
+    RequestData,
+    RequestExtensions,
+    RequestFiles,
+    SyncByteStream,
+    TimeoutTypes,
 )
-from .status_codes import codes
-from .structures import CaseInsensitiveDict
-from .utils import (
-    DEFAULT_PORTS,
-    default_headers,
-    get_auth_from_url,
-    get_environ_proxies,
-    get_netrc_aut
+from ._urls import URL, QueryParams
+from ._utils import URLPattern, get_environment_proxies
 
-... [truncated 24825 chars] ...
+if typing.TYPE_CHECKING:
+    import ssl
 
-_attrs__}
-        return state
+__all__ = ["USE_C
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        for attr, value in state.items():
-            setattr(self, attr, value)
+... [truncated 49925 chars] ...
 
-def session() -> Session:
-    """
-    Returns a :class:`Session` for context-management.
+ounts.values():
+            if proxy is not None:
+                await proxy.__aenter__()
+        return self
 
-    .. deprecated:: 1.0.0
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        self._state = ClientState.CLOSED
 
-        This method has been deprecated since version 1.0.0 and is only kept for
-        backwards compatibility. New code should use :class:`~requests.sessions.Session`
-        to create a session. This may be removed at a future date.
-
-    :rtype: Session
-    """
-    return Session()
+        await self._transport.__aexit__(exc_type, exc_value, traceback)
+        for proxy in self._mounts.values():
+            if proxy is not None:
+                await proxy.__aexit__(exc_type, exc_value, traceback)
 ```
 
 ## Symbols
 
 ```txt
-  9| from __future__ import annotations
- 11| import os
- 12| import sys
- 13| import time
- 14| from collections import OrderedDict
- 15| from collections.abc import Generator, Mapping, MutableMapping
- 16| from datetime import timedelta
- 17| from typing import TYPE_CHECKING, Any, cast
- 19| from ._internal_utils import to_native_string
- 20| from ._types import is_prepared as _is_prepared
- 21| from .adapters import HTTPAdapter
- 22| from .auth import _basic_auth_str
- 23| from .compat import cookielib, urljoin, urlparse
- 24| from .cookies import (
- 30| from .exceptions import (
- 36| from .hooks import default_hooks, dispatch_hook
- 39| from .models import (  # noqa: F401
- 46| from .status_codes import codes
- 47| from .structures import CaseInsensitiveDict
- 48| from .utils import (  # noqa: F401
- 62|     from http.cookiejar import CookieJar
- 64|     from typing_extensions import Self, Unpack
- 66|     from . import _types as _t
- 67|     from .adapters import BaseAdapter
- 76| def merge_setting(
- 77|     request_setting: Any, session_setting: Any, dict_class: type = OrderedDict
- 78| ) -> Any:
-108| def merge_hooks(
-109|     request_hooks: _t.HooksType,
-110|     session_hooks: _t.HooksType,
-111|     dict_class: type = OrderedDict,
-112| ) -> _t.HooksType:
-127| class SessionRedirectMixin:
-132|     def send(self, request: PreparedRequest, **kwargs: Any) -> Response: ...
-134|     def get_redirect_target(self, resp: Response) -> str | None:
-154|     def should_strip_auth(self, old_url: str, new_url: str) -> bool:
-186|     def resolve_redirects(
-187|         self,
-188|         resp: Response,
-189|         req: PreparedRequest,
-190|         stream: bool = False,
-191|         timeout: _t.TimeoutType = None,
-192|         verify: _t.VerifyType = True,
-193|       
+   1| from __future__ import annotations
+   3| import datetime
+   4| import enum
+   5| import logging
+   6| import time
+   7| import typing
+   8| import warnings
+   9| from contextlib import asynccontextmanager, contextmanager
+  10| from types import TracebackType
+  12| from .__version__ import __version__
+  13| from ._auth import Auth, BasicAuth, FunctionAuth
+  14| from ._config import (
+  22| from ._decoders import SUPPORTED_DECODERS
+  23| from ._exceptions import (
+  29| from ._models import Cookies, Headers, Request, Response
+  30| from ._status_codes import codes
+  31| from ._transports.base import AsyncBaseTransport, BaseTransport
+  32| from ._transports.default import AsyncHTTPTransport, HTTPTransport
+  33| from ._types import (
+  48| from ._urls import URL, QueryParams
+  49| from ._utils import URLPattern, get_environment_proxies
+  52|     import ssl  # pragma: no cover
+  54| __all__ = ["USE_CLIENT_DEFAULT", "AsyncClient", "Client"]
+  62| def _is_https_redirect(url: URL, location: URL) -> bool:
+  77| def _port_or_default(url: URL) -> int | None:
+  83| def _same_origin(url: URL, other: URL) -> bool:
+  94| class UseClientDefault:
+ 125| class ClientState(enum.Enum):
+ 139| class BoundSyncStream(SyncByteStream):
+ 145|     def __init__(
+ 146|         self, stream: SyncByteStream, response: Response, start: float
+ 147|     ) -> None:
+ 152|     def __iter__(self) -> typing.Iterator[bytes]:
+ 156|     def close(self) -> None:
+ 162| class BoundAsyncStream(AsyncByteStream):
+ 168|     def __init__(
+ 169|         self, stream: AsyncByteStream, response: Response, start: float
+ 170|     ) -> None:
+ 175|     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
+ 179|     async def aclose(self) -> None:
+ 188| class BaseClient:
+ 189|     def __
 
-... [truncated 2395 chars] ...
+... [truncated 21347 chars] ...
 
-riType, data: _t.DataType = None, **kwargs: Unpack[_t.DataKwargs]
-730|     ) -> Response:
-742|     def delete(self, url: _t.UriType, **kwargs: Unpack[_t.RequestKwargs]) -> Response:
-752|     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
-831|     def merge_environment_settings(
-832|         self,
-833|         url: str,
-834|         proxies: dict[str, str] | None,
-835|         stream: bool | None,
-836|         verify: _t.VerifyType | None,
-837|         cert: _t.CertType,
-838|     ) -> dict[str, Any]:
-870|     def get_adapter(self, url: str) -> BaseAdapter:
-883|     def close(self) -> None:
-888|     def mount(self, prefix: str, adapter: BaseAdapter) -> None:
-899|     def __getstate__(self) -> dict[str, Any]:
-903|     def __setstate__(self, state: dict[str, Any]) -> None:
-908| def session() -> Session:
+|         url: URL | str,
+1952|         *,
+1953|         params: QueryParamTypes | None = None,
+1954|         headers: HeaderTypes | None = None,
+1955|         cookies: CookieTypes | None = None,
+1956|         auth: AuthTypes | UseClientDefault = USE_CLIENT_DEFAULT,
+1957|         follow_redirects: bool | UseClientDefault = USE_CLIENT_DEFAULT,
+1958|         timeout: TimeoutTypes | UseClientDefault = USE_CLIENT_DEFAULT,
+1959|         extensions: RequestExtensions | None = None,
+1960|     ) -> Response:
+1978|     async def aclose(self) -> None:
+1990|     async def __aenter__(self: U) -> U:
+2008|     async def __aexit__(
+2009|         self,
+2010|         exc_type: type[BaseException] | None = None,
+2011|         exc_value: BaseException | None = None,
+2012|         traceback: TracebackType | None = None,
+2013|     ) -> None:
 ```

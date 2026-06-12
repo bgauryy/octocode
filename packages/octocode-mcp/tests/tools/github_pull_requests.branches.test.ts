@@ -85,26 +85,6 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
   });
 
   describe('Per-query validation in execution', () => {
-    it('should return error for query exceeding 256 characters', async () => {
-      const result = await mockServer.callTool(
-        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-        {
-          queries: [
-            {
-              owner: 'test',
-              repo: 'repo',
-              query: 'a'.repeat(257),
-            },
-          ],
-        }
-      );
-
-      expect(result.isError).toBe(true);
-      const responseText = getTextContent(result.content);
-      expect(responseText).toContain('Query too long');
-      expect(mockProvider.searchPullRequests).not.toHaveBeenCalled();
-    });
-
     it('should return error when no valid search params provided', async () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
@@ -138,15 +118,15 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
         TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
         {
           queries: [
-            { owner: 'test', repo: 'repo', query: 'valid' },
-            { owner: 'test', repo: 'repo', query: 'x'.repeat(300) },
+            { owner: 'test', repo: 'repo', keywordsToSearch: ['valid'] },
+            { state: 'open' },
           ],
         }
       );
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('Query too long');
+      expect(responseText).toContain('At least one valid search parameter');
       expect(mockProvider.searchPullRequests).toHaveBeenCalledTimes(1);
     });
   });

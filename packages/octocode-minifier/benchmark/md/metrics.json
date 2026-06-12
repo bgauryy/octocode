@@ -7,24 +7,24 @@
   "commentModel": null,
   "sha256": "b3f6ef2fef88b98cb9ec013a5c86213095e53e40eb228679574e4d06517f33c8",
   "contentView": {
-    "bytes": 3289,
-    "cutPercent": 0.5,
-    "durationMs": 0.216
+    "bytes": 3303,
+    "cutPercent": 0,
+    "durationMs": 3.523
   },
   "applyMinification": {
-    "bytes": 3289,
-    "cutPercent": 0.5,
-    "durationMs": 0.029
+    "bytes": 3303,
+    "cutPercent": 0,
+    "durationMs": 0.865
   },
   "sync": {
-    "bytes": 3289,
-    "cutPercent": 0.5,
-    "durationMs": 0.018
+    "bytes": 3303,
+    "cutPercent": 0,
+    "durationMs": 0.848
   },
   "async": {
-    "bytes": 3289,
-    "cutPercent": 0.5,
-    "durationMs": 0.02,
+    "bytes": 3303,
+    "cutPercent": 0,
+    "durationMs": 0.734,
     "failed": false,
     "type": "markdown",
     "reason": null
@@ -34,16 +34,176 @@
     "returned": false,
     "bytes": null,
     "cutPercent": null,
-    "durationMs": 0.002
+    "durationMs": 0.01
+  },
+  "agentUnderstanding": {
+    "output": "standard",
+    "bytes": 3303,
+    "cutPercent": 0,
+    "score": 9.2,
+    "label": "excellent",
+    "syntaxAnchors": {
+      "score": 10,
+      "hits": 3,
+      "total": 3
+    },
+    "structure": 10,
+    "outputHealth": 10,
+    "contextBudget": 5,
+    "symbols": 7,
+    "signals": [
+      {
+        "name": "standard output is non-empty",
+        "passed": true
+      },
+      {
+        "name": "standard did not grow",
+        "passed": true
+      },
+      {
+        "name": "standard completed",
+        "passed": true
+      },
+      {
+        "name": "language syntax anchors present",
+        "passed": true
+      },
+      {
+        "name": "delimiter structure is balanced enough",
+        "passed": true
+      },
+      {
+        "name": "symbol skeleton returned or not configured",
+        "passed": true
+      }
+    ]
+  },
+  "agentObservations": {
+    "none": {
+      "output": "none",
+      "bytes": 3304,
+      "cutPercent": 0,
+      "score": 10,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 5,
+      "symbols": 7,
+      "signals": [
+        {
+          "name": "none output is exact source",
+          "passed": true
+        },
+        {
+          "name": "none output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "none preserves source fidelity",
+          "passed": true
+        }
+      ]
+    },
+    "standard": {
+      "output": "standard",
+      "bytes": 3303,
+      "cutPercent": 0,
+      "score": 9.2,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 5,
+      "symbols": 7,
+      "signals": [
+        {
+          "name": "standard output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "standard did not grow",
+          "passed": true
+        },
+        {
+          "name": "standard completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "minify": {
+      "output": "minify",
+      "bytes": 3303,
+      "cutPercent": 0,
+      "score": 9.2,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 5,
+      "symbols": 7,
+      "signals": [
+        {
+          "name": "minify output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "minify did not grow",
+          "passed": true
+        },
+        {
+          "name": "minify completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "symbols": null
   },
   "ratings": {
-    "minify": 6.3,
+    "minify": 5.5,
     "symbols": null,
-    "agent": 6.3,
-    "label": "fair"
+    "agent": 5.5,
+    "label": "needs work"
   },
   "notes": [
     "markdown text strategy",
+    "content-view kept original because the readable output was not shorter",
     "symbols are not implemented for this extension"
   ]
 }

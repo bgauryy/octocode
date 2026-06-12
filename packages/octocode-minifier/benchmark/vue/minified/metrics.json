@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 118,
       "cutPercent": 0.8,
-      "durationMs": 0.033
+      "durationMs": 0.046
     },
     "content": "<script setup>\nimport HelloWorld from './components/HelloWorld.vue'\n</script>\n\n<template>\n  <HelloWorld />\n</template>",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 112,
       "cutPercent": 5.9,
-      "durationMs": 0.036
+      "durationMs": 0.026
     },
     "content": "<script setup> import HelloWorld from './components/HelloWorld.vue' </script><template><HelloWorld /></template>",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 112,
       "cutPercent": 5.9,
-      "durationMs": 0.024
+      "durationMs": 0.019
     },
     "content": "<script setup> import HelloWorld from './components/HelloWorld.vue' </script><template><HelloWorld /></template>",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 110,
       "cutPercent": 7.6,
-      "durationMs": 0.172,
+      "durationMs": 0.294,
       "failed": false,
       "type": "aggressive",
       "reason": null

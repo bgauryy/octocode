@@ -1,10 +1,12 @@
 # JavaScript (.js)
 
-Source sample: `js/ReactHooks.js`
+Source sample: `js/00-react-hooks.js`
 
 Strategy: `terser`
 
 Agent rating: **8.5/10 (strong)**
+
+Agent understanding from minified output: **9.5/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 6864 | - | - | - |
-| content-view | 6205 | 9.6% | 0.856 ms | 8.3/10 |
-| applyMinification | 5383 | 21.6% | 1.434 ms | 8.3/10 |
-| sync minify | 5383 | 21.6% | 1.443 ms | 8.3/10 |
-| async minify | 5383 | 21.6% | 1.34 ms | 8.3/10 |
-| symbols | 2657 | 61.3% | 6.716 ms | 9/10 |
+| content-view | 6205 | 9.6% | 3.086 ms | 8.3/10 |
+| applyMinification | 5383 | 21.6% | 3.821 ms | 8.3/10 |
+| sync minify | 5383 | 21.6% | 3.995 ms | 8.3/10 |
+| async minify | 5383 | 21.6% | 1.27 ms | 8.3/10 |
+| symbols | 2657 | 61.3% | 15.143 ms | 9/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 9/10 |
+| context budget | 7/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 6864 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 6205 | 9.6% | 9.5/10 excellent | 10/10 | 10/10 |
+| minify | 5383 | 21.6% | 9.6/10 excellent | 10/10 | 10/10 |
+| symbols | 2657 | 61.3% | 9.3/10 excellent | 10/10 | 7.7/10 |
 
 ## Notes
 

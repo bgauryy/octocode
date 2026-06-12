@@ -43,7 +43,7 @@ describe('package_search execution branches', () => {
         queries: [
           {
             ...baseQuery,
-            name: '',
+            packageName: '',
           } as never,
         ],
       });
@@ -75,7 +75,7 @@ describe('package_search execution branches', () => {
           {
             ...baseQuery,
             id: 'test:1',
-            name: 'some-pkg',
+            packageName: 'some-pkg',
           } as never,
         ],
       });
@@ -116,7 +116,7 @@ describe('package_search execution branches', () => {
         queries: [
           {
             ...baseQuery,
-            name: 'deprecated-pkg',
+            packageName: 'deprecated-pkg',
           } as never,
         ],
       });
@@ -147,7 +147,7 @@ describe('package_search execution branches', () => {
         queries: [
           {
             ...baseQuery,
-            name: 'zod',
+            packageName: 'zod',
           } as never,
         ],
       });
@@ -167,7 +167,7 @@ describe('package_search execution branches', () => {
       });
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'err:1', name: 'react' } as never],
+        queries: [{ ...baseQuery, id: 'err:1', packageName: 'react' } as never],
       });
 
       expect(result.isError).toBe(true);
@@ -181,7 +181,9 @@ describe('package_search execution branches', () => {
       });
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'err:2', name: 'lodash' } as never],
+        queries: [
+          { ...baseQuery, id: 'err:2', packageName: 'lodash' } as never,
+        ],
       });
 
       expect(result.isError).toBe(true);
@@ -193,7 +195,7 @@ describe('package_search execution branches', () => {
       mockSearchPackage.mockRejectedValue(new Error('fetch failed'));
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'err:3', name: 'axios' } as never],
+        queries: [{ ...baseQuery, id: 'err:3', packageName: 'axios' } as never],
       });
 
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
@@ -213,7 +215,7 @@ describe('package_search execution branches', () => {
 
       const result = await searchPackages({
         queries: [
-          { ...baseQuery, id: 'hint:1', name: 'octocode-mcp' } as never,
+          { ...baseQuery, id: 'hint:1', packageName: 'octocode-mcp' } as never,
         ],
       });
 
@@ -244,7 +246,7 @@ describe('package_search execution branches', () => {
           {
             ...baseQuery,
             id: 'fallback:1',
-            name: '@modelcontextprotocol/sdk',
+            packageName: '@modelcontextprotocol/sdk',
           } as never,
         ],
       });
@@ -282,7 +284,7 @@ describe('package_search execution branches', () => {
 
       const result = await searchPackages({
         queries: [
-          { ...baseQuery, id: 'handoff:1', name: '@scope/pkg' } as never,
+          { ...baseQuery, id: 'handoff:1', packageName: '@scope/pkg' } as never,
         ],
       });
 
@@ -318,7 +320,9 @@ describe('package_search execution branches', () => {
       });
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'cli:1', name: 'clitool' } as never],
+        queries: [
+          { ...baseQuery, id: 'cli:1', packageName: 'clitool' } as never,
+        ],
       });
 
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
@@ -348,7 +352,9 @@ describe('package_search execution branches', () => {
       });
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'handoff:2', name: 'non-gh' } as never],
+        queries: [
+          { ...baseQuery, id: 'handoff:2', packageName: 'non-gh' } as never,
+        ],
       });
 
       const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
@@ -376,7 +382,7 @@ describe('package_search execution branches', () => {
       });
 
       const result = await searchPackages({
-        queries: [{ ...baseQuery, name: 'no-repo-pkg' } as never],
+        queries: [{ ...baseQuery, packageName: 'no-repo-pkg' } as never],
       });
 
       expect(result.isError).not.toBe(true);

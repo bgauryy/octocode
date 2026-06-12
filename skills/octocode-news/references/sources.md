@@ -297,7 +297,6 @@ Trending repositories, star velocity, changelogs, and release notes across categ
 | Socket Trending | https://socket.dev/npm/category/trending |
 | LibHunt         | https://www.libhunt.com                  |
 | npm trends      | https://npmtrends.com                    |
-| PyPI Stats      | https://pypistats.org                    |
 | Star History    | https://star-history.com                 |
 | OSS Insight     | https://ossinsight.io/                   |
 | Good AI List    | https://goodailist.com/repos             |

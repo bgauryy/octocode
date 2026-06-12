@@ -1,30 +1,30 @@
 {
   "ext": "jsx",
   "language": "JSX",
-  "source": "jsx/vite-app.jsx",
-  "sourceBytes": 3646,
+  "source": "jsx/00-fullcalendar-demo.jsx",
+  "sourceBytes": 3825,
   "strategy": "terser",
   "commentModel": "c-style",
-  "sha256": "7f89394a67eee963118aa51f09a6596af2d1e22632f205f4d073bb362f990ea5",
+  "sha256": "9c844ad28276af497dfd5a0c99b55a2cb86cb70b31134137956f3176ad689792",
   "contentView": {
-    "bytes": 3645,
-    "cutPercent": 0,
-    "durationMs": 1.359
+    "bytes": 3466,
+    "cutPercent": 9.4,
+    "durationMs": 2.485
   },
   "applyMinification": {
-    "bytes": 2894,
-    "cutPercent": 20.6,
-    "durationMs": 26.478
+    "bytes": 3025,
+    "cutPercent": 20.9,
+    "durationMs": 57.469
   },
   "sync": {
-    "bytes": 2894,
-    "cutPercent": 20.6,
-    "durationMs": 8.834
+    "bytes": 3025,
+    "cutPercent": 20.9,
+    "durationMs": 27.718
   },
   "async": {
-    "bytes": 2894,
-    "cutPercent": 20.6,
-    "durationMs": 6.705,
+    "bytes": 3025,
+    "cutPercent": 20.9,
+    "durationMs": 29.209,
     "failed": false,
     "type": "terser",
     "reason": null
@@ -32,9 +32,209 @@
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 246,
-    "cutPercent": 93.3,
-    "durationMs": 0.658
+    "bytes": 600,
+    "cutPercent": 84.3,
+    "durationMs": 3.46
+  },
+  "agentUnderstanding": {
+    "output": "standard",
+    "bytes": 3466,
+    "cutPercent": 9.4,
+    "score": 9.7,
+    "label": "excellent",
+    "syntaxAnchors": {
+      "score": 10,
+      "hits": 3,
+      "total": 3
+    },
+    "structure": 10,
+    "outputHealth": 10,
+    "contextBudget": 7,
+    "symbols": 10,
+    "signals": [
+      {
+        "name": "standard output is non-empty",
+        "passed": true
+      },
+      {
+        "name": "standard did not grow",
+        "passed": true
+      },
+      {
+        "name": "standard completed",
+        "passed": true
+      },
+      {
+        "name": "language syntax anchors present",
+        "passed": true
+      },
+      {
+        "name": "delimiter structure is balanced enough",
+        "passed": true
+      },
+      {
+        "name": "symbol skeleton returned or not configured",
+        "passed": true
+      }
+    ]
+  },
+  "agentObservations": {
+    "none": {
+      "output": "none",
+      "bytes": 3825,
+      "cutPercent": 0,
+      "score": 10,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 5,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "none output is exact source",
+          "passed": true
+        },
+        {
+          "name": "none output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "none preserves source fidelity",
+          "passed": true
+        }
+      ]
+    },
+    "standard": {
+      "output": "standard",
+      "bytes": 3466,
+      "cutPercent": 9.4,
+      "score": 9.7,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 7,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "standard output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "standard did not grow",
+          "passed": true
+        },
+        {
+          "name": "standard completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "minify": {
+      "output": "minify",
+      "bytes": 3025,
+      "cutPercent": 20.9,
+      "score": 8.5,
+      "label": "strong",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 8,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "minify output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "minify did not grow",
+          "passed": true
+        },
+        {
+          "name": "minify completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "symbols": {
+      "output": "symbols",
+      "bytes": 600,
+      "cutPercent": 84.3,
+      "score": 8.2,
+      "label": "strong",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 8.6,
+      "outputHealth": 10,
+      "contextBudget": 8,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "symbols output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "symbols did not grow",
+          "passed": true
+        },
+        {
+          "name": "symbols completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    }
   },
   "ratings": {
     "minify": 8.3,
@@ -43,7 +243,6 @@
     "label": "strong"
   },
   "notes": [
-    "engine-backed or parser-backed path",
-    "content-view kept original because the readable output was not shorter"
+    "engine-backed or parser-backed path"
   ]
 }

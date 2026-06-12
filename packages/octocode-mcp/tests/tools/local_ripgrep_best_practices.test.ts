@@ -108,7 +108,7 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
       id: 'q1',
       researchGoal: 'test',
       reasoning: 'unit',
-      pattern: 'foo',
+      keywords: 'foo',
       path: '/tmp/repo',
     } as Parameters<typeof searchContentRipgrep>[0]);
 

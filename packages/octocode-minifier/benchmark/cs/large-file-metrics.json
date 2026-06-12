@@ -1,0 +1,42 @@
+{
+  "ext": "cs",
+  "language": "C#",
+  "description": "ASP.NET Core OrderService with XML docs and EF Core",
+  "inputBytes": 8485,
+  "inputLines": 226,
+  "contentView": {
+    "bytes": 5687,
+    "cutPct": 33,
+    "ms": 1.91
+  },
+  "applyMinify": {
+    "bytes": 5687,
+    "cutPct": 33,
+    "ms": 2.39
+  },
+  "syncMinify": {
+    "bytes": 5687,
+    "cutPct": 33,
+    "ms": 2.26
+  },
+  "asyncMinify": {
+    "bytes": 5687,
+    "cutPct": 33,
+    "ms": 2.47,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 1539,
+    "cutPct": 81.9,
+    "ms": 0.12
+  },
+  "rating": {
+    "score": 7.5,
+    "label": "good"
+  },
+  "notes": [
+    "/// XML doc comments stripped",
+    "Block comments stripped"
+  ]
+}

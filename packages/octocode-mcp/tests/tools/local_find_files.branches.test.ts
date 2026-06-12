@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { findFiles as findFilesImpl } from '../../src/tools/local_find_files/findFiles.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
-import * as pathValidator from 'octocode-security-utils/pathValidator';
+import * as pathValidator from 'octocode-security/pathValidator';
 
 // The MCP overlay schema (scheme.ts) layers `page`/`itemsPerPage` on top of
 // the upstream query type; findFiles reads them via runtime casts. This
@@ -24,7 +24,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
   getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },

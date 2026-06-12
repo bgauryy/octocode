@@ -1,0 +1,42 @@
+{
+  "ext": "tsx",
+  "language": "TSX",
+  "description": "App router component with route metadata and Suspense",
+  "inputBytes": 10509,
+  "inputLines": 422,
+  "contentView": {
+    "bytes": 10507,
+    "cutPct": 0,
+    "ms": 28.44
+  },
+  "applyMinify": {
+    "bytes": 7518,
+    "cutPct": 28.5,
+    "ms": 68.54
+  },
+  "syncMinify": {
+    "bytes": 7518,
+    "cutPct": 28.5,
+    "ms": 44.81
+  },
+  "asyncMinify": {
+    "bytes": 7518,
+    "cutPct": 28.5,
+    "ms": 44.29,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 477,
+    "cutPct": 95.5,
+    "ms": 13.7
+  },
+  "rating": {
+    "score": 6,
+    "label": "fair"
+  },
+  "notes": [
+    "TypeScript compiler + JSX transform + Terser pipeline",
+    "Large partial-friendly React component tree with type-only declarations"
+  ]
+}

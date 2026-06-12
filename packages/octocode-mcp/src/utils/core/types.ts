@@ -22,12 +22,18 @@ export interface PaginationInfo {
   charLength?: number;
   totalChars?: number;
 
+  perPage?: number;
+  itemsPerPage?: number;
   filesPerPage?: number;
   totalFiles?: number;
   entriesPerPage?: number;
   totalEntries?: number;
   matchesPerPage?: number;
   totalMatches?: number;
+  reportedTotalMatches?: number;
+  reachableTotalMatches?: number;
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
 }
 
 export interface SearchStats {

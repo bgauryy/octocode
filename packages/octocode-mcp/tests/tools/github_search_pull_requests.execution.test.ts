@@ -38,29 +38,6 @@ describe('github_search_pull_requests/execution', () => {
     vi.clearAllMocks();
   });
 
-  it('returns validation error when query is too long without provider call', async () => {
-    const result = await searchMultipleGitHubPullRequests({
-      queries: [
-        {
-          id: 'pr_exec_1',
-          query: 'x'.repeat(257),
-          mainResearchGoal: 'test',
-          researchGoal: 'test',
-          reasoning: 'test',
-        },
-      ],
-      authInfo: undefined,
-      sessionId: undefined,
-    });
-
-    expect(getFirstText(result)).toContain(
-      'Query too long. Maximum 256 characters allowed.'
-    );
-    expect(createLazyProviderContext).toHaveBeenCalledTimes(1);
-    expect(executeProviderOperation).not.toHaveBeenCalled();
-    expect(mockSearchPullRequests).not.toHaveBeenCalled();
-  });
-
   it('returns validation error when no valid search parameters are provided', async () => {
     const result = await searchMultipleGitHubPullRequests({
       queries: [

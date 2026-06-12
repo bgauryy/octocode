@@ -1,4 +1,4 @@
-import { findCommand } from './commands.js';
+import { findCommand } from './commands/index.js';
 import type { CLICommand, CLICommandSpec } from './types.js';
 
 export function findStaticCommandHelp(

@@ -7,6 +7,7 @@ import type {
 } from '../types.js';
 
 import { searchGitHubPullRequestsAPI } from '../../github/pullRequestSearch.js';
+import type { PaginationInfo } from '../../types/toolResults.js';
 
 import type { GitHubPullRequestsSearchParams } from '../../github/githubAPI.js';
 
@@ -18,6 +19,23 @@ import { countSerializedChars } from '../../utils/response/charSavings.js';
 
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
 export { parseGitHubProjectId } from './utils.js';
+
+function countMetadata(pagination: PaginationInfo | undefined) {
+  return {
+    ...(typeof pagination?.reportedTotalMatches === 'number'
+      ? { reportedTotalMatches: pagination.reportedTotalMatches }
+      : {}),
+    ...(typeof pagination?.reachableTotalMatches === 'number'
+      ? { reachableTotalMatches: pagination.reachableTotalMatches }
+      : {}),
+    ...(pagination?.totalMatchesKind
+      ? { totalMatchesKind: pagination.totalMatchesKind }
+      : {}),
+    ...(typeof pagination?.totalMatchesCapped === 'boolean'
+      ? { totalMatchesCapped: pagination.totalMatchesCapped }
+      : {}),
+  };
+}
 
 export function transformPullRequestResult(
   data: GitHubPullRequestSearchApiData,
@@ -106,6 +124,7 @@ export function transformPullRequestResult(
       hasMore: data.pagination?.hasMore || false,
       totalMatches: data.pagination?.totalMatches,
       entriesPerPage: data.pagination?.perPage,
+      ...countMetadata(data.pagination),
     },
     repositoryContext: owner && repo ? { owner, repo } : undefined,
   };

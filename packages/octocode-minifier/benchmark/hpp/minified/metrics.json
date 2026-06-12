@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 15620,
       "cutPercent": 38.3,
-      "durationMs": 3.542
+      "durationMs": 9.3
     },
     "content": "#ifndef FMT_COLOR_H_\n#define FMT_COLOR_H_\n\n#include \"format.h\"\n\nFMT_BEGIN_NAMESPACE\nFMT_BEGIN_EXPORT\n\nenum class color : uint32_t {\n  alice_blue = 0xF0F8FF,\n  antique_white = 0xFAEBD7,\n  aqua = 0x00FFFF,\n  aquamarine = 0x7FFFD4,\n  azure = 0xF0FFFF,\n  beige = 0xF5F5DC,\n  bisque = 0xFFE4C4,\n  black = 0x000000,\n  blanched_almond = 0xFFEBCD,\n  blue = 0x0000FF,\n  blue_violet = 0x8A2BE2,\n  brown = 0xA52A2A,\n  burly_wood = 0xDEB887,\n  cadet_blue = 0x5F9EA0,\n  chartreuse = 0x7FFF00,\n  chocolate = 0xD2691E,\n  coral = 0xFF7F50,\n  cornflower_blue = 0x6495ED,\n  cornsilk = 0xFFF8DC,\n  crimson = 0xDC143C,\n  cyan = 0x00FFFF,\n  dark_blue = 0x00008B,\n  dark_cyan = 0x008B8B,\n  dark_golden_rod = 0xB8860B,\n  dark_gray = 0xA9A9A9,\n  dark_green = 0x006400,\n  dark_khaki = 0xBDB76B,\n  dark_magenta = 0x8B008B,\n  dark_olive_green = 0x556B2F,\n  dark_orange = 0xFF8C00,\n  dark_orchid = 0x9932CC,\n  dark_red = 0x8B0000,\n  dark_salmon = 0xE9967A,\n  dark_sea_green = 0x8FBC8F,\n  dark_slate_blue = 0x483D8B,\n  dark_slate_gray = 0x2F4F4F,\n  dark_turquoise = 0x00CED1,\n  dark_violet = 0x9400D3,\n  deep_pink = 0xFF1493,\n  deep_sky_blue = 0x00BFFF,\n  dim_gray = 0x696969,\n  dodger_blue = 0x1E90FF,\n  fire_brick = 0xB22222,\n  floral_white = 0xFFFAF0\n\n... [truncated 13820 chars] ...\n\nd_color<Char>(ts.get_background());\n      out = detail::copy<Char>(background.begin(), background.end(), out);\n    }\n    out = formatter<T, Char>::format(arg.value, ctx);\n    if (has_style) {\n      auto reset_color = string_view(\"\\x1b[0m\");\n      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);\n    }\n    return out;\n  }\n};\n\ntemplate <typename T>\nFMT_CONSTEXPR auto styled(const T& value, text_style ts)\n    -> detail::styled_arg<remove_cvref_t<T>> {\n  return detail::styled_arg<remove_cvref_t<T>>{value, ts};\n}\n\nFMT_END_EXPORT\nFMT_END_NAMESPACE\n\n#endif",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 15620,
       "cutPercent": 38.3,
-      "durationMs": 4.002
+      "durationMs": 8.316
     },
     "content": "#ifndef FMT_COLOR_H_\n#define FMT_COLOR_H_\n\n#include \"format.h\"\n\nFMT_BEGIN_NAMESPACE\nFMT_BEGIN_EXPORT\n\nenum class color : uint32_t {\n  alice_blue = 0xF0F8FF,\n  antique_white = 0xFAEBD7,\n  aqua = 0x00FFFF,\n  aquamarine = 0x7FFFD4,\n  azure = 0xF0FFFF,\n  beige = 0xF5F5DC,\n  bisque = 0xFFE4C4,\n  black = 0x000000,\n  blanched_almond = 0xFFEBCD,\n  blue = 0x0000FF,\n  blue_violet = 0x8A2BE2,\n  brown = 0xA52A2A,\n  burly_wood = 0xDEB887,\n  cadet_blue = 0x5F9EA0,\n  chartreuse = 0x7FFF00,\n  chocolate = 0xD2691E,\n  coral = 0xFF7F50,\n  cornflower_blue = 0x6495ED,\n  cornsilk = 0xFFF8DC,\n  crimson = 0xDC143C,\n  cyan = 0x00FFFF,\n  dark_blue = 0x00008B,\n  dark_cyan = 0x008B8B,\n  dark_golden_rod = 0xB8860B,\n  dark_gray = 0xA9A9A9,\n  dark_green = 0x006400,\n  dark_khaki = 0xBDB76B,\n  dark_magenta = 0x8B008B,\n  dark_olive_green = 0x556B2F,\n  dark_orange = 0xFF8C00,\n  dark_orchid = 0x9932CC,\n  dark_red = 0x8B0000,\n  dark_salmon = 0xE9967A,\n  dark_sea_green = 0x8FBC8F,\n  dark_slate_blue = 0x483D8B,\n  dark_slate_gray = 0x2F4F4F,\n  dark_turquoise = 0x00CED1,\n  dark_violet = 0x9400D3,\n  deep_pink = 0xFF1493,\n  deep_sky_blue = 0x00BFFF,\n  dim_gray = 0x696969,\n  dodger_blue = 0x1E90FF,\n  fire_brick = 0xB22222,\n  floral_white = 0xFFFAF0\n\n... [truncated 13820 chars] ...\n\nd_color<Char>(ts.get_background());\n      out = detail::copy<Char>(background.begin(), background.end(), out);\n    }\n    out = formatter<T, Char>::format(arg.value, ctx);\n    if (has_style) {\n      auto reset_color = string_view(\"\\x1b[0m\");\n      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);\n    }\n    return out;\n  }\n};\n\ntemplate <typename T>\nFMT_CONSTEXPR auto styled(const T& value, text_style ts)\n    -> detail::styled_arg<remove_cvref_t<T>> {\n  return detail::styled_arg<remove_cvref_t<T>>{value, ts};\n}\n\nFMT_END_EXPORT\nFMT_END_NAMESPACE\n\n#endif",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 15620,
       "cutPercent": 38.3,
-      "durationMs": 3.5
+      "durationMs": 9.964
     },
     "content": "#ifndef FMT_COLOR_H_\n#define FMT_COLOR_H_\n\n#include \"format.h\"\n\nFMT_BEGIN_NAMESPACE\nFMT_BEGIN_EXPORT\n\nenum class color : uint32_t {\n  alice_blue = 0xF0F8FF,\n  antique_white = 0xFAEBD7,\n  aqua = 0x00FFFF,\n  aquamarine = 0x7FFFD4,\n  azure = 0xF0FFFF,\n  beige = 0xF5F5DC,\n  bisque = 0xFFE4C4,\n  black = 0x000000,\n  blanched_almond = 0xFFEBCD,\n  blue = 0x0000FF,\n  blue_violet = 0x8A2BE2,\n  brown = 0xA52A2A,\n  burly_wood = 0xDEB887,\n  cadet_blue = 0x5F9EA0,\n  chartreuse = 0x7FFF00,\n  chocolate = 0xD2691E,\n  coral = 0xFF7F50,\n  cornflower_blue = 0x6495ED,\n  cornsilk = 0xFFF8DC,\n  crimson = 0xDC143C,\n  cyan = 0x00FFFF,\n  dark_blue = 0x00008B,\n  dark_cyan = 0x008B8B,\n  dark_golden_rod = 0xB8860B,\n  dark_gray = 0xA9A9A9,\n  dark_green = 0x006400,\n  dark_khaki = 0xBDB76B,\n  dark_magenta = 0x8B008B,\n  dark_olive_green = 0x556B2F,\n  dark_orange = 0xFF8C00,\n  dark_orchid = 0x9932CC,\n  dark_red = 0x8B0000,\n  dark_salmon = 0xE9967A,\n  dark_sea_green = 0x8FBC8F,\n  dark_slate_blue = 0x483D8B,\n  dark_slate_gray = 0x2F4F4F,\n  dark_turquoise = 0x00CED1,\n  dark_violet = 0x9400D3,\n  deep_pink = 0xFF1493,\n  deep_sky_blue = 0x00BFFF,\n  dim_gray = 0x696969,\n  dodger_blue = 0x1E90FF,\n  fire_brick = 0xB22222,\n  floral_white = 0xFFFAF0\n\n... [truncated 13820 chars] ...\n\nd_color<Char>(ts.get_background());\n      out = detail::copy<Char>(background.begin(), background.end(), out);\n    }\n    out = formatter<T, Char>::format(arg.value, ctx);\n    if (has_style) {\n      auto reset_color = string_view(\"\\x1b[0m\");\n      out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);\n    }\n    return out;\n  }\n};\n\ntemplate <typename T>\nFMT_CONSTEXPR auto styled(const T& value, text_style ts)\n    -> detail::styled_arg<remove_cvref_t<T>> {\n  return detail::styled_arg<remove_cvref_t<T>>{value, ts};\n}\n\nFMT_END_EXPORT\nFMT_END_NAMESPACE\n\n#endif",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 15620,
       "cutPercent": 38.3,
-      "durationMs": 3.47,
+      "durationMs": 4.265,
       "failed": false,
       "type": "conservative",
       "reason": null

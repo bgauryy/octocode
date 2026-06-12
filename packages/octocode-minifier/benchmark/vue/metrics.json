@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 118,
     "cutPercent": 0.8,
-    "durationMs": 0.033
+    "durationMs": 0.046
   },
   "applyMinification": {
     "bytes": 112,
     "cutPercent": 5.9,
-    "durationMs": 0.036
+    "durationMs": 0.026
   },
   "sync": {
     "bytes": 112,
     "cutPercent": 5.9,
-    "durationMs": 0.024
+    "durationMs": 0.019
   },
   "async": {
     "bytes": 110,
     "cutPercent": 7.6,
-    "durationMs": 0.172,
+    "durationMs": 0.294,
     "failed": false,
     "type": "aggressive",
     "reason": null
@@ -34,7 +34,207 @@
     "returned": true,
     "bytes": 87,
     "cutPercent": 26.9,
-    "durationMs": 0.077
+    "durationMs": 0.157
+  },
+  "agentUnderstanding": {
+    "output": "standard",
+    "bytes": 118,
+    "cutPercent": 0.8,
+    "score": 7.9,
+    "label": "good",
+    "syntaxAnchors": {
+      "score": 6.7,
+      "hits": 2,
+      "total": 3
+    },
+    "structure": 8,
+    "outputHealth": 10,
+    "contextBudget": 6,
+    "symbols": 10,
+    "signals": [
+      {
+        "name": "standard output is non-empty",
+        "passed": true
+      },
+      {
+        "name": "standard did not grow",
+        "passed": true
+      },
+      {
+        "name": "standard completed",
+        "passed": true
+      },
+      {
+        "name": "language syntax anchors present",
+        "passed": true
+      },
+      {
+        "name": "delimiter structure is balanced enough",
+        "passed": true
+      },
+      {
+        "name": "symbol skeleton returned or not configured",
+        "passed": true
+      }
+    ]
+  },
+  "agentObservations": {
+    "none": {
+      "output": "none",
+      "bytes": 119,
+      "cutPercent": 0,
+      "score": 10,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 8,
+      "outputHealth": 10,
+      "contextBudget": 5,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "none output is exact source",
+          "passed": true
+        },
+        {
+          "name": "none output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "none preserves source fidelity",
+          "passed": true
+        }
+      ]
+    },
+    "standard": {
+      "output": "standard",
+      "bytes": 118,
+      "cutPercent": 0.8,
+      "score": 7.9,
+      "label": "good",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 8,
+      "outputHealth": 10,
+      "contextBudget": 6,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "standard output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "standard did not grow",
+          "passed": true
+        },
+        {
+          "name": "standard completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "minify": {
+      "output": "minify",
+      "bytes": 110,
+      "cutPercent": 7.6,
+      "score": 8,
+      "label": "strong",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 8,
+      "outputHealth": 10,
+      "contextBudget": 7,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "minify output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "minify did not grow",
+          "passed": true
+        },
+        {
+          "name": "minify completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "symbols": {
+      "output": "symbols",
+      "bytes": 87,
+      "cutPercent": 26.9,
+      "score": 8.2,
+      "label": "strong",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 8,
+      "outputHealth": 10,
+      "contextBudget": 9,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "symbols output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "symbols did not grow",
+          "passed": true
+        },
+        {
+          "name": "symbols completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    }
   },
   "ratings": {
     "minify": 7.5,

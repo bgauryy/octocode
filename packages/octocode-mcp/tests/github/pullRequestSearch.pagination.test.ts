@@ -163,6 +163,9 @@ describe('Pull Request Search - Pagination', () => {
 
         expect(result.pagination?.totalPages).toBe(10);
         expect(result.pagination?.totalMatches).toBe(95);
+        expect(result.pagination?.reportedTotalMatches).toBe(95);
+        expect(result.pagination?.reachableTotalMatches).toBe(95);
+        expect(result.pagination?.totalMatchesKind).toBe('reported');
       });
 
       it('should cap totalPages at 10 (GitHub 1000 result limit)', async () => {
@@ -184,6 +187,9 @@ describe('Pull Request Search - Pagination', () => {
 
         expect(result.pagination?.totalPages).toBe(10);
         expect(result.pagination?.totalMatches).toBe(1000);
+        expect(result.pagination?.reportedTotalMatches).toBe(5000);
+        expect(result.pagination?.reachableTotalMatches).toBe(1000);
+        expect(result.pagination?.totalMatchesCapped).toBe(true);
       });
 
       it('should set hasMore=true when more pages exist', async () => {
@@ -300,6 +306,9 @@ describe('Pull Request Search - Pagination', () => {
 
       expect(result.pagination?.hasMore).toBe(true);
       expect(result.pagination?.currentPage).toBe(1);
+      expect(result.pagination?.totalMatches).toBe(6);
+      expect(result.pagination?.reachableTotalMatches).toBe(5);
+      expect(result.pagination?.totalMatchesKind).toBe('lowerBound');
     });
 
     it('should set hasMore=false when results are less than limit', async () => {
@@ -322,6 +331,9 @@ describe('Pull Request Search - Pagination', () => {
       });
 
       expect(result.pagination?.hasMore).toBe(false);
+      expect(result.pagination?.totalMatches).toBe(3);
+      expect(result.pagination?.reachableTotalMatches).toBe(3);
+      expect(result.pagination?.totalMatchesKind).toBe('exact');
     });
   });
 

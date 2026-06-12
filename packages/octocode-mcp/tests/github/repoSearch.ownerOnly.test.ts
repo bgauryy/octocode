@@ -159,6 +159,8 @@ describe('repoSearch — owner-only mode (listForOrg / listForUser path, lines 9
 
     if ('data' in result) {
       expect(result.data.pagination.totalMatches).toBeGreaterThan(perPage);
+      expect(result.data.pagination.totalMatchesKind).toBe('lowerBound');
+      expect(result.data.pagination.reachableTotalMatches).toBe(perPage);
     }
   });
 

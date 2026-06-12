@@ -35,7 +35,6 @@ const FindFilesQueryShape = z.object({
   minDepth: clampedInt(0, 100)
     .optional()
     .describe(QUERY_DESCRIPTIONS.minDepth!),
-  name: z.string().optional().describe(QUERY_DESCRIPTIONS.name!),
   names: z.array(z.string()).optional().describe(QUERY_DESCRIPTIONS.names!),
   pathPattern: z.string().optional().describe(QUERY_DESCRIPTIONS.pathPattern!),
   regex: z.string().optional().describe(QUERY_DESCRIPTIONS.regex!),

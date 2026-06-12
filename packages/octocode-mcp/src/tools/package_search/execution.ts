@@ -351,7 +351,7 @@ export async function searchPackages(
     queries,
     async (query: PackageSearchQuery, _index: number) => {
       try {
-        if (!query.name) {
+        if (!query.packageName) {
           return createErrorResult(
             'Package name is required for package search',
             query
@@ -362,15 +362,20 @@ export async function searchPackages(
           ...query,
           mode,
         } as PackageSearchQuery & {
-          name: string;
+          packageName: string;
         };
-        const apiResult = await searchPackage(validatedQuery);
+        const apiResult = await searchPackage({
+          ...validatedQuery,
+          name: validatedQuery.packageName,
+        });
 
         if (isPackageSearchError(apiResult)) {
           const errorHints = getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
             originalError: apiResult.error,
           });
-          const nameVariations = generateNameVariations(validatedQuery.name);
+          const nameVariations = generateNameVariations(
+            validatedQuery.packageName
+          );
           const variationHint =
             nameVariations.length > 0
               ? [`Try: ${nameVariations.join(', ')}`]
@@ -564,7 +569,7 @@ function generateSuccessHints(
 
 function generateEmptyHints(query: PackageSearchQuery): string[] {
   const hints: string[] = [];
-  const name = query.name;
+  const name = query.packageName;
 
   hints.push(`No npm packages found for '${name}'`);
 

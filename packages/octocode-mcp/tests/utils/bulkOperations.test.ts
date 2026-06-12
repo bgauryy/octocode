@@ -318,8 +318,8 @@ describe('executeBulkOperation', () => {
 
     it('surfaces error messages in the text payload when every query fails (regression)', async () => {
       const queries = [
-        { id: 'q1', pattern: 'x', path: '/tmp' },
-        { id: 'q2', pattern: 'y', path: '/tmp' },
+        { id: 'q1', keywords: 'x', path: '/tmp' },
+        { id: 'q2', keywords: 'y', path: '/tmp' },
       ];
       const processor = vi.fn().mockResolvedValue({
         status: 'error' as const,

@@ -26,7 +26,7 @@ const PackageSearchQueryShape = z.object({
     .optional()
     .describe(QUERY_DESCRIPTIONS.researchGoal!),
   reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  name: z.string().describe(QUERY_DESCRIPTIONS.name!),
+  packageName: z.string().describe(QUERY_DESCRIPTIONS.packageName!),
   mode: z
     .enum(PACKAGE_SEARCH_MODES)
     .optional()

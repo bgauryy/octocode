@@ -129,7 +129,7 @@ describe('local + LSP tool stats runtime contract', () => {
           id: 'rg',
           researchGoal: 'exercise localSearchCode stats',
           reasoning: 'prove runtime char savings emission',
-          pattern: 'foo',
+          keywords: 'foo',
           path: '/workspace',
         },
       ],

@@ -26,6 +26,8 @@ type FileEntry = {
   contentView?: 'none' | 'standard' | 'symbols';
   isSkeleton?: boolean;
   totalLines?: number;
+  sourceChars?: number;
+  sourceBytes?: number;
   resolvedBranch?: string;
   pagination?: PaginationInfo;
   isPartial?: boolean;
@@ -222,6 +224,8 @@ function readFileEntry(
         : undefined,
     ...(data.isSkeleton === true ? { isSkeleton: true } : {}),
     totalLines: readNumber(data.totalLines),
+    sourceChars: readNumber(data.sourceChars),
+    sourceBytes: readNumber(data.sourceBytes),
     resolvedBranch: readString(data.resolvedBranch),
     pagination: readPagination(data.pagination),
     ...(data.isPartial === true ? { isPartial: true } : {}),

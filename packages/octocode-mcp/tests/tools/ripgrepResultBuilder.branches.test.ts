@@ -41,7 +41,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'ab',
+      keywords: 'ab',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -60,7 +60,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(5, 4);
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       itemsPerPage: 2,
       maxMatchesPerFile: 1,
       page: 1,
@@ -82,7 +82,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(3, 2);
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       page: 999,
       researchGoal: 'test',
       reasoning: 'test',
@@ -97,7 +97,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'x',
+      keywords: 'x',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -113,7 +113,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'ab',
+      keywords: 'ab',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -127,7 +127,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'hi',
+      keywords: 'hi',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -141,7 +141,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'ab',
+      keywords: 'ab',
       langType: 'ts',
       researchGoal: 'test',
       reasoning: 'test',
@@ -158,7 +158,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'ab',
+      keywords: 'ab',
       excludeDir: ['node_modules'],
       researchGoal: 'test',
       reasoning: 'test',
@@ -169,11 +169,11 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     expect(result.hints?.some(h => h.includes('add excludeDir'))).toBe(false);
   });
 
-  it('should NOT add pattern hint when query.pattern.length >= 5', async () => {
+  it('should NOT add pattern hint when query.keywords.length >= 5', async () => {
     const files = makeFiles(25, 5);
     const query = {
       path: '/test',
-      pattern: 'longer',
+      keywords: 'longer',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -188,7 +188,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(20, 2);
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       maxFiles: 5,
       researchGoal: 'test',
       reasoning: 'test',
@@ -204,7 +204,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(3, 2);
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;
@@ -218,7 +218,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(5, 2);
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       itemsPerPage: 2,
       page: 1,
       researchGoal: 'test',
@@ -235,7 +235,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     const files = makeFiles(4, 2);
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       itemsPerPage: 2,
       page: 2, // last page
       researchGoal: 'test',
@@ -256,7 +256,7 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
     ];
     const query = {
       path: '/test',
-      pattern: 'match',
+      keywords: 'match',
       researchGoal: 'test',
       reasoning: 'test',
     } as any;

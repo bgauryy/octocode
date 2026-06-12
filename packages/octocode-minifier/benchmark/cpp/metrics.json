@@ -1,7 +1,7 @@
 {
   "ext": "cpp",
   "language": "C++",
-  "source": "cpp/llvm-raw-ostream.cpp",
+  "source": "cpp/00-llvm-raw-ostream.cpp",
   "sourceBytes": 32621,
   "strategy": "conservative",
   "commentModel": "c-style",
@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 22759,
     "cutPercent": 30.2,
-    "durationMs": 6.594
+    "durationMs": 24.409
   },
   "applyMinification": {
     "bytes": 22759,
     "cutPercent": 30.2,
-    "durationMs": 6.683
+    "durationMs": 8.459
   },
   "sync": {
     "bytes": 22759,
     "cutPercent": 30.2,
-    "durationMs": 6.119
+    "durationMs": 13.692
   },
   "async": {
     "bytes": 22759,
     "cutPercent": 30.2,
-    "durationMs": 4.105,
+    "durationMs": 13.435,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -34,7 +34,207 @@
     "returned": true,
     "bytes": 6335,
     "cutPercent": 80.6,
-    "durationMs": 0.376
+    "durationMs": 0.39
+  },
+  "agentUnderstanding": {
+    "output": "standard",
+    "bytes": 22759,
+    "cutPercent": 30.2,
+    "score": 9.7,
+    "label": "excellent",
+    "syntaxAnchors": {
+      "score": 10,
+      "hits": 3,
+      "total": 3
+    },
+    "structure": 10,
+    "outputHealth": 9,
+    "contextBudget": 9,
+    "symbols": 10,
+    "signals": [
+      {
+        "name": "standard output is non-empty",
+        "passed": true
+      },
+      {
+        "name": "standard did not grow",
+        "passed": true
+      },
+      {
+        "name": "standard completed",
+        "passed": true
+      },
+      {
+        "name": "language syntax anchors present",
+        "passed": true
+      },
+      {
+        "name": "delimiter structure is balanced enough",
+        "passed": true
+      },
+      {
+        "name": "symbol skeleton returned or not configured",
+        "passed": true
+      }
+    ]
+  },
+  "agentObservations": {
+    "none": {
+      "output": "none",
+      "bytes": 32621,
+      "cutPercent": 0,
+      "score": 10,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 9,
+      "contextBudget": 5,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "none output is exact source",
+          "passed": true
+        },
+        {
+          "name": "none output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "none preserves source fidelity",
+          "passed": true
+        }
+      ]
+    },
+    "standard": {
+      "output": "standard",
+      "bytes": 22759,
+      "cutPercent": 30.2,
+      "score": 9.7,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 9,
+      "contextBudget": 9,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "standard output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "standard did not grow",
+          "passed": true
+        },
+        {
+          "name": "standard completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "minify": {
+      "output": "minify",
+      "bytes": 22759,
+      "cutPercent": 30.2,
+      "score": 9.7,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 9,
+      "contextBudget": 9,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "minify output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "minify did not grow",
+          "passed": true
+        },
+        {
+          "name": "minify completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "symbols": {
+      "output": "symbols",
+      "bytes": 6335,
+      "cutPercent": 80.6,
+      "score": 9,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 6,
+      "outputHealth": 10,
+      "contextBudget": 8,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "symbols output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "symbols did not grow",
+          "passed": true
+        },
+        {
+          "name": "symbols completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": false
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    }
   },
   "ratings": {
     "minify": 8.5,

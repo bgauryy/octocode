@@ -36,7 +36,7 @@ const makeFile = (path: string, matchCount: number, matches?: number): any => {
 
 const baseQuery = (extra: Record<string, unknown> = {}): any => ({
   path: '/test',
-  pattern: 'longpattern',
+  keywords: 'longpattern',
   researchGoal: 'test',
   reasoning: 'test',
   ...extra,

@@ -7,7 +7,7 @@ import {
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
-import { maskSensitiveData } from 'octocode-security-utils/mask';
+import { maskSensitiveData } from 'octocode-security/mask';
 
 let config: ServerConfig | null = null;
 let initializationPromise: Promise<void> | null = null;

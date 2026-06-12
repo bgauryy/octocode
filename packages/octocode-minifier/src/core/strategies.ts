@@ -805,30 +805,489 @@ export function minifyGeneralCore(content: string): string {
   } /* v8 ignore stop */
 }
 
+type MarkdownFenceState = {
+  readonly marker: string;
+  readonly length: number;
+};
+
+type HtmlCommentStripResult = {
+  readonly line: string;
+  readonly inComment: boolean;
+};
+
+function markdownFenceStart(line: string): MarkdownFenceState | null {
+  const match = /^( {0,3})(`{3,}|~{3,})/.exec(line);
+  if (!match) return null;
+
+  const fence = match[2] ?? '';
+  return {
+    marker: fence[0] ?? '',
+    length: fence.length,
+  };
+}
+
+function isMarkdownFenceClose(
+  line: string,
+  fence: MarkdownFenceState
+): boolean {
+  const match = /^( {0,3})(`+|~+)[ \t]*$/.exec(line);
+  if (!match) return false;
+
+  const closing = match[2] ?? '';
+  return closing[0] === fence.marker && closing.length >= fence.length;
+}
+
+function isMarkdownIndentedCode(line: string): boolean {
+  return /^(?: {4}|\t)/.test(line);
+}
+
+function stripMarkdownHtmlComments(
+  line: string,
+  inComment: boolean
+): HtmlCommentStripResult {
+  let output = '';
+  let cursor = 0;
+  let insideComment = inComment;
+
+  while (cursor < line.length) {
+    if (insideComment) {
+      const end = line.indexOf('-->', cursor);
+      if (end === -1) {
+        return { line: output, inComment: true };
+      }
+      cursor = end + 3;
+      insideComment = false;
+      continue;
+    }
+
+    const start = line.indexOf('<!--', cursor);
+    if (start === -1) {
+      output += line.slice(cursor);
+      break;
+    }
+
+    output += line.slice(cursor, start);
+    const end = line.indexOf('-->', start + 4);
+    if (end === -1) {
+      return { line: output, inComment: true };
+    }
+
+    cursor = end + 3;
+  }
+
+  return { line: output, inComment: insideComment };
+}
+
+function isMarkdownPseudoCommentLine(line: string): boolean {
+  return /^\s*\[\/\/\]:\s*#/.test(line);
+}
+
+function isMarkdownGeneratedTocStart(line: string): boolean {
+  return /<!--\s*(?:start\s+)?(?:toc|table of contents|doctoc|markdown-toc)\b[^>]*-->/i.test(
+    line
+  );
+}
+
+function isMarkdownGeneratedTocEnd(line: string): boolean {
+  return /<!--\s*(?:(?:end|\/)\s*(?:toc|table of contents|doctoc|markdown-toc)\b|tocstop\b)[^>]*-->/i.test(
+    line
+  );
+}
+
+function isMarkdownBadgeUrl(url: string): boolean {
+  const normalizedUrl = url.toLowerCase();
+  return (
+    normalizedUrl.includes('img.shields.io') ||
+    normalizedUrl.includes('badge.fury.io') ||
+    normalizedUrl.includes('badgen.net') ||
+    normalizedUrl.includes('codecov.io') ||
+    normalizedUrl.includes('coveralls.io') ||
+    normalizedUrl.includes('circleci.com') ||
+    normalizedUrl.includes('travis-ci.com') ||
+    normalizedUrl.includes('travis-ci.org') ||
+    /github\.com\/[^/]+\/[^/]+\/(?:workflows|actions\/workflows)\/[^)]+badge\.svg/.test(
+      normalizedUrl
+    )
+  );
+}
+
+function isMarkdownBadgeImageLine(line: string): boolean {
+  const trimmed = line.trim();
+  const imageMatches = [
+    ...trimmed.matchAll(/!\[[^\]]*]\((https?:\/\/[^)\s]+)(?:\s+[^)]*)?\)/g),
+  ];
+  if (imageMatches.length === 0) return false;
+  if (!imageMatches.every(match => isMarkdownBadgeUrl(match[1] ?? ''))) {
+    return false;
+  }
+
+  const withoutBadges = trimmed
+    .replace(/\[!\[[^\]]*]\([^)]*\)]\([^)]*\)/g, '')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
+    .trim();
+
+  return withoutBadges.length === 0;
+}
+
+function markdownSetextLevel(line: string): 1 | 2 | null {
+  if (/^ {0,3}=+[ \t]*$/.test(line)) return 1;
+  if (/^ {0,3}-+[ \t]*$/.test(line)) return 2;
+  return null;
+}
+
+function canBeMarkdownSetextText(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/^#{1,6}(?:\s|$)/.test(trimmed)) return false;
+  if (trimmed.startsWith('>')) return false;
+  if (/^(?:[-+*]|\d{1,9}[.)])(?:\s|$)/.test(trimmed)) return false;
+  if (isMarkdownThematicBreak(line)) return false;
+  return markdownFenceStart(line) === null;
+}
+
+function isMarkdownThematicBreak(line: string): boolean {
+  const compact = line.trim().replace(/[ \t]/g, '');
+  if (compact.length < 3) return false;
+
+  const marker = compact[0] ?? '';
+  return (
+    (marker === '-' || marker === '_' || marker === '*') &&
+    [...compact].every(char => char === marker)
+  );
+}
+
+function compactMarkdownAtxHeading(line: string): string {
+  const match = /^( {0,3})(#{1,6})(?:[ \t]+(.*))?$/.exec(line);
+  if (!match) return line;
+
+  const indent = match[1] ?? '';
+  const hashes = match[2] ?? '';
+  const text = (match[3] ?? '').replace(/[ \t]+#+[ \t]*$/, '').trim();
+
+  return text ? `${indent}${hashes} ${text}` : `${indent}${hashes}`;
+}
+
+function compactMarkdownBlockquote(line: string): string {
+  const match = /^( {0,3})((?:>[ \t]*)+)(.*)$/.exec(line);
+  if (!match) return line;
+
+  const indent = match[1] ?? '';
+  const markerRun = match[2] ?? '';
+  const text = (match[3] ?? '').trimStart();
+  const depth = [...markerRun].filter(char => char === '>').length;
+  const markers = Array.from({ length: depth }, () => '>').join(' ');
+
+  return text ? `${indent}${markers} ${text}` : `${indent}${markers}`;
+}
+
+function compactMarkdownListMarker(line: string): string {
+  return line
+    .replace(/^(\s{0,3}(?:[-+*]|\d{1,9}[.)]))[ \t]+/, '$1 ')
+    .replace(/^(\s{0,3}(?:[-+*]|\d{1,9}[.)]) )\[([ xX])][ \t]+/, '$1[$2] ');
+}
+
+function splitOnUnescapedPipes(line: string): readonly string[] {
+  const parts: string[] = [];
+  let current = '';
+  let escaped = false;
+
+  for (const char of line) {
+    if (char === '|' && !escaped) {
+      parts.push(current);
+      current = '';
+      escaped = false;
+      continue;
+    }
+
+    current += char;
+    escaped = char === '\\' && !escaped;
+    if (char !== '\\') escaped = false;
+  }
+
+  parts.push(current);
+  return parts;
+}
+
+function isMarkdownTableDelimiterLine(line: string): boolean {
+  const parts = splitOnUnescapedPipes(line.trim()).filter(part => part !== '');
+  if (parts.length < 2) return false;
+
+  return parts.every(part => /^:?-{3,}:?$/.test(part.trim()));
+}
+
+function compactMarkdownTableRow(line: string): string {
+  return splitOnUnescapedPipes(line)
+    .map(part => part.trim())
+    .join('|');
+}
+
+function trimMarkdownLineEnd(line: string): string {
+  if (/\S {2,}$/.test(line) && !/\\[ \t]*$/.test(line)) {
+    return line.replace(/[ \t]+$/, '\\');
+  }
+
+  return line.replace(/[ \t]+$/, '');
+}
+
+function isMarkdownReferenceDefinition(line: string): boolean {
+  return /^ {0,3}\[[^\]]+]:[ \t]*\S/.test(line);
+}
+
+function isMarkdownRawHtmlLine(line: string): boolean {
+  return /^ {0,3}<[A-Za-z!/][^>]*>/.test(line);
+}
+
+function isMarkdownDiffMetadataLine(line: string): boolean {
+  return /^(?:@@\s|diff --git |index [0-9a-f]|--- |\+\+\+ )/.test(line);
+}
+
+function splitMarkdownControlPrefix(line: string): {
+  prefix: string;
+  text: string;
+} {
+  const indented = /^( {0,3})(.*)$/.exec(line);
+  let prefix = indented?.[1] ?? '';
+  let text = indented?.[2] ?? line;
+
+  const diffContent = /^([+-])(?=\S| {2,})(.*)$/.exec(text);
+  if (diffContent && !/^(?:---|\+\+\+)/.test(text)) {
+    prefix += diffContent[1] ?? '';
+    text = diffContent[2] ?? '';
+  }
+
+  const blockquote = /^((?:> ?)+)(.*)$/.exec(text);
+  if (blockquote) {
+    prefix += blockquote[1] ?? '';
+    text = blockquote[2] ?? '';
+
+    const callout =
+      /^(\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)]\s+)(.*)$/i.exec(text);
+    if (callout) {
+      prefix += callout[1] ?? '';
+      text = callout[2] ?? '';
+    }
+  }
+
+  const heading = /^(#{1,6} )(.*)$/.exec(text);
+  if (heading) {
+    return { prefix: prefix + (heading[1] ?? ''), text: heading[2] ?? '' };
+  }
+
+  const list = /^((?:[-+*]|\d{1,9}[.)]) (?:\[[ xX]\] )?)(.*)$/.exec(text);
+  if (list) {
+    return { prefix: prefix + (list[1] ?? ''), text: list[2] ?? '' };
+  }
+
+  return { prefix, text };
+}
+
+function sanitizeMarkdownVisibleText(text: string): string {
+  const hardBreakSuffix = text.endsWith('\\') ? '\\' : '';
+  const body = hardBreakSuffix ? text.slice(0, -1) : text;
+  const protectedSpans: string[] = [];
+  const protectSpan = (value: string): string => {
+    const index = protectedSpans.push(value) - 1;
+    return `\ue000${index}\ue001`;
+  };
+
+  const protectedBody = body
+    .replace(/`[^`\n]*`/g, protectSpan)
+    .replace(/!?\[[^\]\n]*]\([^)]+\)/g, protectSpan)
+    .replace(/!?\[[^\]\n]*]\[[^\]\n]*]/g, protectSpan)
+    .replace(/<https?:\/\/[^>\s]+>/gi, protectSpan)
+    .replace(/<mailto:[^>\s]+>/gi, protectSpan);
+
+  const sanitized = protectedBody
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/…/g, '...')
+    .replace(/\u00a0/gu, ' ')
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/\u200d/gu, '')
+    .replace(/\ufe0f/gu, '')
+    .replace(/[\u{1f3fb}-\u{1f3ff}]/gu, '')
+    .replace(/[^\p{L}\p{N}\p{M}\s\x20-\x7e\ue000\ue001]/gu, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+
+  const restored = sanitized.replace(
+    /\ue000(\d+)\ue001/g,
+    (_match: string, index: string): string =>
+      protectedSpans[Number(index)] ?? ''
+  );
+
+  return `${restored}${hardBreakSuffix}`;
+}
+
+function sanitizeMarkdownProseLine(line: string): string {
+  if (
+    isMarkdownReferenceDefinition(line) ||
+    isMarkdownRawHtmlLine(line) ||
+    isMarkdownDiffMetadataLine(line)
+  ) {
+    return line;
+  }
+
+  const { prefix, text } = splitMarkdownControlPrefix(line);
+  const sanitizedText = sanitizeMarkdownVisibleText(text);
+  if (!sanitizedText) return prefix.trimEnd();
+
+  return `${prefix}${sanitizedText}`;
+}
+
+function compactMarkdownTextLine(line: string): string {
+  const compacted = compactMarkdownListMarker(
+    compactMarkdownBlockquote(
+      compactMarkdownAtxHeading(trimMarkdownLineEnd(line))
+    )
+  ).replace(/([^ \t])[ \t]{5,}([^ \t])/g, '$1 $2');
+
+  return sanitizeMarkdownProseLine(compacted);
+}
+
+function appendMarkdownLine(
+  lines: string[],
+  line: string,
+  preserveBlank: boolean
+): void {
+  if (line.trim().length > 0 || preserveBlank) {
+    lines.push(line);
+    return;
+  }
+
+  if (lines.length === 0 || lines[lines.length - 1]?.trim().length === 0) {
+    return;
+  }
+
+  lines.push('');
+}
+
+function convertPreviousSetextHeading(lines: string[], level: 1 | 2): boolean {
+  const headingLines: string[] = [];
+
+  while (lines.length > 0) {
+    const candidate = lines[lines.length - 1] ?? '';
+    if (candidate.trim().length === 0) break;
+    if (!canBeMarkdownSetextText(candidate)) return false;
+
+    headingLines.unshift(candidate.trim());
+    lines.pop();
+  }
+
+  if (headingLines.length === 0) return false;
+  appendMarkdownLine(
+    lines,
+    `${level === 1 ? '#' : '##'} ${headingLines.join(' ')}`,
+    false
+  );
+  return true;
+}
+
 export function minifyMarkdownCore(content: string): string {
   try {
-    return (
-      content
-        .replace(/<!--[\s\S]*?-->/g, '')
-        // Strip quoted-reply lines (lines starting with ">") — pure redundancy
-        // in PR/issue comments where the original message is already in context.
-        .replace(/^[ \t]*>.*$/gm, '')
-        .replace(/[ \t]+$/gm, '')
-        .replace(/\r\n/g, '\n')
-        .replace(/\n\s*\n\s*\n+/g, '\n\n')
-        .replace(/([^\n])[ \t]{5,}([^\n])/g, '$1 $2')
-        .replace(/\s*\|\s*/g, ' | ')
-        .replace(/^(#{1,6})[ \t]+/gm, '$1 ')
-        .replace(/^(\s*)([-*+]|\d+\.)[ \t]+/gm, '$1$2 ')
-        .replace(/\n{3,}(```)/g, '\n\n$1')
-        .replace(/(```)\n{3,}/g, '$1\n\n')
-        .trim()
-    );
+    const sourceLines = content.replace(/\r\n?/g, '\n').split('\n');
+    const outputLines: string[] = [];
+    const firstContentLine = sourceLines.findIndex(line => line.trim() !== '');
+    let fence: MarkdownFenceState | null = null;
+    let inHtmlComment = false;
+    let inGeneratedToc = false;
+    let inFrontmatter =
+      firstContentLine === 0 && /^---[ \t]*$/.test(sourceLines[0] ?? '');
+
+    for (let index = 0; index < sourceLines.length; index++) {
+      const originalLine = sourceLines[index] ?? '';
+
+      if (fence) {
+        appendMarkdownLine(outputLines, originalLine, true);
+        if (isMarkdownFenceClose(originalLine, fence)) {
+          fence = null;
+        }
+        continue;
+      }
+
+      const fenceStart = markdownFenceStart(originalLine);
+      if (fenceStart) {
+        fence = fenceStart;
+        appendMarkdownLine(
+          outputLines,
+          trimMarkdownLineEnd(originalLine),
+          true
+        );
+        continue;
+      }
+
+      if (isMarkdownIndentedCode(originalLine)) {
+        appendMarkdownLine(outputLines, originalLine, true);
+        continue;
+      }
+
+      if (inFrontmatter) {
+        appendMarkdownLine(
+          outputLines,
+          trimMarkdownLineEnd(originalLine),
+          false
+        );
+        if (index > 0 && /^(---|\.\.\.)[ \t]*$/.test(originalLine)) {
+          inFrontmatter = false;
+        }
+        continue;
+      }
+
+      if (inGeneratedToc) {
+        if (isMarkdownGeneratedTocEnd(originalLine)) {
+          inGeneratedToc = false;
+          appendMarkdownLine(outputLines, '', false);
+        }
+        continue;
+      }
+
+      if (isMarkdownGeneratedTocStart(originalLine)) {
+        inGeneratedToc = !isMarkdownGeneratedTocEnd(originalLine);
+        appendMarkdownLine(outputLines, '', false);
+        continue;
+      }
+
+      const withoutHtmlComment = stripMarkdownHtmlComments(
+        originalLine,
+        inHtmlComment
+      );
+      inHtmlComment = withoutHtmlComment.inComment;
+      const line = withoutHtmlComment.line;
+      if (isMarkdownPseudoCommentLine(line) || isMarkdownBadgeImageLine(line)) {
+        appendMarkdownLine(outputLines, '', false);
+        continue;
+      }
+
+      const setextLevel = markdownSetextLevel(line);
+      if (
+        setextLevel &&
+        convertPreviousSetextHeading(outputLines, setextLevel)
+      ) {
+        continue;
+      }
+
+      if (isMarkdownThematicBreak(line)) {
+        appendMarkdownLine(outputLines, '---', false);
+        continue;
+      }
+
+      const isTableRow =
+        isMarkdownTableDelimiterLine(line) ||
+        isMarkdownTableDelimiterLine(sourceLines[index - 1] ?? '') ||
+        isMarkdownTableDelimiterLine(sourceLines[index + 1] ?? '');
+      const compactedLine = isTableRow
+        ? compactMarkdownTableRow(trimMarkdownLineEnd(line))
+        : compactMarkdownTextLine(line);
+
+      appendMarkdownLine(outputLines, compactedLine, false);
+    }
+
+    return outputLines.join('\n').trim();
   } /* v8 ignore start */ catch {
     return content;
   } /* v8 ignore stop */
 }
-
 export function minifyCSSCore(content: string): string {
   try {
     return removeComments(content, 'c-style')

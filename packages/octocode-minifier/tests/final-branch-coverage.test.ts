@@ -71,7 +71,7 @@ describe('minifyTypeScriptLikeSync — non-Error object thrown by minify_sync', 
     // ternary (error instanceof Error ? error.message : 'Unknown error') takes
     // the right-hand branch.
     mockMinifySync.mockImplementationOnce(() => {
-      throw 'raw string error'; // eslint-disable-line @typescript-eslint/only-throw-error
+      throw 'raw string error';
     });
 
     const result = minifyTypeScriptLikeSync(
@@ -87,7 +87,7 @@ describe('minifyTypeScriptLikeSync — non-Error object thrown by minify_sync', 
 
   it('returns failed:true with "Unknown error" reason when minify_sync throws null', () => {
     mockMinifySync.mockImplementationOnce(() => {
-      throw null; // eslint-disable-line @typescript-eslint/only-throw-error
+      throw null;
     });
 
     const result = minifyTypeScriptLikeSync('const y = 2;', 'y.ts');

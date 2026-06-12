@@ -1,16 +1,16 @@
 # YAML (`.yml`) — Large-File Benchmark
 
-**Source:** 312 lines / 8,974 bytes — GitHub Actions CI/CD pipeline — multi-job workflow
+**Source:** 297 lines / 10,310 bytes — GitHub Actions CI/CD pipeline — multi-job workflow
 
-**Agent rating: 5/10 (fair)**
+**Agent rating: 9/10 (excellent)**
 
 | Mode | Output bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
-| Input | 8,974 B | — | — |
-| content-view | 7,008 B | **−21.9%** | 4.68 ms |
-| applyMinification | 7,008 B | **−21.9%** | 4.24 ms |
-| minifyContentSync | 7,008 B | **−21.9%** | 5.61 ms |
-| minifyContent (async, type=conservative) | 7,008 B | **−21.9%** | 3.5 ms |
+| Input | 10,310 B | — | — |
+| content-view | 3,339 B | **−67.6%** | 1.08 ms |
+| applyMinification | 3,339 B | **−67.6%** | 1.12 ms |
+| minifyContentSync | 3,339 B | **−67.6%** | 1.5 ms |
+| minifyContent (async, type=conservative) | 3,339 B | **−67.6%** | 1.21 ms |
 | symbols | n/a (not supported) | — | — |
 
 ## Notes

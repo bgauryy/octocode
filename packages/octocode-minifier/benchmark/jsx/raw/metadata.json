@@ -1,7 +1,7 @@
 {
-  "source": "jsx/vite-app.jsx",
-  "sourceBytes": 3646,
-  "sha256": "7f89394a67eee963118aa51f09a6596af2d1e22632f205f4d073bb362f990ea5",
+  "source": "jsx/00-fullcalendar-demo.jsx",
+  "sourceBytes": 3825,
+  "sha256": "9c844ad28276af497dfd5a0c99b55a2cb86cb70b31134137956f3176ad689792",
   "excerptBytes": 1834,
   "truncated": true
 }

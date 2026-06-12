@@ -8,27 +8,35 @@ function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
 
 describe('packageSearch pagination (page-based exact fields)', () => {
   it('defaults page to 1 when omitted', () => {
-    expect(parsedQuery({ name: 'lodash' }).page).toBe(1);
+    expect(parsedQuery({ packageName: 'lodash' }).page).toBe(1);
   });
 
   it('accepts explicit page=2', () => {
-    expect(parsedQuery({ name: 'lodash', page: 2 }).page).toBe(2);
+    expect(parsedQuery({ packageName: 'lodash', page: 2 }).page).toBe(2);
   });
 
   it('does not expose itemsPerPage or searchLimit', () => {
-    const q = parsedQuery({ name: 'lodash' });
+    const q = parsedQuery({ packageName: 'lodash' });
     expect('itemsPerPage' in q).toBe(false);
     expect('searchLimit' in q).toBe(false);
     expect('limit' in q).toBe(false);
   });
 
   it('accepts explicit detail modes', () => {
-    expect(parsedQuery({ name: 'lodash', mode: 'lean' }).mode).toBe('lean');
-    expect(parsedQuery({ name: 'lodash', mode: 'full' }).mode).toBe('full');
-    expect(parsedQuery({ name: 'lodash', mode: 'smart' }).mode).toBe('smart');
+    expect(parsedQuery({ packageName: 'lodash', mode: 'lean' }).mode).toBe(
+      'lean'
+    );
+    expect(parsedQuery({ packageName: 'lodash', mode: 'full' }).mode).toBe(
+      'full'
+    );
+    expect(parsedQuery({ packageName: 'lodash', mode: 'smart' }).mode).toBe(
+      'smart'
+    );
   });
 
   it('rejects unsupported detail modes', () => {
-    expect(() => parsedQuery({ name: 'lodash', mode: 'compact' })).toThrow();
+    expect(() =>
+      parsedQuery({ packageName: 'lodash', mode: 'compact' })
+    ).toThrow();
   });
 });

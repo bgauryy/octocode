@@ -17,22 +17,6 @@ vi.mock('../../src/tools/local_fetch_content/fetchContent.js', () => ({
   fetchContent: mocks.fetchContent,
 }));
 
-const minimalCompleteMetadata = {
-  toolNames: {},
-  tools: {},
-  baseSchema: {
-    mainResearchGoal: '',
-    researchGoal: '',
-    reasoning: '',
-    bulkQuery: () => '',
-  },
-  baseHints: { hasResults: [], empty: [] },
-  genericErrorHints: [],
-  instructions: '',
-  prompts: {},
-  bulkOperations: {},
-};
-
 vi.mock('@octocodeai/octocode-core', () => ({
   FetchContentQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true }),
@@ -40,7 +24,21 @@ vi.mock('@octocodeai/octocode-core', () => ({
   RipgrepQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true }),
   },
-  completeMetadata: minimalCompleteMetadata,
+  completeMetadata: {
+    instructions: '',
+    prompts: {},
+    toolNames: {},
+    baseSchema: {
+      mainResearchGoal: '',
+      researchGoal: '',
+      reasoning: '',
+      bulkQuery: () => '',
+    },
+    tools: {},
+    baseHints: { hasResults: [], empty: [] },
+    genericErrorHints: [],
+    bulkOperations: {},
+  },
 }));
 
 vi.mock('../../src/tools/local_ripgrep/scheme.js', () => ({
@@ -124,7 +122,7 @@ describe('Execution boundary guards in target RFC flows', () => {
     );
 
     await executeRipgrepSearch({
-      queries: [{ path: '/tmp', pattern: 'x' }] as any,
+      queries: [{ path: '/tmp', keywords: 'x' }] as any,
     });
 
     const callback = vi.mocked(executeBulkOperation).mock.calls[0]![1] as (
@@ -132,7 +130,7 @@ describe('Execution boundary guards in target RFC flows', () => {
       index: number
     ) => Promise<{ status: string }>;
 
-    const result = await callback({ path: '/tmp', pattern: 'x' }, 0);
+    const result = await callback({ path: '/tmp', keywords: 'x' }, 0);
     expect(result.status).toBe('error');
   });
 

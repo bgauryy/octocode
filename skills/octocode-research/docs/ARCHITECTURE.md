@@ -50,7 +50,7 @@ The `octocode-research` skill is an HTTP API server that provides code research 
 │  │  • exploreMultipleRepositoryStructures (GitHub repo tree)    │ │
 │  │  • searchMultipleGitHubRepos (GitHub repo search)            │ │
 │  │  • searchMultipleGitHubPullRequests (GitHub PR search)       │ │
-│  │  • searchPackages (npm/PyPI search)                          │ │
+│  │  • searchPackages (npm search)                               │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │              Bulk Operation Processing                       │ │
@@ -66,7 +66,6 @@ The `octocode-research` skill is an HTTP API server that provides code research 
 │  • Local filesystem (bundled ripgrep, fs)                       │
 │  • GitHub API (via Octokit)                                     │
 │  • NPM Registry API                                             │
-│  • PyPI API                                                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -257,7 +256,7 @@ createRouteHandler({
 | `githubViewRepoStructure` | GitHub | Repo tree |
 | `githubSearchRepositories` | GitHub | Search repos |
 | `githubSearchPullRequests` | GitHub | Search PRs |
-| `packageSearch` | Package | Search npm/PyPI |
+| `packageSearch` | Package | Search npm |
 
 ## Research Context Parameters
 
@@ -280,7 +279,7 @@ Four pre-configured resilience wrappers combine circuit breaker + retry:
 withGitHubResilience(operation, toolName)  // GitHub API calls
 withLspResilience(operation, toolName)     // Language server protocol
 withLocalResilience(operation, toolName)   // Local filesystem ops
-withPackageResilience(operation, toolName) // npm/PyPI queries
+withPackageResilience(operation, toolName) // npm queries
 ```
 
 ### 2. Retry Logic (`src/utils/retry.ts`)

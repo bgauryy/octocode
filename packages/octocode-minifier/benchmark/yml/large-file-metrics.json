@@ -2,27 +2,27 @@
   "ext": "yml",
   "language": "YAML",
   "description": "GitHub Actions CI/CD pipeline — multi-job workflow",
-  "inputBytes": 8974,
-  "inputLines": 312,
+  "inputBytes": 10310,
+  "inputLines": 297,
   "contentView": {
-    "bytes": 7008,
-    "cutPct": 21.9,
-    "ms": 4.68
+    "bytes": 3339,
+    "cutPct": 67.6,
+    "ms": 1.08
   },
   "applyMinify": {
-    "bytes": 7008,
-    "cutPct": 21.9,
-    "ms": 4.24
+    "bytes": 3339,
+    "cutPct": 67.6,
+    "ms": 1.12
   },
   "syncMinify": {
-    "bytes": 7008,
-    "cutPct": 21.9,
-    "ms": 5.61
+    "bytes": 3339,
+    "cutPct": 67.6,
+    "ms": 1.5
   },
   "asyncMinify": {
-    "bytes": 7008,
-    "cutPct": 21.9,
-    "ms": 3.5,
+    "bytes": 3339,
+    "cutPct": 67.6,
+    "ms": 1.21,
     "type": "conservative"
   },
   "symbols": {
@@ -32,8 +32,8 @@
     "ms": null
   },
   "rating": {
-    "score": 5,
-    "label": "fair"
+    "score": 9,
+    "label": "excellent"
   },
   "notes": [
     "Hash comments stripped",

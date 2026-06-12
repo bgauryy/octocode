@@ -67,7 +67,7 @@ describe('Local tools: page-based pagination, exact fields', () => {
 
   it('ripgrep: accepts page + itemsPerPage; removed filesPerPage/matchesPerPage stay absent', () => {
     const q = q0(LocalRipgrepBulkQuerySchema, {
-      pattern: 'x',
+      keywords: 'x',
       path: '.',
       page: 2,
       itemsPerPage: 10,
@@ -116,7 +116,7 @@ describe('Local tools: page-based pagination, exact fields', () => {
 
   it('packageSearch: accepts page; removed page-size fields stay absent', () => {
     const q = q0(PackageSearchBulkQueryLocalSchema, {
-      name: 'hono',
+      packageName: 'hono',
       page: 1,
     });
     expect(q.page).toBe(1);

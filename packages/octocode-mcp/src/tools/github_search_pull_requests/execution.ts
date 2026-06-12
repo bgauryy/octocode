@@ -70,15 +70,8 @@ export async function searchMultipleGitHubPullRequests(
           (effectiveQuery as { reviewMode?: unknown }).reviewMode = undefined;
         }
 
-        if (effectiveQuery.query && String(effectiveQuery.query).length > 256) {
-          return createErrorResult(
-            'Query too long. Maximum 256 characters allowed.',
-            query
-          );
-        }
-
         const hasValidParams =
-          effectiveQuery.query?.trim() ||
+          effectiveQuery.keywordsToSearch?.length ||
           effectiveQuery.owner ||
           effectiveQuery.repo ||
           effectiveQuery.author ||
@@ -278,7 +271,7 @@ export async function searchMultipleGitHubPullRequests(
               owner: effectiveQuery.owner,
               repo: effectiveQuery.repo,
               author: effectiveQuery.author,
-              query: effectiveQuery.query,
+              keywords: effectiveQuery.keywordsToSearch,
               prNumber: effectiveQuery.prNumber,
               matchScope: effectiveQuery.matchScope,
             },

@@ -3,7 +3,7 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 import { viewStructure as viewStructureImpl } from '../../src/tools/local_view_structure/local_view_structure.js';
 import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
-import * as pathValidator from 'octocode-security-utils/pathValidator';
+import * as pathValidator from 'octocode-security/pathValidator';
 import type { Stats } from 'fs';
 
 // The MCP overlay schema (scheme.ts) layers pagination/output fields on top
@@ -42,7 +42,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
   getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },

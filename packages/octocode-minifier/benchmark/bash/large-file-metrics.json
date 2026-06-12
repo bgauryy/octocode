@@ -1,0 +1,42 @@
+{
+  "ext": "bash",
+  "language": "Bash",
+  "description": "Blue/green deployment script with full argument documentation",
+  "inputBytes": 7306,
+  "inputLines": 235,
+  "contentView": {
+    "bytes": 4392,
+    "cutPct": 39.9,
+    "ms": 1.26
+  },
+  "applyMinify": {
+    "bytes": 4392,
+    "cutPct": 39.9,
+    "ms": 0.94
+  },
+  "syncMinify": {
+    "bytes": 4392,
+    "cutPct": 39.9,
+    "ms": 0.9
+  },
+  "asyncMinify": {
+    "bytes": 4392,
+    "cutPct": 39.9,
+    "ms": 0.94,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 428,
+    "cutPct": 94.1,
+    "ms": 0.22
+  },
+  "rating": {
+    "score": 7.5,
+    "label": "good"
+  },
+  "notes": [
+    "Hash comments stripped (shebang preserved)",
+    "Shell strategy symbols extraction"
+  ]
+}

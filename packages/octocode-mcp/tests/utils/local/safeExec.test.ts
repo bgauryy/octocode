@@ -414,7 +414,7 @@ describe('safeExec', () => {
 
     it('should handle command validation failure without error message', async () => {
       const commandValidatorModule =
-        await import('octocode-security-utils/commandValidator');
+        await import('octocode-security/commandValidator');
       const validateCommandSpy = vi.spyOn(
         commandValidatorModule,
         'validateCommand'

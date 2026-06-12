@@ -1,10 +1,12 @@
 # C++ (.cpp)
 
-Source sample: `cpp/llvm-raw-ostream.cpp`
+Source sample: `cpp/00-llvm-raw-ostream.cpp`
 
 Strategy: `conservative`
 
 Agent rating: **9/10 (excellent)**
+
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 32621 | - | - | - |
-| content-view | 22759 | 30.2% | 6.594 ms | 8.5/10 |
-| applyMinification | 22759 | 30.2% | 6.683 ms | 8.5/10 |
-| sync minify | 22759 | 30.2% | 6.119 ms | 8.5/10 |
-| async minify | 22759 | 30.2% | 4.105 ms | 8.5/10 |
-| symbols | 6335 | 80.6% | 0.376 ms | 10/10 |
+| content-view | 22759 | 30.2% | 24.409 ms | 8.5/10 |
+| applyMinification | 22759 | 30.2% | 8.459 ms | 8.5/10 |
+| sync minify | 22759 | 30.2% | 13.692 ms | 8.5/10 |
+| async minify | 22759 | 30.2% | 13.435 ms | 8.5/10 |
+| symbols | 6335 | 80.6% | 0.39 ms | 10/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 9/10 |
+| context budget | 9/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 32621 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 22759 | 30.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 22759 | 30.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 6335 | 80.6% | 9/10 excellent | 10/10 | 6/10 |
 
 ## Notes
 

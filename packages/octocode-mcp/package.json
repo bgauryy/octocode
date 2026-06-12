@@ -120,7 +120,7 @@
     "html-minifier-terser": "^7.2.0",
     "js-yaml": "^4.1.1",
     "node-cache": "^5.1.2",
-    "octocode-security-utils": "workspace:^",
+    "octocode-security": "workspace:^",
     "octocode-shared": "workspace:^",
     "octokit": "^5.0.5",
     "picomatch": "^4.0.3",

@@ -27,7 +27,7 @@ const RipgrepQueryShape = z.object({
     .optional()
     .describe(QUERY_DESCRIPTIONS.researchGoal!),
   reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  pattern: z.string().describe(QUERY_DESCRIPTIONS.pattern!),
+  keywords: z.string().describe(QUERY_DESCRIPTIONS.keywords!),
   path: z.string().describe(QUERY_DESCRIPTIONS.path!),
   mode: z
     .enum(LOCAL_SEARCH_MODES)

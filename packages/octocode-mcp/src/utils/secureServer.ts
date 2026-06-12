@@ -4,8 +4,8 @@ import {
   McpError,
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ContentSanitizer } from 'octocode-security-utils';
-import { maskSensitiveData } from 'octocode-security-utils/mask';
+import { ContentSanitizer } from 'octocode-security';
+import { maskSensitiveData } from 'octocode-security/mask';
 import { sanitizeStructuredContent } from '../responses.js';
 import { logSessionError } from '../session.js';
 import { ignoreBestEffortFailure } from './core/bestEffort.js';

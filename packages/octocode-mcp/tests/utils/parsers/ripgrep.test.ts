@@ -8,7 +8,7 @@ import {
 import type { RipgrepQuery } from '../../../src/tools/local_ripgrep/scheme.js';
 
 const baseQuery = {
-  pattern: 'test',
+  keywords: 'test',
   path: '/test/path',
 } as RipgrepQuery;
 

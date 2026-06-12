@@ -4,7 +4,7 @@ import {
   DiffEntry,
   CommitFileInfo,
 } from './githubAPI.js';
-import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import { filterPatch, trimDiffContext } from '../utils/parsers/diff.js';
 import { minifyMarkdownCore } from '@octocodeai/octocode-minifier';
 

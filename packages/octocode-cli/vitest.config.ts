@@ -1,6 +1,23 @@
 import { defineConfig } from 'vitest/config';
+import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+
+const securityMock = resolve(__dirname, 'tests/__mocks__/octocode-security.ts');
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Redirect every octocode-security import to the test stub so
+      // vitest never tries to dlopen the native Rust binary.
+      'octocode-security': securityMock,
+      'octocode-security/mask': securityMock,
+      'octocode-security/contentSanitizer': securityMock,
+      'octocode-security/pathValidator': securityMock,
+      'octocode-security/commandValidator': securityMock,
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

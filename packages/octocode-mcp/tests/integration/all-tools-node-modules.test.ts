@@ -72,7 +72,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
   describe('localSearchCode - Pattern Search', () => {
     it('should find patterns in JavaScript files', async () => {
       const result = await runRipgrep({
-        pattern: 'export',
+        keywords: 'export',
         path: NODE_MODULES_PATH,
         include: ['*.js'],
         matchesPerPage: 5,
@@ -90,7 +90,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
     it('should find files only mode', async () => {
       const result = await runRipgrep({
-        pattern: 'package.json',
+        keywords: 'package.json',
         path: NODE_MODULES_PATH,
         filesOnly: true,
         maxFiles: 10,

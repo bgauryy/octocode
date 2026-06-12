@@ -248,7 +248,7 @@ describe('providerMappers', () => {
     const result = mapPullRequestToolQuery({
       owner: 'facebook',
       repo: 'react',
-      query: 'hydration',
+      keywordsToSearch: ['hydration'],
       state: 'closed',
     });
 
@@ -259,7 +259,7 @@ describe('providerMappers', () => {
     const result = mapPullRequestToolQuery({
       owner: 'facebook',
       repo: 'react',
-      query: 'hydration',
+      keywordsToSearch: ['hydration'],
       limit: 2,
       itemsPerPage: 50,
     });
@@ -485,6 +485,37 @@ describe('providerMappers', () => {
     expect(hints[0]).toContain('Page 1/2');
     expect(hints[0]).toContain('showing 1-2 PRs; total unknown');
     expect(hints[0]).toContain('Next: page=2');
+  });
+
+  it('labels lower-bound and reachable GitHub counts explicitly', () => {
+    const lowerBoundHints = buildPaginationHints(
+      {
+        currentPage: 1,
+        totalPages: 2,
+        hasMore: true,
+        totalMatches: 101,
+        totalMatchesKind: 'lowerBound',
+        perPage: 100,
+      },
+      'repos'
+    );
+    expect(lowerBoundHints[0]).toContain('of at least 101 repos');
+
+    const cappedHints = buildPaginationHints(
+      {
+        currentPage: 1,
+        totalPages: 10,
+        hasMore: true,
+        totalMatches: 1000,
+        reachableTotalMatches: 200,
+        reportedTotalMatches: 446,
+        perPage: 20,
+      },
+      'matches'
+    );
+    expect(cappedHints[0]).toContain(
+      'of 200 reachable; GitHub reports 446 matches'
+    );
   });
 
   it('emits no hint on the final page (no tautology)', () => {

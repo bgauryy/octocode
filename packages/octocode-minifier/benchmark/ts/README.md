@@ -1,10 +1,12 @@
 # TypeScript (.ts)
 
-Source sample: `ts/core.ts`
+Source sample: `ts/00-typescript-core.ts`
 
 Strategy: `conservative`
 
 Agent rating: **9.7/10 (excellent)**
+
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 92419 | - | - | - |
-| content-view | 65054 | 29.6% | 15.144 ms | 10/10 |
-| applyMinification | 29680 | 67.9% | 123.404 ms | 10/10 |
-| sync minify | 29680 | 67.9% | 94.24 ms | 10/10 |
-| async minify | 29680 | 67.9% | 73.268 ms | 10/10 |
-| symbols | 28537 | 69.1% | 12.611 ms | 9/10 |
+| content-view | 65054 | 29.6% | 50.511 ms | 10/10 |
+| applyMinification | 29680 | 67.9% | 338.707 ms | 10/10 |
+| sync minify | 29680 | 67.9% | 237.852 ms | 10/10 |
+| async minify | 29680 | 67.9% | 248.05 ms | 10/10 |
+| symbols | 28537 | 69.1% | 33.581 ms | 9/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 9/10 |
+| context budget | 9/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 92419 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 65054 | 29.6% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 29680 | 67.9% | 9.8/10 excellent | 10/10 | 10/10 |
+| symbols | 28537 | 69.1% | 9.3/10 excellent | 10/10 | 7.5/10 |
 
 ## Notes
 

@@ -1,0 +1,42 @@
+{
+  "ext": "c",
+  "language": "C",
+  "description": "Command-line option parser with URL strings and block comments",
+  "inputBytes": 29047,
+  "inputLines": 852,
+  "contentView": {
+    "bytes": 24672,
+    "cutPct": 15.1,
+    "ms": 14.54
+  },
+  "applyMinify": {
+    "bytes": 24672,
+    "cutPct": 15.1,
+    "ms": 47.34
+  },
+  "syncMinify": {
+    "bytes": 24672,
+    "cutPct": 15.1,
+    "ms": 20.96
+  },
+  "asyncMinify": {
+    "bytes": 24672,
+    "cutPct": 15.1,
+    "ms": 12.52,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 4078,
+    "cutPct": 86,
+    "ms": 0.61
+  },
+  "rating": {
+    "score": 6,
+    "label": "fair"
+  },
+  "notes": [
+    "C-style comments stripped conservatively",
+    "Comment-looking URL and string content preserved"
+  ]
+}

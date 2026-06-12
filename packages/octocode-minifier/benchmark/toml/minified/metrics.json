@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 1881,
       "cutPercent": 38.1,
-      "durationMs": 0.115
+      "durationMs": 0.171
     },
     "content": "[workspace]\nresolver = \"2\"\nmembers = [\n\n  \"compiler/rustc\",\n  \"src/build_helper\",\n  \"src/rustc-std-workspace/rustc-std-workspace-alloc\",\n  \"src/rustc-std-workspace/rustc-std-workspace-core\",\n  \"src/rustc-std-workspace/rustc-std-workspace-std\",\n  \"src/rustdoc-json-types\",\n  \"src/tools/build-manifest\",\n  \"src/tools/bump-stage0\",\n  \"src/tools/cargotest\",\n  \"src/tools/clippy\",\n  \"src/tools/clippy/clippy_dev\",\n  \"src/tools/collect-license-metadata\",\n  \"src/tools/compiletest\",\n  \"src/tools/coverage-dump\",\n  \"src/tools/features-status-dump\",\n  \"src/tools/generate-copyright\",\n  \"src/tools/generate-windows-sys\",\n  \"src/tools/html-checker\",\n  \"src/tools/jsondocck\",\n  \"src/tools/jsondoclint\",\n  \"src/tools/linkchecker\",\n  \"src/tools/lint-docs\",\n  \"src/tools/lld-wrapper\",\n  \"src/tools/llvm-bitcode-linker\",\n  \"src/tools/miri\",\n  \"src/tools/miri/cargo-miri\",\n  \"src/tools/miropt-test-tools\",\n  \"src/tools/opt-dist\",\n  \"src/tools/remote-test-client\",\n  \"src/tools/remote-test-server\",\n  \"src/tools/replace-version-placeholder\",\n  \"src/tools/run-make-support\",\n  \"src/tools/rust-installer\",\n  \"src/tools/rustdoc\",\n  \"src/tools/rustdoc-gui-test\",\n  \"src/tools/rustdoc-themes\",\n  \"src/tools/rustfmt\",\n  \"src/tools/test-float-parse\"\n\n... [truncated 81 chars] ...\n\ntor\",\n  \"src/tools/unstable-book-gen\",\n  \"src/tools/wasm-component-ld\",\n  \"src/tools/x\",\n\n]\n\nexclude = [\n  \"build\",\n  \"compiler/rustc_codegen_cranelift\",\n  \"compiler/rustc_codegen_gcc\",\n  \"src/bootstrap\",\n  \"tests/rustdoc-gui\",\n\n  \"obj\",\n]\n\n[profile.release.package.rustc_thread_pool]\n\noverflow-checks = false\n\n[profile.release.package.lld-wrapper]\ndebug = 0\nstrip = true\n[profile.release.package.wasm-component-ld-wrapper]\ndebug = 0\nstrip = true\n\n[profile.dev.package.test-float-parse]\nopt-level = 3\n\n[profile.release.package.test-float-parse]\nopt-level = 3\ncodegen-units = 1",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 1881,
       "cutPercent": 38.1,
-      "durationMs": 0.108
+      "durationMs": 0.116
     },
     "content": "[workspace]\nresolver = \"2\"\nmembers = [\n\n  \"compiler/rustc\",\n  \"src/build_helper\",\n  \"src/rustc-std-workspace/rustc-std-workspace-alloc\",\n  \"src/rustc-std-workspace/rustc-std-workspace-core\",\n  \"src/rustc-std-workspace/rustc-std-workspace-std\",\n  \"src/rustdoc-json-types\",\n  \"src/tools/build-manifest\",\n  \"src/tools/bump-stage0\",\n  \"src/tools/cargotest\",\n  \"src/tools/clippy\",\n  \"src/tools/clippy/clippy_dev\",\n  \"src/tools/collect-license-metadata\",\n  \"src/tools/compiletest\",\n  \"src/tools/coverage-dump\",\n  \"src/tools/features-status-dump\",\n  \"src/tools/generate-copyright\",\n  \"src/tools/generate-windows-sys\",\n  \"src/tools/html-checker\",\n  \"src/tools/jsondocck\",\n  \"src/tools/jsondoclint\",\n  \"src/tools/linkchecker\",\n  \"src/tools/lint-docs\",\n  \"src/tools/lld-wrapper\",\n  \"src/tools/llvm-bitcode-linker\",\n  \"src/tools/miri\",\n  \"src/tools/miri/cargo-miri\",\n  \"src/tools/miropt-test-tools\",\n  \"src/tools/opt-dist\",\n  \"src/tools/remote-test-client\",\n  \"src/tools/remote-test-server\",\n  \"src/tools/replace-version-placeholder\",\n  \"src/tools/run-make-support\",\n  \"src/tools/rust-installer\",\n  \"src/tools/rustdoc\",\n  \"src/tools/rustdoc-gui-test\",\n  \"src/tools/rustdoc-themes\",\n  \"src/tools/rustfmt\",\n  \"src/tools/test-float-parse\"\n\n... [truncated 81 chars] ...\n\ntor\",\n  \"src/tools/unstable-book-gen\",\n  \"src/tools/wasm-component-ld\",\n  \"src/tools/x\",\n\n]\n\nexclude = [\n  \"build\",\n  \"compiler/rustc_codegen_cranelift\",\n  \"compiler/rustc_codegen_gcc\",\n  \"src/bootstrap\",\n  \"tests/rustdoc-gui\",\n\n  \"obj\",\n]\n\n[profile.release.package.rustc_thread_pool]\n\noverflow-checks = false\n\n[profile.release.package.lld-wrapper]\ndebug = 0\nstrip = true\n[profile.release.package.wasm-component-ld-wrapper]\ndebug = 0\nstrip = true\n\n[profile.dev.package.test-float-parse]\nopt-level = 3\n\n[profile.release.package.test-float-parse]\nopt-level = 3\ncodegen-units = 1",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 1881,
       "cutPercent": 38.1,
-      "durationMs": 0.108
+      "durationMs": 0.111
     },
     "content": "[workspace]\nresolver = \"2\"\nmembers = [\n\n  \"compiler/rustc\",\n  \"src/build_helper\",\n  \"src/rustc-std-workspace/rustc-std-workspace-alloc\",\n  \"src/rustc-std-workspace/rustc-std-workspace-core\",\n  \"src/rustc-std-workspace/rustc-std-workspace-std\",\n  \"src/rustdoc-json-types\",\n  \"src/tools/build-manifest\",\n  \"src/tools/bump-stage0\",\n  \"src/tools/cargotest\",\n  \"src/tools/clippy\",\n  \"src/tools/clippy/clippy_dev\",\n  \"src/tools/collect-license-metadata\",\n  \"src/tools/compiletest\",\n  \"src/tools/coverage-dump\",\n  \"src/tools/features-status-dump\",\n  \"src/tools/generate-copyright\",\n  \"src/tools/generate-windows-sys\",\n  \"src/tools/html-checker\",\n  \"src/tools/jsondocck\",\n  \"src/tools/jsondoclint\",\n  \"src/tools/linkchecker\",\n  \"src/tools/lint-docs\",\n  \"src/tools/lld-wrapper\",\n  \"src/tools/llvm-bitcode-linker\",\n  \"src/tools/miri\",\n  \"src/tools/miri/cargo-miri\",\n  \"src/tools/miropt-test-tools\",\n  \"src/tools/opt-dist\",\n  \"src/tools/remote-test-client\",\n  \"src/tools/remote-test-server\",\n  \"src/tools/replace-version-placeholder\",\n  \"src/tools/run-make-support\",\n  \"src/tools/rust-installer\",\n  \"src/tools/rustdoc\",\n  \"src/tools/rustdoc-gui-test\",\n  \"src/tools/rustdoc-themes\",\n  \"src/tools/rustfmt\",\n  \"src/tools/test-float-parse\"\n\n... [truncated 81 chars] ...\n\ntor\",\n  \"src/tools/unstable-book-gen\",\n  \"src/tools/wasm-component-ld\",\n  \"src/tools/x\",\n\n]\n\nexclude = [\n  \"build\",\n  \"compiler/rustc_codegen_cranelift\",\n  \"compiler/rustc_codegen_gcc\",\n  \"src/bootstrap\",\n  \"tests/rustdoc-gui\",\n\n  \"obj\",\n]\n\n[profile.release.package.rustc_thread_pool]\n\noverflow-checks = false\n\n[profile.release.package.lld-wrapper]\ndebug = 0\nstrip = true\n[profile.release.package.wasm-component-ld-wrapper]\ndebug = 0\nstrip = true\n\n[profile.dev.package.test-float-parse]\nopt-level = 3\n\n[profile.release.package.test-float-parse]\nopt-level = 3\ncodegen-units = 1",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 1881,
       "cutPercent": 38.1,
-      "durationMs": 0.113,
+      "durationMs": 0.115,
       "failed": false,
       "type": "conservative",
       "reason": null

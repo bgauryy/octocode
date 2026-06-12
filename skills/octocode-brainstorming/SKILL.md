@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: Idea brainstorming and validation grounded in evidence. Triggers on "brainstorm", "is this worth building", "has anyone built X", "validate my idea", "check if X exists", "research this idea", "what are the prior-art options for Y". Researches GitHub, npm/PyPI, and the web in parallel, then synthesizes a decision-ready brief — not code or designs.
+description: Idea brainstorming and validation grounded in evidence. Triggers on "brainstorm", "is this worth building", "has anyone built X", "validate my idea", "check if X exists", "research this idea", "what are the prior-art options for Y". Researches GitHub, npm, and the web in parallel, then synthesizes a decision-ready brief — not code or designs.
 ---
 
 # Octocode Brainstorming — Idea Discovery & Validation
@@ -43,7 +43,7 @@ Do not silently continue past a hard gate. Do not ask outside of gates — gates
 
 | Tool | Use for |
 |------|---------|
-| `packageSearch` | npm/PyPI libraries |
+| `packageSearch` | npm libraries |
 | `githubSearchRepositories` | Repos by topic, language, stars |
 | `githubViewRepoStructure` | How a similar project is organized |
 | `githubSearchCode` | Confirm a concept is actually implemented |

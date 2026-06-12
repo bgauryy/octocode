@@ -17,8 +17,8 @@ describe('bulk schemas defer mutex to per-query (no whole-batch rejection)', () 
   it('localSearchCode bulk accepts a mutex-violating query alongside valid ones', () => {
     const r = LocalRipgrepBulkQuerySchema.safeParse({
       queries: [
-        { pattern: 'x', path: '/r', filesOnly: true, filesWithoutMatch: true },
-        { pattern: 'y', path: '/r' },
+        { keywords: 'x', path: '/r', filesOnly: true, filesWithoutMatch: true },
+        { keywords: 'y', path: '/r' },
       ],
     });
     expect(r.success).toBe(true);

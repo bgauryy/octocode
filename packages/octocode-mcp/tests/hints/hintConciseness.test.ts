@@ -126,7 +126,7 @@ describe('Hint conciseness', () => {
         makeFiles(3),
         {
           path: '/test',
-          pattern: 'export',
+          keywords: 'export',
           mode: 'discovery',
           researchGoal: 'test',
           reasoning: 'test',
@@ -145,7 +145,7 @@ describe('Hint conciseness', () => {
         makeFiles(3),
         {
           path: '/test',
-          pattern: 'export',
+          keywords: 'export',
           mode: 'paginated',
           researchGoal: 'test',
           reasoning: 'test',
@@ -164,7 +164,7 @@ describe('Hint conciseness', () => {
         makeFiles(3),
         {
           path: '/test',
-          pattern: 'export',
+          keywords: 'export',
           researchGoal: 'test',
           reasoning: 'test',
         } as any,
@@ -274,7 +274,7 @@ describe('Hint conciseness', () => {
         makeFiles(5),
         {
           path: '/test',
-          pattern: 'export',
+          keywords: 'export',
           mode: 'discovery',
           researchGoal: 'test',
           reasoning: 'test',
@@ -293,7 +293,7 @@ describe('Hint conciseness', () => {
         makeFiles(50),
         {
           path: '/test',
-          pattern: 'export',
+          keywords: 'export',
           mode: 'paginated',
           researchGoal: 'test',
           reasoning: 'test',

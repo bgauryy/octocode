@@ -1,5 +1,5 @@
 {
-  "source": "ts/core.ts",
+  "source": "ts/00-typescript-core.ts",
   "sourceBytes": 92419,
   "sha256": "c35b2cfa5216d4979aff3f963071c979d0b57d2242649df3dc6cb7c9f4a10b1b",
   "excerptBytes": 1835,

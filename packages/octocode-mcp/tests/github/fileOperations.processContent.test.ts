@@ -151,7 +151,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         path: 'sample.ts',
         minify: 'symbols',
       } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
-        data: { content: string };
+        data: { content: string; sourceChars?: number; sourceBytes?: number };
       };
 
       expect('error' in result).toBe(false);
@@ -164,6 +164,8 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       expect(content).toContain('a: string,');
       expect(content).toContain('Promise<void>');
       expect(content).not.toContain('secretLocal');
+      expect(result.data.sourceChars).toBe(SOURCE.length);
+      expect(result.data.sourceBytes).toBe(Buffer.byteLength(SOURCE, 'utf-8'));
     });
 
     it('returns a large minify:"symbols" skeleton WHOLE — never paginated', async () => {
@@ -205,6 +207,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
           content: string;
           pagination?: { hasMore: boolean };
           isPartial?: boolean;
+          sourceChars?: number;
           signaturesExtracted?: boolean;
         };
       };
@@ -217,6 +220,7 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       // Extraction ran (signatures present), not full bodies.
       expect(result.data.content).not.toContain('doStuff');
       expect(result.data.isPartial).toBe(false);
+      expect(result.data.sourceChars).toBe(src.length);
       // Internal bypass flag must not leak into the API result.
       expect(result.data.signaturesExtracted).toBeUndefined();
     });

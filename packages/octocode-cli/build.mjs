@@ -1,7 +1,12 @@
 import * as esbuild from 'esbuild';
 import { builtinModules } from 'module';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, copyFileSync } from 'fs';
 import { rm } from 'fs/promises';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
@@ -55,3 +60,23 @@ await esbuild.build({
 });
 
 console.log('✓ esbuild complete');
+
+// Copy the octocode-security native binary to out/ so it's found at runtime.
+// The bundled code looks for it at ../octocode-security.<platform>.node relative
+// to the chunk files (i.e. out/octocode-security.<platform>.node).
+const securityPkg = resolve(__dirname, '..', 'octocode-security');
+const platforms = [
+  'darwin-arm64',
+  'darwin-x64',
+  'linux-arm64-gnu',
+  'linux-x64-gnu',
+  'win32-x64-msvc',
+];
+for (const platform of platforms) {
+  const src = resolve(securityPkg, `octocode-security.${platform}.node`);
+  if (existsSync(src)) {
+    const dest = resolve(__dirname, 'out', `octocode-security.${platform}.node`);
+    copyFileSync(src, dest);
+    console.log(`✓ copied octocode-security.${platform}.node`);
+  }
+}

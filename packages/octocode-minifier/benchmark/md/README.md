@@ -4,7 +4,9 @@ Source sample: `md/rust-readme.md`
 
 Strategy: `markdown`
 
-Agent rating: **6.3/10 (fair)**
+Agent rating: **5.5/10 (needs work)**
+
+Agent understanding from minified output: **9.2/10 (excellent)**
 
 Artifacts:
 
@@ -18,15 +20,41 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3304 | - | - | - |
-| content-view | 3289 | 0.5% | 0.216 ms | 6.3/10 |
-| applyMinification | 3289 | 0.5% | 0.029 ms | 6.3/10 |
-| sync minify | 3289 | 0.5% | 0.018 ms | 6.3/10 |
-| async minify | 3289 | 0.5% | 0.02 ms | 6.3/10 |
-| symbols | n/a | n/a | 0.002 ms | n/a |
+| content-view | 3303 | 0% | 3.523 ms | 5.5/10 |
+| applyMinification | 3303 | 0% | 0.865 ms | 5.5/10 |
+| sync minify | 3303 | 0% | 0.848 ms | 5.5/10 |
+| async minify | 3303 | 0% | 0.734 ms | 5.5/10 |
+| symbols | n/a | n/a | 0.01 ms | n/a |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 5/10 |
+| symbol context | 7/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 3304 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 3303 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
+| minify | 3303 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
+| symbols | n/a | n/a | n/a | n/a | n/a |
 
 ## Notes
 
 - markdown text strategy.
+- content-view kept original because the readable output was not shorter.
 - symbols are not implemented for this extension.
 
 ## Before Excerpt
@@ -86,8 +114,8 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-  src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-  width="50%">
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
+         width="50%">
   </picture>
 
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
@@ -104,9 +132,9 @@ standard library, and documentation.
 
 ## Why Rust?
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
 
-... [truncated 1489 chars] ...
+... [truncated 1503 chars] ...
 
 T) for details.
 
@@ -134,8 +162,8 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-  src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-  width="50%">
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
+         width="50%">
   </picture>
 
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
@@ -152,9 +180,9 @@ standard library, and documentation.
 
 ## Why Rust?
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
 
-... [truncated 1489 chars] ...
+... [truncated 1503 chars] ...
 
 T) for details.
 
@@ -182,8 +210,8 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-  src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-  width="50%">
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
+         width="50%">
   </picture>
 
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
@@ -200,9 +228,9 @@ standard library, and documentation.
 
 ## Why Rust?
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
 
-... [truncated 1489 chars] ...
+... [truncated 1503 chars] ...
 
 T) for details.
 
@@ -230,8 +258,8 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-  src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-  width="50%">
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
+         width="50%">
   </picture>
 
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
@@ -248,9 +276,9 @@ standard library, and documentation.
 
 ## Why Rust?
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
 
-... [truncated 1489 chars] ...
+... [truncated 1503 chars] ...
 
 T) for details.
 

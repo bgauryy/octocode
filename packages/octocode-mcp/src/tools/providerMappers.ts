@@ -59,6 +59,10 @@ export function buildPaginationHints(
     entriesPerPage?: number;
     perPage?: number;
     totalMatches?: number;
+    reportedTotalMatches?: number;
+    reachableTotalMatches?: number;
+    totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+    totalMatchesCapped?: boolean;
   },
   label: string
 ): string[] {
@@ -69,16 +73,28 @@ export function buildPaginationHints(
   const hints: string[] = [];
   const perPage = pagination.entriesPerPage || pagination.perPage || 10;
   const totalMatches = pagination.totalMatches;
+  const reportedTotalMatches = pagination.reportedTotalMatches;
+  const reachableTotalMatches = pagination.reachableTotalMatches;
   const startItem = (pagination.currentPage - 1) * perPage + 1;
   const endItem =
     typeof totalMatches === 'number'
       ? Math.min(pagination.currentPage * perPage, totalMatches)
       : pagination.currentPage * perPage;
+  const totalLabel =
+    typeof totalMatches !== 'number'
+      ? 'total unknown'
+      : pagination.totalMatchesKind === 'lowerBound'
+        ? `at least ${totalMatches}`
+        : typeof reportedTotalMatches === 'number' &&
+            typeof reachableTotalMatches === 'number' &&
+            reportedTotalMatches > reachableTotalMatches
+          ? `${reachableTotalMatches} reachable; GitHub reports ${reportedTotalMatches}`
+          : `${totalMatches}`;
 
   if (pagination.hasMore) {
     hints.push(
       typeof totalMatches === 'number'
-        ? `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalMatches} ${label}). Next: page=${pagination.currentPage + 1}`
+        ? `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalLabel} ${label}). Next: page=${pagination.currentPage + 1}`
         : `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} ${label}; total unknown). Next: page=${pagination.currentPage + 1}`
     );
     hints.push(
@@ -133,7 +149,12 @@ export interface CodeSearchPagination {
   totalPages: number;
   perPage: number;
   totalMatches: number;
+  reportedTotalMatches?: number;
+  reachableTotalMatches?: number;
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
   hasMore: boolean;
+  uniqueFileCount?: number;
 }
 
 export interface CodeSearchFlatResult {
@@ -141,6 +162,36 @@ export interface CodeSearchFlatResult {
   pagination?: CodeSearchPagination;
 
   nonExistentScope?: boolean;
+}
+
+function countMetadata(
+  pagination:
+    | {
+        reportedTotalMatches?: number;
+        reachableTotalMatches?: number;
+        totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+        totalMatchesCapped?: boolean;
+        uniqueFileCount?: number;
+      }
+    | undefined
+) {
+  return {
+    ...(typeof pagination?.reportedTotalMatches === 'number'
+      ? { reportedTotalMatches: pagination.reportedTotalMatches }
+      : {}),
+    ...(typeof pagination?.reachableTotalMatches === 'number'
+      ? { reachableTotalMatches: pagination.reachableTotalMatches }
+      : {}),
+    ...(pagination?.totalMatchesKind
+      ? { totalMatchesKind: pagination.totalMatchesKind }
+      : {}),
+    ...(typeof pagination?.totalMatchesCapped === 'boolean'
+      ? { totalMatchesCapped: pagination.totalMatchesCapped }
+      : {}),
+    ...(typeof pagination?.uniqueFileCount === 'number'
+      ? { uniqueFileCount: pagination.uniqueFileCount }
+      : {}),
+  };
 }
 
 function splitRepositoryPath(repositoryPath: string): {
@@ -231,6 +282,7 @@ export function mapCodeSearchProviderResult(
       totalPages: data.pagination.totalPages,
       perPage: data.pagination.entriesPerPage || 10,
       totalMatches: data.pagination.totalMatches || 0,
+      ...countMetadata(data.pagination),
       hasMore: data.pagination.hasMore,
     };
   }
@@ -249,7 +301,7 @@ export function mapRepoSearchToolQuery(
     size: query.size,
     created: query.created,
     updated: query.updated,
-    language: (query as Record<string, unknown>).language as string | undefined,
+    language: query.language,
     archived: (query as Record<string, unknown>).archived as
       | boolean
       | undefined,
@@ -312,7 +364,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
   return {
     projectId: toProviderProjectId(query.owner, query.repo),
     owner: query.owner,
-    query: query.query,
+    query: query.keywordsToSearch?.join(' '),
     number: query.prNumber,
     state: query.state as 'open' | 'closed' | 'merged' | 'all' | undefined,
     author: query.author,
@@ -509,6 +561,7 @@ export function mapPullRequestProviderResultData(
         ...(typeof data.pagination.totalMatches === 'number'
           ? { totalMatches: data.pagination.totalMatches }
           : {}),
+        ...countMetadata(data.pagination),
         hasMore: data.pagination.hasMore,
       }
     : undefined;
@@ -560,6 +613,18 @@ export function mapFileContentProviderResult(
     content: data.content,
     ...(typeof data.totalLines === 'number' && {
       totalLines: data.totalLines,
+    }),
+    ...(typeof data.sourceChars === 'number' && {
+      sourceChars: data.sourceChars,
+    }),
+    ...(typeof data.sourceBytes === 'number' && {
+      sourceBytes: data.sourceBytes,
+    }),
+    ...(data.contentView && {
+      contentView: data.contentView,
+    }),
+    ...(data.isSkeleton === true && {
+      isSkeleton: true,
     }),
     ...(data.isPartial && {
       isPartial: data.isPartial,

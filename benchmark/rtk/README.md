@@ -20,7 +20,7 @@ Both agents use **CLI tools only** — no MCP server, no schema-loading overhead
 | **File finding** | `rtk find <path>` — same hidden dirs, no size/mtime metadata | `localFindFiles` — size, mtime, extension filters, structured output |
 | **GitHub PR research** | `rtk gh pr view <n>` — drops labels, comments, assignees, file change list | `githubSearchPullRequests` — all metadata, comments option, diff access |
 | **GitHub file content** | `rtk gh api repos/.../contents/path` — 2000-char passthrough window | `githubGetFileContent` — full content with char-offset pagination |
-| **Package lookup** | Out of scope for rtk's CLI filtering model | `packageSearch` — npm/PyPI registry API: version, downloads, homepage |
+| **Package lookup** | Out of scope for rtk's CLI filtering model | `packageSearch` — npm registry API: version, downloads, homepage |
 | **LSP navigation** | Out of scope for rtk's CLI filtering model | `lspGotoDefinition`, `lspFindReferences`, `lspCallHierarchy` |
 
 ---

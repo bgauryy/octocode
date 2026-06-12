@@ -1,30 +1,33 @@
 {
   "ext": "py",
   "language": "Python",
-  "source": "py/sessions.py",
-  "sourceBytes": 34072,
+  "source": "py/00-httpx-client.py",
+  "sourceBytes": 65713,
   "strategy": "conservative",
-  "commentModel": "hash",
-  "sha256": "3d2089736ced93b2b405624a943f866d22652b17df06a85eb010f86272fc3e7d",
+  "commentModel": [
+    "hash",
+    "python-docstring"
+  ],
+  "sha256": "ed717b3ac00debb48d089daeb4dd7fbaf47cb5642ebc4a6e76f3a2fc6cfc0f70",
   "contentView": {
-    "bytes": 26625,
-    "cutPercent": 21.9,
-    "durationMs": 3.998
+    "bytes": 51725,
+    "cutPercent": 21.3,
+    "durationMs": 20.669
   },
   "applyMinification": {
-    "bytes": 26625,
-    "cutPercent": 21.9,
-    "durationMs": 3.712
+    "bytes": 51725,
+    "cutPercent": 21.3,
+    "durationMs": 29.617
   },
   "sync": {
-    "bytes": 26625,
-    "cutPercent": 21.9,
-    "durationMs": 4.445
+    "bytes": 51725,
+    "cutPercent": 21.3,
+    "durationMs": 35.083
   },
   "async": {
-    "bytes": 26625,
-    "cutPercent": 21.9,
-    "durationMs": 3.439,
+    "bytes": 51725,
+    "cutPercent": 21.3,
+    "durationMs": 20.236,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -32,14 +35,214 @@
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 4995,
-    "cutPercent": 85.3,
-    "durationMs": 0.39
+    "bytes": 23947,
+    "cutPercent": 63.6,
+    "durationMs": 1.415
+  },
+  "agentUnderstanding": {
+    "output": "standard",
+    "bytes": 51725,
+    "cutPercent": 21.3,
+    "score": 9.8,
+    "label": "excellent",
+    "syntaxAnchors": {
+      "score": 10,
+      "hits": 3,
+      "total": 3
+    },
+    "structure": 10,
+    "outputHealth": 10,
+    "contextBudget": 8,
+    "symbols": 10,
+    "signals": [
+      {
+        "name": "standard output is non-empty",
+        "passed": true
+      },
+      {
+        "name": "standard did not grow",
+        "passed": true
+      },
+      {
+        "name": "standard completed",
+        "passed": true
+      },
+      {
+        "name": "language syntax anchors present",
+        "passed": true
+      },
+      {
+        "name": "delimiter structure is balanced enough",
+        "passed": true
+      },
+      {
+        "name": "symbol skeleton returned or not configured",
+        "passed": true
+      }
+    ]
+  },
+  "agentObservations": {
+    "none": {
+      "output": "none",
+      "bytes": 65713,
+      "cutPercent": 0,
+      "score": 10,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 5,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "none output is exact source",
+          "passed": true
+        },
+        {
+          "name": "none output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "none preserves source fidelity",
+          "passed": true
+        }
+      ]
+    },
+    "standard": {
+      "output": "standard",
+      "bytes": 51725,
+      "cutPercent": 21.3,
+      "score": 9.8,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 8,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "standard output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "standard did not grow",
+          "passed": true
+        },
+        {
+          "name": "standard completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "minify": {
+      "output": "minify",
+      "bytes": 51725,
+      "cutPercent": 21.3,
+      "score": 9.8,
+      "label": "excellent",
+      "syntaxAnchors": {
+        "score": 10,
+        "hits": 3,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 10,
+      "contextBudget": 8,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "minify output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "minify did not grow",
+          "passed": true
+        },
+        {
+          "name": "minify completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    },
+    "symbols": {
+      "output": "symbols",
+      "bytes": 23947,
+      "cutPercent": 63.6,
+      "score": 8.7,
+      "label": "strong",
+      "syntaxAnchors": {
+        "score": 6.7,
+        "hits": 2,
+        "total": 3
+      },
+      "structure": 9.9,
+      "outputHealth": 10,
+      "contextBudget": 10,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "symbols output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "symbols did not grow",
+          "passed": true
+        },
+        {
+          "name": "symbols completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": true
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    }
   },
   "ratings": {
     "minify": 7.8,
-    "symbols": 10,
-    "agent": 8.6,
+    "symbols": 9,
+    "agent": 8.2,
     "label": "strong"
   },
   "notes": [

@@ -1,0 +1,42 @@
+{
+  "ext": "jsx",
+  "language": "JSX",
+  "description": "React dashboard list with hook state and JSX comment blocks",
+  "inputBytes": 11996,
+  "inputLines": 330,
+  "contentView": {
+    "bytes": 10554,
+    "cutPct": 12,
+    "ms": 4.4
+  },
+  "applyMinify": {
+    "bytes": 9910,
+    "cutPct": 17.4,
+    "ms": 36.34
+  },
+  "syncMinify": {
+    "bytes": 9910,
+    "cutPct": 17.4,
+    "ms": 25.91
+  },
+  "asyncMinify": {
+    "bytes": 9910,
+    "cutPct": 17.4,
+    "ms": 25.16,
+    "type": "terser"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 170,
+    "cutPct": 98.6,
+    "ms": 4.57
+  },
+  "rating": {
+    "score": 6,
+    "label": "fair"
+  },
+  "notes": [
+    "TypeScript JSX transform path before Terser",
+    "JSX comments removed while string markers are preserved"
+  ]
+}

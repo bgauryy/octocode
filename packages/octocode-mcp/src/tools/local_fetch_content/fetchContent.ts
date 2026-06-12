@@ -6,7 +6,7 @@ import {
   extractSignatures,
   SIGNATURES_ONLY_HINT,
 } from '@octocodeai/octocode-minifier';
-import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyPagination,
   createPaginationInfo,
@@ -40,6 +40,21 @@ interface ExtractionState {
   matchRanges?: Array<{ start: number; end: number }>;
   warnings?: string[];
   earlyResult?: LocalGetFileContentToolResult;
+}
+
+function sourceSizeFields(sourceChars: number, sourceBytes: number) {
+  return { sourceChars, sourceBytes };
+}
+
+function withSourceSize(
+  result: LocalGetFileContentToolResult,
+  sourceChars: number,
+  sourceBytes: number
+): LocalGetFileContentToolResult {
+  return {
+    ...result,
+    ...sourceSizeFields(sourceChars, sourceBytes),
+  };
 }
 
 function validateExtractionOptions(
@@ -310,8 +325,7 @@ function createNoMatchesResult(
 function buildMatchExtractionState(
   query: FetchContentQuery,
   lines: string[],
-  totalLines: number,
-  defaultOutputCharLength: number
+  totalLines: number
 ): ExtractionState {
   const result = extractMatchingLines(
     lines,
@@ -351,42 +365,6 @@ function buildMatchExtractionState(
       actualEndLine = lastRange.end;
       matchRanges = result.matchRanges;
     }
-  }
-
-  if (resultContent.length > defaultOutputCharLength) {
-    // Content is char-paginated via charOffset (page is the list cursor).
-    const charOffset = query.charOffset ?? 0;
-    const autoPagination = applyPagination(
-      resultContent,
-      charOffset,
-      defaultOutputCharLength
-    );
-    return {
-      isPartial: true,
-      earlyResult: {
-        content: autoPagination.paginatedContent,
-        isPartial: true,
-        totalLines,
-        ...(actualStartLine !== undefined && {
-          startLine: actualStartLine,
-          endLine: actualEndLine,
-          matchRanges,
-        }),
-        pagination: createPaginationInfo(autoPagination),
-        warnings: [
-          matchSummary,
-          `Auto-paginated: ${result.matchCount} matches exceeded display limit`,
-          ...(matchRanges && matchRanges.length > 0
-            ? [
-                'matchRanges covers this chunk only — use the charOffset cursor to read further match positions.',
-              ]
-            : []),
-        ],
-        hints: generatePaginationHints(autoPagination, {
-          toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
-        }),
-      },
-    };
   }
 
   return {
@@ -467,18 +445,13 @@ function buildLineRangeExtractionState(
 function buildExtractionState(
   query: FetchContentQuery,
   content: string,
-  defaultOutputCharLength: number
+  _defaultOutputCharLength: number
 ): ExtractionState {
   const lines = content.split('\n');
   const totalLines = lines.length;
 
   if (query.matchString) {
-    return buildMatchExtractionState(
-      query,
-      lines,
-      totalLines,
-      defaultOutputCharLength
-    );
+    return buildMatchExtractionState(query, lines, totalLines);
   }
 
   if (hasLineRangeRequest(query)) {
@@ -554,6 +527,10 @@ function buildSuccessResult(
   }
 
   const warnings = [...(extraction.warnings ?? [])];
+  const queryPath = String(query.path);
+  const outputContent = shouldMinify
+    ? applyContentViewMinification(extraction.resultContent, queryPath)
+    : extraction.resultContent;
   const explicitCharLength = query.charLength;
   const explicitCharOffset = query.charOffset ?? 0;
   let effectiveCharLength: number | undefined = explicitCharLength;
@@ -562,18 +539,18 @@ function buildSuccessResult(
 
   if (
     effectiveCharLength === undefined &&
-    extraction.resultContent.length > defaultOutputCharLength
+    outputContent.length > defaultOutputCharLength
   ) {
     effectiveCharLength = defaultOutputCharLength;
     autoPaginated = true;
     // charOffset already holds the explicit content cursor (query.charOffset).
     warnings.push(
-      `Auto-paginated: Content (${extraction.resultContent.length} chars) exceeds ${defaultOutputCharLength} char limit`
+      `Auto-paginated: Content (${outputContent.length} chars) exceeds ${defaultOutputCharLength} char limit`
     );
   }
 
   const pagination = applyPagination(
-    extraction.resultContent,
+    outputContent,
     charOffset,
     effectiveCharLength
   );
@@ -616,13 +593,9 @@ function buildSuccessResult(
     );
   }
 
-  const queryPath = String(query.path);
-
   return {
     path: queryPath,
-    content: shouldMinify
-      ? applyContentViewMinification(pagination.paginatedContent, queryPath)
-      : pagination.paginatedContent,
+    content: pagination.paginatedContent,
     contentView,
     isPartial,
     totalLines,
@@ -721,6 +694,8 @@ export async function fetchContent(
     // path's ContentSanitizer pass.
     const sanitized = ContentSanitizer.sanitizeContent(rawContent, queryPath);
     const content = sanitized.content;
+    const sourceChars = content.length;
+    const sourceBytes = Buffer.byteLength(content, 'utf-8');
     const secretWarning = sanitized.hasSecrets
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
@@ -754,12 +729,13 @@ export async function fetchContent(
             isSkeleton: true,
             isPartial: false,
             totalLines: totalLinesOrig,
+            ...sourceSizeFields(sourceChars, sourceBytes),
             hints: [
               SIGNATURES_ONLY_HINT,
               ...(secretWarning ? [secretWarning] : []),
             ],
           },
-          content.length
+          sourceChars
         );
       }
     }
@@ -799,14 +775,18 @@ export async function fetchContent(
             }
           : extraction.earlyResult;
       return attachRawResponseChars(
-        withSecretWarning(
-          finalizeFetchContentResult(
-            withContentView(minifiedEarlyResult, fallbackContentView),
-            query,
-            totalLines
-          )
+        withSourceSize(
+          withSecretWarning(
+            finalizeFetchContentResult(
+              withContentView(minifiedEarlyResult, fallbackContentView),
+              query,
+              totalLines
+            )
+          ),
+          sourceChars,
+          sourceBytes
         ),
-        content.length
+        sourceChars
       );
     }
 
@@ -820,10 +800,14 @@ export async function fetchContent(
       fallbackContentView
     );
     return attachRawResponseChars(
-      withSecretWarning(
-        finalizeFetchContentResult(fullResult, query, totalLines)
+      withSourceSize(
+        withSecretWarning(
+          finalizeFetchContentResult(fullResult, query, totalLines)
+        ),
+        sourceChars,
+        sourceBytes
       ),
-      content.length
+      sourceChars
     );
   } catch (error) {
     return createErrorResult(error, query, {

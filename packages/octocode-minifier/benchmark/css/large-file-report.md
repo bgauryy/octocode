@@ -7,11 +7,11 @@
 | Mode | Output bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | Input | 10,231 B | — | — |
-| content-view | 8,312 B | **−18.8%** | 8.16 ms |
-| applyMinification | 7,082 B | **−30.8%** | 14.68 ms |
-| minifyContentSync | 7,082 B | **−30.8%** | 4.46 ms |
-| minifyContent (async, type=aggressive) | 7,003 B | **−31.6%** | 58.23 ms |
-| symbols | 3,460 B (−66.2%) | — | 2.91 ms |
+| content-view | 8,312 B | **−18.8%** | 3.18 ms |
+| applyMinification | 7,082 B | **−30.8%** | 6.51 ms |
+| minifyContentSync | 7,082 B | **−30.8%** | 9.37 ms |
+| minifyContent (async, type=aggressive) | 7,003 B | **−31.6%** | 20.4 ms |
+| symbols | 3,460 B (−66.2%) | — | 1.63 ms |
 
 ## Notes
 

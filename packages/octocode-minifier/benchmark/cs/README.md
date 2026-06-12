@@ -1,10 +1,12 @@
 # C# (.cs)
 
-Source sample: `cs/dotnet-argument-exception.cs`
+Source sample: `cs/00-dotnet-argument-exception.cs`
 
 Strategy: `conservative`
 
 Agent rating: **8.7/10 (strong)**
+
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 5603 | - | - | - |
-| content-view | 4017 | 28.3% | 0.645 ms | 8.5/10 |
-| applyMinification | 4017 | 28.3% | 0.866 ms | 8.5/10 |
-| sync minify | 4017 | 28.3% | 0.605 ms | 8.5/10 |
-| async minify | 4017 | 28.3% | 0.592 ms | 8.5/10 |
-| symbols | 1484 | 73.5% | 0.38 ms | 9/10 |
+| content-view | 4017 | 28.3% | 1.194 ms | 8.5/10 |
+| applyMinification | 4017 | 28.3% | 2.137 ms | 8.5/10 |
+| sync minify | 4017 | 28.3% | 1.678 ms | 8.5/10 |
+| async minify | 4017 | 28.3% | 2.741 ms | 8.5/10 |
+| symbols | 1484 | 73.5% | 0.565 ms | 9/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 9/10 |
+| context budget | 9/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 5603 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 4017 | 28.3% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 4017 | 28.3% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 1484 | 73.5% | 8.5/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 

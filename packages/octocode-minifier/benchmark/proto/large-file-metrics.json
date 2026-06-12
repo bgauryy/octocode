@@ -1,0 +1,42 @@
+{
+  "ext": "proto",
+  "language": "Protobuf",
+  "description": "gRPC service definition: messages, enums, service RPCs",
+  "inputBytes": 6808,
+  "inputLines": 198,
+  "contentView": {
+    "bytes": 2954,
+    "cutPct": 56.6,
+    "ms": 1.21
+  },
+  "applyMinify": {
+    "bytes": 2954,
+    "cutPct": 56.6,
+    "ms": 0.95
+  },
+  "syncMinify": {
+    "bytes": 2954,
+    "cutPct": 56.6,
+    "ms": 1.11
+  },
+  "asyncMinify": {
+    "bytes": 2954,
+    "cutPct": 56.6,
+    "ms": 1.02,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": false,
+    "bytes": null,
+    "cutPct": null,
+    "ms": null
+  },
+  "rating": {
+    "score": 8,
+    "label": "strong"
+  },
+  "notes": [
+    "C-style and // comments stripped by conservative strategy",
+    "High comment density in gRPC schemas"
+  ]
+}

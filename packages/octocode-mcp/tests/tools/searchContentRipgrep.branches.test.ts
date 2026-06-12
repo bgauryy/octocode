@@ -28,7 +28,7 @@ function makeRipgrepQuery(overrides: Partial<RipgrepQuery> = {}): RipgrepQuery {
     id: 'q-test',
     researchGoal: 'unit-test',
     reasoning: 'cover branches',
-    pattern: 'foo',
+    keywords: 'foo',
     path: '/tmp',
     matchContentLength: 200,
     itemsPerPage: 10,
@@ -63,7 +63,7 @@ describe('searchContentRipgrep — error handling', () => {
     expect(result.searchEngine).toBe('grep');
     expect(mocks.executeRipgrepSearchInternal).not.toHaveBeenCalled();
     expect(mocks.executeGrepFallbackSearch).toHaveBeenCalledWith(
-      expect.objectContaining({ pattern: query.pattern, path: query.path }),
+      expect.objectContaining({ keywords: query.keywords, path: query.path }),
       'bundled rg missing'
     );
   });

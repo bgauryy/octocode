@@ -7,6 +7,17 @@ type BenchmarkSummary = {
   configuredExtensions: number;
   coveredExtensions: number;
   missingExtensions: string[];
+  readmeMinification: {
+    source: string;
+    inputBytes: number;
+    outputBytes: number;
+    cutPercent: number;
+    readabilityScore: number;
+    byteReductionScore: number;
+    score: number;
+    label: string;
+    signals: Array<{ name: string; passed: boolean }>;
+  } | null;
   asyncTypeDistribution: Record<
     string,
     { count: number; extensions: string[] }
@@ -26,7 +37,68 @@ type BenchmarkSummary = {
     symbolsReturned: number;
     weakest: Array<{ ext: string; agent: number }>;
   };
-  metrics: Array<{ ext: string }>;
+  agentUnderstanding: {
+    averageScore: number;
+    buckets: Record<string, number>;
+    weakest: Array<{ ext: string; score: number }>;
+  };
+  agentObservations: {
+    overallAgentUsefulness: number;
+    levels: Record<
+      'none' | 'standard' | 'minify' | 'symbols',
+      {
+        count: number;
+        averageScore: number;
+        averageCut: number;
+        buckets: Record<string, number>;
+        weakest: Array<{ ext: string; score: number }>;
+      }
+    >;
+  };
+  metrics: Array<{
+    ext: string;
+    agentUnderstanding: {
+      output: string;
+      score: number;
+      label: string;
+      syntaxAnchors: { score: number; hits: number; total: number };
+      structure: number;
+      outputHealth: number;
+      contextBudget: number;
+      symbols: number;
+      signals: Array<{ name: string; passed: boolean }>;
+    };
+    agentObservations: Record<
+      'none' | 'standard' | 'minify',
+      {
+        output: string;
+        bytes: number;
+        cutPercent: number;
+        score: number;
+        label: string;
+        syntaxAnchors: { score: number; hits: number; total: number };
+        structure: number;
+        outputHealth: number;
+        contextBudget: number;
+        symbols: number;
+        signals: Array<{ name: string; passed: boolean }>;
+      }
+    > & {
+      symbols: {
+        output: string;
+        bytes: number;
+        cutPercent: number;
+        score: number;
+        label: string;
+        syntaxAnchors: { score: number; hits: number; total: number };
+        structure: number;
+        outputHealth: number;
+        contextBudget: number;
+        symbols: number;
+        signals: Array<{ name: string; passed: boolean }>;
+      } | null;
+    };
+  }>;
 };
 
 const benchmarkRoot = new URL('../benchmark/', import.meta.url);
@@ -75,6 +147,21 @@ const EXPECTED_COMMON_ASYNC_TYPES = {
   sql: 'conservative',
   md: 'markdown',
 } as const;
+
+const REQUESTED_AGENT_UNDERSTANDING_EXTENSIONS = [
+  'py',
+  'c',
+  'cpp',
+  'java',
+  'cs',
+  'js',
+  'vb',
+  'sql',
+  'html',
+  'jsx',
+  'ts',
+  'tsx',
+] as const;
 
 function readSummary(): BenchmarkSummary {
   return JSON.parse(readFileSync(summaryPath, 'utf8')) as BenchmarkSummary;
@@ -192,6 +279,113 @@ describe('benchmark artifacts', () => {
     expect(readme).toContain('Lightning CSS');
     expect(readme).toContain('html-minifier-terser');
     expect(readme).toContain('agent-context compressor');
+  });
+
+  it('documents real README minification rating', () => {
+    const summary = readSummary();
+    const readme = readFileSync(new URL('README.md', benchmarkRoot), 'utf8');
+    const rating = summary.readmeMinification;
+
+    if (rating === null) {
+      throw new Error('Expected real README minification rating');
+    }
+
+    expect(rating.source).toContain('md/');
+    expect(rating.inputBytes).toBeGreaterThan(0);
+    expect(rating.outputBytes).toBeGreaterThan(0);
+    expect(rating.outputBytes).toBeLessThanOrEqual(rating.inputBytes);
+    expect(rating.readabilityScore).toBeGreaterThanOrEqual(8);
+    expect(rating.byteReductionScore).toBeGreaterThan(0);
+    expect(rating.score).toBeGreaterThanOrEqual(6);
+    expect(rating.signals.every(signal => signal.passed)).toBe(true);
+    expect(readme).toContain('Real README Minification Rating');
+    expect(readme).toContain('Readability preservation');
+    expect(readme).toContain('Byte reduction');
+  });
+
+  it('documents agent understanding quality for every minified output', () => {
+    const summary = readSummary();
+    const readme = readFileSync(new URL('README.md', benchmarkRoot), 'utf8');
+    const metricsByExtension = new Map(
+      summary.metrics.map(metric => [metric.ext, metric])
+    );
+
+    expect(summary.agentUnderstanding.averageScore).toBeGreaterThanOrEqual(7);
+    expect(summary.agentUnderstanding.weakest.length).toBeGreaterThan(0);
+    expect(readme).toContain(
+      'Agent Understanding Quality From Minified Output'
+    );
+    expect(readme).toContain('Syntax anchors');
+    expect(readme).toContain('Symbol context');
+
+    for (const metric of summary.metrics) {
+      const understanding = metric.agentUnderstanding;
+      const nonEmptySignal = understanding.signals.find(
+        signal => signal.name === 'standard output is non-empty'
+      );
+
+      expect(understanding.output, metric.ext).toBe('standard');
+      expect(understanding.score, metric.ext).toBeGreaterThan(0);
+      expect(understanding.score, metric.ext).toBeLessThanOrEqual(10);
+      expect(understanding.syntaxAnchors.total, metric.ext).toBeGreaterThan(0);
+      expect(
+        understanding.syntaxAnchors.hits,
+        metric.ext
+      ).toBeGreaterThanOrEqual(0);
+      expect(understanding.structure, metric.ext).toBeGreaterThanOrEqual(0);
+      expect(understanding.outputHealth, metric.ext).toBeGreaterThanOrEqual(0);
+      expect(understanding.contextBudget, metric.ext).toBeGreaterThan(0);
+      expect(understanding.symbols, metric.ext).toBeGreaterThan(0);
+      expect(nonEmptySignal?.passed, metric.ext).toBe(true);
+    }
+
+    for (const ext of REQUESTED_AGENT_UNDERSTANDING_EXTENSIONS) {
+      expect(
+        metricsByExtension.get(ext)?.agentUnderstanding.score,
+        ext
+      ).toBeGreaterThanOrEqual(6);
+    }
+  });
+
+  it('documents agent observations for every output level', () => {
+    const summary = readSummary();
+    const readme = readFileSync(new URL('README.md', benchmarkRoot), 'utf8');
+
+    expect(
+      summary.agentObservations.overallAgentUsefulness
+    ).toBeGreaterThanOrEqual(8);
+    expect(summary.agentObservations.levels.none.averageScore).toBe(10);
+    expect(summary.agentObservations.levels.none.averageCut).toBe(0);
+    expect(summary.agentObservations.levels.standard.count).toBe(
+      summary.metrics.length
+    );
+    expect(summary.agentObservations.levels.minify.count).toBe(
+      summary.metrics.length
+    );
+    expect(summary.agentObservations.levels.symbols.count).toBe(
+      summary.quality.symbolsReturned
+    );
+    expect(readme).toContain('Agent Observation By Output Level');
+    expect(readme).toContain('| none |');
+    expect(readme).toContain('| standard |');
+    expect(readme).toContain('| minify |');
+    expect(readme).toContain('| symbols |');
+
+    for (const metric of summary.metrics) {
+      expect(metric.agentObservations.none.output, metric.ext).toBe('none');
+      expect(metric.agentObservations.none.score, metric.ext).toBe(10);
+      expect(metric.agentObservations.standard.output, metric.ext).toBe(
+        'standard'
+      );
+      expect(metric.agentObservations.minify.output, metric.ext).toBe('minify');
+      expect(
+        metric.agentObservations.standard.score,
+        metric.ext
+      ).toBeGreaterThan(0);
+      expect(metric.agentObservations.minify.score, metric.ext).toBeGreaterThan(
+        0
+      );
+    }
   });
 
   it('documents real minification types for JS, TS, and common languages', () => {

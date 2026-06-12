@@ -416,6 +416,29 @@ describe('Query Builders', () => {
       expect(query).toBe('repo created:>2023-01-01 is:not-archived');
     });
 
+    it('should build query with language filter', () => {
+      const params = {
+        keywordsToSearch: ['react'],
+        language: 'TypeScript',
+      };
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toBe('react language:TypeScript is:not-archived');
+    });
+
+    it('should build query with language and other filters', () => {
+      const params = {
+        keywordsToSearch: ['state management'],
+        language: 'Rust',
+        stars: '>500',
+      };
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toBe(
+        '"state management" stars:>500 language:Rust is:not-archived'
+      );
+    });
+
     it('should build query with owner only (no keywords or topics)', () => {
       const params = {
         owner: 'facebook',

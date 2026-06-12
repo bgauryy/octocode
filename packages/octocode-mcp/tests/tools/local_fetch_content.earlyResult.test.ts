@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
 import * as fs from 'fs/promises';
-import * as pathValidator from 'octocode-security-utils/pathValidator';
+import * as pathValidator from 'octocode-security/pathValidator';
 
 vi.mock('fs/promises', () => ({
   open: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('fs/promises', () => ({
   stat: vi.fn(),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },
@@ -26,11 +26,11 @@ vi.mock('octocode-security-utils/pathValidator', () => ({
 
 /**
  * Build a TypeScript file where EVERY line contains the token EARLYMARKER
- * AND an inline comment.  200 lines × ~50 chars = ~10 000 chars which
- * exceeds the default output budget (8 000 chars), triggering the earlyResult
- * auto-pagination code path.
+ * AND an inline comment.  400 lines × ~50 chars = ~20 000 chars raw; even
+ * after minification (~12 000 chars) this exceeds the test mock budget
+ * (8 000 chars), triggering the earlyResult auto-pagination code path.
  */
-function buildHugeCommentedContent(lineCount = 200): string {
+function buildHugeCommentedContent(lineCount = 400): string {
   return Array.from(
     { length: lineCount },
     (_, i) =>
@@ -57,7 +57,7 @@ describe('fetchContent — earlyResult minification path', () => {
   });
 
   it('earlyResult is triggered when matchString result exceeds the output budget', async () => {
-    const content = buildHugeCommentedContent(200);
+    const content = buildHugeCommentedContent(400);
     expect(content.length).toBeGreaterThan(8000);
     mockReadFile.mockResolvedValue(content);
 
@@ -73,7 +73,7 @@ describe('fetchContent — earlyResult minification path', () => {
   });
 
   it('minify:"standard" strips inline comments from the earlyResult slice', async () => {
-    const content = buildHugeCommentedContent(200);
+    const content = buildHugeCommentedContent(400);
     mockReadFile.mockResolvedValue(content);
 
     const result = await fetchContent({
@@ -91,7 +91,7 @@ describe('fetchContent — earlyResult minification path', () => {
   });
 
   it('default (minify omitted → inherits "standard" from config) strips inline comments in the earlyResult slice', async () => {
-    const content = buildHugeCommentedContent(200);
+    const content = buildHugeCommentedContent(400);
     mockReadFile.mockResolvedValue(content);
 
     const result = await fetchContent({
@@ -107,7 +107,7 @@ describe('fetchContent — earlyResult minification path', () => {
   });
 
   it('minify:"standard" and minify:"none" produce different content on earlyResult path', async () => {
-    const content = buildHugeCommentedContent(200);
+    const content = buildHugeCommentedContent(400);
     mockReadFile.mockResolvedValue(content);
 
     const withMinify = await fetchContent({
@@ -127,8 +127,8 @@ describe('fetchContent — earlyResult minification path', () => {
     });
 
     expect(withMinify.content).not.toBe(withoutMinify.content);
-    expect(withoutMinify.content!.length).toBeGreaterThan(
-      withMinify.content!.length
-    );
+    // The minified version has comments stripped; the raw version retains them.
+    expect(withMinify.content).not.toContain('// inline comment');
+    expect(withoutMinify.content).toContain('// inline comment');
   });
 });

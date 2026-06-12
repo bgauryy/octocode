@@ -35,7 +35,7 @@ vi.mock('../../src/utils/http/cache.js', () => ({
   withDataCache: mockWithDataCache,
 }));
 
-vi.mock('octocode-security-utils/contentSanitizer', () => ({
+vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
@@ -285,8 +285,10 @@ describe('Pull Request Search', () => {
         totalPages: 2,
         perPage: 2,
         hasMore: true,
+        totalMatches: 3,
+        reachableTotalMatches: 2,
+        totalMatchesKind: 'lowerBound',
       });
-      expect(result.pagination?.totalMatches).toBeUndefined();
     });
 
     it('should use Search API for complex queries', async () => {

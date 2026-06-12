@@ -24,12 +24,19 @@ export interface PaginationInfo {
   charOffset?: number;
   charLength?: number;
   totalChars?: number;
+  perPage?: number;
+  itemsPerPage?: number;
   filesPerPage?: number;
   totalFiles?: number;
   entriesPerPage?: number;
   totalEntries?: number;
   matchesPerPage?: number;
   totalMatches?: number;
+  reportedTotalMatches?: number;
+  reachableTotalMatches?: number;
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
+  uniqueFileCount?: number;
 }
 
 export type ToolInvocationCallback = (

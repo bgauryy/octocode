@@ -130,6 +130,22 @@ https://github.com/user-attachments/assets/c184d5d4-c9b6-40a1-a55a-41cb9b3ecc4f
 
 ---
 
+## Agentic Minification Flow
+
+Octocode optimizes for code-research quality, not just the smallest response. Agents can start compressed, drill into the exact slice, and switch to raw text when evidence matters.
+
+| View | Use when | Why |
+|------|----------|-----|
+| `minify:"standard"` | Default file read | Removes low-signal noise while keeping readable code shape |
+| `minify:"symbols"` | Unknown or large file | Maps imports, classes, functions, selectors, and SQL objects with line numbers |
+| `startLine`/`endLine` or `matchString` | Known body or search hit | Opens only the relevant slice |
+| `charOffset`/`charLength` | A response is paginated | Continues the same view without rereading everything |
+| `minify:"none"` | Quotes, comments, diffs, review findings, tests | Returns exact raw text for line-accurate evidence |
+
+Recommended loop: `symbols` → focused slice → `none` only for proof. Skip straight to `matchString` or `startLine`/`endLine` when you already know the target.
+
+---
+
 ## Installation
 
 ### ⚡ Quick Start (Recommended)

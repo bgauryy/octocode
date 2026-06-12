@@ -268,7 +268,7 @@ export const ResearchResponse = {
       description?: string;
       repository?: string;
     }>;
-    registry: 'npm' | 'pypi';
+    registry: 'npm';
     query?: string;
     
     mcpHints?: string[];

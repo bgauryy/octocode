@@ -35,7 +35,7 @@ vi.mock('../src/session.js', () => ({
   logSessionError: vi.fn().mockResolvedValue(undefined),
   logToolCall: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('octocode-security-utils/withSecurityValidation', () => ({
+vi.mock('octocode-security/withSecurityValidation', () => ({
   configureSecurity: vi.fn(),
 }));
 vi.mock('../src/tools/toolMetadata/proxies.js', async importOriginal => ({

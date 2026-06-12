@@ -1,0 +1,42 @@
+{
+  "ext": "graphql",
+  "language": "GraphQL",
+  "description": "E-commerce schema: enums, types, queries, mutations",
+  "inputBytes": 6652,
+  "inputLines": 249,
+  "contentView": {
+    "bytes": 5448,
+    "cutPct": 18.1,
+    "ms": 1.02
+  },
+  "applyMinify": {
+    "bytes": 5448,
+    "cutPct": 18.1,
+    "ms": 0.81
+  },
+  "syncMinify": {
+    "bytes": 5448,
+    "cutPct": 18.1,
+    "ms": 0.81
+  },
+  "asyncMinify": {
+    "bytes": 5448,
+    "cutPct": 18.1,
+    "ms": 0.85,
+    "type": "conservative"
+  },
+  "symbols": {
+    "supported": false,
+    "bytes": null,
+    "cutPct": null,
+    "ms": null
+  },
+  "rating": {
+    "score": 5,
+    "label": "fair"
+  },
+  "notes": [
+    "Description strings and # line comments stripped",
+    "No symbols support — conservative strategy only"
+  ]
+}

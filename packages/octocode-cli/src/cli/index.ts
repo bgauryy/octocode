@@ -7,7 +7,7 @@ declare const __APP_VERSION__: string;
 async function loadCommandsModule(): Promise<{
   findCommand(name: string): CLICommand | undefined;
 }> {
-  return import('./commands.js');
+  return import('./commands/index.js');
 }
 
 async function loadStaticCommandHelpModule(): Promise<{

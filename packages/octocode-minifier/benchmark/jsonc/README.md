@@ -6,6 +6,8 @@ Strategy: `json`
 
 Agent rating: **8.3/10 (strong)**
 
+Agent understanding from minified output: **9.2/10 (excellent)**
+
 Artifacts:
 
 - `raw/source.excerpt.txt`
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 1427 | - | - | - |
-| content-view | 1427 | 0% | 0.036 ms | 8.3/10 |
-| applyMinification | 1210 | 15.2% | 0.009 ms | 8.3/10 |
-| sync minify | 1210 | 15.2% | 0.004 ms | 8.3/10 |
+| content-view | 1427 | 0% | 0.042 ms | 8.3/10 |
+| applyMinification | 1210 | 15.2% | 0.012 ms | 8.3/10 |
+| sync minify | 1210 | 15.2% | 0.005 ms | 8.3/10 |
 | async minify | 1210 | 15.2% | 0.012 ms | 8.3/10 |
 | symbols | n/a | n/a | 0.002 ms | n/a |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 5/10 |
+| symbol context | 7/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 1427 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 1427 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
+| minify | 1210 | 15.2% | 9.5/10 excellent | 10/10 | 10/10 |
+| symbols | n/a | n/a | n/a | n/a | n/a |
 
 ## Notes
 

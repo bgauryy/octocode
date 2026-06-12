@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 81820,
+      "cutPercent": 10.1,
+      "durationMs": 55.924
+    },
+    "content": "Imports System\nImports System.Diagnostics.CodeAnalysis\nImports System.Globalization\nImports System.Runtime.Versioning\nImports System.Text\nImports Microsoft.VisualBasic.CompilerServices\nImports Microsoft.VisualBasic.CompilerServices.ExceptionUtils\nImports Microsoft.VisualBasic.CompilerServices.Utils\n\nNamespace Global.Microsoft.VisualBasic\n\n    Friend NotInheritable Class FormatInfoHolder\n        Implements IFormatProvider\n\n        Friend Sub New(ByVal nfi As NumberFormatInfo)\n            MyBase.New()\n            Me.nfi = nfi\n        End Sub\n\n        Private nfi As NumberFormatInfo\n\n        Private Function GetFormat(ByVal service As Type) As Object Implements IFormatProvider.GetFormat\n            If service Is GetType(NumberFormatInfo) Then\n                Return nfi\n            End If\n            Throw New ArgumentException(SR.InternalError_VisualBasicRuntime)\n        End Function\n\n    End Class\n\n    Public Module Strings\n\n        Private ReadOnly CurrencyPositiveFormatStrings() As String = {\"'$'n\", \"n'$'\", \"'$' n\", \"n '$'\"}\n\n        Private ReadOnly CurrencyNegativeFormatStrings() As String =\n            {\"('$'n)\", \"-'$'n\", \"'$'-n\", \"'$'n-\", \"(n'$')\", \"-n'$'\", \"n-'$'\", \"n'$'-\",\n              \"-n '$'\", \"-\n\n... [truncated 80020 chars] ...\n\n     Return sDest\n            End If\n\n        End Function\n#End If\n\n        Private Sub ValidateTriState(ByVal Param As TriState)\n            If (Param <> vbTrue) AndAlso (Param <> vbFalse) AndAlso (Param <> vbUseDefault) Then\n                Throw VbMakeException(vbErrors.IllegalFuncCall)\n            End If\n        End Sub\n\n        Private Function IsArrayEmpty(ByVal array As System.Array) As Boolean\n            If array Is Nothing Then\n                Return True\n            End If\n            Return (array.Length = 0)\n        End Function\n    End Module\nEnd Namespace",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 81820,
+      "cutPercent": 10.1,
+      "durationMs": 42.594
+    },
+    "content": "Imports System\nImports System.Diagnostics.CodeAnalysis\nImports System.Globalization\nImports System.Runtime.Versioning\nImports System.Text\nImports Microsoft.VisualBasic.CompilerServices\nImports Microsoft.VisualBasic.CompilerServices.ExceptionUtils\nImports Microsoft.VisualBasic.CompilerServices.Utils\n\nNamespace Global.Microsoft.VisualBasic\n\n    Friend NotInheritable Class FormatInfoHolder\n        Implements IFormatProvider\n\n        Friend Sub New(ByVal nfi As NumberFormatInfo)\n            MyBase.New()\n            Me.nfi = nfi\n        End Sub\n\n        Private nfi As NumberFormatInfo\n\n        Private Function GetFormat(ByVal service As Type) As Object Implements IFormatProvider.GetFormat\n            If service Is GetType(NumberFormatInfo) Then\n                Return nfi\n            End If\n            Throw New ArgumentException(SR.InternalError_VisualBasicRuntime)\n        End Function\n\n    End Class\n\n    Public Module Strings\n\n        Private ReadOnly CurrencyPositiveFormatStrings() As String = {\"'$'n\", \"n'$'\", \"'$' n\", \"n '$'\"}\n\n        Private ReadOnly CurrencyNegativeFormatStrings() As String =\n            {\"('$'n)\", \"-'$'n\", \"'$'-n\", \"'$'n-\", \"(n'$')\", \"-n'$'\", \"n-'$'\", \"n'$'-\",\n              \"-n '$'\", \"-\n\n... [truncated 80020 chars] ...\n\n     Return sDest\n            End If\n\n        End Function\n#End If\n\n        Private Sub ValidateTriState(ByVal Param As TriState)\n            If (Param <> vbTrue) AndAlso (Param <> vbFalse) AndAlso (Param <> vbUseDefault) Then\n                Throw VbMakeException(vbErrors.IllegalFuncCall)\n            End If\n        End Sub\n\n        Private Function IsArrayEmpty(ByVal array As System.Array) As Boolean\n            If array Is Nothing Then\n                Return True\n            End If\n            Return (array.Length = 0)\n        End Function\n    End Module\nEnd Namespace",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 81820,
+      "cutPercent": 10.1,
+      "durationMs": 38.515
+    },
+    "content": "Imports System\nImports System.Diagnostics.CodeAnalysis\nImports System.Globalization\nImports System.Runtime.Versioning\nImports System.Text\nImports Microsoft.VisualBasic.CompilerServices\nImports Microsoft.VisualBasic.CompilerServices.ExceptionUtils\nImports Microsoft.VisualBasic.CompilerServices.Utils\n\nNamespace Global.Microsoft.VisualBasic\n\n    Friend NotInheritable Class FormatInfoHolder\n        Implements IFormatProvider\n\n        Friend Sub New(ByVal nfi As NumberFormatInfo)\n            MyBase.New()\n            Me.nfi = nfi\n        End Sub\n\n        Private nfi As NumberFormatInfo\n\n        Private Function GetFormat(ByVal service As Type) As Object Implements IFormatProvider.GetFormat\n            If service Is GetType(NumberFormatInfo) Then\n                Return nfi\n            End If\n            Throw New ArgumentException(SR.InternalError_VisualBasicRuntime)\n        End Function\n\n    End Class\n\n    Public Module Strings\n\n        Private ReadOnly CurrencyPositiveFormatStrings() As String = {\"'$'n\", \"n'$'\", \"'$' n\", \"n '$'\"}\n\n        Private ReadOnly CurrencyNegativeFormatStrings() As String =\n            {\"('$'n)\", \"-'$'n\", \"'$'-n\", \"'$'n-\", \"(n'$')\", \"-n'$'\", \"n-'$'\", \"n'$'-\",\n              \"-n '$'\", \"-\n\n... [truncated 80020 chars] ...\n\n     Return sDest\n            End If\n\n        End Function\n#End If\n\n        Private Sub ValidateTriState(ByVal Param As TriState)\n            If (Param <> vbTrue) AndAlso (Param <> vbFalse) AndAlso (Param <> vbUseDefault) Then\n                Throw VbMakeException(vbErrors.IllegalFuncCall)\n            End If\n        End Sub\n\n        Private Function IsArrayEmpty(ByVal array As System.Array) As Boolean\n            If array Is Nothing Then\n                Return True\n            End If\n            Return (array.Length = 0)\n        End Function\n    End Module\nEnd Namespace",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 81820,
+      "cutPercent": 10.1,
+      "durationMs": 46.032,
+      "failed": false,
+      "type": "conservative",
+      "reason": null
+    },
+    "content": "Imports System\nImports System.Diagnostics.CodeAnalysis\nImports System.Globalization\nImports System.Runtime.Versioning\nImports System.Text\nImports Microsoft.VisualBasic.CompilerServices\nImports Microsoft.VisualBasic.CompilerServices.ExceptionUtils\nImports Microsoft.VisualBasic.CompilerServices.Utils\n\nNamespace Global.Microsoft.VisualBasic\n\n    Friend NotInheritable Class FormatInfoHolder\n        Implements IFormatProvider\n\n        Friend Sub New(ByVal nfi As NumberFormatInfo)\n            MyBase.New()\n            Me.nfi = nfi\n        End Sub\n\n        Private nfi As NumberFormatInfo\n\n        Private Function GetFormat(ByVal service As Type) As Object Implements IFormatProvider.GetFormat\n            If service Is GetType(NumberFormatInfo) Then\n                Return nfi\n            End If\n            Throw New ArgumentException(SR.InternalError_VisualBasicRuntime)\n        End Function\n\n    End Class\n\n    Public Module Strings\n\n        Private ReadOnly CurrencyPositiveFormatStrings() As String = {\"'$'n\", \"n'$'\", \"'$' n\", \"n '$'\"}\n\n        Private ReadOnly CurrencyNegativeFormatStrings() As String =\n            {\"('$'n)\", \"-'$'n\", \"'$'-n\", \"'$'n-\", \"(n'$')\", \"-n'$'\", \"n-'$'\", \"n'$'-\",\n              \"-n '$'\", \"-\n\n... [truncated 80020 chars] ...\n\n     Return sDest\n            End If\n\n        End Function\n#End If\n\n        Private Sub ValidateTriState(ByVal Param As TriState)\n            If (Param <> vbTrue) AndAlso (Param <> vbFalse) AndAlso (Param <> vbUseDefault) Then\n                Throw VbMakeException(vbErrors.IllegalFuncCall)\n            End If\n        End Sub\n\n        Private Function IsArrayEmpty(ByVal array As System.Array) As Boolean\n            If array Is Nothing Then\n                Return True\n            End If\n            Return (array.Length = 0)\n        End Function\n    End Module\nEnd Namespace",
+    "api": "minifyContent"
+  }
+}

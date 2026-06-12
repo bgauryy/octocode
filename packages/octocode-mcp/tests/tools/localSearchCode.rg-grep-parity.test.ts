@@ -8,7 +8,7 @@ vi.mock('../../src/utils/exec/ripgrepBinary.js', () => ({
   resolveRipgrepBinary: vi.fn().mockReturnValue('rg'),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn().mockReturnValue({
       isValid: true,
@@ -54,7 +54,7 @@ const query = {
   id: 'rg-grep-parity',
   researchGoal: 'unit-test',
   reasoning: 'compare ripgrep and grep fallback output shape',
-  pattern: 'needle',
+  keywords: 'needle',
   path: '/workspace',
   fixedString: true,
   matchContentLength: 200,

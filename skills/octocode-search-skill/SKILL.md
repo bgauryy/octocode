@@ -1,6 +1,6 @@
 ---
 name: octocode-search-skill
-description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns. Do NOT activate for general package search (npm, PyPI, cargo), general (non-skill) web search, or code research not involving SKILL.md files.
+description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, improve, refactor, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or reviewing an existing SKILL.md, refactoring a skill, or creating a new local skill from researched patterns. Do NOT activate for general package search (npm, cargo), general (non-skill) web search, or code research not involving SKILL.md files.
 ---
 
 # Octocode Search Skill

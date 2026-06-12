@@ -2,34 +2,34 @@
   "ext": "js",
   "language": "JavaScript",
   "description": "Lodash-style utility library with full JSDoc (400 lines)",
-  "inputBytes": 10668,
+  "inputBytes": 10670,
   "inputLines": 419,
   "contentView": {
-    "bytes": 4895,
+    "bytes": 4897,
     "cutPct": 54.1,
-    "ms": 6
+    "ms": 1.79
   },
   "applyMinify": {
-    "bytes": 4062,
+    "bytes": 4064,
     "cutPct": 61.9,
-    "ms": 39.69
+    "ms": 14.3
   },
   "syncMinify": {
-    "bytes": 4062,
+    "bytes": 4064,
     "cutPct": 61.9,
-    "ms": 37.68
+    "ms": 10.48
   },
   "asyncMinify": {
-    "bytes": 4062,
+    "bytes": 4064,
     "cutPct": 61.9,
-    "ms": 19.71,
+    "ms": 7.62,
     "type": "terser"
   },
   "symbols": {
     "supported": true,
     "bytes": 930,
     "cutPct": 91.3,
-    "ms": 10.92
+    "ms": 11.74
   },
   "rating": {
     "score": 10,

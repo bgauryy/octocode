@@ -4,7 +4,7 @@ vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn().mockReturnValue({
       isValid: true,
@@ -55,7 +55,7 @@ const baseQuery = {
   id: 'grep-fallback-test',
   researchGoal: 'unit-test',
   reasoning: 'cover grep fallback',
-  pattern: 'needle',
+  keywords: 'needle',
   path: '/workspace',
   fixedString: true,
   matchContentLength: 200,

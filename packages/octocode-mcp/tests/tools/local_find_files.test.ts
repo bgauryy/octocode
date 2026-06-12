@@ -14,7 +14,7 @@ type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
 const findFiles = (query: FindFilesInput) => findFilesImpl(query);
 import { safeExec } from '../../src/utils/exec/safe.js';
 import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
-import * as pathValidator from 'octocode-security-utils/pathValidator';
+import * as pathValidator from 'octocode-security/pathValidator';
 
 vi.mock('../../src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
   getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
 }));
 
-vi.mock('octocode-security-utils/pathValidator', () => ({
+vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },

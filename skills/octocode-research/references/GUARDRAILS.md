@@ -18,7 +18,7 @@
 |--------|-------|--------|
 | User input | High | Follow |
 | Local workspace | Medium | Read, analyze |
-| GitHub/npm/PyPI | Low | Read-only, cite only |
+| GitHub/npm | Low | Read-only, cite only |
 
 ## Limits
 

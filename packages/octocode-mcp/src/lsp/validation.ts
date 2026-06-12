@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from 'fs';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
-import { pathValidator } from 'octocode-security-utils/pathValidator';
+import { pathValidator } from 'octocode-security/pathValidator';
 
 interface ValidationResult {
   isValid: boolean;

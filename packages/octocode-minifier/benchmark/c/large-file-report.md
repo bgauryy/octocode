@@ -1,0 +1,19 @@
+# C (`.c`) — Large-File Benchmark
+
+**Source:** 852 lines / 29,047 bytes — Command-line option parser with URL strings and block comments
+
+**Agent rating: 6/10 (fair)**
+
+| Mode | Output bytes | Cut | Time |
+| --- | ---: | ---: | ---: |
+| Input | 29,047 B | — | — |
+| content-view | 24,672 B | **−15.1%** | 14.54 ms |
+| applyMinification | 24,672 B | **−15.1%** | 47.34 ms |
+| minifyContentSync | 24,672 B | **−15.1%** | 20.96 ms |
+| minifyContent (async, type=conservative) | 24,672 B | **−15.1%** | 12.52 ms |
+| symbols | 4,078 B (−86%) | — | 0.61 ms |
+
+## Notes
+
+- C-style comments stripped conservatively
+- Comment-looking URL and string content preserved

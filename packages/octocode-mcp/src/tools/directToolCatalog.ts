@@ -584,6 +584,7 @@ function buildExampleValue(name: string, type: string): unknown {
     case 'ecosystem':
       return 'npm';
     case 'name':
+    case 'packageName':
       return 'react';
     default:
       return name;

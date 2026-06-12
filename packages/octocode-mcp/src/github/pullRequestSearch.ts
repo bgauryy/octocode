@@ -65,6 +65,10 @@ function createPullRequestEmptyResult(
       totalPages: 0,
       perPage,
       totalMatches: 0,
+      reportedTotalMatches: 0,
+      reachableTotalMatches: 0,
+      totalMatchesKind: 'exact',
+      totalMatchesCapped: false,
       hasMore: false,
     },
   };
@@ -228,10 +232,12 @@ async function searchGitHubPullRequestsAPIInternal(
       })
     );
 
-    const totalMatches = Math.min(searchResult.data.total_count, 1000);
+    const reportedTotalMatches = searchResult.data.total_count;
+    const totalMatches = Math.min(reportedTotalMatches, 1000);
     const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
     const hasMore = clampedPage < totalPages;
+    const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
       pull_requests: formattedPRs,
@@ -242,6 +248,10 @@ async function searchGitHubPullRequestsAPIInternal(
         totalPages,
         perPage,
         totalMatches,
+        reportedTotalMatches,
+        reachableTotalMatches,
+        totalMatchesKind: 'reported',
+        totalMatchesCapped: reportedTotalMatches > totalMatches,
         hasMore,
       },
       rawResponseChars:
@@ -310,6 +320,7 @@ async function searchPullRequestsWithREST(
     );
 
     const hasMore = result.data.length === perPage;
+    const seenThroughPage = (currentPage - 1) * perPage + formattedPRs.length;
 
     return {
       pull_requests: formattedPRs,
@@ -318,7 +329,9 @@ async function searchPullRequestsWithREST(
         currentPage,
         totalPages: hasMore ? currentPage + 1 : currentPage,
         perPage,
-        ...(!hasMore ? { totalMatches: formattedPRs.length } : {}),
+        totalMatches: seenThroughPage + (hasMore ? 1 : 0),
+        reachableTotalMatches: seenThroughPage,
+        totalMatchesKind: hasMore ? 'lowerBound' : 'exact',
         hasMore,
       },
       rawResponseChars:

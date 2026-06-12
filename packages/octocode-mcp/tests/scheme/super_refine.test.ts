@@ -170,7 +170,7 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
 });
 
 describe('LocalRipgrepQuerySchema mutex checks', () => {
-  const baseQuery = { pattern: 'foo', path: '/repo' };
+  const baseQuery = { keywords: 'foo', path: '/repo' };
 
   it('rejects filesOnly=true together with filesWithoutMatch=true', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
@@ -229,16 +229,16 @@ describe('LocalRipgrepQuerySchema mutex checks', () => {
 });
 
 describe('PackageSearch schema', () => {
-  it('accepts name omitted ecosystem (npm only)', () => {
+  it('accepts packageName (npm only)', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ name: 'react' }],
+      queries: [{ packageName: 'react' }],
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects packageName because the exact param is name', () => {
+  it('rejects when packageName is missing', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ packageName: 'zod' }],
+      queries: [{ ecosystem: 'npm' }],
     });
     expect(result.success).toBe(false);
   });

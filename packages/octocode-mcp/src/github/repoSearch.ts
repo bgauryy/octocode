@@ -34,6 +34,10 @@ interface RepoSearchPagination {
   totalPages: number;
   perPage: number;
   totalMatches: number;
+  reportedTotalMatches?: number;
+  reachableTotalMatches?: number;
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
   hasMore: boolean;
 }
 
@@ -171,7 +175,10 @@ async function listGitHubOrgReposAPIInternal(
 
   const fetchedCount = repositories.length;
   const hasMore = fetchedCount === perPage; // full page → there may be more
-  const totalMatches = totalCount ?? fetchedCount + (hasMore ? 1 : 0);
+  const seenThroughPage = (currentPage - 1) * perPage + fetchedCount;
+  const totalMatches = totalCount ?? seenThroughPage + (hasMore ? 1 : 0);
+  const totalMatchesKind =
+    totalCount !== undefined || !hasMore ? 'exact' : 'lowerBound';
 
   return {
     data: {
@@ -181,6 +188,8 @@ async function listGitHubOrgReposAPIInternal(
         totalPages: hasMore ? currentPage + 1 : currentPage,
         perPage,
         totalMatches,
+        reachableTotalMatches: seenThroughPage,
+        totalMatchesKind,
         hasMore,
       },
     },
@@ -291,10 +300,12 @@ async function searchGitHubReposAPIInternal(
       };
     });
 
-    const totalMatches = Math.min(result.data.total_count, 1000);
+    const reportedTotalMatches = result.data.total_count;
+    const totalMatches = Math.min(reportedTotalMatches, 1000);
     const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
     const hasMore = clampedPage < totalPages;
+    const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
       data: {
@@ -304,6 +315,10 @@ async function searchGitHubReposAPIInternal(
           totalPages,
           perPage,
           totalMatches,
+          reportedTotalMatches,
+          reachableTotalMatches,
+          totalMatchesKind: 'reported',
+          totalMatchesCapped: reportedTotalMatches > totalMatches,
           hasMore,
         },
       },
@@ -326,6 +341,10 @@ async function searchGitHubReposAPIInternal(
             totalPages: 0,
             perPage,
             totalMatches: 0,
+            reportedTotalMatches: 0,
+            reachableTotalMatches: 0,
+            totalMatchesKind: 'exact',
+            totalMatchesCapped: false,
             hasMore: false,
           },
         },

@@ -206,9 +206,8 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
       this.queryParts.push(`pushed:${params.updated}`);
     }
 
-    const language = (params as Record<string, unknown>).language;
-    if (language && typeof language === 'string') {
-      this.queryParts.push(`language:${language}`);
+    if (params.language) {
+      this.queryParts.push(`language:${params.language}`);
     }
 
     return this;

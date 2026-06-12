@@ -59,7 +59,7 @@ export async function executeGrepFallbackSearch(
   };
 
   const patternCheck = preflightValidateRipgrepPattern({
-    pattern: queryForExec.pattern,
+    pattern: queryForExec.keywords,
     fixedString: queryForExec.fixedString,
     perlRegex: queryForExec.perlRegex,
   });
@@ -113,7 +113,7 @@ export async function executeGrepFallbackSearch(
         warnings,
         hints: [
           ...getHints(TOOL_NAMES.LOCAL_RIPGREP, 'empty', {
-            pattern: query.pattern,
+            keywords: query.keywords,
             path: query.path,
             langType: query.langType,
             include: query.include,
@@ -213,7 +213,7 @@ function buildGrepArgs(query: RipgrepQuery & { path: string }): {
     args.push(`--include=*.${query.langType}`);
   }
 
-  args.push('--', query.pattern, query.path);
+  args.push('--', query.keywords, query.path);
 
   return { args, outputMode };
 }
@@ -222,7 +222,7 @@ function shouldApplySmartCase(query: RipgrepQuery): boolean {
   return (
     query.caseSensitive !== true &&
     query.caseInsensitive !== true &&
-    query.pattern === query.pattern.toLowerCase()
+    query.keywords === query.keywords.toLowerCase()
   );
 }
 

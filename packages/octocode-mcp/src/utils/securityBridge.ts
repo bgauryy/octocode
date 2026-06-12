@@ -4,7 +4,7 @@ import {
   withSecurityValidation as _wsv,
   withBasicSecurityValidation as _wbsv,
   configureSecurity,
-} from 'octocode-security-utils';
+} from 'octocode-security';
 
 export { configureSecurity };
 

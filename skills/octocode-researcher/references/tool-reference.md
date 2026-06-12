@@ -380,12 +380,11 @@ Search PRs by query, state, labels.
 
 ## packageSearch
 
-Search npm/PyPI packages by name or keyword.
+Search npm packages by name or keyword.
 
 ```typescript
 {
   query: string;          // Package name or keyword (required)
-  registry?: "npm" | "pypi"; // Registry to search (default: npm)
   resultsPerPage?: number;
 }
 ```

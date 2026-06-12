@@ -120,7 +120,7 @@ Dual-track research using Octocode MCP tools.
 
 **Track B — External best practices** (GitHub + npm + web):
 - How do major projects solve this? (GitHub repos, PRs)
-- What packages/libraries exist? (npm, PyPI)
+- What packages/libraries exist? (npm)
 - What are known trade-offs and pitfalls?
 - Any prior art or benchmarks?
 

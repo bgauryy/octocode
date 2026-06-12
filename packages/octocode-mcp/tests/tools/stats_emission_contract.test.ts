@@ -145,7 +145,7 @@ describe('tool stats emission contract', () => {
   it('security wrappers emit tool-call state for both remote and local tools', async () => {
     const indexSource = await readProjectFile('src/index.ts');
     const securitySource = await readProjectFile(
-      '../octocode-security-utils/src/withSecurityValidation.ts'
+      '../octocode-security/src/withSecurityValidation.ts'
     );
 
     expect(indexSource).toMatch(/configureSecurity\(\{[\s\S]*logToolCall/);

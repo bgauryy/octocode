@@ -873,4 +873,78 @@ describe('GitHub Fetch Content Tool', () => {
       expect(text).toContain('mutually exclusive');
     });
   });
+
+  describe('contentView and isSkeleton parity with local tool', () => {
+    it('should include contentView:"symbols" and isSkeleton:true in response when provider returns them', async () => {
+      mockProvider.getFileContent.mockResolvedValue({
+        data: {
+          path: 'src/createAction.ts',
+          content: '   1| export function createAction<P = void>',
+          encoding: 'utf-8',
+          size: 42,
+          totalLines: 325,
+          contentView: 'symbols',
+          isSkeleton: true,
+          isPartial: false,
+          ref: 'main',
+        },
+        hints: ['Signatures only — bodies and comments omitted.'],
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'reduxjs',
+              repo: 'redux-toolkit',
+              path: 'src/createAction.ts',
+              minify: 'symbols',
+            },
+          ],
+        }
+      );
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain('contentView: "symbols"');
+      expect(responseText).toContain('isSkeleton: true');
+    });
+
+    it('should include contentView:"none" in response when provider returns it', async () => {
+      mockProvider.getFileContent.mockResolvedValue({
+        data: {
+          path: 'src/utils.ts',
+          content:
+            'export function add(a: number, b: number) { return a + b; }',
+          encoding: 'utf-8',
+          size: 58,
+          totalLines: 1,
+          contentView: 'none',
+          ref: 'main',
+        },
+        status: 200,
+        provider: 'github',
+      });
+
+      const result = await mockServer.callTool(
+        TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'test',
+              repo: 'repo',
+              path: 'src/utils.ts',
+              minify: 'none',
+            },
+          ],
+        }
+      );
+
+      const responseText = getTextContent(result.content);
+      expect(responseText).toContain('contentView: "none"');
+      expect(responseText).not.toContain('isSkeleton');
+    });
+  });
 });

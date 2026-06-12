@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   printToolsContext: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../src/cli/commands.js', () => ({
+vi.mock('../../src/cli/commands/index.js', () => ({
   findCommand: mocks.findCommand,
 }));
 
@@ -30,6 +30,7 @@ vi.mock('../../src/cli/tool-command.js', () => ({
   showToolHelp: mocks.showToolHelp,
   executeToolCommand: mocks.executeToolCommand,
   printToolsContext: mocks.printToolsContext,
+  toolCommand: { name: 'tool', handler: vi.fn() },
 }));
 
 describe('runCLI', () => {
@@ -86,7 +87,7 @@ describe('runCLI', () => {
       '--tool',
       'localSearchCode',
       '--queries',
-      '{"path":".","pattern":"runCLI"}',
+      '{"path":".","keywords":"runCLI"}',
     ]);
 
     expect(handled).toBe(true);
@@ -96,7 +97,7 @@ describe('runCLI', () => {
       args: ['localSearchCode'],
       options: {
         tool: 'localSearchCode',
-        queries: '{"path":".","pattern":"runCLI"}',
+        queries: '{"path":".","keywords":"runCLI"}',
       },
     });
     expect(mocks.findCommand).not.toHaveBeenCalled();
@@ -162,7 +163,7 @@ describe('runCLI', () => {
     const handled = await runCLI([
       'tool',
       'localSearchCode',
-      '{"path":".","pattern":"runCLI"}',
+      '{"path":".","keywords":"runCLI"}',
     ]);
 
     expect(handled).toBe(true);

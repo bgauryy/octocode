@@ -86,8 +86,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
         });
         this.addArg(')');
       }
-    } else if (query.name) {
-      this.addOption('-name', query.name);
     }
 
     if (query.pathPattern) {

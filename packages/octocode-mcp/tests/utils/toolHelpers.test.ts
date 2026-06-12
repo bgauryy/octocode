@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import path from 'path';
 
-vi.mock('octocode-security-utils/pathValidator', () => {
+vi.mock('octocode-security/pathValidator', () => {
   return {
     pathValidator: {
       validate: vi.fn((inputPath: string) => ({
@@ -29,7 +29,7 @@ vi.mock('../../src/utils/response/error.js', () => ({
 
 const { validateToolPath } =
   await import('../../src/utils/file/toolHelpers.js');
-const { pathValidator } = await import('octocode-security-utils/pathValidator');
+const { pathValidator } = await import('octocode-security/pathValidator');
 
 afterEach(() => {
   vi.unstubAllEnvs();

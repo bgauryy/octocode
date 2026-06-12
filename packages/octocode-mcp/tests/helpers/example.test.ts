@@ -183,7 +183,7 @@ vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
   checkCommandAvailability: execMocks.checkCommandAvailability,
   getMissingCommandError: execMocks.getMissingCommandError,
 }));
-vi.mock('octocode-security-utils/pathValidator', () => pathValidatorMocks);
+vi.mock('octocode-security/pathValidator', () => pathValidatorMocks);
 
 const { viewStructure } =
   await import('../../src/tools/local_view_structure/local_view_structure.js');

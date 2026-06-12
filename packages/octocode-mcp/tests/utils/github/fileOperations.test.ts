@@ -31,7 +31,7 @@ vi.mock('../../../src/github/client.js', () => ({
   resolveDefaultBranch: mockResolveDefaultBranch,
 }));
 
-vi.mock('octocode-security-utils/contentSanitizer', () => ({
+vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
@@ -168,6 +168,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
           contentView: 'none',
           totalLines: 5,
+          sourceBytes: 34,
+          sourceChars: 34,
         },
       });
     });
@@ -188,6 +190,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
           contentView: 'none',
           totalLines: 5,
+          sourceBytes: 34,
+          sourceChars: 34,
         },
       });
     });
@@ -210,6 +214,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
           contentView: 'none',
           totalLines: 5,
+          sourceBytes: 34,
+          sourceChars: 34,
         },
       });
     });
@@ -232,6 +238,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
           contentView: 'none',
           totalLines: 5,
+          sourceBytes: 34,
+          sourceChars: 34,
         },
       });
     });
@@ -253,6 +261,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
           contentView: 'none',
           totalLines: 5,
+          sourceBytes: 34,
+          sourceChars: 34,
         },
       });
     });
@@ -277,6 +287,8 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
           contentView: 'none',
           totalLines: 5,
+          sourceBytes: 34,
+          sourceChars: 34,
         },
       });
     });

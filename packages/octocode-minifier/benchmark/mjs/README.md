@@ -6,6 +6,8 @@ Strategy: `terser`
 
 Agent rating: **9/10 (excellent)**
 
+Agent understanding from minified output: **9.6/10 (excellent)**
+
 Artifacts:
 
 - `raw/source.excerpt.txt`
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 1259 | - | - | - |
-| content-view | 1240 | 1.5% | 0.129 ms | 9/10 |
-| applyMinification | 866 | 31.2% | 0.914 ms | 9/10 |
-| sync minify | 866 | 31.2% | 0.927 ms | 9/10 |
-| async minify | 866 | 31.2% | 0.506 ms | 9/10 |
-| symbols | 268 | 78.7% | 0.65 ms | 9/10 |
+| content-view | 1240 | 1.5% | 0.162 ms | 9/10 |
+| applyMinification | 866 | 31.2% | 0.857 ms | 9/10 |
+| sync minify | 866 | 31.2% | 0.875 ms | 9/10 |
+| async minify | 866 | 31.2% | 3.933 ms | 9/10 |
+| symbols | 268 | 78.7% | 4.524 ms | 9/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 6/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 1259 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 1240 | 1.5% | 9.6/10 excellent | 10/10 | 10/10 |
+| minify | 866 | 31.2% | 9.9/10 excellent | 10/10 | 10/10 |
+| symbols | 268 | 78.7% | 9/10 excellent | 10/10 | 5/10 |
 
 ## Notes
 

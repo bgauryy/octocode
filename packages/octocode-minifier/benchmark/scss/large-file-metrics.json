@@ -1,0 +1,42 @@
+{
+  "ext": "scss",
+  "language": "SCSS",
+  "description": "Design system: variables, mixins, button/card components",
+  "inputBytes": 7034,
+  "inputLines": 291,
+  "contentView": {
+    "bytes": 5050,
+    "cutPct": 28.2,
+    "ms": 2.17
+  },
+  "applyMinify": {
+    "bytes": 4176,
+    "cutPct": 40.6,
+    "ms": 1.92
+  },
+  "syncMinify": {
+    "bytes": 4176,
+    "cutPct": 40.6,
+    "ms": 2.05
+  },
+  "asyncMinify": {
+    "bytes": 2083,
+    "cutPct": 70.4,
+    "ms": 6.29,
+    "type": "aggressive"
+  },
+  "symbols": {
+    "supported": true,
+    "bytes": 3117,
+    "cutPct": 55.7,
+    "ms": 0.2
+  },
+  "rating": {
+    "score": 8.5,
+    "label": "strong"
+  },
+  "notes": [
+    "CleanCSS async path — aggressive SCSS minification",
+    "// and /* */ comments stripped"
+  ]
+}

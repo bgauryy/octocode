@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
       localSearchCode: {
         name: 'localSearchCode',
         description: 'Local search.',
-        schema: { path: 'dir', pattern: 'regex' },
+        schema: { path: 'dir', keywords: 'regex' },
         hints: { hasResults: [], empty: [] },
       },
       githubCloneRepo: {
@@ -189,7 +189,7 @@ describe('tool-command coverage', () => {
       args: ['localSearchCode'],
       options: {
         tool: 'localSearchCode',
-        queries: '{"path":".","pattern":"x"}',
+        queries: '{"path":".","keywords":"x"}',
         compact: true,
       },
     });
@@ -353,7 +353,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '[{"path":".","pattern":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","pattern":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
+        '[{"path":".","keywords":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","keywords":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -361,8 +361,8 @@ describe('tool-command coverage', () => {
     expect(mocks.localSearchCode).toHaveBeenCalledWith(
       expect.objectContaining({
         queries: expect.arrayContaining([
-          expect.objectContaining({ path: '.', pattern: 'foo' }),
-          expect.objectContaining({ path: 'src', pattern: 'bar' }),
+          expect.objectContaining({ path: '.', keywords: 'foo' }),
+          expect.objectContaining({ path: 'src', keywords: 'bar' }),
         ]),
       })
     );
@@ -375,7 +375,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"queries":[{"path":".","pattern":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
+        '{"queries":[{"path":".","keywords":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -383,7 +383,7 @@ describe('tool-command coverage', () => {
     const callArg = mocks.localSearchCode.mock.calls[0]?.[0];
     expect(callArg).toEqual(
       expect.objectContaining({
-        queries: [expect.objectContaining({ path: '.', pattern: 'foo' })],
+        queries: [expect.objectContaining({ path: '.', keywords: 'foo' })],
         responseCharOffset: 500,
       })
     );
@@ -396,7 +396,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         'extra',
       ],
       options: { tool: 'localSearchCode' },
@@ -446,7 +446,7 @@ describe('tool-command coverage', () => {
         command: 'tool',
         args: [
           'localSearchCode',
-          '{"path":".","pattern":"x","fixedString":true,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","keywords":"x","fixedString":true,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         ],
         options: { tool: 'localSearchCode' },
       });
@@ -481,7 +481,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -501,7 +501,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -523,7 +523,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -553,7 +553,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -579,7 +579,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', o: 'json' },
     });
@@ -602,7 +602,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -619,7 +619,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -638,7 +638,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -673,7 +673,7 @@ describe('tool-command coverage', () => {
     );
 
     expect(githubByName['keywordsToSearch']?.type).toBe('array<string>');
-    expect(packageByName['name']?.type).toBe('string');
+    expect(packageByName['packageName']?.type).toBe('string');
     expect(packageByName['page']?.type).toBe('integer');
     expect(githubByName['id']).toBeUndefined();
     expect(githubByName['researchGoal']).toBeUndefined();
@@ -690,7 +690,7 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('"name"');
+    expect(output).toContain('"packageName"');
     expect(output).toContain('react');
     // page has a schema default — optional from the input side, so it is
     // excluded from the required-fields example.
@@ -737,7 +737,7 @@ describe('tool-command coverage', () => {
 
       args: [
         'localSearchCode',
-        '[{"path":".","pattern":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","pattern":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
+        '[{"path":".","keywords":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -819,7 +819,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -843,7 +843,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode' },
     });
@@ -865,7 +865,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -887,7 +887,7 @@ describe('tool-command coverage', () => {
       command: 'tool',
       args: [
         'localSearchCode',
-        '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { tool: 'localSearchCode', json: true },
     });
@@ -922,7 +922,7 @@ describe('tool-command coverage', () => {
       options: {
         tool: 'localSearchCode',
         queries:
-          '{"path":".","pattern":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 

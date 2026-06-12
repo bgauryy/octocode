@@ -1,10 +1,12 @@
 # SQL (.sql)
 
-Source sample: `sql/postgres-select.sql`
+Source sample: `sql/00-postgres-select.sql`
 
 Strategy: `conservative`
 
 Agent rating: **9/10 (excellent)**
+
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 8415 | - | - | - |
-| content-view | 5419 | 35.6% | 2.222 ms | 8.5/10 |
-| applyMinification | 5419 | 35.6% | 1.249 ms | 8.5/10 |
-| sync minify | 5419 | 35.6% | 1.442 ms | 8.5/10 |
-| async minify | 5419 | 35.6% | 1.138 ms | 8.5/10 |
-| symbols | 512 | 93.9% | 0.607 ms | 10/10 |
+| content-view | 5419 | 35.6% | 3.181 ms | 8.5/10 |
+| applyMinification | 5419 | 35.6% | 1.37 ms | 8.5/10 |
+| sync minify | 5419 | 35.6% | 6.919 ms | 8.5/10 |
+| async minify | 5419 | 35.6% | 3.163 ms | 8.5/10 |
+| symbols | 512 | 93.9% | 1.341 ms | 10/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 9/10 |
+| context budget | 9/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 8415 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 5419 | 35.6% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 5419 | 35.6% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 512 | 93.9% | 7.1/10 good | 3.3/10 | 10/10 |
 
 ## Notes
 

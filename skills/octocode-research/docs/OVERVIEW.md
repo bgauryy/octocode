@@ -62,7 +62,7 @@ The **octocode-research** skill is an Express.js HTTP server that wraps `octocod
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           EXTERNAL SYSTEMS                                   │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │ Filesystem  │  │ GitHub API  │  │ NPM/PyPI    │  │ LSP Server  │        │
+│  │ Filesystem  │  │ GitHub API  │  │ NPM         │  │ LSP Server  │        │
 │  │  (ripgrep)  │  │  (Octokit)  │  │   APIs      │  │             │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -225,7 +225,7 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
 | `githubViewRepoStructure` | GitHub | View repo tree |
 | `githubSearchRepositories` | GitHub | Search repositories |
 | `githubSearchPullRequests` | GitHub | Search pull requests |
-| `packageSearch` | Package | Search npm/PyPI |
+| `packageSearch` | Package | Search npm |
 
 ---
 

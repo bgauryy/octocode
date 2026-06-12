@@ -6,6 +6,8 @@ Strategy: `conservative`
 
 Agent rating: **9.7/10 (excellent)**
 
+Agent understanding from minified output: **10/10 (excellent)**
+
 Artifacts:
 
 - `raw/source.excerpt.txt`
@@ -18,11 +20,36 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 100057 | - | - | - |
-| content-view | 37827 | 62.2% | 6.518 ms | 9.5/10 |
-| applyMinification | 37827 | 62.2% | 6.458 ms | 9.5/10 |
-| sync minify | 37827 | 62.2% | 6.673 ms | 9.5/10 |
-| async minify | 37827 | 62.2% | 6.965 ms | 9.5/10 |
-| symbols | 7552 | 92.5% | 0.464 ms | 10/10 |
+| content-view | 37827 | 62.2% | 10.425 ms | 9.5/10 |
+| applyMinification | 37827 | 62.2% | 11.786 ms | 9.5/10 |
+| sync minify | 37827 | 62.2% | 10.591 ms | 9.5/10 |
+| async minify | 37827 | 62.2% | 14.865 ms | 9.5/10 |
+| symbols | 7552 | 92.5% | 0.61 ms | 10/10 |
+
+## Agent Understanding
+
+Measured from `standard` minified output.
+
+| Component | Score |
+| --- | ---: |
+| syntax anchors | 10/10 (3/3) |
+| delimiter structure | 10/10 |
+| output health | 10/10 |
+| context budget | 10/10 |
+| symbol context | 10/10 |
+| signals passed | 6/6 |
+
+## Agent Observation By Output Level
+
+Ratings are computed from the actual raw, standard, minify, and symbol outputs
+for this language sample.
+
+| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 100057 | 0% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 37827 | 62.2% | 10/10 excellent | 10/10 | 10/10 |
+| minify | 37827 | 62.2% | 10/10 excellent | 10/10 | 10/10 |
+| symbols | 7552 | 92.5% | 9.2/10 excellent | 10/10 | 7.1/10 |
 
 ## Notes
 

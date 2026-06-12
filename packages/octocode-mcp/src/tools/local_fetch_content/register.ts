@@ -18,6 +18,18 @@ const LocalGetFileContentFixedOutputSchema =
       .describe(
         'Line ranges for each matched context block. Each entry has start (1-based first line) and end (1-based last line) of the block.'
       ),
+    sourceChars: z
+      .number()
+      .optional()
+      .describe(
+        'Character length of the sanitized full source file before slicing, pagination, or symbols extraction.'
+      ),
+    sourceBytes: z
+      .number()
+      .optional()
+      .describe(
+        'UTF-8 byte length of the sanitized full source file before slicing, pagination, or symbols extraction.'
+      ),
   });
 
 export function registerLocalFetchContentTool(server: McpServer) {

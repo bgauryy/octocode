@@ -42,6 +42,8 @@ const GitHubFetchFileEntrySchema = z.object({
   contentView: z.enum(['none', 'standard', 'symbols']).optional(),
   isSkeleton: z.boolean().optional(),
   totalLines: z.number().optional(),
+  sourceChars: z.number().optional(),
+  sourceBytes: z.number().optional(),
   resolvedBranch: z.string().optional(),
   pagination: PaginationInfoSchema.optional(),
   isPartial: z.boolean().optional(),

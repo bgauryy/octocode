@@ -84,7 +84,7 @@ Proceed with whatever tools are available — do not block on setup.
 | `githubViewRepoStructure` | Explore external repo directory layout |
 | `githubGetFileContent` | Read files from external repos — use **LAST** |
 | `githubSearchPullRequests` | Search PRs by query, state, labels |
-| `packageSearch` | Search npm/PyPI packages by name or keyword |
+| `packageSearch` | Search npm packages by name or keyword |
 | `githubCloneRepo` | Shallow-clone repo for local+LSP analysis (`ENABLE_CLONE=true`) |
 
 ### Routing
@@ -353,7 +353,7 @@ Use task tools to **plan, track, and complete** research. Tasks prevent scope cr
 | GitHub search empty | Broaden query, check owner/repo |
 | Rate limit hit | Back off, batch fewer queries |
 | Repo not found | Verify via `githubSearchRepositories` |
-| Package not found | Try alternative names, check npm vs PyPI |
+| Package not found | Try alternative names, verify on npm |
 | Blocked >2 attempts | Summarize what you tried → Ask user |
 </error_recovery>
 

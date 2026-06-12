@@ -28,7 +28,7 @@ export type PrContentSelector = {
 
 export type PullRequestContentQuery = {
   content?: PrContentSelector;
-  reviewMode?: 'summary' | 'full';
+  reviewMode?: 'full';
 };
 
 export type NormalizedPrContentRequest = {
@@ -55,12 +55,12 @@ export type NormalizedPrContentRequest = {
         list: boolean;
         includeFiles: boolean;
       };
-  reviewMode?: 'summary' | 'full';
+  reviewMode?: 'full';
 };
 
 function normalizePatches(
   content?: PrContentSelector,
-  reviewMode?: 'summary' | 'full'
+  reviewMode?: 'full'
 ): NormalizedPrContentRequest['patches'] {
   const patchSelector = content?.patches;
   if (patchSelector?.mode) {
@@ -76,7 +76,7 @@ function normalizePatches(
 
 function normalizeComments(
   content?: PrContentSelector,
-  reviewMode?: 'summary' | 'full'
+  reviewMode?: 'full'
 ): NormalizedPrContentRequest['comments'] {
   const comments = content?.comments;
   if (comments) {
@@ -99,7 +99,7 @@ function normalizeComments(
 
 function normalizeCommits(
   content?: PrContentSelector,
-  reviewMode?: 'summary' | 'full'
+  reviewMode?: 'full'
 ): NormalizedPrContentRequest['commits'] {
   const commits = content?.commits;
   if (commits) {

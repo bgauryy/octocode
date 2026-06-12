@@ -64,9 +64,9 @@ describe('command-help-specs', () => {
       'skills',
       'token',
       'status',
-      'sync',
-      'mcp',
-      'cache',
+      'get',
+      'tree',
+      'search',
     ];
     for (const name of names) {
       expect(findStaticCommandHelp(name)).toBeDefined();

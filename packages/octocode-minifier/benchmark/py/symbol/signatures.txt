@@ -1,65 +1,63 @@
-  9| from __future__ import annotations
- 11| import os
- 12| import sys
- 13| import time
- 14| from collections import OrderedDict
- 15| from collections.abc import Generator, Mapping, MutableMapping
- 16| from datetime import timedelta
- 17| from typing import TYPE_CHECKING, Any, cast
- 19| from ._internal_utils import to_native_string
- 20| from ._types import is_prepared as _is_prepared
- 21| from .adapters import HTTPAdapter
- 22| from .auth import _basic_auth_str
- 23| from .compat import cookielib, urljoin, urlparse
- 24| from .cookies import (
- 30| from .exceptions import (
- 36| from .hooks import default_hooks, dispatch_hook
- 39| from .models import (  # noqa: F401
- 46| from .status_codes import codes
- 47| from .structures import CaseInsensitiveDict
- 48| from .utils import (  # noqa: F401
- 62|     from http.cookiejar import CookieJar
- 64|     from typing_extensions import Self, Unpack
- 66|     from . import _types as _t
- 67|     from .adapters import BaseAdapter
- 76| def merge_setting(
- 77|     request_setting: Any, session_setting: Any, dict_class: type = OrderedDict
- 78| ) -> Any:
-108| def merge_hooks(
-109|     request_hooks: _t.HooksType,
-110|     session_hooks: _t.HooksType,
-111|     dict_class: type = OrderedDict,
-112| ) -> _t.HooksType:
-127| class SessionRedirectMixin:
-132|     def send(self, request: PreparedRequest, **kwargs: Any) -> Response: ...
-134|     def get_redirect_target(self, resp: Response) -> str | None:
-154|     def should_strip_auth(self, old_url: str, new_url: str) -> bool:
-186|     def resolve_redirects(
-187|         self,
-188|         resp: Response,
-189|         req: PreparedRequest,
-190|         stream: bool = False,
-191|         timeout: _t.TimeoutType = None,
-192|         verify: _t.VerifyType = True,
-193|       
+   1| from __future__ import annotations
+   3| import datetime
+   4| import enum
+   5| import logging
+   6| import time
+   7| import typing
+   8| import warnings
+   9| from contextlib import asynccontextmanager, contextmanager
+  10| from types import TracebackType
+  12| from .__version__ import __version__
+  13| from ._auth import Auth, BasicAuth, FunctionAuth
+  14| from ._config import (
+  22| from ._decoders import SUPPORTED_DECODERS
+  23| from ._exceptions import (
+  29| from ._models import Cookies, Headers, Request, Response
+  30| from ._status_codes import codes
+  31| from ._transports.base import AsyncBaseTransport, BaseTransport
+  32| from ._transports.default import AsyncHTTPTransport, HTTPTransport
+  33| from ._types import (
+  48| from ._urls import URL, QueryParams
+  49| from ._utils import URLPattern, get_environment_proxies
+  52|     import ssl  # pragma: no cover
+  54| __all__ = ["USE_CLIENT_DEFAULT", "AsyncClient", "Client"]
+  62| def _is_https_redirect(url: URL, location: URL) -> bool:
+  77| def _port_or_default(url: URL) -> int | None:
+  83| def _same_origin(url: URL, other: URL) -> bool:
+  94| class UseClientDefault:
+ 125| class ClientState(enum.Enum):
+ 139| class BoundSyncStream(SyncByteStream):
+ 145|     def __init__(
+ 146|         self, stream: SyncByteStream, response: Response, start: float
+ 147|     ) -> None:
+ 152|     def __iter__(self) -> typing.Iterator[bytes]:
+ 156|     def close(self) -> None:
+ 162| class BoundAsyncStream(AsyncByteStream):
+ 168|     def __init__(
+ 169|         self, stream: AsyncByteStream, response: Response, start: float
+ 170|     ) -> None:
+ 175|     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
+ 179|     async def aclose(self) -> None:
+ 188| class BaseClient:
+ 189|     def __
 
-... [truncated 2395 chars] ...
+... [truncated 21347 chars] ...
 
-riType, data: _t.DataType = None, **kwargs: Unpack[_t.DataKwargs]
-730|     ) -> Response:
-742|     def delete(self, url: _t.UriType, **kwargs: Unpack[_t.RequestKwargs]) -> Response:
-752|     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
-831|     def merge_environment_settings(
-832|         self,
-833|         url: str,
-834|         proxies: dict[str, str] | None,
-835|         stream: bool | None,
-836|         verify: _t.VerifyType | None,
-837|         cert: _t.CertType,
-838|     ) -> dict[str, Any]:
-870|     def get_adapter(self, url: str) -> BaseAdapter:
-883|     def close(self) -> None:
-888|     def mount(self, prefix: str, adapter: BaseAdapter) -> None:
-899|     def __getstate__(self) -> dict[str, Any]:
-903|     def __setstate__(self, state: dict[str, Any]) -> None:
-908| def session() -> Session:
+|         url: URL | str,
+1952|         *,
+1953|         params: QueryParamTypes | None = None,
+1954|         headers: HeaderTypes | None = None,
+1955|         cookies: CookieTypes | None = None,
+1956|         auth: AuthTypes | UseClientDefault = USE_CLIENT_DEFAULT,
+1957|         follow_redirects: bool | UseClientDefault = USE_CLIENT_DEFAULT,
+1958|         timeout: TimeoutTypes | UseClientDefault = USE_CLIENT_DEFAULT,
+1959|         extensions: RequestExtensions | None = None,
+1960|     ) -> Response:
+1978|     async def aclose(self) -> None:
+1990|     async def __aenter__(self: U) -> U:
+2008|     async def __aexit__(
+2009|         self,
+2010|         exc_type: type[BaseException] | None = None,
+2011|         exc_value: BaseException | None = None,
+2012|         traceback: TracebackType | None = None,
+2013|     ) -> None:

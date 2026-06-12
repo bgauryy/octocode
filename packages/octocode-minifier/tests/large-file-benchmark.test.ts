@@ -1,6 +1,6 @@
 /**
  * Large-file benchmark — tests all minification modes against realistic
- * ~400-line code samples per language and writes per-language + summary
+ * large code samples per language and writes per-language + summary
  * reports to benchmark/{ext}/large-file-metrics.json and
  * benchmark/large-files-summary.md.
  *
@@ -33,6 +33,20 @@ import {
   KOTLIN_LARGE,
   YAML_LARGE,
   JS_LARGE,
+  C_LARGE,
+  CPP_LARGE,
+  VB_LARGE,
+  JSX_LARGE,
+  TSX_LARGE,
+  MD_LARGE,
+  PHP_LARGE,
+  CS_LARGE,
+  GRAPHQL_LARGE,
+  HTML_LARGE,
+  PROTO_LARGE,
+  BASH_LARGE,
+  SCSS_LARGE,
+  XML_LARGE,
 } from './largeSampleFixtures.js';
 
 // ─── output directory ────────────────────────────────────────────────────────
@@ -55,7 +69,12 @@ type LargeFileMetrics = {
   applyMinify: { bytes: number; cutPct: number; ms: number };
   syncMinify: { bytes: number; cutPct: number; ms: number };
   asyncMinify: { bytes: number; cutPct: number; ms: number; type: string };
-  symbols: { supported: boolean; bytes: number | null; cutPct: number | null; ms: number | null };
+  symbols: {
+    supported: boolean;
+    bytes: number | null;
+    cutPct: number | null;
+    ms: number | null;
+  };
   rating: { score: number; label: string };
   notes: string[];
 };
@@ -78,30 +97,42 @@ function rate(
   if (contentViewCut >= 40) score += 2.5;
   else if (contentViewCut >= 25) score += 2.0;
   else if (contentViewCut >= 10) score += 1.5;
-  else if (contentViewCut >= 5)  score += 1.0;
-  else                           score += 0.5;
+  else if (contentViewCut >= 5) score += 1.0;
+  else score += 0.5;
 
   // Apply-minify cut (weight 0.50)
   if (applyMinifyCut >= 60) score += 5.0;
   else if (applyMinifyCut >= 40) score += 4.0;
   else if (applyMinifyCut >= 25) score += 3.0;
   else if (applyMinifyCut >= 10) score += 2.0;
-  else                           score += 1.0;
+  else score += 1.0;
 
   // Symbols (weight 0.25)
-  if (symbolsReturned === null) score += 1.5; // n/a neutral
-  else if (symbolsReturned)     score += 2.5;
-  else                          score += 1.0;
+  if (symbolsReturned === null)
+    score += 1.5; // n/a neutral
+  else if (symbolsReturned) score += 2.5;
+  else score += 1.0;
 
   const final = Math.min(10, Math.round(score * 10) / 10);
-  const label = final >= 9.0 ? 'excellent' :
-                final >= 8.0 ? 'strong'    :
-                final >= 7.0 ? 'good'      : 'fair';
+  const label =
+    final >= 9.0
+      ? 'excellent'
+      : final >= 8.0
+        ? 'strong'
+        : final >= 7.0
+          ? 'good'
+          : 'fair';
 
   return { score: final, label };
 }
 
-async function measure(content: string, ext: string, language: string, description: string, notes: string[] = []): Promise<LargeFileMetrics> {
+async function measure(
+  content: string,
+  ext: string,
+  language: string,
+  description: string,
+  notes: string[] = []
+): Promise<LargeFileMetrics> {
   const filePath = `large-sample.${ext}`;
   const inputBytes = Buffer.byteLength(content, 'utf8');
   const inputLines = content.split('\n').length;
@@ -127,7 +158,9 @@ async function measure(content: string, ext: string, language: string, descripti
   const asyncMs = +(performance.now() - t3).toFixed(2);
 
   // symbols
-  const symSupported = (SUPPORTED_SIGNATURE_EXTENSIONS as readonly string[]).includes(ext);
+  const symSupported = (
+    SUPPORTED_SIGNATURE_EXTENSIONS as readonly string[]
+  ).includes(ext);
   let symBytes: number | null = null;
   let symMs: number | null = null;
   if (symSupported) {
@@ -149,10 +182,27 @@ async function measure(content: string, ext: string, language: string, descripti
     description,
     inputBytes,
     inputLines,
-    contentView: { bytes: Buffer.byteLength(cv, 'utf8'), cutPct: cut(inputBytes, Buffer.byteLength(cv, 'utf8')), ms: cvMs },
-    applyMinify:  { bytes: Buffer.byteLength(am, 'utf8'), cutPct: cut(inputBytes, Buffer.byteLength(am, 'utf8')), ms: amMs },
-    syncMinify:   { bytes: Buffer.byteLength(sm, 'utf8'), cutPct: cut(inputBytes, Buffer.byteLength(sm, 'utf8')), ms: smMs },
-    asyncMinify:  { bytes: Buffer.byteLength(asyncResult.content, 'utf8'), cutPct: cut(inputBytes, Buffer.byteLength(asyncResult.content, 'utf8')), ms: asyncMs, type: asyncResult.type },
+    contentView: {
+      bytes: Buffer.byteLength(cv, 'utf8'),
+      cutPct: cut(inputBytes, Buffer.byteLength(cv, 'utf8')),
+      ms: cvMs,
+    },
+    applyMinify: {
+      bytes: Buffer.byteLength(am, 'utf8'),
+      cutPct: cut(inputBytes, Buffer.byteLength(am, 'utf8')),
+      ms: amMs,
+    },
+    syncMinify: {
+      bytes: Buffer.byteLength(sm, 'utf8'),
+      cutPct: cut(inputBytes, Buffer.byteLength(sm, 'utf8')),
+      ms: smMs,
+    },
+    asyncMinify: {
+      bytes: Buffer.byteLength(asyncResult.content, 'utf8'),
+      cutPct: cut(inputBytes, Buffer.byteLength(asyncResult.content, 'utf8')),
+      ms: asyncMs,
+      type: asyncResult.type,
+    },
     symbols: {
       supported: symSupported,
       bytes: symBytes,
@@ -191,31 +241,43 @@ ${m.notes.length ? `## Notes\n\n${m.notes.map(n => `- ${n}`).join('\n')}\n` : ''
 
 function summaryToMarkdown(all: LargeFileMetrics[], ts: string): string {
   const sorted = [...all].sort((a, b) => b.rating.score - a.rating.score);
-  const avgContentView = +(all.reduce((s, m) => s + m.contentView.cutPct, 0) / all.length).toFixed(1);
-  const avgApply = +(all.reduce((s, m) => s + m.applyMinify.cutPct, 0) / all.length).toFixed(1);
-  const avgAsync = +(all.reduce((s, m) => s + m.asyncMinify.cutPct, 0) / all.length).toFixed(1);
-  const avgRating = +(all.reduce((s, m) => s + m.rating.score, 0) / all.length).toFixed(1);
+  const avgContentView = +(
+    all.reduce((s, m) => s + m.contentView.cutPct, 0) / all.length
+  ).toFixed(1);
+  const avgApply = +(
+    all.reduce((s, m) => s + m.applyMinify.cutPct, 0) / all.length
+  ).toFixed(1);
+  const avgAsync = +(
+    all.reduce((s, m) => s + m.asyncMinify.cutPct, 0) / all.length
+  ).toFixed(1);
+  const avgRating = +(
+    all.reduce((s, m) => s + m.rating.score, 0) / all.length
+  ).toFixed(1);
 
   const buckets = {
     excellent: all.filter(m => m.rating.label === 'excellent').length,
-    strong:    all.filter(m => m.rating.label === 'strong').length,
-    good:      all.filter(m => m.rating.label === 'good').length,
-    fair:      all.filter(m => m.rating.label === 'fair').length,
+    strong: all.filter(m => m.rating.label === 'strong').length,
+    good: all.filter(m => m.rating.label === 'good').length,
+    fair: all.filter(m => m.rating.label === 'fair').length,
   };
 
-  const rows = sorted.map(m => {
-    const sym = m.symbols.supported
-      ? m.symbols.bytes !== null ? `−${m.symbols.cutPct}%` : 'null'
-      : 'n/a';
-    return `| \`.${m.ext}\` | ${m.language} | ${m.inputLines} | ${m.inputBytes.toLocaleString()} | −${m.contentView.cutPct}% | −${m.applyMinify.cutPct}% | −${m.asyncMinify.cutPct}% | ${sym} | **${m.rating.score}/10** ${m.rating.label} |`;
-  }).join('\n');
+  const rows = sorted
+    .map(m => {
+      const sym = m.symbols.supported
+        ? m.symbols.bytes !== null
+          ? `−${m.symbols.cutPct}%`
+          : 'null'
+        : 'n/a';
+      return `| \`.${m.ext}\` | ${m.language} | ${m.inputLines} | ${m.inputBytes.toLocaleString()} | −${m.contentView.cutPct}% | −${m.applyMinify.cutPct}% | −${m.asyncMinify.cutPct}% | ${sym} | **${m.rating.score}/10** ${m.rating.label} |`;
+    })
+    .join('\n');
 
   return `# Large-File Minification Benchmark
 
 > Generated ${ts}
 >
-> Each sample is a realistic ~400-line file taken from real open-source
-> projects. All four minification modes are measured.
+> Each sample is a realistic large file or real-source-derived stress fixture.
+> All four minification modes are measured.
 
 ## Summary
 
@@ -241,15 +303,25 @@ ${rows}
 
 ### Best performers (≥9.0)
 
-${sorted.filter(m => m.rating.score >= 9.0).map(m =>
-  `- **\`.${m.ext}\`** ${m.language}: content-view −${m.contentView.cutPct}%, apply −${m.applyMinify.cutPct}%${m.symbols.cutPct !== null ? `, symbols −${m.symbols.cutPct}%` : ''}`
-).join('\n')}
+${sorted
+  .filter(m => m.rating.score >= 9.0)
+  .map(
+    m =>
+      `- **\`.${m.ext}\`** ${m.language}: content-view −${m.contentView.cutPct}%, apply −${m.applyMinify.cutPct}%${m.symbols.cutPct !== null ? `, symbols −${m.symbols.cutPct}%` : ''}`
+  )
+  .join('\n')}
 
 ### Weakest performers (<7.5)
 
-${sorted.filter(m => m.rating.score < 7.5).map(m =>
-  `- **\`.${m.ext}\`** ${m.language}: content-view −${m.contentView.cutPct}%, apply −${m.applyMinify.cutPct}% — _${m.rating.label}_`
-).join('\n') || '_None — all languages scored ≥7.5_'}
+${
+  sorted
+    .filter(m => m.rating.score < 7.5)
+    .map(
+      m =>
+        `- **\`.${m.ext}\`** ${m.language}: content-view −${m.contentView.cutPct}%, apply −${m.applyMinify.cutPct}% — _${m.rating.label}_`
+    )
+    .join('\n') || '_None — all languages scored ≥7.5_'
+}
 
 ### Comment-density drivers
 
@@ -274,7 +346,20 @@ const FIXTURES: Array<{
     language: 'TypeScript',
     description: 'Async HTTP client with generics, retry, EventEmitter',
     content: TS_LARGE,
-    notes: ['TypeScript compiler + Terser pipeline', 'Rich type annotations removed by transpiler'],
+    notes: [
+      'TypeScript compiler + Terser pipeline',
+      'Rich type annotations removed by transpiler',
+    ],
+  },
+  {
+    ext: 'tsx',
+    language: 'TSX',
+    description: 'App router component with route metadata and Suspense',
+    content: TSX_LARGE,
+    notes: [
+      'TypeScript compiler + JSX transform + Terser pipeline',
+      'Large partial-friendly React component tree with type-only declarations',
+    ],
   },
   {
     ext: 'py',
@@ -293,63 +378,111 @@ const FIXTURES: Array<{
     language: 'Go',
     description: 'Configurable HTTP client with functional options + retry',
     content: GO_LARGE,
-    notes: ['Conservative strategy with c-style comment stripping', 'GoDoc comments removed'],
+    notes: [
+      'Conservative strategy with c-style comment stripping',
+      'GoDoc comments removed',
+    ],
   },
   {
     ext: 'java',
     language: 'Java',
     description: 'Spring StringUtils — JavaDoc-heavy utility class',
     content: JAVA_LARGE,
-    notes: ['JavaDoc block comments stripped', 'High comment ratio typical of Spring source'],
+    notes: [
+      'JavaDoc block comments stripped',
+      'High comment ratio typical of Spring source',
+    ],
+  },
+  {
+    ext: 'c',
+    language: 'C',
+    description:
+      'Command-line option parser with URL strings and block comments',
+    content: C_LARGE,
+    notes: [
+      'C-style comments stripped conservatively',
+      'Comment-looking URL and string content preserved',
+    ],
+  },
+  {
+    ext: 'cpp',
+    language: 'C++',
+    description: 'Stream report writer with templates and raw string markers',
+    content: CPP_LARGE,
+    notes: [
+      'C++ line and block comments stripped conservatively',
+      'Raw string and URL markers preserved for scanner edge coverage',
+    ],
   },
   {
     ext: 'rs',
     language: 'Rust',
     description: 'Async task runtime — doc comments, unsafe blocks, generics',
     content: RUST_LARGE,
-    notes: ['//! and /// doc comments stripped by c-style remover', 'Aggressive savings from Rustdoc'],
+    notes: [
+      '//! and /// doc comments stripped by c-style remover',
+      'Aggressive savings from Rustdoc',
+    ],
   },
   {
     ext: 'css',
     language: 'CSS',
     description: 'Design-system tokens + components (buttons, cards, forms)',
     content: CSS_LARGE,
-    notes: ['Aggressive strategy: CleanCSS async path', 'Variable declarations compress well'],
+    notes: [
+      'Aggressive strategy: CleanCSS async path',
+      'Variable declarations compress well',
+    ],
   },
   {
     ext: 'sql',
     language: 'SQL',
     description: 'E-commerce schema: tables, triggers, stored procedures',
     content: SQL_LARGE,
-    notes: ['Conservative strategy — SQL line comments stripped', 'Block comments in DDL removed'],
+    notes: [
+      'Conservative strategy — SQL line comments stripped',
+      'Block comments in DDL removed',
+    ],
   },
   {
     ext: 'sh',
     language: 'Shell',
     description: 'Deployment script: args, SSH, rsync, health-check',
     content: SHELL_LARGE,
-    notes: ['Hash comments stripped but shebang preserved', 'Low comment ratio limits savings'],
+    notes: [
+      'Hash comments stripped but shebang preserved',
+      'Low comment ratio limits savings',
+    ],
   },
   {
     ext: 'rb',
     language: 'Ruby',
     description: 'ActiveRecord User model with validations, scopes, auth',
     content: RUBY_LARGE,
-    notes: ['Hash comments and inline annotations stripped', 'Schema comment header removed'],
+    notes: [
+      'Hash comments and inline annotations stripped',
+      'Schema comment header removed',
+    ],
   },
   {
     ext: 'kt',
     language: 'Kotlin',
     description: 'Android repository: coroutines, Flow, Room, Retrofit',
     content: KOTLIN_LARGE,
-    notes: ['KDoc block comments stripped via c-style remover', 'Coroutine annotations preserved'],
+    notes: [
+      'KDoc block comments stripped via c-style remover',
+      'Coroutine annotations preserved',
+    ],
   },
   {
     ext: 'yml',
     language: 'YAML',
     description: 'GitHub Actions CI/CD pipeline — multi-job workflow',
     content: YAML_LARGE,
-    notes: ['Hash comments stripped', 'Low savings expected — real workflows are data-dense'],
+    notes: [
+      'Hash comments stripped',
+      'Low savings expected — real workflows are data-dense',
+    ],
   },
   {
     ext: 'js',
@@ -360,6 +493,116 @@ const FIXTURES: Array<{
       'Terser pipeline: TypeScript transpiler skipped (pure JS), goes direct to terser',
       'JSDoc block comments stripped by Terser',
       'Symbols extraction via tsJsStrategy AST parser',
+    ],
+  },
+  {
+    ext: 'jsx',
+    language: 'JSX',
+    description: 'React dashboard list with hook state and JSX comment blocks',
+    content: JSX_LARGE,
+    notes: [
+      'TypeScript JSX transform path before Terser',
+      'JSX comments removed while string markers are preserved',
+    ],
+  },
+  {
+    ext: 'md',
+    language: 'Markdown',
+    description: 'Project README with badges, HTML comments, blockquotes',
+    content: MD_LARGE,
+    notes: [
+      'Badge/shield image lines stripped',
+      '[//]: # pseudo-comments stripped',
+      'HTML block comments stripped while rendered blockquotes are preserved',
+    ],
+  },
+  {
+    ext: 'php',
+    language: 'PHP',
+    description: 'Laravel REST controller with PHPDoc (280 lines)',
+    content: PHP_LARGE,
+    notes: [
+      'PHPDoc block comments stripped by c-style remover',
+      'High doc-comment ratio typical of Laravel source',
+    ],
+  },
+  {
+    ext: 'cs',
+    language: 'C#',
+    description: 'ASP.NET Core OrderService with XML docs and EF Core',
+    content: CS_LARGE,
+    notes: ['/// XML doc comments stripped', 'Block comments stripped'],
+  },
+  {
+    ext: 'vb',
+    language: 'Visual Basic',
+    description: 'Customer report module with apostrophe comments and strings',
+    content: VB_LARGE,
+    notes: [
+      'Apostrophe comments stripped with Visual Basic string awareness',
+      'Apostrophe markers inside string literals preserved',
+    ],
+  },
+  {
+    ext: 'graphql',
+    language: 'GraphQL',
+    description: 'E-commerce schema: enums, types, queries, mutations',
+    content: GRAPHQL_LARGE,
+    notes: [
+      'Description strings and # line comments stripped',
+      'No symbols support — conservative strategy only',
+    ],
+  },
+  {
+    ext: 'html',
+    language: 'HTML',
+    description: 'Documentation page with nav, sidebar, API reference section',
+    content: HTML_LARGE,
+    notes: [
+      'HTML comments stripped by aggressive strategy',
+      'html-minifier-terser async path for whitespace compression',
+    ],
+  },
+  {
+    ext: 'proto',
+    language: 'Protobuf',
+    description: 'gRPC service definition: messages, enums, service RPCs',
+    content: PROTO_LARGE,
+    notes: [
+      'C-style and // comments stripped by conservative strategy',
+      'High comment density in gRPC schemas',
+    ],
+  },
+  {
+    ext: 'bash',
+    language: 'Bash',
+    description:
+      'Blue/green deployment script with full argument documentation',
+    content: BASH_LARGE,
+    notes: [
+      'Hash comments stripped (shebang preserved)',
+      'Shell strategy symbols extraction',
+    ],
+  },
+  {
+    ext: 'scss',
+    language: 'SCSS',
+    description: 'Design system: variables, mixins, button/card components',
+    content: SCSS_LARGE,
+    notes: [
+      'CleanCSS async path — aggressive SCSS minification',
+      '// and /* */ comments stripped',
+    ],
+  },
+  {
+    ext: 'xml',
+    language: 'XML',
+    description:
+      'Spring XML application context with data source and JPA config',
+    content: XML_LARGE,
+    notes: [
+      'HTML/XML comments stripped by aggressive strategy',
+      'Whitespace collapsed between tags',
     ],
   },
 ];
@@ -418,10 +661,18 @@ describe('Large-file benchmark — per language quality measurement', () => {
     const summaryJson = {
       generatedAt: ts,
       languages: results.length,
-      averageContentViewCutPct: +(results.reduce((s, m) => s + m.contentView.cutPct, 0) / results.length).toFixed(1),
-      averageApplyCutPct: +(results.reduce((s, m) => s + m.applyMinify.cutPct, 0) / results.length).toFixed(1),
-      averageAsyncCutPct: +(results.reduce((s, m) => s + m.asyncMinify.cutPct, 0) / results.length).toFixed(1),
-      averageRating: +(results.reduce((s, m) => s + m.rating.score, 0) / results.length).toFixed(1),
+      averageContentViewCutPct: +(
+        results.reduce((s, m) => s + m.contentView.cutPct, 0) / results.length
+      ).toFixed(1),
+      averageApplyCutPct: +(
+        results.reduce((s, m) => s + m.applyMinify.cutPct, 0) / results.length
+      ).toFixed(1),
+      averageAsyncCutPct: +(
+        results.reduce((s, m) => s + m.asyncMinify.cutPct, 0) / results.length
+      ).toFixed(1),
+      averageRating: +(
+        results.reduce((s, m) => s + m.rating.score, 0) / results.length
+      ).toFixed(1),
       perLanguage: results.map(m => ({
         ext: m.ext,
         language: m.language,
@@ -442,7 +693,11 @@ describe('Large-file benchmark — per language quality measurement', () => {
     );
 
     expect(results.length).toBe(FIXTURES.length);
-    expect(existsSync(join(BENCHMARK_DIR, 'large-files-summary.md'))).toBe(true);
-    expect(existsSync(join(BENCHMARK_DIR, 'large-files-summary.json'))).toBe(true);
+    expect(existsSync(join(BENCHMARK_DIR, 'large-files-summary.md'))).toBe(
+      true
+    );
+    expect(existsSync(join(BENCHMARK_DIR, 'large-files-summary.json'))).toBe(
+      true
+    );
   });
 });

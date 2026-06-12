@@ -87,7 +87,7 @@ describe('FindCommandBuilder', () => {
     it('should handle single name pattern', () => {
       const builder = new FindCommandBuilder();
       const { args } = builder
-        .fromQuery({ path: '/test', name: '*.js' })
+        .fromQuery({ path: '/test', names: ['*.js'] })
         .build();
 
       expect(args).toContain('-name');

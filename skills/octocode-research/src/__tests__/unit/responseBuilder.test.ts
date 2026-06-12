@@ -369,7 +369,7 @@ describe('ResearchResponse.packageSearch', () => {
   it('handles empty results', () => {
     const result = ResearchResponse.packageSearch({
       packages: [],
-      registry: 'pypi',
+      registry: 'npm',
       query: 'nonexistent-package',
     });
 

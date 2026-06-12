@@ -2,44 +2,44 @@
   "content-view": {
     "fileName": "content-view.excerpt.txt",
     "metric": {
-      "bytes": 358,
-      "cutPercent": 0.3,
-      "durationMs": 0.127
+      "bytes": 5094,
+      "cutPercent": 0,
+      "durationMs": 3.826
     },
-    "content": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Vite + JS</title>\n  </head>\n  <body>\n    <div id=\"app\"></div>\n    <script type=\"module\" src=\"/src/main.js\"></script>\n  </body>\n</html>",
+    "content": "<!DOCTYPE html>\n<html lang=\"en-US\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"author\" content=\"Dr. Eleanor Gaye\">\n    <title>Awesome science application correspondence</title>\n    <style>\n      body {\n        max-width: 800px;\n        margin: 0 auto;\n      }\n\n      .sender-column {\n        text-align: right;\n      }\n\n      h1 {\n        font-size: 1.5em;\n      }\n\n      h2 {\n        font-size: 1.3em;\n      }\n\n      p,ul,ol,dl,address {\n        font-size: 1.1em;\n      }\n\n      p, li, dd, dt, address {\n        line-height: 1.5;\n      }\n    </style>\n  </head>\n  <body>\n    <address class=\"sender-column\">\n      <strong>Dr. Eleanor Gaye</strong><br>\n      Awesome Science faculty<br>\n      University of Awesome<br>\n      Bobtown, CA 99999,<br>\n      USA<br>\n      <strong>Tel</strong>: 123-456-7890<br>\n      <strong>Email</strong>: no_reply@example.com\n    </address>\n\n    <p class=\"sender-column\"><time datetime=\"2016-01-20\">20 January 2016</time></p>\n\n    <address>\n      <strong>Miss Eileen Dover</strong><br>\n      4321 Cliff Top Edge<br>\n      Dover, CT9 XXX<br>\n      UK\n    </address>\n\n    <h1>Re: Eileen Dover university application</h1>\n\n    <p>Dear Eileen,</p>\n\n    <p>Thank you for your recent applica\n\n... [truncated 3288 chars] ...\n\nd movements, being practiced by inhabitants of Northern Alaska and Canada. Later on however it was discovered that they were just moving like this because they were really cold.</dd>\n    </dl>\n\n    <p>For more of my research, see my <a href=\"http://www.example.com\" aria-label=\"Dr Gaye's exotic dance research\">exotic dance research page</a>.</p>\n\n    <p>Yours sincerely,</p>\n\n    <p>Dr Eleanor Gaye</p>\n\n    <p>University of Awesome motto: <q>Be awesome to each other.</q> -- <cite>The memoirs of Bill S Preston, <abbr title=\"Esquire\">Esq.</abbr></cite></p>\n  </body>\n</html>",
     "api": "applyContentViewMinification"
   },
   "apply-minification": {
     "fileName": "apply-minification.excerpt.txt",
     "metric": {
-      "bytes": 314,
-      "cutPercent": 12.5,
-      "durationMs": 0.118
+      "bytes": 4615,
+      "cutPercent": 9.4,
+      "durationMs": 4.235
     },
-    "content": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\" /><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>Vite + JS</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script></body></html>",
+    "content": "<!DOCTYPE html><html lang=\"en-US\"><head><meta charset=\"utf-8\"><meta name=\"author\" content=\"Dr. Eleanor Gaye\"><title>Awesome science application correspondence</title><style> body { max-width: 800px; margin: 0 auto; } .sender-column { text-align: right; } h1 { font-size: 1.5em; } h2 { font-size: 1.3em; } p,ul,ol,dl,address { font-size: 1.1em; } p, li, dd, dt, address { line-height: 1.5; } </style></head><body><address class=\"sender-column\"><strong>Dr. Eleanor Gaye</strong><br> Awesome Science faculty<br> University of Awesome<br> Bobtown, CA 99999,<br> USA<br><strong>Tel</strong>: 123-456-7890<br><strong>Email</strong>: no_reply@example.com </address><p class=\"sender-column\"><time datetime=\"2016-01-20\">20 January 2016</time></p><address><strong>Miss Eileen Dover</strong><br> 4321 Cliff Top Edge<br> Dover, CT9 XXX<br> UK </address><h1>Re: Eileen Dover university application</h1><p>Dear Eileen,</p><p>Thank you for your recent application to join us at the University of Awesome's science faculty to study as part of your <abbr>PhD</abbr> (Doctor of Philosophy) next year. I will answer your questions one by one, in the following sections.</p><h2>Starting dates</h2><p>We are happy to accommodate you starting you\n\n... [truncated 2809 chars] ...\n\nharacterised by \"robotic\", stilted movements, being practiced by inhabitants of Northern Alaska and Canada. Later on however it was discovered that they were just moving like this because they were really cold.</dd></dl><p>For more of my research, see my <a href=\"http://www.example.com\" aria-label=\"Dr Gaye's exotic dance research\">exotic dance research page</a>.</p><p>Yours sincerely,</p><p>Dr Eleanor Gaye</p><p>University of Awesome motto: <q>Be awesome to each other.</q> -- <cite>The memoirs of Bill S Preston, <abbr title=\"Esquire\">Esq.</abbr></cite></p></body></html>",
     "api": "applyMinification"
   },
   "minify-content-sync": {
     "fileName": "minify-content-sync.excerpt.txt",
     "metric": {
-      "bytes": 314,
-      "cutPercent": 12.5,
-      "durationMs": 0.068
+      "bytes": 4615,
+      "cutPercent": 9.4,
+      "durationMs": 4.185
     },
-    "content": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\" /><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>Vite + JS</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script></body></html>",
+    "content": "<!DOCTYPE html><html lang=\"en-US\"><head><meta charset=\"utf-8\"><meta name=\"author\" content=\"Dr. Eleanor Gaye\"><title>Awesome science application correspondence</title><style> body { max-width: 800px; margin: 0 auto; } .sender-column { text-align: right; } h1 { font-size: 1.5em; } h2 { font-size: 1.3em; } p,ul,ol,dl,address { font-size: 1.1em; } p, li, dd, dt, address { line-height: 1.5; } </style></head><body><address class=\"sender-column\"><strong>Dr. Eleanor Gaye</strong><br> Awesome Science faculty<br> University of Awesome<br> Bobtown, CA 99999,<br> USA<br><strong>Tel</strong>: 123-456-7890<br><strong>Email</strong>: no_reply@example.com </address><p class=\"sender-column\"><time datetime=\"2016-01-20\">20 January 2016</time></p><address><strong>Miss Eileen Dover</strong><br> 4321 Cliff Top Edge<br> Dover, CT9 XXX<br> UK </address><h1>Re: Eileen Dover university application</h1><p>Dear Eileen,</p><p>Thank you for your recent application to join us at the University of Awesome's science faculty to study as part of your <abbr>PhD</abbr> (Doctor of Philosophy) next year. I will answer your questions one by one, in the following sections.</p><h2>Starting dates</h2><p>We are happy to accommodate you starting you\n\n... [truncated 2809 chars] ...\n\nharacterised by \"robotic\", stilted movements, being practiced by inhabitants of Northern Alaska and Canada. Later on however it was discovered that they were just moving like this because they were really cold.</dd></dl><p>For more of my research, see my <a href=\"http://www.example.com\" aria-label=\"Dr Gaye's exotic dance research\">exotic dance research page</a>.</p><p>Yours sincerely,</p><p>Dr Eleanor Gaye</p><p>University of Awesome motto: <q>Be awesome to each other.</q> -- <cite>The memoirs of Bill S Preston, <abbr title=\"Esquire\">Esq.</abbr></cite></p></body></html>",
     "api": "minifyContentSync"
   },
   "minify-content-async": {
     "fileName": "minify-content-async.excerpt.txt",
     "metric": {
-      "bytes": 305,
-      "cutPercent": 15,
-      "durationMs": 2.963,
+      "bytes": 4563,
+      "cutPercent": 10.5,
+      "durationMs": 7.633,
       "failed": false,
       "type": "aggressive",
       "reason": null
     },
-    "content": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Vite + JS</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script></body></html>",
+    "content": "<!DOCTYPE html><html lang=\"en-US\"><head><meta charset=\"utf-8\"><meta name=\"author\" content=\"Dr. Eleanor Gaye\"><title>Awesome science application correspondence</title><style>body{max-width:800px;margin:0 auto}.sender-column{text-align:right}h1{font-size:1.5em}h2{font-size:1.3em}address,dl,ol,p,ul{font-size:1.1em}address,dd,dt,li,p{line-height:1.5}</style></head><body><address class=\"sender-column\"><strong>Dr. Eleanor Gaye</strong><br>Awesome Science faculty<br>University of Awesome<br>Bobtown, CA 99999,<br>USA<br><strong>Tel</strong>: 123-456-7890<br><strong>Email</strong>: no_reply@example.com</address><p class=\"sender-column\"><time datetime=\"2016-01-20\">20 January 2016</time></p><address><strong>Miss Eileen Dover</strong><br>4321 Cliff Top Edge<br>Dover, CT9 XXX<br>UK</address><h1>Re: Eileen Dover university application</h1><p>Dear Eileen,</p><p>Thank you for your recent application to join us at the University of Awesome's science faculty to study as part of your <abbr>PhD</abbr> (Doctor of Philosophy) next year. I will answer your questions one by one, in the following sections.</p><h2>Starting dates</h2><p>We are happy to accommodate you starting your study with us at any time, however it would suit u\n\n... [truncated 2757 chars] ...\n\nharacterised by \"robotic\", stilted movements, being practiced by inhabitants of Northern Alaska and Canada. Later on however it was discovered that they were just moving like this because they were really cold.</dd></dl><p>For more of my research, see my <a href=\"http://www.example.com\" aria-label=\"Dr Gaye's exotic dance research\">exotic dance research page</a>.</p><p>Yours sincerely,</p><p>Dr Eleanor Gaye</p><p>University of Awesome motto: <q>Be awesome to each other.</q> -- <cite>The memoirs of Bill S Preston, <abbr title=\"Esquire\">Esq.</abbr></cite></p></body></html>",
     "api": "minifyContent"
   }
 }

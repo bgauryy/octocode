@@ -14,7 +14,7 @@ export const hints: ToolHintGenerators = {
     const excludeDir = Array.isArray(c.excludeDir)
       ? (c.excludeDir as unknown[])
       : [];
-    const pattern = typeof c.pattern === 'string' ? c.pattern : undefined;
+    const pattern = typeof c.keywords === 'string' ? c.keywords : undefined;
     const mode = typeof c.mode === 'string' ? c.mode : undefined;
 
     if (

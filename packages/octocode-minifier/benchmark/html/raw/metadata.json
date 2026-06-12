@@ -1,7 +1,7 @@
 {
-  "source": "html/vite-index.html",
-  "sourceBytes": 359,
-  "sha256": "b56c70e2f1939591fd0b25b6fc80c9cf2878ee951666b45ac0b5bd5843152337",
-  "excerptBytes": 359,
-  "truncated": false
+  "source": "html/00-mdn-letter.html",
+  "sourceBytes": 5096,
+  "sha256": "9c577acabf0cd09998b489faad442d04cd6d5001befb954bb1c09b29eb23ae45",
+  "excerptBytes": 1834,
+  "truncated": true
 }

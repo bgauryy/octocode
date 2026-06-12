@@ -1,4 +1,4 @@
-import { validateCommand } from 'octocode-security-utils/commandValidator';
+import { validateCommand } from 'octocode-security/commandValidator';
 import { spawnWithTimeout, validateArgs } from './spawn.js';
 import type { ExecResult, ExecOptions } from '../core/types.js';
 

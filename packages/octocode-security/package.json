@@ -1,0 +1,129 @@
+{
+  "name": "octocode-security",
+  "version": "0.1.0",
+  "description": "Rust-backed secret detection for Node.js — replaces octocode-security-utils",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./contentSanitizer": {
+      "types": "./dist/contentSanitizer.d.ts",
+      "import": "./dist/contentSanitizer.js"
+    },
+    "./mask": {
+      "types": "./dist/mask.d.ts",
+      "import": "./dist/mask.js"
+    },
+    "./pathValidator": {
+      "types": "./dist/pathValidator.d.ts",
+      "import": "./dist/pathValidator.js"
+    },
+    "./commandValidator": {
+      "types": "./dist/commandValidator.d.ts",
+      "import": "./dist/commandValidator.js"
+    },
+    "./withSecurityValidation": {
+      "types": "./dist/withSecurityValidation.d.ts",
+      "import": "./dist/withSecurityValidation.js"
+    },
+    "./ignoredPathFilter": {
+      "types": "./dist/ignoredPathFilter.d.ts",
+      "import": "./dist/ignoredPathFilter.js"
+    },
+    "./pathUtils": {
+      "types": "./dist/pathUtils.d.ts",
+      "import": "./dist/pathUtils.js"
+    },
+    "./paramExtractors": {
+      "types": "./dist/paramExtractors.d.ts",
+      "import": "./dist/paramExtractors.js"
+    },
+    "./registry": {
+      "types": "./dist/registry.d.ts",
+      "import": "./dist/registry.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./regexes": {
+      "types": "./dist/regexes/index.d.ts",
+      "import": "./dist/regexes/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "contentSanitizer": [
+        "./dist/contentSanitizer.d.ts"
+      ],
+      "mask": [
+        "./dist/mask.d.ts"
+      ],
+      "pathValidator": [
+        "./dist/pathValidator.d.ts"
+      ],
+      "commandValidator": [
+        "./dist/commandValidator.d.ts"
+      ],
+      "withSecurityValidation": [
+        "./dist/withSecurityValidation.d.ts"
+      ],
+      "ignoredPathFilter": [
+        "./dist/ignoredPathFilter.d.ts"
+      ],
+      "pathUtils": [
+        "./dist/pathUtils.d.ts"
+      ],
+      "paramExtractors": [
+        "./dist/paramExtractors.d.ts"
+      ],
+      "registry": [
+        "./dist/registry.d.ts"
+      ],
+      "types": [
+        "./dist/types.d.ts"
+      ],
+      "regexes": [
+        "./dist/regexes/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "scripts",
+    "*.node",
+    "Cargo.toml",
+    "build.rs",
+    "build.mjs"
+  ],
+  "scripts": {
+    "build:rust": "node scripts/gen-patterns.mjs && cargo build --release && node scripts/copy-node.mjs",
+    "build:ts": "node build.mjs && tsc --emitDeclarationOnly",
+    "build": "yarn build:rust && yarn build:ts",
+    "build:dev": "node scripts/gen-patterns.mjs && cargo build && node scripts/copy-node.mjs --dev && node build.mjs && tsc --emitDeclarationOnly",
+    "gen": "node scripts/gen-patterns.mjs",
+    "typecheck": "tsc --noEmit",
+    "bench": "node bench/compare.mjs",
+    "test": "vitest run --coverage",
+    "test:quiet": "vitest run",
+    "test:watch": "vitest watch",
+    "test:ui": "vitest --ui"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.1.8",
+    "esbuild": "^0.28.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "license": "MIT",
+  "author": "Guy Bary <bgauryy@octocodeai.com>"
+}

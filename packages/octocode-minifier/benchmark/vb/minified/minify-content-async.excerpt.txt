@@ -1,0 +1,60 @@
+Imports System
+Imports System.Diagnostics.CodeAnalysis
+Imports System.Globalization
+Imports System.Runtime.Versioning
+Imports System.Text
+Imports Microsoft.VisualBasic.CompilerServices
+Imports Microsoft.VisualBasic.CompilerServices.ExceptionUtils
+Imports Microsoft.VisualBasic.CompilerServices.Utils
+
+Namespace Global.Microsoft.VisualBasic
+
+    Friend NotInheritable Class FormatInfoHolder
+        Implements IFormatProvider
+
+        Friend Sub New(ByVal nfi As NumberFormatInfo)
+            MyBase.New()
+            Me.nfi = nfi
+        End Sub
+
+        Private nfi As NumberFormatInfo
+
+        Private Function GetFormat(ByVal service As Type) As Object Implements IFormatProvider.GetFormat
+            If service Is GetType(NumberFormatInfo) Then
+                Return nfi
+            End If
+            Throw New ArgumentException(SR.InternalError_VisualBasicRuntime)
+        End Function
+
+    End Class
+
+    Public Module Strings
+
+        Private ReadOnly CurrencyPositiveFormatStrings() As String = {"'$'n", "n'$'", "'$' n", "n '$'"}
+
+        Private ReadOnly CurrencyNegativeFormatStrings() As String =
+            {"('$'n)", "-'$'n", "'$'-n", "'$'n-", "(n'$')", "-n'$'", "n-'$'", "n'$'-",
+              "-n '$'", "-
+
+... [truncated 80020 chars] ...
+
+     Return sDest
+            End If
+
+        End Function
+#End If
+
+        Private Sub ValidateTriState(ByVal Param As TriState)
+            If (Param <> vbTrue) AndAlso (Param <> vbFalse) AndAlso (Param <> vbUseDefault) Then
+                Throw VbMakeException(vbErrors.IllegalFuncCall)
+            End If
+        End Sub
+
+        Private Function IsArrayEmpty(ByVal array As System.Array) As Boolean
+            If array Is Nothing Then
+                Return True
+            End If
+            Return (array.Length = 0)
+        End Function
+    End Module
+End Namespace

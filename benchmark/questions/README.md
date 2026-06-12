@@ -56,7 +56,7 @@ Every question must carry one category tag in its heading. Tags are used in the 
 | `[LOCAL]` | Local filesystem search, ripgrep, find |
 | `[METADATA]` | File/repository metadata such as size, recency, timestamps, counts |
 | `[LSP]` | Symbol definition, references, call hierarchy |
-| `[PACKAGE]` | npm/PyPI registry lookup |
+| `[PACKAGE]` | npm registry lookup |
 
 ### Drift tag
 

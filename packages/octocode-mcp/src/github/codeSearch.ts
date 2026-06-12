@@ -10,7 +10,7 @@ import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/sche
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
-import { ContentSanitizer } from 'octocode-security-utils/contentSanitizer';
+import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import { minifyContent } from '@octocodeai/octocode-minifier';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
@@ -125,10 +125,12 @@ async function searchGitHubCodeAPIInternal(
 
     const optimizedResult = await convertCodeSearchResult(result);
 
-    const totalMatches = Math.min(optimizedResult.total_count, 1000);
+    const reportedTotalMatches = optimizedResult.total_count;
+    const totalMatches = Math.min(reportedTotalMatches, 1000);
     const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
     const hasMore = clampedPage < totalPages;
+    const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
       data: {
@@ -145,7 +147,12 @@ async function searchGitHubCodeAPIInternal(
           totalPages,
           perPage,
           totalMatches,
+          reportedTotalMatches,
+          reachableTotalMatches,
+          totalMatchesKind: 'reported',
+          totalMatchesCapped: reportedTotalMatches > totalMatches,
           hasMore,
+          uniqueFileCount: optimizedResult._researchContext?.uniqueFileCount,
         },
       },
       status: 200,
@@ -168,6 +175,10 @@ async function searchGitHubCodeAPIInternal(
             totalPages: 0,
             perPage,
             totalMatches: 0,
+            reportedTotalMatches: 0,
+            reachableTotalMatches: 0,
+            totalMatchesKind: 'exact',
+            totalMatchesCapped: false,
             hasMore: false,
           },
         },
@@ -314,7 +325,7 @@ async function transformToOptimizedFormat(
     total_count:
       apiTotalCount !== undefined ? apiTotalCount : filteredItems.length,
     _researchContext: {
-      foundFiles: Array.from(foundFiles),
+      uniqueFileCount: foundFiles.size,
       repositoryContext: singleRepo
         ? (() => {
             const parts = singleRepo.full_name.split('/');

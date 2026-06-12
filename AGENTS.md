@@ -13,7 +13,7 @@
 - [Key References](#key-references)
 
 **Packages**
-- [`octocode-mcp`](#package-octocode-mcp) — MCP server (13 tools)
+- [`octocode-mcp`](#package-octocode-mcp) — MCP server (12 tools)
 - [`octocode-cli`](#package-octocode-cli) — CLI installer + tool runner
 - [`octocode-shared`](#package-octocode-shared) — Credentials, sessions, platform
 - [`octocode-vscode`](#package-octocode-vscode) — VS Code extension
@@ -162,7 +162,7 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
 | `githubCloneRepo` | content | ✅ | Clone GitHub repos/subtrees for local + LSP analysis (`ENABLE_CLONE`) |
 | `githubSearchRepositories` | search | ❌ | Search repositories |
 | `githubSearchPullRequests` | history | ❌ | Search PRs and view diffs |
-| `packageSearch` | search | ❌ | NPM package + repo URL lookup (PyPI not implemented) |
+| `packageSearch` | search | ❌ | NPM package + repo URL lookup |
 | `localSearchCode` | search | ✅ | ripgrep search |
 | `localViewStructure` | content | ✅ | Browse local directories |
 | `localFindFiles` | search | ✅ | Find files by metadata |
@@ -177,7 +177,7 @@ The LSP tool is standalone (no IDE required); TS/JS bundled, 30+ other langs via
 Schema (Zod) → registerTool() → Security wrapper → Bulk handler → Implementation → Sanitizer → Response
 ```
 
-Tools return `structuredContent` validated against `outputSchema`. Handles tracked in `toolRegistry.ts` (runtime `enable()`/`disable()`/`remove()`). Server advertises `listChanged: true`; background init deferred to `oninitialized`.
+Tools return `structuredContent` validated against `outputSchema`. Server advertises `listChanged: false`; background init deferred to `oninitialized`.
 
 ### Design rules
 
@@ -248,7 +248,7 @@ Run commands from `packages/octocode-cli/`.
 ### Using the CLI
 
 ```
-octocode-cli --help                          # all commands + all 13 tools
+octocode-cli --help                          # all commands + all 12 tools
 octocode-cli --tool <name> --help            # input/output schema for one tool
 octocode-cli --tools-context                 # full MCP instructions + all schemas (~2200 lines)
 octocode-cli --tool <name> --queries '<json>' [--json]

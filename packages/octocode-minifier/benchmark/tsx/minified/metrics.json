@@ -2,44 +2,44 @@
   "content-view": {
     "fileName": "content-view.excerpt.txt",
     "metric": {
-      "bytes": 284,
-      "cutPercent": 0.4,
-      "durationMs": 0.108
+      "bytes": 15062,
+      "cutPercent": 35.1,
+      "durationMs": 6.168
     },
-    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "content": "import React, {\n  useEffect,\n  useMemo,\n  startTransition,\n  useInsertionEffect,\n  useDeferredValue,\n} from 'react'\nimport {\n  AppRouterContext,\n  LayoutRouterContext,\n  GlobalLayoutRouterContext,\n} from '../../shared/lib/app-router-context.shared-runtime'\nimport type { CacheNode } from '../../shared/lib/app-router-types'\nimport { ACTION_RESTORE } from './router-reducer/router-reducer-types'\nimport type {\n  AppHistoryState,\n  AppRouterState,\n} from './router-reducer/router-reducer-types'\nimport { createHrefFromUrl } from './router-reducer/create-href-from-url'\nimport {\n  SearchParamsContext,\n  PathnameContext,\n  PathParamsContext,\n  NavigationPromisesContext,\n  type NavigationPromises,\n} from '../../shared/lib/hooks-client-context.shared-runtime'\nimport { dispatchAppRouterAction, useActionQueue } from './use-action-queue'\nimport { setLastCommittedTree } from './router-reducer/reducers/committed-state'\nimport { AppRouterAnnouncer } from './app-router-announcer'\nimport { RedirectBoundary } from './redirect-boundary'\nimport { findHeadInCache } from './router-reducer/reducers/find-head-in-cache'\nimport { unresolvedThenable } from './unresolved-thenable'\nimport { removeBasePath } from '../remove-base-path'\nimp\n\n... [truncated 13262 chars] ...\n\nmeStyles?.size ?? 0\n  useEffect(() => {\n    if (!runtimeStyles || !runtimeStyleChanged) return\n    const changed = () => forceUpdate((c) => c + 1)\n    runtimeStyleChanged.add(changed)\n    if (renderedStylesSize !== runtimeStyles.size) {\n      changed()\n    }\n    return () => {\n      runtimeStyleChanged.delete(changed)\n    }\n  }, [renderedStylesSize, forceUpdate])\n\n  const query = getAssetTokenQuery()\n  return [...(runtimeStyles || [])].map((href, i) => (\n    <link\n      key={i}\n      rel=\"stylesheet\"\n      href={`${href}${query}`}\n\n      precedence=\"next\"\n\n    />\n  ))\n}",
     "api": "applyContentViewMinification"
   },
   "apply-minification": {
     "fileName": "apply-minification.excerpt.txt",
     "metric": {
-      "bytes": 284,
-      "cutPercent": 0.4,
-      "durationMs": 3.252
+      "bytes": 10663,
+      "cutPercent": 54,
+      "durationMs": 77.468
     },
-    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "content": "import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from\"react/jsx-runtime\";import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from\"react\";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from\"../../shared/lib/app-router-context.shared-runtime\";import{ACTION_RESTORE}from\"./router-reducer/router-reducer-types\";import{createHrefFromUrl}from\"./router-reducer/create-href-from-url\";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext}from\"../../shared/lib/hooks-client-context.shared-runtime\";import{dispatchAppRouterAction,useActionQueue}from\"./use-action-queue\";import{setLastCommittedTree}from\"./router-reducer/reducers/committed-state\";import{AppRouterAnnouncer}from\"./app-router-announcer\";import{RedirectBoundary}from\"./redirect-boundary\";import{findHeadInCache}from\"./router-reducer/reducers/find-head-in-cache\";import{unresolvedThenable}from\"./unresolved-thenable\";import{removeBasePath}from\"../remove-base-path\";import{hasBasePath}from\"../has-base-path\";import{extractSourcePageFromFlightRouterState,getSelectedParams}from\"./router-reducer/compute-changed-path\";import{useNavFailureHandler}from\"./nav-failure-handler\";import{\n\n... [truncated 8863 chars] ...\n\n{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);const query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=>_jsx(\"link\",{rel:\"stylesheet\",href:`${href}${query}`,precedence:\"next\"},i))}process.env.TURBOPACK||\"undefined\"==typeof window||(runtimeStyles=new Set,runtimeStyleChanged=new Set,globalThis._N_E_STYLE_LOAD=function(href){if(!runtimeStyles||!runtimeStyleChanged)return Promise.resolve();let len=runtimeStyles.size;return runtimeStyles.add(href),runtimeStyles.size!==len&&runtimeStyleChanged.forEach(cb=>cb()),Promise.resolve()});",
     "api": "applyMinification"
   },
   "minify-content-sync": {
     "fileName": "minify-content-sync.excerpt.txt",
     "metric": {
-      "bytes": 284,
-      "cutPercent": 0.4,
-      "durationMs": 1.822
+      "bytes": 10663,
+      "cutPercent": 54,
+      "durationMs": 46.228
     },
-    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "content": "import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from\"react/jsx-runtime\";import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from\"react\";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from\"../../shared/lib/app-router-context.shared-runtime\";import{ACTION_RESTORE}from\"./router-reducer/router-reducer-types\";import{createHrefFromUrl}from\"./router-reducer/create-href-from-url\";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext}from\"../../shared/lib/hooks-client-context.shared-runtime\";import{dispatchAppRouterAction,useActionQueue}from\"./use-action-queue\";import{setLastCommittedTree}from\"./router-reducer/reducers/committed-state\";import{AppRouterAnnouncer}from\"./app-router-announcer\";import{RedirectBoundary}from\"./redirect-boundary\";import{findHeadInCache}from\"./router-reducer/reducers/find-head-in-cache\";import{unresolvedThenable}from\"./unresolved-thenable\";import{removeBasePath}from\"../remove-base-path\";import{hasBasePath}from\"../has-base-path\";import{extractSourcePageFromFlightRouterState,getSelectedParams}from\"./router-reducer/compute-changed-path\";import{useNavFailureHandler}from\"./nav-failure-handler\";import{\n\n... [truncated 8863 chars] ...\n\n{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);const query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=>_jsx(\"link\",{rel:\"stylesheet\",href:`${href}${query}`,precedence:\"next\"},i))}process.env.TURBOPACK||\"undefined\"==typeof window||(runtimeStyles=new Set,runtimeStyleChanged=new Set,globalThis._N_E_STYLE_LOAD=function(href){if(!runtimeStyles||!runtimeStyleChanged)return Promise.resolve();let len=runtimeStyles.size;return runtimeStyles.add(href),runtimeStyles.size!==len&&runtimeStyleChanged.forEach(cb=>cb()),Promise.resolve()});",
     "api": "minifyContentSync"
   },
   "minify-content-async": {
     "fileName": "minify-content-async.excerpt.txt",
     "metric": {
-      "bytes": 284,
-      "cutPercent": 0.4,
-      "durationMs": 4.598,
+      "bytes": 10663,
+      "cutPercent": 54,
+      "durationMs": 45.878,
       "failed": false,
       "type": "conservative",
       "reason": null
     },
-    "content": "import Link from \"next/link\";\nimport Layout from \"../components/Layout\";\n\nconst IndexPage = () => (\n  <Layout title=\"Home | Next.js + TypeScript Example\">\n    <h1>Hello Next.js 👋</h1>\n    <p>\n      <Link href=\"/about\">About</Link>\n    </p>\n  </Layout>\n);\n\nexport default IndexPage;",
+    "content": "import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from\"react/jsx-runtime\";import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from\"react\";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from\"../../shared/lib/app-router-context.shared-runtime\";import{ACTION_RESTORE}from\"./router-reducer/router-reducer-types\";import{createHrefFromUrl}from\"./router-reducer/create-href-from-url\";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext}from\"../../shared/lib/hooks-client-context.shared-runtime\";import{dispatchAppRouterAction,useActionQueue}from\"./use-action-queue\";import{setLastCommittedTree}from\"./router-reducer/reducers/committed-state\";import{AppRouterAnnouncer}from\"./app-router-announcer\";import{RedirectBoundary}from\"./redirect-boundary\";import{findHeadInCache}from\"./router-reducer/reducers/find-head-in-cache\";import{unresolvedThenable}from\"./unresolved-thenable\";import{removeBasePath}from\"../remove-base-path\";import{hasBasePath}from\"../has-base-path\";import{extractSourcePageFromFlightRouterState,getSelectedParams}from\"./router-reducer/compute-changed-path\";import{useNavFailureHandler}from\"./nav-failure-handler\";import{\n\n... [truncated 8863 chars] ...\n\n{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);const query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=>_jsx(\"link\",{rel:\"stylesheet\",href:`${href}${query}`,precedence:\"next\"},i))}process.env.TURBOPACK||\"undefined\"==typeof window||(runtimeStyles=new Set,runtimeStyleChanged=new Set,globalThis._N_E_STYLE_LOAD=function(href){if(!runtimeStyles||!runtimeStyleChanged)return Promise.resolve();let len=runtimeStyles.size;return runtimeStyles.add(href),runtimeStyles.size!==len&&runtimeStyleChanged.forEach(cb=>cb()),Promise.resolve()});",
     "api": "minifyContent"
   }
 }

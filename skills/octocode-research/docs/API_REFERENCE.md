@@ -504,7 +504,7 @@ curl -X POST http://localhost:1987/tools/call/githubSearchPullRequests \
 
 ### packageSearch
 
-Search npm or PyPI packages.
+Search npm packages.
 
 | Param | Required | Description |
 |-------|----------|-------------|
