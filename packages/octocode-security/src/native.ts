@@ -34,24 +34,51 @@ function loadNative(): NativeModule {
     win32: { x64: 'win32-x64-msvc' },
   };
   const triple = tripleMap[platform]?.[arch];
+  const binaryNames = [
+    ...(triple ? [`octocode-security.${triple}.node`] : []),
+    'octocode-security.node',
+  ];
   const candidates: string[] = [];
-  // dist/ is one level below package root
+
+  if (process.env.OCTOCODE_SECURITY_NATIVE_PATH) {
+    candidates.push(process.env.OCTOCODE_SECURITY_NATIVE_PATH);
+  }
+
+  // When octocode-security is bundled into octocode-mcp or octocode-cli, the
+  // native asset is copied into the owning package's runtime directory.
+  for (const binaryName of binaryNames) {
+    candidates.push(join(_dir, 'runtime', 'security', binaryName));
+    candidates.push(join(_dir, '..', 'runtime', 'security', binaryName));
+    candidates.push(join(_dir, '..', '..', 'runtime', 'security', binaryName));
+  }
+
+  // Bun-compiled binaries keep native assets beside the executable/bundle.
+  for (const binaryName of binaryNames) {
+    candidates.push(join(_dir, binaryName));
+  }
+
+  // Package-local fallback: dist/ is one level below package root.
   const pkgRoot = join(_dir, '..');
-  if (triple)
-    candidates.push(join(pkgRoot, `octocode-security.${triple}.node`));
-  candidates.push(join(pkgRoot, 'octocode-security.node'));
+  for (const binaryName of binaryNames) {
+    candidates.push(join(pkgRoot, binaryName));
+  }
+
+  const errors: string[] = [];
 
   for (const candidate of candidates) {
     try {
       return _require(candidate) as NativeModule;
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${candidate}: ${message}`);
       // try next
     }
   }
 
   throw new Error(
     `octocode-security: no prebuilt binary for ${platform}-${arch}. ` +
-      `Run: cargo build --release && node scripts/copy-node.mjs`
+      `Run: cargo build --release && node scripts/copy-node.mjs. ` +
+      `Tried:\n${errors.join('\n')}`
   );
 }
 

@@ -1,6 +1,6 @@
 # Large-File Minification Benchmark
 
-> Generated 2026-06-12T11:57:06.974Z
+> Generated 2026-06-12T14:00:01.910Z
 >
 > Each sample is a realistic large file or real-source-derived stress fixture.
 > All four minification modes are measured.

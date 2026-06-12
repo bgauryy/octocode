@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild';
+import { spawnSync } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,3 +24,12 @@ await Promise.all(
 );
 
 console.log('✓ esbuild complete');
+
+const assetsResult = spawnSync(process.execPath, ['scripts/bundle-runtime-assets.mjs'], {
+  cwd: __dirname,
+  stdio: 'inherit',
+});
+
+if (assetsResult.status !== 0) {
+  process.exit(assetsResult.status ?? 1);
+}

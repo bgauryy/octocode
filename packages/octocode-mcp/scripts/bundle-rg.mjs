@@ -20,7 +20,13 @@
  *   …etc
  */
 
-import { createWriteStream, existsSync, copyFileSync, chmodSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+} from 'node:fs';
 import { rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -73,6 +79,7 @@ async function main() {
     console.log(`bundle-rg: copying from local ${localPkgName}`);
     copyFileSync(localPath, outFile);
     if (!isWindows) chmodSync(outFile, 0o755);
+    copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
     console.log(`bundle-rg: ✓ ${outFile}`);
     return;
   }
@@ -87,10 +94,19 @@ async function main() {
     await download(tgzUrl, tgz);
     extractBinaryFromTgz(tgz, `package/bin/${config.binary}`, outFile, tmpDir);
     if (!isWindows) chmodSync(outFile, 0o755);
+    copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
     console.log(`bundle-rg: ✓ ${outFile}`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+}
+
+function copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows) {
+  const runtimeDir = join(outDir, 'runtime', 'rg');
+  const runtimeFile = join(runtimeDir, `rg-${platform}${outExt}`);
+  mkdirSync(runtimeDir, { recursive: true });
+  copyFileSync(outFile, runtimeFile);
+  if (!isWindows) chmodSync(runtimeFile, 0o755);
 }
 
 /** Try resolving the binary from the already-installed optional package. */

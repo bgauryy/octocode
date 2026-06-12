@@ -266,6 +266,23 @@ describe('toolMetadata/proxies', () => {
       const keys = Object.keys(TOOL_HINTS);
       expect(keys).toContain('base');
     });
+
+    it('getOwnPropertyDescriptor returns undefined for unknown key on TOOL_HINTS', async () => {
+      // Covers the final `return undefined` branch in the TOOL_HINTS
+      // getOwnPropertyDescriptor trap (prop !== 'base' and not in tools).
+      const { initializeToolMetadata, _resetMetadataState } =
+        await import('../../../src/tools/toolMetadata/state.js');
+      const { TOOL_HINTS } =
+        await import('../../../src/tools/toolMetadata/proxies.js');
+      _resetMetadataState();
+      await initializeToolMetadata();
+
+      const descriptor = Object.getOwnPropertyDescriptor(
+        TOOL_HINTS,
+        'totally_unknown_tool_xyz'
+      );
+      expect(descriptor).toBeUndefined();
+    });
   });
 
   describe('isToolInMetadata', () => {

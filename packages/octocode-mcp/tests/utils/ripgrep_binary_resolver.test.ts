@@ -35,6 +35,7 @@ describe('T3.3 — resolveRipgrepBinary sibling probe', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('skips sibling probe when running under Node.js runtime', async () => {
@@ -222,5 +223,91 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
     // Sibling probe finds /opt/homebrew/bin/rg — no PATH probe needed.
     const result = resolveRipgrepBinary();
     expect(result).toBe(expectedRg);
+  });
+});
+
+describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('platformKey returns null for an unsupported platform/arch — no suffixed path probed', async () => {
+    // Covers the `if (key) { ... }` false-branch inside resolveSiblingRg
+    // and the `return null` at the end of platformKey().
+    vi.stubGlobal('process', {
+      ...process,
+      execPath: '/usr/local/bin/octocode-mcp-unknown',
+      platform: 'freebsd',
+      arch: 'mips',
+    });
+
+    const { existsSync: mockExists } = await import('node:fs');
+    // No plain rg exists next to the binary.
+    vi.mocked(mockExists).mockReturnValue(false);
+
+    vi.resetModules();
+    const { resolveRipgrepBinary } =
+      await import('../../src/utils/exec/ripgrepBinary.js');
+    // Falls through sibling probe (key=null, plain rg absent) to bundled/@vscode or PATH.
+    // Should not throw in a normal environment with rg on PATH.
+    expect(() => resolveRipgrepBinary()).not.toThrow();
+  });
+
+  it('throws when all three resolution strategies fail', async () => {
+    // Covers the `throw new Error` branch in computePath().
+    vi.stubGlobal('process', {
+      ...process,
+      execPath: '/usr/local/bin/octocode-mcp-unknown',
+      platform: 'freebsd',
+      arch: 'mips',
+    });
+
+    const { existsSync: mockExists } = await import('node:fs');
+    vi.mocked(mockExists).mockReturnValue(false);
+
+    const { spawnSync: mockSpawn } = await import('node:child_process');
+    // PATH probe returns nothing.
+    vi.mocked(mockSpawn).mockReturnValue({
+      status: 1,
+      stdout: '',
+      stderr: '',
+      pid: 1,
+      output: [],
+      signal: null,
+    });
+
+    vi.stubEnv('OCTOCODE_DISABLE_VSCODE_RIPGREP', '1');
+
+    vi.resetModules();
+    const { resolveRipgrepBinary } =
+      await import('../../src/utils/exec/ripgrepBinary.js');
+    expect(() => resolveRipgrepBinary()).toThrow(
+      /ripgrep \(rg\) is unavailable/
+    );
+  });
+
+  it('resolveRgFromPath returns null when resolved path does not exist on disk', async () => {
+    // Covers the `existsSync(resolved)` false-branch — which exits stdout is non-empty.
+    vi.stubGlobal('process', { ...process, platform: 'linux' });
+
+    const { existsSync: mockExists } = await import('node:fs');
+    vi.mocked(mockExists).mockReturnValue(false);
+
+    const { spawnSync: mockSpawn } = await import('node:child_process');
+    vi.mocked(mockSpawn).mockReturnValue({
+      status: 0,
+      stdout: '/nonexistent/path/rg\n',
+      stderr: '',
+      pid: 1,
+      output: [],
+      signal: null,
+    });
+
+    vi.resetModules();
+    const { resolveRgFromPath } =
+      await import('../../src/utils/exec/ripgrepBinary.js');
+    const result = resolveRgFromPath();
+    expect(result).toBeNull();
   });
 });

@@ -51,6 +51,8 @@
   "files": [
     "dist/*.js",
     "dist/**/*.d.ts",
+    "dist/runtime/**",
+    "dist/runtime-assets.json",
     "manifest.json",
     "server.json",
     "LICENSE"

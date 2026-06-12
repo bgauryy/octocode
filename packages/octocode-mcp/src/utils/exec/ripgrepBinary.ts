@@ -1,6 +1,9 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 let cachedPath: string | null = null;
 
@@ -11,19 +14,27 @@ export function resolveRipgrepBinary(): string {
 }
 
 function computePath(): string {
-  // 1. Sibling probe: Bun-compiled binaries ship rg-<platform> next to the
+  // 1. Explicit override: useful for tests, packagers, and distro builds.
+  const explicit = resolveExplicitRg();
+  if (explicit) return explicit;
+
+  // 2. MCP runtime bundle: npm/CLI builds copy rg into dist/runtime.
+  const runtimeAsset = resolveRuntimeRg();
+  if (runtimeAsset) return runtimeAsset;
+
+  // 3. Sibling probe: Bun-compiled binaries ship rg-<platform> next to the
   //    executable (placed there by build:bin:* scripts).
   //    Also covers Homebrew `depends_on "ripgrep"` — both binaries land in
   //    the same /opt/homebrew/bin/ directory.
   const sibling = resolveSiblingRg();
   if (sibling) return sibling;
 
-  // 2. @vscode/ripgrep: npm / npx / npm install -g users.
+  // 4. @vscode/ripgrep: npm / npx / npm install -g users.
   //    The package installs the platform binary into node_modules.
   const bundled = resolveVscodeRipgrep();
   if (bundled) return bundled;
 
-  // 3. PATH probe: catches any rg installed outside node_modules —
+  // 5. PATH probe: catches any rg installed outside node_modules —
   //    system packages (apt/brew/dnf), Nix, conda, custom Homebrew bottles,
   //    or any situation where the binary isn't next to process.execPath.
   const fromPath = resolveRgFromPath();
@@ -33,6 +44,34 @@ function computePath(): string {
     'ripgrep (rg) is unavailable. ' +
       'Install it via: npm i -g octocode-mcp  OR  brew install ripgrep  OR  apt install ripgrep'
   );
+}
+
+function resolveExplicitRg(): string | null {
+  const explicitPath = process.env.OCTOCODE_RG_PATH;
+  if (explicitPath && existsSync(explicitPath)) return explicitPath;
+  return null;
+}
+
+function resolveRuntimeRg(): string | null {
+  const key = platformKey();
+  if (!key) return null;
+
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const names = [`rg-${key}${ext}`, `rg${ext}`];
+  const dirs = [
+    join(moduleDir, 'runtime', 'rg'),
+    join(moduleDir, '..', 'runtime', 'rg'),
+    join(moduleDir, '..', '..', 'runtime', 'rg'),
+  ];
+
+  for (const dir of dirs) {
+    for (const name of names) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -73,6 +112,8 @@ function resolveSiblingRg(): string | null {
 
 /** Resolve via the @vscode/ripgrep optional npm package. */
 function resolveVscodeRipgrep(): string | null {
+  if (process.env.OCTOCODE_DISABLE_VSCODE_RIPGREP === '1') return null;
+
   try {
     const mod = require('@vscode/ripgrep') as { rgPath?: string };
     if (mod.rgPath && typeof mod.rgPath === 'string') {

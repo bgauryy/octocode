@@ -7,29 +7,29 @@
   "contentView": {
     "bytes": 5704,
     "cutPct": 26.8,
-    "ms": 2.54
+    "ms": 10.94
   },
   "applyMinify": {
     "bytes": 4496,
     "cutPct": 42.3,
-    "ms": 1.99
+    "ms": 6.64
   },
   "syncMinify": {
     "bytes": 4496,
     "cutPct": 42.3,
-    "ms": 1.9
+    "ms": 1.66
   },
   "asyncMinify": {
     "bytes": 4508,
     "cutPct": 42.2,
-    "ms": 6.76,
+    "ms": 35.43,
     "type": "aggressive"
   },
   "symbols": {
     "supported": true,
     "bytes": 1955,
     "cutPct": 74.9,
-    "ms": 0.67
+    "ms": 2.09
   },
   "rating": {
     "score": 8.5,

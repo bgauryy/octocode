@@ -12,7 +12,7 @@ export const nodeExternals = [
   ...builtinModules.map((m) => `node:${m}`),
 ];
 
-// Every runtime `dependency` MUST stay external — never inlined into the bundle.
+// Most runtime `dependency` entries MUST stay external — never inlined into the bundle.
 // npm/yarn/pnpm install these into the consumer's node_modules, so the published
 // dist/ should `require()` them at runtime rather than embed a copy. This is
 // critical for packages that locate sibling files relative to their OWN install
@@ -25,10 +25,14 @@ export const nodeExternals = [
 // Deriving this list from package.json `dependencies` (rather than hardcoding)
 // guarantees it can never drift when deps are added or removed.
 //
-// NOTE: workspace packages (octocode-shared, octocode-security) live in
-// `devDependencies`, so they are deliberately NOT external — they get bundled,
-// because consumers never install them.
-export const runtimeExternals = Object.keys(pkg.dependencies ?? {});
+//
+// Internal runtime packages are the exception: octocode-mcp owns its runtime
+// surface, so octocode-security is bundled together with its native .node asset.
+export const bundledRuntimeDependencies = new Set(['octocode-security']);
+
+export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
+  (dependencyName) => !bundledRuntimeDependencies.has(dependencyName)
+);
 
 export const external = [...nodeExternals, ...runtimeExternals];
 

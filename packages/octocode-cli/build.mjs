@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild';
 import { builtinModules } from 'module';
-import { readFileSync, existsSync, copyFileSync } from 'fs';
+import { cpSync, existsSync, readFileSync } from 'fs';
 import { rm } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -61,22 +61,24 @@ await esbuild.build({
 
 console.log('✓ esbuild complete');
 
-// Copy the octocode-security native binary to out/ so it's found at runtime.
-// The bundled code looks for it at ../octocode-security.<platform>.node relative
-// to the chunk files (i.e. out/octocode-security.<platform>.node).
-const securityPkg = resolve(__dirname, '..', 'octocode-security');
-const platforms = [
-  'darwin-arm64',
-  'darwin-x64',
-  'linux-arm64-gnu',
-  'linux-x64-gnu',
-  'win32-x64-msvc',
-];
-for (const platform of platforms) {
-  const src = resolve(securityPkg, `octocode-security.${platform}.node`);
-  if (existsSync(src)) {
-    const dest = resolve(__dirname, 'out', `octocode-security.${platform}.node`);
-    copyFileSync(src, dest);
-    console.log(`✓ copied octocode-security.${platform}.node`);
-  }
+// octocode-cli bundles octocode-mcp's JS, then copies MCP's runtime assets as a
+// single unit. The CLI should not know about octocode-security or rg internals.
+const mcpDist = resolve(__dirname, '..', 'octocode-mcp', 'dist');
+const mcpRuntime = resolve(mcpDist, 'runtime');
+if (!existsSync(mcpRuntime)) {
+  throw new Error(
+    `Missing octocode-mcp runtime assets at ${mcpRuntime}. ` +
+      'Build octocode-mcp before octocode-cli.'
+  );
 }
+
+cpSync(mcpRuntime, resolve(__dirname, 'out', 'runtime'), {
+  recursive: true,
+});
+
+const mcpRuntimeManifest = resolve(mcpDist, 'runtime-assets.json');
+if (existsSync(mcpRuntimeManifest)) {
+  cpSync(mcpRuntimeManifest, resolve(__dirname, 'out', 'runtime-assets.json'));
+}
+
+console.log('✓ copied octocode-mcp runtime assets');

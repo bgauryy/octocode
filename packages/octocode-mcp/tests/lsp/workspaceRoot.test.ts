@@ -60,6 +60,24 @@ describe('LSP workspace root resolution', () => {
     );
   });
 
+  it('returns markerRoot when configuredRoot equals markerRoot (short-circuit branch)', async () => {
+    // Covers the `configuredRoot !== markerRoot` false-branch in resolveWorkspaceRootForFile.
+    // cwd() IS the marker root (both the same dir) — the condition is false, returns markerRoot.
+    const repoRoot = path.join(tempDir, 'same-root');
+    const filePath = path.join(repoRoot, 'src', 'index.ts');
+
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(path.join(repoRoot, 'package.json'), '{}');
+    await writeFile(filePath, '');
+
+    // Point WORKSPACE_ROOT at exactly the same dir that has package.json.
+    process.env.WORKSPACE_ROOT = repoRoot;
+
+    // configuredRoot === markerRoot (both resolve to repoRoot), so the early-return
+    // branch is skipped and markerRoot (== repoRoot) is returned.
+    await expect(resolveWorkspaceRootForFile(filePath)).resolves.toBe(repoRoot);
+  });
+
   it('can infer a package root for files inside node_modules bundles', async () => {
     const packageRoot = path.join(
       tempDir,

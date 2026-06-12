@@ -13,7 +13,7 @@
  *   darwin-arm64 | darwin-x64 | linux-arm64 | linux-x64 | linux-x64-musl | windows-x64
  */
 
-import { copyFileSync, existsSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +48,7 @@ const securityPkg = join(__dirname, '..', '..', 'octocode-security');
 const binaryName  = `octocode-security.${triple}.node`;
 const src  = join(securityPkg, binaryName);
 const dest = join(outDir, binaryName);
+const runtimeDest = join(outDir, 'runtime', 'security', binaryName);
 
 if (!existsSync(src)) {
   console.warn(`⚠  octocode-security binary not found: ${src}`);
@@ -56,4 +57,8 @@ if (!existsSync(src)) {
 }
 
 copyFileSync(src, dest);
+chmodSync(dest, 0o755);
+mkdirSync(join(outDir, 'runtime', 'security'), { recursive: true });
+copyFileSync(src, runtimeDest);
+chmodSync(runtimeDest, 0o755);
 console.log(`✓ copied ${binaryName} → ${dest}`);
