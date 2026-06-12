@@ -39,14 +39,14 @@
   "dependencies": {
     "@ast-grep/lang-python": "^0.0.6",
     "@ast-grep/napi": "^0.42.0",
-    "tree-sitter": "^0.25.0",
-    "tree-sitter-python": "^0.23.6",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.23.2"
   },
   "devDependencies": {
-    "@eslint/js": "^9.27.0",
-    "@types/node": "^22.15.29",
-    "esbuild": "^0.27.2",
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^25.9.3",
+    "esbuild": "^0.28.1",
     "eslint": "^9.27.0",
     "eslint-plugin-import": "^2.32.0",
     "typescript": "^5.9.3",

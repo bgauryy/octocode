@@ -17,7 +17,10 @@ export interface NativeSanitizationResult {
 }
 
 interface NativeModule {
-  sanitizeContent(content: string, filePath: string | null): NativeSanitizationResult;
+  sanitizeContent(
+    content: string,
+    filePath: string | null
+  ): NativeSanitizationResult;
   maskSensitiveData(text: string): string;
   patternCount(): number;
 }
@@ -26,15 +29,16 @@ function loadNative(): NativeModule {
   const platform = process.platform;
   const arch = process.arch;
   const tripleMap: Record<string, Record<string, string>> = {
-    darwin: { arm64: 'darwin-arm64', x64:   'darwin-x64' },
-    linux:  { arm64: 'linux-arm64-gnu', x64: 'linux-x64-gnu' },
-    win32:  { x64: 'win32-x64-msvc' },
+    darwin: { arm64: 'darwin-arm64', x64: 'darwin-x64' },
+    linux: { arm64: 'linux-arm64-gnu', x64: 'linux-x64-gnu' },
+    win32: { x64: 'win32-x64-msvc' },
   };
   const triple = tripleMap[platform]?.[arch];
   const candidates: string[] = [];
   // dist/ is one level below package root
   const pkgRoot = join(_dir, '..');
-  if (triple) candidates.push(join(pkgRoot, `octocode-security.${triple}.node`));
+  if (triple)
+    candidates.push(join(pkgRoot, `octocode-security.${triple}.node`));
   candidates.push(join(pkgRoot, 'octocode-security.node'));
 
   for (const candidate of candidates) {
@@ -47,7 +51,7 @@ function loadNative(): NativeModule {
 
   throw new Error(
     `octocode-security: no prebuilt binary for ${platform}-${arch}. ` +
-    `Run: cargo build --release && node scripts/copy-node.mjs`
+      `Run: cargo build --release && node scripts/copy-node.mjs`
   );
 }
 

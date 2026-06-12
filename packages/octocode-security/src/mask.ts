@@ -12,7 +12,10 @@ function maskEveryTwoChars(text: string): string {
 }
 
 // JS masking for extra/custom patterns (fileContext-free only)
-function applyJsMask(text: string, patterns: readonly SensitiveDataPattern[]): string {
+function applyJsMask(
+  text: string,
+  patterns: readonly SensitiveDataPattern[]
+): string {
   const applicable = patterns.filter(p => !p.fileContext);
   if (applicable.length === 0) return text;
 
@@ -44,7 +47,10 @@ function applyJsMask(text: string, patterns: readonly SensitiveDataPattern[]): s
   let result = text;
   for (let i = deduped.length - 1; i >= 0; i--) {
     const { start, end } = deduped[i]!;
-    result = result.slice(0, start) + maskEveryTwoChars(text.slice(start, end)) + result.slice(end);
+    result =
+      result.slice(0, start) +
+      maskEveryTwoChars(text.slice(start, end)) +
+      result.slice(end);
   }
   return result;
 }

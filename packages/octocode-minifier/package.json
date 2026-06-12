@@ -59,7 +59,7 @@
     "@types/clean-css": "^4.2.11",
     "@types/html-minifier-terser": "^7.0.2",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.15.29",
+    "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.0.16",
     "eslint": "^9.18.0",
     "vitest": "^4.0.16"

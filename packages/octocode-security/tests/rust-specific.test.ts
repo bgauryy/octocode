@@ -20,12 +20,18 @@ import { fileURLToPath } from 'url';
 import { ContentSanitizer } from '../src/contentSanitizer.js';
 import { maskSensitiveData } from '../src/mask.js';
 
-const __dir  = dirname(fileURLToPath(import.meta.url));
-const _req   = createRequire(import.meta.url);
+const __dir = dirname(fileURLToPath(import.meta.url));
+const _req = createRequire(import.meta.url);
 
 interface NativeModule {
-  sanitizeContent(content: string, filePath: string | null): {
-    content: string; hasSecrets: boolean; secretsDetected: string[]; warnings: string[];
+  sanitizeContent(
+    content: string,
+    filePath: string | null
+  ): {
+    content: string;
+    hasSecrets: boolean;
+    secretsDetected: string[];
+    warnings: string[];
   };
   maskSensitiveData(text: string): string;
   patternCount(): number;
@@ -41,7 +47,12 @@ beforeAll(() => {
     join(__dir, '..', 'octocode-security.node'),
   ];
   for (const c of candidates) {
-    try { native = _req(c) as NativeModule; break; } catch { /* next */ }
+    try {
+      native = _req(c) as NativeModule;
+      break;
+    } catch {
+      /* next */
+    }
   }
 });
 
@@ -83,21 +94,18 @@ describe('RUST-02: NAPI boundary type safety', () => {
   });
 
   it('JS bridge: null input returns empty-string result', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r = ContentSanitizer.sanitizeContent(null as any);
     expect(r.content).toBe('');
     expect(r.hasSecrets).toBe(false);
   });
 
   it('JS bridge: undefined input returns empty-string result', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r = ContentSanitizer.sanitizeContent(undefined as any);
     expect(r.content).toBe('');
     expect(r.hasSecrets).toBe(false);
   });
 
   it('JS bridge: numeric input is coerced to string', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r = ContentSanitizer.sanitizeContent(42 as any);
     expect(r.content).toBe('42');
     expect(r.hasSecrets).toBe(false);
@@ -130,7 +138,9 @@ describe('RUST-03: Unicode & multibyte safety', () => {
   });
 
   it('detects AWS key embedded in CJK text', () => {
-    const r = ContentSanitizer.sanitizeContent('密钥: AKIAIOSFODNN7EXAMPLE 结束');
+    const r = ContentSanitizer.sanitizeContent(
+      '密钥: AKIAIOSFODNN7EXAMPLE 结束'
+    );
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain('AKIAIOSFODNN7EXAMPLE');
   });
@@ -144,7 +154,9 @@ describe('RUST-03: Unicode & multibyte safety', () => {
   });
 
   it('handles RTL text with embedded secret', () => {
-    const r = ContentSanitizer.sanitizeContent('مرحبا AKIAIOSFODNN7EXAMPLE عالم');
+    const r = ContentSanitizer.sanitizeContent(
+      'مرحبا AKIAIOSFODNN7EXAMPLE عالم'
+    );
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain('AKIAIOSFODNN7EXAMPLE');
   });
@@ -173,7 +185,9 @@ describe('RUST-04: Large content & chunked path', () => {
   it('detects secret at position 0 in 1MB content', () => {
     const secret = 'AKIAIOSFODNN7EXAMPLE';
     // space after secret ensures word boundary (\b) matches at end
-    const r = ContentSanitizer.sanitizeContent(secret + ' ' + 'x'.repeat(1_000_000 - secret.length - 1));
+    const r = ContentSanitizer.sanitizeContent(
+      secret + ' ' + 'x'.repeat(1_000_000 - secret.length - 1)
+    );
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain(secret);
   });
@@ -181,7 +195,9 @@ describe('RUST-04: Large content & chunked path', () => {
   it('detects secret at the very end of 1MB content', () => {
     const secret = 'AKIAIOSFODNN7EXAMPLE';
     // space before secret ensures word boundary (\b) matches at start
-    const r = ContentSanitizer.sanitizeContent('x'.repeat(1_000_000 - secret.length - 1) + ' ' + secret);
+    const r = ContentSanitizer.sanitizeContent(
+      'x'.repeat(1_000_000 - secret.length - 1) + ' ' + secret
+    );
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain(secret);
   });
@@ -190,7 +206,9 @@ describe('RUST-04: Large content & chunked path', () => {
     const s1 = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
     const s2 = 'AKIAIOSFODNN7EXAMPLE';
     const pad = 'y'.repeat(300_000);
-    const r = ContentSanitizer.sanitizeContent(`${pad} ${s1} ${pad} ${s2} ${pad}`);
+    const r = ContentSanitizer.sanitizeContent(
+      `${pad} ${s1} ${pad} ${s2} ${pad}`
+    );
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain(s1);
     expect(r.content).not.toContain(s2);
@@ -198,7 +216,9 @@ describe('RUST-04: Large content & chunked path', () => {
 
   it('clean 2MB content has no false positives', () => {
     const sentence = 'The quick brown fox jumps over the lazy dog. ';
-    const clean = sentence.repeat(Math.ceil(2_000_000 / sentence.length)).slice(0, 2_000_000);
+    const clean = sentence
+      .repeat(Math.ceil(2_000_000 / sentence.length))
+      .slice(0, 2_000_000);
     const r = ContentSanitizer.sanitizeContent(clean);
     expect(r.hasSecrets).toBe(false);
     expect(r.content).toBe(clean);
@@ -263,26 +283,61 @@ describe('RUST-05: ReDoS linear-time guarantee', () => {
 // ---------------------------------------------------------------------------
 describe('RUST-06: Known secret detection', () => {
   const KNOWN: Array<{ label: string; input: string }> = [
-    { label: 'AWS access key',       input: 'key=AKIAIOSFODNN7EXAMPLE val' },
-    { label: 'GitHub PAT',           input: 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456' },
-    { label: 'OpenAI project key',   input: 'sk-proj-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF' },
-    { label: 'JWT token',            input: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c' },
-    { label: 'Stripe live key',      input: 'sk_live_4eC39HqLyjWDarjtT1zdp7dc4eC39HqLyjWDarjtT1' },
-    { label: 'GitLab PAT',           input: 'glpat-1234567890abcdefghij' },
-    { label: 'npm token',            input: ' npm_' + 'a'.repeat(36) + ' ' },
-    { label: 'Stripe webhook',       input: 'whsec_abcdefghijklmnopqrstuvwxyz12345678901234567890' },
-    { label: 'GCP service account',  input: 'my-svc@my-project.iam.gserviceaccount.com' },
-    { label: 'RSA private key',      input: '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----' },
-    { label: 'Postgres creds URL',   input: 'postgresql://admin:s3cr3t@db.example.com:5432/prod' },
-    { label: 'Slack bot token',      input: 'xoxb-1234567890-1234567890-abcdefghijklmnopqrstu' },
-    { label: 'Vault service token',  input: 'hvs.abcdefghijklmnopqrstu' },
-    { label: 'DigitalOcean token',   input: 'dop_v1_' + 'a'.repeat(64) },
-    { label: 'Databricks token',     input: ' dapi' + 'a'.repeat(32) + ' ' },  // hex-only pattern: [a-f0-9]{32}
+    { label: 'AWS access key', input: 'key=AKIAIOSFODNN7EXAMPLE val' },
+    {
+      label: 'GitHub PAT',
+      input: 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456',
+    },
+    {
+      label: 'OpenAI project key',
+      input: 'sk-proj-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF',
+    },
+    {
+      label: 'JWT token',
+      input:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+    },
+    {
+      label: 'Stripe live key',
+      input: 'sk_live_4eC39HqLyjWDarjtT1zdp7dc4eC39HqLyjWDarjtT1',
+    },
+    { label: 'GitLab PAT', input: 'glpat-1234567890abcdefghij' },
+    { label: 'npm token', input: ' npm_' + 'a'.repeat(36) + ' ' },
+    {
+      label: 'Stripe webhook',
+      input: 'whsec_abcdefghijklmnopqrstuvwxyz12345678901234567890',
+    },
+    {
+      label: 'GCP service account',
+      input: 'my-svc@my-project.iam.gserviceaccount.com',
+    },
+    {
+      label: 'RSA private key',
+      input:
+        '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----',
+    },
+    {
+      label: 'Postgres creds URL',
+      input: 'postgresql://admin:s3cr3t@db.example.com:5432/prod',
+    },
+    {
+      label: 'Slack bot token',
+      input: 'xoxb-1234567890-1234567890-abcdefghijklmnopqrstu',
+    },
+    { label: 'Vault service token', input: 'hvs.abcdefghijklmnopqrstu' },
+    { label: 'DigitalOcean token', input: 'dop_v1_' + 'a'.repeat(64) },
+    { label: 'Databricks token', input: ' dapi' + 'a'.repeat(32) + ' ' }, // hex-only pattern: [a-f0-9]{32}
     { label: 'Supabase service key', input: 'sbp_' + 'a'.repeat(40) },
-    { label: 'Cloudflare API key',   input: "cloudflare api key: '" + 'a'.repeat(40) + "'" },
-    { label: 'Vercel token',         input: 'vcp_' + 'a'.repeat(24) },
-    { label: 'PostHog key',          input: 'phc_' + 'a'.repeat(39) },
-    { label: 'AWS session token',    input: 'AWS_SESSION_TOKEN=' + 'A'.repeat(200) },
+    {
+      label: 'Cloudflare API key',
+      input: "cloudflare api key: '" + 'a'.repeat(40) + "'",
+    },
+    { label: 'Vercel token', input: 'vcp_' + 'a'.repeat(24) },
+    { label: 'PostHog key', input: 'phc_' + 'a'.repeat(39) },
+    {
+      label: 'AWS session token',
+      input: 'AWS_SESSION_TOKEN=' + 'A'.repeat(200),
+    },
   ];
 
   const SAFE = [
@@ -357,7 +412,7 @@ describe('RUST-07: maskSensitiveData (Rust)', () => {
   });
 
   it('100KB with secrets: under 10ms', () => {
-    const content = ('x AKIAIOSFODNN7EXAMPLE y ').repeat(4_000).slice(0, 100_000);
+    const content = 'x AKIAIOSFODNN7EXAMPLE y '.repeat(4_000).slice(0, 100_000);
     const t = performance.now();
     maskSensitiveData(content);
     expect(performance.now() - t).toBeLessThan(10);
@@ -376,7 +431,9 @@ describe('RUST-08: Parallel / concurrent calls', () => {
     ];
     const results = await Promise.all(
       Array.from({ length: 100 }, (_, i) =>
-        Promise.resolve(ContentSanitizer.sanitizeContent(inputs[i % inputs.length]!))
+        Promise.resolve(
+          ContentSanitizer.sanitizeContent(inputs[i % inputs.length]!)
+        )
       )
     );
     // first 67 should have secrets, last 34 should not
@@ -390,12 +447,16 @@ describe('RUST-08: Parallel / concurrent calls', () => {
     const clean = 'this is clean content';
     const dirty = 'AKIAIOSFODNN7EXAMPLE';
     const [cleanResults, dirtyResults] = await Promise.all([
-      Promise.all(Array.from({ length: 50 }, () =>
-        Promise.resolve(ContentSanitizer.sanitizeContent(clean))
-      )),
-      Promise.all(Array.from({ length: 50 }, () =>
-        Promise.resolve(ContentSanitizer.sanitizeContent(dirty))
-      )),
+      Promise.all(
+        Array.from({ length: 50 }, () =>
+          Promise.resolve(ContentSanitizer.sanitizeContent(clean))
+        )
+      ),
+      Promise.all(
+        Array.from({ length: 50 }, () =>
+          Promise.resolve(ContentSanitizer.sanitizeContent(dirty))
+        )
+      ),
     ]);
     cleanResults.forEach(r => expect(r.hasSecrets).toBe(false));
     dirtyResults.forEach(r => expect(r.hasSecrets).toBe(true));
@@ -467,7 +528,7 @@ describe('RUST-09: SanitizationResult shape contract', () => {
 describe('RUST-10: Idempotency', () => {
   it('sanitizing already-sanitized output is a no-op', () => {
     const input = 'key=AKIAIOSFODNN7EXAMPLE end';
-    const first  = ContentSanitizer.sanitizeContent(input);
+    const first = ContentSanitizer.sanitizeContent(input);
     const second = ContentSanitizer.sanitizeContent(first.content);
     expect(second.content).toBe(first.content);
     expect(second.hasSecrets).toBe(false);
@@ -476,14 +537,14 @@ describe('RUST-10: Idempotency', () => {
 
   it('masking already-masked output is a no-op', () => {
     const input = 'key=AKIAIOSFODNN7EXAMPLE end';
-    const first  = maskSensitiveData(input);
+    const first = maskSensitiveData(input);
     const second = maskSensitiveData(first);
     expect(second).toBe(first);
   });
 
   it('sanitizing plain text twice gives same result', () => {
     const input = 'just some plain text here';
-    const first  = ContentSanitizer.sanitizeContent(input);
+    const first = ContentSanitizer.sanitizeContent(input);
     const second = ContentSanitizer.sanitizeContent(first.content);
     expect(second.content).toBe(first.content);
     expect(second.hasSecrets).toBe(false);
@@ -535,7 +596,9 @@ describe('RUST-11: validateInputParameters edge cases', () => {
     );
     for (const r of results) {
       expect(r.hasSecrets).toBe(true);
-      expect(r.sanitizedParams.query as string).not.toContain('AKIAIOSFODNN7EXAMPLE');
+      expect(r.sanitizedParams.query as string).not.toContain(
+        'AKIAIOSFODNN7EXAMPLE'
+      );
     }
   });
 });

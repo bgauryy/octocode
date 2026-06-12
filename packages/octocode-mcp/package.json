@@ -111,12 +111,12 @@
     "@types/clean-css": "^4.2.11",
     "@types/html-minifier-terser": "^7.0.2",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.15.29",
+    "@types/node": "^25.9.3",
     "@types/picomatch": "^4.0.2",
     "@vitest/coverage-v8": "^4.0.16",
     "@vitest/ui": "^4.0.16",
     "clean-css": "^5.3.3",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "html-minifier-terser": "^7.2.0",
     "js-yaml": "^4.1.1",
@@ -129,7 +129,7 @@
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
     "vscode-uri": "^3.1.0",
-    "zod": "^4.0.0"
+    "zod": "^4.3.6"
   },
   "mcp": {
     "type": "stdio",

@@ -52,13 +52,13 @@
     "js-yaml": "^4.1.1",
     "octocode-mcp": "workspace:^",
     "octocode-shared": "workspace:^",
-    "zod": "^4.0.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.27.0",
+    "@eslint/js": "^9.35.0",
     "@types/express": "^5.0.0",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.15.29",
+    "@types/node": "^25.9.3",
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^4.0.17",
     "eslint": "^9.27.0",

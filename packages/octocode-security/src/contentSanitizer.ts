@@ -20,7 +20,10 @@ function detectWithExtraPatterns(
   let sanitized = content;
   const secrets: string[] = [];
   for (const pattern of extraPatterns) {
-    if (pattern.fileContext && (!filePath || !pattern.fileContext.test(filePath))) {
+    if (
+      pattern.fileContext &&
+      (!filePath || !pattern.fileContext.test(filePath))
+    ) {
       continue;
     }
     // Reset lastIndex for global regexes
@@ -51,11 +54,14 @@ function jsDetectSecrets(
   const CHUNK_OVERLAP = 1_000;
 
   if (content.length > MAX_CONTENT_SIZE) {
-    return { sanitized: '[CONTENT-REDACTED-SIZE-LIMIT]', secrets: ['content-size-exceeded'] };
+    return {
+      sanitized: '[CONTENT-REDACTED-SIZE-LIMIT]',
+      secrets: ['content-size-exceeded'],
+    };
   }
 
-  const applicable = patterns.filter(p =>
-    !p.fileContext || (filePath && p.fileContext.test(filePath))
+  const applicable = patterns.filter(
+    p => !p.fileContext || (filePath && p.fileContext.test(filePath))
   );
 
   try {
@@ -68,7 +74,10 @@ function jsDetectSecrets(
         if (p.regex.test(sanitized)) {
           secrets.push(p.name);
           p.regex.lastIndex = 0;
-          sanitized = sanitized.replace(p.regex, `[REDACTED-${p.name.toUpperCase()}]`);
+          sanitized = sanitized.replace(
+            p.regex,
+            `[REDACTED-${p.name.toUpperCase()}]`
+          );
         }
         p.regex.lastIndex = 0;
       }
@@ -89,7 +98,10 @@ function jsDetectSecrets(
           p.regex.lastIndex = 0;
           const replacement = `[REDACTED-${p.name.toUpperCase()}]`;
           const newChunk = chunk.replace(p.regex, replacement);
-          sanitized = sanitized.slice(0, chunkStart) + newChunk + sanitized.slice(chunkEnd);
+          sanitized =
+            sanitized.slice(0, chunkStart) +
+            newChunk +
+            sanitized.slice(chunkEnd);
         }
         p.regex.lastIndex = 0;
         const next = chunkEnd - CHUNK_OVERLAP;
@@ -123,7 +135,11 @@ export class ContentSanitizer {
 
     // Explicit patterns: run in pure JS (matches original TS behaviour)
     if (patterns && patterns.length > 0) {
-      const { sanitized, secrets } = jsDetectSecrets(content, filePath, patterns);
+      const { sanitized, secrets } = jsDetectSecrets(
+        content,
+        filePath,
+        patterns
+      );
       const hasSecrets = secrets.length > 0;
       return {
         content: sanitized,
@@ -221,20 +237,26 @@ function validateRecursive(
     if (typeof value === 'string') {
       let v = value;
       if (v.length > MAX_STRING_LENGTH) {
-        warnings.add(`Parameter ${key} exceeds maximum length (${MAX_STRING_LENGTH_DISPLAY} characters)`);
+        warnings.add(
+          `Parameter ${key} exceeds maximum length (${MAX_STRING_LENGTH_DISPLAY} characters)`
+        );
         v = v.substring(0, MAX_STRING_LENGTH);
       }
       const r = ContentSanitizer.sanitizeContent(v);
       if (r.hasSecrets) {
         hasSecrets = true;
-        r.secretsDetected.forEach(s => warnings.add(`Secrets detected in ${key}: ${s}`));
+        r.secretsDetected.forEach(s =>
+          warnings.add(`Secrets detected in ${key}: ${s}`)
+        );
       }
       sanitizedParams[key] = r.content;
     } else if (Array.isArray(value)) {
       const truncated =
         value.length > MAX_ARRAY_LENGTH
           ? (() => {
-              warnings.add(`Parameter ${key} array exceeds maximum length (${MAX_ARRAY_LENGTH} items)`);
+              warnings.add(
+                `Parameter ${key} array exceeds maximum length (${MAX_ARRAY_LENGTH} items)`
+              );
               return value.slice(0, MAX_ARRAY_LENGTH);
             })()
           : value;
@@ -244,11 +266,17 @@ function validateRecursive(
       const sanitizedArr = truncated.map(item => {
         if (typeof item === 'string') {
           const r = ContentSanitizer.sanitizeContent(item);
-          if (r.hasSecrets) { arrHasSecrets = true; }
+          if (r.hasSecrets) {
+            arrHasSecrets = true;
+          }
           return r.content;
         }
         if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
-          const r = validateRecursive(item as Record<string, unknown>, depth + 1, visited);
+          const r = validateRecursive(
+            item as Record<string, unknown>,
+            depth + 1,
+            visited
+          );
           if (r.hasSecrets) arrHasSecrets = true;
           if (!r.isValid) {
             arrHasErrors = true;
@@ -262,11 +290,17 @@ function validateRecursive(
       if (arrHasErrors) hasValidationErrors = true;
       sanitizedParams[key] = sanitizedArr;
     } else if (value !== null && typeof value === 'object') {
-      const r = validateRecursive(value as Record<string, unknown>, depth + 1, visited);
+      const r = validateRecursive(
+        value as Record<string, unknown>,
+        depth + 1,
+        visited
+      );
       if (r.hasSecrets) hasSecrets = true;
       if (!r.isValid) {
         hasValidationErrors = true;
-        r.warnings.forEach(w => warnings.add(`Invalid nested object in parameter ${key}: ${w}`));
+        r.warnings.forEach(w =>
+          warnings.add(`Invalid nested object in parameter ${key}: ${w}`)
+        );
       } else {
         sanitizedParams[key] = r.sanitizedParams;
       }
