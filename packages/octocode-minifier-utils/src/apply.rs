@@ -3,7 +3,7 @@ use crate::file_extension::get_extension_internal;
 use crate::minifier::minify_content_sync_inner;
 use crate::strategies::{
     minify_json_readable_inner, minify_markdown_core,
-    minify_general_core, minify_code_core,
+    minify_general_core, minify_code_core, minify_js_oxc,
 };
 use crate::comment_remover::remove_comments;
 
@@ -38,6 +38,14 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
 
         if cfg.map(|c| c.strategy) == Some("markdown") {
             return minify_markdown_core(content);
+        }
+
+        // JS/TS: use OXC without mangling — preserves names for agent readability
+        if matches!(ext.as_str(), "ts"|"tsx"|"js"|"jsx"|"mjs"|"cjs") {
+            if let Some(oxc_out) = minify_js_oxc(content, file_path, false) {
+                return oxc_out;
+            }
+            // OXC failed — fall through to comment-strip + code-core
         }
 
         let stripped = if let Some(c) = cfg {

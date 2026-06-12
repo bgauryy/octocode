@@ -9,38 +9,38 @@
   "contentView": {
     "bytes": 10457,
     "cutPercent": 49.1,
-    "durationMs": 3.173
+    "durationMs": 3.177
   },
   "applyMinification": {
     "bytes": 10492,
     "cutPercent": 49,
-    "durationMs": 3.068
+    "durationMs": 3.084
   },
   "sync": {
     "bytes": 10492,
     "cutPercent": 49,
-    "durationMs": 3.102
+    "durationMs": 3.122
   },
   "async": {
     "bytes": 10492,
     "cutPercent": 49,
-    "durationMs": 3.163,
+    "durationMs": 3.151,
     "failed": false,
     "type": "conservative",
     "reason": null
   },
   "symbols": {
-    "supported": false,
+    "supported": true,
     "returned": true,
     "bytes": 5961,
     "cutPercent": 71,
-    "durationMs": 0.501
+    "durationMs": 0.494
   },
   "agentUnderstanding": {
     "output": "standard",
     "bytes": 10457,
     "cutPercent": 49.1,
-    "score": 9.5,
+    "score": 9.8,
     "label": "excellent",
     "syntaxAnchors": {
       "score": 10,
@@ -50,7 +50,7 @@
     "structure": 10,
     "outputHealth": 9,
     "contextBudget": 10,
-    "symbols": 7,
+    "symbols": 10,
     "signals": [
       {
         "name": "standard output is non-empty",
@@ -93,7 +93,7 @@
       "structure": 10,
       "outputHealth": 9,
       "contextBudget": 5,
-      "symbols": 7,
+      "symbols": 10,
       "signals": [
         {
           "name": "none output is exact source",
@@ -113,7 +113,7 @@
       "output": "standard",
       "bytes": 10457,
       "cutPercent": 49.1,
-      "score": 9.5,
+      "score": 9.8,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -123,7 +123,7 @@
       "structure": 10,
       "outputHealth": 9,
       "contextBudget": 10,
-      "symbols": 7,
+      "symbols": 10,
       "signals": [
         {
           "name": "standard output is non-empty",
@@ -155,7 +155,7 @@
       "output": "minify",
       "bytes": 10492,
       "cutPercent": 49,
-      "score": 9.5,
+      "score": 9.8,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -165,7 +165,7 @@
       "structure": 10,
       "outputHealth": 9,
       "contextBudget": 10,
-      "symbols": 7,
+      "symbols": 10,
       "signals": [
         {
           "name": "minify output is non-empty",
@@ -238,12 +238,11 @@
   },
   "ratings": {
     "minify": 9,
-    "symbols": null,
+    "symbols": 9,
     "agent": 9,
     "label": "excellent"
   },
   "notes": [
-    "conservative text strategy",
-    "symbols are not implemented for this extension"
+    "conservative text strategy"
   ]
 }

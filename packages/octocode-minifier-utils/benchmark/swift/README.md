@@ -4,9 +4,9 @@ Source sample: `swift/Optional.swift`
 
 Strategy: `conservative`
 
-Agent rating: **9.5/10 (excellent)**
+Agent rating: **9.7/10 (excellent)**
 
-Agent understanding from minified output: **9.7/10 (excellent)**
+Agent understanding from minified output: **10/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 33805 | - | - | - |
-| content-view | 11652 | 65.5% | 4.127 ms | 9.5/10 |
-| applyMinification | 11683 | 65.4% | 4.193 ms | 9.5/10 |
-| sync minify | 11683 | 65.4% | 4.219 ms | 9.5/10 |
-| async minify | 11683 | 65.4% | 3.905 ms | 9.5/10 |
-| symbols | 6335 | 81.3% | 7.394 ms | n/a |
+| content-view | 11652 | 65.5% | 3.75 ms | 9.5/10 |
+| applyMinification | 11683 | 65.4% | 3.872 ms | 9.5/10 |
+| sync minify | 11683 | 65.4% | 4.061 ms | 9.5/10 |
+| async minify | 11683 | 65.4% | 3.976 ms | 9.5/10 |
+| symbols | 6335 | 81.3% | 7.41 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 10/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 33805 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 11652 | 65.5% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 11683 | 65.4% | 9.7/10 excellent | 10/10 | 10/10 |
+| standard | 11652 | 65.5% | 10/10 excellent | 10/10 | 10/10 |
+| minify | 11683 | 65.4% | 10/10 excellent | 10/10 | 10/10 |
 | symbols | 6335 | 81.3% | 7.6/10 good | 6.7/10 | 5.5/10 |
 
 ## Notes
 
 - conservative text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

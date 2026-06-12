@@ -4,9 +4,9 @@ Source sample: `html/00-mdn-letter.html`
 
 Strategy: `aggressive`
 
-Agent rating: **7.5/10 (good)**
+Agent rating: **8.4/10 (strong)**
 
-Agent understanding from minified output: **9.2/10 (excellent)**
+Agent understanding from minified output: **9.5/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 5096 | - | - | - |
-| content-view | 5094 | 0% | 1.028 ms | 7.5/10 |
-| applyMinification | 4409 | 13.5% | 3.022 ms | 7.5/10 |
-| sync minify | 4409 | 13.5% | 0.481 ms | 7.5/10 |
-| async minify | 4409 | 13.5% | 0.469 ms | 7.5/10 |
-| symbols | 235 | 95.4% | 6.761 ms | n/a |
+| content-view | 5094 | 0% | 1.1 ms | 7.5/10 |
+| applyMinification | 4409 | 13.5% | 5.921 ms | 7.5/10 |
+| sync minify | 4409 | 13.5% | 0.531 ms | 7.5/10 |
+| async minify | 4409 | 13.5% | 0.521 ms | 7.5/10 |
+| symbols | 235 | 95.4% | 8.973 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 5/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,15 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 5096 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 5094 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
-| minify | 4409 | 13.5% | 9.5/10 excellent | 10/10 | 10/10 |
+| standard | 5094 | 0% | 9.5/10 excellent | 10/10 | 10/10 |
+| minify | 4409 | 13.5% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 235 | 95.4% | 8.1/10 strong | 6.7/10 | 8/10 |
 
 ## Notes
 
 - engine-backed or parser-backed path.
 - content-view kept original because the readable output was not shorter.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

@@ -7,24 +7,24 @@
   "commentModel": "c-style",
   "sha256": "0b88b2e96538159ff27a3665374bbdf14cfc63302a8fd31354693435a1ad243b",
   "contentView": {
-    "bytes": 1240,
-    "cutPercent": 1.5,
-    "durationMs": 0.304
+    "bytes": 879,
+    "cutPercent": 30.2,
+    "durationMs": 0.271
   },
   "applyMinification": {
-    "bytes": 904,
-    "cutPercent": 28.2,
-    "durationMs": 0.302
+    "bytes": 879,
+    "cutPercent": 30.2,
+    "durationMs": 0.201
   },
   "sync": {
-    "bytes": 904,
-    "cutPercent": 28.2,
-    "durationMs": 0.281
+    "bytes": 879,
+    "cutPercent": 30.2,
+    "durationMs": 0.175
   },
   "async": {
-    "bytes": 904,
-    "cutPercent": 28.2,
-    "durationMs": 0.293,
+    "bytes": 879,
+    "cutPercent": 30.2,
+    "durationMs": 0.175,
     "failed": false,
     "type": "terser",
     "reason": null
@@ -34,13 +34,13 @@
     "returned": true,
     "bytes": 1443,
     "cutPercent": -14.6,
-    "durationMs": 4.159
+    "durationMs": 4.356
   },
   "agentUnderstanding": {
     "output": "standard",
-    "bytes": 1240,
-    "cutPercent": 1.5,
-    "score": 9.6,
+    "bytes": 879,
+    "cutPercent": 30.2,
+    "score": 9.9,
     "label": "excellent",
     "syntaxAnchors": {
       "score": 10,
@@ -49,7 +49,7 @@
     },
     "structure": 10,
     "outputHealth": 10,
-    "contextBudget": 6,
+    "contextBudget": 9,
     "symbols": 10,
     "signals": [
       {
@@ -111,9 +111,9 @@
     },
     "standard": {
       "output": "standard",
-      "bytes": 1240,
-      "cutPercent": 1.5,
-      "score": 9.6,
+      "bytes": 879,
+      "cutPercent": 30.2,
+      "score": 9.9,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -122,7 +122,7 @@
       },
       "structure": 10,
       "outputHealth": 10,
-      "contextBudget": 6,
+      "contextBudget": 9,
       "symbols": 10,
       "signals": [
         {
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 904,
-      "cutPercent": 28.2,
+      "bytes": 879,
+      "cutPercent": 30.2,
       "score": 9.9,
       "label": "excellent",
       "syntaxAnchors": {

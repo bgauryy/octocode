@@ -2,9 +2,10 @@
 /**
  * Copies native runtime assets owned by octocode-mcp into dist/runtime.
  *
- * octocode-security builds the Rust .node binary; octocode-mcp packages it
- * alongside the rg binary so downstream wrappers such as octocode-cli can copy
- * one MCP runtime bundle without knowing each dependency's internals.
+ * octocode-security and octocode-minifier-utils build Rust .node binaries;
+ * octocode-mcp packages them alongside the rg binary so downstream wrappers
+ * such as octocode-cli can copy one MCP runtime bundle without knowing each
+ * dependency's internals.
  */
 import {
   chmodSync,
@@ -32,6 +33,12 @@ const securityTripleMap = {
   win32: { x64: 'win32-x64-msvc' },
 };
 
+const minifierTripleMap = {
+  darwin: { arm64: 'darwin-arm64', x64: 'darwin-x64' },
+  linux: { arm64: 'linux-arm64-gnu', x64: 'linux-x64-gnu' },
+  win32: { x64: 'win32-x64-msvc' },
+};
+
 const rgPlatformMap = {
   darwin: { arm64: 'darwin-arm64', x64: 'darwin-x64' },
   linux: { arm64: 'linux-arm64', x64: 'linux-x64' },
@@ -39,9 +46,10 @@ const rgPlatformMap = {
 };
 
 const securityTriple = securityTripleMap[platform]?.[arch];
+const minifierTriple = minifierTripleMap[platform]?.[arch];
 const rgPlatform = rgPlatformMap[platform]?.[arch];
 
-if (!securityTriple || !rgPlatform) {
+if (!securityTriple || !minifierTriple || !rgPlatform) {
   throw new Error(`Unsupported runtime asset platform: ${platform}-${arch}`);
 }
 
@@ -49,6 +57,7 @@ const copiedAssets = {
   platform,
   arch,
   security: copySecurityNative(securityTriple),
+  minifier: copyMinifierNative(minifierTriple),
   rg: copyRipgrep(rgPlatform),
 };
 
@@ -73,6 +82,30 @@ function copySecurityNative(triple) {
     throw new Error(
       `Missing octocode-security native binary: ${source}. ` +
         'Build packages/octocode-security before packages/octocode-mcp.'
+    );
+  }
+
+  mkdirSync(dirname(destination), { recursive: true });
+  copyFileSync(source, destination);
+  chmodSync(destination, 0o755);
+
+  return relative(distDir, destination);
+}
+
+function copyMinifierNative(triple) {
+  const binaryName = `octocode-minifier-utils.${triple}.node`;
+  const source = join(
+    packageRoot,
+    '..',
+    'octocode-minifier-utils',
+    binaryName
+  );
+  const destination = join(runtimeDir, 'minifier', binaryName);
+
+  if (!existsSync(source)) {
+    throw new Error(
+      `Missing octocode-minifier-utils native binary: ${source}. ` +
+        'Build packages/octocode-minifier-utils before packages/octocode-mcp.'
     );
   }
 

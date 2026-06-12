@@ -7,24 +7,24 @@
   "commentModel": "c-style",
   "sha256": "3e8eeec4e4ba61de1da03a8bf19197bedbaf1c466ea9b3a427c51f748689a227",
   "contentView": {
-    "bytes": 3031,
-    "cutPercent": 4.8,
-    "durationMs": 0.882
+    "bytes": 1605,
+    "cutPercent": 49.6,
+    "durationMs": 1.137
   },
   "applyMinification": {
-    "bytes": 1800,
-    "cutPercent": 43.5,
-    "durationMs": 0.934
+    "bytes": 1605,
+    "cutPercent": 49.6,
+    "durationMs": 0.5
   },
   "sync": {
-    "bytes": 1800,
-    "cutPercent": 43.5,
-    "durationMs": 0.773
+    "bytes": 1605,
+    "cutPercent": 49.6,
+    "durationMs": 0.415
   },
   "async": {
-    "bytes": 1800,
-    "cutPercent": 43.5,
-    "durationMs": 0.817,
+    "bytes": 1605,
+    "cutPercent": 49.6,
+    "durationMs": 0.318,
     "failed": false,
     "type": "terser",
     "reason": null
@@ -34,13 +34,13 @@
     "returned": true,
     "bytes": 3792,
     "cutPercent": -19.1,
-    "durationMs": 5.016
+    "durationMs": 6.324
   },
   "agentUnderstanding": {
     "output": "standard",
-    "bytes": 3031,
-    "cutPercent": 4.8,
-    "score": 9.7,
+    "bytes": 1605,
+    "cutPercent": 49.6,
+    "score": 10,
     "label": "excellent",
     "syntaxAnchors": {
       "score": 10,
@@ -49,7 +49,7 @@
     },
     "structure": 10,
     "outputHealth": 10,
-    "contextBudget": 7,
+    "contextBudget": 10,
     "symbols": 10,
     "signals": [
       {
@@ -111,9 +111,9 @@
     },
     "standard": {
       "output": "standard",
-      "bytes": 3031,
-      "cutPercent": 4.8,
-      "score": 9.7,
+      "bytes": 1605,
+      "cutPercent": 49.6,
+      "score": 10,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -122,7 +122,7 @@
       },
       "structure": 10,
       "outputHealth": 10,
-      "contextBudget": 7,
+      "contextBudget": 10,
       "symbols": 10,
       "signals": [
         {
@@ -153,9 +153,9 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 1800,
-      "cutPercent": 43.5,
-      "score": 9.9,
+      "bytes": 1605,
+      "cutPercent": 49.6,
+      "score": 10,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -164,7 +164,7 @@
       },
       "structure": 10,
       "outputHealth": 10,
-      "contextBudget": 9,
+      "contextBudget": 10,
       "symbols": 10,
       "signals": [
         {

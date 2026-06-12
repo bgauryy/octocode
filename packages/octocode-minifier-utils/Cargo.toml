@@ -23,6 +23,13 @@ regex       = "1"
 lightningcss = "1.0.0-alpha.71"
 minify-html  = "0.18"
 
+# ── OXC — JS/TS AST minifier (already in Cargo.lock via minify-html) ─────────────
+oxc_allocator = "0.95"
+oxc_codegen   = "0.95"
+oxc_minifier  = "0.95"
+oxc_parser    = "0.95"
+oxc_span      = "0.95"
+
 # ── tree-sitter core ─────────────────────────────────────────────────────────
 tree-sitter          = "0.26"
 tree-sitter-language = "0.1"

@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 116175,
       "cutPercent": 5.8,
-      "durationMs": 25.294
+      "durationMs": 25.635
     },
     "content": "-module(lists).\n-moduledoc \"\"\"\nList processing functions.\n\nThis module contains functions for list processing.\n\nUnless otherwise stated, all functions assume that position numbering starts\nat 1. That is, the first element of a list is at position 1.\n\nTwo terms `T1` and `T2` compare equal if `T1 == T2` evaluates to `true`. They\nmatch if `T1 =:= T2` evaluates to `true`.\n\nWhenever an _ordering function_{: #ordering_function } `F` is expected as\nargument, it is assumed that the following properties hold of `F` for all x, y,\nand z:\n\n- If x `F` y and y `F` x, then x = y (`F` is antisymmetric).\n- If x `F` y and y `F` z, then x `F` z (`F` is transitive).\n- x `F` y or y `F` x (`F` is total).\n\nAn example of a typical ordering function is less than or equal to: `=</2`.\n\"\"\".\n\n-compile({no_auto_import,[max/2]}).\n-compile({no_auto_import,[min/2]}).\n\n-export([keyfind/3, keymember/3, keysearch/3, member/2, reverse/2]).\n\n-export([append/1, append/2, concat/1,\n         delete/2, droplast/1, duplicate/2,\n         enumerate/1, enumerate/2, enumerate/3,\n         flatlength/1, flatten/1, flatten/2,\n         join/2, last/1, min/1, max/1,\n         nth/2, nthtail/2,\n         prefix/2, reverse/1, seq/2, seq/3,\n         split/2, su\n\n... [truncated 114371 chars] ...\n\n2_2(H1, T1, Fun, [H2 | T2], M, H2M) ->\n    case Fun(H1, H2) of\n        true ->\n            rufmerge2_2(H1, T1, Fun, T2, [H2M | M], H2);\n        false ->\n            case Fun(H2M, H1) of\n                true ->\n                    rufmerge2_1(T1, H2, Fun, T2, [H1 | M]);\n                false ->\n                    rufmerge2_1(T1, H2, Fun, T2, [H1, H2M | M])\n            end\n    end;\nrufmerge2_2(H1, T1, Fun, [], M, H2M) ->\n    case Fun(H2M, H1) of\n        true ->\n            lists:reverse(T1, [H1 | M]);\n        false ->\n            lists:reverse(T1, [H1, H2M | M])\n    end.",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 94098,
       "cutPercent": 23.7,
-      "durationMs": 27.365
+      "durationMs": 28.05
     },
     "content": "-module(lists). -moduledoc \"\"\" List processing functions. This module contains functions for list processing. Unless otherwise stated,all functions assume that position numbering starts at 1. That is,the first element of a list is at position 1. Two terms `T1` and `T2` compare equal if `T1 == T2` evaluates to `true`. They match if `T1 =:= T2` evaluates to `true`. Whenever an _ordering function_{:#ordering_function}`F` is expected as argument,it is assumed that the following properties hold of `F` for all x,y,and z:- If x `F` y and y `F` x,then x = y (`F` is antisymmetric). - If x `F` y and y `F` z,then x `F` z (`F` is transitive). - x `F` y or y `F` x (`F` is total). An example of a typical ordering function is less than or equal to:`=</2`. \"\"\". -compile({no_auto_import,[max/2]}). -compile({no_auto_import,[min/2]}). -export([keyfind/3,keymember/3,keysearch/3,member/2,reverse/2]). -export([append/1,append/2,concat/1,delete/2,droplast/1,duplicate/2,enumerate/1,enumerate/2,enumerate/3,flatlength/1,flatten/1,flatten/2,join/2,last/1,min/1,max/1,nth/2,nthtail/2,prefix/2,reverse/1,seq/2,seq/3,split/2,sublist/2,sublist/3,subtract/2,suffix/2,sum/1,uniq/1,unzip/1,unzip3/1,zip/2,zip/3,zip3/3,zip3/4]). -export([keyde\n\n... [truncated 92298 chars] ...\n\n. rufmerge2_1([H1 | T1],H2,Fun,T2,M) -> case Fun(H1,H2) of true -> rufmerge2_2(H1,T1,Fun,T2,M,H2);false -> rufmerge2_1(T1,H2,Fun,T2,[H1 | M]) end;rufmerge2_1([],H2,_Fun,T2,M) -> lists:reverse(T2,[H2 | M]). rufmerge2_2(H1,T1,Fun,[H2 | T2],M,H2M) -> case Fun(H1,H2) of true -> rufmerge2_2(H1,T1,Fun,T2,[H2M | M],H2);false -> case Fun(H2M,H1) of true -> rufmerge2_1(T1,H2,Fun,T2,[H1 | M]);false -> rufmerge2_1(T1,H2,Fun,T2,[H1,H2M | M]) end end;rufmerge2_2(H1,T1,Fun,[],M,H2M) -> case Fun(H2M,H1) of true -> lists:reverse(T1,[H1 | M]);false -> lists:reverse(T1,[H1,H2M | M]) end.",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 94098,
       "cutPercent": 23.7,
-      "durationMs": 26.75
+      "durationMs": 26.762
     },
     "content": "-module(lists). -moduledoc \"\"\" List processing functions. This module contains functions for list processing. Unless otherwise stated,all functions assume that position numbering starts at 1. That is,the first element of a list is at position 1. Two terms `T1` and `T2` compare equal if `T1 == T2` evaluates to `true`. They match if `T1 =:= T2` evaluates to `true`. Whenever an _ordering function_{:#ordering_function}`F` is expected as argument,it is assumed that the following properties hold of `F` for all x,y,and z:- If x `F` y and y `F` x,then x = y (`F` is antisymmetric). - If x `F` y and y `F` z,then x `F` z (`F` is transitive). - x `F` y or y `F` x (`F` is total). An example of a typical ordering function is less than or equal to:`=</2`. \"\"\". -compile({no_auto_import,[max/2]}). -compile({no_auto_import,[min/2]}). -export([keyfind/3,keymember/3,keysearch/3,member/2,reverse/2]). -export([append/1,append/2,concat/1,delete/2,droplast/1,duplicate/2,enumerate/1,enumerate/2,enumerate/3,flatlength/1,flatten/1,flatten/2,join/2,last/1,min/1,max/1,nth/2,nthtail/2,prefix/2,reverse/1,seq/2,seq/3,split/2,sublist/2,sublist/3,subtract/2,suffix/2,sum/1,uniq/1,unzip/1,unzip3/1,zip/2,zip/3,zip3/3,zip3/4]). -export([keyde\n\n... [truncated 92298 chars] ...\n\n. rufmerge2_1([H1 | T1],H2,Fun,T2,M) -> case Fun(H1,H2) of true -> rufmerge2_2(H1,T1,Fun,T2,M,H2);false -> rufmerge2_1(T1,H2,Fun,T2,[H1 | M]) end;rufmerge2_1([],H2,_Fun,T2,M) -> lists:reverse(T2,[H2 | M]). rufmerge2_2(H1,T1,Fun,[H2 | T2],M,H2M) -> case Fun(H1,H2) of true -> rufmerge2_2(H1,T1,Fun,T2,[H2M | M],H2);false -> case Fun(H2M,H1) of true -> rufmerge2_1(T1,H2,Fun,T2,[H1 | M]);false -> rufmerge2_1(T1,H2,Fun,T2,[H1,H2M | M]) end end;rufmerge2_2(H1,T1,Fun,[],M,H2M) -> case Fun(H2M,H1) of true -> lists:reverse(T1,[H1 | M]);false -> lists:reverse(T1,[H1,H2M | M]) end.",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 94098,
       "cutPercent": 23.7,
-      "durationMs": 26.647,
+      "durationMs": 27.78,
       "failed": false,
       "type": "aggressive",
       "reason": null

@@ -6,7 +6,7 @@ Strategy: `conservative`
 
 Agent rating: **9/10 (excellent)**
 
-Agent understanding from minified output: **9.5/10 (excellent)**
+Agent understanding from minified output: **9.8/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 20559 | - | - | - |
-| content-view | 10457 | 49.1% | 3.173 ms | 9/10 |
-| applyMinification | 10492 | 49% | 3.068 ms | 9/10 |
-| sync minify | 10492 | 49% | 3.102 ms | 9/10 |
-| async minify | 10492 | 49% | 3.163 ms | 9/10 |
-| symbols | 5961 | 71% | 0.501 ms | n/a |
+| content-view | 10457 | 49.1% | 3.177 ms | 9/10 |
+| applyMinification | 10492 | 49% | 3.084 ms | 9/10 |
+| sync minify | 10492 | 49% | 3.122 ms | 9/10 |
+| async minify | 10492 | 49% | 3.151 ms | 9/10 |
+| symbols | 5961 | 71% | 0.494 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 9/10 |
 | context budget | 10/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 20559 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 10457 | 49.1% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 10492 | 49% | 9.5/10 excellent | 10/10 | 10/10 |
+| standard | 10457 | 49.1% | 9.8/10 excellent | 10/10 | 10/10 |
+| minify | 10492 | 49% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 5961 | 71% | 8/10 strong | 6.7/10 | 7.7/10 |
 
 ## Notes
 
 - conservative text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

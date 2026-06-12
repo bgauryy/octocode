@@ -49,7 +49,10 @@ export declare function minifyCSSQuality(content: string): string
 export declare function minifyHTMLQuality(content: string): string
 export declare function stripPythonDocstrings(content: string): string
 export declare function extractSignatures(content: string, filePath: string): string | null
-/** Returns the list of extensions covered by tree-sitter (plus heuristic fallbacks). */
+/**
+ * Returns all extensions that have signature extraction support
+ * (tree-sitter languages + heuristic-covered languages).
+ */
 export declare function getSupportedSignatureExtensions(): Array<string>
 export declare function jsonToYamlString(jsonObject: any, config?: YamlConversionConfig | undefined | null): string
 /**

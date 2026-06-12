@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 22271,
       "cutPercent": 64.8,
-      "durationMs": 7.027
+      "durationMs": 6.977
     },
     "content": "package org.springframework.core.annotation;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.reflect.AnnotatedElement;\nimport java.lang.reflect.Array;\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Modifier;\nimport java.lang.reflect.Proxy;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\nimport org.jspecify.annotations.Nullable;\n\nimport org.springframework.core.BridgeMethodResolver;\nimport org.springframework.core.annotation.AnnotationTypeMapping.MirrorSets.MirrorSet;\nimport org.springframework.core.annotation.MergedAnnotation.Adapt;\nimport org.springframework.core.annotation.MergedAnnotations.SearchStrategy;\nimport org.springframework.util.ClassUtils;\nimport org.springframework.util.CollectionUtils;\nimport org.springframework.util.ConcurrentReferenceHashMap;\nimport org.springframework.util.ReflectionUtils;\nimport org.springframework.util.StringUtils;\n\npublic abstract class AnnotationUtils {\n\n\tpublic static final String VALUE = MergedAnnotation.VALUE;\n\n\tprivate static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =\n\t\t\tA\n\n... [truncated 20471 chars] ...\n\nhesizedMergedAnnotationInvocationHandler);\n\t\t}\n\t\tcatch (SecurityException ex) {\n\n\t\t\treturn false;\n\t\t}\n\t}\n\n\tpublic static void clearCache() {\n\t\tAnnotationTypeMappings.clearCache();\n\t\tAnnotationsScanner.clearCache();\n\t\tAttributeMethods.cache.clear();\n\t\tRepeatableContainers.cache.clear();\n\t\tOrderUtils.orderCache.clear();\n\t}\n\n\tprivate static class DefaultValueHolder {\n\n\t\tfinal Object defaultValue;\n\n\t\tpublic DefaultValueHolder(Object defaultValue) {\n\t\t\tthis.defaultValue = defaultValue;\n\t\t}\n\n\t\t@Override\n\t\tpublic String toString() {\n\t\t\treturn \"*\" + this.defaultValue;\n\t\t}\n\t}\n\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 22331,
       "cutPercent": 64.7,
-      "durationMs": 6.823
+      "durationMs": 6.817
     },
     "content": "\n\npackage org.springframework.core.annotation;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.reflect.AnnotatedElement;\nimport java.lang.reflect.Array;\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Modifier;\nimport java.lang.reflect.Proxy;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\nimport org.jspecify.annotations.Nullable;\n\nimport org.springframework.core.BridgeMethodResolver;\nimport org.springframework.core.annotation.AnnotationTypeMapping.MirrorSets.MirrorSet;\nimport org.springframework.core.annotation.MergedAnnotation.Adapt;\nimport org.springframework.core.annotation.MergedAnnotations.SearchStrategy;\nimport org.springframework.util.ClassUtils;\nimport org.springframework.util.CollectionUtils;\nimport org.springframework.util.ConcurrentReferenceHashMap;\nimport org.springframework.util.ReflectionUtils;\nimport org.springframework.util.StringUtils;\n\n\npublic abstract class AnnotationUtils {\n\n\n\tpublic static final String VALUE = MergedAnnotation.VALUE;\n\n\tprivate static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =\n\n\n... [truncated 20531 chars] ...\n\nizedMergedAnnotationInvocationHandler);\n\t\t}\n\t\tcatch (SecurityException ex) {\n\n\n\t\t\treturn false;\n\t\t}\n\t}\n\n\n\tpublic static void clearCache() {\n\t\tAnnotationTypeMappings.clearCache();\n\t\tAnnotationsScanner.clearCache();\n\t\tAttributeMethods.cache.clear();\n\t\tRepeatableContainers.cache.clear();\n\t\tOrderUtils.orderCache.clear();\n\t}\n\n\n\tprivate static class DefaultValueHolder {\n\n\t\tfinal Object defaultValue;\n\n\t\tpublic DefaultValueHolder(Object defaultValue) {\n\t\t\tthis.defaultValue = defaultValue;\n\t\t}\n\n\t\t@Override\n\t\tpublic String toString() {\n\t\t\treturn \"*\" + this.defaultValue;\n\t\t}\n\t}\n\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 22331,
       "cutPercent": 64.7,
-      "durationMs": 7.002
+      "durationMs": 7.033
     },
     "content": "\n\npackage org.springframework.core.annotation;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.reflect.AnnotatedElement;\nimport java.lang.reflect.Array;\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Modifier;\nimport java.lang.reflect.Proxy;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\nimport org.jspecify.annotations.Nullable;\n\nimport org.springframework.core.BridgeMethodResolver;\nimport org.springframework.core.annotation.AnnotationTypeMapping.MirrorSets.MirrorSet;\nimport org.springframework.core.annotation.MergedAnnotation.Adapt;\nimport org.springframework.core.annotation.MergedAnnotations.SearchStrategy;\nimport org.springframework.util.ClassUtils;\nimport org.springframework.util.CollectionUtils;\nimport org.springframework.util.ConcurrentReferenceHashMap;\nimport org.springframework.util.ReflectionUtils;\nimport org.springframework.util.StringUtils;\n\n\npublic abstract class AnnotationUtils {\n\n\n\tpublic static final String VALUE = MergedAnnotation.VALUE;\n\n\tprivate static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =\n\n\n... [truncated 20531 chars] ...\n\nizedMergedAnnotationInvocationHandler);\n\t\t}\n\t\tcatch (SecurityException ex) {\n\n\n\t\t\treturn false;\n\t\t}\n\t}\n\n\n\tpublic static void clearCache() {\n\t\tAnnotationTypeMappings.clearCache();\n\t\tAnnotationsScanner.clearCache();\n\t\tAttributeMethods.cache.clear();\n\t\tRepeatableContainers.cache.clear();\n\t\tOrderUtils.orderCache.clear();\n\t}\n\n\n\tprivate static class DefaultValueHolder {\n\n\t\tfinal Object defaultValue;\n\n\t\tpublic DefaultValueHolder(Object defaultValue) {\n\t\t\tthis.defaultValue = defaultValue;\n\t\t}\n\n\t\t@Override\n\t\tpublic String toString() {\n\t\t\treturn \"*\" + this.defaultValue;\n\t\t}\n\t}\n\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 22331,
       "cutPercent": 64.7,
-      "durationMs": 6.683,
+      "durationMs": 7.063,
       "failed": false,
       "type": "conservative",
       "reason": null

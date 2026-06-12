@@ -143,13 +143,38 @@ pub fn extract_signatures(content: String, file_path: String) -> Option<String> 
     signatures::extract_signatures_inner(&content, &file_path)
 }
 
-/// Returns the list of extensions covered by tree-sitter (plus heuristic fallbacks).
+/// Returns all extensions that have signature extraction support
+/// (tree-sitter languages + heuristic-covered languages).
 #[napi(js_name = "getSupportedSignatureExtensions")]
 pub fn get_supported_signature_extensions() -> Vec<String> {
-    signatures::languages::supported_extensions()
+    // Tree-sitter covered
+    let mut exts: Vec<String> = signatures::languages::supported_extensions()
         .into_iter()
         .map(|s| s.to_owned())
-        .collect()
+        .collect();
+
+    // Heuristic-covered extensions (matching heuristic.rs extract_heuristic routes)
+    const HEURISTIC_ONLY: &[&str] = &[
+        "kt", "kotlin", "scala",          // JVM family
+        "rb",                               // Ruby
+        "php",                              // PHP
+        "swift",                            // Swift
+        "css", "scss", "less",             // CSS family
+        "html", "htm",                      // HTML
+        "sql", "tsql", "plsql",            // SQL
+        "vue", "svelte",                    // SFC components
+        "ex", "exs",                        // Elixir
+        "hs", "lhs",                        // Haskell
+        "lua",                              // Lua
+        "erl", "hrl",                       // Erlang
+    ];
+    for ext in HEURISTIC_ONLY {
+        if !exts.iter().any(|e| e == ext) {
+            exts.push(ext.to_string());
+        }
+    }
+    exts.sort();
+    exts
 }
 
 // ── YAML ──────────────────────────────────────────────────────────────────────

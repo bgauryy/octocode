@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 19630,
       "cutPercent": 15.6,
-      "durationMs": 5.702
+      "durationMs": 5.394
     },
     "content": "local bit = require \"plenary.bit\"\nlocal uv = vim.loop\n\nlocal F = require \"plenary.functional\"\n\nlocal S_IF = {\n\n  DIR = 0x4000,\n\n  REG = 0x8000,\n}\n\nlocal path = {}\npath.home = vim.loop.os_homedir()\n\npath.sep = (function()\n  if jit then\n    local os = string.lower(jit.os)\n    if os ~= \"windows\" then\n      return \"/\"\n    else\n      return \"\\\\\"\n    end\n  else\n    return package.config:sub(1, 1)\n  end\nend)()\n\npath.root = (function()\n  if path.sep == \"/\" then\n    return function()\n      return \"/\"\n    end\n  else\n    return function(base)\n      base = base or vim.loop.cwd()\n      return base:sub(1, 1) .. \":\\\\\"\n    end\n  end\nend)()\n\npath.S_IF = S_IF\n\nlocal band = function(reg, value)\n  return bit.band(reg, value) == reg\nend\n\nlocal concat_paths = function(...)\n  return table.concat({ ... }, path.sep)\nend\n\nlocal function is_root(pathname)\n  if path.sep == \"\\\\\" then\n    return string.match(pathname, \"^[A-Z]:\\\\?$\")\n  end\n  return pathname == \"/\"\nend\n\nlocal _split_by_separator = (function()\n  local formatted = string.format(\"([^%s]+)\", path.sep)\n  return function(filepath)\n    local t = {}\n    for str in string.gmatch(filepath, formatted) do\n      table.insert(t, str)\n    end\n    return t\n  end\nend)()\n\nlocal is_uri = \n\n... [truncated 17830 chars] ...\n\no\n    local read_chunk = assert(uv.fs_read(fd, length - #data, offset))\n    if #read_chunk == 0 then\n      break\n    end\n    data = data .. read_chunk\n    offset = offset + #read_chunk\n  end\n\n  assert(uv.fs_close(fd))\n\n  return data\nend\n\nfunction Path:find_upwards(filename)\n  local folder = Path:new(self)\n  local root = path.root(folder:absolute())\n\n  while true do\n    local p = folder:joinpath(filename)\n    if p:exists() then\n      return p\n    end\n    if folder:absolute() == root then\n      break\n    end\n    folder = folder:parent()\n  end\n  return nil\nend\n\nreturn Path",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 16783,
       "cutPercent": 27.8,
-      "durationMs": 5.601
+      "durationMs": 5.771
     },
     "content": "local bit = require \"plenary.bit\" local uv = vim.loop local F = require \"plenary.functional\" local S_IF ={DIR = 0x4000,REG = 0x8000,}local path ={}path.home = vim.loop.os_homedir() path.sep = (function() if jit then local os = string.lower(jit.os) if os ~= \"windows\" then return \"/\" else return \"\\\\\" end else return package.config:sub(1,1) end end)() path.root = (function() if path.sep == \"/\" then return function() return \"/\" end else return function(base) base = base or vim.loop.cwd() return base:sub(1,1) .. \":\\\\\" end end end)() path.S_IF = S_IF local band = function(reg,value) return bit.band(reg,value) == reg end local concat_paths = function(...) return table.concat({...},path.sep) end local function is_root(pathname) if path.sep == \"\\\\\" then return string.match(pathname,\"^[A-Z]:\\\\?$\") end return pathname == \"/\" end local _split_by_separator = (function() local formatted = string.format(\"([^%s]+)\",path.sep) return function(filepath) local t ={}for str in string.gmatch(filepath,formatted) do table.insert(t,str) end return t end end)() local is_uri = function(filename) return string.match(filename,\"^%a[%w+-.]*://\") ~= nil end local is_absolute = function(filename,sep) if sep == \"\\\\\" then return string.mat\n\n... [truncated 14983 chars] ...\n\ne + offset if offset< 0 then offset = 0 end end local data = \"\" while #data< length do local read_chunk = assert(uv.fs_read(fd,length - #data,offset)) if #read_chunk == 0 then break end data = data .. read_chunk offset = offset + #read_chunk end assert(uv.fs_close(fd)) return data end function Path:find_upwards(filename) local folder = Path:new(self) local root = path.root(folder:absolute()) while true do local p = folder:joinpath(filename) if p:exists() then return p end if folder:absolute() == root then break end folder = folder:parent() end return nil end return Path",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 16783,
       "cutPercent": 27.8,
-      "durationMs": 5.786
+      "durationMs": 5.787
     },
     "content": "local bit = require \"plenary.bit\" local uv = vim.loop local F = require \"plenary.functional\" local S_IF ={DIR = 0x4000,REG = 0x8000,}local path ={}path.home = vim.loop.os_homedir() path.sep = (function() if jit then local os = string.lower(jit.os) if os ~= \"windows\" then return \"/\" else return \"\\\\\" end else return package.config:sub(1,1) end end)() path.root = (function() if path.sep == \"/\" then return function() return \"/\" end else return function(base) base = base or vim.loop.cwd() return base:sub(1,1) .. \":\\\\\" end end end)() path.S_IF = S_IF local band = function(reg,value) return bit.band(reg,value) == reg end local concat_paths = function(...) return table.concat({...},path.sep) end local function is_root(pathname) if path.sep == \"\\\\\" then return string.match(pathname,\"^[A-Z]:\\\\?$\") end return pathname == \"/\" end local _split_by_separator = (function() local formatted = string.format(\"([^%s]+)\",path.sep) return function(filepath) local t ={}for str in string.gmatch(filepath,formatted) do table.insert(t,str) end return t end end)() local is_uri = function(filename) return string.match(filename,\"^%a[%w+-.]*://\") ~= nil end local is_absolute = function(filename,sep) if sep == \"\\\\\" then return string.mat\n\n... [truncated 14983 chars] ...\n\ne + offset if offset< 0 then offset = 0 end end local data = \"\" while #data< length do local read_chunk = assert(uv.fs_read(fd,length - #data,offset)) if #read_chunk == 0 then break end data = data .. read_chunk offset = offset + #read_chunk end assert(uv.fs_close(fd)) return data end function Path:find_upwards(filename) local folder = Path:new(self) local root = path.root(folder:absolute()) while true do local p = folder:joinpath(filename) if p:exists() then return p end if folder:absolute() == root then break end folder = folder:parent() end return nil end return Path",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 16783,
       "cutPercent": 27.8,
-      "durationMs": 5.908,
+      "durationMs": 5.696,
       "failed": false,
       "type": "aggressive",
       "reason": null

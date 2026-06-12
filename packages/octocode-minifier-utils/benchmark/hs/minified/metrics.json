@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 36301,
       "cutPercent": 12.3,
-      "durationMs": 7.736
+      "durationMs": 7.463
     },
     "content": "module Distribution.Simple\n  ( module Distribution.Package\n  , module Distribution.Version\n  , module Distribution.License\n  , module Distribution.Simple.Compiler\n  , module Language.Haskell.Extension\n\n  , defaultMain\n  , defaultMainNoRead\n  , defaultMainArgs\n  , defaultMainArgsWithHandles\n\n  , UserHooks (..)\n  , Args\n  , defaultMainWithHooks\n  , defaultMainWithSetupHooks\n  , defaultMainWithSetupHooksArgs\n  , defaultMainWithHooksArgs\n  , defaultMainWithHooksNoRead\n  , defaultMainWithHooksNoReadArgs\n\n  , simpleUserHooks\n  , simpleUserHooksWithHandles\n  , autoconfUserHooks\n  , autoconfSetupHooks\n  , emptyUserHooks\n\n  , configureAction\n  , buildAction\n  , replAction\n  , installAction\n  , copyAction\n  , haddockAction\n  , cleanAction\n  , sdistAction\n  , hscolourAction\n  , registerAction\n  , unregisterAction\n  , testAction\n  , benchAction\n  ) where\n\nimport Control.Exception (try)\n\nimport Distribution.Compat.Prelude\nimport Distribution.Compat.ResponseFile (expandResponse)\nimport Prelude ()\n\nimport Distribution.Package\nimport Distribution.PackageDescription\nimport Distribution.PackageDescription.Configuration\nimport Distribution.Simple.Command\nimport Distribution.Simple.Compiler\nimport Distribution.Simple.Package\n\n... [truncated 34501 chars] ...\n\ns\n      (allSuffixHandlers hooks)\n      args\n\ndefaultRegHook\n  :: VerbosityHandles\n  -> PackageDescription\n  -> LocalBuildInfo\n  -> UserHooks\n  -> RegisterFlags\n  -> IO ()\ndefaultRegHook verbHandles pkg_descr localbuildinfo _ flags\n  | hasLibs pkg_descr =\n      registerWithHandles verbHandles pkg_descr localbuildinfo flags\n  | otherwise =\n      setupMessage\n        verbosity\n        \"Package contains no library to register:\"\n        (packageId pkg_descr)\n  where\n    verbosity =\n      mkVerbosity verbHandles $\n        fromFlag (setupVerbosity $ registerCommonFlags flags)",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 36334,
       "cutPercent": 12.2,
-      "durationMs": 7.374
+      "durationMs": 7.19
     },
     "content": "\n\nmodule Distribution.Simple\n  ( module Distribution.Package\n  , module Distribution.Version\n  , module Distribution.License\n  , module Distribution.Simple.Compiler\n  , module Language.Haskell.Extension\n\n\n  , defaultMain\n  , defaultMainNoRead\n  , defaultMainArgs\n  , defaultMainArgsWithHandles\n\n\n  , UserHooks (..)\n  , Args\n  , defaultMainWithHooks\n  , defaultMainWithSetupHooks\n  , defaultMainWithSetupHooksArgs\n  , defaultMainWithHooksArgs\n  , defaultMainWithHooksNoRead\n  , defaultMainWithHooksNoReadArgs\n\n\n  , simpleUserHooks\n  , simpleUserHooksWithHandles\n  , autoconfUserHooks\n  , autoconfSetupHooks\n  , emptyUserHooks\n\n\n  , configureAction\n  , buildAction\n  , replAction\n  , installAction\n  , copyAction\n  , haddockAction\n  , cleanAction\n  , sdistAction\n  , hscolourAction\n  , registerAction\n  , unregisterAction\n  , testAction\n  , benchAction\n  ) where\n\nimport Control.Exception (try)\n\nimport Distribution.Compat.Prelude\nimport Distribution.Compat.ResponseFile (expandResponse)\nimport Prelude ()\n\n\nimport Distribution.Package\nimport Distribution.PackageDescription\nimport Distribution.PackageDescription.Configuration\nimport Distribution.Simple.Command\nimport Distribution.Simple.Compiler\nimport Distribution.Simple.\n\n... [truncated 34534 chars] ...\n\ns\n      (allSuffixHandlers hooks)\n      args\n\ndefaultRegHook\n  :: VerbosityHandles\n  -> PackageDescription\n  -> LocalBuildInfo\n  -> UserHooks\n  -> RegisterFlags\n  -> IO ()\ndefaultRegHook verbHandles pkg_descr localbuildinfo _ flags\n  | hasLibs pkg_descr =\n      registerWithHandles verbHandles pkg_descr localbuildinfo flags\n  | otherwise =\n      setupMessage\n        verbosity\n        \"Package contains no library to register:\"\n        (packageId pkg_descr)\n  where\n    verbosity =\n      mkVerbosity verbHandles $\n        fromFlag (setupVerbosity $ registerCommonFlags flags)",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 36334,
       "cutPercent": 12.2,
-      "durationMs": 7.004
+      "durationMs": 7.162
     },
     "content": "\n\nmodule Distribution.Simple\n  ( module Distribution.Package\n  , module Distribution.Version\n  , module Distribution.License\n  , module Distribution.Simple.Compiler\n  , module Language.Haskell.Extension\n\n\n  , defaultMain\n  , defaultMainNoRead\n  , defaultMainArgs\n  , defaultMainArgsWithHandles\n\n\n  , UserHooks (..)\n  , Args\n  , defaultMainWithHooks\n  , defaultMainWithSetupHooks\n  , defaultMainWithSetupHooksArgs\n  , defaultMainWithHooksArgs\n  , defaultMainWithHooksNoRead\n  , defaultMainWithHooksNoReadArgs\n\n\n  , simpleUserHooks\n  , simpleUserHooksWithHandles\n  , autoconfUserHooks\n  , autoconfSetupHooks\n  , emptyUserHooks\n\n\n  , configureAction\n  , buildAction\n  , replAction\n  , installAction\n  , copyAction\n  , haddockAction\n  , cleanAction\n  , sdistAction\n  , hscolourAction\n  , registerAction\n  , unregisterAction\n  , testAction\n  , benchAction\n  ) where\n\nimport Control.Exception (try)\n\nimport Distribution.Compat.Prelude\nimport Distribution.Compat.ResponseFile (expandResponse)\nimport Prelude ()\n\n\nimport Distribution.Package\nimport Distribution.PackageDescription\nimport Distribution.PackageDescription.Configuration\nimport Distribution.Simple.Command\nimport Distribution.Simple.Compiler\nimport Distribution.Simple.\n\n... [truncated 34534 chars] ...\n\ns\n      (allSuffixHandlers hooks)\n      args\n\ndefaultRegHook\n  :: VerbosityHandles\n  -> PackageDescription\n  -> LocalBuildInfo\n  -> UserHooks\n  -> RegisterFlags\n  -> IO ()\ndefaultRegHook verbHandles pkg_descr localbuildinfo _ flags\n  | hasLibs pkg_descr =\n      registerWithHandles verbHandles pkg_descr localbuildinfo flags\n  | otherwise =\n      setupMessage\n        verbosity\n        \"Package contains no library to register:\"\n        (packageId pkg_descr)\n  where\n    verbosity =\n      mkVerbosity verbHandles $\n        fromFlag (setupVerbosity $ registerCommonFlags flags)",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 36334,
       "cutPercent": 12.2,
-      "durationMs": 7.195,
+      "durationMs": 7.327,
       "failed": false,
       "type": "conservative",
       "reason": null

@@ -4,9 +4,9 @@ Source sample: `scala/Option.scala`
 
 Strategy: `conservative`
 
-Agent rating: **9.5/10 (excellent)**
+Agent rating: **9.7/10 (excellent)**
 
-Agent understanding from minified output: **9.3/10 (excellent)**
+Agent understanding from minified output: **9.6/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 20107 | - | - | - |
-| content-view | 3882 | 80.7% | 1.443 ms | 9.5/10 |
-| applyMinification | 3919 | 80.5% | 1.288 ms | 9.5/10 |
-| sync minify | 3919 | 80.5% | 1.307 ms | 9.5/10 |
-| async minify | 3919 | 80.5% | 1.289 ms | 9.5/10 |
-| symbols | 1189 | 94.1% | 3.794 ms | n/a |
+| content-view | 3882 | 80.7% | 1.501 ms | 9.5/10 |
+| applyMinification | 3919 | 80.5% | 1.38 ms | 9.5/10 |
+| sync minify | 3919 | 80.5% | 1.43 ms | 9.5/10 |
+| async minify | 3919 | 80.5% | 1.384 ms | 9.5/10 |
+| symbols | 1189 | 94.1% | 4.154 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 9/10 |
 | context budget | 8/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 20107 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 3882 | 80.7% | 9.3/10 excellent | 10/10 | 10/10 |
-| minify | 3919 | 80.5% | 9.3/10 excellent | 10/10 | 10/10 |
+| standard | 3882 | 80.7% | 9.6/10 excellent | 10/10 | 10/10 |
+| minify | 3919 | 80.5% | 9.6/10 excellent | 10/10 | 10/10 |
 | symbols | 1189 | 94.1% | 8.9/10 strong | 10/10 | 6.7/10 |
 
 ## Notes
 
 - conservative text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

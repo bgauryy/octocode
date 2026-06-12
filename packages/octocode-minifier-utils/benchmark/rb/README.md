@@ -4,9 +4,9 @@ Source sample: `rb/blank.rb`
 
 Strategy: `conservative`
 
-Agent rating: **9.5/10 (excellent)**
+Agent rating: **9.7/10 (excellent)**
 
-Agent understanding from minified output: **9.7/10 (excellent)**
+Agent understanding from minified output: **10/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3507 | - | - | - |
-| content-view | 1254 | 64.2% | 0.558 ms | 9.5/10 |
-| applyMinification | 1269 | 63.8% | 0.524 ms | 9.5/10 |
-| sync minify | 1269 | 63.8% | 0.512 ms | 9.5/10 |
-| async minify | 1269 | 63.8% | 0.522 ms | 9.5/10 |
-| symbols | 650 | 81.5% | 1.858 ms | n/a |
+| content-view | 1254 | 64.2% | 0.554 ms | 9.5/10 |
+| applyMinification | 1269 | 63.8% | 0.529 ms | 9.5/10 |
+| sync minify | 1269 | 63.8% | 0.529 ms | 9.5/10 |
+| async minify | 1269 | 63.8% | 0.538 ms | 9.5/10 |
+| symbols | 650 | 81.5% | 1.86 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 10/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 3507 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 1254 | 64.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 1269 | 63.8% | 9.7/10 excellent | 10/10 | 10/10 |
+| standard | 1254 | 64.2% | 10/10 excellent | 10/10 | 10/10 |
+| minify | 1269 | 63.8% | 10/10 excellent | 10/10 | 10/10 |
 | symbols | 650 | 81.5% | 8.1/10 strong | 6.7/10 | 8/10 |
 
 ## Notes
 
 - conservative text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

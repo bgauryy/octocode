@@ -6,7 +6,8 @@ use crate::strategies::{
     minify_general_core, minify_markdown_core,
     minify_css_quality,
     minify_html_core, minify_html_quality,
-    minify_javascript_core, minify_json_core_inner,
+    minify_javascript_core, minify_js_oxc,
+    minify_json_core_inner,
 };
 
 const MAX_SIZE: usize = 1024 * 1024; // 1 MB guard
@@ -57,7 +58,9 @@ pub fn minify_content_result_inner(content: &str, file_path: &str) -> MinifyResu
     let (out, strategy) = match cfg.strategy {
         "terser" | "conservative" => {
             let s = if matches!(ext.as_str(), "ts"|"tsx"|"js"|"jsx"|"mjs"|"cjs") {
-                minify_javascript_core(content)
+                // OXC: full compression with mangle for the minify path
+                minify_js_oxc(content, file_path, true)
+                    .unwrap_or_else(|| minify_javascript_core(content))
             } else {
                 minify_conservative(content, Some(&grps))
             };
@@ -97,7 +100,8 @@ fn dispatch(content: &str, file_path: &str, _high_quality: bool) -> String {
     match cfg.strategy {
         "terser" | "conservative" => {
             if matches!(ext.as_str(), "ts"|"tsx"|"js"|"jsx"|"mjs"|"cjs") {
-                minify_javascript_core(content)
+                minify_js_oxc(content, file_path, true)
+                    .unwrap_or_else(|| minify_javascript_core(content))
             } else {
                 minify_conservative(content, Some(&grps))
             }

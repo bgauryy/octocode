@@ -535,6 +535,63 @@ pub fn minify_html_quality(content: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| minify_html_core(content))
 }
 
+// ── OXC JS/TS AST minifier ─────────────────────────────────────────────────────────────────────
+
+/// OXC-backed JS/TS minification.
+///
+/// `mangle = true`: rename locals (maximum compression, for full minify path).
+/// `mangle = false`: preserve names (agent-readable, for content-view path).
+///
+/// Returns `None` on parse error so callers can fall back gracefully.
+pub fn minify_js_oxc(content: &str, file_path: &str, mangle: bool) -> Option<String> {
+    use oxc_allocator::Allocator;
+    use oxc_codegen::{Codegen, CodegenOptions, CommentOptions};
+    use oxc_minifier::{CompressOptions, MangleOptions, Minifier, MinifierOptions};
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    let allocator = Allocator::default();
+    let ext = crate::file_extension::get_extension_internal(file_path, true, "js");
+    let source_type = match ext.as_str() {
+        "ts"  => SourceType::ts(),
+        "tsx" => SourceType::tsx(),
+        "jsx" => SourceType::jsx(),
+        "mjs" => SourceType::mjs(),
+        _     => SourceType::default(), // js / cjs
+    };
+
+    let parser_ret = Parser::new(&allocator, content, source_type).parse();
+    // If plain-JS parse failed (e.g. Flow-annotated file with `import type`), retry as TS.
+    let parser_ret = if !parser_ret.errors.is_empty()
+        && matches!(ext.as_str(), "js" | "cjs")
+    {
+        Parser::new(&allocator, content, SourceType::ts()).parse()
+    } else {
+        parser_ret
+    };
+    if !parser_ret.errors.is_empty() { return None; }
+
+    let mut program = parser_ret.program;
+    // Use safest() for compression + mangle for variable renaming.
+    // safest() = keep all code, join vars, comma sequences — no dead-code removal
+    // (avoids OXC 0.95 bug where CompressOptions::default() can produce empty output).
+    Minifier::new(MinifierOptions {
+        mangle:   if mangle { Some(MangleOptions::default()) } else { None },
+        compress: Some(CompressOptions::safest()),
+    }).minify(&allocator, &mut program);
+
+    let codegen_opts = CodegenOptions {
+        minify:   true,
+        comments: CommentOptions { annotation: false, ..CommentOptions::default() },
+        ..CodegenOptions::default()
+    };
+    let result = Codegen::new().with_options(codegen_opts).build(&program).code;
+    // Guard: never return empty output — that signals OXC mangle produced broken code.
+    // Also fall back gracefully if OXC grew the content (shouldn't happen but be safe).
+    if result.is_empty() || result.len() >= content.len() { return None; }
+    Some(result)
+}
+
 pub fn minify_javascript_core(content: &str) -> String {
     let s = remove_comments(content, &["c-style"]);
     let s = collapse_whitespace(&s);

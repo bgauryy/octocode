@@ -314,13 +314,8 @@ const { SIGNATURES_ONLY_HINT, getExtension, minifyContentSync, minifyContentResu
 
 module.exports.SIGNATURES_ONLY_HINT = SIGNATURES_ONLY_HINT
 module.exports.getExtension = getExtension
-module.exports.minifyContentSync   = minifyContentSync
+module.exports.minifyContentSync = minifyContentSync
 module.exports.minifyContentResult = minifyContentResult
-// Async-compatible drop-in: Rust runs sync, wrapped in Promise.resolve()
-module.exports.minifyContent = function minifyContent(content, filePath) {
-  try { return Promise.resolve(minifyContentResult(content, filePath)) }
-  catch (e) { return Promise.reject(e) }
-}
 module.exports.applyMinification = applyMinification
 module.exports.applyContentViewMinification = applyContentViewMinification
 module.exports.removeComments = removeComments
@@ -342,10 +337,18 @@ module.exports.getSupportedSignatureExtensions = getSupportedSignatureExtensions
 module.exports.jsonToYamlString = jsonToYamlString
 module.exports.getMINIFY_CONFIG = getMINIFY_CONFIG
 
-// ── Config / registry (benchmark and tooling compatibility) ──────────────────
-// MINIFY_CONFIG mirrors the TS package shape: { fileTypes: Record<string, ...> }
-module.exports.MINIFY_CONFIG = getMINIFY_CONFIG()
+// ── postbuild additions ──
 
-// SUPPORTED_SIGNATURE_EXTENSIONS matches the TS constant (sorted, frozen array)
+// Async-compatible drop-in for the TS `minifyContent(content, filePath): Promise<MinifyResult>`.
+// Rust runs synchronously; we wrap in Promise.resolve() for drop-in call-site compatibility.
+module.exports.minifyContent = function minifyContent(content, filePath) {
+  try { return Promise.resolve(module.exports.minifyContentResult(content, filePath)) }
+  catch (e) { return Promise.reject(e) }
+}
+
+// MINIFY_CONFIG mirrors the TS package shape: { fileTypes: Record<string, { strategy, comments }> }
+module.exports.MINIFY_CONFIG = module.exports.getMINIFY_CONFIG()
+
+// SUPPORTED_SIGNATURE_EXTENSIONS — sorted, frozen array (matches TS constant)
 module.exports.SUPPORTED_SIGNATURE_EXTENSIONS =
-  Object.freeze(getSupportedSignatureExtensions().sort())
+  Object.freeze(module.exports.getSupportedSignatureExtensions().sort())

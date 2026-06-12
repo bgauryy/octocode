@@ -15,7 +15,9 @@
   "exports": {
     ".": {
       "types":   "./index.d.ts",
-      "require": "./index.js"
+      "import":  "./index.mjs",
+      "require": "./index.js",
+      "default": "./index.mjs"
     }
   },
   "typesVersions": {
@@ -26,6 +28,7 @@
   "files": [
     "*.node",
     "index.js",
+    "index.mjs",
     "index.d.ts",
     "README.md"
   ],
@@ -46,8 +49,8 @@
     }
   },
   "scripts": {
-    "build":        "napi build --platform --release",
-    "build:dev":    "napi build --platform",
+    "build":        "napi build --platform --release && node scripts/postbuild.cjs",
+    "build:dev":    "napi build --platform && node scripts/postbuild.cjs",
     "clean":        "rm -f *.node",
     "test":         "cargo test",
     "test:node":    "vitest run --coverage",

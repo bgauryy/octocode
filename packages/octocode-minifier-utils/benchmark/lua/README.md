@@ -4,9 +4,9 @@ Source sample: `lua/plenary-path.lua`
 
 Strategy: `aggressive`
 
-Agent rating: **8.5/10 (strong)**
+Agent rating: **7.3/10 (good)**
 
-Agent understanding from minified output: **9.5/10 (excellent)**
+Agent understanding from minified output: **9.8/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 23250 | - | - | - |
-| content-view | 19630 | 15.6% | 5.702 ms | 8.5/10 |
-| applyMinification | 16783 | 27.8% | 5.601 ms | 8.5/10 |
-| sync minify | 16783 | 27.8% | 5.786 ms | 8.5/10 |
-| async minify | 16783 | 27.8% | 5.908 ms | 8.5/10 |
-| symbols | 25967 | -11.7% | 1.281 ms | n/a |
+| content-view | 19630 | 15.6% | 5.394 ms | 8.5/10 |
+| applyMinification | 16783 | 27.8% | 5.771 ms | 8.5/10 |
+| sync minify | 16783 | 27.8% | 5.787 ms | 8.5/10 |
+| async minify | 16783 | 27.8% | 5.696 ms | 8.5/10 |
+| symbols | 25967 | -11.7% | 1.37 ms | 5/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 8/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 23250 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 19630 | 15.6% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 16783 | 27.8% | 9.6/10 excellent | 10/10 | 10/10 |
+| standard | 19630 | 15.6% | 9.8/10 excellent | 10/10 | 10/10 |
+| minify | 16783 | 27.8% | 9.9/10 excellent | 10/10 | 10/10 |
 | symbols | 25967 | -11.7% | 9/10 excellent | 10/10 | 10/10 |
 
 ## Notes
 
 - aggressive text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

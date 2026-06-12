@@ -4,9 +4,9 @@ Source sample: `css/bootstrap.css`
 
 Strategy: `aggressive`
 
-Agent rating: **8.3/10 (strong)**
+Agent rating: **8.5/10 (strong)**
 
-Agent understanding from minified output: **9.3/10 (excellent)**
+Agent understanding from minified output: **9.6/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 280311 | - | - | - |
-| content-view | 279205 | 0.4% | 82.386 ms | 8.3/10 |
-| applyMinification | 229667 | 18.1% | 34.596 ms | 8.3/10 |
-| sync minify | 229667 | 18.1% | 31.861 ms | 8.3/10 |
-| async minify | 229667 | 18.1% | 32.052 ms | 8.3/10 |
-| symbols | 82074 | 70.7% | 11.223 ms | n/a |
+| content-view | 279205 | 0.4% | 81.977 ms | 8.3/10 |
+| applyMinification | 229667 | 18.1% | 53.522 ms | 8.3/10 |
+| sync minify | 229667 | 18.1% | 31.214 ms | 8.3/10 |
+| async minify | 229667 | 18.1% | 31.849 ms | 8.3/10 |
+| symbols | 82074 | 70.7% | 11.755 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 6/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 280311 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 279205 | 0.4% | 9.3/10 excellent | 10/10 | 10/10 |
-| minify | 229667 | 18.1% | 9.5/10 excellent | 10/10 | 10/10 |
+| standard | 279205 | 0.4% | 9.6/10 excellent | 10/10 | 10/10 |
+| minify | 229667 | 18.1% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 82074 | 70.7% | 6.7/10 fair | 3.3/10 | 6.7/10 |
 
 ## Notes
 
 - engine-backed or parser-backed path.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

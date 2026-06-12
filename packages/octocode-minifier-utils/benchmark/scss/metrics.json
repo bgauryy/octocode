@@ -9,38 +9,38 @@
   "contentView": {
     "bytes": 6289,
     "cutPercent": 10.9,
-    "durationMs": 1.969
+    "durationMs": 1.778
   },
   "applyMinification": {
     "bytes": 5411,
     "cutPercent": 23.3,
-    "durationMs": 1.956
+    "durationMs": 1.888
   },
   "sync": {
     "bytes": 5411,
     "cutPercent": 23.3,
-    "durationMs": 2.134
+    "durationMs": 1.927
   },
   "async": {
     "bytes": 5411,
     "cutPercent": 23.3,
-    "durationMs": 2.151,
+    "durationMs": 2.004,
     "failed": false,
     "type": "aggressive",
     "reason": null
   },
   "symbols": {
-    "supported": false,
+    "supported": true,
     "returned": true,
     "bytes": 1523,
     "cutPercent": 78.4,
-    "durationMs": 0.311
+    "durationMs": 0.301
   },
   "agentUnderstanding": {
     "output": "standard",
     "bytes": 6289,
     "cutPercent": 10.9,
-    "score": 9.3,
+    "score": 9.6,
     "label": "excellent",
     "syntaxAnchors": {
       "score": 10,
@@ -50,7 +50,7 @@
     "structure": 10,
     "outputHealth": 9,
     "contextBudget": 8,
-    "symbols": 7,
+    "symbols": 10,
     "signals": [
       {
         "name": "standard output is non-empty",
@@ -93,7 +93,7 @@
       "structure": 10,
       "outputHealth": 9,
       "contextBudget": 5,
-      "symbols": 7,
+      "symbols": 10,
       "signals": [
         {
           "name": "none output is exact source",
@@ -113,7 +113,7 @@
       "output": "standard",
       "bytes": 6289,
       "cutPercent": 10.9,
-      "score": 9.3,
+      "score": 9.6,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -123,7 +123,7 @@
       "structure": 10,
       "outputHealth": 9,
       "contextBudget": 8,
-      "symbols": 7,
+      "symbols": 10,
       "signals": [
         {
           "name": "standard output is non-empty",
@@ -155,7 +155,7 @@
       "output": "minify",
       "bytes": 5411,
       "cutPercent": 23.3,
-      "score": 9.3,
+      "score": 9.6,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -165,7 +165,7 @@
       "structure": 10,
       "outputHealth": 9,
       "contextBudget": 8,
-      "symbols": 7,
+      "symbols": 10,
       "signals": [
         {
           "name": "minify output is non-empty",
@@ -238,12 +238,11 @@
   },
   "ratings": {
     "minify": 8.3,
-    "symbols": null,
-    "agent": 8.3,
+    "symbols": 9,
+    "agent": 8.5,
     "label": "strong"
   },
   "notes": [
-    "engine-backed or parser-backed path",
-    "symbols are not implemented for this extension"
+    "engine-backed or parser-backed path"
   ]
 }

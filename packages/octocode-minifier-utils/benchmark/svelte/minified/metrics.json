@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 2664,
       "cutPercent": 0,
-      "durationMs": 0.601
+      "durationMs": 0.542
     },
     "content": "<script>\n  import svelteLogo from './assets/svelte.svg'\n  import viteLogo from './assets/vite.svg'\n  import heroImg from './assets/hero.png'\n  import Counter from './lib/Counter.svelte'\n</script>\n\n<section id=\"center\">\n  <div class=\"hero\">\n    <img src={heroImg} class=\"base\" width=\"170\" height=\"179\" alt=\"\" />\n    <img src={svelteLogo} class=\"framework\" alt=\"Svelte logo\" />\n    <img src={viteLogo} class=\"vite\" alt=\"Vite logo\" />\n  </div>\n  <div>\n    <h1>Get started</h1>\n    <p>Edit <code>src/App.svelte</code> and save to test <code>HMR</code></p>\n  </div>\n  <Counter />\n</section>\n\n<div class=\"ticks\"></div>\n\n<section id=\"next-steps\">\n  <div id=\"docs\">\n    <svg class=\"icon\" role=\"presentation\" aria-hidden=\"true\">\n      <use href=\"/icons.svg#documentation-icon\"></use>\n    </svg>\n    <h2>Documentation</h2>\n    <p>Your questions, answered</p>\n    <ul>\n      <li>\n        <a href=\"https://vite.dev/\" target=\"_blank\" rel=\"noreferrer\">\n          <img class=\"logo\" src={viteLogo} alt=\"\" />\n          Explore Vite\n        </a>\n      </li>\n      <li>\n        <a href=\"https://svelte.dev/\" target=\"_blank\" rel=\"noreferrer\">\n          <img class=\"button-icon\" src={svelteLogo} alt=\"\" />\n          Learn more\n        </a>\n     \n\n... [truncated 864 chars] ...\n\n rel=\"noreferrer\">\n          <svg class=\"button-icon\" role=\"presentation\" aria-hidden=\"true\">\n            <use href=\"/icons.svg#x-icon\"></use>\n          </svg>\n          X.com\n        </a>\n      </li>\n      <li>\n        <a href=\"https://bsky.app/profile/vite.dev\" target=\"_blank\" rel=\"noreferrer\">\n          <svg class=\"button-icon\" role=\"presentation\" aria-hidden=\"true\">\n            <use href=\"/icons.svg#bluesky-icon\"></use>\n          </svg>\n          Bluesky\n        </a>\n      </li>\n    </ul>\n  </div>\n</section>\n\n<div class=\"ticks\"></div>\n<section id=\"spacer\"></section>",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 2096,
       "cutPercent": 21.4,
-      "durationMs": 0.553
+      "durationMs": 0.589
     },
     "content": "<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte'</script><section id=\"center\"><div class=\"hero\"><img src={heroImg}class=\"base\" width=\"170\" height=\"179\" alt=\"\" /><img src={svelteLogo}class=\"framework\" alt=\"Svelte logo\" /><img src={viteLogo}class=\"vite\" alt=\"Vite logo\" /></div><div><h1>Get started</h1><p>Edit<code>src/App.svelte</code> and save to test<code>HMR</code></p></div><Counter /></section><div class=\"ticks\"></div><section id=\"next-steps\"><div id=\"docs\"><svg class=\"icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#documentation-icon\"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href=\"https://vite.dev/\" target=\"_blank\" rel=\"noreferrer\"><img class=\"logo\" src={viteLogo}alt=\"\" /> Explore Vite</a></li><li><a href=\"https://svelte.dev/\" target=\"_blank\" rel=\"noreferrer\"><img class=\"button-icon\" src={svelteLogo}alt=\"\" /> Learn more</a></li></ul></div><div id=\"social\"><svg class=\"icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#social-icon\"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li><a hr\n\n... [truncated 296 chars] ...\n\n\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#discord-icon\"></use></svg> Discord</a></li><li><a href=\"https://x.com/vite_js\" target=\"_blank\" rel=\"noreferrer\"><svg class=\"button-icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#x-icon\"></use></svg> X.com</a></li><li><a href=\"https://bsky.app/profile/vite.dev\" target=\"_blank\" rel=\"noreferrer\"><svg class=\"button-icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#bluesky-icon\"></use></svg> Bluesky</a></li></ul></div></section><div class=\"ticks\"></div><section id=\"spacer\"></section>",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 2096,
       "cutPercent": 21.4,
-      "durationMs": 0.61
+      "durationMs": 0.57
     },
     "content": "<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte'</script><section id=\"center\"><div class=\"hero\"><img src={heroImg}class=\"base\" width=\"170\" height=\"179\" alt=\"\" /><img src={svelteLogo}class=\"framework\" alt=\"Svelte logo\" /><img src={viteLogo}class=\"vite\" alt=\"Vite logo\" /></div><div><h1>Get started</h1><p>Edit<code>src/App.svelte</code> and save to test<code>HMR</code></p></div><Counter /></section><div class=\"ticks\"></div><section id=\"next-steps\"><div id=\"docs\"><svg class=\"icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#documentation-icon\"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href=\"https://vite.dev/\" target=\"_blank\" rel=\"noreferrer\"><img class=\"logo\" src={viteLogo}alt=\"\" /> Explore Vite</a></li><li><a href=\"https://svelte.dev/\" target=\"_blank\" rel=\"noreferrer\"><img class=\"button-icon\" src={svelteLogo}alt=\"\" /> Learn more</a></li></ul></div><div id=\"social\"><svg class=\"icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#social-icon\"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li><a hr\n\n... [truncated 296 chars] ...\n\n\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#discord-icon\"></use></svg> Discord</a></li><li><a href=\"https://x.com/vite_js\" target=\"_blank\" rel=\"noreferrer\"><svg class=\"button-icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#x-icon\"></use></svg> X.com</a></li><li><a href=\"https://bsky.app/profile/vite.dev\" target=\"_blank\" rel=\"noreferrer\"><svg class=\"button-icon\" role=\"presentation\" aria-hidden=\"true\"><use href=\"/icons.svg#bluesky-icon\"></use></svg> Bluesky</a></li></ul></div></section><div class=\"ticks\"></div><section id=\"spacer\"></section>",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 2096,
       "cutPercent": 21.4,
-      "durationMs": 0.636,
+      "durationMs": 0.599,
       "failed": false,
       "type": "aggressive",
       "reason": null

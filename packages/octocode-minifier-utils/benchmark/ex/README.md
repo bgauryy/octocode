@@ -4,9 +4,9 @@ Source sample: `ex/elixir-enum.ex`
 
 Strategy: `aggressive`
 
-Agent rating: **7.8/10 (good)**
+Agent rating: **8.6/10 (strong)**
 
-Agent understanding from minified output: **9.3/10 (excellent)**
+Agent understanding from minified output: **9.6/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 154291 | - | - | - |
-| content-view | 152002 | 1.5% | 24.443 ms | 7.8/10 |
-| applyMinification | 129139 | 16.3% | 25.963 ms | 7.8/10 |
-| sync minify | 129139 | 16.3% | 26.676 ms | 7.8/10 |
-| async minify | 129139 | 16.3% | 26.526 ms | 7.8/10 |
-| symbols | 28 | 100% | 1.202 ms | n/a |
+| content-view | 152002 | 1.5% | 24.207 ms | 7.8/10 |
+| applyMinification | 129139 | 16.3% | 25.871 ms | 7.8/10 |
+| sync minify | 129139 | 16.3% | 26.467 ms | 7.8/10 |
+| async minify | 129139 | 16.3% | 26.252 ms | 7.8/10 |
+| symbols | 28 | 100% | 1.25 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 6/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 154291 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 152002 | 1.5% | 9.3/10 excellent | 10/10 | 10/10 |
-| minify | 129139 | 16.3% | 9.5/10 excellent | 10/10 | 10/10 |
+| standard | 152002 | 1.5% | 9.6/10 excellent | 10/10 | 10/10 |
+| minify | 129139 | 16.3% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 28 | 100% | 6.7/10 fair | 3.3/10 | 8/10 |
 
 ## Notes
 
 - aggressive text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

@@ -4,9 +4,9 @@ Source sample: `erl/erlang-lists.erl`
 
 Strategy: `aggressive`
 
-Agent rating: **7.8/10 (good)**
+Agent rating: **6.8/10 (fair)**
 
-Agent understanding from minified output: **9.4/10 (excellent)**
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 123312 | - | - | - |
-| content-view | 116175 | 5.8% | 25.294 ms | 7.8/10 |
-| applyMinification | 94098 | 23.7% | 27.365 ms | 7.8/10 |
-| sync minify | 94098 | 23.7% | 26.75 ms | 7.8/10 |
-| async minify | 94098 | 23.7% | 26.647 ms | 7.8/10 |
-| symbols | 143752 | -16.6% | 6.452 ms | n/a |
+| content-view | 116175 | 5.8% | 25.635 ms | 7.8/10 |
+| applyMinification | 94098 | 23.7% | 28.05 ms | 7.8/10 |
+| sync minify | 94098 | 23.7% | 26.762 ms | 7.8/10 |
+| async minify | 94098 | 23.7% | 27.78 ms | 7.8/10 |
+| symbols | 143752 | -16.6% | 6.333 ms | 5/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 7/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 123312 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 116175 | 5.8% | 9.4/10 excellent | 10/10 | 10/10 |
-| minify | 94098 | 23.7% | 9.5/10 excellent | 10/10 | 10/10 |
+| standard | 116175 | 5.8% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 94098 | 23.7% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 143752 | -16.6% | 9/10 excellent | 10/10 | 10/10 |
 
 ## Notes
 
 - aggressive text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

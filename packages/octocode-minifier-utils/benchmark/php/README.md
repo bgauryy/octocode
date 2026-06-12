@@ -4,9 +4,9 @@ Source sample: `php/Arr.php`
 
 Strategy: `conservative`
 
-Agent rating: **9/10 (excellent)**
+Agent rating: **9.4/10 (excellent)**
 
-Agent understanding from minified output: **9.4/10 (excellent)**
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 35469 | - | - | - |
-| content-view | 20778 | 41.4% | 11.635 ms | 9/10 |
-| applyMinification | 20842 | 41.2% | 12.139 ms | 9/10 |
-| sync minify | 20842 | 41.2% | 12.393 ms | 9/10 |
-| async minify | 20842 | 41.2% | 12.213 ms | 9/10 |
-| symbols | 4562 | 87.1% | 7.851 ms | n/a |
+| content-view | 20778 | 41.4% | 12.129 ms | 9/10 |
+| applyMinification | 20842 | 41.2% | 12.276 ms | 9/10 |
+| sync minify | 20842 | 41.2% | 12.236 ms | 9/10 |
+| async minify | 20842 | 41.2% | 12.068 ms | 9/10 |
+| symbols | 4562 | 87.1% | 7.539 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 9/10 |
 | context budget | 9/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,13 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 35469 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 20778 | 41.4% | 9.4/10 excellent | 10/10 | 10/10 |
-| minify | 20842 | 41.2% | 9.4/10 excellent | 10/10 | 10/10 |
+| standard | 20778 | 41.4% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 20842 | 41.2% | 9.7/10 excellent | 10/10 | 10/10 |
 | symbols | 4562 | 87.1% | 8.3/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 
 - conservative text strategy.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

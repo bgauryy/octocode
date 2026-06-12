@@ -6,7 +6,7 @@ Strategy: `terser`
 
 Agent rating: **9.4/10 (excellent)**
 
-Agent understanding from minified output: **9.7/10 (excellent)**
+Agent understanding from minified output: **9.9/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3825 | - | - | - |
-| content-view | 3466 | 9.4% | 0.979 ms | 9/10 |
-| applyMinification | 2681 | 29.9% | 0.949 ms | 9/10 |
-| sync minify | 2681 | 29.9% | 0.925 ms | 9/10 |
-| async minify | 2681 | 29.9% | 0.925 ms | 9/10 |
-| symbols | 600 | 84.3% | 5.029 ms | 10/10 |
+| content-view | 2863 | 25.2% | 2.002 ms | 9/10 |
+| applyMinification | 2863 | 25.2% | 0.654 ms | 9/10 |
+| sync minify | 2863 | 25.2% | 0.604 ms | 9/10 |
+| async minify | 2863 | 25.2% | 0.68 ms | 9/10 |
+| symbols | 600 | 84.3% | 4.777 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -35,7 +35,7 @@ Measured from `standard` minified output.
 | syntax anchors | 10/10 (3/3) |
 | delimiter structure | 10/10 |
 | output health | 10/10 |
-| context budget | 7/10 |
+| context budget | 9/10 |
 | symbol context | 10/10 |
 | signals passed | 6/6 |
 
@@ -47,8 +47,8 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 3825 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 3466 | 9.4% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 2681 | 29.9% | 9.9/10 excellent | 10/10 | 10/10 |
+| standard | 2863 | 25.2% | 9.9/10 excellent | 10/10 | 10/10 |
+| minify | 2863 | 25.2% | 9.9/10 excellent | 10/10 | 10/10 |
 | symbols | 600 | 84.3% | 8.2/10 strong | 6.7/10 | 8.6/10 |
 
 ## Notes
@@ -132,105 +132,109 @@ function SidebarEvent({ event }) {
 ## Content-View Excerpt
 
 ```jsx
-import React, { useState } from 'react'
-import { formatDate } from '@fullcalendar/core'
-import FullCalendar from '@fullcalendar/react'
-import dayGridPlugin from '@fullcalendar/daygrid'
-import timeGridPlugin from '@fullcalendar/timegrid'
-import interactionPlugin from '@fullcalendar/interaction'
-import { INITIAL_EVENTS, createEventId } from './event-utils'
+import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
+      <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
+      <div className="demo-app-main">
+    
 
-export default function DemoApp() {
-  const [weekendsVisible, setWeekendsVisible] = useState(true)
-  const [currentEvents, setCurrentEvents] = useState([])
+... [truncated 1063 chars] ...
 
-  function handleWeekendsToggle() {
-    setWeekendsVisible(!weekendsVisible)
-  }
-
-  function handleDateSelect(selectInfo) {
-    let title = prompt('Please enter a new title for your event')
-    let calendarApi = selectInfo.view.calendar
-
-    calendarApi.unselect()
-
-    if (title) {
-      calendarApi.addEvent({
-        id: createEventId(),
-        title,
-        start: selectInfo.startStr,
-        end: selectInfo.endStr,
-        allDay: selectInfo.allDay
-      })
-    }
-  }
-
-  function handleEventClick(clickInfo) {
-    if (confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)) {
-      clickInfo.event.remove()
-    }
-  }
-
-  function handleEvents(events) {
-    setCurrentEvents(ev
-
-... [truncated 1666 chars] ...
-
-={handleWeekendsToggle}
-          ></input>
+abel>
+          <input type="checkbox" checked={weekendsVisible} onChange={handleWeekendsToggle}></input>
           toggle weekends
         </label>
       </div>
-      <div className='demo-app-sidebar-section'>
+      <div className="demo-app-sidebar-section">
         <h2>All Events ({currentEvents.length})</h2>
         <ul>
-          {currentEvents.map((event) => (
-            <SidebarEvent key={event.id} event={event} />
-          ))}
+          {currentEvents.map(event=><SidebarEvent key={event.id} event={event}/>)}
         </ul>
       </div>
-    </div>
-  )
-}
-
-function SidebarEvent({ event }) {
-  return (
-    <li key={event.id}>
-      <b>{formatDate(event.start, {year: 'numeric', month: 'short', day: 'numeric'})}</b>
+    </div>}function SidebarEvent({event}){return<li key={event.id}>
+      <b>{formatDate(event.start,{year:`numeric`,month:`short`,day:`numeric`})}</b>
       <i>{event.title}</i>
-    </li>
-  )
-}
+    </li>}
 ```
 
 ## Apply Minification Excerpt
 
 ```jsx
-import React,{useState}from 'react' import{formatDate}from '@fullcalendar/core' import FullCalendar from '@fullcalendar/react' import dayGridPlugin from '@fullcalendar/daygrid' import timeGridPlugin from '@fullcalendar/timegrid' import interactionPlugin from '@fullcalendar/interaction' import{INITIAL_EVENTS,createEventId}from './event-utils' export default function DemoApp(){const [weekendsVisible,setWeekendsVisible] = useState(true)const [currentEvents,setCurrentEvents] = useState([])function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title = prompt('Please enter a new title for your event')let calendarApi = selectInfo.view.calendar calendarApi.unselect()if(title){calendarApi.addEvent({id: createEventId(),title,start: selectInfo.startStr,end: selectInfo.endStr,allDay: selectInfo.allDay})}}function handleEventClick(clickInfo){if(confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)){clickInfo.event.remove()}}function handleEvents(events){setCurrentEvents(events)}return(<div className='demo-app'> <Sidebar weekendsVisible={weekendsVisible}handleWeekendsToggle={handleWeekendsToggle}currentEvents={currentEvents}/> <div classN
+import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
+      <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
+      <div className="demo-app-main">
+    
 
-... [truncated 881 chars] ...
+... [truncated 1063 chars] ...
 
-<li>Click an event to delete it</li> </ul> </div> <div className='demo-app-sidebar-section'> <label> <input type='checkbox' checked={weekendsVisible}onChange={handleWeekendsToggle}></input> toggle weekends </label> </div> <div className='demo-app-sidebar-section'> <h2>All Events({currentEvents.length})</h2> <ul>{currentEvents.map((event)=>(<SidebarEvent key={event.id}event={event}/>))}</ul> </div> </div>)}function SidebarEvent({event}){return(<li key={event.id}> <b>{formatDate(event.start,{year: 'numeric',month: 'short',day: 'numeric'})}</b> <i>{event.title}</i> </li>)}
+abel>
+          <input type="checkbox" checked={weekendsVisible} onChange={handleWeekendsToggle}></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className="demo-app-sidebar-section">
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map(event=><SidebarEvent key={event.id} event={event}/>)}
+        </ul>
+      </div>
+    </div>}function SidebarEvent({event}){return<li key={event.id}>
+      <b>{formatDate(event.start,{year:`numeric`,month:`short`,day:`numeric`})}</b>
+      <i>{event.title}</i>
+    </li>}
 ```
 
 ## Sync Minify Excerpt
 
 ```jsx
-import React,{useState}from 'react' import{formatDate}from '@fullcalendar/core' import FullCalendar from '@fullcalendar/react' import dayGridPlugin from '@fullcalendar/daygrid' import timeGridPlugin from '@fullcalendar/timegrid' import interactionPlugin from '@fullcalendar/interaction' import{INITIAL_EVENTS,createEventId}from './event-utils' export default function DemoApp(){const [weekendsVisible,setWeekendsVisible] = useState(true)const [currentEvents,setCurrentEvents] = useState([])function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title = prompt('Please enter a new title for your event')let calendarApi = selectInfo.view.calendar calendarApi.unselect()if(title){calendarApi.addEvent({id: createEventId(),title,start: selectInfo.startStr,end: selectInfo.endStr,allDay: selectInfo.allDay})}}function handleEventClick(clickInfo){if(confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)){clickInfo.event.remove()}}function handleEvents(events){setCurrentEvents(events)}return(<div className='demo-app'> <Sidebar weekendsVisible={weekendsVisible}handleWeekendsToggle={handleWeekendsToggle}currentEvents={currentEvents}/> <div classN
+import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
+      <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
+      <div className="demo-app-main">
+    
 
-... [truncated 881 chars] ...
+... [truncated 1063 chars] ...
 
-<li>Click an event to delete it</li> </ul> </div> <div className='demo-app-sidebar-section'> <label> <input type='checkbox' checked={weekendsVisible}onChange={handleWeekendsToggle}></input> toggle weekends </label> </div> <div className='demo-app-sidebar-section'> <h2>All Events({currentEvents.length})</h2> <ul>{currentEvents.map((event)=>(<SidebarEvent key={event.id}event={event}/>))}</ul> </div> </div>)}function SidebarEvent({event}){return(<li key={event.id}> <b>{formatDate(event.start,{year: 'numeric',month: 'short',day: 'numeric'})}</b> <i>{event.title}</i> </li>)}
+abel>
+          <input type="checkbox" checked={weekendsVisible} onChange={handleWeekendsToggle}></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className="demo-app-sidebar-section">
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map(event=><SidebarEvent key={event.id} event={event}/>)}
+        </ul>
+      </div>
+    </div>}function SidebarEvent({event}){return<li key={event.id}>
+      <b>{formatDate(event.start,{year:`numeric`,month:`short`,day:`numeric`})}</b>
+      <i>{event.title}</i>
+    </li>}
 ```
 
 ## Async Minify Excerpt
 
 ```jsx
-import React,{useState}from 'react' import{formatDate}from '@fullcalendar/core' import FullCalendar from '@fullcalendar/react' import dayGridPlugin from '@fullcalendar/daygrid' import timeGridPlugin from '@fullcalendar/timegrid' import interactionPlugin from '@fullcalendar/interaction' import{INITIAL_EVENTS,createEventId}from './event-utils' export default function DemoApp(){const [weekendsVisible,setWeekendsVisible] = useState(true)const [currentEvents,setCurrentEvents] = useState([])function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title = prompt('Please enter a new title for your event')let calendarApi = selectInfo.view.calendar calendarApi.unselect()if(title){calendarApi.addEvent({id: createEventId(),title,start: selectInfo.startStr,end: selectInfo.endStr,allDay: selectInfo.allDay})}}function handleEventClick(clickInfo){if(confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)){clickInfo.event.remove()}}function handleEvents(events){setCurrentEvents(events)}return(<div className='demo-app'> <Sidebar weekendsVisible={weekendsVisible}handleWeekendsToggle={handleWeekendsToggle}currentEvents={currentEvents}/> <div classN
+import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
+      <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
+      <div className="demo-app-main">
+    
 
-... [truncated 881 chars] ...
+... [truncated 1063 chars] ...
 
-<li>Click an event to delete it</li> </ul> </div> <div className='demo-app-sidebar-section'> <label> <input type='checkbox' checked={weekendsVisible}onChange={handleWeekendsToggle}></input> toggle weekends </label> </div> <div className='demo-app-sidebar-section'> <h2>All Events({currentEvents.length})</h2> <ul>{currentEvents.map((event)=>(<SidebarEvent key={event.id}event={event}/>))}</ul> </div> </div>)}function SidebarEvent({event}){return(<li key={event.id}> <b>{formatDate(event.start,{year: 'numeric',month: 'short',day: 'numeric'})}</b> <i>{event.title}</i> </li>)}
+abel>
+          <input type="checkbox" checked={weekendsVisible} onChange={handleWeekendsToggle}></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className="demo-app-sidebar-section">
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map(event=><SidebarEvent key={event.id} event={event}/>)}
+        </ul>
+      </div>
+    </div>}function SidebarEvent({event}){return<li key={event.id}>
+      <b>{formatDate(event.start,{year:`numeric`,month:`short`,day:`numeric`})}</b>
+      <i>{event.title}</i>
+    </li>}
 ```
 
 ## Symbols

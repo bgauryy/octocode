@@ -4,9 +4,9 @@ Source sample: `svelte/vite-app.svelte`
 
 Strategy: `aggressive`
 
-Agent rating: **8.3/10 (strong)**
+Agent rating: **8.9/10 (strong)**
 
-Agent understanding from minified output: **9.2/10 (excellent)**
+Agent understanding from minified output: **9.5/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 2665 | - | - | - |
-| content-view | 2664 | 0% | 0.601 ms | 8.3/10 |
-| applyMinification | 2096 | 21.4% | 0.553 ms | 8.3/10 |
-| sync minify | 2096 | 21.4% | 0.61 ms | 8.3/10 |
-| async minify | 2096 | 21.4% | 0.636 ms | 8.3/10 |
-| symbols | 343 | 87.1% | 14.144 ms | n/a |
+| content-view | 2664 | 0% | 0.542 ms | 8.3/10 |
+| applyMinification | 2096 | 21.4% | 0.589 ms | 8.3/10 |
+| sync minify | 2096 | 21.4% | 0.57 ms | 8.3/10 |
+| async minify | 2096 | 21.4% | 0.599 ms | 8.3/10 |
+| symbols | 343 | 87.1% | 14.839 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 5/10 |
-| symbol context | 7/10 |
+| symbol context | 10/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,15 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 2665 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 2664 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
-| minify | 2096 | 21.4% | 9.5/10 excellent | 10/10 | 10/10 |
+| standard | 2664 | 0% | 9.5/10 excellent | 10/10 | 10/10 |
+| minify | 2096 | 21.4% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 343 | 87.1% | 8.1/10 strong | 6.7/10 | 8/10 |
 
 ## Notes
 
 - engine-backed or parser-backed path.
 - content-view kept original because the readable output was not shorter.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 

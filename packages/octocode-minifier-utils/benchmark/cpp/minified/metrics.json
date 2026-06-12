@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 22759,
       "cutPercent": 30.2,
-      "durationMs": 6.976
+      "durationMs": 7.216
     },
     "content": "#include \"llvm/Support/raw_ostream.h\"\n#include \"llvm/ADT/StringExtras.h\"\n#include \"llvm/Config/config.h\"\n#include \"llvm/Support/AutoConvert.h\"\n#include \"llvm/Support/Compiler.h\"\n#include \"llvm/Support/Duration.h\"\n#include \"llvm/Support/ErrorHandling.h\"\n#include \"llvm/Support/FileSystem.h\"\n#include \"llvm/Support/Format.h\"\n#include \"llvm/Support/FormatVariadic.h\"\n#include \"llvm/Support/IOSandbox.h\"\n#include \"llvm/Support/MathExtras.h\"\n#include \"llvm/Support/NativeFormatting.h\"\n#include \"llvm/Support/Process.h\"\n#include \"llvm/Support/Program.h\"\n#include <algorithm>\n#include <cerrno>\n#include <cstdio>\n#include <sys/stat.h>\n\n# include <fcntl.h>\n\n#if defined(HAVE_UNISTD_H)\n# include <unistd.h>\n#endif\n\n#if defined(__CYGWIN__)\n#include <io.h>\n#endif\n\n#if defined(_MSC_VER)\n#include <io.h>\n#ifndef STDIN_FILENO\n# define STDIN_FILENO 0\n#endif\n#ifndef STDOUT_FILENO\n# define STDOUT_FILENO 1\n#endif\n#ifndef STDERR_FILENO\n# define STDERR_FILENO 2\n#endif\n#endif\n\n#ifdef _WIN32\n#include \"llvm/Support/ConvertUTF.h\"\n#include \"llvm/Support/Signals.h\"\n#include \"llvm/Support/Windows/WindowsSupport.h\"\n#endif\n\nusing namespace llvm;\n\nraw_ostream::~raw_ostream() {\n\n  assert(OutBufCur == OutBufStart &&\n         \"raw_ostream destructor\n\n... [truncated 20959 chars] ...\n\ne + \".temp-stream-%%%%%%\", Mode);\n  if (!Temp)\n    return createFileError(OutputFileName, Temp.takeError());\n\n  raw_fd_ostream Out(Temp->FD, false);\n\n#if defined(__MVS__)\n  if (auto EC = llvm::copyFileTagAttributes(OutputFileName.str(), Temp->FD)) {\n    if (EC != std::errc::no_such_file_or_directory)\n      return createFileError(OutputFileName, EC);\n  }\n#endif\n\n  if (Error E = Write(Out)) {\n    if (Error DiscardError = Temp->discard())\n      return joinErrors(std::move(E), std::move(DiscardError));\n    return E;\n  }\n  Out.flush();\n\n  return Temp->keep(OutputFileName);\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 22815,
       "cutPercent": 30.1,
-      "durationMs": 6.552
+      "durationMs": 6.801
     },
     "content": "\n\n#include \"llvm/Support/raw_ostream.h\"\n#include \"llvm/ADT/StringExtras.h\"\n#include \"llvm/Config/config.h\"\n#include \"llvm/Support/AutoConvert.h\"\n#include \"llvm/Support/Compiler.h\"\n#include \"llvm/Support/Duration.h\"\n#include \"llvm/Support/ErrorHandling.h\"\n#include \"llvm/Support/FileSystem.h\"\n#include \"llvm/Support/Format.h\"\n#include \"llvm/Support/FormatVariadic.h\"\n#include \"llvm/Support/IOSandbox.h\"\n#include \"llvm/Support/MathExtras.h\"\n#include \"llvm/Support/NativeFormatting.h\"\n#include \"llvm/Support/Process.h\"\n#include \"llvm/Support/Program.h\"\n#include <algorithm>\n#include <cerrno>\n#include <cstdio>\n#include <sys/stat.h>\n\n\n# include <fcntl.h>\n\n#if defined(HAVE_UNISTD_H)\n# include <unistd.h>\n#endif\n\n#if defined(__CYGWIN__)\n#include <io.h>\n#endif\n\n#if defined(_MSC_VER)\n#include <io.h>\n#ifndef STDIN_FILENO\n# define STDIN_FILENO 0\n#endif\n#ifndef STDOUT_FILENO\n# define STDOUT_FILENO 1\n#endif\n#ifndef STDERR_FILENO\n# define STDERR_FILENO 2\n#endif\n#endif\n\n#ifdef _WIN32\n#include \"llvm/Support/ConvertUTF.h\"\n#include \"llvm/Support/Signals.h\"\n#include \"llvm/Support/Windows/WindowsSupport.h\"\n#endif\n\nusing namespace llvm;\n\nraw_ostream::~raw_ostream() {\n\n\n  assert(OutBufCur == OutBufStart &&\n         \"raw_ostream destru\n\n... [truncated 21015 chars] ...\n\ne + \".temp-stream-%%%%%%\", Mode);\n  if (!Temp)\n    return createFileError(OutputFileName, Temp.takeError());\n\n  raw_fd_ostream Out(Temp->FD, false);\n\n#if defined(__MVS__)\n  if (auto EC = llvm::copyFileTagAttributes(OutputFileName.str(), Temp->FD)) {\n    if (EC != std::errc::no_such_file_or_directory)\n      return createFileError(OutputFileName, EC);\n  }\n#endif\n\n  if (Error E = Write(Out)) {\n    if (Error DiscardError = Temp->discard())\n      return joinErrors(std::move(E), std::move(DiscardError));\n    return E;\n  }\n  Out.flush();\n\n  return Temp->keep(OutputFileName);\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 22815,
       "cutPercent": 30.1,
-      "durationMs": 6.825
+      "durationMs": 6.64
     },
     "content": "\n\n#include \"llvm/Support/raw_ostream.h\"\n#include \"llvm/ADT/StringExtras.h\"\n#include \"llvm/Config/config.h\"\n#include \"llvm/Support/AutoConvert.h\"\n#include \"llvm/Support/Compiler.h\"\n#include \"llvm/Support/Duration.h\"\n#include \"llvm/Support/ErrorHandling.h\"\n#include \"llvm/Support/FileSystem.h\"\n#include \"llvm/Support/Format.h\"\n#include \"llvm/Support/FormatVariadic.h\"\n#include \"llvm/Support/IOSandbox.h\"\n#include \"llvm/Support/MathExtras.h\"\n#include \"llvm/Support/NativeFormatting.h\"\n#include \"llvm/Support/Process.h\"\n#include \"llvm/Support/Program.h\"\n#include <algorithm>\n#include <cerrno>\n#include <cstdio>\n#include <sys/stat.h>\n\n\n# include <fcntl.h>\n\n#if defined(HAVE_UNISTD_H)\n# include <unistd.h>\n#endif\n\n#if defined(__CYGWIN__)\n#include <io.h>\n#endif\n\n#if defined(_MSC_VER)\n#include <io.h>\n#ifndef STDIN_FILENO\n# define STDIN_FILENO 0\n#endif\n#ifndef STDOUT_FILENO\n# define STDOUT_FILENO 1\n#endif\n#ifndef STDERR_FILENO\n# define STDERR_FILENO 2\n#endif\n#endif\n\n#ifdef _WIN32\n#include \"llvm/Support/ConvertUTF.h\"\n#include \"llvm/Support/Signals.h\"\n#include \"llvm/Support/Windows/WindowsSupport.h\"\n#endif\n\nusing namespace llvm;\n\nraw_ostream::~raw_ostream() {\n\n\n  assert(OutBufCur == OutBufStart &&\n         \"raw_ostream destru\n\n... [truncated 21015 chars] ...\n\ne + \".temp-stream-%%%%%%\", Mode);\n  if (!Temp)\n    return createFileError(OutputFileName, Temp.takeError());\n\n  raw_fd_ostream Out(Temp->FD, false);\n\n#if defined(__MVS__)\n  if (auto EC = llvm::copyFileTagAttributes(OutputFileName.str(), Temp->FD)) {\n    if (EC != std::errc::no_such_file_or_directory)\n      return createFileError(OutputFileName, EC);\n  }\n#endif\n\n  if (Error E = Write(Out)) {\n    if (Error DiscardError = Temp->discard())\n      return joinErrors(std::move(E), std::move(DiscardError));\n    return E;\n  }\n  Out.flush();\n\n  return Temp->keep(OutputFileName);\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 22815,
       "cutPercent": 30.1,
-      "durationMs": 6.821,
+      "durationMs": 6.718,
       "failed": false,
       "type": "conservative",
       "reason": null

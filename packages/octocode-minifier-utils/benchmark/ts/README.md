@@ -4,7 +4,7 @@ Source sample: `ts/00-typescript-core.ts`
 
 Strategy: `conservative`
 
-Agent rating: **9.3/10 (excellent)**
+Agent rating: **9/10 (excellent)**
 
 Agent understanding from minified output: **9.7/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 92419 | - | - | - |
-| content-view | 65054 | 29.6% | 21.304 ms | 9.5/10 |
-| applyMinification | 51154 | 44.6% | 21.512 ms | 9.5/10 |
-| sync minify | 51154 | 44.6% | 23.033 ms | 9.5/10 |
-| async minify | 51154 | 44.6% | 21.205 ms | 9.5/10 |
-| symbols | 28507 | 69.2% | 51.592 ms | 9/10 |
+| content-view | 69160 | 25.2% | 17.796 ms | 9/10 |
+| applyMinification | 69160 | 25.2% | 21.314 ms | 9/10 |
+| sync minify | 69160 | 25.2% | 21.674 ms | 9/10 |
+| async minify | 69160 | 25.2% | 21.866 ms | 9/10 |
+| symbols | 28507 | 69.2% | 54.738 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -47,8 +47,8 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 92419 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 65054 | 29.6% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 51154 | 44.6% | 9.7/10 excellent | 10/10 | 10/10 |
+| standard | 69160 | 25.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 69160 | 25.2% | 9.7/10 excellent | 10/10 | 10/10 |
 | symbols | 28507 | 69.2% | 9.3/10 excellent | 10/10 | 7.4/10 |
 
 ## Notes
@@ -126,103 +126,153 @@ export function isNodeLikeSystem(): boolean {
 ## Content-View Excerpt
 
 ```ts
-import {
-    CharacterCodes,
-    Comparer,
-    Comparison,
-    Debug,
-    EqualityComparer,
-    MapLike,
-    Queue,
-    SortedArray,
-    SortedReadonlyArray,
-    TextSpan,
-} from "./_namespaces/ts.js";
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan}from"./_namespaces/ts.js";
+/* eslint-disable @typescript-eslint/prefer-for-of */
+/** @internal */
+export const emptyArray:never[]=[] as never[];
+/** @internal */
+export const emptyMap:ReadonlyMap<never,never>=new Map;
+/** @internal */
+export function length(array:readonly any[]|undefined): number{return array===void 0?0:array.length}
+/**
+* Iterates through 'array' by index and performs the callback on each element of array until the callback
+* returns a truthy value, then returns that value.
+* If no such value is found, the callback is applied to each element of array and undefined is returned.
+*
+* @internal
+*/
+export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=0;i<array.length;i++){let result=callback(array[i],i);if(result)return result}}
+/**
+* Like `forEach`, but iterates in reverse order.
+*
+* @internal
+*/
+export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-export const emptyArray: never[] = [] as never[];
+... [truncated 67356 chars] ...
 
-export const emptyMap: ReadonlyMap<never, never> = new Map<never, never>();
-
-export function length(array: readonly any[] | undefined): number {
-    return array !== undefined ? array.length : 0;
-}
-
-export function forEach<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {
-    if (array !== undefined) {
-        for (let i = 0; i < array.length; i++) {
-            const result = callback(array[i], i);
-            if (result) {
-                return result;
-            }
-        }
-    }
-    return undefined;
-}
-
-export function forEachRight<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {
-    if (array !== undefined) {
-        for (let i = array.length - 1; i >= 0; i--) {
-            const result = callback(array[i], i);
-            if (result) {
-                return result;
-            }
-        }
-    }
-    return undefined;
-}
-
-expor
-
-... [truncated 63254 chars] ...
-
-ction skipWhile<T, U extends T>(array: readonly T[] | undefined, predicate: (element: T) => element is U): Exclude<T, U>[] | undefined {
-    if (array !== undefined) {
-        const len = array.length;
-        let index = 0;
-        while (index < len && predicate(array[index])) {
-            index++;
-        }
-        return array.slice(index) as Exclude<T, U>[];
-    }
-}
-
-export function isNodeLikeSystem(): boolean {
-
-    return typeof process !== "undefined"
-        && !!process.nextTick
-        && !(process as any).browser
-        && typeof require !== "undefined";
-}
+clude<T,U>[]|undefined;
+/** @internal */
+export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
+/** @internal */
+export function isNodeLikeSystem(): boolean{
+// This is defined here rather than in sys.ts to prevent a cycle from its
+// use in performanceCore.ts.
+return typeof process<`u`&&!!process.nextTick&&!(process as any).browser&&typeof require<`u`}
 ```
 
 ## Apply Minification Excerpt
 
 ```ts
-import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan,}from "./_namespaces/ts.js";export const emptyArray: never[] = [] as never[];export const emptyMap: ReadonlyMap<never,never> = new Map<never,never>();export function length(array: readonly any[] | undefined): number{return array !== undefined ? array.length: 0;}export function forEach<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function forEachRight<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = array.length - 1;i >= 0;i--){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function firstDefined<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array === undefined){return undefined;}for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result !== undefined){return result;}}r
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan}from"./_namespaces/ts.js";
+/* eslint-disable @typescript-eslint/prefer-for-of */
+/** @internal */
+export const emptyArray:never[]=[] as never[];
+/** @internal */
+export const emptyMap:ReadonlyMap<never,never>=new Map;
+/** @internal */
+export function length(array:readonly any[]|undefined): number{return array===void 0?0:array.length}
+/**
+* Iterates through 'array' by index and performs the callback on each element of array until the callback
+* returns a truthy value, then returns that value.
+* If no such value is found, the callback is applied to each element of array and undefined is returned.
+*
+* @internal
+*/
+export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=0;i<array.length;i++){let result=callback(array[i],i);if(result)return result}}
+/**
+* Like `forEach`, but iterates in reverse order.
+*
+* @internal
+*/
+export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 49354 chars] ...
+... [truncated 67356 chars] ...
 
-ds T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined;export function skipWhile<T,U extends T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined{if(array !== undefined){const len = array.length;let index = 0;while(index < len && predicate(array[index])){index++;}return array.slice(index)as Exclude<T,U>[];}}export function isNodeLikeSystem(): boolean{return typeof process !== "undefined" && !!process.nextTick && !(process as any).browser && typeof require !== "undefined";}
+clude<T,U>[]|undefined;
+/** @internal */
+export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
+/** @internal */
+export function isNodeLikeSystem(): boolean{
+// This is defined here rather than in sys.ts to prevent a cycle from its
+// use in performanceCore.ts.
+return typeof process<`u`&&!!process.nextTick&&!(process as any).browser&&typeof require<`u`}
 ```
 
 ## Sync Minify Excerpt
 
 ```ts
-import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan,}from "./_namespaces/ts.js";export const emptyArray: never[] = [] as never[];export const emptyMap: ReadonlyMap<never,never> = new Map<never,never>();export function length(array: readonly any[] | undefined): number{return array !== undefined ? array.length: 0;}export function forEach<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function forEachRight<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = array.length - 1;i >= 0;i--){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function firstDefined<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array === undefined){return undefined;}for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result !== undefined){return result;}}r
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan}from"./_namespaces/ts.js";
+/* eslint-disable @typescript-eslint/prefer-for-of */
+/** @internal */
+export const emptyArray:never[]=[] as never[];
+/** @internal */
+export const emptyMap:ReadonlyMap<never,never>=new Map;
+/** @internal */
+export function length(array:readonly any[]|undefined): number{return array===void 0?0:array.length}
+/**
+* Iterates through 'array' by index and performs the callback on each element of array until the callback
+* returns a truthy value, then returns that value.
+* If no such value is found, the callback is applied to each element of array and undefined is returned.
+*
+* @internal
+*/
+export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=0;i<array.length;i++){let result=callback(array[i],i);if(result)return result}}
+/**
+* Like `forEach`, but iterates in reverse order.
+*
+* @internal
+*/
+export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 49354 chars] ...
+... [truncated 67356 chars] ...
 
-ds T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined;export function skipWhile<T,U extends T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined{if(array !== undefined){const len = array.length;let index = 0;while(index < len && predicate(array[index])){index++;}return array.slice(index)as Exclude<T,U>[];}}export function isNodeLikeSystem(): boolean{return typeof process !== "undefined" && !!process.nextTick && !(process as any).browser && typeof require !== "undefined";}
+clude<T,U>[]|undefined;
+/** @internal */
+export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
+/** @internal */
+export function isNodeLikeSystem(): boolean{
+// This is defined here rather than in sys.ts to prevent a cycle from its
+// use in performanceCore.ts.
+return typeof process<`u`&&!!process.nextTick&&!(process as any).browser&&typeof require<`u`}
 ```
 
 ## Async Minify Excerpt
 
 ```ts
-import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan,}from "./_namespaces/ts.js";export const emptyArray: never[] = [] as never[];export const emptyMap: ReadonlyMap<never,never> = new Map<never,never>();export function length(array: readonly any[] | undefined): number{return array !== undefined ? array.length: 0;}export function forEach<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function forEachRight<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = array.length - 1;i >= 0;i--){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function firstDefined<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array === undefined){return undefined;}for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result !== undefined){return result;}}r
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan}from"./_namespaces/ts.js";
+/* eslint-disable @typescript-eslint/prefer-for-of */
+/** @internal */
+export const emptyArray:never[]=[] as never[];
+/** @internal */
+export const emptyMap:ReadonlyMap<never,never>=new Map;
+/** @internal */
+export function length(array:readonly any[]|undefined): number{return array===void 0?0:array.length}
+/**
+* Iterates through 'array' by index and performs the callback on each element of array until the callback
+* returns a truthy value, then returns that value.
+* If no such value is found, the callback is applied to each element of array and undefined is returned.
+*
+* @internal
+*/
+export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=0;i<array.length;i++){let result=callback(array[i],i);if(result)return result}}
+/**
+* Like `forEach`, but iterates in reverse order.
+*
+* @internal
+*/
+export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 49354 chars] ...
+... [truncated 67356 chars] ...
 
-ds T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined;export function skipWhile<T,U extends T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined{if(array !== undefined){const len = array.length;let index = 0;while(index < len && predicate(array[index])){index++;}return array.slice(index)as Exclude<T,U>[];}}export function isNodeLikeSystem(): boolean{return typeof process !== "undefined" && !!process.nextTick && !(process as any).browser && typeof require !== "undefined";}
+clude<T,U>[]|undefined;
+/** @internal */
+export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
+/** @internal */
+export function isNodeLikeSystem(): boolean{
+// This is defined here rather than in sys.ts to prevent a cycle from its
+// use in performanceCore.ts.
+return typeof process<`u`&&!!process.nextTick&&!(process as any).browser&&typeof require<`u`}
 ```
 
 ## Symbols

@@ -8,13 +8,13 @@ the generator to recreate reports from a local corpus.
 
 ## Summary
 
-- Agent-context minifier rating: **8.24/10**
-- Minify rating: **8.27/10**
-- Agent understanding from minified output: **9.38/10**
-- Agent usefulness across output levels: **9.43/10**
-- Symbols rating where supported: **8.31/10** (16/16 returned)
-- Average cuts: content-view 24.1%, apply 31.3%, async 31.3%
-- Rating buckets: good 17, strong 11, excellent 15, fair 2, needs work 1
+- Agent-context minifier rating: **8.29/10**
+- Minify rating: **8.25/10**
+- Agent understanding from minified output: **9.5/10**
+- Agent usefulness across output levels: **9.54/10**
+- Symbols rating where supported: **8.6/10** (31/31 returned)
+- Average cuts: content-view 25.8%, apply 30.6%, async 30.6%
+- Rating buckets: good 14, strong 12, excellent 16, fair 3, needs work 1
 
 ## Real README Minification Rating
 
@@ -48,50 +48,50 @@ Rating buckets: excellent 42, strong 3, good 1
 | Ext | Format | Understanding | Syntax anchors | Structure | Output health | Context budget | Symbol context | Signals |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `c` | C | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 10/10 | 6/6 |
-| `cjs` | CommonJS | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 10/10 | 6/6 |
+| `cjs` | CommonJS | 10/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 10/10 | 6/6 |
 | `clj` | Clojure | 9.1/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 6/10 | 7/10 | 6/6 |
 | `cpp` | C++ | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
 | `cs` | C# | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
-| `css` | CSS | 9.3/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 7/10 | 6/6 |
+| `css` | CSS | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 10/10 | 6/6 |
 | `dart` | Dart | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 7/10 | 6/6 |
-| `erl` | Erlang | 9.4/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 7/10 | 6/6 |
-| `ex` | Elixir | 9.3/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 7/10 | 6/6 |
+| `erl` | Erlang | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 10/10 | 6/6 |
+| `ex` | Elixir | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 10/10 | 6/6 |
 | `go` | Go | 9.9/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 9/10 | 10/10 | 6/6 |
 | `graphql` | GraphQL | 9.4/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 7/10 | 6/6 |
 | `h` | C Header | 9.9/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 9/10 | 10/10 | 6/6 |
 | `hpp` | C++ Header | 9.8/10 excellent | 10/10 (3/3) | 9.6/10 | 10/10 | 9/10 | 10/10 | 6/6 |
-| `hs` | Haskell | 9.3/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 8/10 | 7/10 | 6/6 |
-| `html` | HTML | 9.2/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 7/10 | 6/6 |
+| `hs` | Haskell | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 8/10 | 10/10 | 6/6 |
+| `html` | HTML | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 10/10 | 6/6 |
 | `ini` | INI | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 7/10 | 6/6 |
 | `java` | Java | 9.8/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 10/10 | 10/10 | 6/6 |
 | `js` | JavaScript | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 7/10 | 10/10 | 6/6 |
 | `json` | JSON | 9.2/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 7/10 | 6/6 |
 | `jsonc` | JSONC | 9.2/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 7/10 | 6/6 |
-| `jsx` | JSX | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 10/10 | 6/6 |
-| `kt` | Kotlin | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 10/10 | 7/10 | 6/6 |
-| `lua` | Lua | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 7/10 | 6/6 |
+| `jsx` | JSX | 9.9/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 9/10 | 10/10 | 6/6 |
+| `kt` | Kotlin | 9.8/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 10/10 | 10/10 | 6/6 |
+| `lua` | Lua | 9.8/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 10/10 | 6/6 |
 | `md` | Markdown | 9.2/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 7/10 | 6/6 |
-| `mjs` | ESM JavaScript | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 10/10 | 6/6 |
-| `php` | PHP | 9.4/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 7/10 | 6/6 |
+| `mjs` | ESM JavaScript | 9.9/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 9/10 | 10/10 | 6/6 |
+| `php` | PHP | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
 | `pl` | Perl | 8.2/10 strong | 6.7/10 (2/3) | 10/10 | 10/10 | 8/10 | 7/10 | 6/6 |
 | `pm` | Perl Module | 8.1/10 strong | 6.7/10 (2/3) | 10/10 | 10/10 | 7/10 | 7/10 | 6/6 |
 | `proto` | Protocol Buffers | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 7/10 | 6/6 |
 | `py` | Python | 9.8/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 10/10 | 6/6 |
 | `r` | R | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 10/10 | 7/10 | 6/6 |
-| `rb` | Ruby | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 7/10 | 6/6 |
+| `rb` | Ruby | 10/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 10/10 | 6/6 |
 | `rs` | Rust | 10/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 10/10 | 6/6 |
 | `rst` | reStructuredText | 8/10 strong | 6.7/10 (2/3) | 10/10 | 10/10 | 6/10 | 7/10 | 6/6 |
-| `scala` | Scala | 9.3/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 8/10 | 7/10 | 6/6 |
-| `scss` | SCSS | 9.3/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 8/10 | 7/10 | 6/6 |
+| `scala` | Scala | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 8/10 | 10/10 | 6/6 |
+| `scss` | SCSS | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 8/10 | 10/10 | 6/6 |
 | `sh` | Shell | 9.3/10 excellent | 10/10 (3/3) | 9.4/10 | 9/10 | 6/10 | 10/10 | 6/6 |
-| `sql` | SQL | 9.4/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 7/10 | 6/6 |
-| `svelte` | Svelte | 9.2/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 7/10 | 6/6 |
-| `swift` | Swift | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 7/10 | 6/6 |
+| `sql` | SQL | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
+| `svelte` | Svelte | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 5/10 | 10/10 | 6/6 |
+| `swift` | Swift | 10/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 10/10 | 10/10 | 6/6 |
 | `toml` | TOML | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 9/10 | 7/10 | 6/6 |
 | `ts` | TypeScript | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
 | `tsx` | TSX | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
 | `vb` | Visual Basic | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 7/10 | 6/6 |
-| `vue` | Vue | 7.6/10 good | 6.7/10 (2/3) | 8/10 | 10/10 | 6/10 | 7/10 | 6/6 |
+| `vue` | Vue | 7.9/10 good | 6.7/10 (2/3) | 8/10 | 10/10 | 6/10 | 10/10 | 6/6 |
 | `yml` | YAML | 9.2/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 7/10 | 7/10 | 6/6 |
 
 ## Agent Observation By Output Level
@@ -104,57 +104,57 @@ navigation skeleton when available.
 | Level | Samples | Avg score | Avg cut | Buckets |
 | --- | ---: | ---: | ---: | --- |
 | none | 46 | 10/10 | 0% | excellent 46 |
-| standard | 46 | 9.38/10 | 24.06% | excellent 42, strong 3, good 1 |
-| minify | 46 | 9.42/10 | 31.34% | excellent 41, strong 4, good 1 |
+| standard | 46 | 9.5/10 | 25.75% | excellent 42, strong 3, good 1 |
+| minify | 46 | 9.52/10 | 30.57% | excellent 41, strong 5 |
 | symbols | 46 | 8.31/10 | 53.29% | strong 18, excellent 16, fair 7, good 5 |
 
 | Ext | Format | none | standard | minify | symbols |
 | --- | --- | ---: | ---: | ---: | ---: |
 | `c` | C | 10/10 excellent (0%) | 9.7/10 excellent (3.8%) | 9.7/10 excellent (3.8%) | 8.2/10 strong (68.5%) |
-| `cjs` | CommonJS | 10/10 excellent (0%) | 9.7/10 excellent (4.8%) | 9.9/10 excellent (43.5%) | 9/10 excellent (-19.1%) |
+| `cjs` | CommonJS | 10/10 excellent (0%) | 10/10 excellent (49.6%) | 10/10 excellent (49.6%) | 9/10 excellent (-19.1%) |
 | `clj` | Clojure | 10/10 excellent (0%) | 9.1/10 excellent (0.6%) | 8/10 strong (17%) | 8.8/10 strong (-13.1%) |
 | `cpp` | C++ | 10/10 excellent (0%) | 9.7/10 excellent (30.2%) | 9.7/10 excellent (30.1%) | 9.3/10 excellent (76.4%) |
 | `cs` | C# | 10/10 excellent (0%) | 9.7/10 excellent (28.3%) | 9.7/10 excellent (28.2%) | 8/10 strong (52.7%) |
-| `css` | CSS | 10/10 excellent (0%) | 9.3/10 excellent (0.4%) | 9.5/10 excellent (18.1%) | 6.7/10 fair (70.7%) |
+| `css` | CSS | 10/10 excellent (0%) | 9.6/10 excellent (0.4%) | 9.8/10 excellent (18.1%) | 6.7/10 fair (70.7%) |
 | `dart` | Dart | 10/10 excellent (0%) | 9.5/10 excellent (85.5%) | 9.5/10 excellent (85.3%) | 8.5/10 strong (98.8%) |
-| `erl` | Erlang | 10/10 excellent (0%) | 9.4/10 excellent (5.8%) | 9.5/10 excellent (23.7%) | 9/10 excellent (-16.6%) |
-| `ex` | Elixir | 10/10 excellent (0%) | 9.3/10 excellent (1.5%) | 9.5/10 excellent (16.3%) | 6.7/10 fair (100%) |
+| `erl` | Erlang | 10/10 excellent (0%) | 9.7/10 excellent (5.8%) | 9.8/10 excellent (23.7%) | 9/10 excellent (-16.6%) |
+| `ex` | Elixir | 10/10 excellent (0%) | 9.6/10 excellent (1.5%) | 9.8/10 excellent (16.3%) | 6.7/10 fair (100%) |
 | `go` | Go | 10/10 excellent (0%) | 9.9/10 excellent (34.1%) | 9.9/10 excellent (33.9%) | 9.3/10 excellent (86.8%) |
 | `graphql` | GraphQL | 10/10 excellent (0%) | 9.4/10 excellent (3.2%) | 9.4/10 excellent (3.1%) | 9.9/10 excellent (35.4%) |
 | `h` | C Header | 10/10 excellent (0%) | 9.9/10 excellent (39%) | 9.9/10 excellent (38.9%) | 9.5/10 excellent (41.1%) |
 | `hpp` | C++ Header | 10/10 excellent (0%) | 9.8/10 excellent (38.3%) | 9.8/10 excellent (38.2%) | 9.6/10 excellent (39.3%) |
-| `hs` | Haskell | 10/10 excellent (0%) | 9.3/10 excellent (12.3%) | 9.3/10 excellent (12.2%) | 7.8/10 good (81.9%) |
-| `html` | HTML | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.5/10 excellent (13.5%) | 8.1/10 strong (95.4%) |
+| `hs` | Haskell | 10/10 excellent (0%) | 9.6/10 excellent (12.3%) | 9.6/10 excellent (12.2%) | 7.8/10 good (81.9%) |
+| `html` | HTML | 10/10 excellent (0%) | 9.5/10 excellent (0%) | 9.8/10 excellent (13.5%) | 8.1/10 strong (95.4%) |
 | `ini` | INI | 10/10 excellent (0%) | 9.5/10 excellent (23.6%) | 9.5/10 excellent (23.5%) | 6.3/10 fair (-14.5%) |
 | `java` | Java | 10/10 excellent (0%) | 9.8/10 excellent (64.8%) | 9.8/10 excellent (64.7%) | 7.8/10 good (87.3%) |
 | `js` | JavaScript | 10/10 excellent (0%) | 9.5/10 excellent (9.6%) | 9.6/10 excellent (20.9%) | 9.6/10 excellent (16%) |
 | `json` | JSON | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.6/10 excellent (29%) | 7.1/10 good (99.6%) |
 | `jsonc` | JSONC | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.5/10 excellent (15.2%) | 8.5/10 strong (97.1%) |
-| `jsx` | JSX | 10/10 excellent (0%) | 9.7/10 excellent (9.4%) | 9.9/10 excellent (29.9%) | 8.2/10 strong (84.3%) |
-| `kt` | Kotlin | 10/10 excellent (0%) | 9.5/10 excellent (49.1%) | 9.5/10 excellent (49%) | 8/10 strong (71%) |
-| `lua` | Lua | 10/10 excellent (0%) | 9.5/10 excellent (15.6%) | 9.6/10 excellent (27.8%) | 9/10 excellent (-11.7%) |
+| `jsx` | JSX | 10/10 excellent (0%) | 9.9/10 excellent (25.2%) | 9.9/10 excellent (25.2%) | 8.2/10 strong (84.3%) |
+| `kt` | Kotlin | 10/10 excellent (0%) | 9.8/10 excellent (49.1%) | 9.8/10 excellent (49%) | 8/10 strong (71%) |
+| `lua` | Lua | 10/10 excellent (0%) | 9.8/10 excellent (15.6%) | 9.9/10 excellent (27.8%) | 9/10 excellent (-11.7%) |
 | `md` | Markdown | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.2/10 excellent (0%) | 6.3/10 fair (-5.6%) |
-| `mjs` | ESM JavaScript | 10/10 excellent (0%) | 9.6/10 excellent (1.5%) | 9.9/10 excellent (28.2%) | 9/10 excellent (-14.6%) |
-| `php` | PHP | 10/10 excellent (0%) | 9.4/10 excellent (41.4%) | 9.4/10 excellent (41.2%) | 8.3/10 strong (87.1%) |
+| `mjs` | ESM JavaScript | 10/10 excellent (0%) | 9.9/10 excellent (30.2%) | 9.9/10 excellent (30.2%) | 9/10 excellent (-14.6%) |
+| `php` | PHP | 10/10 excellent (0%) | 9.7/10 excellent (41.4%) | 9.7/10 excellent (41.2%) | 8.3/10 strong (87.1%) |
 | `pl` | Perl | 10/10 excellent (0%) | 8.2/10 strong (16.8%) | 8.3/10 strong (31.4%) | 8.6/10 strong (73.1%) |
 | `pm` | Perl Module | 10/10 excellent (0%) | 8.1/10 strong (8.9%) | 8.2/10 strong (20.2%) | 8.5/10 strong (23%) |
 | `proto` | Protocol Buffers | 10/10 excellent (0%) | 9.7/10 excellent (69.1%) | 9.7/10 excellent (68.8%) | 8.5/10 strong (95.2%) |
 | `py` | Python | 10/10 excellent (0%) | 9.8/10 excellent (21.3%) | 9.8/10 excellent (21.2%) | 8.7/10 strong (53.3%) |
 | `r` | R | 10/10 excellent (0%) | 9.5/10 excellent (46.6%) | 9.5/10 excellent (57.9%) | 9.8/10 excellent (90.3%) |
-| `rb` | Ruby | 10/10 excellent (0%) | 9.7/10 excellent (64.2%) | 9.7/10 excellent (63.8%) | 8.1/10 strong (81.5%) |
+| `rb` | Ruby | 10/10 excellent (0%) | 10/10 excellent (64.2%) | 10/10 excellent (63.8%) | 8.1/10 strong (81.5%) |
 | `rs` | Rust | 10/10 excellent (0%) | 10/10 excellent (62.2%) | 10/10 excellent (62.1%) | 9.9/10 excellent (66.1%) |
 | `rst` | reStructuredText | 10/10 excellent (0%) | 8/10 strong (1.8%) | 8/10 strong (1.7%) | 6.3/10 fair (-3.5%) |
-| `scala` | Scala | 10/10 excellent (0%) | 9.3/10 excellent (80.7%) | 9.3/10 excellent (80.5%) | 8.9/10 strong (94.1%) |
-| `scss` | SCSS | 10/10 excellent (0%) | 9.3/10 excellent (10.9%) | 9.3/10 excellent (23.3%) | 8.1/10 strong (78.4%) |
+| `scala` | Scala | 10/10 excellent (0%) | 9.6/10 excellent (80.7%) | 9.6/10 excellent (80.5%) | 8.9/10 strong (94.1%) |
+| `scss` | SCSS | 10/10 excellent (0%) | 9.6/10 excellent (10.9%) | 9.6/10 excellent (23.3%) | 8.1/10 strong (78.4%) |
 | `sh` | Shell | 10/10 excellent (0%) | 9.3/10 excellent (0.4%) | 9.3/10 excellent (0.3%) | 9/10 excellent (97.3%) |
-| `sql` | SQL | 10/10 excellent (0%) | 9.4/10 excellent (35.6%) | 9.4/10 excellent (35.3%) | 7.1/10 good (94.6%) |
-| `svelte` | Svelte | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.5/10 excellent (21.4%) | 8.1/10 strong (87.1%) |
-| `swift` | Swift | 10/10 excellent (0%) | 9.7/10 excellent (65.5%) | 9.7/10 excellent (65.4%) | 7.6/10 good (81.3%) |
+| `sql` | SQL | 10/10 excellent (0%) | 9.7/10 excellent (35.6%) | 9.7/10 excellent (35.3%) | 7.1/10 good (94.6%) |
+| `svelte` | Svelte | 10/10 excellent (0%) | 9.5/10 excellent (0%) | 9.8/10 excellent (21.4%) | 8.1/10 strong (87.1%) |
+| `swift` | Swift | 10/10 excellent (0%) | 10/10 excellent (65.5%) | 10/10 excellent (65.4%) | 7.6/10 good (81.3%) |
 | `toml` | TOML | 10/10 excellent (0%) | 9.6/10 excellent (38.1%) | 9.6/10 excellent (38%) | 6.3/10 fair (-11.3%) |
-| `ts` | TypeScript | 10/10 excellent (0%) | 9.7/10 excellent (29.6%) | 9.7/10 excellent (44.6%) | 9.3/10 excellent (69.2%) |
-| `tsx` | TSX | 10/10 excellent (0%) | 9.7/10 excellent (35.1%) | 9.8/10 excellent (47.6%) | 9.5/10 excellent (83.9%) |
+| `ts` | TypeScript | 10/10 excellent (0%) | 9.7/10 excellent (25.2%) | 9.7/10 excellent (25.2%) | 9.3/10 excellent (69.2%) |
+| `tsx` | TSX | 10/10 excellent (0%) | 9.7/10 excellent (28%) | 9.7/10 excellent (28%) | 9.5/10 excellent (83.9%) |
 | `vb` | Visual Basic | 10/10 excellent (0%) | 9.5/10 excellent (10.1%) | 9.5/10 excellent (10.1%) | 9/10 excellent (-11.8%) |
-| `vue` | Vue | 10/10 excellent (0%) | 7.6/10 good (0.8%) | 7.7/10 good (6.7%) | 8.2/10 strong (26.9%) |
+| `vue` | Vue | 10/10 excellent (0%) | 7.9/10 good (0.8%) | 8/10 strong (6.7%) | 8.2/10 strong (26.9%) |
 | `yml` | YAML | 10/10 excellent (0%) | 9.2/10 excellent (6.2%) | 9.2/10 excellent (6.2%) | 6.1/10 fair (-11.6%) |
 
 ## Competitor Baseline
@@ -177,11 +177,11 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | Ext | Format | Configured strategy | Async type | Content-view cut | Apply cut | Async cut | Symbols cut | Source |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `js` | JavaScript | `terser` | `terser` | 9.6% | 20.9% | 20.9% | 16% | `js/00-react-hooks.js` |
-| `cjs` | CommonJS | `terser` | `terser` | 4.8% | 43.5% | 43.5% | -19.1% | `cjs/apidom-babel.config.cjs` |
-| `mjs` | ESM JavaScript | `terser` | `terser` | 1.5% | 28.2% | 28.2% | -14.6% | `mjs/llhttp-eslint.config.mjs` |
-| `jsx` | JSX | `terser` | `terser` | 9.4% | 29.9% | 29.9% | 84.3% | `jsx/00-fullcalendar-demo.jsx` |
-| `ts` | TypeScript | `conservative` | `conservative` | 29.6% | 44.6% | 44.6% | 69.2% | `ts/00-typescript-core.ts` |
-| `tsx` | TSX | `conservative` | `conservative` | 35.1% | 47.6% | 47.6% | 83.9% | `tsx/00-next-app-router.tsx` |
+| `cjs` | CommonJS | `terser` | `terser` | 49.6% | 49.6% | 49.6% | -19.1% | `cjs/apidom-babel.config.cjs` |
+| `mjs` | ESM JavaScript | `terser` | `terser` | 30.2% | 30.2% | 30.2% | -14.6% | `mjs/llhttp-eslint.config.mjs` |
+| `jsx` | JSX | `terser` | `terser` | 25.2% | 25.2% | 25.2% | 84.3% | `jsx/00-fullcalendar-demo.jsx` |
+| `ts` | TypeScript | `conservative` | `conservative` | 25.2% | 25.2% | 25.2% | 69.2% | `ts/00-typescript-core.ts` |
+| `tsx` | TSX | `conservative` | `conservative` | 28% | 28% | 28% | 83.9% | `tsx/00-next-app-router.tsx` |
 | `json` | JSON | `json` | `json` | 0% | 29% | 29% | 99.6% | `json/typescript-package.json` |
 | `jsonc` | JSONC | `json` | `json` | 0% | 15.2% | 15.2% | 97.1% | `jsonc/grammy-deno.jsonc` |
 | `css` | CSS | `aggressive` | `aggressive` | 0.4% | 18.1% | 18.1% | 70.7% | `css/bootstrap.css` |
@@ -218,50 +218,50 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | Ext | Format | Report | Input bytes | Content-view cut | Apply cut | Sync cut | Async cut | Symbols cut | Agent rating |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `c` | C | `c/README.md` | 18107 | 3.8% | 3.8% | 3.8% | 3.8% | 68.5% | 7.2/10 good |
-| `cjs` | CommonJS | `cjs/README.md` | 3184 | 4.8% | 43.5% | 43.5% | 43.5% | -19.1% | 7.9/10 good |
+| `cjs` | CommonJS | `cjs/README.md` | 3184 | 49.6% | 49.6% | 49.6% | 49.6% | -19.1% | 7.9/10 good |
 | `clj` | Clojure | `clj/README.md` | 276207 | 0.6% | 17% | 17% | 17% | -13.1% | 7.8/10 good |
 | `cpp` | C++ | `cpp/README.md` | 32621 | 30.2% | 30.1% | 30.1% | 30.1% | 76.4% | 8.7/10 strong |
 | `cs` | C# | `cs/README.md` | 5603 | 28.3% | 28.2% | 28.2% | 28.2% | 52.7% | 8.3/10 strong |
-| `css` | CSS | `css/README.md` | 280311 | 0.4% | 18.1% | 18.1% | 18.1% | 70.7% | 8.3/10 strong |
+| `css` | CSS | `css/README.md` | 280311 | 0.4% | 18.1% | 18.1% | 18.1% | 70.7% | 8.5/10 strong |
 | `dart` | Dart | `dart/README.md` | 37049 | 85.5% | 85.3% | 85.3% | 85.3% | 98.8% | 9.5/10 excellent |
-| `erl` | Erlang | `erl/README.md` | 123312 | 5.8% | 23.7% | 23.7% | 23.7% | -16.6% | 7.8/10 good |
-| `ex` | Elixir | `ex/README.md` | 154291 | 1.5% | 16.3% | 16.3% | 16.3% | 100% | 7.8/10 good |
+| `erl` | Erlang | `erl/README.md` | 123312 | 5.8% | 23.7% | 23.7% | 23.7% | -16.6% | 6.8/10 fair |
+| `ex` | Elixir | `ex/README.md` | 154291 | 1.5% | 16.3% | 16.3% | 16.3% | 100% | 8.6/10 strong |
 | `go` | Go | `go/README.md` | 33315 | 34.1% | 33.9% | 33.9% | 33.9% | 86.8% | 9/10 excellent |
 | `graphql` | GraphQL | `graphql/README.md` | 1300 | 3.2% | 3.1% | 3.1% | 3.1% | 35.4% | 6.3/10 fair |
 | `h` | C Header | `h/README.md` | 33059 | 39% | 38.9% | 38.9% | 38.9% | 41.1% | 8.3/10 strong |
 | `hpp` | C++ Header | `hpp/README.md` | 25322 | 38.3% | 38.2% | 38.2% | 38.2% | 39.3% | 7.8/10 good |
-| `hs` | Haskell | `hs/README.md` | 41400 | 12.3% | 12.2% | 12.2% | 12.2% | 81.9% | 7/10 good |
-| `html` | HTML | `html/README.md` | 5096 | 0% | 13.5% | 13.5% | 13.5% | 95.4% | 7.5/10 good |
+| `hs` | Haskell | `hs/README.md` | 41400 | 12.3% | 12.2% | 12.2% | 12.2% | 81.9% | 8.1/10 strong |
+| `html` | HTML | `html/README.md` | 5096 | 0% | 13.5% | 13.5% | 13.5% | 95.4% | 8.4/10 strong |
 | `ini` | INI | `ini/README.md` | 7518 | 23.6% | 23.5% | 23.5% | 23.5% | -14.5% | 7.8/10 good |
 | `java` | Java | `java/README.md` | 63265 | 64.8% | 64.7% | 64.7% | 64.7% | 87.3% | 9.7/10 excellent |
 | `js` | JavaScript | `js/README.md` | 6864 | 9.6% | 20.9% | 20.9% | 20.9% | 16% | 7.7/10 good |
 | `json` | JSON | `json/README.md` | 3468 | 0% | 29% | 29% | 29% | 99.6% | 9/10 excellent |
 | `jsonc` | JSONC | `jsonc/README.md` | 1427 | 0% | 15.2% | 15.2% | 15.2% | 97.1% | 8.3/10 strong |
-| `jsx` | JSX | `jsx/README.md` | 3825 | 9.4% | 29.9% | 29.9% | 29.9% | 84.3% | 9.4/10 excellent |
+| `jsx` | JSX | `jsx/README.md` | 3825 | 25.2% | 25.2% | 25.2% | 25.2% | 84.3% | 9.4/10 excellent |
 | `kt` | Kotlin | `kt/README.md` | 20559 | 49.1% | 49% | 49% | 49% | 71% | 9/10 excellent |
-| `lua` | Lua | `lua/README.md` | 23250 | 15.6% | 27.8% | 27.8% | 27.8% | -11.7% | 8.5/10 strong |
+| `lua` | Lua | `lua/README.md` | 23250 | 15.6% | 27.8% | 27.8% | 27.8% | -11.7% | 7.3/10 good |
 | `md` | Markdown | `md/README.md` | 3304 | 0% | 0% | 0% | 0% | -5.6% | 5.5/10 needs work |
-| `mjs` | ESM JavaScript | `mjs/README.md` | 1259 | 1.5% | 28.2% | 28.2% | 28.2% | -14.6% | 7.6/10 good |
-| `php` | PHP | `php/README.md` | 35469 | 41.4% | 41.2% | 41.2% | 41.2% | 87.1% | 9/10 excellent |
+| `mjs` | ESM JavaScript | `mjs/README.md` | 1259 | 30.2% | 30.2% | 30.2% | 30.2% | -14.6% | 7.6/10 good |
+| `php` | PHP | `php/README.md` | 35469 | 41.4% | 41.2% | 41.2% | 41.2% | 87.1% | 9.4/10 excellent |
 | `pl` | Perl | `pl/README.md` | 4523 | 16.8% | 31.4% | 31.4% | 31.4% | 73.1% | 8.5/10 strong |
 | `pm` | Perl Module | `pm/README.md` | 5491 | 8.9% | 20.2% | 20.2% | 20.2% | 23% | 7.8/10 good |
 | `proto` | Protocol Buffers | `proto/README.md` | 60347 | 69.1% | 68.8% | 68.8% | 68.8% | 95.2% | 9.5/10 excellent |
 | `py` | Python | `py/README.md` | 65713 | 21.3% | 21.2% | 21.2% | 21.2% | 53.3% | 7.9/10 good |
 | `r` | R | `r/README.md` | 15796 | 46.6% | 57.9% | 57.9% | 57.9% | 90.3% | 9/10 excellent |
-| `rb` | Ruby | `rb/README.md` | 3507 | 64.2% | 63.8% | 63.8% | 63.8% | 81.5% | 9.5/10 excellent |
+| `rb` | Ruby | `rb/README.md` | 3507 | 64.2% | 63.8% | 63.8% | 63.8% | 81.5% | 9.7/10 excellent |
 | `rs` | Rust | `rs/README.md` | 100057 | 62.2% | 62.1% | 62.1% | 62.1% | 66.1% | 9.3/10 excellent |
 | `rst` | reStructuredText | `rst/README.md` | 2616 | 1.8% | 1.7% | 1.7% | 1.7% | -3.5% | 6.3/10 fair |
-| `scala` | Scala | `scala/README.md` | 20107 | 80.7% | 80.5% | 80.5% | 80.5% | 94.1% | 9.5/10 excellent |
-| `scss` | SCSS | `scss/README.md` | 7057 | 10.9% | 23.3% | 23.3% | 23.3% | 78.4% | 8.3/10 strong |
+| `scala` | Scala | `scala/README.md` | 20107 | 80.7% | 80.5% | 80.5% | 80.5% | 94.1% | 9.7/10 excellent |
+| `scss` | SCSS | `scss/README.md` | 7057 | 10.9% | 23.3% | 23.3% | 23.3% | 78.4% | 8.5/10 strong |
 | `sh` | Shell | `sh/README.md` | 156857 | 0.4% | 0.3% | 0.3% | 0.3% | 97.3% | 7.6/10 good |
-| `sql` | SQL | `sql/README.md` | 8415 | 35.6% | 35.3% | 35.3% | 35.3% | 94.6% | 8.5/10 strong |
-| `svelte` | Svelte | `svelte/README.md` | 2665 | 0% | 21.4% | 21.4% | 21.4% | 87.1% | 8.3/10 strong |
-| `swift` | Swift | `swift/README.md` | 33805 | 65.5% | 65.4% | 65.4% | 65.4% | 81.3% | 9.5/10 excellent |
+| `sql` | SQL | `sql/README.md` | 8415 | 35.6% | 35.3% | 35.3% | 35.3% | 94.6% | 9/10 excellent |
+| `svelte` | Svelte | `svelte/README.md` | 2665 | 0% | 21.4% | 21.4% | 21.4% | 87.1% | 8.9/10 strong |
+| `swift` | Swift | `swift/README.md` | 33805 | 65.5% | 65.4% | 65.4% | 65.4% | 81.3% | 9.7/10 excellent |
 | `toml` | TOML | `toml/README.md` | 3039 | 38.1% | 38% | 38% | 38% | -11.3% | 8.5/10 strong |
-| `ts` | TypeScript | `ts/README.md` | 92419 | 29.6% | 44.6% | 44.6% | 44.6% | 69.2% | 9.3/10 excellent |
-| `tsx` | TSX | `tsx/README.md` | 23197 | 35.1% | 47.6% | 47.6% | 47.6% | 83.9% | 9.7/10 excellent |
+| `ts` | TypeScript | `ts/README.md` | 92419 | 25.2% | 25.2% | 25.2% | 25.2% | 69.2% | 9/10 excellent |
+| `tsx` | TSX | `tsx/README.md` | 23197 | 28% | 28% | 28% | 28% | 83.9% | 9.4/10 excellent |
 | `vb` | Visual Basic | `vb/README.md` | 91031 | 10.1% | 10.1% | 10.1% | 10.1% | -11.8% | 7/10 good |
-| `vue` | Vue | `vue/README.md` | 119 | 0.8% | 6.7% | 6.7% | 6.7% | 26.9% | 7.5/10 good |
+| `vue` | Vue | `vue/README.md` | 119 | 0.8% | 6.7% | 6.7% | 6.7% | 26.9% | 7.2/10 good |
 | `yml` | YAML | `yml/README.md` | 12508 | 6.2% | 6.2% | 6.2% | 6.2% | -11.6% | 7/10 good |
 
 ## Coverage
@@ -278,26 +278,26 @@ supported by the package but not present in this local corpus.
 - `.md` Markdown: 5.5/10 needs work; content-view cut 0%, async cut 0%, symbols returned.
 - `.graphql` GraphQL: 6.3/10 fair; content-view cut 3.2%, async cut 3.1%, symbols returned.
 - `.rst` reStructuredText: 6.3/10 fair; content-view cut 1.8%, async cut 1.7%, symbols returned.
-- `.hs` Haskell: 7/10 good; content-view cut 12.3%, async cut 12.2%, symbols returned.
+- `.erl` Erlang: 6.8/10 fair; content-view cut 5.8%, async cut 23.7%, symbols returned.
 - `.vb` Visual Basic: 7/10 good; content-view cut 10.1%, async cut 10.1%, symbols returned.
 - `.yml` YAML: 7/10 good; content-view cut 6.2%, async cut 6.2%, symbols returned.
 - `.c` C: 7.2/10 good; content-view cut 3.8%, async cut 3.8%, symbols returned.
-- `.html` HTML: 7.5/10 good; content-view cut 0%, async cut 13.5%, symbols returned.
-- `.vue` Vue: 7.5/10 good; content-view cut 0.8%, async cut 6.7%, symbols returned.
-- `.mjs` ESM JavaScript: 7.6/10 good; content-view cut 1.5%, async cut 28.2%, symbols returned.
+- `.vue` Vue: 7.2/10 good; content-view cut 0.8%, async cut 6.7%, symbols returned.
+- `.lua` Lua: 7.3/10 good; content-view cut 15.6%, async cut 27.8%, symbols returned.
+- `.mjs` ESM JavaScript: 7.6/10 good; content-view cut 30.2%, async cut 30.2%, symbols returned.
 
 ## Weakest Agent Understanding Scores
 
-- `.vue` Vue: 7.6/10 good; syntax anchors 6.7/10, structure 8/10, output health 10/10, context budget 6/10, symbols 7/10.
+- `.vue` Vue: 7.9/10 good; syntax anchors 6.7/10, structure 8/10, output health 10/10, context budget 6/10, symbols 10/10.
 - `.rst` reStructuredText: 8/10 strong; syntax anchors 6.7/10, structure 10/10, output health 10/10, context budget 6/10, symbols 7/10.
 - `.pm` Perl Module: 8.1/10 strong; syntax anchors 6.7/10, structure 10/10, output health 10/10, context budget 7/10, symbols 7/10.
 - `.pl` Perl: 8.2/10 strong; syntax anchors 6.7/10, structure 10/10, output health 10/10, context budget 8/10, symbols 7/10.
 - `.clj` Clojure: 9.1/10 excellent; syntax anchors 10/10, structure 10/10, output health 9/10, context budget 6/10, symbols 7/10.
-- `.html` HTML: 9.2/10 excellent; syntax anchors 10/10, structure 10/10, output health 10/10, context budget 5/10, symbols 7/10.
 - `.json` JSON: 9.2/10 excellent; syntax anchors 10/10, structure 10/10, output health 10/10, context budget 5/10, symbols 7/10.
 - `.jsonc` JSONC: 9.2/10 excellent; syntax anchors 10/10, structure 10/10, output health 10/10, context budget 5/10, symbols 7/10.
 - `.md` Markdown: 9.2/10 excellent; syntax anchors 10/10, structure 10/10, output health 10/10, context budget 5/10, symbols 7/10.
-- `.svelte` Svelte: 9.2/10 excellent; syntax anchors 10/10, structure 10/10, output health 10/10, context budget 5/10, symbols 7/10.
+- `.yml` YAML: 9.2/10 excellent; syntax anchors 10/10, structure 10/10, output health 9/10, context budget 7/10, symbols 7/10.
+- `.sh` Shell: 9.3/10 excellent; syntax anchors 10/10, structure 9.4/10, output health 9/10, context budget 6/10, symbols 10/10.
 
 ## Regenerate
 

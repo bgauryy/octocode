@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 5383,
       "cutPercent": 85.5,
-      "durationMs": 2.48
+      "durationMs": 2.582
     },
     "content": "part of \"dart:core\";\n\n@pragma('vm:entry-point')\nabstract final class String implements Comparable<String>, Pattern {\n\n  external factory String.fromCharCodes(\n    Iterable<int> charCodes, [\n    int start = 0,\n    int? end,\n  ]);\n\n  external factory String.fromCharCode(int charCode);\n\n  external const factory String.fromEnvironment(\n    String name, {\n    String defaultValue = \"\",\n  });\n\n  String operator [](int index);\n\n  int codeUnitAt(int index);\n\n  int get length;\n\n  int get hashCode;\n\n  bool operator ==(Object other);\n\n  int compareTo(String other);\n\n  bool endsWith(String other);\n\n  bool startsWith(Pattern pattern, [int index = 0]);\n\n  int indexOf(Pattern pattern, [int start = 0]);\n\n  int lastIndexOf(Pattern pattern, [int? start]);\n\n  bool get isEmpty;\n\n  bool get isNotEmpty;\n\n  String operator +(String other);\n\n  String substring(int start, [int? end]);\n\n  String trim();\n\n  String trimLeft();\n\n  String trimRight();\n\n  String operator *(int times);\n\n  String padLeft(int width, [String padding = ' ']);\n\n  String padRight(int width, [String padding = ' ']);\n\n  bool contains(Pattern other, [int startIndex = 0]);\n\n  String replaceFirst(Pattern from, String to, [int startIndex = 0]);\n\n  String replaceFirs\n\n... [truncated 3583 chars] ...\n\n  _nextPosition = _position;\n    if (_position == 0) {\n      _currentCodePoint = -1;\n      return false;\n    }\n    int position = _position - 1;\n    int codeUnit = string.codeUnitAt(position);\n    if (_isTrailSurrogate(codeUnit) && position > 0) {\n      int prevCodeUnit = string.codeUnitAt(position - 1);\n      if (_isLeadSurrogate(prevCodeUnit)) {\n        _position = position - 1;\n        _currentCodePoint = _combineSurrogatePair(prevCodeUnit, codeUnit);\n        return true;\n      }\n    }\n    _position = position;\n    _currentCodePoint = codeUnit;\n    return true;\n  }\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 5441,
       "cutPercent": 85.3,
-      "durationMs": 2.527
+      "durationMs": 2.526
     },
     "content": "\n\npart of \"dart:core\";\n\n\n@pragma('vm:entry-point')\nabstract final class String implements Comparable<String>, Pattern {\n\n\n  external factory String.fromCharCodes(\n    Iterable<int> charCodes, [\n    int start = 0,\n    int? end,\n  ]);\n\n\n  external factory String.fromCharCode(int charCode);\n\n\n  external const factory String.fromEnvironment(\n    String name, {\n    String defaultValue = \"\",\n  });\n\n\n  String operator [](int index);\n\n\n  int codeUnitAt(int index);\n\n\n  int get length;\n\n\n  int get hashCode;\n\n\n  bool operator ==(Object other);\n\n\n  int compareTo(String other);\n\n\n  bool endsWith(String other);\n\n\n  bool startsWith(Pattern pattern, [int index = 0]);\n\n\n  int indexOf(Pattern pattern, [int start = 0]);\n\n\n  int lastIndexOf(Pattern pattern, [int? start]);\n\n\n  bool get isEmpty;\n\n\n  bool get isNotEmpty;\n\n\n  String operator +(String other);\n\n\n  String substring(int start, [int? end]);\n\n\n  String trim();\n\n\n  String trimLeft();\n\n\n  String trimRight();\n\n\n  String operator *(int times);\n\n\n  String padLeft(int width, [String padding = ' ']);\n\n\n  String padRight(int width, [String padding = ' ']);\n\n\n  bool contains(Pattern other, [int startIndex = 0]);\n\n\n  String replaceFirst(Pattern from, String to, [int startIndex \n\n... [truncated 3641 chars] ...\n\n  _nextPosition = _position;\n    if (_position == 0) {\n      _currentCodePoint = -1;\n      return false;\n    }\n    int position = _position - 1;\n    int codeUnit = string.codeUnitAt(position);\n    if (_isTrailSurrogate(codeUnit) && position > 0) {\n      int prevCodeUnit = string.codeUnitAt(position - 1);\n      if (_isLeadSurrogate(prevCodeUnit)) {\n        _position = position - 1;\n        _currentCodePoint = _combineSurrogatePair(prevCodeUnit, codeUnit);\n        return true;\n      }\n    }\n    _position = position;\n    _currentCodePoint = codeUnit;\n    return true;\n  }\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 5441,
       "cutPercent": 85.3,
-      "durationMs": 2.551
+      "durationMs": 2.618
     },
     "content": "\n\npart of \"dart:core\";\n\n\n@pragma('vm:entry-point')\nabstract final class String implements Comparable<String>, Pattern {\n\n\n  external factory String.fromCharCodes(\n    Iterable<int> charCodes, [\n    int start = 0,\n    int? end,\n  ]);\n\n\n  external factory String.fromCharCode(int charCode);\n\n\n  external const factory String.fromEnvironment(\n    String name, {\n    String defaultValue = \"\",\n  });\n\n\n  String operator [](int index);\n\n\n  int codeUnitAt(int index);\n\n\n  int get length;\n\n\n  int get hashCode;\n\n\n  bool operator ==(Object other);\n\n\n  int compareTo(String other);\n\n\n  bool endsWith(String other);\n\n\n  bool startsWith(Pattern pattern, [int index = 0]);\n\n\n  int indexOf(Pattern pattern, [int start = 0]);\n\n\n  int lastIndexOf(Pattern pattern, [int? start]);\n\n\n  bool get isEmpty;\n\n\n  bool get isNotEmpty;\n\n\n  String operator +(String other);\n\n\n  String substring(int start, [int? end]);\n\n\n  String trim();\n\n\n  String trimLeft();\n\n\n  String trimRight();\n\n\n  String operator *(int times);\n\n\n  String padLeft(int width, [String padding = ' ']);\n\n\n  String padRight(int width, [String padding = ' ']);\n\n\n  bool contains(Pattern other, [int startIndex = 0]);\n\n\n  String replaceFirst(Pattern from, String to, [int startIndex \n\n... [truncated 3641 chars] ...\n\n  _nextPosition = _position;\n    if (_position == 0) {\n      _currentCodePoint = -1;\n      return false;\n    }\n    int position = _position - 1;\n    int codeUnit = string.codeUnitAt(position);\n    if (_isTrailSurrogate(codeUnit) && position > 0) {\n      int prevCodeUnit = string.codeUnitAt(position - 1);\n      if (_isLeadSurrogate(prevCodeUnit)) {\n        _position = position - 1;\n        _currentCodePoint = _combineSurrogatePair(prevCodeUnit, codeUnit);\n        return true;\n      }\n    }\n    _position = position;\n    _currentCodePoint = codeUnit;\n    return true;\n  }\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 5441,
       "cutPercent": 85.3,
-      "durationMs": 2.772,
+      "durationMs": 2.526,
       "failed": false,
       "type": "conservative",
       "reason": null
