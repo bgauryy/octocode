@@ -33,7 +33,7 @@ Agent
   ▼
 registerRemoteTool  ──  DESCRIPTIONS proxy (reads @octocodeai/octocode-core)
   │
-  ├── withSecurityValidation (octocode-security-utils)
+  ├── withSecurityValidation (octocode-security)
   │       path validate · secret redact · command whitelist
   │
   └── executionFn
@@ -312,6 +312,15 @@ Every research call must go through the suite's metering wrapper
 ---
 
 ## Dev Workflow
+
+### Runtime Bundling
+
+`octocode-mcp` owns runtime assets. Its build bundles the Rust
+`octocode-security` native `.node` file and the `rg` binary into
+`dist/runtime/{security,rg}` plus `dist/runtime-assets.json`.
+`octocode-cli` stays thin: it builds against `octocode-mcp` and copies that MCP
+runtime into `out/runtime`; it should not carry its own runtime
+`@vscode/ripgrep` or `octocode-security` dependency.
 
 ```bash
 # After editing a ToolSpec in octocode-core:

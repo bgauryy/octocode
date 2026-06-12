@@ -72,6 +72,8 @@ function parseRepoInfo(repoUrl: string | null | undefined): {
 type ShapedPackage = Record<string, unknown> & { name: string };
 
 function getPackageField<T>(pkg: PackageResult, field: string): T | undefined {
+  // PackageResult has no index signature; cast via unknown to allow
+  // dynamic field access by name without a lengthy type-narrowing chain.
   return (pkg as unknown as Record<string, unknown>)[field] as T | undefined;
 }
 

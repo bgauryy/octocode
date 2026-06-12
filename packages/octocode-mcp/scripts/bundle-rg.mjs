@@ -38,7 +38,13 @@ const require = createRequire(import.meta.url);
 
 // Read the version directly from package.json so it never drifts.
 const pkg = require('../package.json');
-const RG_VERSION = pkg.dependencies['@vscode/ripgrep'].replace(/^[~^]/, '');
+const ripgrepVersion =
+  pkg.dependencies?.['@vscode/ripgrep'] ??
+  pkg.devDependencies?.['@vscode/ripgrep'];
+if (!ripgrepVersion) {
+  throw new Error('Missing @vscode/ripgrep version in package.json');
+}
+const RG_VERSION = ripgrepVersion.replace(/^[~^]/, '');
 
 /** @type {Record<string, { vscodeArch: string; binary: string }>} */
 const PLATFORM_MAP = {

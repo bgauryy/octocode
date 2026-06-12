@@ -9,7 +9,7 @@ import {
   extractSignatures,
   SIGNATURES_ONLY_HINT,
   SUPPORTED_SIGNATURE_EXTENSIONS,
-} from '@octocodeai/octocode-minifier';
+} from '@octocodeai/octocode-minifier-utils';
 import { executeDirectTool, type ContentResult } from 'octocode-mcp/public';
 
 type MinifyMode = 'standard' | 'symbols' | 'none';

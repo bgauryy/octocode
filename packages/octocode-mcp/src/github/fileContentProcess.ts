@@ -8,7 +8,7 @@ import {
   applyContentViewMinification,
   extractSignatures,
   SIGNATURES_ONLY_HINT,
-} from '@octocodeai/octocode-minifier';
+} from '@octocodeai/octocode-minifier-utils';
 import { applyPagination } from '../utils/pagination/core.js';
 import { extractMatchingLines } from '../tools/local_fetch_content/contentExtractor.js';
 import { OctokitWithThrottling } from './client.js';

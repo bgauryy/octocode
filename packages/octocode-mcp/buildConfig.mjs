@@ -15,19 +15,15 @@ export const nodeExternals = [
 // Most runtime `dependency` entries MUST stay external — never inlined into the bundle.
 // npm/yarn/pnpm install these into the consumer's node_modules, so the published
 // dist/ should `require()` them at runtime rather than embed a copy. This is
-// critical for packages that locate sibling files relative to their OWN install
-// directory — most importantly `@vscode/ripgrep`, which does
-// `require.resolve('@vscode/ripgrep-<os>-<arch>/bin/rg')` against a
-// platform-specific optionalDependency. If esbuild inlines that resolver, the
-// resolution origin shifts to dist/index.js and breaks under strict node_modules
-// layouts (pnpm) where the binary package isn't hoisted next to us.
+// critical for SDKs and other normal runtime libraries that consumers should
+// receive through package-manager dependency resolution.
 //
 // Deriving this list from package.json `dependencies` (rather than hardcoding)
 // guarantees it can never drift when deps are added or removed.
 //
 //
 // Internal runtime packages are the exception: octocode-mcp owns its runtime
-// surface, so octocode-security is bundled together with its native .node asset.
+// surface, so these are bundled together with any runtime assets they need.
 export const bundledRuntimeDependencies = new Set(['octocode-security']);
 
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(

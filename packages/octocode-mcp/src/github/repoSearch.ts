@@ -122,7 +122,7 @@ async function listGitHubOrgReposAPIInternal(
       page: currentPage,
       sort: listSort,
     });
-    repoItems = orgResult.data as unknown as RepoSearchResultItem[];
+    repoItems = orgResult.data as RepoSearchResultItem[];
     // The listing endpoints don't return a total_count — use the Link header
     // heuristic: if we got a full page there are likely more results.
     totalCount = undefined;
@@ -135,7 +135,7 @@ async function listGitHubOrgReposAPIInternal(
         page: currentPage,
         sort: listSort,
       });
-      repoItems = userResult.data as unknown as RepoSearchResultItem[];
+      repoItems = userResult.data as RepoSearchResultItem[];
       totalCount = undefined;
     } catch (err: unknown) {
       return handleGitHubAPIError(err);

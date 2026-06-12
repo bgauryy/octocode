@@ -112,6 +112,12 @@
   "publisher": "bgauryy",
   "displayName": "Octocode MCP",
   "icon": "images/icon.png",
+  "files": [
+    "out/extension.js",
+    "images/icon.png",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
     "compile": "npm run build",

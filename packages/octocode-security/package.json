@@ -94,23 +94,32 @@
   },
   "files": [
     "dist",
-    "src",
-    "scripts",
     "*.node",
-    "Cargo.toml",
-    "build.rs",
-    "build.mjs"
+    "README.md",
+    "LICENSE"
   ],
+  "napi": {
+    "binaryName": "octocode-security",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
   "scripts": {
-    "build:rust": "node scripts/gen-patterns.mjs && cargo build --release && node scripts/copy-node.mjs",
+    "build:rust": "node scripts/gen-patterns.mjs && napi build --platform --release",
     "build:ts": "node build.mjs && tsc --emitDeclarationOnly",
     "build": "yarn build:rust && yarn build:ts",
-    "build:dev": "node scripts/gen-patterns.mjs && cargo build && node scripts/copy-node.mjs --dev && node build.mjs && tsc --emitDeclarationOnly",
+    "build:dev": "node scripts/gen-patterns.mjs && napi build --platform && node build.mjs && tsc --emitDeclarationOnly",
     "gen": "node scripts/gen-patterns.mjs",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
+    "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn typecheck",
+    "verify": "yarn typecheck && yarn lint:rust",
+    "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/patterns.rs || (echo 'ERROR: src/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",
     "bench": "node bench/compare.mjs",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run",
@@ -122,6 +131,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@napi-rs/cli": "^3.7.1",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.8",
     "esbuild": "^0.28.1",

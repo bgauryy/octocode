@@ -1,12 +1,15 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { ToolResult } from 'octocode-security';
 import {
   withSecurityValidation as _wsv,
   withBasicSecurityValidation as _wbsv,
-  configureSecurity,
 } from 'octocode-security';
 
-export { configureSecurity };
+// ToolResult (octocode-security) and CallToolResult (MCP SDK) are structurally
+// identical at runtime. We bridge with single-level casts at each boundary:
+//   CallToolResult → ToolResult  : narrowing cast (CallToolResult ⊆ ToolResult)
+//   ToolResult     → CallToolResult : widening cast (same Promise<T> shape)
 
 export function withSecurityValidation<T extends Record<string, unknown>>(
   toolName: string,
@@ -19,13 +22,12 @@ export function withSecurityValidation<T extends Record<string, unknown>>(
   args: unknown,
   extra: { authInfo?: AuthInfo; sessionId?: string; signal?: AbortSignal }
 ) => Promise<CallToolResult> {
-  return _wsv<T, AuthInfo>(
+  const inner = _wsv<T, AuthInfo>(
     toolName,
-    toolHandler as Parameters<typeof _wsv<T, AuthInfo>>[1]
-  ) as unknown as (
-    args: unknown,
-    extra: { authInfo?: AuthInfo; sessionId?: string; signal?: AbortSignal }
-  ) => Promise<CallToolResult>;
+    (sanitizedArgs, authInfo, sessionId) =>
+      toolHandler(sanitizedArgs, authInfo, sessionId) as Promise<ToolResult>
+  );
+  return (args, extra) => inner(args, extra) as Promise<CallToolResult>;
 }
 
 export function withBasicSecurityValidation<T extends object>(
@@ -35,11 +37,9 @@ export function withBasicSecurityValidation<T extends object>(
   args: unknown,
   extra?: { signal?: AbortSignal }
 ) => Promise<CallToolResult> {
-  return _wbsv<T>(
-    toolHandler as Parameters<typeof _wbsv<T>>[0],
+  const inner = _wbsv<T>(
+    (sanitizedArgs) => toolHandler(sanitizedArgs) as Promise<ToolResult>,
     toolName
-  ) as unknown as (
-    args: unknown,
-    extra?: { signal?: AbortSignal }
-  ) => Promise<CallToolResult>;
+  );
+  return (args, extra) => inner(args, extra) as Promise<CallToolResult>;
 }

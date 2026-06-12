@@ -10,7 +10,7 @@ import { completeMetadata } from '@octocodeai/octocode-core';
 type HintsMap = Record<string, readonly string[]>;
 
 function resolveToolHints(toolName: string): HintsMap {
-  const hints = completeMetadata.tools[toolName]?.hints as unknown as
+  const hints = completeMetadata.tools[toolName]?.hints as
     | HintsMap
     | undefined;
   return hints ?? { hasResults: [], empty: [] };
@@ -20,7 +20,7 @@ export const TOOL_HINTS = new Proxy({} as Record<string, HintsMap>, {
   get(_target, prop: PropertyKey) {
     if (typeof prop !== 'string') return undefined;
     if (prop === 'base')
-      return completeMetadata.baseHints as unknown as HintsMap;
+      return completeMetadata.baseHints as HintsMap;
     return resolveToolHints(prop);
   },
   ownKeys() {
@@ -34,7 +34,7 @@ export const TOOL_HINTS = new Proxy({} as Record<string, HintsMap>, {
         configurable: true,
         value:
           prop === 'base'
-            ? (completeMetadata.baseHints as unknown as HintsMap)
+            ? (completeMetadata.baseHints as HintsMap)
             : resolveToolHints(prop),
       };
     }
@@ -46,6 +46,8 @@ export const TOOL_HINTS = new Proxy({} as Record<string, HintsMap>, {
 
 export const GENERIC_ERROR_HINTS = new Proxy([] as readonly string[], {
   get(_target, prop: PropertyKey) {
+    // readonly string[] does not carry an index signature — cast via unknown
+    // to allow Proxy-style PropertyKey access to array indices and methods.
     const hints = completeMetadata.genericErrorHints as unknown as Record<
       PropertyKey,
       unknown
@@ -64,7 +66,7 @@ export function getToolHintsSync(
   toolName: string,
   status: string
 ): readonly string[] {
-  const hints = completeMetadata.tools[toolName]?.hints as unknown as
+  const hints = completeMetadata.tools[toolName]?.hints as
     | HintsMap
     | undefined;
   return hints?.[status] ?? [];
@@ -78,7 +80,7 @@ export function getDynamicHints(
   toolName: string,
   key: string
 ): readonly string[] {
-  const hints = completeMetadata.tools[toolName]?.hints as unknown as
+  const hints = completeMetadata.tools[toolName]?.hints as
     | Record<string, unknown>
     | undefined;
   const dynamic = hints?.['dynamic'] as HintsMap | undefined;

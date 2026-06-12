@@ -1,0 +1,49 @@
+[package]
+name = "octocode-minifier-utils"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance Rust minification, signature extraction (tree-sitter), and YAML utilities for Octocode"
+license = "MIT"
+repository = "https://github.com/bgauryy/octocode-mcp"
+keywords   = ["napi", "minifier", "tree-sitter", "signatures", "nodejs"]
+categories = ["development-tools", "text-processing"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi        = { version = "2", features = ["napi4", "serde-json"] }
+napi-derive = "2"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+serde_yaml  = "0.9"
+regex       = "1"
+
+# ── high-quality CSS / HTML minifiers ────────────────────────────────────────
+lightningcss = "1.0.0-alpha.71"
+minify-html  = "0.18"
+
+# ── tree-sitter core ─────────────────────────────────────────────────────────
+tree-sitter          = "0.26"
+tree-sitter-language = "0.1"
+
+# ── top-10 grammar crates ─────────────────────────────────────────────────────
+tree-sitter-typescript = "0.23"   # covers .ts / .tsx
+tree-sitter-javascript = "0.23"   # covers .js / .jsx / .mjs / .cjs
+tree-sitter-python     = "0.23"   # covers .py
+tree-sitter-go         = "0.23"   # covers .go
+tree-sitter-rust       = "0.23"   # covers .rs
+tree-sitter-java       = "0.23"   # covers .java
+tree-sitter-c          = "0.23"   # covers .c / .h
+tree-sitter-cpp        = "0.23"   # covers .cpp / .hpp / .cc
+tree-sitter-c-sharp    = "0.23"   # covers .cs
+tree-sitter-bash       = "0.23"   # covers .sh / .bash / .zsh
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto           = true
+codegen-units = 1
+opt-level     = 3
+strip         = "symbols"

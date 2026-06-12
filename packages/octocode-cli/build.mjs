@@ -16,10 +16,6 @@ const nodeExternals = [
 ];
 
 // Every runtime `dependency` MUST stay external — never inlined into the bundle.
-// They are installed in the consumer's node_modules, so dist/ should `require()`
-// them at runtime. This is critical for `@vscode/ripgrep`, which resolves its
-// platform binary via `require.resolve('@vscode/ripgrep-<os>-<arch>/bin/rg')`
-// relative to its OWN install dir — inlining that resolver breaks it under pnpm.
 // Workspace packages (octocode-mcp, octocode-shared) live in devDependencies and
 // are deliberately bundled, because consumers never install them.
 // Derived from package.json so it can never drift.

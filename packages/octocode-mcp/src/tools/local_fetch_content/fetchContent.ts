@@ -5,7 +5,7 @@ import {
   applyContentViewMinification,
   extractSignatures,
   SIGNATURES_ONLY_HINT,
-} from '@octocodeai/octocode-minifier';
+} from '@octocodeai/octocode-minifier-utils';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyPagination,
@@ -29,7 +29,7 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
-type FileStats = Awaited<ReturnType<typeof stat>>;
+type FileStats = NonNullable<Awaited<ReturnType<typeof stat>>>;
 type ContentView = 'none' | 'standard' | 'symbols';
 
 interface ExtractionState {

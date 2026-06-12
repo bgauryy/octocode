@@ -121,7 +121,7 @@ export function getMissingCommandError(command: CommandName): string {
   const cmdInfo = REQUIRED_COMMANDS[command];
 
   const installInstructions: Record<CommandName, string> = {
-    rg: 'Bundled ripgrep failed to load. Reinstall the MCP package (npm i / yarn install) to repair @vscode/ripgrep.',
+    rg: 'Bundled ripgrep failed to load. Reinstall the MCP package to restore dist/runtime/rg.',
     find: 'find should be available on all Unix systems; on Windows install Git Bash or WSL.',
     ls: 'ls should be available on all Unix systems; on Windows install Git Bash or WSL.',
   };

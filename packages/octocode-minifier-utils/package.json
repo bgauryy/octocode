@@ -1,0 +1,68 @@
+{
+  "name": "@octocodeai/octocode-minifier-utils",
+  "version": "0.1.0",
+  "description": "High-performance Rust minification, signature extraction (tree-sitter), and YAML serialization for Octocode",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "private": true,
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-minifier-utils"
+  },
+  "exports": {
+    ".": {
+      "types":   "./index.d.ts",
+      "require": "./index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "*": ["./index.d.ts"]
+    }
+  },
+  "files": [
+    "*.node",
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "napi": {
+    "name": "octocode-minifier-utils",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "scripts": {
+    "build":        "napi build --platform --release",
+    "build:dev":    "napi build --platform",
+    "clean":        "rm -f *.node",
+    "test":         "cargo test",
+    "test:node":    "vitest run --coverage",
+    "test:watch":   "vitest watch",
+    "test:quiet":   "vitest run",
+    "lint":         "echo 'No TS source files to lint'",
+    "lint:rust":    "cargo clippy --all-targets -- -D warnings",
+    "typecheck":    "tsc --noEmit",
+    "verify":       "yarn typecheck && yarn lint:rust && yarn test"
+  },
+  "devDependencies": {
+    "@napi-rs/cli":        "^2",
+    "@types/node":         "^20",
+    "@vitest/coverage-v8": "^2",
+    "typescript":          "^5",
+    "vitest":              "^2"
+  }
+}

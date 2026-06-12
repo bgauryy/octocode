@@ -58,5 +58,7 @@ export const responseEnvelopeFields = {
 } as const;
 
 export function withResponseEnvelope<S extends z.ZodObject>(schema: S): S {
+  // Zod's .extend() widens the shape type; cast via unknown to preserve the
+  // caller's S type variable so downstream schemas stay narrowly typed.
   return schema.extend(responseEnvelopeFields) as unknown as S;
 }

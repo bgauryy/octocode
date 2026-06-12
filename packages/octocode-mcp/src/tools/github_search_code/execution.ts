@@ -157,7 +157,9 @@ export async function searchMultipleGitHubCode(
         }
         return createSuccessResult(
           query,
-          flat as unknown as GitHubSearchCodeData,
+          // CodeSearchFlatResult mirrors GitHubSearchCodeData structurally;
+          // the local type is not imported from core to avoid a circular dep.
+          flat as GitHubSearchCodeData,
           flat.results.length > 0,
           TOOL_NAMES.GITHUB_SEARCH_CODE,
           {

@@ -13,6 +13,7 @@ await esbuild.build({
     'platform/index': 'src/platform/index.ts',
     'session/index': 'src/session/index.ts',
     'config/index': 'src/config/index.ts',
+    'credentials/testing': 'src/credentials/testing.ts',
     paths: 'src/paths.ts',
   },
   bundle: true,

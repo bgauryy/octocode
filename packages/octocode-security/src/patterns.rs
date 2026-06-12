@@ -7,8 +7,7 @@
 //   (?<name>)   → (?P<name>)
 //   [\d-X]     → [\d\-X] (invalid range boundary fix)
 
-#[allow(dead_code)]
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::{Regex, RegexSet, RegexSetBuilder};
 
 #[allow(dead_code)]
@@ -329,7 +328,7 @@ pub static PATTERNS: &[Pattern] = &[
 ];
 
 /// Single-pass multi-pattern detection (256MB limit for 304 patterns).
-pub static REGEX_SET: Lazy<RegexSet> = Lazy::new(|| {
+pub static REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSetBuilder::new([
         r###"\b(sk-[a-zA-Z0-9_-]+T3BlbkFJ[a-zA-Z0-9_-]+)\b"###,
         r###"\bsk-proj-[a-zA-Z0-9_-]{20,}\b"###,
@@ -643,7 +642,7 @@ pub static REGEX_SET: Lazy<RegexSet> = Lazy::new(|| {
 });
 
 /// Per-pattern Regex instances for find+replace
-pub static PATTERN_REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
+pub static PATTERN_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         Regex::new(r###"\b(sk-[a-zA-Z0-9_-]+T3BlbkFJ[a-zA-Z0-9_-]+)\b"###).expect("openaiApiKeyLegacy"),
         Regex::new(r###"\bsk-proj-[a-zA-Z0-9_-]{20,}\b"###).expect("openaiProjectApiKey"),

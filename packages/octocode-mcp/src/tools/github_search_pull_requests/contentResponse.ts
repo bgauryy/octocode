@@ -1,6 +1,6 @@
 import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../config.js';
 import type { NormalizedPrContentRequest } from './contentRequest.js';
-import { applyContentViewMinification } from '@octocodeai/octocode-minifier';
+import { applyContentViewMinification } from '@octocodeai/octocode-minifier-utils';
 
 type QueryLike = {
   owner?: string;

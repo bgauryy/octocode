@@ -29,7 +29,7 @@ import { version, name } from '../package.json';
 import { STARTUP_ERRORS } from './errors/domainErrors.js';
 import { startCacheGC, stopCacheGC } from './tools/github_clone_repo/cache.js';
 import { getOctocodeDir } from 'octocode-shared';
-import { configureSecurity } from './utils/securityBridge.js';
+import { configureSecurity } from 'octocode-security/withSecurityValidation';
 import { securityRegistry } from 'octocode-security';
 import { isLocalTool } from './tools/toolNames.js';
 

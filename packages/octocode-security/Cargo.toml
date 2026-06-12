@@ -2,6 +2,11 @@
 name = "octocode-security"
 version = "0.1.0"
 edition = "2021"
+description = "Rust-backed secret detection for Node.js — high-performance regex scanning with napi-rs"
+license = "MIT"
+repository = "https://github.com/bgauryy/octocode-mcp"
+keywords = ["napi", "nodejs", "security", "secrets", "detection"]
+categories = ["development-tools"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -10,7 +15,6 @@ crate-type = ["cdylib"]
 napi = { version = "2", default-features = false, features = ["napi9"] }
 napi-derive = "2"
 regex = "1"
-once_cell = "1"
 
 [profile.release]
 lto = true

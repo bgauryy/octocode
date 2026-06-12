@@ -47,7 +47,7 @@
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
     "postpack": "rm -rf ./skills",
-    "prepack": "cp -r ../../skills ./skills",
+    "prepack": "cp -r ../../skills ./skills && find ./skills -name .env.example -delete",
     "start": "node ./out/octocode-cli.js",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run --reporter=dot --silent",
@@ -60,13 +60,12 @@
     "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp && yarn validate:skills"
   },
   "dependencies": {
-    "@vscode/ripgrep": "^1.18.0",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.1.3"
   },
   "devDependencies": {
     "@inquirer/prompts": "^8.1.0",
-    "@octocodeai/octocode-minifier": "workspace:^",
+    "@octocodeai/octocode-minifier-utils": "workspace:*",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/request": "^10.0.7",

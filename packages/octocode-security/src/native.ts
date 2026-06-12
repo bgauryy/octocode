@@ -25,12 +25,25 @@ interface NativeModule {
   patternCount(): number;
 }
 
+function isMusl(): boolean {
+  try {
+    const report = (process as NodeJS.Process & { report?: { getReport(): { header?: { glibcVersionRuntime?: string } } } }).report?.getReport();
+    return !report?.header?.glibcVersionRuntime;
+  } catch {
+    return true;
+  }
+}
+
 function loadNative(): NativeModule {
   const platform = process.platform;
   const arch = process.arch;
+  const linuxLibc = platform === 'linux' ? (isMusl() ? 'musl' : 'gnu') : '';
   const tripleMap: Record<string, Record<string, string>> = {
     darwin: { arm64: 'darwin-arm64', x64: 'darwin-x64' },
-    linux: { arm64: 'linux-arm64-gnu', x64: 'linux-x64-gnu' },
+    linux: {
+      arm64: `linux-arm64-${linuxLibc}`,
+      x64: `linux-x64-${linuxLibc}`,
+    },
     win32: { x64: 'win32-x64-msvc' },
   };
   const triple = tripleMap[platform]?.[arch];
