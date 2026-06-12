@@ -27,7 +27,11 @@ interface NativeModule {
 
 function isMusl(): boolean {
   try {
-    const report = (process as NodeJS.Process & { report?: { getReport(): { header?: { glibcVersionRuntime?: string } } } }).report?.getReport();
+    const report = (
+      process as NodeJS.Process & {
+        report?: { getReport(): { header?: { glibcVersionRuntime?: string } } };
+      }
+    ).report?.getReport();
     return !report?.header?.glibcVersionRuntime;
   } catch {
     return true;
