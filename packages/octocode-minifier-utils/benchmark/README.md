@@ -8,12 +8,12 @@ the generator to recreate reports from a local corpus.
 
 ## Summary
 
-- Agent-context minifier rating: **8.29/10**
-- Minify rating: **8.25/10**
+- Agent-context minifier rating: **8.3/10**
+- Minify rating: **8.26/10**
 - Agent understanding from minified output: **9.5/10**
 - Agent usefulness across output levels: **9.54/10**
 - Symbols rating where supported: **8.6/10** (31/31 returned)
-- Average cuts: content-view 25.8%, apply 30.6%, async 30.6%
+- Average cuts: content-view 26.8%, apply 30.9%, async 30.9%
 - Rating buckets: good 14, strong 12, excellent 16, fair 3, needs work 1
 
 ## Real README Minification Rating
@@ -52,7 +52,7 @@ Rating buckets: excellent 42, strong 3, good 1
 | `clj` | Clojure | 9.1/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 6/10 | 7/10 | 6/6 |
 | `cpp` | C++ | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
 | `cs` | C# | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 9/10 | 9/10 | 10/10 | 6/6 |
-| `css` | CSS | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 10/10 | 6/6 |
+| `css` | CSS | 9.8/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 10/10 | 6/6 |
 | `dart` | Dart | 9.5/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 8/10 | 7/10 | 6/6 |
 | `erl` | Erlang | 9.7/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 7/10 | 10/10 | 6/6 |
 | `ex` | Elixir | 9.6/10 excellent | 10/10 (3/3) | 10/10 | 10/10 | 6/10 | 10/10 | 6/6 |
@@ -104,9 +104,9 @@ navigation skeleton when available.
 | Level | Samples | Avg score | Avg cut | Buckets |
 | --- | ---: | ---: | ---: | --- |
 | none | 46 | 10/10 | 0% | excellent 46 |
-| standard | 46 | 9.5/10 | 25.75% | excellent 42, strong 3, good 1 |
-| minify | 46 | 9.52/10 | 30.57% | excellent 41, strong 5 |
-| symbols | 46 | 8.31/10 | 53.29% | strong 18, excellent 16, fair 7, good 5 |
+| standard | 46 | 9.5/10 | 26.75% | excellent 42, strong 3, good 1 |
+| minify | 46 | 9.52/10 | 30.91% | excellent 41, strong 5 |
+| symbols | 39 | 8.59/10 | 59% | strong 17, excellent 16, fair 2, good 4 |
 
 | Ext | Format | none | standard | minify | symbols |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -115,7 +115,7 @@ navigation skeleton when available.
 | `clj` | Clojure | 10/10 excellent (0%) | 9.1/10 excellent (0.6%) | 8/10 strong (17%) | 8.8/10 strong (-13.1%) |
 | `cpp` | C++ | 10/10 excellent (0%) | 9.7/10 excellent (30.2%) | 9.7/10 excellent (30.1%) | 9.3/10 excellent (76.4%) |
 | `cs` | C# | 10/10 excellent (0%) | 9.7/10 excellent (28.3%) | 9.7/10 excellent (28.2%) | 8/10 strong (52.7%) |
-| `css` | CSS | 10/10 excellent (0%) | 9.6/10 excellent (0.4%) | 9.8/10 excellent (18.1%) | 6.7/10 fair (70.7%) |
+| `css` | CSS | 10/10 excellent (0%) | 9.8/10 excellent (18.1%) | 9.8/10 excellent (18.1%) | 6.7/10 fair (70.7%) |
 | `dart` | Dart | 10/10 excellent (0%) | 9.5/10 excellent (85.5%) | 9.5/10 excellent (85.3%) | 8.5/10 strong (98.8%) |
 | `erl` | Erlang | 10/10 excellent (0%) | 9.7/10 excellent (5.8%) | 9.8/10 excellent (23.7%) | 9/10 excellent (-16.6%) |
 | `ex` | Elixir | 10/10 excellent (0%) | 9.6/10 excellent (1.5%) | 9.8/10 excellent (16.3%) | 6.7/10 fair (100%) |
@@ -125,15 +125,15 @@ navigation skeleton when available.
 | `hpp` | C++ Header | 10/10 excellent (0%) | 9.8/10 excellent (38.3%) | 9.8/10 excellent (38.2%) | 9.6/10 excellent (39.3%) |
 | `hs` | Haskell | 10/10 excellent (0%) | 9.6/10 excellent (12.3%) | 9.6/10 excellent (12.2%) | 7.8/10 good (81.9%) |
 | `html` | HTML | 10/10 excellent (0%) | 9.5/10 excellent (0%) | 9.8/10 excellent (13.5%) | 8.1/10 strong (95.4%) |
-| `ini` | INI | 10/10 excellent (0%) | 9.5/10 excellent (23.6%) | 9.5/10 excellent (23.5%) | 6.3/10 fair (-14.5%) |
+| `ini` | INI | 10/10 excellent (0%) | 9.5/10 excellent (23.6%) | 9.5/10 excellent (23.5%) | n/a |
 | `java` | Java | 10/10 excellent (0%) | 9.8/10 excellent (64.8%) | 9.8/10 excellent (64.7%) | 7.8/10 good (87.3%) |
 | `js` | JavaScript | 10/10 excellent (0%) | 9.5/10 excellent (9.6%) | 9.6/10 excellent (20.9%) | 9.6/10 excellent (16%) |
-| `json` | JSON | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.6/10 excellent (29%) | 7.1/10 good (99.6%) |
-| `jsonc` | JSONC | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.5/10 excellent (15.2%) | 8.5/10 strong (97.1%) |
+| `json` | JSON | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.6/10 excellent (29%) | n/a |
+| `jsonc` | JSONC | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.5/10 excellent (15.2%) | n/a |
 | `jsx` | JSX | 10/10 excellent (0%) | 9.9/10 excellent (25.2%) | 9.9/10 excellent (25.2%) | 8.2/10 strong (84.3%) |
 | `kt` | Kotlin | 10/10 excellent (0%) | 9.8/10 excellent (49.1%) | 9.8/10 excellent (49%) | 8/10 strong (71%) |
 | `lua` | Lua | 10/10 excellent (0%) | 9.8/10 excellent (15.6%) | 9.9/10 excellent (27.8%) | 9/10 excellent (-11.7%) |
-| `md` | Markdown | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.2/10 excellent (0%) | 6.3/10 fair (-5.6%) |
+| `md` | Markdown | 10/10 excellent (0%) | 9.2/10 excellent (0%) | 9.2/10 excellent (0%) | n/a |
 | `mjs` | ESM JavaScript | 10/10 excellent (0%) | 9.9/10 excellent (30.2%) | 9.9/10 excellent (30.2%) | 9/10 excellent (-14.6%) |
 | `php` | PHP | 10/10 excellent (0%) | 9.7/10 excellent (41.4%) | 9.7/10 excellent (41.2%) | 8.3/10 strong (87.1%) |
 | `pl` | Perl | 10/10 excellent (0%) | 8.2/10 strong (16.8%) | 8.3/10 strong (31.4%) | 8.6/10 strong (73.1%) |
@@ -143,19 +143,19 @@ navigation skeleton when available.
 | `r` | R | 10/10 excellent (0%) | 9.5/10 excellent (46.6%) | 9.5/10 excellent (57.9%) | 9.8/10 excellent (90.3%) |
 | `rb` | Ruby | 10/10 excellent (0%) | 10/10 excellent (64.2%) | 10/10 excellent (63.8%) | 8.1/10 strong (81.5%) |
 | `rs` | Rust | 10/10 excellent (0%) | 10/10 excellent (62.2%) | 10/10 excellent (62.1%) | 9.9/10 excellent (66.1%) |
-| `rst` | reStructuredText | 10/10 excellent (0%) | 8/10 strong (1.8%) | 8/10 strong (1.7%) | 6.3/10 fair (-3.5%) |
+| `rst` | reStructuredText | 10/10 excellent (0%) | 8/10 strong (1.8%) | 8/10 strong (1.7%) | n/a |
 | `scala` | Scala | 10/10 excellent (0%) | 9.6/10 excellent (80.7%) | 9.6/10 excellent (80.5%) | 8.9/10 strong (94.1%) |
-| `scss` | SCSS | 10/10 excellent (0%) | 9.6/10 excellent (10.9%) | 9.6/10 excellent (23.3%) | 8.1/10 strong (78.4%) |
+| `scss` | SCSS | 10/10 excellent (0%) | 9.6/10 excellent (23.3%) | 9.6/10 excellent (23.3%) | 8.1/10 strong (78.4%) |
 | `sh` | Shell | 10/10 excellent (0%) | 9.3/10 excellent (0.4%) | 9.3/10 excellent (0.3%) | 9/10 excellent (97.3%) |
 | `sql` | SQL | 10/10 excellent (0%) | 9.7/10 excellent (35.6%) | 9.7/10 excellent (35.3%) | 7.1/10 good (94.6%) |
 | `svelte` | Svelte | 10/10 excellent (0%) | 9.5/10 excellent (0%) | 9.8/10 excellent (21.4%) | 8.1/10 strong (87.1%) |
 | `swift` | Swift | 10/10 excellent (0%) | 10/10 excellent (65.5%) | 10/10 excellent (65.4%) | 7.6/10 good (81.3%) |
-| `toml` | TOML | 10/10 excellent (0%) | 9.6/10 excellent (38.1%) | 9.6/10 excellent (38%) | 6.3/10 fair (-11.3%) |
-| `ts` | TypeScript | 10/10 excellent (0%) | 9.7/10 excellent (25.2%) | 9.7/10 excellent (25.2%) | 9.3/10 excellent (69.2%) |
-| `tsx` | TSX | 10/10 excellent (0%) | 9.7/10 excellent (28%) | 9.7/10 excellent (28%) | 9.5/10 excellent (83.9%) |
+| `toml` | TOML | 10/10 excellent (0%) | 9.6/10 excellent (38.1%) | 9.6/10 excellent (38%) | n/a |
+| `ts` | TypeScript | 10/10 excellent (0%) | 9.7/10 excellent (40.2%) | 9.7/10 excellent (40.2%) | 9.3/10 excellent (69.2%) |
+| `tsx` | TSX | 10/10 excellent (0%) | 9.7/10 excellent (28.9%) | 9.7/10 excellent (28.9%) | 9.5/10 excellent (83.9%) |
 | `vb` | Visual Basic | 10/10 excellent (0%) | 9.5/10 excellent (10.1%) | 9.5/10 excellent (10.1%) | 9/10 excellent (-11.8%) |
 | `vue` | Vue | 10/10 excellent (0%) | 7.9/10 good (0.8%) | 8/10 strong (6.7%) | 8.2/10 strong (26.9%) |
-| `yml` | YAML | 10/10 excellent (0%) | 9.2/10 excellent (6.2%) | 9.2/10 excellent (6.2%) | 6.1/10 fair (-11.6%) |
+| `yml` | YAML | 10/10 excellent (0%) | 9.2/10 excellent (6.2%) | 9.2/10 excellent (6.2%) | n/a |
 
 ## Competitor Baseline
 
@@ -180,12 +180,12 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | `cjs` | CommonJS | `terser` | `terser` | 49.6% | 49.6% | 49.6% | -19.1% | `cjs/apidom-babel.config.cjs` |
 | `mjs` | ESM JavaScript | `terser` | `terser` | 30.2% | 30.2% | 30.2% | -14.6% | `mjs/llhttp-eslint.config.mjs` |
 | `jsx` | JSX | `terser` | `terser` | 25.2% | 25.2% | 25.2% | 84.3% | `jsx/00-fullcalendar-demo.jsx` |
-| `ts` | TypeScript | `conservative` | `conservative` | 25.2% | 25.2% | 25.2% | 69.2% | `ts/00-typescript-core.ts` |
-| `tsx` | TSX | `conservative` | `conservative` | 28% | 28% | 28% | 83.9% | `tsx/00-next-app-router.tsx` |
-| `json` | JSON | `json` | `json` | 0% | 29% | 29% | 99.6% | `json/typescript-package.json` |
-| `jsonc` | JSONC | `json` | `json` | 0% | 15.2% | 15.2% | 97.1% | `jsonc/grammy-deno.jsonc` |
-| `css` | CSS | `aggressive` | `aggressive` | 0.4% | 18.1% | 18.1% | 70.7% | `css/bootstrap.css` |
-| `scss` | SCSS | `aggressive` | `aggressive` | 10.9% | 23.3% | 23.3% | 78.4% | `scss/_buttons.scss` |
+| `ts` | TypeScript | `conservative` | `conservative` | 40.2% | 40.2% | 40.2% | 69.2% | `ts/00-typescript-core.ts` |
+| `tsx` | TSX | `conservative` | `conservative` | 28.9% | 28.9% | 28.9% | 83.9% | `tsx/00-next-app-router.tsx` |
+| `json` | JSON | `json` | `json` | 0% | 29% | 29% | n/a | `json/typescript-package.json` |
+| `jsonc` | JSONC | `json` | `json` | 0% | 15.2% | 15.2% | n/a | `jsonc/grammy-deno.jsonc` |
+| `css` | CSS | `aggressive` | `aggressive` | 18.1% | 18.1% | 18.1% | 70.7% | `css/bootstrap.css` |
+| `scss` | SCSS | `aggressive` | `aggressive` | 23.3% | 23.3% | 23.3% | 78.4% | `scss/_buttons.scss` |
 | `html` | HTML | `aggressive` | `aggressive` | 0% | 13.5% | 13.5% | 95.4% | `html/00-mdn-letter.html` |
 | `vue` | Vue | `aggressive` | `aggressive` | 0.8% | 6.7% | 6.7% | 26.9% | `vue/vite-app.vue` |
 | `svelte` | Svelte | `aggressive` | `aggressive` | 0% | 21.4% | 21.4% | 87.1% | `svelte/vite-app.svelte` |
@@ -202,12 +202,12 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | `rb` | Ruby | `conservative` | `conservative` | 64.2% | 63.8% | 63.8% | 81.5% | `rb/blank.rb` |
 | `sh` | Shell | `conservative` | `conservative` | 0.4% | 0.3% | 0.3% | 97.3% | `sh/nvm.sh` |
 | `sql` | SQL | `conservative` | `conservative` | 35.6% | 35.3% | 35.3% | 94.6% | `sql/00-postgres-select.sql` |
-| `yml` | YAML | `conservative` | `conservative` | 6.2% | 6.2% | 6.2% | -11.6% | `yaml/typescript-ci.yml` |
-| `toml` | TOML | `conservative` | `conservative` | 38.1% | 38% | 38% | -11.3% | `toml/rust-cargo.toml` |
+| `yml` | YAML | `conservative` | `conservative` | 6.2% | 6.2% | 6.2% | n/a | `yaml/typescript-ci.yml` |
+| `toml` | TOML | `conservative` | `conservative` | 38.1% | 38% | 38% | n/a | `toml/rust-cargo.toml` |
 | `lua` | Lua | `aggressive` | `aggressive` | 15.6% | 27.8% | 27.8% | -11.7% | `lua/plenary-path.lua` |
 | `graphql` | GraphQL | `conservative` | `conservative` | 3.2% | 3.1% | 3.1% | 35.4% | `graphql/graphql-go-kitchen-sink.graphql` |
-| `md` | Markdown | `markdown` | `markdown` | 0% | 0% | 0% | -5.6% | `md/rust-readme.md` |
-| `rst` | reStructuredText | `conservative` | `conservative` | 1.8% | 1.7% | 1.7% | -3.5% | `rst/cpython-tutorial-index.rst` |
+| `md` | Markdown | `markdown` | `markdown` | 0% | 0% | 0% | n/a | `md/rust-readme.md` |
+| `rst` | reStructuredText | `conservative` | `conservative` | 1.8% | 1.7% | 1.7% | n/a | `rst/cpython-tutorial-index.rst` |
 | `scala` | Scala | `conservative` | `conservative` | 80.7% | 80.5% | 80.5% | 94.1% | `scala/Option.scala` |
 | `swift` | Swift | `conservative` | `conservative` | 65.5% | 65.4% | 65.4% | 81.3% | `swift/Optional.swift` |
 | `kt` | Kotlin | `conservative` | `conservative` | 49.1% | 49% | 49% | 71% | `kt/Collections.kt` |
@@ -222,7 +222,7 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | `clj` | Clojure | `clj/README.md` | 276207 | 0.6% | 17% | 17% | 17% | -13.1% | 7.8/10 good |
 | `cpp` | C++ | `cpp/README.md` | 32621 | 30.2% | 30.1% | 30.1% | 30.1% | 76.4% | 8.7/10 strong |
 | `cs` | C# | `cs/README.md` | 5603 | 28.3% | 28.2% | 28.2% | 28.2% | 52.7% | 8.3/10 strong |
-| `css` | CSS | `css/README.md` | 280311 | 0.4% | 18.1% | 18.1% | 18.1% | 70.7% | 8.5/10 strong |
+| `css` | CSS | `css/README.md` | 280311 | 18.1% | 18.1% | 18.1% | 18.1% | 70.7% | 8.5/10 strong |
 | `dart` | Dart | `dart/README.md` | 37049 | 85.5% | 85.3% | 85.3% | 85.3% | 98.8% | 9.5/10 excellent |
 | `erl` | Erlang | `erl/README.md` | 123312 | 5.8% | 23.7% | 23.7% | 23.7% | -16.6% | 6.8/10 fair |
 | `ex` | Elixir | `ex/README.md` | 154291 | 1.5% | 16.3% | 16.3% | 16.3% | 100% | 8.6/10 strong |
@@ -232,15 +232,15 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | `hpp` | C++ Header | `hpp/README.md` | 25322 | 38.3% | 38.2% | 38.2% | 38.2% | 39.3% | 7.8/10 good |
 | `hs` | Haskell | `hs/README.md` | 41400 | 12.3% | 12.2% | 12.2% | 12.2% | 81.9% | 8.1/10 strong |
 | `html` | HTML | `html/README.md` | 5096 | 0% | 13.5% | 13.5% | 13.5% | 95.4% | 8.4/10 strong |
-| `ini` | INI | `ini/README.md` | 7518 | 23.6% | 23.5% | 23.5% | 23.5% | -14.5% | 7.8/10 good |
+| `ini` | INI | `ini/README.md` | 7518 | 23.6% | 23.5% | 23.5% | 23.5% | n/a | 7.8/10 good |
 | `java` | Java | `java/README.md` | 63265 | 64.8% | 64.7% | 64.7% | 64.7% | 87.3% | 9.7/10 excellent |
 | `js` | JavaScript | `js/README.md` | 6864 | 9.6% | 20.9% | 20.9% | 20.9% | 16% | 7.7/10 good |
-| `json` | JSON | `json/README.md` | 3468 | 0% | 29% | 29% | 29% | 99.6% | 9/10 excellent |
-| `jsonc` | JSONC | `jsonc/README.md` | 1427 | 0% | 15.2% | 15.2% | 15.2% | 97.1% | 8.3/10 strong |
+| `json` | JSON | `json/README.md` | 3468 | 0% | 29% | 29% | 29% | n/a | 9/10 excellent |
+| `jsonc` | JSONC | `jsonc/README.md` | 1427 | 0% | 15.2% | 15.2% | 15.2% | n/a | 8.3/10 strong |
 | `jsx` | JSX | `jsx/README.md` | 3825 | 25.2% | 25.2% | 25.2% | 25.2% | 84.3% | 9.4/10 excellent |
 | `kt` | Kotlin | `kt/README.md` | 20559 | 49.1% | 49% | 49% | 49% | 71% | 9/10 excellent |
 | `lua` | Lua | `lua/README.md` | 23250 | 15.6% | 27.8% | 27.8% | 27.8% | -11.7% | 7.3/10 good |
-| `md` | Markdown | `md/README.md` | 3304 | 0% | 0% | 0% | 0% | -5.6% | 5.5/10 needs work |
+| `md` | Markdown | `md/README.md` | 3304 | 0% | 0% | 0% | 0% | n/a | 5.5/10 needs work |
 | `mjs` | ESM JavaScript | `mjs/README.md` | 1259 | 30.2% | 30.2% | 30.2% | 30.2% | -14.6% | 7.6/10 good |
 | `php` | PHP | `php/README.md` | 35469 | 41.4% | 41.2% | 41.2% | 41.2% | 87.1% | 9.4/10 excellent |
 | `pl` | Perl | `pl/README.md` | 4523 | 16.8% | 31.4% | 31.4% | 31.4% | 73.1% | 8.5/10 strong |
@@ -250,19 +250,19 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | `r` | R | `r/README.md` | 15796 | 46.6% | 57.9% | 57.9% | 57.9% | 90.3% | 9/10 excellent |
 | `rb` | Ruby | `rb/README.md` | 3507 | 64.2% | 63.8% | 63.8% | 63.8% | 81.5% | 9.7/10 excellent |
 | `rs` | Rust | `rs/README.md` | 100057 | 62.2% | 62.1% | 62.1% | 62.1% | 66.1% | 9.3/10 excellent |
-| `rst` | reStructuredText | `rst/README.md` | 2616 | 1.8% | 1.7% | 1.7% | 1.7% | -3.5% | 6.3/10 fair |
+| `rst` | reStructuredText | `rst/README.md` | 2616 | 1.8% | 1.7% | 1.7% | 1.7% | n/a | 6.3/10 fair |
 | `scala` | Scala | `scala/README.md` | 20107 | 80.7% | 80.5% | 80.5% | 80.5% | 94.1% | 9.7/10 excellent |
-| `scss` | SCSS | `scss/README.md` | 7057 | 10.9% | 23.3% | 23.3% | 23.3% | 78.4% | 8.5/10 strong |
+| `scss` | SCSS | `scss/README.md` | 7057 | 23.3% | 23.3% | 23.3% | 23.3% | 78.4% | 8.5/10 strong |
 | `sh` | Shell | `sh/README.md` | 156857 | 0.4% | 0.3% | 0.3% | 0.3% | 97.3% | 7.6/10 good |
 | `sql` | SQL | `sql/README.md` | 8415 | 35.6% | 35.3% | 35.3% | 35.3% | 94.6% | 9/10 excellent |
 | `svelte` | Svelte | `svelte/README.md` | 2665 | 0% | 21.4% | 21.4% | 21.4% | 87.1% | 8.9/10 strong |
 | `swift` | Swift | `swift/README.md` | 33805 | 65.5% | 65.4% | 65.4% | 65.4% | 81.3% | 9.7/10 excellent |
-| `toml` | TOML | `toml/README.md` | 3039 | 38.1% | 38% | 38% | 38% | -11.3% | 8.5/10 strong |
-| `ts` | TypeScript | `ts/README.md` | 92419 | 25.2% | 25.2% | 25.2% | 25.2% | 69.2% | 9/10 excellent |
-| `tsx` | TSX | `tsx/README.md` | 23197 | 28% | 28% | 28% | 28% | 83.9% | 9.4/10 excellent |
+| `toml` | TOML | `toml/README.md` | 3039 | 38.1% | 38% | 38% | 38% | n/a | 8.5/10 strong |
+| `ts` | TypeScript | `ts/README.md` | 92419 | 40.2% | 40.2% | 40.2% | 40.2% | 69.2% | 9.3/10 excellent |
+| `tsx` | TSX | `tsx/README.md` | 23197 | 28.9% | 28.9% | 28.9% | 28.9% | 83.9% | 9.4/10 excellent |
 | `vb` | Visual Basic | `vb/README.md` | 91031 | 10.1% | 10.1% | 10.1% | 10.1% | -11.8% | 7/10 good |
 | `vue` | Vue | `vue/README.md` | 119 | 0.8% | 6.7% | 6.7% | 6.7% | 26.9% | 7.2/10 good |
-| `yml` | YAML | `yml/README.md` | 12508 | 6.2% | 6.2% | 6.2% | 6.2% | -11.6% | 7/10 good |
+| `yml` | YAML | `yml/README.md` | 12508 | 6.2% | 6.2% | 6.2% | 6.2% | n/a | 7/10 good |
 
 ## Coverage
 
@@ -275,12 +275,12 @@ supported by the package but not present in this local corpus.
 
 ## Weakest Measured Formats
 
-- `.md` Markdown: 5.5/10 needs work; content-view cut 0%, async cut 0%, symbols returned.
+- `.md` Markdown: 5.5/10 needs work; content-view cut 0%, async cut 0%, symbols not returned.
 - `.graphql` GraphQL: 6.3/10 fair; content-view cut 3.2%, async cut 3.1%, symbols returned.
-- `.rst` reStructuredText: 6.3/10 fair; content-view cut 1.8%, async cut 1.7%, symbols returned.
+- `.rst` reStructuredText: 6.3/10 fair; content-view cut 1.8%, async cut 1.7%, symbols not returned.
 - `.erl` Erlang: 6.8/10 fair; content-view cut 5.8%, async cut 23.7%, symbols returned.
 - `.vb` Visual Basic: 7/10 good; content-view cut 10.1%, async cut 10.1%, symbols returned.
-- `.yml` YAML: 7/10 good; content-view cut 6.2%, async cut 6.2%, symbols returned.
+- `.yml` YAML: 7/10 good; content-view cut 6.2%, async cut 6.2%, symbols not returned.
 - `.c` C: 7.2/10 good; content-view cut 3.8%, async cut 3.8%, symbols returned.
 - `.vue` Vue: 7.2/10 good; content-view cut 0.8%, async cut 6.7%, symbols returned.
 - `.lua` Lua: 7.3/10 good; content-view cut 15.6%, async cut 27.8%, symbols returned.

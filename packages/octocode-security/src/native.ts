@@ -29,9 +29,13 @@ function isMusl(): boolean {
   try {
     const report = (
       process as NodeJS.Process & {
-        report?: { getReport(): { header?: { glibcVersionRuntime?: string } } };
+        report?: {
+          getReport(): { header?: { glibcVersionRuntime?: string } };
+        };
       }
-    ).report?.getReport();
+    ).report?.getReport() as
+      | { header?: { glibcVersionRuntime?: string } }
+      | undefined;
     return !report?.header?.glibcVersionRuntime;
   } catch {
     return true;

@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 33059 | - | - | - |
-| content-view | 20155 | 39% | 5.992 ms | 8.5/10 |
-| applyMinification | 20200 | 38.9% | 5.987 ms | 8.5/10 |
-| sync minify | 20200 | 38.9% | 5.943 ms | 8.5/10 |
-| async minify | 20200 | 38.9% | 5.987 ms | 8.5/10 |
-| symbols | 19461 | 41.1% | 11.915 ms | 8/10 |
+| content-view | 20155 | 39% | 6.201 ms | 8.5/10 |
+| applyMinification | 20200 | 38.9% | 5.84 ms | 8.5/10 |
+| sync minify | 20200 | 38.9% | 5.821 ms | 8.5/10 |
+| async minify | 20200 | 38.9% | 6.06 ms | 8.5/10 |
+| symbols | 19461 | 41.1% | 12.568 ms | 8/10 |
 
 ## Agent Understanding
 

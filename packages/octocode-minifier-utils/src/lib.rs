@@ -544,3 +544,215 @@ mod parity_tests {
         assert!(!s.contains("this.value * x"), "body dropped");
     }
 }
+
+// ── TDD: P0 · P1 · P2 failing tests ─────────────────────────────────────────
+#[cfg(test)]
+mod tdd_tests {
+    use super::*;
+
+    // ── P0: symbols disabled for data / config / prose formats ────────────────
+
+    #[test]
+    fn p0_symbols_json_returns_null() {
+        let json = r#"{"key":"value","count":42,"nested":{"a":1}}"#;
+        assert!(
+            extract_signatures(json.into(), "data.json".into()).is_none(),
+            "JSON has no meaningful signatures — must return null"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_yaml_returns_null() {
+        let yaml = "key: value\ncount: 42\nnested:\n  a: 1\nlist:\n  - x\n  - y";
+        assert!(
+            extract_signatures(yaml.into(), "config.yaml".into()).is_none(),
+            "YAML config must return null — no code signatures"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_yml_returns_null() {
+        let yml = "name: my-app\nversion: 1.0.0\ndependencies:\n  foo: bar";
+        assert!(
+            extract_signatures(yml.into(), "package.yml".into()).is_none(),
+            ".yml files must return null"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_toml_returns_null() {
+        let toml = "[package]\nname = \"foo\"\nversion = \"1.0\"\n[dependencies]\nserde = \"1\"";
+        assert!(
+            extract_signatures(toml.into(), "Cargo.toml".into()).is_none(),
+            "TOML must return null"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_ini_returns_null() {
+        let ini = "[section]\nkey = value\nother = 42";
+        assert!(
+            extract_signatures(ini.into(), "config.ini".into()).is_none(),
+            "INI must return null"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_jsonc_returns_null() {
+        let jsonc = "// comment\n{\"a\": 1}";
+        assert!(
+            extract_signatures(jsonc.into(), "tsconfig.json".into()).is_none(),
+            "JSONC must return null"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_markdown_returns_null() {
+        let md = "# Title\n\nSome text.\n\n## Section\n\nMore text.";
+        assert!(
+            extract_signatures(md.into(), "README.md".into()).is_none(),
+            "Markdown must return null"
+        );
+    }
+
+    #[test]
+    fn p0_symbols_rst_returns_null() {
+        let rst = "Title\n=====\n\nSome prose.\n\nSection\n-------\n\nMore prose.";
+        assert!(
+            extract_signatures(rst.into(), "docs.rst".into()).is_none(),
+            "reStructuredText must return null"
+        );
+    }
+
+    // ── P0: code formats must still work ──────────────────────────────────────
+
+    #[test]
+    fn p0_symbols_sql_still_works() {
+        let sql = "CREATE TABLE users (id INT, name VARCHAR(255));";
+        let out = extract_signatures(sql.into(), "schema.sql".into());
+        assert!(out.is_some(), "SQL should still extract signatures");
+    }
+
+    #[test]
+    fn p0_symbols_ts_still_works() {
+        let ts = "export function add(a: number, b: number): number { return a + b; }";
+        let out = extract_signatures(ts.into(), "math.ts".into());
+        assert!(out.is_some(), "TypeScript should still extract signatures");
+    }
+
+    // ── P1: TypeScript type stripping ─────────────────────────────────────────
+
+    #[test]
+    fn p1_import_type_stripped_in_full_minify() {
+        let src = r#"import type { Foo } from './foo';
+import { bar } from './bar';
+export function greet(name: string): void {
+  bar();
+}
+"#;
+        let out = minify_content_sync(src.into(), "greet.ts".into());
+        assert!(
+            !out.contains("import type"),
+            "full minify must strip 'import type' — got: {out}"
+        );
+    }
+
+    #[test]
+    fn p1_interface_stripped_in_full_minify() {
+        let src = r#"interface User { name: string; age: number; }
+export function getName(u: User): string { return u.name; }
+"#;
+        let out = minify_content_sync(src.into(), "user.ts".into());
+        assert!(
+            !out.contains("interface"),
+            "full minify must strip interface declarations — got: {out}"
+        );
+    }
+
+    #[test]
+    fn p1_type_alias_stripped_in_full_minify() {
+        let src = r#"type Id = string | number;
+export function process(id: Id): string { return String(id); }
+"#;
+        let out = minify_content_sync(src.into(), "util.ts".into());
+        assert!(
+            !out.contains("type Id"),
+            "full minify must strip type alias declarations — got: {out}"
+        );
+    }
+
+    #[test]
+    fn p1_runtime_code_preserved_after_stripping() {
+        let src = r#"import type { Opts } from './opts';
+interface Config { host: string; }
+type Port = number;
+export function connect(host: string, port: number): boolean {
+  return host.length > 0 && port > 0;
+}
+"#;
+        let out = minify_content_sync(src.into(), "connect.ts".into());
+        // Runtime function must survive stripping
+        assert!(out.contains("connect"), "runtime function must survive — got: {out}");
+        assert!(!out.contains("import type"), "import type must be stripped");
+        assert!(!out.contains("interface"), "interface must be stripped");
+    }
+
+    #[test]
+    fn p1_ts_content_view_strips_types() {
+        let src = r#"import type { Foo } from './foo';
+export function add(a: number, b: number): number {
+  return a + b;
+}
+"#;
+        let out = apply_content_view_minification(src.into(), "math.ts".into());
+        assert!(
+            !out.contains("import type"),
+            "content-view must strip 'import type' — got: {out}"
+        );
+    }
+
+    // ── P2: CSS content-view uses lightningcss ────────────────────────────────
+
+    #[test]
+    fn p2_css_content_view_compresses() {
+        let src = "h1 { color: red; font-weight: bold; }\np { margin: 0px; padding: 0px; }\n/* comment */\n.foo { display: flex; }";
+        let out = apply_content_view_minification(src.into(), "style.css".into());
+        assert!(
+            out.len() < src.len(),
+            "CSS content-view must compress (got {} vs {} bytes)",
+            out.len(), src.len()
+        );
+        assert!(!out.contains("/* comment */"), "CSS comments must be stripped");
+    }
+
+    #[test]
+    fn p2_scss_content_view_compresses() {
+        let src = ".container {\n  display: flex;\n  /* comment */\n  flex-direction: row;\n  padding: 0px 0px;\n}\n.header { color: red; /* header comment */ }";
+        let out = apply_content_view_minification(src.into(), "styles.scss".into());
+        assert!(
+            out.len() < src.len(),
+            "SCSS content-view must compress"
+        );
+    }
+
+    #[test]
+    fn p2_css_content_view_output_is_valid() {
+        let src = "body { margin: 0; padding: 0; background-color: #fff; }\nh1 { font-size: 2em; color: #333; }";
+        let out = apply_content_view_minification(src.into(), "main.css".into());
+        // Output must still contain the key selectors
+        assert!(out.contains("body") || out.contains("h1"), "CSS selectors must survive");
+        assert!(out.len() <= src.len(), "output must not grow");
+    }
+
+    #[test]
+    fn p2_css_removes_0px_redundancy() {
+        // lightningcss converts 0px → 0, reducing bytes
+        let src = "div { margin: 0px; padding: 0px 0px; border-width: 0px; }";
+        let out = apply_content_view_minification(src.into(), "base.css".into());
+        // lightningcss removes the 'px' from 0px
+        let has_zero_px = out.contains("0px");
+        // The output should be shorter (0px -> 0)
+        assert!(out.len() < src.len(), "lightningcss must strip 0px: got '{}' ({} bytes vs {})", out, out.len(), src.len());
+        assert!(!has_zero_px, "0px should become 0: got '{}'", out);
+    }
+}

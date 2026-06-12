@@ -2,11 +2,11 @@
   "content-view": {
     "fileName": "content-view.excerpt.txt",
     "metric": {
-      "bytes": 6289,
-      "cutPercent": 10.9,
-      "durationMs": 1.778
+      "bytes": 5411,
+      "cutPercent": 23.3,
+      "durationMs": 2.088
     },
-    "content": ".btn {\n\n  --#{$prefix}btn-padding-x: #{$btn-padding-x};\n  --#{$prefix}btn-padding-y: #{$btn-padding-y};\n  --#{$prefix}btn-font-family: #{$btn-font-family};\n  @include rfs($btn-font-size, --#{$prefix}btn-font-size);\n  --#{$prefix}btn-font-weight: #{$btn-font-weight};\n  --#{$prefix}btn-line-height: #{$btn-line-height};\n  --#{$prefix}btn-color: #{$btn-color};\n  --#{$prefix}btn-bg: transparent;\n  --#{$prefix}btn-border-width: #{$btn-border-width};\n  --#{$prefix}btn-border-color: transparent;\n  --#{$prefix}btn-border-radius: #{$btn-border-radius};\n  --#{$prefix}btn-hover-border-color: transparent;\n  --#{$prefix}btn-box-shadow: #{$btn-box-shadow};\n  --#{$prefix}btn-disabled-opacity: #{$btn-disabled-opacity};\n  --#{$prefix}btn-focus-box-shadow: 0 0 0 #{$btn-focus-width} rgba(var(--#{$prefix}btn-focus-shadow-rgb), .5);\n\n  display: inline-block;\n  padding: var(--#{$prefix}btn-padding-y) var(--#{$prefix}btn-padding-x);\n  font-family: var(--#{$prefix}btn-font-family);\n  @include font-size(var(--#{$prefix}btn-font-size));\n  font-weight: var(--#{$prefix}btn-font-weight);\n  line-height: var(--#{$prefix}btn-line-height);\n  color: var(--#{$prefix}btn-color);\n  text-align: center;\n  text-decoration: if($link-decoration ==\n\n... [truncated 4489 chars] ...\n\n-rgb: #{$btn-link-focus-shadow-rgb};\n\n  text-decoration: $link-decoration;\n  @if $enable-gradients {\n    background-image: none;\n  }\n\n  &:hover,\n  &:focus-visible {\n    text-decoration: $link-hover-decoration;\n  }\n\n  &:focus-visible {\n    color: var(--#{$prefix}btn-color);\n  }\n\n  &:hover {\n    color: var(--#{$prefix}btn-hover-color);\n  }\n\n}\n\n.btn-lg {\n  @include button-size($btn-padding-y-lg, $btn-padding-x-lg, $btn-font-size-lg, $btn-border-radius-lg);\n}\n\n.btn-sm {\n  @include button-size($btn-padding-y-sm, $btn-padding-x-sm, $btn-font-size-sm, $btn-border-radius-sm);\n}",
+    "content": ".btn{--#{$prefix}btn-padding-x:#{$btn-padding-x};--#{$prefix}btn-padding-y:#{$btn-padding-y};--#{$prefix}btn-font-family:#{$btn-font-family};@include rfs($btn-font-size,--#{$prefix}btn-font-size);--#{$prefix}btn-font-weight:#{$btn-font-weight};--#{$prefix}btn-line-height:#{$btn-line-height};--#{$prefix}btn-color:#{$btn-color};--#{$prefix}btn-bg:transparent;--#{$prefix}btn-border-width:#{$btn-border-width};--#{$prefix}btn-border-color:transparent;--#{$prefix}btn-border-radius:#{$btn-border-radius};--#{$prefix}btn-hover-border-color:transparent;--#{$prefix}btn-box-shadow:#{$btn-box-shadow};--#{$prefix}btn-disabled-opacity:#{$btn-disabled-opacity};--#{$prefix}btn-focus-box-shadow:0 0 0 #{$btn-focus-width}rgba(var(--#{$prefix}btn-focus-shadow-rgb),.5);display:inline-block;padding:var(--#{$prefix}btn-padding-y) var(--#{$prefix}btn-padding-x);font-family:var(--#{$prefix}btn-font-family);@include font-size(var(--#{$prefix}btn-font-size));font-weight:var(--#{$prefix}btn-font-weight);line-height:var(--#{$prefix}btn-line-height);color:var(--#{$prefix}btn-color);text-align:center;text-decoration:if($link-decoration == none,null,none);white-space:$btn-white-space;vertical-align:middle;cursor:if($enable-button-pointer\n\n... [truncated 3611 chars] ...\n\nr-color:transparent;--#{$prefix}btn-box-shadow:0 0 0 #000;--#{$prefix}btn-focus-shadow-rgb:#{$btn-link-focus-shadow-rgb};text-decoration:$link-decoration;@if $enable-gradients{background-image:none;}&:hover,&:focus-visible{text-decoration:$link-hover-decoration;}&:focus-visible{color:var(--#{$prefix}btn-color);}&:hover{color:var(--#{$prefix}btn-hover-color);}}.btn-lg{@include button-size($btn-padding-y-lg,$btn-padding-x-lg,$btn-font-size-lg,$btn-border-radius-lg);}.btn-sm{@include button-size($btn-padding-y-sm,$btn-padding-x-sm,$btn-font-size-sm,$btn-border-radius-sm);}",
     "api": "applyContentViewMinification"
   },
   "apply-minification": {
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 5411,
       "cutPercent": 23.3,
-      "durationMs": 1.888
+      "durationMs": 2.044
     },
     "content": ".btn{--#{$prefix}btn-padding-x:#{$btn-padding-x};--#{$prefix}btn-padding-y:#{$btn-padding-y};--#{$prefix}btn-font-family:#{$btn-font-family};@include rfs($btn-font-size,--#{$prefix}btn-font-size);--#{$prefix}btn-font-weight:#{$btn-font-weight};--#{$prefix}btn-line-height:#{$btn-line-height};--#{$prefix}btn-color:#{$btn-color};--#{$prefix}btn-bg:transparent;--#{$prefix}btn-border-width:#{$btn-border-width};--#{$prefix}btn-border-color:transparent;--#{$prefix}btn-border-radius:#{$btn-border-radius};--#{$prefix}btn-hover-border-color:transparent;--#{$prefix}btn-box-shadow:#{$btn-box-shadow};--#{$prefix}btn-disabled-opacity:#{$btn-disabled-opacity};--#{$prefix}btn-focus-box-shadow:0 0 0 #{$btn-focus-width}rgba(var(--#{$prefix}btn-focus-shadow-rgb),.5);display:inline-block;padding:var(--#{$prefix}btn-padding-y) var(--#{$prefix}btn-padding-x);font-family:var(--#{$prefix}btn-font-family);@include font-size(var(--#{$prefix}btn-font-size));font-weight:var(--#{$prefix}btn-font-weight);line-height:var(--#{$prefix}btn-line-height);color:var(--#{$prefix}btn-color);text-align:center;text-decoration:if($link-decoration == none,null,none);white-space:$btn-white-space;vertical-align:middle;cursor:if($enable-button-pointer\n\n... [truncated 3611 chars] ...\n\nr-color:transparent;--#{$prefix}btn-box-shadow:0 0 0 #000;--#{$prefix}btn-focus-shadow-rgb:#{$btn-link-focus-shadow-rgb};text-decoration:$link-decoration;@if $enable-gradients{background-image:none;}&:hover,&:focus-visible{text-decoration:$link-hover-decoration;}&:focus-visible{color:var(--#{$prefix}btn-color);}&:hover{color:var(--#{$prefix}btn-hover-color);}}.btn-lg{@include button-size($btn-padding-y-lg,$btn-padding-x-lg,$btn-font-size-lg,$btn-border-radius-lg);}.btn-sm{@include button-size($btn-padding-y-sm,$btn-padding-x-sm,$btn-font-size-sm,$btn-border-radius-sm);}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 5411,
       "cutPercent": 23.3,
-      "durationMs": 1.927
+      "durationMs": 1.892
     },
     "content": ".btn{--#{$prefix}btn-padding-x:#{$btn-padding-x};--#{$prefix}btn-padding-y:#{$btn-padding-y};--#{$prefix}btn-font-family:#{$btn-font-family};@include rfs($btn-font-size,--#{$prefix}btn-font-size);--#{$prefix}btn-font-weight:#{$btn-font-weight};--#{$prefix}btn-line-height:#{$btn-line-height};--#{$prefix}btn-color:#{$btn-color};--#{$prefix}btn-bg:transparent;--#{$prefix}btn-border-width:#{$btn-border-width};--#{$prefix}btn-border-color:transparent;--#{$prefix}btn-border-radius:#{$btn-border-radius};--#{$prefix}btn-hover-border-color:transparent;--#{$prefix}btn-box-shadow:#{$btn-box-shadow};--#{$prefix}btn-disabled-opacity:#{$btn-disabled-opacity};--#{$prefix}btn-focus-box-shadow:0 0 0 #{$btn-focus-width}rgba(var(--#{$prefix}btn-focus-shadow-rgb),.5);display:inline-block;padding:var(--#{$prefix}btn-padding-y) var(--#{$prefix}btn-padding-x);font-family:var(--#{$prefix}btn-font-family);@include font-size(var(--#{$prefix}btn-font-size));font-weight:var(--#{$prefix}btn-font-weight);line-height:var(--#{$prefix}btn-line-height);color:var(--#{$prefix}btn-color);text-align:center;text-decoration:if($link-decoration == none,null,none);white-space:$btn-white-space;vertical-align:middle;cursor:if($enable-button-pointer\n\n... [truncated 3611 chars] ...\n\nr-color:transparent;--#{$prefix}btn-box-shadow:0 0 0 #000;--#{$prefix}btn-focus-shadow-rgb:#{$btn-link-focus-shadow-rgb};text-decoration:$link-decoration;@if $enable-gradients{background-image:none;}&:hover,&:focus-visible{text-decoration:$link-hover-decoration;}&:focus-visible{color:var(--#{$prefix}btn-color);}&:hover{color:var(--#{$prefix}btn-hover-color);}}.btn-lg{@include button-size($btn-padding-y-lg,$btn-padding-x-lg,$btn-font-size-lg,$btn-border-radius-lg);}.btn-sm{@include button-size($btn-padding-y-sm,$btn-padding-x-sm,$btn-font-size-sm,$btn-border-radius-sm);}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 5411,
       "cutPercent": 23.3,
-      "durationMs": 2.004,
+      "durationMs": 1.939,
       "failed": false,
       "type": "aggressive",
       "reason": null

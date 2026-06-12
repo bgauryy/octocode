@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 5746,
       "cutPercent": 23.6,
-      "durationMs": 3.482
+      "durationMs": 3.334
     },
     "content": "[tox]\nrequires =\n    tox >= 4\nenvlist =\n    linting\n    py310\n    py311\n    py312\n    py313\n    py314\n    py315\n    pypy3\n    py310-{pexpect,xdist,twisted24,twisted25,asynctest,numpy,pluggymain,pylib}\n    doctesting\n    doctesting-coverage\n    plugins\n    py310-freeze\n    docs\n    docs-checklinks\n\n    py311-exceptiongroup\n\n[pkgenv]\n\npass_env =\n  SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST\n\n[testenv]\ndescription =\n    run the tests\n    coverage: collecting coverage\n    exceptiongroup: against `exceptiongroup`\n    nobyte: in no-bytecode mode\n    lsof: with `--lsof` pytest CLI option\n    numpy: against `numpy`\n    pexpect: against `pexpect`\n    pluggymain: against the bleeding edge `pluggy` from Git\n    pylib: against `py` lib\n    twisted24: against the unit test extras with twisted prior to 24.0\n    twisted25: against the unit test extras with twisted 25.0 or later\n    asynctest: against the unit test extras with asynctest\n    xdist: with pytest in parallel mode\n    under `{basepython}`\n    doctesting: including doctests\ncommands =\n    {env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:{env:_PYTEST_TOX_DEFAULT_POSARGS:}}\n    doctesting: {env:_PYTEST_TOX_COVERAGE_RUN:} pytest --doctest-modules {env:_PYTEST_TOX_PO\n\n... [truncated 3946 chars] ...\n\nelease]passenv}\ndeps = {[testenv:release]deps}\ncommands = python scripts/prepare-release-pr.py {posargs}\n\n[testenv:generate-gh-release-notes]\ndescription = generate release notes that can be published as GitHub Release\nusedevelop = True\ndeps =\n    pypandoc_binary\ncommands = python scripts/generate-gh-release-notes.py {posargs}\n\n[testenv:update-plugin-list]\ndescription = update the plugin list\nskip_install = True\ndeps =\n    packaging\n    requests\n    tabulate[widechars]\n    tqdm\n    requests-cache\n    platformdirs\ncommands = python scripts/update-plugin-list.py {posargs}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 5754,
       "cutPercent": 23.5,
-      "durationMs": 3.323
+      "durationMs": 3.008
     },
     "content": "[tox]\nrequires =\n    tox >= 4\nenvlist =\n    linting\n    py310\n    py311\n    py312\n    py313\n    py314\n    py315\n    pypy3\n    py310-{pexpect,xdist,twisted24,twisted25,asynctest,numpy,pluggymain,pylib}\n    doctesting\n    doctesting-coverage\n    plugins\n    py310-freeze\n    docs\n    docs-checklinks\n\n\n    py311-exceptiongroup\n\n\n[pkgenv]\n\n\npass_env =\n  SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST\n\n\n[testenv]\ndescription =\n    run the tests\n    coverage: collecting coverage\n    exceptiongroup: against `exceptiongroup`\n    nobyte: in no-bytecode mode\n    lsof: with `--lsof` pytest CLI option\n    numpy: against `numpy`\n    pexpect: against `pexpect`\n    pluggymain: against the bleeding edge `pluggy` from Git\n    pylib: against `py` lib\n    twisted24: against the unit test extras with twisted prior to 24.0\n    twisted25: against the unit test extras with twisted 25.0 or later\n    asynctest: against the unit test extras with asynctest\n    xdist: with pytest in parallel mode\n    under `{basepython}`\n    doctesting: including doctests\ncommands =\n    {env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:{env:_PYTEST_TOX_DEFAULT_POSARGS:}}\n    doctesting: {env:_PYTEST_TOX_COVERAGE_RUN:} pytest --doctest-modules {env:_PYTEST_TO\n\n... [truncated 3954 chars] ...\n\nelease]passenv}\ndeps = {[testenv:release]deps}\ncommands = python scripts/prepare-release-pr.py {posargs}\n\n[testenv:generate-gh-release-notes]\ndescription = generate release notes that can be published as GitHub Release\nusedevelop = True\ndeps =\n    pypandoc_binary\ncommands = python scripts/generate-gh-release-notes.py {posargs}\n\n[testenv:update-plugin-list]\ndescription = update the plugin list\nskip_install = True\ndeps =\n    packaging\n    requests\n    tabulate[widechars]\n    tqdm\n    requests-cache\n    platformdirs\ncommands = python scripts/update-plugin-list.py {posargs}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 5754,
       "cutPercent": 23.5,
-      "durationMs": 3.316
+      "durationMs": 2.971
     },
     "content": "[tox]\nrequires =\n    tox >= 4\nenvlist =\n    linting\n    py310\n    py311\n    py312\n    py313\n    py314\n    py315\n    pypy3\n    py310-{pexpect,xdist,twisted24,twisted25,asynctest,numpy,pluggymain,pylib}\n    doctesting\n    doctesting-coverage\n    plugins\n    py310-freeze\n    docs\n    docs-checklinks\n\n\n    py311-exceptiongroup\n\n\n[pkgenv]\n\n\npass_env =\n  SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST\n\n\n[testenv]\ndescription =\n    run the tests\n    coverage: collecting coverage\n    exceptiongroup: against `exceptiongroup`\n    nobyte: in no-bytecode mode\n    lsof: with `--lsof` pytest CLI option\n    numpy: against `numpy`\n    pexpect: against `pexpect`\n    pluggymain: against the bleeding edge `pluggy` from Git\n    pylib: against `py` lib\n    twisted24: against the unit test extras with twisted prior to 24.0\n    twisted25: against the unit test extras with twisted 25.0 or later\n    asynctest: against the unit test extras with asynctest\n    xdist: with pytest in parallel mode\n    under `{basepython}`\n    doctesting: including doctests\ncommands =\n    {env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:{env:_PYTEST_TOX_DEFAULT_POSARGS:}}\n    doctesting: {env:_PYTEST_TOX_COVERAGE_RUN:} pytest --doctest-modules {env:_PYTEST_TO\n\n... [truncated 3954 chars] ...\n\nelease]passenv}\ndeps = {[testenv:release]deps}\ncommands = python scripts/prepare-release-pr.py {posargs}\n\n[testenv:generate-gh-release-notes]\ndescription = generate release notes that can be published as GitHub Release\nusedevelop = True\ndeps =\n    pypandoc_binary\ncommands = python scripts/generate-gh-release-notes.py {posargs}\n\n[testenv:update-plugin-list]\ndescription = update the plugin list\nskip_install = True\ndeps =\n    packaging\n    requests\n    tabulate[widechars]\n    tqdm\n    requests-cache\n    platformdirs\ncommands = python scripts/update-plugin-list.py {posargs}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 5754,
       "cutPercent": 23.5,
-      "durationMs": 3.129,
+      "durationMs": 3.418,
       "failed": false,
       "type": "conservative",
       "reason": null

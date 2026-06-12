@@ -4,7 +4,7 @@ Source sample: `ts/00-typescript-core.ts`
 
 Strategy: `conservative`
 
-Agent rating: **9/10 (excellent)**
+Agent rating: **9.3/10 (excellent)**
 
 Agent understanding from minified output: **9.7/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 92419 | - | - | - |
-| content-view | 69160 | 25.2% | 17.796 ms | 9/10 |
-| applyMinification | 69160 | 25.2% | 21.314 ms | 9/10 |
-| sync minify | 69160 | 25.2% | 21.674 ms | 9/10 |
-| async minify | 69160 | 25.2% | 21.866 ms | 9/10 |
-| symbols | 28507 | 69.2% | 54.738 ms | 9/10 |
+| content-view | 55225 | 40.2% | 14.949 ms | 9.5/10 |
+| applyMinification | 55225 | 40.2% | 18.432 ms | 9.5/10 |
+| sync minify | 55225 | 40.2% | 18.746 ms | 9.5/10 |
+| async minify | 55225 | 40.2% | 18.635 ms | 9.5/10 |
+| symbols | 28507 | 69.2% | 50.063 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -47,8 +47,8 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 92419 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 69160 | 25.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 69160 | 25.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| standard | 55225 | 40.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 55225 | 40.2% | 9.7/10 excellent | 10/10 | 10/10 |
 | symbols | 28507 | 69.2% | 9.3/10 excellent | 10/10 | 7.4/10 |
 
 ## Notes
@@ -149,9 +149,9 @@ export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,in
 */
 export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 67356 chars] ...
+... [truncated 53421 chars] ...
 
-clude<T,U>[]|undefined;
+slice(0,index) as U[]}}
 /** @internal */
 export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
 /** @internal */
@@ -187,9 +187,9 @@ export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,in
 */
 export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 67356 chars] ...
+... [truncated 53421 chars] ...
 
-clude<T,U>[]|undefined;
+slice(0,index) as U[]}}
 /** @internal */
 export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
 /** @internal */
@@ -225,9 +225,9 @@ export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,in
 */
 export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 67356 chars] ...
+... [truncated 53421 chars] ...
 
-clude<T,U>[]|undefined;
+slice(0,index) as U[]}}
 /** @internal */
 export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
 /** @internal */
@@ -263,9 +263,9 @@ export function forEach<T,U>(array:readonly T[]|undefined,callback:(element:T,in
 */
 export function forEachRight<T,U>(array:readonly T[]|undefined,callback:(element:T,index:number)=>U|undefined): U|undefined{if(array!==void 0)for(let i=array.length-1;i>=0;i--){let result=
 
-... [truncated 67356 chars] ...
+... [truncated 53421 chars] ...
 
-clude<T,U>[]|undefined;
+slice(0,index) as U[]}}
 /** @internal */
 export function skipWhile<T,U extends T>(array:readonly T[]|undefined,predicate:(element:T)=>element is U): Exclude<T,U>[]|undefined{if(array!==void 0){let len=array.length,index=0;for(;index<len&&predicate(array[index]);)index++;return array.slice(index) as Exclude<T,U>[]}}
 /** @internal */

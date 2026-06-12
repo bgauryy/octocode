@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 274661,
     "cutPercent": 0.6,
-    "durationMs": 26.551
+    "durationMs": 27.742
   },
   "applyMinification": {
     "bytes": 229250,
     "cutPercent": 17,
-    "durationMs": 30.783
+    "durationMs": 31.341
   },
   "sync": {
     "bytes": 229250,
     "cutPercent": 17,
-    "durationMs": 30.637
+    "durationMs": 31.615
   },
   "async": {
     "bytes": 229250,
     "cutPercent": 17,
-    "durationMs": 30.489,
+    "durationMs": 32.241,
     "failed": false,
     "type": "aggressive",
     "reason": null
@@ -34,7 +34,7 @@
     "returned": true,
     "bytes": 312284,
     "cutPercent": -13.1,
-    "durationMs": 14.874
+    "durationMs": 13.993
   },
   "agentUnderstanding": {
     "output": "standard",

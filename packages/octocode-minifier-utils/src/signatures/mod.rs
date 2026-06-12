@@ -22,7 +22,31 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
     .unwrap_or(None)
 }
 
+/// Extensions where symbol extraction reliably produces output LARGER than
+/// the source or adds no semantic value (config, data, and prose formats).
+/// Extensions where symbol extraction has no semantic value:
+/// data/config formats have key-value pairs, not code signatures;
+/// prose/doc formats have section headings, not function declarations.
+/// Code languages (Lua, Erlang, Clojure, VB) are intentionally excluded
+/// even when their heuristic grows output — the skeleton is still useful.
+const NO_SYMBOL_EXTS: &[&str] = &[
+    // Data / config — no code signatures whatsoever
+    "json", "jsonc", "json5",
+    "yaml", "yml",
+    "toml",
+    "ini", "cfg", "conf", "config", "properties", "env",
+    "csv", "tsv",
+    "xml", "svg",
+    // Prose / docs — no function declarations
+    "md", "markdown",
+    "rst",
+    "txt", "log",
+];
+
 fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
+    // P0: never extract symbols for formats with no code signatures
+    if NO_SYMBOL_EXTS.contains(&ext) { return None; }
+
     // ── tree-sitter path (top-10 languages) ─────────────────────────────────
     if let Some(entry) = languages::find_entry(ext) {
         let cfg = LangExtractConfig {

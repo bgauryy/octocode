@@ -1,0 +1,1 @@
+{"calls":1,"in_chars":33,"out_chars":1838,"elapsed_ms":744,"calls_detail":[{"cmd":"rtk gh pr view 2129 --repo rtk-ai/rtk","in_chars":33,"out_chars":1838,"elapsed_ms":744,"exit":0}],"tool_elapsed_ms":744,"q_elapsed_ms":10300}

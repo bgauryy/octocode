@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 1258,
       "cutPercent": 3.2,
-      "durationMs": 0.341
+      "durationMs": 0.347
     },
     "content": "schema {\n  query: QueryType\n  mutation: MutationType\n}\n\ntype Foo implements Bar & Baz {\n  one: Type\n  two(argument: InputType!): Type\n  three(argument: InputType, other: String): Int\n  four(argument: String = \"string\"): String\n  five(argument: [String] = [\"string\", \"string\"]): String\n  six(argument: InputType = {key: \"value\"}): Type\n}\n\ntype AnnotatedObject @onObject(arg: \"value\") {\n  annotatedField(arg: Type = \"default\" @onArg): Type @onField\n}\n\ninterface Bar {\n  one: Type\n  four(argument: String = \"string\"): String\n}\n\ninterface AnnotatedInterface @onInterface {\n  annotatedField(arg: Type @onArg): Type @onField\n}\n\nunion Feed = Story | Article | Advert\n\nunion AnnotatedUnion @onUnion = A | B\n\nscalar CustomScalar\n\nscalar AnnotatedScalar @onScalar\n\nenum Site {\n  DESKTOP\n  MOBILE\n}\n\nenum AnnotatedEnum @onEnum {\n  ANNOTATED_VALUE @onEnumValue\n  OTHER_VALUE\n}\n\ninput InputType {\n  key: String!\n  answer: Int = 42\n}\n\ninput AnnotatedInput @onInputObjectType {\n  annotatedField: Type @onField\n}\n\nextend type Foo {\n  seven(argument: [String]): Type\n}\n\nextend type Foo @onType {}\n\ntype NoFields {}\n\ndirective @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT\n\ndirective @include(if: Boolean!)\n  on FIELD\n  | FRAGMENT_SPREAD\n  | INLINE_FRAGMENT",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 1260,
       "cutPercent": 3.1,
-      "durationMs": 0.328
+      "durationMs": 0.339
     },
     "content": "\n\nschema {\n  query: QueryType\n  mutation: MutationType\n}\n\ntype Foo implements Bar & Baz {\n  one: Type\n  two(argument: InputType!): Type\n  three(argument: InputType, other: String): Int\n  four(argument: String = \"string\"): String\n  five(argument: [String] = [\"string\", \"string\"]): String\n  six(argument: InputType = {key: \"value\"}): Type\n}\n\ntype AnnotatedObject @onObject(arg: \"value\") {\n  annotatedField(arg: Type = \"default\" @onArg): Type @onField\n}\n\ninterface Bar {\n  one: Type\n  four(argument: String = \"string\"): String\n}\n\ninterface AnnotatedInterface @onInterface {\n  annotatedField(arg: Type @onArg): Type @onField\n}\n\nunion Feed = Story | Article | Advert\n\nunion AnnotatedUnion @onUnion = A | B\n\nscalar CustomScalar\n\nscalar AnnotatedScalar @onScalar\n\nenum Site {\n  DESKTOP\n  MOBILE\n}\n\nenum AnnotatedEnum @onEnum {\n  ANNOTATED_VALUE @onEnumValue\n  OTHER_VALUE\n}\n\ninput InputType {\n  key: String!\n  answer: Int = 42\n}\n\ninput AnnotatedInput @onInputObjectType {\n  annotatedField: Type @onField\n}\n\nextend type Foo {\n  seven(argument: [String]): Type\n}\n\nextend type Foo @onType {}\n\ntype NoFields {}\n\ndirective @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT\n\ndirective @include(if: Boolean!)\n  on FIELD\n  | FRAGMENT_SPREAD\n  | INLINE_FRAGMENT",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 1260,
       "cutPercent": 3.1,
-      "durationMs": 0.344
+      "durationMs": 0.353
     },
     "content": "\n\nschema {\n  query: QueryType\n  mutation: MutationType\n}\n\ntype Foo implements Bar & Baz {\n  one: Type\n  two(argument: InputType!): Type\n  three(argument: InputType, other: String): Int\n  four(argument: String = \"string\"): String\n  five(argument: [String] = [\"string\", \"string\"]): String\n  six(argument: InputType = {key: \"value\"}): Type\n}\n\ntype AnnotatedObject @onObject(arg: \"value\") {\n  annotatedField(arg: Type = \"default\" @onArg): Type @onField\n}\n\ninterface Bar {\n  one: Type\n  four(argument: String = \"string\"): String\n}\n\ninterface AnnotatedInterface @onInterface {\n  annotatedField(arg: Type @onArg): Type @onField\n}\n\nunion Feed = Story | Article | Advert\n\nunion AnnotatedUnion @onUnion = A | B\n\nscalar CustomScalar\n\nscalar AnnotatedScalar @onScalar\n\nenum Site {\n  DESKTOP\n  MOBILE\n}\n\nenum AnnotatedEnum @onEnum {\n  ANNOTATED_VALUE @onEnumValue\n  OTHER_VALUE\n}\n\ninput InputType {\n  key: String!\n  answer: Int = 42\n}\n\ninput AnnotatedInput @onInputObjectType {\n  annotatedField: Type @onField\n}\n\nextend type Foo {\n  seven(argument: [String]): Type\n}\n\nextend type Foo @onType {}\n\ntype NoFields {}\n\ndirective @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT\n\ndirective @include(if: Boolean!)\n  on FIELD\n  | FRAGMENT_SPREAD\n  | INLINE_FRAGMENT",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 1260,
       "cutPercent": 3.1,
-      "durationMs": 0.332,
+      "durationMs": 0.353,
       "failed": false,
       "type": "conservative",
       "reason": null

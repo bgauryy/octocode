@@ -38,7 +38,7 @@ export function withBasicSecurityValidation<T extends object>(
   extra?: { signal?: AbortSignal }
 ) => Promise<CallToolResult> {
   const inner = _wbsv<T>(
-    (sanitizedArgs) => toolHandler(sanitizedArgs) as Promise<ToolResult>,
+    sanitizedArgs => toolHandler(sanitizedArgs) as Promise<ToolResult>,
     toolName
   );
   return (args, extra) => inner(args, extra) as Promise<CallToolResult>;

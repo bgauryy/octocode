@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3039 | - | - | - |
-| content-view | 1881 | 38.1% | 0.345 ms | 8.5/10 |
-| applyMinification | 1885 | 38% | 0.331 ms | 8.5/10 |
-| sync minify | 1885 | 38% | 0.303 ms | 8.5/10 |
-| async minify | 1885 | 38% | 0.261 ms | 8.5/10 |
-| symbols | 3383 | -11.3% | 0.146 ms | n/a |
+| content-view | 1881 | 38.1% | 0.286 ms | 8.5/10 |
+| applyMinification | 1885 | 38% | 0.269 ms | 8.5/10 |
+| sync minify | 1885 | 38% | 0.251 ms | 8.5/10 |
+| async minify | 1885 | 38% | 0.247 ms | 8.5/10 |
+| symbols | n/a | n/a | 0.003 ms | n/a |
 
 ## Agent Understanding
 
@@ -49,7 +49,7 @@ for this language sample.
 | none | 3039 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 1881 | 38.1% | 9.6/10 excellent | 10/10 | 10/10 |
 | minify | 1885 | 38% | 9.6/10 excellent | 10/10 | 10/10 |
-| symbols | 3383 | -11.3% | 6.3/10 fair | 3.3/10 | 10/10 |
+| symbols | n/a | n/a | n/a | n/a | n/a |
 
 ## Notes
 
@@ -474,82 +474,5 @@ codegen-units = 1
 ## Symbols
 
 ```txt
- 1| [workspace]
- 2| resolver = "2"
- 3| members = [
- 4| # tidy-alphabetical-start
- 5|   "compiler/rustc",
- 6|   "src/build_helper",
- 7|   "src/rustc-std-workspace/rustc-std-workspace-alloc",
- 8|   "src/rustc-std-workspace/rustc-std-workspace-core",
- 9|   "src/rustc-std-workspace/rustc-std-workspace-std",
-10|   "src/rustdoc-json-types",
-11|   "src/tools/build-manifest",
-12|   "src/tools/bump-stage0",
-13|   "src/tools/cargotest",
-14|   "src/tools/clippy",
-15|   "src/tools/clippy/clippy_dev",
-16|   "src/tools/collect-license-metadata",
-17|   "src/tools/compiletest",
-18|   "src/tools/coverage-dump",
-19|   "src/tools/features-status-dump",
-20|   "src/tools/generate-copyright",
-21|   "src/tools/generate-windows-sys",
-22|   "src/tools/html-checker",
-23|   "src/tools/jsondocck",
-24|   "src/tools/jsondoclint",
-25|   "src/tools/linkchecker",
-26|   "src/tools/lint-docs",
-27|   "src/tools/lld-wrapper",
-28|   "src/tools/llvm-bitcode-linker",
-29|   "src/tools/miri",
-30|   "src/tools/miri/cargo-miri",
-31|   "src/tools/miropt-test-tools",
-32|   "src/tools/opt-dist",
-33|   "src/tools/remote-test-client",
-34|   "src/tools/remote-test-server",
-35|   "src/tools/replace-version-placeholder",
-36|   "src/tools/run-make-support",
-37|   "src/tools/rust-installer",
-38|   "src/tools/rustdoc",
-39|   "src/tools/rustdoc-gui-test",
-40|   "src/tools/rustdoc-themes",
-41|   "src/tools/rustfmt",
-42|   "src/tools/test-float-parse",
-43|   "src/tools/tidy",
-44|   "src/tools/tier-check",
-45|   "src/tools/unicode-table-generator",
-46|   "src/tools/unstable-book-gen",
-47|   "src/tools/wasm-component-ld",
-48|   "src/tools/x",
-49| # tidy-alphabetical-end
-50| ]
-52| exclude = [
-53|   "build",
-54|   "compiler/rustc_codegen_cranelift",
-55|   "compiler/rustc_codegen_gcc",
-56|   "src/boo
-
-... [truncated 783 chars] ...
-
-ry user needs to download (and 15MB on disk).
-73| [profile.release.package.lld-wrapper]
-74| debug = 0
-75| strip = true
-76| [profile.release.package.wasm-component-ld-wrapper]
-77| debug = 0
-78| strip = true
-80| # Bigint libraries are slow without optimization, speed up testing
-81| [profile.dev.package.test-float-parse]
-82| opt-level = 3
-84| # Speed up the binary as much as possible
-85| [profile.release.package.test-float-parse]
-86| opt-level = 3
-87| codegen-units = 1
-88| # FIXME: LTO cannot be enabled for binaries in a workspace
-89| # <https://github.com/rust-lang/cargo/issues/9330>
-90| # lto = true
-92| # If you want to use a crate with local modifications, you can set a path or git dependency here.
-93| # For git dependencies, also add your source to ALLOWED_SOURCES in src/tools/tidy/src/extdeps.rs.
-94| #[patch.crates-io]
+No symbols returned for this sample.
 ```

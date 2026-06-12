@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 21954,
       "cutPercent": 34.1,
-      "durationMs": 6.561
+      "durationMs": 6.783
     },
     "content": "package fmt\n\nimport (\n\t\"internal/fmtsort\"\n\t\"io\"\n\t\"os\"\n\t\"reflect\"\n\t\"strconv\"\n\t\"sync\"\n\t\"unicode/utf8\"\n)\n\nconst (\n\tcommaSpaceString  = \", \"\n\tnilAngleString    = \"<nil>\"\n\tnilParenString    = \"(nil)\"\n\tnilString         = \"nil\"\n\tmapString         = \"map[\"\n\tpercentBangString = \"%!\"\n\tmissingString     = \"(MISSING)\"\n\tbadIndexString    = \"(BADINDEX)\"\n\tpanicString       = \"(PANIC=\"\n\textraString       = \"%!(EXTRA \"\n\tbadWidthString    = \"%!(BADWIDTH)\"\n\tbadPrecString     = \"%!(BADPREC)\"\n\tnoVerbString      = \"%!(NOVERB)\"\n\tinvReflectString  = \"<invalid reflect.Value>\"\n)\n\ntype State interface {\n\n\tWrite(b []byte) (n int, err error)\n\n\tWidth() (wid int, ok bool)\n\n\tPrecision() (prec int, ok bool)\n\n\tFlag(c int) bool\n}\n\ntype Formatter interface {\n\tFormat(f State, verb rune)\n}\n\ntype Stringer interface {\n\tString() string\n}\n\ntype GoStringer interface {\n\tGoString() string\n}\n\nfunc FormatString(state State, verb rune) string {\n\tvar tmp [16]byte\n\tb := append(tmp[:0], '%')\n\tfor _, c := range \" +-#0\" {\n\t\tif state.Flag(int(c)) {\n\t\t\tb = append(b, byte(c))\n\t\t}\n\t}\n\tif w, ok := state.Width(); ok {\n\t\tb = strconv.AppendInt(b, int64(w), 10)\n\t}\n\tif p, ok := state.Precision(); ok {\n\t\tb = append(b, '.')\n\t\tb = strconv.AppendInt(b, int64(p), 10)\n\t}\n\n\n... [truncated 20154 chars] ...\n\nf.writeString(reflect.TypeOf(arg).String())\n\t\t\t\tp.buf.writeByte('=')\n\t\t\t\tp.printArg(arg, 'v')\n\t\t\t}\n\t\t}\n\t\tp.buf.writeByte(')')\n\t}\n}\n\nfunc (p *pp) doPrint(a []any) {\n\tprevString := false\n\tfor argNum, arg := range a {\n\t\tisString := arg != nil && reflect.TypeOf(arg).Kind() == reflect.String\n\n\t\tif argNum > 0 && !isString && !prevString {\n\t\t\tp.buf.writeByte(' ')\n\t\t}\n\t\tp.printArg(arg, 'v')\n\t\tprevString = isString\n\t}\n}\n\nfunc (p *pp) doPrintln(a []any) {\n\tfor argNum, arg := range a {\n\t\tif argNum > 0 {\n\t\t\tp.buf.writeByte(' ')\n\t\t}\n\t\tp.printArg(arg, 'v')\n\t}\n\tp.buf.writeByte('\\n')\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 22018,
       "cutPercent": 33.9,
-      "durationMs": 6.651
+      "durationMs": 6.878
     },
     "content": "\n\npackage fmt\n\nimport (\n\t\"internal/fmtsort\"\n\t\"io\"\n\t\"os\"\n\t\"reflect\"\n\t\"strconv\"\n\t\"sync\"\n\t\"unicode/utf8\"\n)\n\n\nconst (\n\tcommaSpaceString  = \", \"\n\tnilAngleString    = \"<nil>\"\n\tnilParenString    = \"(nil)\"\n\tnilString         = \"nil\"\n\tmapString         = \"map[\"\n\tpercentBangString = \"%!\"\n\tmissingString     = \"(MISSING)\"\n\tbadIndexString    = \"(BADINDEX)\"\n\tpanicString       = \"(PANIC=\"\n\textraString       = \"%!(EXTRA \"\n\tbadWidthString    = \"%!(BADWIDTH)\"\n\tbadPrecString     = \"%!(BADPREC)\"\n\tnoVerbString      = \"%!(NOVERB)\"\n\tinvReflectString  = \"<invalid reflect.Value>\"\n)\n\n\ntype State interface {\n\n\tWrite(b []byte) (n int, err error)\n\n\tWidth() (wid int, ok bool)\n\n\tPrecision() (prec int, ok bool)\n\n\n\tFlag(c int) bool\n}\n\n\ntype Formatter interface {\n\tFormat(f State, verb rune)\n}\n\n\ntype Stringer interface {\n\tString() string\n}\n\n\ntype GoStringer interface {\n\tGoString() string\n}\n\n\nfunc FormatString(state State, verb rune) string {\n\tvar tmp [16]byte\n\tb := append(tmp[:0], '%')\n\tfor _, c := range \" +-#0\" {\n\t\tif state.Flag(int(c)) {\n\t\t\tb = append(b, byte(c))\n\t\t}\n\t}\n\tif w, ok := state.Width(); ok {\n\t\tb = strconv.AppendInt(b, int64(w), 10)\n\t}\n\tif p, ok := state.Precision(); ok {\n\t\tb = append(b, '.')\n\t\tb = strconv.AppendInt(b, int64(p)\n\n... [truncated 20218 chars] ...\n\n.writeString(reflect.TypeOf(arg).String())\n\t\t\t\tp.buf.writeByte('=')\n\t\t\t\tp.printArg(arg, 'v')\n\t\t\t}\n\t\t}\n\t\tp.buf.writeByte(')')\n\t}\n}\n\nfunc (p *pp) doPrint(a []any) {\n\tprevString := false\n\tfor argNum, arg := range a {\n\t\tisString := arg != nil && reflect.TypeOf(arg).Kind() == reflect.String\n\n\t\tif argNum > 0 && !isString && !prevString {\n\t\t\tp.buf.writeByte(' ')\n\t\t}\n\t\tp.printArg(arg, 'v')\n\t\tprevString = isString\n\t}\n}\n\n\nfunc (p *pp) doPrintln(a []any) {\n\tfor argNum, arg := range a {\n\t\tif argNum > 0 {\n\t\t\tp.buf.writeByte(' ')\n\t\t}\n\t\tp.printArg(arg, 'v')\n\t}\n\tp.buf.writeByte('\\n')\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 22018,
       "cutPercent": 33.9,
-      "durationMs": 6.736
+      "durationMs": 6.46
     },
     "content": "\n\npackage fmt\n\nimport (\n\t\"internal/fmtsort\"\n\t\"io\"\n\t\"os\"\n\t\"reflect\"\n\t\"strconv\"\n\t\"sync\"\n\t\"unicode/utf8\"\n)\n\n\nconst (\n\tcommaSpaceString  = \", \"\n\tnilAngleString    = \"<nil>\"\n\tnilParenString    = \"(nil)\"\n\tnilString         = \"nil\"\n\tmapString         = \"map[\"\n\tpercentBangString = \"%!\"\n\tmissingString     = \"(MISSING)\"\n\tbadIndexString    = \"(BADINDEX)\"\n\tpanicString       = \"(PANIC=\"\n\textraString       = \"%!(EXTRA \"\n\tbadWidthString    = \"%!(BADWIDTH)\"\n\tbadPrecString     = \"%!(BADPREC)\"\n\tnoVerbString      = \"%!(NOVERB)\"\n\tinvReflectString  = \"<invalid reflect.Value>\"\n)\n\n\ntype State interface {\n\n\tWrite(b []byte) (n int, err error)\n\n\tWidth() (wid int, ok bool)\n\n\tPrecision() (prec int, ok bool)\n\n\n\tFlag(c int) bool\n}\n\n\ntype Formatter interface {\n\tFormat(f State, verb rune)\n}\n\n\ntype Stringer interface {\n\tString() string\n}\n\n\ntype GoStringer interface {\n\tGoString() string\n}\n\n\nfunc FormatString(state State, verb rune) string {\n\tvar tmp [16]byte\n\tb := append(tmp[:0], '%')\n\tfor _, c := range \" +-#0\" {\n\t\tif state.Flag(int(c)) {\n\t\t\tb = append(b, byte(c))\n\t\t}\n\t}\n\tif w, ok := state.Width(); ok {\n\t\tb = strconv.AppendInt(b, int64(w), 10)\n\t}\n\tif p, ok := state.Precision(); ok {\n\t\tb = append(b, '.')\n\t\tb = strconv.AppendInt(b, int64(p)\n\n... [truncated 20218 chars] ...\n\n.writeString(reflect.TypeOf(arg).String())\n\t\t\t\tp.buf.writeByte('=')\n\t\t\t\tp.printArg(arg, 'v')\n\t\t\t}\n\t\t}\n\t\tp.buf.writeByte(')')\n\t}\n}\n\nfunc (p *pp) doPrint(a []any) {\n\tprevString := false\n\tfor argNum, arg := range a {\n\t\tisString := arg != nil && reflect.TypeOf(arg).Kind() == reflect.String\n\n\t\tif argNum > 0 && !isString && !prevString {\n\t\t\tp.buf.writeByte(' ')\n\t\t}\n\t\tp.printArg(arg, 'v')\n\t\tprevString = isString\n\t}\n}\n\n\nfunc (p *pp) doPrintln(a []any) {\n\tfor argNum, arg := range a {\n\t\tif argNum > 0 {\n\t\t\tp.buf.writeByte(' ')\n\t\t}\n\t\tp.printArg(arg, 'v')\n\t}\n\tp.buf.writeByte('\\n')\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 22018,
       "cutPercent": 33.9,
-      "durationMs": 6.76,
+      "durationMs": 6.604,
       "failed": false,
       "type": "conservative",
       "reason": null

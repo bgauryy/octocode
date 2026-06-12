@@ -4,6 +4,7 @@ use crate::minifier::minify_content_sync_inner;
 use crate::strategies::{
     minify_json_readable_inner, minify_markdown_core,
     minify_general_core, minify_code_core, minify_js_oxc,
+    minify_css_quality,
 };
 use crate::comment_remover::remove_comments;
 
@@ -38,6 +39,11 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
 
         if cfg.map(|c| c.strategy) == Some("markdown") {
             return minify_markdown_core(content);
+        }
+
+        // P2: CSS / SCSS / LESS content-view: use lightningcss (much better than blank-line collapse)
+        if matches!(ext.as_str(), "css"|"scss"|"less"|"sass") {
+            return minify_css_quality(content);
         }
 
         // JS/TS: use OXC without mangling — preserves names for agent readability

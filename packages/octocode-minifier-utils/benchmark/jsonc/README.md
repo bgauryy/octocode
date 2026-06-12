@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 1427 | - | - | - |
-| content-view | 1427 | 0% | 0.025 ms | 8.3/10 |
-| applyMinification | 1210 | 15.2% | 0.049 ms | 8.3/10 |
-| sync minify | 1210 | 15.2% | 0.046 ms | 8.3/10 |
-| async minify | 1210 | 15.2% | 0.049 ms | 8.3/10 |
-| symbols | 41 | 97.1% | 0.045 ms | n/a |
+| content-view | 1427 | 0% | 0.034 ms | 8.3/10 |
+| applyMinification | 1210 | 15.2% | 0.059 ms | 8.3/10 |
+| sync minify | 1210 | 15.2% | 0.054 ms | 8.3/10 |
+| async minify | 1210 | 15.2% | 0.186 ms | 8.3/10 |
+| symbols | n/a | n/a | 0.003 ms | n/a |
 
 ## Agent Understanding
 
@@ -49,7 +49,7 @@ for this language sample.
 | none | 1427 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 1427 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
 | minify | 1210 | 15.2% | 9.5/10 excellent | 10/10 | 10/10 |
-| symbols | 41 | 97.1% | 8.5/10 strong | 6.7/10 | 10/10 |
+| symbols | n/a | n/a | n/a | n/a | n/a |
 
 ## Notes
 
@@ -146,7 +146,5 @@ for this language sample.
 ## Symbols
 
 ```txt
- 1| {
-27|     "compilerOptions": {}
-28| }
+No symbols returned for this sample.
 ```

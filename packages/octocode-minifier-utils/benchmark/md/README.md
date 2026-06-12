@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3304 | - | - | - |
-| content-view | 3303 | 0% | 0.626 ms | 5.5/10 |
-| applyMinification | 3303 | 0% | 0.254 ms | 5.5/10 |
-| sync minify | 3303 | 0% | 0.269 ms | 5.5/10 |
-| async minify | 3303 | 0% | 0.28 ms | 5.5/10 |
-| symbols | 3489 | -5.6% | 0.12 ms | n/a |
+| content-view | 3303 | 0% | 0.278 ms | 5.5/10 |
+| applyMinification | 3303 | 0% | 0.249 ms | 5.5/10 |
+| sync minify | 3303 | 0% | 0.242 ms | 5.5/10 |
+| async minify | 3303 | 0% | 0.272 ms | 5.5/10 |
+| symbols | n/a | n/a | 0.003 ms | n/a |
 
 ## Agent Understanding
 
@@ -49,7 +49,7 @@ for this language sample.
 | none | 3304 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 3303 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
 | minify | 3303 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
-| symbols | 3489 | -5.6% | 6.3/10 fair | 3.3/10 | 10/10 |
+| symbols | n/a | n/a | n/a | n/a | n/a |
 
 ## Notes
 
@@ -301,45 +301,5 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
 ## Symbols
 
 ```txt
- 1| <div align="center">
- 2|   <picture>
- 3|     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
- 4|     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
- 5|     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
- 6|          src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
- 7|          width="50%">
- 8|   </picture>
-10| [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
-11| </div>
-13| This is the main source code repository for [Rust]. It contains the compiler,
-14| standard library, and documentation.
-16| [Rust]: https://www.rust-lang.org/
-17| [Getting Started]: https://www.rust-lang.org/learn/get-started
-18| [Learn]: https://www.rust-lang.org/learn
-19| [Documentation]: https://www.rust-lang.org/learn#learn-use
-20| [Contributing]: CONTRIBUTING.md
-22| ## Why Rust?
-24| - **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages.
-26| - **Reliability:** Our rich type system and ownership model ensure memory and thread safety, reducing bugs at compile-time.
-28| - **Productivity:** Comprehensive documentation, a compiler committed to providing great diagnostics, and advanced tooling including package manager and build tool ([Cargo]), auto-formatter ([rustfmt]), linter ([Clippy]) and editor support ([rust-analyzer]).
-30| [Cargo]: https://github.com/rust-lang/cargo
-31| [rustfmt]: htt
-
-... [truncated 889 chars] ...
-
- of both the MIT license and the
-60| Apache License (Version 2.0), with portions covered by various BSD-like
-61| licenses.
-63| See [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-MIT](LICENSE-MIT), and
-64| [COPYRIGHT](COPYRIGHT) for details.
-66| ## Trademark
-68| [The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo
-69| trademarks and logos (the "Rust Trademarks").
-71| If you want to use these names or brands, please read the
-72| [Rust language trademark policy][trademark-policy].
-74| Third-party logos may be subject to third-party copyrights and trademarks. See
-75| [Licenses][policies-licenses] for details.
-77| [rust-foundation]: https://rustfoundation.org/
-78| [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
-79| [policies-licenses]: https://www.rust-lang.org/policies/licenses
+No symbols returned for this sample.
 ```

@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 1605,
       "cutPercent": 49.6,
-      "durationMs": 1.137
+      "durationMs": 2.543
     },
     "content": "const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 1605,
       "cutPercent": 49.6,
-      "durationMs": 0.5
+      "durationMs": 0.563
     },
     "content": "const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 1605,
       "cutPercent": 49.6,
-      "durationMs": 0.415
+      "durationMs": 0.435
     },
     "content": "const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 1605,
       "cutPercent": 49.6,
-      "durationMs": 0.318,
+      "durationMs": 0.37,
       "failed": false,
       "type": "terser",
       "reason": null

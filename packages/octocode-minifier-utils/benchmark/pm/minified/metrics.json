@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 5005,
       "cutPercent": 8.9,
-      "durationMs": 1.1
+      "durationMs": 1.248
     },
     "content": "package strict;\n\n$strict::VERSION = \"1.14\";\n\nmy ( %bitmask, %explicit_bitmask );\n\nBEGIN {\n\n    die sprintf \"Incorrect use of pragma '%s' at %s line %d.\\n\", __PACKAGE__, +(caller)[1,2]\n        if __FILE__ !~ ( '(?x) \\b     '.__PACKAGE__.'  \\.pmc? \\z' )\n        && __FILE__ =~ ( '(?x) \\b (?i:'.__PACKAGE__.') \\.pmc? \\z' );\n\n    %bitmask = (\n        refs => 0x00000002,\n        subs => 0x00000200,\n        vars => 0x00000400,\n    );\n\n    %explicit_bitmask = (\n        refs => 0x00000020,\n        subs => 0x00000040,\n        vars => 0x00000080,\n    );\n\n    my $bits = 0;\n    $bits |= $_ for values %bitmask;\n\n    my $inline_all_bits = $bits;\n    *all_bits = sub () { $inline_all_bits };\n\n    $bits = 0;\n    $bits |= $_ for values %explicit_bitmask;\n\n    my $inline_all_explicit_bits = $bits;\n    *all_explicit_bits = sub () { $inline_all_explicit_bits };\n}\n\nsub bits {\n    my $do_explicit = caller eq __PACKAGE__;\n    my $bits = 0;\n    my @wrong;\n    foreach my $s (@_) {\n        if (exists $bitmask{$s}) {\n            $bits |= $explicit_bitmask{$s} if $do_explicit;\n            $bits |= $bitmask{$s};\n        }\n        else {\n            push @wrong, $s;\n        }\n    }\n    if (@wrong) {\n        require Carp;\n        Carp::cr\n\n... [truncated 3205 chars] ...\n\npragma will abort with\n\n    Unknown 'strict' tag(s) '...'\n\nAs of version 1.04 (Perl 5.10), strict verifies that it is used as\n\"strict\" to avoid the dreaded Strict trap on case insensitive file\nsystems.\n\nBeginning with Perl 5.12, use of \"use VERSION\" (where VERSION >= 5.11.0) now\nlexically enables strictures just like \"use strict\" (in addition to the normal\n\"use VERSION\" effects and features.)  In other words, \"use v5.011\" or higher\nnow implies \"use strict\" automatically, as noted in\nL<perl5120delta/\"Implicit strictures\"> and L<C<use VERSION>|perlfunc/use VERSION>.\n\n=cut",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 4384,
       "cutPercent": 20.2,
-      "durationMs": 1.168
+      "durationMs": 1.298
     },
     "content": "package strict;$strict::VERSION = \"1.14\";my ( %bitmask,%explicit_bitmask );BEGIN{die sprintf \"Incorrect use of pragma '%s' at %s line %d.\\n\",__PACKAGE__,+(caller)[1,2] if __FILE__ !~ ( '(?x) \\b '.__PACKAGE__.' \\.pmc? \\z' ) && __FILE__ =~ ( '(?x) \\b (?i:'.__PACKAGE__.') \\.pmc? \\z' );%bitmask = ( refs => 0x00000002,subs => 0x00000200,vars => 0x00000400,);%explicit_bitmask = ( refs => 0x00000020,subs => 0x00000040,vars => 0x00000080,);my $bits = 0;$bits |= $_ for values %bitmask;my $inline_all_bits = $bits;*all_bits = sub (){$inline_all_bits};$bits = 0;$bits |= $_ for values %explicit_bitmask;my $inline_all_explicit_bits = $bits;*all_explicit_bits = sub (){$inline_all_explicit_bits};}sub bits{my $do_explicit = caller eq __PACKAGE__;my $bits = 0;my @wrong;foreach my $s (@_){if (exists $bitmask{$s}){$bits |= $explicit_bitmask{$s}if $do_explicit;$bits |= $bitmask{$s};}else{push @wrong,$s;}}if (@wrong){require Carp;Carp::croak(\"Unknown 'strict' tag(s) '@wrong'\");}$bits;}sub import{shift;$^H |= @_ ? &bits:all_bits | all_explicit_bits;}sub unimport{shift;if (@_){my $bits = &bits;$^H &= ~$bits;$^H |= all_explicit_bits & $bits;}else{$^H &= ~all_bits;$^H |= all_explicit_bits;}}1;__END__ =head1 NAME strict - Perl prag\n\n... [truncated 2584 chars] ...\n\ned,the strict pragma will abort with Unknown 'strict' tag(s) '...' As of version 1.04 (Perl 5.10),strict verifies that it is used as \"strict\" to avoid the dreaded Strict trap on case insensitive file systems. Beginning with Perl 5.12,use of \"use VERSION\" (where VERSION>= 5.11.0) now lexically enables strictures just like \"use strict\" (in addition to the normal \"use VERSION\" effects and features.) In other words,\"use v5.011\" or higher now implies \"use strict\" automatically,as noted in L<perl5120delta/\"Implicit strictures\"> and L<C<use VERSION>|perlfunc/use VERSION>. =cut",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 4384,
       "cutPercent": 20.2,
-      "durationMs": 1.179
+      "durationMs": 1.335
     },
     "content": "package strict;$strict::VERSION = \"1.14\";my ( %bitmask,%explicit_bitmask );BEGIN{die sprintf \"Incorrect use of pragma '%s' at %s line %d.\\n\",__PACKAGE__,+(caller)[1,2] if __FILE__ !~ ( '(?x) \\b '.__PACKAGE__.' \\.pmc? \\z' ) && __FILE__ =~ ( '(?x) \\b (?i:'.__PACKAGE__.') \\.pmc? \\z' );%bitmask = ( refs => 0x00000002,subs => 0x00000200,vars => 0x00000400,);%explicit_bitmask = ( refs => 0x00000020,subs => 0x00000040,vars => 0x00000080,);my $bits = 0;$bits |= $_ for values %bitmask;my $inline_all_bits = $bits;*all_bits = sub (){$inline_all_bits};$bits = 0;$bits |= $_ for values %explicit_bitmask;my $inline_all_explicit_bits = $bits;*all_explicit_bits = sub (){$inline_all_explicit_bits};}sub bits{my $do_explicit = caller eq __PACKAGE__;my $bits = 0;my @wrong;foreach my $s (@_){if (exists $bitmask{$s}){$bits |= $explicit_bitmask{$s}if $do_explicit;$bits |= $bitmask{$s};}else{push @wrong,$s;}}if (@wrong){require Carp;Carp::croak(\"Unknown 'strict' tag(s) '@wrong'\");}$bits;}sub import{shift;$^H |= @_ ? &bits:all_bits | all_explicit_bits;}sub unimport{shift;if (@_){my $bits = &bits;$^H &= ~$bits;$^H |= all_explicit_bits & $bits;}else{$^H &= ~all_bits;$^H |= all_explicit_bits;}}1;__END__ =head1 NAME strict - Perl prag\n\n... [truncated 2584 chars] ...\n\ned,the strict pragma will abort with Unknown 'strict' tag(s) '...' As of version 1.04 (Perl 5.10),strict verifies that it is used as \"strict\" to avoid the dreaded Strict trap on case insensitive file systems. Beginning with Perl 5.12,use of \"use VERSION\" (where VERSION>= 5.11.0) now lexically enables strictures just like \"use strict\" (in addition to the normal \"use VERSION\" effects and features.) In other words,\"use v5.011\" or higher now implies \"use strict\" automatically,as noted in L<perl5120delta/\"Implicit strictures\"> and L<C<use VERSION>|perlfunc/use VERSION>. =cut",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 4384,
       "cutPercent": 20.2,
-      "durationMs": 1.21,
+      "durationMs": 1.317,
       "failed": false,
       "type": "aggressive",
       "reason": null

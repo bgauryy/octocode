@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 1254,
       "cutPercent": 64.2,
-      "durationMs": 0.554
+      "durationMs": 0.469
     },
     "content": "require \"concurrent/map\"\n\nclass Object\n\n  def blank?\n    respond_to?(:empty?) ? !!empty? : false\n  end\n\n  def present?\n    !blank?\n  end\n\n  def presence\n    self if present?\n  end\nend\n\nclass NilClass\n\n  def blank?\n    true\n  end\n\n  def present?\n    false\n  end\nend\n\nclass FalseClass\n\n  def blank?\n    true\n  end\n\n  def present?\n    false\n  end\nend\n\nclass TrueClass\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend\n\nclass Array\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass Hash\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass Symbol\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass String\n  BLANK_RE = /\\A[[:space:]]*\\z/\n  ENCODED_BLANKS = Concurrent::Map.new do |h, enc|\n    h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)\n  end\n\n  def blank?\n\n    empty? ||\n      begin\n        BLANK_RE.match?(self)\n      rescue Encoding::CompatibilityError\n        ENCODED_BLANKS[self.encoding].match?(self)\n      end\n  end\n\n  def present?\n    !blank?\n  end\nend\n\nclass Numeric\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend\n\nclass Time\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 1269,
       "cutPercent": 63.8,
-      "durationMs": 0.529
+      "durationMs": 0.477
     },
     "content": "\n\nrequire \"concurrent/map\"\n\nclass Object\n\n\n  def blank?\n    respond_to?(:empty?) ? !!empty? : false\n  end\n\n\n  def present?\n    !blank?\n  end\n\n\n  def presence\n    self if present?\n  end\nend\n\nclass NilClass\n\n\n  def blank?\n    true\n  end\n\n  def present?\n    false\n  end\nend\n\nclass FalseClass\n\n\n  def blank?\n    true\n  end\n\n  def present?\n    false\n  end\nend\n\nclass TrueClass\n\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend\n\nclass Array\n\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass Hash\n\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass Symbol\n\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass String\n  BLANK_RE = /\\A[[:space:]]*\\z/\n  ENCODED_BLANKS = Concurrent::Map.new do |h, enc|\n    h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)\n  end\n\n\n  def blank?\n\n\n    empty? ||\n      begin\n        BLANK_RE.match?(self)\n      rescue Encoding::CompatibilityError\n        ENCODED_BLANKS[self.encoding].match?(self)\n      end\n  end\n\n  def present?\n    !blank?\n  end\nend\n\nclass Numeric\n\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend\n\nclass Time\n\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 1269,
       "cutPercent": 63.8,
-      "durationMs": 0.529
+      "durationMs": 0.449
     },
     "content": "\n\nrequire \"concurrent/map\"\n\nclass Object\n\n\n  def blank?\n    respond_to?(:empty?) ? !!empty? : false\n  end\n\n\n  def present?\n    !blank?\n  end\n\n\n  def presence\n    self if present?\n  end\nend\n\nclass NilClass\n\n\n  def blank?\n    true\n  end\n\n  def present?\n    false\n  end\nend\n\nclass FalseClass\n\n\n  def blank?\n    true\n  end\n\n  def present?\n    false\n  end\nend\n\nclass TrueClass\n\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend\n\nclass Array\n\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass Hash\n\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass Symbol\n\n\n  alias_method :blank?, :empty?\n\n  def present?\n    !empty?\n  end\nend\n\nclass String\n  BLANK_RE = /\\A[[:space:]]*\\z/\n  ENCODED_BLANKS = Concurrent::Map.new do |h, enc|\n    h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)\n  end\n\n\n  def blank?\n\n\n    empty? ||\n      begin\n        BLANK_RE.match?(self)\n      rescue Encoding::CompatibilityError\n        ENCODED_BLANKS[self.encoding].match?(self)\n      end\n  end\n\n  def present?\n    !blank?\n  end\nend\n\nclass Numeric\n\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend\n\nclass Time\n\n\n  def blank?\n    false\n  end\n\n  def present?\n    true\n  end\nend",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 1269,
       "cutPercent": 63.8,
-      "durationMs": 0.538,
+      "durationMs": 0.467,
       "failed": false,
       "type": "conservative",
       "reason": null

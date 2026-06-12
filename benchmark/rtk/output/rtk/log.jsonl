@@ -1,0 +1,15 @@
+{"ts":"2026-06-12T18:14:45.463Z","q":18,"agent":"rtk","cmd":"rtk gh pr view 2129 --repo rtk-ai/rtk","in_chars":33,"out_chars":1838,"elapsed_ms":744,"exit":0}
+{"ts":"2026-06-12T18:15:02.289Z","q":19,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --search ultra-compact --state merged","in_chars":66,"out_chars":1257,"elapsed_ms":620,"exit":0}
+{"ts":"2026-06-12T18:15:09.756Z","q":19,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --search feat ultra-compact --state merged","in_chars":71,"out_chars":535,"elapsed_ms":598,"exit":0}
+{"ts":"2026-06-12T18:15:17.135Z","q":19,"agent":"rtk","cmd":"rtk gh pr view 1188 --repo rtk-ai/rtk","in_chars":33,"out_chars":1110,"elapsed_ms":758,"exit":0}
+{"ts":"2026-06-12T18:15:27.758Z","q":19,"agent":"rtk","cmd":"rtk rg ultra.compact /tmp/rtk-bench/src/main.rs","in_chars":43,"out_chars":125,"elapsed_ms":81,"exit":2}
+{"ts":"2026-06-12T18:15:38.209Z","q":19,"agent":"rtk","cmd":"rtk rg ultra.compact /tmp/rtk-bench --type rust -l","in_chars":46,"out_chars":0,"elapsed_ms":77,"exit":1}
+{"ts":"2026-06-12T18:15:46.711Z","q":19,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --search ultra compact --state merged --limit 30","in_chars":77,"out_chars":1257,"elapsed_ms":601,"exit":0}
+{"ts":"2026-06-12T18:15:53.578Z","q":19,"agent":"rtk","cmd":"rtk gh pr view 1747 --repo rtk-ai/rtk","in_chars":33,"out_chars":1651,"elapsed_ms":770,"exit":0}
+{"ts":"2026-06-12T18:16:01.239Z","q":19,"agent":"rtk","cmd":"rtk rg ultra.compact\\|ultra_compact /tmp/rtk-bench --type sh -l","in_chars":59,"out_chars":0,"elapsed_ms":76,"exit":1}
+{"ts":"2026-06-12T18:16:01.347Z","q":19,"agent":"rtk","cmd":"rtk rg ultra.compact\\|ultra_compact /tmp/rtk-bench -l","in_chars":49,"out_chars":0,"elapsed_ms":65,"exit":1}
+{"ts":"2026-06-12T18:16:08.333Z","q":19,"agent":"rtk","cmd":"rtk rg ultra.compact\\|ultraCompact\\|ultra_compact /tmp/rtk-bench/src -l","in_chars":67,"out_chars":0,"elapsed_ms":76,"exit":1}
+{"ts":"2026-06-12T18:16:18.067Z","q":19,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench","in_chars":17,"out_chars":77,"elapsed_ms":64,"exit":0}
+{"ts":"2026-06-12T18:16:24.040Z","q":19,"agent":"rtk","cmd":"rtk ls /tmp/rtk-bench/src","in_chars":21,"out_chars":64,"elapsed_ms":67,"exit":0}
+{"ts":"2026-06-12T18:16:30.228Z","q":19,"agent":"rtk","cmd":"rtk rg ultra /tmp/rtk-bench/src -l","in_chars":30,"out_chars":0,"elapsed_ms":69,"exit":1}
+{"ts":"2026-06-12T18:16:46.576Z","q":19,"agent":"rtk","cmd":"rtk gh pr list --repo rtk-ai/rtk --search compact --state merged --limit 50","in_chars":71,"out_chars":1680,"elapsed_ms":662,"exit":0}

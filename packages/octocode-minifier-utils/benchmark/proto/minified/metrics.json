@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 18638,
       "cutPercent": 69.1,
-      "durationMs": 6.323
+      "durationMs": 6.501
     },
     "content": "syntax = \"proto2\";\n\npackage google.protobuf;\n\noption go_package = \"google.golang.org/protobuf/types/descriptorpb\";\noption java_package = \"com.google.protobuf\";\noption java_outer_classname = \"DescriptorProtos\";\noption csharp_namespace = \"Google.Protobuf.Reflection\";\noption objc_class_prefix = \"GPB\";\noption cc_enable_arenas = true;\n\noption optimize_for = SPEED;\n\nmessage FileDescriptorSet {\n  repeated FileDescriptorProto file = 1;\n\n  extensions 536000000 [declaration = {\n    number: 536000000\n    type: \".buf.descriptor.v1.FileDescriptorSetExtension\"\n    full_name: \".buf.descriptor.v1.buf_file_descriptor_set_extension\"\n  }];\n}\n\nenum Edition {\n\n  EDITION_UNKNOWN = 0;\n\n  EDITION_LEGACY = 900;\n\n  EDITION_PROTO2 = 998;\n  EDITION_PROTO3 = 999;\n\n  EDITION_2023 = 1000;\n  EDITION_2024 = 1001;\n  EDITION_2026 = 1002;\n\n  EDITION_UNSTABLE = 9999;\n\n  EDITION_1_TEST_ONLY = 1;\n  EDITION_2_TEST_ONLY = 2;\n  EDITION_99997_TEST_ONLY = 99997;\n  EDITION_99998_TEST_ONLY = 99998;\n  EDITION_99999_TEST_ONLY = 99999;\n\n  EDITION_MAX = 0x7FFFFFFF;\n}\n\nmessage FileDescriptorProto {\n  optional string name = 1;\n  optional string package = 2;\n\n  repeated string dependency = 3;\n\n  repeated int32 public_dependency = 10;\n\n  repeated int32 weak_\n\n... [truncated 16838 chars] ...\n\n: \".buf.descriptor.v1.SourceCodeInfoExtension\"\n    full_name: \".buf.descriptor.v1.buf_source_code_info_extension\"\n  }];\n}\n\nmessage GeneratedCodeInfo {\n\n  repeated Annotation annotation = 1;\n  message Annotation {\n\n    repeated int32 path = 1 [packed = true];\n\n    optional string source_file = 2;\n\n    optional int32 begin = 3;\n\n    optional int32 end = 4;\n\n    enum Semantic {\n\n      NONE = 0;\n\n      SET = 1;\n\n      ALIAS = 2;\n    }\n    optional Semantic semantic = 5;\n  }\n}\n\nenum SymbolVisibility {\n  VISIBILITY_UNSET = 0;\n  VISIBILITY_LOCAL = 1;\n  VISIBILITY_EXPORT = 2;\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 18810,
       "cutPercent": 68.8,
-      "durationMs": 6.87
+      "durationMs": 6.688
     },
     "content": "\n\nsyntax = \"proto2\";\n\npackage google.protobuf;\n\noption go_package = \"google.golang.org/protobuf/types/descriptorpb\";\noption java_package = \"com.google.protobuf\";\noption java_outer_classname = \"DescriptorProtos\";\noption csharp_namespace = \"Google.Protobuf.Reflection\";\noption objc_class_prefix = \"GPB\";\noption cc_enable_arenas = true;\n\n\noption optimize_for = SPEED;\n\n\nmessage FileDescriptorSet {\n  repeated FileDescriptorProto file = 1;\n\n\n  extensions 536000000 [declaration = {\n    number: 536000000\n    type: \".buf.descriptor.v1.FileDescriptorSetExtension\"\n    full_name: \".buf.descriptor.v1.buf_file_descriptor_set_extension\"\n  }];\n}\n\n\nenum Edition {\n\n  EDITION_UNKNOWN = 0;\n\n\n  EDITION_LEGACY = 900;\n\n\n  EDITION_PROTO2 = 998;\n  EDITION_PROTO3 = 999;\n\n\n  EDITION_2023 = 1000;\n  EDITION_2024 = 1001;\n  EDITION_2026 = 1002;\n\n\n  EDITION_UNSTABLE = 9999;\n\n\n  EDITION_1_TEST_ONLY = 1;\n  EDITION_2_TEST_ONLY = 2;\n  EDITION_99997_TEST_ONLY = 99997;\n  EDITION_99998_TEST_ONLY = 99998;\n  EDITION_99999_TEST_ONLY = 99999;\n\n\n  EDITION_MAX = 0x7FFFFFFF;\n}\n\n\nmessage FileDescriptorProto {\n  optional string name = 1;\n  optional string package = 2;\n\n\n  repeated string dependency = 3;\n\n  repeated int32 public_dependency = 10;\n\n\n  repea\n\n... [truncated 17010 chars] ...\n\ndescriptor.v1.SourceCodeInfoExtension\"\n    full_name: \".buf.descriptor.v1.buf_source_code_info_extension\"\n  }];\n}\n\n\nmessage GeneratedCodeInfo {\n\n\n  repeated Annotation annotation = 1;\n  message Annotation {\n\n\n    repeated int32 path = 1 [packed = true];\n\n\n    optional string source_file = 2;\n\n\n    optional int32 begin = 3;\n\n\n    optional int32 end = 4;\n\n\n    enum Semantic {\n\n      NONE = 0;\n\n      SET = 1;\n\n      ALIAS = 2;\n    }\n    optional Semantic semantic = 5;\n  }\n}\n\n\nenum SymbolVisibility {\n  VISIBILITY_UNSET = 0;\n  VISIBILITY_LOCAL = 1;\n  VISIBILITY_EXPORT = 2;\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 18810,
       "cutPercent": 68.8,
-      "durationMs": 5.966
+      "durationMs": 6.27
     },
     "content": "\n\nsyntax = \"proto2\";\n\npackage google.protobuf;\n\noption go_package = \"google.golang.org/protobuf/types/descriptorpb\";\noption java_package = \"com.google.protobuf\";\noption java_outer_classname = \"DescriptorProtos\";\noption csharp_namespace = \"Google.Protobuf.Reflection\";\noption objc_class_prefix = \"GPB\";\noption cc_enable_arenas = true;\n\n\noption optimize_for = SPEED;\n\n\nmessage FileDescriptorSet {\n  repeated FileDescriptorProto file = 1;\n\n\n  extensions 536000000 [declaration = {\n    number: 536000000\n    type: \".buf.descriptor.v1.FileDescriptorSetExtension\"\n    full_name: \".buf.descriptor.v1.buf_file_descriptor_set_extension\"\n  }];\n}\n\n\nenum Edition {\n\n  EDITION_UNKNOWN = 0;\n\n\n  EDITION_LEGACY = 900;\n\n\n  EDITION_PROTO2 = 998;\n  EDITION_PROTO3 = 999;\n\n\n  EDITION_2023 = 1000;\n  EDITION_2024 = 1001;\n  EDITION_2026 = 1002;\n\n\n  EDITION_UNSTABLE = 9999;\n\n\n  EDITION_1_TEST_ONLY = 1;\n  EDITION_2_TEST_ONLY = 2;\n  EDITION_99997_TEST_ONLY = 99997;\n  EDITION_99998_TEST_ONLY = 99998;\n  EDITION_99999_TEST_ONLY = 99999;\n\n\n  EDITION_MAX = 0x7FFFFFFF;\n}\n\n\nmessage FileDescriptorProto {\n  optional string name = 1;\n  optional string package = 2;\n\n\n  repeated string dependency = 3;\n\n  repeated int32 public_dependency = 10;\n\n\n  repea\n\n... [truncated 17010 chars] ...\n\ndescriptor.v1.SourceCodeInfoExtension\"\n    full_name: \".buf.descriptor.v1.buf_source_code_info_extension\"\n  }];\n}\n\n\nmessage GeneratedCodeInfo {\n\n\n  repeated Annotation annotation = 1;\n  message Annotation {\n\n\n    repeated int32 path = 1 [packed = true];\n\n\n    optional string source_file = 2;\n\n\n    optional int32 begin = 3;\n\n\n    optional int32 end = 4;\n\n\n    enum Semantic {\n\n      NONE = 0;\n\n      SET = 1;\n\n      ALIAS = 2;\n    }\n    optional Semantic semantic = 5;\n  }\n}\n\n\nenum SymbolVisibility {\n  VISIBILITY_UNSET = 0;\n  VISIBILITY_LOCAL = 1;\n  VISIBILITY_EXPORT = 2;\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 18810,
       "cutPercent": 68.8,
-      "durationMs": 6.518,
+      "durationMs": 6.333,
       "failed": false,
       "type": "conservative",
       "reason": null

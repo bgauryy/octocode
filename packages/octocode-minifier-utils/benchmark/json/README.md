@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3468 | - | - | - |
-| content-view | 3468 | 0% | 0.127 ms | 9/10 |
-| applyMinification | 2464 | 29% | 0.147 ms | 9/10 |
-| sync minify | 2464 | 29% | 0.144 ms | 9/10 |
-| async minify | 2464 | 29% | 0.155 ms | 9/10 |
-| symbols | 13 | 99.6% | 0.116 ms | n/a |
+| content-view | 3468 | 0% | 0.105 ms | 9/10 |
+| applyMinification | 2464 | 29% | 0.16 ms | 9/10 |
+| sync minify | 2464 | 29% | 0.139 ms | 9/10 |
+| async minify | 2464 | 29% | 0.14 ms | 9/10 |
+| symbols | n/a | n/a | 0.004 ms | n/a |
 
 ## Agent Understanding
 
@@ -49,7 +49,7 @@ for this language sample.
 | none | 3468 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 3468 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
 | minify | 2464 | 29% | 9.6/10 excellent | 10/10 | 10/10 |
-| symbols | 13 | 99.6% | 7.1/10 good | 3.3/10 | 10/10 |
+| symbols | n/a | n/a | n/a | n/a | n/a |
 
 ## Notes
 
@@ -250,6 +250,5 @@ l":"https://github.com/microsoft/TypeScript.git"},"scripts":{"build":"npm run bu
 ## Symbols
 
 ```txt
-  1| {
-117| }
+No symbols returned for this sample.
 ```

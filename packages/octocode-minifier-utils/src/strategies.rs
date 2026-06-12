@@ -572,6 +572,21 @@ pub fn minify_js_oxc(content: &str, file_path: &str, mangle: bool) -> Option<Str
     if !parser_ret.errors.is_empty() { return None; }
 
     let mut program = parser_ret.program;
+
+    // P1: Strip TypeScript-only top-level statements before code generation.
+    // Removes: `import type`, `interface`, `type alias`, TS-declare statements.
+    //
+    // Note: Statement::is_typescript_syntax() returns false for ImportDeclaration
+    // even when import_kind == Type (OXC considers it valid syntax for other purposes).
+    // We therefore write an explicit match.
+    use oxc_ast::ast::{ImportOrExportKind, Statement as Stmt};
+    program.body.retain(|stmt| match stmt {
+        // `import type { Foo } from '...'` — no runtime value
+        Stmt::ImportDeclaration(decl) => decl.import_kind != ImportOrExportKind::Type,
+        // All other TS-only nodes (interface, type alias, declare, etc.)
+        _ => !stmt.is_typescript_syntax(),
+    });
+
     // Use safest() for compression + mangle for variable renaming.
     // safest() = keep all code, join vars, comma sequences — no dead-code removal
     // (avoids OXC 0.95 bug where CompressOptions::default() can produce empty output).
