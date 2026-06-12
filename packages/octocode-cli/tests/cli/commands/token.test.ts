@@ -149,7 +149,7 @@ describe('tokenCommand', () => {
   it('exports the expected command metadata', async () => {
     const cmd = await loadCommand();
     expect(cmd.name).toBe('token');
-    expect(cmd.aliases).toContain('t');
+    expect(cmd.aliases).toBeUndefined();
     expect(cmd.options?.length).toBeGreaterThan(0);
   });
 

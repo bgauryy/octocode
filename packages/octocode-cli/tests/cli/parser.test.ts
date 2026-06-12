@@ -80,10 +80,11 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ hostname: 'github.enterprise.com' });
     });
 
-    it('should parse -H option with value for hostname', () => {
+    it('should parse -H as a boolean flag (no value consumption)', () => {
       const result = parseArgs(['token', '-H', 'github.enterprise.com']);
       expect(result.command).toBe('token');
-      expect(result.options).toEqual({ H: 'github.enterprise.com' });
+      expect(result.options).toEqual({ H: true });
+      expect(result.args).toContain('github.enterprise.com');
     });
 
     it('should parse -h as help flag (boolean), not hostname', () => {
@@ -97,10 +98,11 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ type: 'gh' });
     });
 
-    it('should parse -t option with value for type', () => {
+    it('should parse -t as a boolean flag (no value consumption)', () => {
       const result = parseArgs(['token', '-t', 'octocode']);
       expect(result.command).toBe('token');
-      expect(result.options).toEqual({ t: 'octocode' });
+      expect(result.options).toEqual({ t: true });
+      expect(result.args).toContain('octocode');
     });
 
     it('should parse --git-protocol option', () => {
@@ -121,11 +123,11 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ skill: 'octocode-plan' });
     });
 
-    it('should parse skills install -k with value', () => {
+    it('should parse skills install -k as boolean flag (no value consumption)', () => {
       const result = parseArgs(['skills', 'install', '-k', 'octocode-roast']);
       expect(result.command).toBe('skills');
-      expect(result.args).toEqual(['install']);
-      expect(result.options).toEqual({ k: 'octocode-roast' });
+      expect(result.args).toEqual(['install', 'octocode-roast']);
+      expect(result.options).toEqual({ k: true });
     });
 
     it('should synthesize the tool command from top-level --tool usage', () => {
@@ -214,62 +216,55 @@ describe('CLI Parser', () => {
       );
     });
 
-    it('should parse single-dash long option -tool with = value', () => {
-      const result = parseArgs(['-tool=myTool']);
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual(['myTool']);
-      expect(result.options).toEqual({ tool: 'myTool' });
+    it('should parse single-dash multi-char as individual boolean flags', () => {
+      const result = parseArgs(['-tf']);
+      expect(result.options.t).toBe(true);
+      expect(result.options.f).toBe(true);
     });
 
-    it('should parse single-dash long option -tool consuming next arg', () => {
-      const result = parseArgs(['-tool', 'myTool']);
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual(['myTool']);
-      expect(result.options).toEqual({ tool: 'myTool' });
+    it('should parse single-dash -t as boolean, not consume next arg', () => {
+      const result = parseArgs(['-t', 'myTool']);
+      expect(result.options.t).toBe(true);
+      // myTool is a positional, not consumed as value
+      expect(result.command).toBe('myTool');
     });
 
-    it('should treat single-dash -tool as boolean when no value follows', () => {
-      const result = parseArgs(['-tool']);
+    it('should parse single-dash -f as boolean flag', () => {
+      const result = parseArgs(['-f']);
       expect(result.command).toBeNull();
-      expect(result.options).toEqual({ tool: true });
+      expect(result.options.f).toBe(true);
     });
 
-    it('should parse single-dash long option -output with = value', () => {
-      const result = parseArgs(['--tool', 'localSearchCode', '-output=json']);
+    it('should parse --tool with -j as individual char flags (no value consumed)', () => {
+      const result = parseArgs(['--tool', 'localSearchCode', '-j']);
       expect(result.command).toBe('tool');
       expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options).toEqual({
-        tool: 'localSearchCode',
-        output: 'json',
-      });
+      expect(result.options.tool).toBe('localSearchCode');
+      expect(result.options.j).toBe(true);
     });
 
-    it('should parse single-dash long option -queries with = value', () => {
+    it('should parse --tool and --queries (double-dash) with = value', () => {
       const result = parseArgs([
-        '-tool=localSearchCode',
-        '-queries={"path":".","pattern":"x"}',
+        '--tool=localSearchCode',
+        '--queries={"path":".","pattern":"x"}',
       ]);
       expect(result.command).toBe('tool');
       expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options).toEqual({
-        tool: 'localSearchCode',
-        queries: '{"path":".","pattern":"x"}',
-      });
+      expect(result.options.tool).toBe('localSearchCode');
+      expect(result.options.queries).toBe('{"path":".","pattern":"x"}');
     });
 
-    it('should parse single-dash long option -queries consuming next arg', () => {
+    it('should parse --tool and --queries consuming next arg', () => {
       const result = parseArgs([
-        '-tool',
+        '--tool',
         'localSearchCode',
-        '-queries',
+        '--queries',
         '{"path":".","pattern":"next"}',
       ]);
       expect(result.command).toBe('tool');
       expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options).toEqual({
-        tool: 'localSearchCode',
-        queries: '{"path":".","pattern":"next"}',
-      });
+      expect(result.options.tool).toBe('localSearchCode');
+      expect(result.options.queries).toBe('{"path":".","pattern":"next"}');
     });
 
     it('should consume values for unknown long flags after the tool command', () => {

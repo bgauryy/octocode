@@ -33,8 +33,7 @@ interface FetchGithubOpts {
   matchString?: string;
   startLine?: number;
   endLine?: number;
-  page?: number;
-  pageSize?: number;
+  charLength?: number;
 }
 
 async function fetchGithubContent(
@@ -54,8 +53,7 @@ async function fetchGithubContent(
         matchString: opts.matchString,
         startLine: opts.startLine,
         endLine: opts.endLine,
-        page: opts.page,
-        itemsPerPage: opts.pageSize,
+        charLength: opts.charLength,
         mainResearchGoal: 'Fetch file content',
         researchGoal: 'Fetch raw content for get command',
         reasoning: 'CLI get command',
@@ -78,13 +76,17 @@ async function fetchGithubContent(
   }
 
   const structured = result.structuredContent as ContentResult | undefined;
-  const fileResult = structured?.results?.[0]?.files?.[0];
-  const content = fileResult?.content;
+  const queryResult = structured?.results?.[0];
+  const fileResult = (queryResult as Record<string, unknown> | undefined)
+    ?.files as Array<Record<string, unknown>> | undefined;
+  const firstFile = fileResult?.[0];
+  const content = firstFile?.['content'] as string | undefined;
   if (!content) {
     throw new Error(`No content returned for ${owner}/${repo}/${subpath}`);
   }
-  const pagination = (fileResult as Record<string, unknown> | undefined)
-    ?.pagination as Record<string, unknown> | undefined;
+  const pagination = firstFile?.['pagination'] as
+    | Record<string, unknown>
+    | undefined;
   return { content, pagination };
 }
 
@@ -107,7 +109,11 @@ async function applyMode(
   }
 
   const result = await minifyContent(raw, ext);
-  return { content: result.content, strategy: result.strategy };
+  const minified = result as unknown as { content: string; strategy: string };
+  return {
+    content: minified.content,
+    strategy: minified.strategy ?? 'standard',
+  };
 }
 
 // ── command ───────────────────────────────────────────────────────────────────
@@ -117,7 +123,7 @@ export const getCommand: CLICommand = {
   description:
     'Fetch and minify file content — works for local paths and GitHub references',
   usage:
-    'octocode get <path|github-ref> [--mode none|standard|symbols] [--match-string <s>] [--start-line <n>] [--end-line <n>] [--page <n>] [--page-size <n>] [--stats] [--json]',
+    'octocode get <path|github-ref> [--mode none|standard|symbols] [--type <ext>] [--branch <ref>] [--match-string <s>] [--start-line <n>] [--end-line <n>] [--page-size <n>] [--stats] [--json]',
   options: [
     {
       name: 'mode',
@@ -138,7 +144,8 @@ export const getCommand: CLICommand = {
     {
       name: 'match-string',
       hasValue: true,
-      description: 'Return only the section matching this string (GitHub only)',
+      description:
+        'Return only sections matching this string — ALL occurrences returned',
     },
     {
       name: 'start-line',
@@ -151,19 +158,10 @@ export const getCommand: CLICommand = {
       description: 'Last line to return — 1-based (GitHub only)',
     },
     {
-      name: 'page',
-      hasValue: true,
-      description: 'Page number for paginated large files (default: 1)',
-    },
-    {
       name: 'page-size',
       hasValue: true,
-      description: 'Characters per page (default: server default)',
-    },
-    {
-      name: 'content',
-      hasValue: true,
-      description: 'Raw content string (requires --type)',
+      description:
+        'Characters per page (charLength); use with repeated --page-size calls stepping charOffset',
     },
     {
       name: 'stats',
@@ -171,7 +169,6 @@ export const getCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description:
         'Output as JSON: { content, mode, strategy, pagination?, ... }',
     },
@@ -179,21 +176,19 @@ export const getCommand: CLICommand = {
   handler: async args => {
     const { options } = args;
     const target = args.args[0] ?? '';
-    const rawContent = getString(options, 'content');
     const typeHint = getString(options, 'type');
     const branchOverride = getString(options, 'branch');
     const rawMode = getString(options, 'mode') || 'standard';
     const showStats = getBool(options, 'stats');
-    const jsonOutput = getBool(options, 'json', 'j');
+    const jsonOutput = getBool(options, 'json');
     const matchString = getString(options, 'match-string');
     const rawStartLine = getString(options, 'start-line');
     const rawEndLine = getString(options, 'end-line');
-    const rawPage = getString(options, 'page');
     const rawPageSize = getString(options, 'page-size');
     const startLine = rawStartLine ? parseInt(rawStartLine, 10) : undefined;
     const endLine = rawEndLine ? parseInt(rawEndLine, 10) : undefined;
-    const page = rawPage ? parseInt(rawPage, 10) : undefined;
     const pageSize = rawPageSize ? parseInt(rawPageSize, 10) : undefined;
+    // Note: charOffset-based pagination is handled server-side; use page-size to control chunk size
 
     if (!VALID_MODES.includes(rawMode as MinifyMode)) {
       const err = `Unknown mode "${rawMode}". Valid: ${VALID_MODES.join(', ')}`;
@@ -214,21 +209,7 @@ export const getCommand: CLICommand = {
     let githubMeta: { owner: string; repo: string; path: string } | undefined;
     let paginationMeta: Record<string, unknown> | undefined;
 
-    if (rawContent) {
-      if (!typeHint) {
-        const err = '--content requires --type <extension> (e.g. --type ts)';
-        if (jsonOutput) {
-          console.log(JSON.stringify({ success: false, error: err }));
-        } else {
-          console.error(`\n  ${c('red', '✗')} ${err}\n`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-      raw = rawContent;
-      resolvedExt = typeHint;
-      sourceLabel = '<inline>';
-    } else if (target) {
+    if (target) {
       const ref = resolveRef(target, branchOverride || undefined);
 
       if (isGithubRef(ref)) {
@@ -245,8 +226,7 @@ export const getCommand: CLICommand = {
             matchString: matchString || undefined,
             startLine,
             endLine,
-            page,
-            pageSize,
+            charLength: pageSize,
           }
         ).catch((e: Error) => {
           if (jsonOutput) {
@@ -273,12 +253,23 @@ export const getCommand: CLICommand = {
           process.exitCode = 1;
           return;
         }
+        const stat = await import('node:fs').then(m => m.statSync(ref.path));
+        if (stat.isDirectory()) {
+          const err = `${ref.path} is a directory — use "octocode tree" for directory structure`;
+          if (jsonOutput) {
+            console.log(JSON.stringify({ success: false, error: err }));
+          } else {
+            console.error(`\n  ${c('red', '✗')} ${err}\n`);
+          }
+          process.exitCode = 1;
+          return;
+        }
         raw = readFileSync(ref.path, 'utf-8');
         resolvedExt = typeHint || path.extname(ref.path).slice(1);
         sourceLabel = ref.path;
       }
     } else {
-      const err = 'Provide a path, GitHub reference, or --content with --type.';
+      const err = 'Provide a file path or GitHub reference.';
       if (jsonOutput) {
         console.log(JSON.stringify({ success: false, error: err }));
       } else {
@@ -287,8 +278,7 @@ export const getCommand: CLICommand = {
           `\n  ${dim('Examples:')}\n` +
             `    octocode get src/utils.ts\n` +
             `    octocode get bgauryy/octocode-mcp/README.md\n` +
-            `    octocode get "https://github.com/owner/repo/blob/main/file.ts"\n` +
-            `    octocode get --content "<raw>" --type ts\n`
+            `    octocode get "https://github.com/owner/repo/blob/main/file.ts"\n`
         );
       }
       process.exitCode = 1;

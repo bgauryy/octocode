@@ -19,32 +19,27 @@ import { tokenCommand } from './token.js';
 
 export const loginCommand: CLICommand = {
   name: 'login',
-  aliases: ['l'],
   description: 'Authenticate with GitHub',
   usage:
     'octocode login [--hostname <host>] [--git-protocol <ssh|https>] [--force] [--json]',
   options: [
     {
       name: 'hostname',
-      short: 'H',
       description: 'GitHub Enterprise hostname (default: github.com)',
       hasValue: true,
     },
     {
       name: 'git-protocol',
-      short: 'p',
       description: 'Git protocol to use (ssh or https)',
       hasValue: true,
     },
     {
       name: 'force',
-      short: 'f',
       description:
         'Re-authenticate even if already logged in (logout then login)',
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output result as JSON: { success, username, error }',
     },
   ],
@@ -220,18 +215,15 @@ export const logoutCommand: CLICommand = {
   options: [
     {
       name: 'hostname',
-      short: 'H',
       description: 'GitHub Enterprise hostname',
       hasValue: true,
     },
     {
       name: 'yes',
-      short: 'y',
       description: 'Skip confirmation prompt',
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output result as JSON: { success, hostname, error }',
     },
   ],
@@ -316,19 +308,16 @@ export const logoutCommand: CLICommand = {
 
 export const authCommand: CLICommand = {
   name: 'auth',
-  aliases: ['a', 'gh'],
   description: 'Manage GitHub authentication',
   usage: 'octocode auth [login|logout|status|token|refresh] [--json]',
   options: [
     {
       name: 'hostname',
-      short: 'H',
       description: 'GitHub Enterprise hostname (default: github.com)',
       hasValue: true,
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output as JSON (supported by all subcommands)',
     },
   ],

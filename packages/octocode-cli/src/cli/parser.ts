@@ -3,29 +3,21 @@ import type { ParsedArgs } from './types.js';
 const OPTIONS_WITH_VALUES = new Set([
   'ide',
   'method',
-  'm',
   'output',
-  'o',
   'hostname',
-  'H',
   'git-protocol',
-  'p',
   'path',
   'github',
   'branch',
   'type',
-  't',
   'skill',
-  'k',
   'local',
   'limit',
-  'l',
   'depth',
   'targets',
   'mode',
   'model',
   'resume',
-  'r',
   'id',
   'content',
   'search',
@@ -54,9 +46,7 @@ const OPTIONS_WITH_VALUES = new Set([
 
 const BOOLEAN_OPTIONS = new Set([
   'help',
-  'h',
   'version',
-  'v',
   'force',
   'source',
   'json',
@@ -71,7 +61,6 @@ const BOOLEAN_OPTIONS = new Set([
   'tools-context',
   'agent',
   'compact',
-  'full',
   'no-color',
   'reveal',
   'raw',
@@ -79,16 +68,7 @@ const BOOLEAN_OPTIONS = new Set([
   'rollback',
   'install',
   'yes',
-  'y',
   'validate',
-]);
-
-const SINGLE_DASH_LONG_OPTIONS = new Set([
-  'output',
-  'responseCharLength',
-  'responseCharOffset',
-  'tool',
-  'queries',
 ]);
 
 function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {
@@ -128,55 +108,11 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
       } else {
         result.options[key] = true;
       }
-    } else if (arg.startsWith('-') && !arg.startsWith('--') && arg.length > 2) {
-      const normalized = arg.slice(1);
-      const [key, value] = normalized.split('=');
-
-      if (SINGLE_DASH_LONG_OPTIONS.has(key)) {
-        if (value !== undefined) {
-          result.options[key] = value;
-        } else if (
-          shouldConsumeNextValue(result, key) &&
-          i + 1 < argv.length &&
-          !argv[i + 1].startsWith('-')
-        ) {
-          result.options[key] = argv[i + 1];
-          i++;
-        } else {
-          result.options[key] = true;
-        }
-      } else {
-        const flags = normalized;
-        const lastFlag = flags[flags.length - 1];
-        if (
-          flags.length === 1 &&
-          OPTIONS_WITH_VALUES.has(lastFlag) &&
-          i + 1 < argv.length &&
-          !argv[i + 1].startsWith('-')
-        ) {
-          result.options[lastFlag] = argv[i + 1];
-          i++;
-        } else {
-          for (const flag of flags) {
-            result.options[flag] = true;
-          }
-        }
-      }
     } else if (arg.startsWith('-') && arg.length > 1) {
+      // Single-char flags (e.g. -v, -h, -j, -f)
       const flags = arg.slice(1);
-      const lastFlag = flags[flags.length - 1];
-      if (
-        flags.length === 1 &&
-        OPTIONS_WITH_VALUES.has(lastFlag) &&
-        i + 1 < argv.length &&
-        !argv[i + 1].startsWith('-')
-      ) {
-        result.options[lastFlag] = argv[i + 1];
-        i++;
-      } else {
-        for (const flag of flags) {
-          result.options[flag] = true;
-        }
+      for (const flag of flags) {
+        result.options[flag] = true;
       }
     } else if (!result.command) {
       if (typeof result.options['tool'] === 'string') {

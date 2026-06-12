@@ -202,9 +202,9 @@ describe('CLI Commands', () => {
       expect(consoleSpy).toHaveBeenCalledWith('gho_enterprise_token');
     });
 
-    it('should be findable by alias "t"', async () => {
+    it('should be findable by name "token"', async () => {
       const { findCommand } = await import('../../src/cli/commands/index.js');
-      const tokenCmd = findCommand('t');
+      const tokenCmd = findCommand('token');
       expect(tokenCmd).toBeDefined();
       expect(tokenCmd!.name).toBe('token');
     });
@@ -626,9 +626,9 @@ describe('CLI Commands', () => {
       expect(getAuthStatus).toHaveBeenCalledWith('github.enterprise.com');
     });
 
-    it('should be findable by alias "s"', async () => {
+    it('should be findable by name "status"', async () => {
       const { findCommand } = await import('../../src/cli/commands/index.js');
-      const statusCmd = findCommand('s');
+      const statusCmd = findCommand('status');
       expect(statusCmd).toBeDefined();
       expect(statusCmd!.name).toBe('status');
     });

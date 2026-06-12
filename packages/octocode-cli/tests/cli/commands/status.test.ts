@@ -121,7 +121,7 @@ describe('statusCommand', () => {
   it('exports expected command metadata', async () => {
     const cmd = await loadCommand();
     expect(cmd.name).toBe('status');
-    expect(cmd.aliases).toContain('s');
+    expect(cmd.aliases).toBeUndefined();
   });
 
   it('prints full status with no MCP configs found', async () => {

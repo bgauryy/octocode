@@ -155,7 +155,9 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => ({
 describe('toolMetadata', () => {
   const { mockMetadata, mockMetadataWithGitHubHints } = hoist;
 
-  function withBulkQuery<T extends { baseSchema: { bulkQueryTemplate: string } }>(
+  function withBulkQuery<
+    T extends { baseSchema: { bulkQueryTemplate: string } },
+  >(
     m: T
   ): T & {
     baseSchema: T['baseSchema'] & {
@@ -635,58 +637,58 @@ describe('toolMetadata', () => {
   });
 
   describe('Schema helpers', () => {
-    it('should return schema fields for GITHUB_FETCH_CONTENT', async () => {
+    it('should return schema fields via completeMetadata.tools', async () => {
       const { initializeToolMetadata } =
         await import('../../src/tools/toolMetadata/state.js');
-      const { GITHUB_FETCH_CONTENT } =
-        await import('@octocodeai/octocode-core');
       await initializeToolMetadata();
+      const { completeMetadata } = await import('@octocodeai/octocode-core');
 
-      expect(typeof GITHUB_FETCH_CONTENT.scope.owner).toBe('string');
-      expect(typeof GITHUB_FETCH_CONTENT.scope.repo).toBe('string');
-      expect(typeof GITHUB_FETCH_CONTENT.scope.path).toBe('string');
+      // Schema access goes through completeMetadata.tools in the current API
+      const tool = completeMetadata.tools['githubGetFileContent'];
+      expect(tool).toBeDefined();
+      expect(typeof tool.name).toBe('string');
     });
 
-    it('should support GITHUB_SEARCH_CODE schema', async () => {
+    it('should support tool schema access for githubSearchCode', async () => {
       const { initializeToolMetadata } =
         await import('../../src/tools/toolMetadata/state.js');
-      const { GITHUB_SEARCH_CODE } = await import('@octocodeai/octocode-core');
       await initializeToolMetadata();
+      const { completeMetadata } = await import('@octocodeai/octocode-core');
 
-      expect(typeof GITHUB_SEARCH_CODE.search.keywordsToSearch).toBe('string');
+      const tool = completeMetadata.tools['githubSearchCode'];
+      expect(tool).toBeDefined();
+      expect(tool.name).toBe('githubSearchCode');
     });
 
-    it('should support GITHUB_SEARCH_REPOS schema', async () => {
+    it('should list tools in completeMetadata', async () => {
       const { initializeToolMetadata } =
         await import('../../src/tools/toolMetadata/state.js');
-      const { GITHUB_SEARCH_REPOS } = await import('@octocodeai/octocode-core');
       await initializeToolMetadata();
+      const { completeMetadata } = await import('@octocodeai/octocode-core');
 
-      // Access properties to trigger proxy
-      const searchProps = GITHUB_SEARCH_REPOS.search;
-      expect(searchProps).toBeDefined();
+      const toolNames = Object.keys(completeMetadata.tools);
+      expect(toolNames.length).toBeGreaterThan(0);
     });
 
-    it('should support GITHUB_SEARCH_PULL_REQUESTS schema', async () => {
+    it('should expose tool descriptions', async () => {
       const { initializeToolMetadata } =
         await import('../../src/tools/toolMetadata/state.js');
-      const { GITHUB_SEARCH_PULL_REQUESTS } =
-        await import('@octocodeai/octocode-core');
       await initializeToolMetadata();
+      const { completeMetadata } = await import('@octocodeai/octocode-core');
 
-      const searchProps = GITHUB_SEARCH_PULL_REQUESTS.search;
-      expect(searchProps).toBeDefined();
+      const tool = completeMetadata.tools['githubSearchCode'];
+      expect(typeof tool?.description).toBe('string');
     });
 
-    it('should support GITHUB_VIEW_REPO_STRUCTURE schema', async () => {
+    it('should expose baseSchema fields', async () => {
       const { initializeToolMetadata } =
         await import('../../src/tools/toolMetadata/state.js');
-      const { GITHUB_VIEW_REPO_STRUCTURE } =
-        await import('@octocodeai/octocode-core');
       await initializeToolMetadata();
+      const { completeMetadata } = await import('@octocodeai/octocode-core');
 
-      const scopeProps = GITHUB_VIEW_REPO_STRUCTURE.scope;
-      expect(scopeProps).toBeDefined();
+      expect(typeof completeMetadata.baseSchema.mainResearchGoal).toBe(
+        'string'
+      );
     });
   });
 

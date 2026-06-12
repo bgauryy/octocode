@@ -31,7 +31,6 @@ const SUPPORTED_INSTALL_CLIENTS_TEXT = formatSupportedMCPClients({
 
 export const installCommand: CLICommand = {
   name: 'install',
-  aliases: ['i', 'setup'],
   description: 'Install octocode-mcp for an IDE',
   usage: 'octocode install --ide <ide> [--method npx] [--force] [--json]',
   options: [
@@ -42,14 +41,12 @@ export const installCommand: CLICommand = {
     },
     {
       name: 'method',
-      short: 'm',
       description: 'Installation method (npx)',
       hasValue: true,
       default: 'npx',
     },
     {
       name: 'force',
-      short: 'f',
       description: 'Overwrite existing configuration',
     },
     {
@@ -69,7 +66,6 @@ export const installCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description:
         'Output result as JSON: { success, ide, configPath, method, error }',
     },

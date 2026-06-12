@@ -94,7 +94,7 @@ async function searchGithub(
         extension: typeFilter,
         path: subpath || undefined,
         page,
-        itemsPerPage: pageSize,
+        limit: pageSize,
         mainResearchGoal: 'Search GitHub codebase',
         researchGoal: `Find "${pattern}" in ${owner}/${repo}`,
         reasoning: 'CLI search command',
@@ -209,7 +209,6 @@ export const searchCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output raw JSON results',
     },
   ],
@@ -225,7 +224,7 @@ export const searchCommand: CLICommand = {
     const rawPageSize = getString(options, 'page-size');
     const page = rawPage ? parseInt(rawPage, 10) : undefined;
     const pageSize = rawPageSize ? parseInt(rawPageSize, 10) : undefined;
-    const jsonOutput = getBool(options, 'json', 'j');
+    const jsonOutput = getBool(options, 'json');
 
     if (!pattern) {
       const err = 'Provide a search pattern.';

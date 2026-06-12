@@ -164,7 +164,6 @@ const READ_TRUNCATE_CHARS = 3000;
 
 export const skillsCommand: CLICommand = {
   name: 'skills',
-  aliases: ['sk'],
   description: 'Search, install, and manage Octocode skills across AI clients',
   usage:
     'octocode skills [search|read|install|remove|list|sync] [--skill <name>] [--targets <list>] [--mode <copy|symlink>] [--json]',
@@ -172,7 +171,6 @@ export const skillsCommand: CLICommand = {
     { name: 'force', short: 'f', description: 'Overwrite existing skills' },
     {
       name: 'skill',
-      short: 'k',
       description: 'Skill folder name (install/remove from bundled)',
       hasValue: true,
     },
@@ -184,20 +182,17 @@ export const skillsCommand: CLICommand = {
     },
     {
       name: 'targets',
-      short: 't',
       description: `Comma-separated targets: ${formatSkillInstallTargets()}`,
       hasValue: true,
     },
     {
       name: 'mode',
-      short: 'm',
       description: 'Install mode: copy (default) or symlink',
       hasValue: true,
       default: 'copy',
     },
     {
       name: 'limit',
-      short: 'l',
       description: 'Max results for search (default: 20)',
       hasValue: true,
     },
@@ -217,18 +212,15 @@ export const skillsCommand: CLICommand = {
     },
     {
       name: 'install',
-      short: 'i',
       description: 'Install the top search result (use with search --direct)',
     },
     {
       name: 'dry-run',
-      short: 'n',
       description:
         'Show what would be installed without writing anything (install only)',
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output as JSON',
     },
   ],

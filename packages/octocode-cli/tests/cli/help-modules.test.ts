@@ -45,10 +45,10 @@ describe('command-help-specs', () => {
     expect(cmd!.name).toBe('install');
   });
 
-  it('finds install command by alias "setup"', async () => {
+  it('finds install command by name "install"', async () => {
     const { findStaticCommandHelp } =
       await import('../../src/cli/command-help-specs.js');
-    const cmd = findStaticCommandHelp('setup');
+    const cmd = findStaticCommandHelp('install');
     expect(cmd).toBeDefined();
     expect(cmd!.name).toBe('install');
   });

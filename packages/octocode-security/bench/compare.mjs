@@ -32,13 +32,61 @@ const WARMUP = getArg('--warmup', 100);
 const pkg     = await import('../dist/index.js');
 const _native = require(join(__dirname, '..', 'octocode-security.darwin-arm64.node'));
 
+// ---------------------------------------------------------------------------
+// Rust implementation — goes through NAPI bridge
+// ---------------------------------------------------------------------------
 const rustSanitize = (s) => pkg.ContentSanitizer.sanitizeContent(s);
-const tsSanitize   = rustSanitize; // single implementation
 const rustMask     = (s) => pkg.maskSensitiveData(s);
-const tsMask       = rustMask;
 
-console.log(`\n🔬  octocode-security benchmark (Rust/NAPI)`);
-console.log(`   Patterns loaded: ${_native.patternCount()}`);
+// ---------------------------------------------------------------------------
+// Pure-JS baseline — same 304 patterns applied in JavaScript, no Rust
+// This is the real comparison: V8 regex engine vs Rust regex crate
+// ---------------------------------------------------------------------------
+const { allRegexPatterns } = pkg;
+
+function jsSanitizeContent(content) {
+  if (!content || typeof content !== 'string') {
+    return { content: content ?? '', hasSecrets: false, secretsDetected: [], warnings: [] };
+  }
+  let sanitized = content;
+  const secrets = [];
+  for (const p of allRegexPatterns) {
+    if (p.fileContext) continue;          // skip file-context-only patterns
+    p.regex.lastIndex = 0;
+    if (p.regex.test(sanitized)) {
+      secrets.push(p.name);
+      p.regex.lastIndex = 0;
+      sanitized = sanitized.replace(p.regex, `[REDACTED-${p.name.toUpperCase()}]`);
+    }
+    p.regex.lastIndex = 0;
+  }
+  const hasSecrets = secrets.length > 0;
+  return { content: sanitized, hasSecrets, secretsDetected: secrets,
+           warnings: hasSecrets ? [`${secrets.length} secret(s) redacted`] : [] };
+}
+
+function jsMaskSensitiveData(text) {
+  if (!text) return text;
+  let result = text;
+  for (const p of allRegexPatterns) {
+    if (p.fileContext) continue;
+    p.regex.lastIndex = 0;
+    result = result.replace(p.regex, (match) => {
+      let masked = '';
+      for (let i = 0; i < match.length; i++) masked += i % 2 === 0 ? '*' : match[i];
+      return masked;
+    });
+    p.regex.lastIndex = 0;
+  }
+  return result;
+}
+
+const tsSanitize = jsSanitizeContent;   // pure JS — real baseline
+const tsMask     = jsMaskSensitiveData;
+
+console.log(`\n🔬  octocode-security benchmark  (Rust/NAPI  vs  pure-JS/V8)`);
+console.log(`   Patterns loaded: ${_native.patternCount()} (Rust)  /  ${allRegexPatterns.filter(p => !p.fileContext).length} applicable (JS)`);
+console.log(`   Note: "TS" = pure-JS V8 regex engine,  "Rust" = NAPI bridge to Rust regex crate`);
 console.log(`   Runs: ${RUNS}  Warmup: ${WARMUP}\n`);
 
 // ---------------------------------------------------------------------------

@@ -653,7 +653,6 @@ export const prCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output raw JSON',
     },
   ],
@@ -661,7 +660,7 @@ export const prCommand: CLICommand = {
     const { options } = args;
     const input = args.args[0] ?? '';
     const prOverride = getString(options, 'pr');
-    const jsonOutput = getBool(options, 'json', 'j');
+    const jsonOutput = getBool(options, 'json');
 
     if (!input) {
       const err = 'Provide a GitHub repo or PR reference.';

@@ -15,13 +15,11 @@ import path from 'node:path';
 
 export const statusCommand: CLICommand = {
   name: 'status',
-  aliases: ['s'],
   description: 'Show full Octocode health status (auth + MCPs + cache)',
   usage: 'octocode status [--hostname <host>] [--json]',
   options: [
     {
       name: 'hostname',
-      short: 'H',
       description: 'GitHub Enterprise hostname (default: github.com)',
       hasValue: true,
     },
@@ -31,7 +29,6 @@ export const statusCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output as JSON: { auth, mcpClients, cache, sync? }',
     },
   ],

@@ -146,7 +146,6 @@ export const treeCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description: 'Output raw JSON structure',
     },
   ],
@@ -158,7 +157,7 @@ export const treeCommand: CLICommand = {
     // GitHub defaults to depth 2 so agents get meaningful structure in one call;
     // local tools default to undefined (server decides, typically 1).
     const depthExplicit = rawDepth ? parseInt(rawDepth, 10) : undefined;
-    const jsonOutput = getBool(options, 'json', 'j');
+    const jsonOutput = getBool(options, 'json');
 
     if (!target) {
       const err = 'Provide a path or GitHub reference.';

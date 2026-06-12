@@ -80,14 +80,12 @@ function pingGitHubApi(
 
 export const tokenCommand: CLICommand = {
   name: 'token',
-  aliases: ['t'],
   description: 'Print the GitHub token (matches octocode-mcp priority)',
   usage:
     'octocode token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--validate] [--json]',
   options: [
     {
       name: 'type',
-      short: 't',
       description:
         'Token source: auto (default: env→octocode→gh), octocode, gh',
       hasValue: true,
@@ -95,13 +93,11 @@ export const tokenCommand: CLICommand = {
     },
     {
       name: 'hostname',
-      short: 'H',
       description: 'GitHub Enterprise hostname (default: github.com)',
       hasValue: true,
     },
     {
       name: 'source',
-      short: 's',
       description: 'Show token source and user info',
     },
     {
@@ -116,7 +112,6 @@ export const tokenCommand: CLICommand = {
     },
     {
       name: 'json',
-      short: 'j',
       description:
         'Output as JSON: { token, type, valid?, login?, rateLimit? }',
     },
