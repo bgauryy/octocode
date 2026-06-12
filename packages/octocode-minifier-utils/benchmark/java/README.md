@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 63265 | - | - | - |
-| content-view | 22271 | 64.8% | 16.748 ms | 9.5/10 |
-| applyMinification | 22271 | 64.8% | 17.847 ms | 9.5/10 |
-| sync minify | 22271 | 64.8% | 15.342 ms | 9.5/10 |
-| async minify | 22271 | 64.8% | 15.326 ms | 9.5/10 |
-| symbols | 8057 | 87.3% | 0.904 ms | 10/10 |
+| content-view | 22271 | 64.8% | 7.027 ms | 9.5/10 |
+| applyMinification | 22331 | 64.7% | 6.823 ms | 9.5/10 |
+| sync minify | 22331 | 64.7% | 7.002 ms | 9.5/10 |
+| async minify | 22331 | 64.7% | 6.683 ms | 9.5/10 |
+| symbols | 8057 | 87.3% | 10.788 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -48,7 +48,7 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 63265 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 22271 | 64.8% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 22271 | 64.8% | 9.8/10 excellent | 10/10 | 10/10 |
+| minify | 22331 | 64.7% | 9.8/10 excellent | 10/10 | 10/10 |
 | symbols | 8057 | 87.3% | 7.8/10 good | 6.7/10 | 6.7/10 |
 
 ## Notes
@@ -206,6 +206,8 @@ hesizedMergedAnnotationInvocationHandler);
 ## Apply Minification Excerpt
 
 ```java
+
+
 package org.springframework.core.annotation;
 
 import java.lang.annotation.Annotation;
@@ -234,22 +236,26 @@ import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 
+
 public abstract class AnnotationUtils {
+
 
 	public static final String VALUE = MergedAnnotation.VALUE;
 
 	private static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =
-			A
 
-... [truncated 20471 chars] ...
 
-hesizedMergedAnnotationInvocationHandler);
+... [truncated 20531 chars] ...
+
+izedMergedAnnotationInvocationHandler);
 		}
 		catch (SecurityException ex) {
+
 
 			return false;
 		}
 	}
+
 
 	public static void clearCache() {
 		AnnotationTypeMappings.clearCache();
@@ -258,6 +264,7 @@ hesizedMergedAnnotationInvocationHandler);
 		RepeatableContainers.cache.clear();
 		OrderUtils.orderCache.clear();
 	}
+
 
 	private static class DefaultValueHolder {
 
@@ -279,6 +286,8 @@ hesizedMergedAnnotationInvocationHandler);
 ## Sync Minify Excerpt
 
 ```java
+
+
 package org.springframework.core.annotation;
 
 import java.lang.annotation.Annotation;
@@ -307,22 +316,26 @@ import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 
+
 public abstract class AnnotationUtils {
+
 
 	public static final String VALUE = MergedAnnotation.VALUE;
 
 	private static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =
-			A
 
-... [truncated 20471 chars] ...
 
-hesizedMergedAnnotationInvocationHandler);
+... [truncated 20531 chars] ...
+
+izedMergedAnnotationInvocationHandler);
 		}
 		catch (SecurityException ex) {
+
 
 			return false;
 		}
 	}
+
 
 	public static void clearCache() {
 		AnnotationTypeMappings.clearCache();
@@ -331,6 +344,7 @@ hesizedMergedAnnotationInvocationHandler);
 		RepeatableContainers.cache.clear();
 		OrderUtils.orderCache.clear();
 	}
+
 
 	private static class DefaultValueHolder {
 
@@ -352,6 +366,8 @@ hesizedMergedAnnotationInvocationHandler);
 ## Async Minify Excerpt
 
 ```java
+
+
 package org.springframework.core.annotation;
 
 import java.lang.annotation.Annotation;
@@ -380,22 +396,26 @@ import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 
+
 public abstract class AnnotationUtils {
+
 
 	public static final String VALUE = MergedAnnotation.VALUE;
 
 	private static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =
-			A
 
-... [truncated 20471 chars] ...
 
-hesizedMergedAnnotationInvocationHandler);
+... [truncated 20531 chars] ...
+
+izedMergedAnnotationInvocationHandler);
 		}
 		catch (SecurityException ex) {
+
 
 			return false;
 		}
 	}
+
 
 	public static void clearCache() {
 		AnnotationTypeMappings.clearCache();
@@ -404,6 +424,7 @@ hesizedMergedAnnotationInvocationHandler);
 		RepeatableContainers.cache.clear();
 		OrderUtils.orderCache.clear();
 	}
+
 
 	private static class DefaultValueHolder {
 

@@ -1,3 +1,5 @@
+
+
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
@@ -17,6 +19,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <sys/stat.h>
+
 
 # include <fcntl.h>
 
@@ -51,10 +54,11 @@ using namespace llvm;
 
 raw_ostream::~raw_ostream() {
 
-  assert(OutBufCur == OutBufStart &&
-         "raw_ostream destructor
 
-... [truncated 20959 chars] ...
+  assert(OutBufCur == OutBufStart &&
+         "raw_ostream destru
+
+... [truncated 21015 chars] ...
 
 e + ".temp-stream-%%%%%%", Mode);
   if (!Temp)

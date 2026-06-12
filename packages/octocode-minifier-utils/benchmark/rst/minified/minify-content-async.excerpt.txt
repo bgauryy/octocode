@@ -1,6 +1,8 @@
 .. _tutorial-index:
 
+
   The Python Tutorial
+
 
 .. Tip:: This tutorial is designed for
    *programmers* that are new to the Python language,
@@ -23,9 +25,9 @@ implemented in C or C++ (or other languages callable from C). Python is also
 suitable as an extension language for customizable applications.
 
 This tutorial introduces the reader informally to the basic concepts and
-features of the Python 
+features of the Pytho
 
-... [truncated 769 chars] ...
+... [truncated 771 chars] ...
 
 the
 language's flavor and style. After reading it, you will be able to read and

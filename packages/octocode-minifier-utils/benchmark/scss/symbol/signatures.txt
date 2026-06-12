@@ -12,18 +12,12 @@
  63|     @if $enable-shadows {
  70|   .btn-check:focus-visible + & {
  74|     @if $enable-shadows {
- 81|   .btn-check:checked + &,
- 82|   :not(.btn-check) + &:active,
- 83|   &:first-child:active,
- 84|   &.active,
  85|   &.show {
  91|     @include box-shadow(var(--#{$prefix}btn-active-shadow));
  93|     &:focus-visible {
  95|       @if $enable-shadows {
 103|   .btn-check:checked:focus-visible + & {
 105|     @if $enable-shadows {
-112|   &:disabled,
-113|   &.disabled,
 114|   fieldset:disabled & {
 121|     @include box-shadow(none);
 131| @each $color, $value in $theme-colors {
@@ -35,7 +29,6 @@
 159|     @include button-outline-variant($value);
 170| .btn-link {
 185|   @if $enable-gradients {
-189|   &:hover,
 190|   &:focus-visible {
 194|   &:focus-visible {
 198|   &:hover {

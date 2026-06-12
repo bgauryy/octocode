@@ -1,1 +1,1 @@
-No symbols returned for this sample.
+5| defprotocol Enumerable do

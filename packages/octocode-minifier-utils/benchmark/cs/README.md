@@ -4,7 +4,7 @@ Source sample: `cs/00-dotnet-argument-exception.cs`
 
 Strategy: `conservative`
 
-Agent rating: **8.7/10 (strong)**
+Agent rating: **8.3/10 (strong)**
 
 Agent understanding from minified output: **9.7/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 5603 | - | - | - |
-| content-view | 4017 | 28.3% | 1.194 ms | 8.5/10 |
-| applyMinification | 4017 | 28.3% | 2.137 ms | 8.5/10 |
-| sync minify | 4017 | 28.3% | 1.678 ms | 8.5/10 |
-| async minify | 4017 | 28.3% | 2.741 ms | 8.5/10 |
-| symbols | 1484 | 73.5% | 0.565 ms | 9/10 |
+| content-view | 4017 | 28.3% | 1.335 ms | 8.5/10 |
+| applyMinification | 4024 | 28.2% | 1.294 ms | 8.5/10 |
+| sync minify | 4024 | 28.2% | 1.357 ms | 8.5/10 |
+| async minify | 4024 | 28.2% | 1.376 ms | 8.5/10 |
+| symbols | 2649 | 52.7% | 52.362 ms | 8/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 5603 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 4017 | 28.3% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 4017 | 28.3% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 1484 | 73.5% | 8.5/10 strong | 6.7/10 | 10/10 |
+| minify | 4024 | 28.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 2649 | 52.7% | 8/10 strong | 6.7/10 | 7.7/10 |
 
 ## Notes
 
@@ -184,6 +184,8 @@ DoesNotReturn]
 ## Apply Minification Excerpt
 
 ```cs
+
+
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -192,17 +194,20 @@ using System.Runtime.Serialization;
 namespace System
 {
 
+
     [Serializable]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ArgumentException : SystemException
     {
         private readonly string? _paramName;
 
+
         public ArgumentException()
             : base(SR.Arg_ArgumentException)
         {
             HResult = HResults.COR_E_ARGUMENT;
         }
+
 
         public ArgumentException(string? message)
             : base(message)
@@ -225,9 +230,9 @@ namespace System
 
         public ArgumentException(string? message, string? paramName)
             : base(message)
-        {
+    
 
-... [truncated 2217 chars] ...
+... [truncated 2224 chars] ...
 
 DoesNotReturn]
         private static void ThrowNullOrEmptyException(string? argument, string? paramName)
@@ -249,6 +254,8 @@ DoesNotReturn]
 ## Sync Minify Excerpt
 
 ```cs
+
+
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -257,17 +264,20 @@ using System.Runtime.Serialization;
 namespace System
 {
 
+
     [Serializable]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ArgumentException : SystemException
     {
         private readonly string? _paramName;
 
+
         public ArgumentException()
             : base(SR.Arg_ArgumentException)
         {
             HResult = HResults.COR_E_ARGUMENT;
         }
+
 
         public ArgumentException(string? message)
             : base(message)
@@ -290,9 +300,9 @@ namespace System
 
         public ArgumentException(string? message, string? paramName)
             : base(message)
-        {
+    
 
-... [truncated 2217 chars] ...
+... [truncated 2224 chars] ...
 
 DoesNotReturn]
         private static void ThrowNullOrEmptyException(string? argument, string? paramName)
@@ -314,6 +324,8 @@ DoesNotReturn]
 ## Async Minify Excerpt
 
 ```cs
+
+
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -322,17 +334,20 @@ using System.Runtime.Serialization;
 namespace System
 {
 
+
     [Serializable]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ArgumentException : SystemException
     {
         private readonly string? _paramName;
 
+
         public ArgumentException()
             : base(SR.Arg_ArgumentException)
         {
             HResult = HResults.COR_E_ARGUMENT;
         }
+
 
         public ArgumentException(string? message)
             : base(message)
@@ -355,9 +370,9 @@ namespace System
 
         public ArgumentException(string? message, string? paramName)
             : base(message)
-        {
+    
 
-... [truncated 2217 chars] ...
+... [truncated 2224 chars] ...
 
 DoesNotReturn]
         private static void ThrowNullOrEmptyException(string? argument, string? paramName)
@@ -384,20 +399,57 @@ DoesNotReturn]
   6| using System.Runtime.CompilerServices;
   7| using System.Runtime.Serialization;
   9| namespace System
+ 10| {
+ 14|     [Serializable]
+ 15|     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
  16|     public class ArgumentException : SystemException
+ 17|     {
  18|         private readonly string? _paramName;
  22|         public ArgumentException()
+ 23|             : base(SR.Arg_ArgumentException)
+ 24|         {
  31|         public ArgumentException(string? message)
+ 32|             : base(message)
+ 33|         {
  37|         public ArgumentException(string? message, Exception? innerException)
+ 38|             : base(message, innerException)
+ 39|         {
  43|         public ArgumentException(string? message, string? paramName, Exception? innerException)
+ 44|             : base(message, innerException)
+ 45|         {
  50|         public ArgumentException(string? message, string? paramName)
+ 51|             : base(message)
+ 52|         {
+ 57|         [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+ 58|         [EditorBrowsable(EditorBrowsableState.Never)]
  59|         protected ArgumentException(SerializationInfo info, StreamingContext context)
+ 60|             : base(info, context)
+ 61|         {
+ 65|         [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+ 66|         [EditorBrowsable(EditorBrowsableState.Never)]
  67|         public override void GetObjectData(SerializationInfo info, StreamingContext context)
- 73|         public override string Message
+ 68| 
+
+... [truncated 49 chars] ...
+
+sage
+ 74|         {
+ 75|             get
+ 76|             {
+ 87|         }
  89|         private void SetMessageField()
+ 90|         {
  97|         public virtual string? ParamName => _paramName;
 104|         public static void ThrowIfNullOrEmpty([NotNull] string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+105|         {
 117|         public static void ThrowIfNullOrWhiteSpace([NotNull] string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+118|         {
+125|         [DoesNotReturn]
 126|         private static void ThrowNullOrEmptyException(string? argument, string? paramName)
+127|         {
+132|         [DoesNotReturn]
 133|         private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)
+134|         {
+138|     }
+139| }
 ```

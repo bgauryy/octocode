@@ -4,7 +4,7 @@ Source sample: `go/print.go`
 
 Strategy: `conservative`
 
-Agent rating: **7.8/10 (good)**
+Agent rating: **9/10 (excellent)**
 
 Agent understanding from minified output: **9.9/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 33315 | - | - | - |
-| content-view | 21954 | 34.1% | 11.021 ms | 8.5/10 |
-| applyMinification | 21954 | 34.1% | 10.244 ms | 8.5/10 |
-| sync minify | 21954 | 34.1% | 6.638 ms | 8.5/10 |
-| async minify | 21954 | 34.1% | 6.287 ms | 8.5/10 |
-| symbols | 22351 | 32.9% | 1.441 ms | 6.5/10 |
+| content-view | 21954 | 34.1% | 7.105 ms | 8.5/10 |
+| applyMinification | 22018 | 33.9% | 6.463 ms | 8.5/10 |
+| sync minify | 22018 | 33.9% | 6.464 ms | 8.5/10 |
+| async minify | 22018 | 33.9% | 6.786 ms | 8.5/10 |
+| symbols | 4385 | 86.8% | 14.848 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 33315 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 21954 | 34.1% | 9.9/10 excellent | 10/10 | 10/10 |
-| minify | 21954 | 34.1% | 9.9/10 excellent | 10/10 | 10/10 |
-| symbols | 22351 | 32.9% | 9.9/10 excellent | 10/10 | 9.9/10 |
+| minify | 22018 | 33.9% | 9.9/10 excellent | 10/10 | 10/10 |
+| symbols | 4385 | 86.8% | 9.3/10 excellent | 10/10 | 7.5/10 |
 
 ## Notes
 
@@ -239,6 +239,8 @@ func (p *pp) doPrintln(a []any) {
 ## Apply Minification Excerpt
 
 ```go
+
+
 package fmt
 
 import (
@@ -250,6 +252,7 @@ import (
 	"sync"
 	"unicode/utf8"
 )
+
 
 const (
 	commaSpaceString  = ", "
@@ -268,6 +271,7 @@ const (
 	invReflectString  = "<invalid reflect.Value>"
 )
 
+
 type State interface {
 
 	Write(b []byte) (n int, err error)
@@ -276,20 +280,25 @@ type State interface {
 
 	Precision() (prec int, ok bool)
 
+
 	Flag(c int) bool
 }
+
 
 type Formatter interface {
 	Format(f State, verb rune)
 }
 
+
 type Stringer interface {
 	String() string
 }
 
+
 type GoStringer interface {
 	GoString() string
 }
+
 
 func FormatString(state State, verb rune) string {
 	var tmp [16]byte
@@ -304,13 +313,11 @@ func FormatString(state State, verb rune) string {
 	}
 	if p, ok := state.Precision(); ok {
 		b = append(b, '.')
-		b = strconv.AppendInt(b, int64(p), 10)
-	}
+		b = strconv.AppendInt(b, int64(p)
 
+... [truncated 20218 chars] ...
 
-... [truncated 20154 chars] ...
-
-f.writeString(reflect.TypeOf(arg).String())
+.writeString(reflect.TypeOf(arg).String())
 				p.buf.writeByte('=')
 				p.printArg(arg, 'v')
 			}
@@ -331,6 +338,7 @@ func (p *pp) doPrint(a []any) {
 		prevString = isString
 	}
 }
+
 
 func (p *pp) doPrintln(a []any) {
 	for argNum, arg := range a {
@@ -346,6 +354,8 @@ func (p *pp) doPrintln(a []any) {
 ## Sync Minify Excerpt
 
 ```go
+
+
 package fmt
 
 import (
@@ -357,6 +367,7 @@ import (
 	"sync"
 	"unicode/utf8"
 )
+
 
 const (
 	commaSpaceString  = ", "
@@ -375,6 +386,7 @@ const (
 	invReflectString  = "<invalid reflect.Value>"
 )
 
+
 type State interface {
 
 	Write(b []byte) (n int, err error)
@@ -383,20 +395,25 @@ type State interface {
 
 	Precision() (prec int, ok bool)
 
+
 	Flag(c int) bool
 }
+
 
 type Formatter interface {
 	Format(f State, verb rune)
 }
 
+
 type Stringer interface {
 	String() string
 }
 
+
 type GoStringer interface {
 	GoString() string
 }
+
 
 func FormatString(state State, verb rune) string {
 	var tmp [16]byte
@@ -411,13 +428,11 @@ func FormatString(state State, verb rune) string {
 	}
 	if p, ok := state.Precision(); ok {
 		b = append(b, '.')
-		b = strconv.AppendInt(b, int64(p), 10)
-	}
+		b = strconv.AppendInt(b, int64(p)
 
+... [truncated 20218 chars] ...
 
-... [truncated 20154 chars] ...
-
-f.writeString(reflect.TypeOf(arg).String())
+.writeString(reflect.TypeOf(arg).String())
 				p.buf.writeByte('=')
 				p.printArg(arg, 'v')
 			}
@@ -438,6 +453,7 @@ func (p *pp) doPrint(a []any) {
 		prevString = isString
 	}
 }
+
 
 func (p *pp) doPrintln(a []any) {
 	for argNum, arg := range a {
@@ -453,6 +469,8 @@ func (p *pp) doPrintln(a []any) {
 ## Async Minify Excerpt
 
 ```go
+
+
 package fmt
 
 import (
@@ -464,6 +482,7 @@ import (
 	"sync"
 	"unicode/utf8"
 )
+
 
 const (
 	commaSpaceString  = ", "
@@ -482,6 +501,7 @@ const (
 	invReflectString  = "<invalid reflect.Value>"
 )
 
+
 type State interface {
 
 	Write(b []byte) (n int, err error)
@@ -490,20 +510,25 @@ type State interface {
 
 	Precision() (prec int, ok bool)
 
+
 	Flag(c int) bool
 }
+
 
 type Formatter interface {
 	Format(f State, verb rune)
 }
 
+
 type Stringer interface {
 	String() string
 }
 
+
 type GoStringer interface {
 	GoString() string
 }
+
 
 func FormatString(state State, verb rune) string {
 	var tmp [16]byte
@@ -518,13 +543,11 @@ func FormatString(state State, verb rune) string {
 	}
 	if p, ok := state.Precision(); ok {
 		b = append(b, '.')
-		b = strconv.AppendInt(b, int64(p), 10)
-	}
+		b = strconv.AppendInt(b, int64(p)
 
+... [truncated 20218 chars] ...
 
-... [truncated 20154 chars] ...
-
-f.writeString(reflect.TypeOf(arg).String())
+.writeString(reflect.TypeOf(arg).String())
 				p.buf.writeByte('=')
 				p.printArg(arg, 'v')
 			}
@@ -545,6 +568,7 @@ func (p *pp) doPrint(a []any) {
 		prevString = isString
 	}
 }
+
 
 func (p *pp) doPrintln(a []any) {
 	for argNum, arg := range a {
@@ -602,50 +626,37 @@ func (p *pp) doPrintln(a []any) {
   72| 	GoString() string
   73| }
   81| func FormatString(state State, verb rune) string {
-  82| 	var tmp [16]byte // Use a local buffer.
-  83| 	b := append(tmp[:0], '%')
-  84| 	for _, c := range " +-#0" { // All known flags
-  85| 		if state.Flag(int(c)) { // The argument is an int for historical reasons.
-  86| 			b = append(b, byte(c))
-  87| 		}
-  88| 	}
-  89| 	if w, ok := state.Width(); ok {
-  90| 		b = strconv.AppendInt(b, int64(w), 10)
-  91| 	}
-  92| 	if p, ok := state.Precision(); ok {
-  93| 		b = append(b, '.')
-  94| 		b = strconv.AppendInt(b, int64(p), 10)
-  95| 	}
-  96| 	b = utf8.AppendRune(b, verb)
-  97| 	return string(b)
-  98| }
  101| type buffer []byte
- 103| func (b *buffer) write(p []b
+ 103| func (b *buffer) write(p []byte) {
+ 107| func (b *buffer) writeString(s string) {
+ 111| func (b *buffer) writeByte(c byte) {
+ 115| func (b *buffer) writeRune(r rune) {
+ 120| type pp struct {
+ 121| 	buf buffer
+ 124| 	fmt fmt
+ 127| 	reordered bool
+ 129| 	goodArgNum bool
+ 131| 	panicking bool
+ 133| 	erroring bool
+ 135| 	wrapErrs bool
+ 137| 	wrappedErrs []int
+ 138| }
+ 140| var ppFree = sync.Pool{
+ 141| 	New: func() any { return new(pp) },
+ 142| }
+ 145| func newPrinter() *pp {
+ 155| func (p *pp) free() {
+ 176| func (p *pp) Width() (wid int, ok bool) { return p.fmt.wid, p.fmt.widPres
 
-... [truncated 19751 chars] ...
+... [truncated 1785 chars] ...
 
-nt()
- 937| 				if int64(n) >= 0 && uint64(int(n)) == n {
- 938| 					num = int(n)
- 939| 					isInt = true
- 940| 				}
- 941| 			default:
- 943| 			}
- 944| 		}
- 945| 		newArgNum = argNum + 1
- 946| 		if tooLarge(num) {
- 947| 			num = 0
- 948| 			isInt = false
- 949| 		}
- 950| 	}
- 951| 	return
- 952| }
+unc (p *pp) fmtPointer(arg any, value reflect.Value, verb rune) {
+ 580| func (p *pp) catchPanic(arg any, verb rune, method string) {
+ 614| func (p *pp) handleMethods(arg any, value reflect.Value, verb rune) (handled bool) {
+ 674| func (p *pp) printArg(arg any, verb rune) {
+ 756| func (p *pp) printValue(value reflect.Value, verb rune, depth int) {
+ 922| func intFromArg(a []any, argNum int) (num int, isInt bool, newArgNum int) {
  960| func parseArgNumber(format string) (index int, wid int, ok bool) {
- 962| 	if len(format) < 3 {
- 963| 		return 0, 1, false
- 964| 	}
- 967| 	for i := 1; i < len(format); i++ {
- 968| 		if format[i] == ']' {
  982| func (p *pp) argNumber(argNum int, format string, i int, numArgs int) (newArgNum, newi int, found bool) {
  995| func (p *pp) badArgNum(verb rune) {
 1001| func (p *pp) missingArg(verb rune) {

@@ -18,10 +18,12 @@ class Arr
 {
     use Macroable;
 
+
     public static function accessible($value)
     {
         return is_array($value) || $value instanceof ArrayAccess;
     }
+
 
     public static function arrayable($value)
     {
@@ -32,6 +34,7 @@ class Arr
             || $value instanceof JsonSerializable;
     }
 
+
     public static function add($array, $key, $value)
     {
         if (is_null(static::get($array, $key))) {
@@ -41,17 +44,18 @@ class Arr
         return $array;
     }
 
+
     public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array
     {
         $value = Arr::get($array, $key, $default);
 
         if (! is_array($value)) {
             throw new InvalidArgumentException(
-                sprin
+                s
 
-... [truncated 18978 chars] ...
+... [truncated 19042 chars] ...
 
-     $failed = [];
+   $failed = [];
 
         foreach ($array as $key => $item) {
             if ($callback($item, $key)) {
@@ -64,10 +68,12 @@ class Arr
         return [$passed, $failed];
     }
 
+
     public static function whereNotNull($array)
     {
         return static::where($array, fn ($value) => ! is_null($value));
     }
+
 
     public static function wrap($value)
     {

@@ -4,7 +4,7 @@ Source sample: `c/00-git-add.c`
 
 Strategy: `conservative`
 
-Agent rating: **7.6/10 (good)**
+Agent rating: **7.2/10 (good)**
 
 Agent understanding from minified output: **9.7/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 18107 | - | - | - |
-| content-view | 17413 | 3.8% | 15.816 ms | 6.3/10 |
-| applyMinification | 17413 | 3.8% | 24.505 ms | 6.3/10 |
-| sync minify | 17413 | 3.8% | 3.844 ms | 6.3/10 |
-| async minify | 17413 | 3.8% | 10.891 ms | 6.3/10 |
-| symbols | 2036 | 88.8% | 3.366 ms | 10/10 |
+| content-view | 17413 | 3.8% | 4.749 ms | 6.3/10 |
+| applyMinification | 17423 | 3.8% | 4.843 ms | 6.3/10 |
+| sync minify | 17423 | 3.8% | 4.566 ms | 6.3/10 |
+| async minify | 17423 | 3.8% | 4.584 ms | 6.3/10 |
+| symbols | 5700 | 68.5% | 11.728 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 18107 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 17413 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 17413 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 2036 | 88.8% | 8.5/10 strong | 6.7/10 | 10/10 |
+| minify | 17423 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 5700 | 68.5% | 8.2/10 strong | 6.7/10 | 7.6/10 |
 
 ## Notes
 
@@ -217,6 +217,8 @@ finish:
 ## Apply Minification Excerpt
 
 ```c
+
+
 #include "builtin.h"
 #include "advice.h"
 #include "config.h"
@@ -265,9 +267,9 @@ static int chmod_pathspec(struct repository *repo,
 
 		if (!include_sparse &&
 		    (ce_skip_worktree(ce) ||
-		     !path_i
+		     !path
 
-... [truncated 15613 chars] ...
+... [truncated 15623 chars] ...
 
  (take_worktree_changes && !add_renormalize && !ignore_add_errors &&
 	    report_path_error(ps_matched, &pathspec))
@@ -295,6 +297,8 @@ finish:
 ## Sync Minify Excerpt
 
 ```c
+
+
 #include "builtin.h"
 #include "advice.h"
 #include "config.h"
@@ -343,9 +347,9 @@ static int chmod_pathspec(struct repository *repo,
 
 		if (!include_sparse &&
 		    (ce_skip_worktree(ce) ||
-		     !path_i
+		     !path
 
-... [truncated 15613 chars] ...
+... [truncated 15623 chars] ...
 
  (take_worktree_changes && !add_renormalize && !ignore_add_errors &&
 	    report_path_error(ps_matched, &pathspec))
@@ -373,6 +377,8 @@ finish:
 ## Async Minify Excerpt
 
 ```c
+
+
 #include "builtin.h"
 #include "advice.h"
 #include "config.h"
@@ -421,9 +427,9 @@ static int chmod_pathspec(struct repository *repo,
 
 		if (!include_sparse &&
 		    (ce_skip_worktree(ce) ||
-		     !path_i
+		     !path
 
-... [truncated 15613 chars] ...
+... [truncated 15623 chars] ...
 
  (take_worktree_changes && !add_renormalize && !ignore_add_errors &&
 	    report_path_error(ps_matched, &pathspec))
@@ -473,35 +479,62 @@ finish:
  26| #include "strvec.h"
  27| #include "submodule.h"
  28| #include "add-interactive.h"
+ 30| static const char * const builtin_add_usage[] = {
+ 31| 	N_("git add [<options>] [--] <pathspec>..."),
+ 32| 	NULL
+ 33| };
+ 34| static int patch_interactive, add_interactive, edit_interactive;
+ 35| static struct interactive_options interactive_opts = INTERACTIVE_OPTIONS_INIT;
+ 36| static int take_worktree_changes;
+ 37| static int add_renormalize;
+ 38| static int pathspec_file_nul;
+ 39| static int include_sparse;
+ 40| static const char *pathspec_from_file;
  42| static int chmod_pathspec(struct repository *repo,
  43| 			  struct pathspec *pathspec,
  44| 			  char flip,
  45| 			  int show_only)
+ 46| {
  73| static int renormalize_tracked_files(struct repository *repo,
  74| 				     const struct pathspec *pathspec,
  75| 				     int flags)
+ 76| {
  99| static char *prune_directory(struct repository *repo,
 100| 			     struct dir_struct *dir,
 101| 			     struct pathspec *pathspec,
 102| 			     int prefix)
+103| {
 123| static int refresh(struct repository *repo, int verbose, const struct pathspec *pathspec)
+124| {
 161| int interactive_add(struct repository *repo,
 162| 		    const char **argv,
 163| 		    const char *prefix,
-164| 		    int patch, struct interactive_options *interactive_opts)
-184| static int edit_patch(struct repository *repo,
-185| 		      int argc,
-186| 		      const char **argv,
-187| 		      const char *prefix)
-233| N_("The following paths are ignored by one of your .gitignore files:\n");
-239| #define ADDREMOVE_DEFAULT 1
-245| static int ignore_removal_cb(const struct option *opt, const char *arg, int unset)
-287| static int add_config(const char *var, const char *value,
-288| 		      const struct config_context *ctx, void *cb)
+164| 		    int patch, struct i
+
+... [truncated 3100 chars] ...
+
+bedded_advice[] = N_(
+303| "You've added another git repository inside your current repository.\n"
+304| "Clones of the outer repository will not contain the contents of\n"
+305| "the embedded repository and will not know how to obtain it.\n"
+306| "If you meant to add a submodule, use:\n"
+307| "\n"
+308| "	git submodule add <url> %s\n"
+309| "\n"
+310| "If you added this path by mistake, you can remove it from the\n"
+311| "index with:\n"
+312| "\n"
+313| "	git rm --cached %s\n"
+314| "\n"
+315| "See \"git help submodule\" for more information."
+316| );
 318| static void check_embedded_repo(const char *path)
+319| {
 342| static int add_files(struct repository *repo, struct dir_struct *dir, int flags)
+343| {
 382| int cmd_add(int argc,
 383| 	    const char **argv,
 384| 	    const char *prefix,
 385| 	    struct repository *repo)
+386| {
 ```

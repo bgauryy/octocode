@@ -4,9 +4,9 @@ Source sample: `svelte/vite-app.svelte`
 
 Strategy: `aggressive`
 
-Agent rating: **8.9/10 (strong)**
+Agent rating: **8.3/10 (strong)**
 
-Agent understanding from minified output: **9.5/10 (excellent)**
+Agent understanding from minified output: **9.2/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 2665 | - | - | - |
-| content-view | 2664 | 0% | 2.397 ms | 8.3/10 |
-| applyMinification | 2105 | 21% | 1.889 ms | 8.3/10 |
-| sync minify | 2105 | 21% | 2.231 ms | 8.3/10 |
-| async minify | 2106 | 21% | 5.019 ms | 8.3/10 |
-| symbols | 343 | 87.1% | 1.346 ms | 10/10 |
+| content-view | 2664 | 0% | 0.601 ms | 8.3/10 |
+| applyMinification | 2096 | 21.4% | 0.553 ms | 8.3/10 |
+| sync minify | 2096 | 21.4% | 0.61 ms | 8.3/10 |
+| async minify | 2096 | 21.4% | 0.636 ms | 8.3/10 |
+| symbols | 343 | 87.1% | 14.144 ms | n/a |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 5/10 |
-| symbol context | 10/10 |
+| symbol context | 7/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,14 +47,15 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 2665 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 2664 | 0% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 2106 | 21% | 9.8/10 excellent | 10/10 | 10/10 |
+| standard | 2664 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
+| minify | 2096 | 21.4% | 9.5/10 excellent | 10/10 | 10/10 |
 | symbols | 343 | 87.1% | 8.1/10 strong | 6.7/10 | 8/10 |
 
 ## Notes
 
 - engine-backed or parser-backed path.
 - content-view kept original because the readable output was not shorter.
+- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -202,31 +203,31 @@ rel="noreferrer">
 ## Apply Minification Excerpt
 
 ```svelte
-<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte' </script><section id="center"><div class="hero"><img src={heroImg}class="base" width="170" height="179" alt="" /><img src={svelteLogo}class="framework" alt="Svelte logo" /><img src={viteLogo}class="vite" alt="Vite logo" /></div><div><h1>Get started</h1><p>Edit <code>src/App.svelte</code> and save to test <code>HMR</code></p></div><Counter /></section><div class="ticks"></div><section id="next-steps"><div id="docs"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href="https://vite.dev/" target="_blank" rel="noreferrer"><img class="logo" src={viteLogo}alt="" /> Explore Vite </a></li><li><a href="https://svelte.dev/" target="_blank" rel="noreferrer"><img class="button-icon" src={svelteLogo}alt="" /> Learn more </a></li></ul></div><div id="social"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li>
+<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte'</script><section id="center"><div class="hero"><img src={heroImg}class="base" width="170" height="179" alt="" /><img src={svelteLogo}class="framework" alt="Svelte logo" /><img src={viteLogo}class="vite" alt="Vite logo" /></div><div><h1>Get started</h1><p>Edit<code>src/App.svelte</code> and save to test<code>HMR</code></p></div><Counter /></section><div class="ticks"></div><section id="next-steps"><div id="docs"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href="https://vite.dev/" target="_blank" rel="noreferrer"><img class="logo" src={viteLogo}alt="" /> Explore Vite</a></li><li><a href="https://svelte.dev/" target="_blank" rel="noreferrer"><img class="button-icon" src={svelteLogo}alt="" /> Learn more</a></li></ul></div><div id="social"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li><a hr
 
-... [truncated 305 chars] ...
+... [truncated 296 chars] ...
 
-esentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg> Discord </a></li><li><a href="https://x.com/vite_js" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg> X.com </a></li><li><a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg> Bluesky </a></li></ul></div></section><div class="ticks"></div><section id="spacer"></section>
+"presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg> Discord</a></li><li><a href="https://x.com/vite_js" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg> X.com</a></li><li><a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg> Bluesky</a></li></ul></div></section><div class="ticks"></div><section id="spacer"></section>
 ```
 
 ## Sync Minify Excerpt
 
 ```svelte
-<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte' </script><section id="center"><div class="hero"><img src={heroImg}class="base" width="170" height="179" alt="" /><img src={svelteLogo}class="framework" alt="Svelte logo" /><img src={viteLogo}class="vite" alt="Vite logo" /></div><div><h1>Get started</h1><p>Edit <code>src/App.svelte</code> and save to test <code>HMR</code></p></div><Counter /></section><div class="ticks"></div><section id="next-steps"><div id="docs"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href="https://vite.dev/" target="_blank" rel="noreferrer"><img class="logo" src={viteLogo}alt="" /> Explore Vite </a></li><li><a href="https://svelte.dev/" target="_blank" rel="noreferrer"><img class="button-icon" src={svelteLogo}alt="" /> Learn more </a></li></ul></div><div id="social"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li>
+<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte'</script><section id="center"><div class="hero"><img src={heroImg}class="base" width="170" height="179" alt="" /><img src={svelteLogo}class="framework" alt="Svelte logo" /><img src={viteLogo}class="vite" alt="Vite logo" /></div><div><h1>Get started</h1><p>Edit<code>src/App.svelte</code> and save to test<code>HMR</code></p></div><Counter /></section><div class="ticks"></div><section id="next-steps"><div id="docs"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href="https://vite.dev/" target="_blank" rel="noreferrer"><img class="logo" src={viteLogo}alt="" /> Explore Vite</a></li><li><a href="https://svelte.dev/" target="_blank" rel="noreferrer"><img class="button-icon" src={svelteLogo}alt="" /> Learn more</a></li></ul></div><div id="social"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li><a hr
 
-... [truncated 305 chars] ...
+... [truncated 296 chars] ...
 
-esentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg> Discord </a></li><li><a href="https://x.com/vite_js" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg> X.com </a></li><li><a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg> Bluesky </a></li></ul></div></section><div class="ticks"></div><section id="spacer"></section>
+"presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg> Discord</a></li><li><a href="https://x.com/vite_js" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg> X.com</a></li><li><a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg> Bluesky</a></li></ul></div></section><div class="ticks"></div><section id="spacer"></section>
 ```
 
 ## Async Minify Excerpt
 
 ```svelte
-<script>import svelteLogo from"./assets/svelte.svg";import viteLogo from"./assets/vite.svg";import heroImg from"./assets/hero.png";import Counter from"./lib/Counter.svelte";</script><section id="center"><div class="hero"><img src={heroImg} class="base" width="170" height="179" alt="" /><img src={svelteLogo} class="framework" alt="Svelte logo" /><img src={viteLogo} class="vite" alt="Vite logo" /></div><div><h1>Get started</h1><p>Edit <code>src/App.svelte</code> and save to test <code>HMR</code></p></div><Counter /></section><div class="ticks"></div><section id="next-steps"><div id="docs"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg><h2>Documentation</h2><p>Your questions, answered</p><ul><li><a href="https://vite.dev/" target="_blank" rel="noreferrer"><img class="logo" src={viteLogo} alt="" /> Explore Vite </a></li><li><a href="https://svelte.dev/" target="_blank" rel="noreferrer"><img class="button-icon" src={svelteLogo} alt="" /> Learn more </a></li></ul></div><div id="social"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li
+<script> import svelteLogo from './assets/svelte.svg' import viteLogo from './assets/vite.svg' import heroImg from './assets/hero.png' import Counter from './lib/Counter.svelte'</script><section id="center"><div class="hero"><img src={heroImg}class="base" width="170" height="179" alt="" /><img src={svelteLogo}class="framework" alt="Svelte logo" /><img src={viteLogo}class="vite" alt="Vite logo" /></div><div><h1>Get started</h1><p>Edit<code>src/App.svelte</code> and save to test<code>HMR</code></p></div><Counter /></section><div class="ticks"></div><section id="next-steps"><div id="docs"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg><h2>Documentation</h2><p>Your questions,answered</p><ul><li><a href="https://vite.dev/" target="_blank" rel="noreferrer"><img class="logo" src={viteLogo}alt="" /> Explore Vite</a></li><li><a href="https://svelte.dev/" target="_blank" rel="noreferrer"><img class="button-icon" src={svelteLogo}alt="" /> Learn more</a></li></ul></div><div id="social"><svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg><h2>Connect with us</h2><p>Join the Vite community</p><ul><li><a hr
 
-... [truncated 306 chars] ...
+... [truncated 296 chars] ...
 
-esentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg> Discord </a></li><li><a href="https://x.com/vite_js" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg> X.com </a></li><li><a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg> Bluesky </a></li></ul></div></section><div class="ticks"></div><section id="spacer"></section>
+"presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg> Discord</a></li><li><a href="https://x.com/vite_js" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg> X.com</a></li><li><a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg> Bluesky</a></li></ul></div></section><div class="ticks"></div><section id="spacer"></section>
 ```
 
 ## Symbols

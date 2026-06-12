@@ -1,3 +1,5 @@
+
+
 module Distribution.Simple
   ( module Distribution.Package
   , module Distribution.Version
@@ -5,10 +7,12 @@ module Distribution.Simple
   , module Distribution.Simple.Compiler
   , module Language.Haskell.Extension
 
+
   , defaultMain
   , defaultMainNoRead
   , defaultMainArgs
   , defaultMainArgsWithHandles
+
 
   , UserHooks (..)
   , Args
@@ -19,11 +23,13 @@ module Distribution.Simple
   , defaultMainWithHooksNoRead
   , defaultMainWithHooksNoReadArgs
 
+
   , simpleUserHooks
   , simpleUserHooksWithHandles
   , autoconfUserHooks
   , autoconfSetupHooks
   , emptyUserHooks
+
 
   , configureAction
   , buildAction
@@ -46,14 +52,15 @@ import Distribution.Compat.Prelude
 import Distribution.Compat.ResponseFile (expandResponse)
 import Prelude ()
 
+
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Configuration
 import Distribution.Simple.Command
 import Distribution.Simple.Compiler
-import Distribution.Simple.Package
+import Distribution.Simple.
 
-... [truncated 34501 chars] ...
+... [truncated 34534 chars] ...
 
 s
       (allSuffixHandlers hooks)

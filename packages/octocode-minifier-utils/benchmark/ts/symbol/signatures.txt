@@ -24,7 +24,7 @@
  142| export function every<T, U extends T>(array: readonly T[] | undefined, callback: (element: T, index: number) => element is U): array is readonly U[] | undefined;
  144| export function every<T>(array: readonly T[] | undefined, cal
 
-... [truncated 25937 chars] ...
+... [truncated 25907 chars] ...
 
 rray: readonly T[], predicate: (element: T) => element is U): U[];
 2559| export function takeWhile<T, U extends T>(array: readonly T[] | undefined, predicate: (element: T) => element is U): U[] | undefined;

@@ -4,9 +4,9 @@ Source sample: `scala/Option.scala`
 
 Strategy: `conservative`
 
-Agent rating: **9.7/10 (excellent)**
+Agent rating: **9.5/10 (excellent)**
 
-Agent understanding from minified output: **9.6/10 (excellent)**
+Agent understanding from minified output: **9.3/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 20107 | - | - | - |
-| content-view | 3882 | 80.7% | 2.644 ms | 9.5/10 |
-| applyMinification | 3882 | 80.7% | 2.976 ms | 9.5/10 |
-| sync minify | 3882 | 80.7% | 2.37 ms | 9.5/10 |
-| async minify | 3882 | 80.7% | 3.546 ms | 9.5/10 |
-| symbols | 1189 | 94.1% | 0.999 ms | 10/10 |
+| content-view | 3882 | 80.7% | 1.443 ms | 9.5/10 |
+| applyMinification | 3919 | 80.5% | 1.288 ms | 9.5/10 |
+| sync minify | 3919 | 80.5% | 1.307 ms | 9.5/10 |
+| async minify | 3919 | 80.5% | 1.289 ms | 9.5/10 |
+| symbols | 1189 | 94.1% | 3.794 ms | n/a |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 9/10 |
 | context budget | 8/10 |
-| symbol context | 10/10 |
+| symbol context | 7/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,13 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 20107 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 3882 | 80.7% | 9.6/10 excellent | 10/10 | 10/10 |
-| minify | 3882 | 80.7% | 9.6/10 excellent | 10/10 | 10/10 |
+| standard | 3882 | 80.7% | 9.3/10 excellent | 10/10 | 10/10 |
+| minify | 3919 | 80.5% | 9.3/10 excellent | 10/10 | 10/10 |
 | symbols | 1189 | 94.1% | 8.9/10 strong | 10/10 | 6.7/10 |
 
 ## Notes
 
 - conservative text strategy.
+- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -198,69 +199,90 @@ case object None extends Option[Nothing] {
 ## Apply Minification Excerpt
 
 ```scala
+
+
 package scala
 
 object Option {
 
   import scala.language.implicitConversions
 
+
   implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
     if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
 
+
   def apply[A](x: A): Option[A] = if (x == null) None else Some(x)
+
 
   def empty[A] : Option[A] = None
 
+
   def when[A](cond: Boolean)(a: => A): Option[A] =
     if (cond) Some(a) else None
+
 
   @inline def unless[A](cond: Boolean)(a: => A): Option[A] =
     when(!cond)(a)
 }
 
+
 @SerialVersionUID(-114498752079829388L)
 sealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {
   self =>
 
+
   final def isEmpty: Boolean = this eq None
+
 
   final def isDefined: Boolean = !isEmpty
 
   override final def knownSize: Int = if (isEmpty) 0 else 1
 
+
   def get: A
+
 
   @inline final def getOrElse[B >: A](default: => B): B =
     if (isEmpty) default else this.get
 
+
   @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)
+
 
   @inline final def map[B](f: A => B): Option[B] =
     if (isEmpty) None else Some(f(this.get))
 
+
   @inline final def fold[B](ifEmpty: => B)(f: A => B): B =
     if (isEmpty) ifEmpty else f(this.get)
 
-  @inline final def flatMap[B](f: A => Option[B]): Opt
 
-... [truncated 2082 chars] ...
+  @inline final def flatMap[B](f: A =>
 
-is.get)
+... [truncated 2119 chars] ...
+
+t)
+
 
   def toList: List[A] =
     if (isEmpty) List() else new ::(this.get, Nil)
 
+
   @inline final def toRight[X](left: => X): Either[X, A] =
     if (isEmpty) Left(left) else Right(this.get)
+
 
   @inline final def toLeft[X](right: => X): Either[A, X] =
     if (isEmpty) Right(right) else Left(this.get)
 }
 
+
 @SerialVersionUID(1234815782226070388L)
 final case class Some[+A](value: A) extends Option[A] {
   def get: A = value
 }
+
 
 @SerialVersionUID(5066590221178148012L)
 case object None extends Option[Nothing] {
@@ -271,69 +293,90 @@ case object None extends Option[Nothing] {
 ## Sync Minify Excerpt
 
 ```scala
+
+
 package scala
 
 object Option {
 
   import scala.language.implicitConversions
 
+
   implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
     if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
 
+
   def apply[A](x: A): Option[A] = if (x == null) None else Some(x)
+
 
   def empty[A] : Option[A] = None
 
+
   def when[A](cond: Boolean)(a: => A): Option[A] =
     if (cond) Some(a) else None
+
 
   @inline def unless[A](cond: Boolean)(a: => A): Option[A] =
     when(!cond)(a)
 }
 
+
 @SerialVersionUID(-114498752079829388L)
 sealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {
   self =>
 
+
   final def isEmpty: Boolean = this eq None
+
 
   final def isDefined: Boolean = !isEmpty
 
   override final def knownSize: Int = if (isEmpty) 0 else 1
 
+
   def get: A
+
 
   @inline final def getOrElse[B >: A](default: => B): B =
     if (isEmpty) default else this.get
 
+
   @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)
+
 
   @inline final def map[B](f: A => B): Option[B] =
     if (isEmpty) None else Some(f(this.get))
 
+
   @inline final def fold[B](ifEmpty: => B)(f: A => B): B =
     if (isEmpty) ifEmpty else f(this.get)
 
-  @inline final def flatMap[B](f: A => Option[B]): Opt
 
-... [truncated 2082 chars] ...
+  @inline final def flatMap[B](f: A =>
 
-is.get)
+... [truncated 2119 chars] ...
+
+t)
+
 
   def toList: List[A] =
     if (isEmpty) List() else new ::(this.get, Nil)
 
+
   @inline final def toRight[X](left: => X): Either[X, A] =
     if (isEmpty) Left(left) else Right(this.get)
+
 
   @inline final def toLeft[X](right: => X): Either[A, X] =
     if (isEmpty) Right(right) else Left(this.get)
 }
 
+
 @SerialVersionUID(1234815782226070388L)
 final case class Some[+A](value: A) extends Option[A] {
   def get: A = value
 }
+
 
 @SerialVersionUID(5066590221178148012L)
 case object None extends Option[Nothing] {
@@ -344,69 +387,90 @@ case object None extends Option[Nothing] {
 ## Async Minify Excerpt
 
 ```scala
+
+
 package scala
 
 object Option {
 
   import scala.language.implicitConversions
 
+
   implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
     if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
 
+
   def apply[A](x: A): Option[A] = if (x == null) None else Some(x)
+
 
   def empty[A] : Option[A] = None
 
+
   def when[A](cond: Boolean)(a: => A): Option[A] =
     if (cond) Some(a) else None
+
 
   @inline def unless[A](cond: Boolean)(a: => A): Option[A] =
     when(!cond)(a)
 }
 
+
 @SerialVersionUID(-114498752079829388L)
 sealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {
   self =>
 
+
   final def isEmpty: Boolean = this eq None
+
 
   final def isDefined: Boolean = !isEmpty
 
   override final def knownSize: Int = if (isEmpty) 0 else 1
 
+
   def get: A
+
 
   @inline final def getOrElse[B >: A](default: => B): B =
     if (isEmpty) default else this.get
 
+
   @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)
+
 
   @inline final def map[B](f: A => B): Option[B] =
     if (isEmpty) None else Some(f(this.get))
 
+
   @inline final def fold[B](ifEmpty: => B)(f: A => B): B =
     if (isEmpty) ifEmpty else f(this.get)
 
-  @inline final def flatMap[B](f: A => Option[B]): Opt
 
-... [truncated 2082 chars] ...
+  @inline final def flatMap[B](f: A =>
 
-is.get)
+... [truncated 2119 chars] ...
+
+t)
+
 
   def toList: List[A] =
     if (isEmpty) List() else new ::(this.get, Nil)
 
+
   @inline final def toRight[X](left: => X): Either[X, A] =
     if (isEmpty) Left(left) else Right(this.get)
+
 
   @inline final def toLeft[X](right: => X): Either[A, X] =
     if (isEmpty) Right(right) else Left(this.get)
 }
 
+
 @SerialVersionUID(1234815782226070388L)
 final case class Some[+A](value: A) extends Option[A] {
   def get: A = value
 }
+
 
 @SerialVersionUID(5066590221178148012L)
 case object None extends Option[Nothing] {

@@ -1,7 +1,11 @@
+
+
 part of "dart:core";
+
 
 @pragma('vm:entry-point')
 abstract final class String implements Comparable<String>, Pattern {
+
 
   external factory String.fromCharCodes(
     Iterable<int> charCodes, [
@@ -9,60 +13,82 @@ abstract final class String implements Comparable<String>, Pattern {
     int? end,
   ]);
 
+
   external factory String.fromCharCode(int charCode);
+
 
   external const factory String.fromEnvironment(
     String name, {
     String defaultValue = "",
   });
 
+
   String operator [](int index);
+
 
   int codeUnitAt(int index);
 
+
   int get length;
+
 
   int get hashCode;
 
+
   bool operator ==(Object other);
+
 
   int compareTo(String other);
 
+
   bool endsWith(String other);
+
 
   bool startsWith(Pattern pattern, [int index = 0]);
 
+
   int indexOf(Pattern pattern, [int start = 0]);
+
 
   int lastIndexOf(Pattern pattern, [int? start]);
 
+
   bool get isEmpty;
+
 
   bool get isNotEmpty;
 
+
   String operator +(String other);
+
 
   String substring(int start, [int? end]);
 
+
   String trim();
+
 
   String trimLeft();
 
+
   String trimRight();
+
 
   String operator *(int times);
 
+
   String padLeft(int width, [String padding = ' ']);
+
 
   String padRight(int width, [String padding = ' ']);
 
+
   bool contains(Pattern other, [int startIndex = 0]);
 
-  String replaceFirst(Pattern from, String to, [int startIndex = 0]);
 
-  String replaceFirs
+  String replaceFirst(Pattern from, String to, [int startIndex 
 
-... [truncated 3583 chars] ...
+... [truncated 3641 chars] ...
 
   _nextPosition = _position;
     if (_position == 0) {

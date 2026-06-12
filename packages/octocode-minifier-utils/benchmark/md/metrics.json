@@ -9,32 +9,32 @@
   "contentView": {
     "bytes": 3303,
     "cutPercent": 0,
-    "durationMs": 3.523
+    "durationMs": 0.327
   },
   "applyMinification": {
     "bytes": 3303,
     "cutPercent": 0,
-    "durationMs": 0.865
+    "durationMs": 0.241
   },
   "sync": {
     "bytes": 3303,
     "cutPercent": 0,
-    "durationMs": 0.848
+    "durationMs": 0.249
   },
   "async": {
     "bytes": 3303,
     "cutPercent": 0,
-    "durationMs": 0.734,
+    "durationMs": 0.282,
     "failed": false,
     "type": "markdown",
     "reason": null
   },
   "symbols": {
     "supported": false,
-    "returned": false,
-    "bytes": null,
-    "cutPercent": null,
-    "durationMs": 0.01
+    "returned": true,
+    "bytes": 3489,
+    "cutPercent": -5.6,
+    "durationMs": 0.142
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -193,7 +193,48 @@
         }
       ]
     },
-    "symbols": null
+    "symbols": {
+      "output": "symbols",
+      "bytes": 3489,
+      "cutPercent": -5.6,
+      "score": 6.3,
+      "label": "fair",
+      "syntaxAnchors": {
+        "score": 3.3,
+        "hits": 1,
+        "total": 3
+      },
+      "structure": 10,
+      "outputHealth": 7.5,
+      "contextBudget": 5,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "symbols output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "symbols did not grow",
+          "passed": false
+        },
+        {
+          "name": "symbols completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": false
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    }
   },
   "ratings": {
     "minify": 5.5,

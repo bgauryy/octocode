@@ -1,3 +1,5 @@
+
+
 #ifndef FMT_COLOR_H_
 #define FMT_COLOR_H_
 
@@ -50,11 +52,11 @@ enum class color : uint32_t {
   dim_gray = 0x696969,
   dodger_blue = 0x1E90FF,
   fire_brick = 0xB22222,
-  floral_white = 0xFFFAF0
+  floral_white = 0xFFFA
 
-... [truncated 13820 chars] ...
+... [truncated 13838 chars] ...
 
-d_color<Char>(ts.get_background());
+_color<Char>(ts.get_background());
       out = detail::copy<Char>(background.begin(), background.end(), out);
     }
     out = formatter<T, Char>::format(arg.value, ctx);
@@ -65,6 +67,7 @@ d_color<Char>(ts.get_background());
     return out;
   }
 };
+
 
 template <typename T>
 FMT_CONSTEXPR auto styled(const T& value, text_style ts)

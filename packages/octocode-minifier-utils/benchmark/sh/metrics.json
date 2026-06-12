@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 156306,
     "cutPercent": 0.4,
-    "durationMs": 11.94
+    "durationMs": 6.629
   },
   "applyMinification": {
-    "bytes": 156306,
-    "cutPercent": 0.4,
-    "durationMs": 11.455
+    "bytes": 156311,
+    "cutPercent": 0.3,
+    "durationMs": 6.971
   },
   "sync": {
-    "bytes": 156306,
-    "cutPercent": 0.4,
-    "durationMs": 13.066
+    "bytes": 156311,
+    "cutPercent": 0.3,
+    "durationMs": 7.067
   },
   "async": {
-    "bytes": 156306,
-    "cutPercent": 0.4,
-    "durationMs": 11.813,
+    "bytes": 156311,
+    "cutPercent": 0.3,
+    "durationMs": 7.173,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -32,9 +32,9 @@
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 3432,
-    "cutPercent": 97.8,
-    "durationMs": 7.1
+    "bytes": 4266,
+    "cutPercent": 97.3,
+    "durationMs": 53.963
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 156306,
-      "cutPercent": 0.4,
+      "bytes": 156311,
+      "cutPercent": 0.3,
       "score": 9.3,
       "label": "excellent",
       "syntaxAnchors": {
@@ -195,17 +195,17 @@
     },
     "symbols": {
       "output": "symbols",
-      "bytes": 3432,
-      "cutPercent": 97.8,
-      "score": 6.1,
-      "label": "fair",
+      "bytes": 4266,
+      "cutPercent": 97.3,
+      "score": 9,
+      "label": "excellent",
       "syntaxAnchors": {
-        "score": 3.3,
-        "hits": 1,
+        "score": 10,
+        "hits": 3,
         "total": 3
       },
-      "structure": 5,
-      "outputHealth": 10,
+      "structure": 7.1,
+      "outputHealth": 9,
       "contextBudget": 8,
       "symbols": 10,
       "signals": [
@@ -223,11 +223,11 @@
         },
         {
           "name": "language syntax anchors present",
-          "passed": false
+          "passed": true
         },
         {
           "name": "delimiter structure is balanced enough",
-          "passed": false
+          "passed": true
         },
         {
           "name": "symbol skeleton returned or not configured",

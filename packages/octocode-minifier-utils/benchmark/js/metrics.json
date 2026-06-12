@@ -9,32 +9,32 @@
   "contentView": {
     "bytes": 6205,
     "cutPercent": 9.6,
-    "durationMs": 3.086
+    "durationMs": 1.518
   },
   "applyMinification": {
-    "bytes": 5383,
-    "cutPercent": 21.6,
-    "durationMs": 3.821
+    "bytes": 5431,
+    "cutPercent": 20.9,
+    "durationMs": 1.602
   },
   "sync": {
-    "bytes": 5383,
-    "cutPercent": 21.6,
-    "durationMs": 3.995
+    "bytes": 5431,
+    "cutPercent": 20.9,
+    "durationMs": 1.616
   },
   "async": {
-    "bytes": 5383,
-    "cutPercent": 21.6,
-    "durationMs": 1.27,
+    "bytes": 5431,
+    "cutPercent": 20.9,
+    "durationMs": 1.68,
     "failed": false,
     "type": "terser",
-    "reason": "Terser minification failed: Unexpected token: name (BasicStateAction)"
+    "reason": null
   },
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 2657,
-    "cutPercent": 61.3,
-    "durationMs": 15.143
+    "bytes": 5765,
+    "cutPercent": 16,
+    "durationMs": 11.273
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 5383,
-      "cutPercent": 21.6,
+      "bytes": 5431,
+      "cutPercent": 20.9,
       "score": 9.6,
       "label": "excellent",
       "syntaxAnchors": {
@@ -195,18 +195,18 @@
     },
     "symbols": {
       "output": "symbols",
-      "bytes": 2657,
-      "cutPercent": 61.3,
-      "score": 9.3,
+      "bytes": 5765,
+      "cutPercent": 16,
+      "score": 9.6,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
         "hits": 3,
         "total": 3
       },
-      "structure": 7.7,
+      "structure": 9.8,
       "outputHealth": 9,
-      "contextBudget": 10,
+      "contextBudget": 8,
       "symbols": 10,
       "signals": [
         {
@@ -238,9 +238,9 @@
   },
   "ratings": {
     "minify": 8.3,
-    "symbols": 9,
-    "agent": 8.5,
-    "label": "strong"
+    "symbols": 6.5,
+    "agent": 7.7,
+    "label": "good"
   },
   "notes": [
     "engine-backed or parser-backed path"

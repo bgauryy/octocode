@@ -4,7 +4,7 @@ Source sample: `hpp/fmt-color.hpp`
 
 Strategy: `conservative`
 
-Agent rating: **8.7/10 (strong)**
+Agent rating: **7.8/10 (good)**
 
 Agent understanding from minified output: **9.8/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 25322 | - | - | - |
-| content-view | 15620 | 38.3% | 9.3 ms | 8.5/10 |
-| applyMinification | 15620 | 38.3% | 8.316 ms | 8.5/10 |
-| sync minify | 15620 | 38.3% | 9.964 ms | 8.5/10 |
-| async minify | 15620 | 38.3% | 4.265 ms | 8.5/10 |
-| symbols | 7208 | 71.5% | 0.611 ms | 9/10 |
+| content-view | 15620 | 38.3% | 5.339 ms | 8.5/10 |
+| applyMinification | 15638 | 38.2% | 5.554 ms | 8.5/10 |
+| sync minify | 15638 | 38.2% | 5.704 ms | 8.5/10 |
+| async minify | 15638 | 38.2% | 5.587 ms | 8.5/10 |
+| symbols | 15359 | 39.3% | 33.655 ms | 6.5/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 25322 | 0% | 10/10 excellent | 10/10 | 9.6/10 |
 | standard | 15620 | 38.3% | 9.8/10 excellent | 10/10 | 9.6/10 |
-| minify | 15620 | 38.3% | 9.8/10 excellent | 10/10 | 9.6/10 |
-| symbols | 7208 | 71.5% | 9.2/10 excellent | 10/10 | 6.1/10 |
+| minify | 15638 | 38.2% | 9.8/10 excellent | 10/10 | 9.6/10 |
+| symbols | 15359 | 39.3% | 9.6/10 excellent | 10/10 | 8.4/10 |
 
 ## Notes
 
@@ -204,6 +204,8 @@ FMT_END_NAMESPACE
 ## Apply Minification Excerpt
 
 ```cpp
+
+
 #ifndef FMT_COLOR_H_
 #define FMT_COLOR_H_
 
@@ -256,11 +258,11 @@ enum class color : uint32_t {
   dim_gray = 0x696969,
   dodger_blue = 0x1E90FF,
   fire_brick = 0xB22222,
-  floral_white = 0xFFFAF0
+  floral_white = 0xFFFA
 
-... [truncated 13820 chars] ...
+... [truncated 13838 chars] ...
 
-d_color<Char>(ts.get_background());
+_color<Char>(ts.get_background());
       out = detail::copy<Char>(background.begin(), background.end(), out);
     }
     out = formatter<T, Char>::format(arg.value, ctx);
@@ -271,6 +273,7 @@ d_color<Char>(ts.get_background());
     return out;
   }
 };
+
 
 template <typename T>
 FMT_CONSTEXPR auto styled(const T& value, text_style ts)
@@ -287,6 +290,8 @@ FMT_END_NAMESPACE
 ## Sync Minify Excerpt
 
 ```cpp
+
+
 #ifndef FMT_COLOR_H_
 #define FMT_COLOR_H_
 
@@ -339,11 +344,11 @@ enum class color : uint32_t {
   dim_gray = 0x696969,
   dodger_blue = 0x1E90FF,
   fire_brick = 0xB22222,
-  floral_white = 0xFFFAF0
+  floral_white = 0xFFFA
 
-... [truncated 13820 chars] ...
+... [truncated 13838 chars] ...
 
-d_color<Char>(ts.get_background());
+_color<Char>(ts.get_background());
       out = detail::copy<Char>(background.begin(), background.end(), out);
     }
     out = formatter<T, Char>::format(arg.value, ctx);
@@ -354,6 +359,7 @@ d_color<Char>(ts.get_background());
     return out;
   }
 };
+
 
 template <typename T>
 FMT_CONSTEXPR auto styled(const T& value, text_style ts)
@@ -370,6 +376,8 @@ FMT_END_NAMESPACE
 ## Async Minify Excerpt
 
 ```cpp
+
+
 #ifndef FMT_COLOR_H_
 #define FMT_COLOR_H_
 
@@ -422,11 +430,11 @@ enum class color : uint32_t {
   dim_gray = 0x696969,
   dodger_blue = 0x1E90FF,
   fire_brick = 0xB22222,
-  floral_white = 0xFFFAF0
+  floral_white = 0xFFFA
 
-... [truncated 13820 chars] ...
+... [truncated 13838 chars] ...
 
-d_color<Char>(ts.get_background());
+_color<Char>(ts.get_background());
       out = detail::copy<Char>(background.begin(), background.end(), out);
     }
     out = formatter<T, Char>::format(arg.value, ctx);
@@ -437,6 +445,7 @@ d_color<Char>(ts.get_background());
     return out;
   }
 };
+
 
 template <typename T>
 FMT_CONSTEXPR auto styled(const T& value, text_style ts)
@@ -453,73 +462,57 @@ FMT_END_NAMESPACE
 ## Symbols
 
 ```txt
+  8| #ifndef FMT_COLOR_H_
   9| #define FMT_COLOR_H_
  11| #include "format.h"
+ 13| FMT_BEGIN_NAMESPACE
+ 14| FMT_BEGIN_EXPORT
  16| enum class color : uint32_t {
-158| };  // enum class color
-160| enum class terminal_color : uint8_t {
-177| };
-179| enum class emphasis : uint8_t {
-188| };
-192| struct rgb {
-193|   constexpr rgb() : r(0), g(0), b(0) {}
-194|   constexpr rgb(uint8_t r_, uint8_t g_, uint8_t b_) : r(r_), g(g_), b(b_) {}
-195|   constexpr rgb(uint32_t hex)
-196|       : r((hex >> 16) & 0xFF), g((hex >> 8) & 0xFF), b(hex & 0xFF) {}
-197|   constexpr rgb(color hex)
-198|       : r((uint32_t(hex) >> 16) & 0xFF),
-199|         g((uint32_t(hex) >> 8) & 0xFF),
-200|         b(uint32_t(hex) & 0xFF) {}
-201|   uint8_t r;
-202|   uint8_t g;
-203|   uint8_t b;
-204| };
-206| namespace detail {
-210| struct color_type {
-211|   constexpr color_type() noexcept = default;
-212|   constexpr color_type(color rgb_color) noexcept
-213|       : value_(static_cast<uint32_t>(rgb_color) | (1 << 24)) {}
-214|   constexpr color_type(rgb rgb_color) noexcept
-215|       : color_type(static_cast<color>(
-216|             (static_cast<uint32_t>(rgb_color.r) << 16) |
-217|             (static_cast<uint32_t>(rgb_color.g) << 8) | rgb_color.b)) {}
-218|   constexpr color_type(terminal_color term_color) noexcept
-219|       : value_(static_cast<uint32_t>(term_color) | (3 << 24)) {}
-221|   constexpr auto is_terminal_color() const noexcept -> bool {
-222|     return (value_ & (1 << 25)) != 0;
-223|   }
-225|   constexpr auto value() const noexcept -> uint32_t {
-226|     return value_ & 0xFFFFFF;
-227|   }
-229|   constexpr color_type(uint32_t value) noexcept : value_(value) {}
-231|   uint32_t value_ = 0;
-232| };
-236| class text_style {
-289|  public:
-290|   FMT_CONSTEXPR text_style(emphasis em = emphasis()) noexcept
-291|       : style_(static_cast<uint64_t>(em) << 5
+ 17|   alice_blue = 0xF0F8FF,               // rgb(240,248,255)
+ 18|   antique_white = 0xFAEBD7,            // rgb(250,235,215)
+ 19|   aqua = 0x00FFFF,                     // rgb(0,255,255)
+ 20|   aquamarine = 0x7FFFD4,               // rgb(127,255,212)
+ 21|   azure = 0xF0FFFF,                    // rgb(240,255,255)
+ 22|   beige = 0xF5F5DC,                    // rgb(245,245,220)
+ 23|   bisque = 0xFFE4C4,                   // rgb(255,228,196)
+ 24|   black = 0x000000,                    // rgb(0,0,0)
+ 25|   blanched_almond = 0xFFEBCD,          // rgb(255,235,205)
+ 26|   blue = 0x0000FF,                     // rgb(0,0,255)
+ 27|   blue_violet = 0x8A2BE2,              // rgb(138,43,226)
+ 28|   brown = 0xA52A2A,                    // rgb(165,42,42)
+ 29|   burly_wood = 0xDEB887,               // rgb(222,184,135)
+ 30|   cadet_blue = 0x5F9EA0,               // rgb(95,158,160)
+ 31|   chartreuse = 0x7FFF00,               // rgb(127,255,0)
+ 32|   chocolate = 0xD2691E,                // rgb(210,105,30)
+ 33|   coral = 0xFF7F50,                    // rgb(255,127,80)
+ 34|   cornflower_blue = 0x6495ED,          // rgb(100,149,237)
+ 35|   cornsilk = 0xFFF8DC,                 // rgb(255,248,220)
+ 36|   crimson = 0xDC143C,                  // rgb(220,20,60)
+ 37|   cyan = 0x00FFFF,                     // rgb(0,255,255)
+ 38|   dark_blue = 0x00008B,                // rgb(0,0,139)
+ 39|   dark_cyan = 0x008B8B,                // rgb(0,139,139)
+ 40|   dark_golden_rod = 0xB8860B,          // rgb(184,134,11)
+ 41|   dark_gray = 0xA9A9A9,                // rgb(169,169,169)
+ 42|   dark_green = 0x006400,           
 
-... [truncated 4608 chars] ...
+... [truncated 12759 chars] ...
 
-     has_style = true;
-635|       auto foreground =
-636|           detail::make_foreground_color<Char>(ts.get_foreground());
-637|       out = detail::copy<Char>(foreground.begin(), foreground.end(), out);
-638|     }
-639|     if (ts.has_background()) {
-640|       has_style = true;
-641|       auto background =
-642|           detail::make_background_color<Char>(ts.get_background());
-643|       out = detail::copy<Char>(background.begin(), background.end(), out);
-644|     }
-645|     out = formatter<T, Char>::format(arg.value, ctx);
-646|     if (has_style) {
-647|       auto reset_color = string_view("\x1b[0m");
-648|       out = detail::copy<Char>(reset_color.begin(), reset_color.end(), out);
-649|     }
-650|     return out;
-651|   }
+rmat_args args)
+596|     -> OutputIt {
+612| template <typename OutputIt, typename... T,
+613|           FMT_ENABLE_IF(detail::is_output_iterator<OutputIt, char>::value)>
+614| inline auto format_to(OutputIt out, text_style ts, format_string<T...> fmt,
+615|                       T&&... args) -> OutputIt {
+619| template <typename T, typename Char>
+620| struct formatter<detail::styled_arg<T>, Char> : formatter<T, Char> {
+621|   template <typename FormatContext>
+622|   FMT_CONSTEXPR auto format(const detail::styled_arg<T>& arg,
+623|                             FormatContext& ctx) const -> decltype(ctx.out()) {
 652| };
 664| template <typename T>
 665| FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+666|     -> detail::styled_arg<remove_cvref_t<T>> {
+670| FMT_END_EXPORT
+671| FMT_END_NAMESPACE
+673| #endif  // FMT_COLOR_H_
 ```

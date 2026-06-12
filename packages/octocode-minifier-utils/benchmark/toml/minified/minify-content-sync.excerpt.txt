@@ -41,9 +41,9 @@ members = [
   "src/tools/rustfmt",
   "src/tools/test-float-parse"
 
-... [truncated 81 chars] ...
+... [truncated 85 chars] ...
 
-tor",
+,
   "src/tools/unstable-book-gen",
   "src/tools/wasm-component-ld",
   "src/tools/x",
@@ -62,7 +62,9 @@ exclude = [
 
 [profile.release.package.rustc_thread_pool]
 
+
 overflow-checks = false
+
 
 [profile.release.package.lld-wrapper]
 debug = 0
@@ -71,8 +73,10 @@ strip = true
 debug = 0
 strip = true
 
+
 [profile.dev.package.test-float-parse]
 opt-level = 3
+
 
 [profile.release.package.test-float-parse]
 opt-level = 3

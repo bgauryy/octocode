@@ -1,5 +1,4 @@
     1| @charset "UTF-8";
-    7| :root,
     8| [data-bs-theme=light] {
   128| [data-bs-theme=dark] {
   190| @media (prefers-reduced-motion: no-preference) {
@@ -24,32 +23,21 @@
   269| p {
   274| abbr[title] {
   282| address {
-  288| ol,
   289| ul {
-  293| ol,
-  294| ul,
   295| dl {
-  300| ol ol,
-  301| ul ul,
-  302| ol ul,
   303| ul ol {
   307| dt {
   311| dd {
   316| blockquote {
-  320| b,
   321| strong {
   325| small, .small {
   329| mark, .mark {
-  335| sub,
   336| sup {
   343| sub {
   347| sup {
   351| a {
   355| a:hover {
   359| a:not([href]):not([class]), a:not([href]):not([class]):hover {
-  364| pre,
-  365| code,
-  366| kbd,
   367| samp {
   372| pre {
   379| pre code {
@@ -58,37 +46,35 @@
   394| kbd {
   401| kbd kbd {
   406| figure {
-  410| img,
   411| svg {
   415| table {
   420| caption {
   427| th {
-  432| thead,
-  433| tbody,
-  434| tfoot,
-  435| tr,
-  436| td,
   437| th {
   443| label {
   447| button {
   451| button:focus:not(:focus-visible) {
-  455| input,
-  456| button,
-  457| select,
-  458| optgroup,
   459| textarea {
-  466| button,
   467| select {
   471| [role=button] {
   475| select {
   478| select:disabled {
   482| [list]:not([type=date]):not([type=datetime-local]):not([type=month]):not([type=week]):not([type=time])::-webkit-calendar-picker-indicator {
-  486| button,
-  487| [type=button],
-  488| [type=reset],
-  
+  489| [type=submit] {
+  495| [type=submit]:not(:disabled) {
+  499| ::-moz-focus-inner {
+  504| textarea {
+  508| fieldset {
+  515| legend {
+  523| @media (min-width: 1200px) {
+  524|   legend {
+  528| legend + * {
+  538| ::-webkit-datetime-edit-year-field {
+  542| ::-webkit-inner-spin-button {
+  546| [type=search] {
+  550| [type=search]::-webkit-search-canc
 
-... [truncated 87476 chars] ...
+... [truncated 79474 chars] ...
 
 ap-xxl-0 {
 11949|   .row-gap-xxl-1 {

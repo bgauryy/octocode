@@ -1,3 +1,5 @@
+
+
 @file:kotlin.js.JsFileName("CollectionsKt")
 @file:kotlin.jvm.JvmMultifileClass
 @file:kotlin.jvm.JvmName("CollectionsKt")
@@ -29,11 +31,11 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-    o
+   
 
-... [truncated 8657 chars] ...
+... [truncated 8692 chars] ...
 
-ay<T> {
+y<T> {
     if (collection.isEmpty()) return terminateCollectionToArray(0, array)
 
     val destination = if (array.size < collection.size) {
@@ -51,5 +53,6 @@ ay<T> {
 
     return terminateCollectionToArray(collection.size, destination)
 }
+
 
 internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>

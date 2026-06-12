@@ -1,3 +1,5 @@
+
+
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::clone::TrivialClone;
@@ -7,6 +9,7 @@ use crate::ops::{self, ControlFlow, Deref, DerefMut, Residual, Try};
 use crate::panicking::{panic, panic_display};
 use crate::pin::Pin;
 use crate::{cmp, convert, hint, mem, slice};
+
 
 #[doc(search_unbox)]
 #[derive(Copy, Debug, Hash)]
@@ -26,7 +29,9 @@ pub enum Option<T> {
     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
 }
 
+
 impl<T> Option<T> {
+
 
     #[must_use = "if you intended to assert that this has a value, consider `.unwrap()` instead"]
     #[inline]
@@ -36,13 +41,14 @@ impl<T> Option<T> {
         matches!(*self, Some(_))
     }
 
+
     #[must_use]
     #[inline]
-    #[stable(feature = "is_some_and", since = "1.70.0")
+    #[stable(feature = "is_some_and", since = "1.
 
-... [truncated 36027 chars] ...
+... [truncated 36106 chars] ...
 
-et x: Option<&mut Option<u32>> = None;
+t x: Option<&mut Option<u32>> = None;
     /// assert_eq!(None, x.flatten_mut());
     /// ```
     #[inline]
@@ -56,6 +62,7 @@ et x: Option<&mut Option<u32>> = None;
 }
 
 impl<T, const N: usize> [Option<T>; N] {
+
 
     #[inline]
     #[unstable(feature = "option_array_transpose", issue = "130828")]

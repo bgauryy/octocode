@@ -1,3 +1,5 @@
+
+
 Imports System
 Imports System.Diagnostics.CodeAnalysis
 Imports System.Globalization
@@ -30,13 +32,15 @@ Namespace Global.Microsoft.VisualBasic
 
     Public Module Strings
 
+
         Private ReadOnly CurrencyPositiveFormatStrings() As String = {"'$'n", "n'$'", "'$' n", "n '$'"}
+
 
         Private ReadOnly CurrencyNegativeFormatStrings() As String =
             {"('$'n)", "-'$'n", "'$'-n", "'$'n-", "(n'$')", "-n'$'", "n-'$'", "n'$'-",
-              "-n '$'", "-
+              "-n '$'"
 
-... [truncated 80020 chars] ...
+... [truncated 80065 chars] ...
 
      Return sDest
             End If

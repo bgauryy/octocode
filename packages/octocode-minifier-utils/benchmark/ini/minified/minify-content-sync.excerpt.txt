@@ -18,12 +18,16 @@ envlist =
     docs
     docs-checklinks
 
+
     py311-exceptiongroup
+
 
 [pkgenv]
 
+
 pass_env =
   SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST
+
 
 [testenv]
 description =
@@ -44,9 +48,9 @@ description =
     doctesting: including doctests
 commands =
     {env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:{env:_PYTEST_TOX_DEFAULT_POSARGS:}}
-    doctesting: {env:_PYTEST_TOX_COVERAGE_RUN:} pytest --doctest-modules {env:_PYTEST_TOX_PO
+    doctesting: {env:_PYTEST_TOX_COVERAGE_RUN:} pytest --doctest-modules {env:_PYTEST_TO
 
-... [truncated 3946 chars] ...
+... [truncated 3954 chars] ...
 
 elease]passenv}
 deps = {[testenv:release]deps}

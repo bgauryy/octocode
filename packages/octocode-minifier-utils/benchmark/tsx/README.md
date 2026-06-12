@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 23197 | - | - | - |
-| content-view | 15062 | 35.1% | 6.168 ms | 9.5/10 |
-| applyMinification | 10663 | 54% | 77.468 ms | 9.5/10 |
-| sync minify | 10663 | 54% | 46.228 ms | 9.5/10 |
-| async minify | 10663 | 54% | 45.878 ms | 9.5/10 |
-| symbols | 3336 | 85.6% | 6.884 ms | 10/10 |
+| content-view | 15062 | 35.1% | 4.46 ms | 9.5/10 |
+| applyMinification | 12161 | 47.6% | 4.597 ms | 9.5/10 |
+| sync minify | 12161 | 47.6% | 4.394 ms | 9.5/10 |
+| async minify | 12161 | 47.6% | 4.84 ms | 9.5/10 |
+| symbols | 3742 | 83.9% | 22.543 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 23197 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 15062 | 35.1% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 10663 | 54% | 8.5/10 strong | 6.7/10 | 10/10 |
-| symbols | 3336 | 85.6% | 8.2/10 strong | 6.7/10 | 9.6/10 |
+| minify | 12161 | 47.6% | 9.8/10 excellent | 10/10 | 10/10 |
+| symbols | 3742 | 83.9% | 9.5/10 excellent | 10/10 | 9.6/10 |
 
 ## Notes
 
@@ -192,31 +192,31 @@ meStyles?.size ?? 0
 ## Apply Minification Excerpt
 
 ```tsx
-import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{
+import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue,}from 'react' import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext,}from '../../shared/lib/app-router-context.shared-runtime' import type{CacheNode}from '../../shared/lib/app-router-types' import{ACTION_RESTORE}from './router-reducer/router-reducer-types' import type{AppHistoryState,AppRouterState,}from './router-reducer/router-reducer-types' import{createHrefFromUrl}from './router-reducer/create-href-from-url' import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises,}from '../../shared/lib/hooks-client-context.shared-runtime' import{dispatchAppRouterAction,useActionQueue}from './use-action-queue' import{setLastCommittedTree}from './router-reducer/reducers/committed-state' import{AppRouterAnnouncer}from './app-router-announcer' import{RedirectBoundary}from './redirect-boundary' import{findHeadInCache}from './router-reducer/reducers/find-head-in-cache' import{unresolvedThenable}from './unresolved-thenable' import{removeBasePath}from '../remove-base-path' import{hasBasePath}from '../has-base-path' import{extractSourcePageFromFlightRouterState,getSelectedP
 
-... [truncated 8863 chars] ...
+... [truncated 10361 chars] ...
 
-{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);const query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=>_jsx("link",{rel:"stylesheet",href:`${href}${query}`,precedence:"next"},i))}process.env.TURBOPACK||"undefined"==typeof window||(runtimeStyles=new Set,runtimeStyleChanged=new Set,globalThis._N_E_STYLE_LOAD=function(href){if(!runtimeStyles||!runtimeStyleChanged)return Promise.resolve();let len=runtimeStyles.size;return runtimeStyles.add(href),runtimeStyles.size!==len&&runtimeStyleChanged.forEach(cb=>cb()),Promise.resolve()});
+resolve()}}function RuntimeStylesForWebpack(){const [,forceUpdate] = React.useState(0)const renderedStylesSize = runtimeStyles?.size ?? 0 useEffect(()=>{if(!runtimeStyles || !runtimeStyleChanged)return const changed =()=> forceUpdate((c)=> c + 1)runtimeStyleChanged.add(changed)if(renderedStylesSize !== runtimeStyles.size){changed()}return()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate])const query = getAssetTokenQuery()return [...(runtimeStyles || [])].map((href,i)=>(<link key={i}rel="stylesheet" href={`${href}${query}`}precedence="next" />))}
 ```
 
 ## Sync Minify Excerpt
 
 ```tsx
-import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{
+import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue,}from 'react' import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext,}from '../../shared/lib/app-router-context.shared-runtime' import type{CacheNode}from '../../shared/lib/app-router-types' import{ACTION_RESTORE}from './router-reducer/router-reducer-types' import type{AppHistoryState,AppRouterState,}from './router-reducer/router-reducer-types' import{createHrefFromUrl}from './router-reducer/create-href-from-url' import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises,}from '../../shared/lib/hooks-client-context.shared-runtime' import{dispatchAppRouterAction,useActionQueue}from './use-action-queue' import{setLastCommittedTree}from './router-reducer/reducers/committed-state' import{AppRouterAnnouncer}from './app-router-announcer' import{RedirectBoundary}from './redirect-boundary' import{findHeadInCache}from './router-reducer/reducers/find-head-in-cache' import{unresolvedThenable}from './unresolved-thenable' import{removeBasePath}from '../remove-base-path' import{hasBasePath}from '../has-base-path' import{extractSourcePageFromFlightRouterState,getSelectedP
 
-... [truncated 8863 chars] ...
+... [truncated 10361 chars] ...
 
-{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);const query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=>_jsx("link",{rel:"stylesheet",href:`${href}${query}`,precedence:"next"},i))}process.env.TURBOPACK||"undefined"==typeof window||(runtimeStyles=new Set,runtimeStyleChanged=new Set,globalThis._N_E_STYLE_LOAD=function(href){if(!runtimeStyles||!runtimeStyleChanged)return Promise.resolve();let len=runtimeStyles.size;return runtimeStyles.add(href),runtimeStyles.size!==len&&runtimeStyleChanged.forEach(cb=>cb()),Promise.resolve()});
+resolve()}}function RuntimeStylesForWebpack(){const [,forceUpdate] = React.useState(0)const renderedStylesSize = runtimeStyles?.size ?? 0 useEffect(()=>{if(!runtimeStyles || !runtimeStyleChanged)return const changed =()=> forceUpdate((c)=> c + 1)runtimeStyleChanged.add(changed)if(renderedStylesSize !== runtimeStyles.size){changed()}return()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate])const query = getAssetTokenQuery()return [...(runtimeStyles || [])].map((href,i)=>(<link key={i}rel="stylesheet" href={`${href}${query}`}precedence="next" />))}
 ```
 
 ## Async Minify Excerpt
 
 ```tsx
-import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{
+import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue,}from 'react' import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext,}from '../../shared/lib/app-router-context.shared-runtime' import type{CacheNode}from '../../shared/lib/app-router-types' import{ACTION_RESTORE}from './router-reducer/router-reducer-types' import type{AppHistoryState,AppRouterState,}from './router-reducer/router-reducer-types' import{createHrefFromUrl}from './router-reducer/create-href-from-url' import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises,}from '../../shared/lib/hooks-client-context.shared-runtime' import{dispatchAppRouterAction,useActionQueue}from './use-action-queue' import{setLastCommittedTree}from './router-reducer/reducers/committed-state' import{AppRouterAnnouncer}from './app-router-announcer' import{RedirectBoundary}from './redirect-boundary' import{findHeadInCache}from './router-reducer/reducers/find-head-in-cache' import{unresolvedThenable}from './unresolved-thenable' import{removeBasePath}from '../remove-base-path' import{hasBasePath}from '../has-base-path' import{extractSourcePageFromFlightRouterState,getSelectedP
 
-... [truncated 8863 chars] ...
+... [truncated 10361 chars] ...
 
-{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);const query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=>_jsx("link",{rel:"stylesheet",href:`${href}${query}`,precedence:"next"},i))}process.env.TURBOPACK||"undefined"==typeof window||(runtimeStyles=new Set,runtimeStyleChanged=new Set,globalThis._N_E_STYLE_LOAD=function(href){if(!runtimeStyles||!runtimeStyleChanged)return Promise.resolve();let len=runtimeStyles.size;return runtimeStyles.add(href),runtimeStyles.size!==len&&runtimeStyleChanged.forEach(cb=>cb()),Promise.resolve()});
+resolve()}}function RuntimeStylesForWebpack(){const [,forceUpdate] = React.useState(0)const renderedStylesSize = runtimeStyles?.size ?? 0 useEffect(()=>{if(!runtimeStyles || !runtimeStyleChanged)return const changed =()=> forceUpdate((c)=> c + 1)runtimeStyleChanged.add(changed)if(renderedStylesSize !== runtimeStyles.size){changed()}return()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate])const query = getAssetTokenQuery()return [...(runtimeStyles || [])].map((href,i)=>(<link key={i}rel="stylesheet" href={`${href}${query}`}precedence="next" />))}
 ```
 
 ## Symbols
@@ -267,22 +267,9 @@ import{jsx as _jsx,jsxs as _jsxs,Fragment as _Fragment}from"react/jsx-runtime";i
  43|   type AppRouterActionQueue,
  44|   type Gl
 
-... [truncated 736 chars] ...
+... [truncated 1142 chars] ...
 
-n copyNextJsInternalHistoryState(data: any) {
-130| function Head({
-131|   headCacheNode,
-132| }: {
-133|   headCacheNode: CacheNode | null
-134| }): React.ReactNode {
-154| function Router({
-155|   actionQueue,
-156|   globalError,
-157|   webSocket,
-158|   staticIndicatorState,
-159| }: {
-160|   actionQueue: AppRouterActionQueue
-161|   globalError: GlobalErrorState
+obalError: GlobalErrorState
 162|   webSocket: WebSocket | undefined
 163|   staticIndicatorState: StaticIndicatorState | undefined
 164| }) {
@@ -297,5 +284,12 @@ n copyNextJsInternalHistoryState(data: any) {
 585|   webSocket?: WebSocket
 586|   staticIndicatorState?: StaticIndicatorState
 587| }) {
+608| let runtimeStyles: Set<string> | undefined
+609| let runtimeStyleChanged: Set<() => void> | undefined
+610| if (!process.env.TURBOPACK && typeof window !== 'undefined') {
+611|   runtimeStyles = new Set<string>()
+612|   runtimeStyleChanged = new Set<() => void>()
+614|   globalThis._N_E_STYLE_LOAD = function (href: string) {
+625| }
 627| function RuntimeStylesForWebpack() {
 ```

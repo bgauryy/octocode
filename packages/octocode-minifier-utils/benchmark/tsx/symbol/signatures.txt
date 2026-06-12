@@ -43,22 +43,9 @@
  43|   type AppRouterActionQueue,
  44|   type Gl
 
-... [truncated 736 chars] ...
+... [truncated 1142 chars] ...
 
-n copyNextJsInternalHistoryState(data: any) {
-130| function Head({
-131|   headCacheNode,
-132| }: {
-133|   headCacheNode: CacheNode | null
-134| }): React.ReactNode {
-154| function Router({
-155|   actionQueue,
-156|   globalError,
-157|   webSocket,
-158|   staticIndicatorState,
-159| }: {
-160|   actionQueue: AppRouterActionQueue
-161|   globalError: GlobalErrorState
+obalError: GlobalErrorState
 162|   webSocket: WebSocket | undefined
 163|   staticIndicatorState: StaticIndicatorState | undefined
 164| }) {
@@ -73,4 +60,11 @@ n copyNextJsInternalHistoryState(data: any) {
 585|   webSocket?: WebSocket
 586|   staticIndicatorState?: StaticIndicatorState
 587| }) {
+608| let runtimeStyles: Set<string> | undefined
+609| let runtimeStyleChanged: Set<() => void> | undefined
+610| if (!process.env.TURBOPACK && typeof window !== 'undefined') {
+611|   runtimeStyles = new Set<string>()
+612|   runtimeStyleChanged = new Set<() => void>()
+614|   globalThis._N_E_STYLE_LOAD = function (href: string) {
+625| }
 627| function RuntimeStylesForWebpack() {

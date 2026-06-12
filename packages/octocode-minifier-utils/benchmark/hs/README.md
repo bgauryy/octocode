@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 41400 | - | - | - |
-| content-view | 36301 | 12.3% | 10.696 ms | 7/10 |
-| applyMinification | 36301 | 12.3% | 13.298 ms | 7/10 |
-| sync minify | 36301 | 12.3% | 17.284 ms | 7/10 |
-| async minify | 36301 | 12.3% | 7.037 ms | 7/10 |
-| symbols | n/a | n/a | 0.015 ms | n/a |
+| content-view | 36301 | 12.3% | 7.736 ms | 7/10 |
+| applyMinification | 36334 | 12.2% | 7.374 ms | 7/10 |
+| sync minify | 36334 | 12.2% | 7.004 ms | 7/10 |
+| async minify | 36334 | 12.2% | 7.195 ms | 7/10 |
+| symbols | 7478 | 81.9% | 0.442 ms | n/a |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 41400 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 36301 | 12.3% | 9.3/10 excellent | 10/10 | 10/10 |
-| minify | 36301 | 12.3% | 9.3/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| minify | 36334 | 12.2% | 9.3/10 excellent | 10/10 | 10/10 |
+| symbols | 7478 | 81.9% | 7.8/10 good | 6.7/10 | 6.7/10 |
 
 ## Notes
 
@@ -209,6 +209,8 @@ defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
 ## Apply Minification Excerpt
 
 ```hs
+
+
 module Distribution.Simple
   ( module Distribution.Package
   , module Distribution.Version
@@ -216,10 +218,12 @@ module Distribution.Simple
   , module Distribution.Simple.Compiler
   , module Language.Haskell.Extension
 
+
   , defaultMain
   , defaultMainNoRead
   , defaultMainArgs
   , defaultMainArgsWithHandles
+
 
   , UserHooks (..)
   , Args
@@ -230,11 +234,13 @@ module Distribution.Simple
   , defaultMainWithHooksNoRead
   , defaultMainWithHooksNoReadArgs
 
+
   , simpleUserHooks
   , simpleUserHooksWithHandles
   , autoconfUserHooks
   , autoconfSetupHooks
   , emptyUserHooks
+
 
   , configureAction
   , buildAction
@@ -257,14 +263,15 @@ import Distribution.Compat.Prelude
 import Distribution.Compat.ResponseFile (expandResponse)
 import Prelude ()
 
+
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Configuration
 import Distribution.Simple.Command
 import Distribution.Simple.Compiler
-import Distribution.Simple.Package
+import Distribution.Simple.
 
-... [truncated 34501 chars] ...
+... [truncated 34534 chars] ...
 
 s
       (allSuffixHandlers hooks)
@@ -294,6 +301,8 @@ defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
 ## Sync Minify Excerpt
 
 ```hs
+
+
 module Distribution.Simple
   ( module Distribution.Package
   , module Distribution.Version
@@ -301,10 +310,12 @@ module Distribution.Simple
   , module Distribution.Simple.Compiler
   , module Language.Haskell.Extension
 
+
   , defaultMain
   , defaultMainNoRead
   , defaultMainArgs
   , defaultMainArgsWithHandles
+
 
   , UserHooks (..)
   , Args
@@ -315,11 +326,13 @@ module Distribution.Simple
   , defaultMainWithHooksNoRead
   , defaultMainWithHooksNoReadArgs
 
+
   , simpleUserHooks
   , simpleUserHooksWithHandles
   , autoconfUserHooks
   , autoconfSetupHooks
   , emptyUserHooks
+
 
   , configureAction
   , buildAction
@@ -342,14 +355,15 @@ import Distribution.Compat.Prelude
 import Distribution.Compat.ResponseFile (expandResponse)
 import Prelude ()
 
+
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Configuration
 import Distribution.Simple.Command
 import Distribution.Simple.Compiler
-import Distribution.Simple.Package
+import Distribution.Simple.
 
-... [truncated 34501 chars] ...
+... [truncated 34534 chars] ...
 
 s
       (allSuffixHandlers hooks)
@@ -379,6 +393,8 @@ defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
 ## Async Minify Excerpt
 
 ```hs
+
+
 module Distribution.Simple
   ( module Distribution.Package
   , module Distribution.Version
@@ -386,10 +402,12 @@ module Distribution.Simple
   , module Distribution.Simple.Compiler
   , module Language.Haskell.Extension
 
+
   , defaultMain
   , defaultMainNoRead
   , defaultMainArgs
   , defaultMainArgsWithHandles
+
 
   , UserHooks (..)
   , Args
@@ -400,11 +418,13 @@ module Distribution.Simple
   , defaultMainWithHooksNoRead
   , defaultMainWithHooksNoReadArgs
 
+
   , simpleUserHooks
   , simpleUserHooksWithHandles
   , autoconfUserHooks
   , autoconfSetupHooks
   , emptyUserHooks
+
 
   , configureAction
   , buildAction
@@ -427,14 +447,15 @@ import Distribution.Compat.Prelude
 import Distribution.Compat.ResponseFile (expandResponse)
 import Prelude ()
 
+
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Configuration
 import Distribution.Simple.Command
 import Distribution.Simple.Compiler
-import Distribution.Simple.Package
+import Distribution.Simple.
 
-... [truncated 34501 chars] ...
+... [truncated 34534 chars] ...
 
 s
       (allSuffixHandlers hooks)
@@ -464,5 +485,68 @@ defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+  10| Work around this warning:
+  11| libraries/Cabal/Distribution/Simple.hs:78:0:
+  15| -}
+  42| module Distribution.Simple
+  88| import Control.Exception (try)
+  90| import Distribution.Compat.Prelude
+  91| import Distribution.Compat.ResponseFile (expandResponse)
+  92| import Prelude ()
+  96| import Distribution.Package
+  97| import Distribution.PackageDescription
+  98| import Distribution.PackageDescription.Configuration
+  99| import Distribution.Simple.Command
+ 100| import Distribution.Simple.Compiler
+ 101| import Distribution.Simple.PackageDescription
+ 102| import Distribution.Simple.PreProcess
+ 103| import Distribution.Simple.Program
+ 104| import Distribution.Simple.Setup
+ 105| import qualified Distribution.Simple.SetupHooks.Internal as SetupHooks
+ 106| import Distribution.Simple.UserHooks
+ 108| import Distribution.Simple.Build
+ 109| import Distribution.Simple.Register
+ 110| import Distribution.Simple.SrcDist
+ 112| import Distribution.Simple.Configure
+ 114| import Distribution.License
+ 115| import Distribution.Pretty
+ 116| import Distribution.Simple.Bench
+ 117| import Distribution.Simple.BuildPaths
+ 118| import Distribution.Simple.ConfigureScript (runConfigureScript)
+ 119| import Distribution.Simple.Errors
+ 120| import Distribution.Simple.Haddock
+ 121| import Distribution.Simple.Install
+ 122| import Distribution.Simple.LocalBuildInfo
+ 123| import Distribution.Simple.SetupHooks.Internal
+ 126| import Distribution.Simple.Test
+ 127| import Distribution.Simple.Utils
+ 128| import qualified Distribution.Types.LocalBuildConfig as LBC
+ 129| import Distribution.Utils.Path
+ 130| import Distribution.Verbosity
+ 131| import Distribution.Version
+ 132| import Language.Haskell.Extension
+ 135| import Data.List (unionBy, (\\))
+ 136| import System.Dire
+
+... [truncated 4878 chars] ...
+
+ooks =
+1038| getHookedBuildInfo
+1043| getHookedBuildInfo verbosity mbWorkDir build_dir = do
+1051| autoconfSetupHooks :: SetupHooks
+1052| autoconfSetupHooks =
+1110| defaultTestHook
+1118| defaultTestHook verbHandles args pkg_descr localbuildinfo _ flags =
+1121| defaultBenchHook
+1129| defaultBenchHook verbHandles args pkg_descr localbuildinfo _ flags =
+1132| defaultInstallHook
+1139| defaultInstallHook verbHandles =
+1142| defaultInstallHook_setupHooks
+1150| defaultInstallHook_setupHooks inst_hooks verbHandles pkg_descr localbuildinfo _ flags = do
+1166| defaultBuildHook
+1173| defaultBuildHook verbHandles pkg_descr localbuildinfo hooks flags =
+1183| defaultReplHook
+1191| defaultReplHook verbHandles pkg_descr localbuildinfo hooks flags args =
+1202| defaultRegHook
+1209| defaultRegHook verbHandles pkg_descr localbuildinfo _ flags
 ```

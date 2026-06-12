@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 60347 | - | - | - |
-| content-view | 18638 | 69.1% | 8.153 ms | 9.5/10 |
-| applyMinification | 18638 | 69.1% | 11.309 ms | 9.5/10 |
-| sync minify | 18638 | 69.1% | 21.872 ms | 9.5/10 |
-| async minify | 18638 | 69.1% | 8.766 ms | 9.5/10 |
-| symbols | n/a | n/a | 0.014 ms | n/a |
+| content-view | 18638 | 69.1% | 6.458 ms | 9.5/10 |
+| applyMinification | 18810 | 68.8% | 6.196 ms | 9.5/10 |
+| sync minify | 18810 | 68.8% | 6.217 ms | 9.5/10 |
+| async minify | 18810 | 68.8% | 6.637 ms | 9.5/10 |
+| symbols | 2919 | 95.2% | 1.712 ms | n/a |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 60347 | 0% | 10/10 excellent | 10/10 | 9.7/10 |
 | standard | 18638 | 69.1% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 18638 | 69.1% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| minify | 18810 | 68.8% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 2919 | 95.2% | 8.5/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 
@@ -219,6 +219,8 @@ enum SymbolVisibility {
 ## Apply Minification Excerpt
 
 ```proto
+
+
 syntax = "proto2";
 
 package google.protobuf;
@@ -230,10 +232,13 @@ option csharp_namespace = "Google.Protobuf.Reflection";
 option objc_class_prefix = "GPB";
 option cc_enable_arenas = true;
 
+
 option optimize_for = SPEED;
+
 
 message FileDescriptorSet {
   repeated FileDescriptorProto file = 1;
+
 
   extensions 536000000 [declaration = {
     number: 536000000
@@ -242,20 +247,26 @@ message FileDescriptorSet {
   }];
 }
 
+
 enum Edition {
 
   EDITION_UNKNOWN = 0;
 
+
   EDITION_LEGACY = 900;
+
 
   EDITION_PROTO2 = 998;
   EDITION_PROTO3 = 999;
+
 
   EDITION_2023 = 1000;
   EDITION_2024 = 1001;
   EDITION_2026 = 1002;
 
+
   EDITION_UNSTABLE = 9999;
+
 
   EDITION_1_TEST_ONLY = 1;
   EDITION_2_TEST_ONLY = 2;
@@ -263,38 +274,49 @@ enum Edition {
   EDITION_99998_TEST_ONLY = 99998;
   EDITION_99999_TEST_ONLY = 99999;
 
+
   EDITION_MAX = 0x7FFFFFFF;
 }
+
 
 message FileDescriptorProto {
   optional string name = 1;
   optional string package = 2;
 
+
   repeated string dependency = 3;
 
   repeated int32 public_dependency = 10;
 
-  repeated int32 weak_
 
-... [truncated 16838 chars] ...
+  repea
 
-: ".buf.descriptor.v1.SourceCodeInfoExtension"
+... [truncated 17010 chars] ...
+
+descriptor.v1.SourceCodeInfoExtension"
     full_name: ".buf.descriptor.v1.buf_source_code_info_extension"
   }];
 }
 
+
 message GeneratedCodeInfo {
+
 
   repeated Annotation annotation = 1;
   message Annotation {
 
+
     repeated int32 path = 1 [packed = true];
+
 
     optional string source_file = 2;
 
+
     optional int32 begin = 3;
 
+
     optional int32 end = 4;
+
 
     enum Semantic {
 
@@ -307,6 +329,7 @@ message GeneratedCodeInfo {
     optional Semantic semantic = 5;
   }
 }
+
 
 enum SymbolVisibility {
   VISIBILITY_UNSET = 0;
@@ -318,6 +341,8 @@ enum SymbolVisibility {
 ## Sync Minify Excerpt
 
 ```proto
+
+
 syntax = "proto2";
 
 package google.protobuf;
@@ -329,10 +354,13 @@ option csharp_namespace = "Google.Protobuf.Reflection";
 option objc_class_prefix = "GPB";
 option cc_enable_arenas = true;
 
+
 option optimize_for = SPEED;
+
 
 message FileDescriptorSet {
   repeated FileDescriptorProto file = 1;
+
 
   extensions 536000000 [declaration = {
     number: 536000000
@@ -341,20 +369,26 @@ message FileDescriptorSet {
   }];
 }
 
+
 enum Edition {
 
   EDITION_UNKNOWN = 0;
 
+
   EDITION_LEGACY = 900;
+
 
   EDITION_PROTO2 = 998;
   EDITION_PROTO3 = 999;
+
 
   EDITION_2023 = 1000;
   EDITION_2024 = 1001;
   EDITION_2026 = 1002;
 
+
   EDITION_UNSTABLE = 9999;
+
 
   EDITION_1_TEST_ONLY = 1;
   EDITION_2_TEST_ONLY = 2;
@@ -362,38 +396,49 @@ enum Edition {
   EDITION_99998_TEST_ONLY = 99998;
   EDITION_99999_TEST_ONLY = 99999;
 
+
   EDITION_MAX = 0x7FFFFFFF;
 }
+
 
 message FileDescriptorProto {
   optional string name = 1;
   optional string package = 2;
 
+
   repeated string dependency = 3;
 
   repeated int32 public_dependency = 10;
 
-  repeated int32 weak_
 
-... [truncated 16838 chars] ...
+  repea
 
-: ".buf.descriptor.v1.SourceCodeInfoExtension"
+... [truncated 17010 chars] ...
+
+descriptor.v1.SourceCodeInfoExtension"
     full_name: ".buf.descriptor.v1.buf_source_code_info_extension"
   }];
 }
 
+
 message GeneratedCodeInfo {
+
 
   repeated Annotation annotation = 1;
   message Annotation {
 
+
     repeated int32 path = 1 [packed = true];
+
 
     optional string source_file = 2;
 
+
     optional int32 begin = 3;
 
+
     optional int32 end = 4;
+
 
     enum Semantic {
 
@@ -406,6 +451,7 @@ message GeneratedCodeInfo {
     optional Semantic semantic = 5;
   }
 }
+
 
 enum SymbolVisibility {
   VISIBILITY_UNSET = 0;
@@ -417,6 +463,8 @@ enum SymbolVisibility {
 ## Async Minify Excerpt
 
 ```proto
+
+
 syntax = "proto2";
 
 package google.protobuf;
@@ -428,10 +476,13 @@ option csharp_namespace = "Google.Protobuf.Reflection";
 option objc_class_prefix = "GPB";
 option cc_enable_arenas = true;
 
+
 option optimize_for = SPEED;
+
 
 message FileDescriptorSet {
   repeated FileDescriptorProto file = 1;
+
 
   extensions 536000000 [declaration = {
     number: 536000000
@@ -440,20 +491,26 @@ message FileDescriptorSet {
   }];
 }
 
+
 enum Edition {
 
   EDITION_UNKNOWN = 0;
 
+
   EDITION_LEGACY = 900;
+
 
   EDITION_PROTO2 = 998;
   EDITION_PROTO3 = 999;
+
 
   EDITION_2023 = 1000;
   EDITION_2024 = 1001;
   EDITION_2026 = 1002;
 
+
   EDITION_UNSTABLE = 9999;
+
 
   EDITION_1_TEST_ONLY = 1;
   EDITION_2_TEST_ONLY = 2;
@@ -461,38 +518,49 @@ enum Edition {
   EDITION_99998_TEST_ONLY = 99998;
   EDITION_99999_TEST_ONLY = 99999;
 
+
   EDITION_MAX = 0x7FFFFFFF;
 }
+
 
 message FileDescriptorProto {
   optional string name = 1;
   optional string package = 2;
 
+
   repeated string dependency = 3;
 
   repeated int32 public_dependency = 10;
 
-  repeated int32 weak_
 
-... [truncated 16838 chars] ...
+  repea
 
-: ".buf.descriptor.v1.SourceCodeInfoExtension"
+... [truncated 17010 chars] ...
+
+descriptor.v1.SourceCodeInfoExtension"
     full_name: ".buf.descriptor.v1.buf_source_code_info_extension"
   }];
 }
 
+
 message GeneratedCodeInfo {
+
 
   repeated Annotation annotation = 1;
   message Annotation {
 
+
     repeated int32 path = 1 [packed = true];
+
 
     optional string source_file = 2;
 
+
     optional int32 begin = 3;
 
+
     optional int32 end = 4;
+
 
     enum Semantic {
 
@@ -506,6 +574,7 @@ message GeneratedCodeInfo {
   }
 }
 
+
 enum SymbolVisibility {
   VISIBILITY_UNSET = 0;
   VISIBILITY_LOCAL = 1;
@@ -516,5 +585,82 @@ enum SymbolVisibility {
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+  16| syntax = "proto2";
+  18| package google.protobuf;
+  20| option go_package = "google.golang.org/protobuf/types/descriptorpb";
+  21| option java_package = "com.google.protobuf";
+  22| option java_outer_classname = "DescriptorProtos";
+  23| option csharp_namespace = "Google.Protobuf.Reflection";
+  24| option objc_class_prefix = "GPB";
+  25| option cc_enable_arenas = true;
+  29| option optimize_for = SPEED;
+  33| message FileDescriptorSet {
+  42| }
+  45| enum Edition {
+  82| }
+  85| message FileDescriptorProto {
+ 129| }
+ 132| message DescriptorProto {
+ 167| }
+ 169| message ExtensionRangeOptions {
+ 224| }
+ 227| message FieldDescriptorProto {
+ 331| }
+ 334| message OneofDescriptorProto {
+ 337| }
+ 340| message EnumDescriptorProto {
+ 369| }
+ 372| message EnumValueDescriptorProto {
+ 377| }
+ 380| message ServiceDescriptorProto {
+ 388| }
+ 391| message MethodDescriptorProto {
+ 405| }
+ 439| message FileOptions {
+ 591| }
+ 593| message MessageOptions {
+ 680| }
+ 682| message FieldOptions {
+ 857| }
+ 859| message OneofOptions {
+ 875| }
+ 877| message EnumOptions {
+ 914| }
+ 916| message EnumValueOptions {
+ 950| }
+ 952| message ServiceOptions {
+ 980| }
+ 982| message MethodOptions {
+1021| }
+1029| message UninterpretedOption {
+1049| }
+1060| message FeatureSet {
+1074|     edition_defaults = { edition: EDITION_LEGACY, value: "EXPLICIT" },
+1075|     edition_defaults = { edition: EDITION_PROTO3, value: "IMPLICIT" },
+1076|     edition_defaults = { edition: EDITION_2023, value: "EXPLICIT" }
+1091|     edition_defaults = { edition: EDITION_LEGACY, value: "CLOSED" },
+1092|     edition_defaults = { edition: EDITION_PROTO3, value: "OPEN" }
+1107|     edition_defaults = { edition: EDITION_LEGACY, value: "EXPANDED" },
+1108|     edition_defaults = { edition: EDITION_PROT
+
+... [truncated 319 chars] ...
+
+ACY_BEST_EFFORT" },
+1157|     edition_defaults = { edition: EDITION_PROTO3, value: "ALLOW" }
+1180|     edition_defaults = { edition: EDITION_LEGACY, value: "STYLE_LEGACY" },
+1181|     edition_defaults = { edition: EDITION_2024, value: "STYLE2024" },
+1182|     edition_defaults = { edition: EDITION_2026, value: "STYLE2026" }
+1212|         edition_defaults = { edition: EDITION_LEGACY, value: "EXPORT_ALL" },
+1213|         edition_defaults = { edition: EDITION_2024, value: "EXPORT_TOP_LEVEL" }
+1244|     edition_defaults = { edition: EDITION_2026, value: "PROTO_LIMITS2026" }
+1260|     declaration = { number: 1002, full_name: ".pb.go", type: ".pb.GoFeatures" },
+1290| }
+1296| message FeatureSetDefaults {
+1322| }
+1329| message SourceCodeInfo {
+1465| }
+1470| message GeneratedCodeInfo {
+1503| }
+1510| enum SymbolVisibility {
+1514| }
 ```

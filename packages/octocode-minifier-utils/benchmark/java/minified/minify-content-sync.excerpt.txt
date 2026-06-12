@@ -1,3 +1,5 @@
+
+
 package org.springframework.core.annotation;
 
 import java.lang.annotation.Annotation;
@@ -26,22 +28,26 @@ import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 
+
 public abstract class AnnotationUtils {
+
 
 	public static final String VALUE = MergedAnnotation.VALUE;
 
 	private static final AnnotationFilter JAVA_LANG_ANNOTATION_FILTER =
-			A
 
-... [truncated 20471 chars] ...
 
-hesizedMergedAnnotationInvocationHandler);
+... [truncated 20531 chars] ...
+
+izedMergedAnnotationInvocationHandler);
 		}
 		catch (SecurityException ex) {
+
 
 			return false;
 		}
 	}
+
 
 	public static void clearCache() {
 		AnnotationTypeMappings.clearCache();
@@ -50,6 +56,7 @@ hesizedMergedAnnotationInvocationHandler);
 		RepeatableContainers.cache.clear();
 		OrderUtils.orderCache.clear();
 	}
+
 
 	private static class DefaultValueHolder {
 

@@ -1,7 +1,11 @@
+
+
 @frozen
 public enum Optional<Wrapped: ~Copyable & ~Escapable>: ~Copyable, ~Escapable {
 
+
   case none
+
 
   case some(Wrapped)
 }
@@ -15,9 +19,11 @@ where Wrapped: BitwiseCopyable & ~Escapable {}
 
 extension Optional: Sendable where Wrapped: ~Copyable & ~Escapable & Sendable {}
 
+
 @_preInverseGenerics
 extension Optional: ExpressibleByNilLiteral
 where Wrapped: ~Copyable & ~Escapable {
+
 
   @_transparent
   @_preInverseGenerics
@@ -39,6 +45,7 @@ extension Optional where Wrapped: ~Copyable & ~Escapable {
 
 extension Optional {
 
+
   @_alwaysEmitIntoClient
   public func map<E: Error, U: ~Copyable>(
     _ transform: (Wrapped) throws(E) -> U
@@ -53,9 +60,9 @@ extension Optional {
 
   @_spi(SwiftStdlibLegacyABI) @available(swift, obsoleted: 1)
   @usableFromInline
-  interna
+  
 
-... [truncated 9852 chars] ...
+... [truncated 9883 chars] ...
 
 esult = .some(.none)
       return true

@@ -165,6 +165,30 @@ pub fn json_to_yaml_string(json_object: serde_json::Value, config: Option<YamlCo
     yaml_utils::json_to_yaml_string_inner(json_object, sort_keys, &priority_keys)
 }
 
+// ── Config introspection (benchmark / tooling) ──────────────────────────────────
+
+/// Returns the full MINIFY_CONFIG as a JS-compatible object.
+/// Shape: `{ fileTypes: Record<string, { strategy: string, comments: string | string[] | null }> }`
+#[napi(js_name = "getMINIFY_CONFIG")]
+pub fn get_minify_config() -> serde_json::Value {
+    let file_types: std::collections::HashMap<String, serde_json::Value> = config::minify_config()
+        .iter()
+        .map(|(ext, cfg)| {
+            let comments: serde_json::Value = match cfg.comments {
+                None => serde_json::Value::Null,
+                Some(groups) if groups.len() == 1 =>
+                    serde_json::Value::String(groups[0].to_string()),
+                Some(groups) => serde_json::Value::Array(
+                    groups.iter().map(|g| serde_json::Value::String((*g).to_string())).collect(),
+                ),
+            };
+            (ext.to_string(), serde_json::json!({ "strategy": cfg.strategy, "comments": comments }))
+        })
+        .collect();
+    serde_json::json!({ "fileTypes": file_types })
+}
+
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 fn parse_comment_groups(val: &Option<serde_json::Value>) -> Vec<String> {

@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 22271,
     "cutPercent": 64.8,
-    "durationMs": 16.748
+    "durationMs": 7.027
   },
   "applyMinification": {
-    "bytes": 22271,
-    "cutPercent": 64.8,
-    "durationMs": 17.847
+    "bytes": 22331,
+    "cutPercent": 64.7,
+    "durationMs": 6.823
   },
   "sync": {
-    "bytes": 22271,
-    "cutPercent": 64.8,
-    "durationMs": 15.342
+    "bytes": 22331,
+    "cutPercent": 64.7,
+    "durationMs": 7.002
   },
   "async": {
-    "bytes": 22271,
-    "cutPercent": 64.8,
-    "durationMs": 15.326,
+    "bytes": 22331,
+    "cutPercent": 64.7,
+    "durationMs": 6.683,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -34,7 +34,7 @@
     "returned": true,
     "bytes": 8057,
     "cutPercent": 87.3,
-    "durationMs": 0.904
+    "durationMs": 10.788
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 22271,
-      "cutPercent": 64.8,
+      "bytes": 22331,
+      "cutPercent": 64.7,
       "score": 9.8,
       "label": "excellent",
       "syntaxAnchors": {

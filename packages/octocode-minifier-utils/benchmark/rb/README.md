@@ -4,9 +4,9 @@ Source sample: `rb/blank.rb`
 
 Strategy: `conservative`
 
-Agent rating: **9.7/10 (excellent)**
+Agent rating: **9.5/10 (excellent)**
 
-Agent understanding from minified output: **10/10 (excellent)**
+Agent understanding from minified output: **9.7/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 3507 | - | - | - |
-| content-view | 1254 | 64.2% | 0.784 ms | 9.5/10 |
-| applyMinification | 1254 | 64.2% | 0.719 ms | 9.5/10 |
-| sync minify | 1254 | 64.2% | 0.652 ms | 9.5/10 |
-| async minify | 1254 | 64.2% | 0.793 ms | 9.5/10 |
-| symbols | 650 | 81.5% | 0.223 ms | 10/10 |
+| content-view | 1254 | 64.2% | 0.558 ms | 9.5/10 |
+| applyMinification | 1269 | 63.8% | 0.524 ms | 9.5/10 |
+| sync minify | 1269 | 63.8% | 0.512 ms | 9.5/10 |
+| async minify | 1269 | 63.8% | 0.522 ms | 9.5/10 |
+| symbols | 650 | 81.5% | 1.858 ms | n/a |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 10/10 |
-| symbol context | 10/10 |
+| symbol context | 7/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,13 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 3507 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 1254 | 64.2% | 10/10 excellent | 10/10 | 10/10 |
-| minify | 1254 | 64.2% | 10/10 excellent | 10/10 | 10/10 |
+| standard | 1254 | 64.2% | 9.7/10 excellent | 10/10 | 10/10 |
+| minify | 1269 | 63.8% | 9.7/10 excellent | 10/10 | 10/10 |
 | symbols | 650 | 81.5% | 8.1/10 strong | 6.7/10 | 8/10 |
 
 ## Notes
 
 - conservative text strategy.
+- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -301,17 +302,22 @@ end
 ## Apply Minification Excerpt
 
 ```rb
+
+
 require "concurrent/map"
 
 class Object
+
 
   def blank?
     respond_to?(:empty?) ? !!empty? : false
   end
 
+
   def present?
     !blank?
   end
+
 
   def presence
     self if present?
@@ -319,6 +325,7 @@ class Object
 end
 
 class NilClass
+
 
   def blank?
     true
@@ -331,6 +338,7 @@ end
 
 class FalseClass
 
+
   def blank?
     true
   end
@@ -341,6 +349,7 @@ class FalseClass
 end
 
 class TrueClass
+
 
   def blank?
     false
@@ -353,6 +362,7 @@ end
 
 class Array
 
+
   alias_method :blank?, :empty?
 
   def present?
@@ -362,6 +372,7 @@ end
 
 class Hash
 
+
   alias_method :blank?, :empty?
 
   def present?
@@ -370,6 +381,7 @@ class Hash
 end
 
 class Symbol
+
 
   alias_method :blank?, :empty?
 
@@ -384,7 +396,9 @@ class String
     h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)
   end
 
+
   def blank?
+
 
     empty? ||
       begin
@@ -401,6 +415,7 @@ end
 
 class Numeric
 
+
   def blank?
     false
   end
@@ -411,6 +426,7 @@ class Numeric
 end
 
 class Time
+
 
   def blank?
     false
@@ -425,17 +441,22 @@ end
 ## Sync Minify Excerpt
 
 ```rb
+
+
 require "concurrent/map"
 
 class Object
+
 
   def blank?
     respond_to?(:empty?) ? !!empty? : false
   end
 
+
   def present?
     !blank?
   end
+
 
   def presence
     self if present?
@@ -443,6 +464,7 @@ class Object
 end
 
 class NilClass
+
 
   def blank?
     true
@@ -455,6 +477,7 @@ end
 
 class FalseClass
 
+
   def blank?
     true
   end
@@ -465,6 +488,7 @@ class FalseClass
 end
 
 class TrueClass
+
 
   def blank?
     false
@@ -477,6 +501,7 @@ end
 
 class Array
 
+
   alias_method :blank?, :empty?
 
   def present?
@@ -486,6 +511,7 @@ end
 
 class Hash
 
+
   alias_method :blank?, :empty?
 
   def present?
@@ -494,6 +520,7 @@ class Hash
 end
 
 class Symbol
+
 
   alias_method :blank?, :empty?
 
@@ -508,7 +535,9 @@ class String
     h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)
   end
 
+
   def blank?
+
 
     empty? ||
       begin
@@ -525,6 +554,7 @@ end
 
 class Numeric
 
+
   def blank?
     false
   end
@@ -535,6 +565,7 @@ class Numeric
 end
 
 class Time
+
 
   def blank?
     false
@@ -549,17 +580,22 @@ end
 ## Async Minify Excerpt
 
 ```rb
+
+
 require "concurrent/map"
 
 class Object
+
 
   def blank?
     respond_to?(:empty?) ? !!empty? : false
   end
 
+
   def present?
     !blank?
   end
+
 
   def presence
     self if present?
@@ -567,6 +603,7 @@ class Object
 end
 
 class NilClass
+
 
   def blank?
     true
@@ -579,6 +616,7 @@ end
 
 class FalseClass
 
+
   def blank?
     true
   end
@@ -589,6 +627,7 @@ class FalseClass
 end
 
 class TrueClass
+
 
   def blank?
     false
@@ -601,6 +640,7 @@ end
 
 class Array
 
+
   alias_method :blank?, :empty?
 
   def present?
@@ -610,6 +650,7 @@ end
 
 class Hash
 
+
   alias_method :blank?, :empty?
 
   def present?
@@ -618,6 +659,7 @@ class Hash
 end
 
 class Symbol
+
 
   alias_method :blank?, :empty?
 
@@ -632,7 +674,9 @@ class String
     h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)
   end
 
+
   def blank?
+
 
     empty? ||
       begin
@@ -649,6 +693,7 @@ end
 
 class Numeric
 
+
   def blank?
     false
   end
@@ -659,6 +704,7 @@ class Numeric
 end
 
 class Time
+
 
   def blank?
     false

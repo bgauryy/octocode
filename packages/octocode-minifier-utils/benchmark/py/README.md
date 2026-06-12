@@ -4,7 +4,7 @@ Source sample: `py/00-httpx-client.py`
 
 Strategy: `conservative`
 
-Agent rating: **8.2/10 (strong)**
+Agent rating: **7.9/10 (good)**
 
 Agent understanding from minified output: **9.8/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 65713 | - | - | - |
-| content-view | 51725 | 21.3% | 20.669 ms | 7.8/10 |
-| applyMinification | 51725 | 21.3% | 29.617 ms | 7.8/10 |
-| sync minify | 51725 | 21.3% | 35.083 ms | 7.8/10 |
-| async minify | 51725 | 21.3% | 20.236 ms | 7.8/10 |
-| symbols | 23947 | 63.6% | 1.415 ms | 9/10 |
+| content-view | 51725 | 21.3% | 14.917 ms | 7.8/10 |
+| applyMinification | 51801 | 21.2% | 15.472 ms | 7.8/10 |
+| sync minify | 51801 | 21.2% | 15.514 ms | 7.8/10 |
+| async minify | 51801 | 21.2% | 15.825 ms | 7.8/10 |
+| symbols | 30668 | 53.3% | 22.975 ms | 8/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 65713 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 51725 | 21.3% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 51725 | 21.3% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 23947 | 63.6% | 8.7/10 strong | 6.7/10 | 9.9/10 |
+| minify | 51801 | 21.2% | 9.8/10 excellent | 10/10 | 10/10 |
+| symbols | 30668 | 53.3% | 8.7/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 
@@ -270,7 +270,7 @@ if typing.TYPE_CHECKING:
 
 __all__ = ["USE_C
 
-... [truncated 49925 chars] ...
+... [truncated 50001 chars] ...
 
 ounts.values():
             if proxy is not None:
@@ -349,7 +349,7 @@ if typing.TYPE_CHECKING:
 
 __all__ = ["USE_C
 
-... [truncated 49925 chars] ...
+... [truncated 50001 chars] ...
 
 ounts.values():
             if proxy is not None:
@@ -428,7 +428,7 @@ if typing.TYPE_CHECKING:
 
 __all__ = ["USE_C
 
-... [truncated 49925 chars] ...
+... [truncated 50001 chars] ...
 
 ounts.values():
             if proxy is not None:
@@ -464,38 +464,50 @@ ounts.values():
   12| from .__version__ import __version__
   13| from ._auth import Auth, BasicAuth, FunctionAuth
   14| from ._config import (
+  15|     DEFAULT_LIMITS,
+  16|     DEFAULT_MAX_REDIRECTS,
+  17|     DEFAULT_TIMEOUT_CONFIG,
+  18|     Limits,
+  19|     Proxy,
+  20|     Timeout,
+  21| )
   22| from ._decoders import SUPPORTED_DECODERS
   23| from ._exceptions import (
+  24|     InvalidURL,
+  25|     RemoteProtocolError,
+  26|     TooManyRedirects,
+  27|     request_context,
+  28| )
   29| from ._models import Cookies, Headers, Request, Response
   30| from ._status_codes import codes
   31| from ._transports.base import AsyncBaseTransport, BaseTransport
   32| from ._transports.default import AsyncHTTPTransport, HTTPTransport
   33| from ._types import (
+  34|     AsyncByteStream,
+  35|     AuthTypes,
+  36|     CertTypes,
+  37|     CookieTypes,
+  38|     HeaderTypes,
+  39|     ProxyTypes,
+  40|     QueryParamTypes,
+  41|     RequestContent,
+  42|     RequestData,
+  43|     RequestExtensions,
+  44|     RequestFiles,
+  45|     SyncByteStream,
+  46|     TimeoutTypes,
+  47| )
   48| from ._urls import URL, QueryParams
   49| from ._utils import URLPattern, get_environment_proxies
+  51| if typing.TYPE_CHECKING:
   52|     import ssl  # pragma: no cover
   54| __all__ = ["USE_CLIENT_DEFAULT", "AsyncClient", "Client"]
+  58| T = typing.TypeVar("T", bound="Client")
+  59| U = typing.TypeVar("U", bound="AsyncClient")
   62| def _is_https_redirect(url: URL, location: URL) -> bool:
-  77| def _port_or_default(url: URL) -> int | None:
-  83| def _same_origin(url: URL, other: URL) -> bool:
-  94| class UseClientDefault:
- 125| class ClientState(enum.Enum):
- 139| class BoundSyncStream(SyncByteStream):
- 145|     def __init__(
- 146|         self, stream: SyncByteStream, response: Response, start: float
- 147|     ) -> None:
- 152|     def __iter__(self) -> typing.Iterator[bytes]:
- 156|     def close(self) -> None:
- 162| class BoundAsyncStream(AsyncByteStream):
- 168|     def __init__(
- 169|         self, stream: AsyncByteStream, response: Response, start: float
- 170|     ) -> None:
- 175|     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
- 179|     async def aclose(self) -> None:
- 188| class BaseClient:
- 189|     def __
+  77| def _port_or_default(
 
-... [truncated 21347 chars] ...
+... [truncated 28068 chars] ...
 
 |         url: URL | str,
 1952|         *,

@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 3761,
       "cutPercent": 16.8,
-      "durationMs": 0.382
+      "durationMs": 0.667
     },
     "content": "#!/usr/bin/perl\n\nuse strict;\nuse warnings;\nuse autodie;\n\nsub usage {\n    my $err = shift and select STDERR;\n    print \"usage: $0 [--list] [--regen] [--default=value]\\n\";\n    exit $err;\n    }\n\nuse Getopt::Long qw(:config bundling);\nGetOptions (\n    \"help|?\"      => sub { usage (0); },\n    \"l|list!\"     => \\(my $opt_l = 0),\n    \"regen\"       => \\(my $opt_r = 0),\n    \"default=s\"   => \\ my $default,\n    \"tap\"         => \\(my $tap   = 0),\n    \"v|verbose:1\" => \\(my $opt_v = 0),\n    ) or usage (1);\n\n$default and $default =~ s/^'(.*)'$/$1/;\nmy $test;\n\nrequire './regen/regen_lib.pl' if $opt_r;\n\nmy $MASTER_CFG = \"config_h.SH\";\n\nmy $first = qr/^Author=/;\nmy $last = qr/^zip=/;\n\nmy @CFG = (\n\n\t   \"Cross/config.sh-arm-linux\",\n\t   \"Cross/config.sh-arm-linux-n770\",\n\t   \"plan9/config_sh.sample\",\n\t   \"win32/config.gc\",\n\t   \"win32/config.vc\",\n\t   \"configure.com\",\n\t   \"Porting/config.sh\",\n\t  );\n\nmy @MASTER_CFG;\n{\n    my %seen;\n    $opt_v and warn \"Reading $MASTER_CFG ...\\n\";\n    open my $fh, '<', $MASTER_CFG;\n    while (<$fh>) {\n\twhile (/[^\\\\]\\$([a-z]\\w+)/g) {\n\t    my $v = $1;\n\t    next if $v =~ /^(CONFIG_H|CONFIG_SH)$/;\n\t    $seen{$v}++;\n\t}\n    }\n    close $fh;\n    @MASTER_CFG = sort keys %seen;\n}\n\nmy %MANIFEST;\n\n{\n    $opt_\n\n... [truncated 1961 chars] ...\n\n print the name once, however many problems\n\t    print \"$cfg\\n\";\n\t} elsif ($opt_r && $cfg ne 'configure.com') {\n\t    if (defined $default) {\n\t\tpush @{$lines[1]}, map {\"$_='$default'\\n\"} @$missing;\n\t    } else {\n\t\tprint \"$cfg: missing '$_', use --default to add it\\n\"\n\t\t    foreach @$missing;\n\t    }\n\n\t    @{$lines[1]} = sort @{$lines[1]};\n\t    my $fh = open_new($cfg);\n\t    print $fh @{$_} foreach @lines;\n\t    close_and_rename($fh);\n\t} else {\n\t    print \"$cfg: missing '$_'\\n\" foreach @$missing;\n\t}\n    } elsif ($tap) {\n\tprint \"ok $test - $cfg has no missing keys\\n\";\n    }\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 3101,
       "cutPercent": 31.4,
-      "durationMs": 0.359
+      "durationMs": 0.719
     },
     "content": "#!/usr/bin/perl use strict;use warnings;use autodie;sub usage{my $err = shift and select STDERR;print \"usage:$0 [--list] [--regen] [--default=value]\\n\";exit $err;}use Getopt::Long qw(:config bundling);GetOptions ( \"help|?\" => sub{usage (0);},\"l|list!\" => \\(my $opt_l = 0),\"regen\" => \\(my $opt_r = 0),\"default=s\" => \\ my $default,\"tap\" => \\(my $tap = 0),\"v|verbose:1\" => \\(my $opt_v = 0),) or usage (1);$default and $default =~ s/^'(.*)'$/$1/;my $test;require './regen/regen_lib.pl' if $opt_r;my $MASTER_CFG = \"config_h.SH\";my $first = qr/^Author=/;my $last = qr/^zip=/;my @CFG = ( \"Cross/config.sh-arm-linux\",\"Cross/config.sh-arm-linux-n770\",\"plan9/config_sh.sample\",\"win32/config.gc\",\"win32/config.vc\",\"configure.com\",\"Porting/config.sh\",);my @MASTER_CFG;{my %seen;$opt_v and warn \"Reading $MASTER_CFG ...\\n\";open my $fh,'<',$MASTER_CFG;while (<$fh>){while (/[^\\\\]\\$([a-z]\\w+)/g){my $v = $1;next if $v =~ /^(CONFIG_H|CONFIG_SH)$/;$seen{$v}++;}}close $fh;@MASTER_CFG = sort keys %seen;}my %MANIFEST;{$opt_v and warn \"Reading MANIFEST ...\\n\";open my $fh,'<','MANIFEST';while (<$fh>){$MANIFEST{$1}++ if /^(.+?)\\t/;}close $fh;}printf \"1..%d\\n\",2 * @CFG if $tap;for my $cfg (sort @CFG){unless (exists $MANIFEST{$cfg}){warn \"[ski\n\n... [truncated 1301 chars] ...\n\n}++$test;if ($missing){if ($tap){print \"not ok $test - $cfg missing keys @$missing\\n\";}elsif ($opt_l){# print the name once,however many problems print \"$cfg\\n\";}elsif ($opt_r && $cfg ne 'configure.com'){if (defined $default){push @{$lines[1]},map{\"$_='$default'\\n\"}@$missing;}else{print \"$cfg:missing '$_',use --default to add it\\n\" foreach @$missing;}@{$lines[1]}= sort @{$lines[1]};my $fh = open_new($cfg);print $fh @{$_}foreach @lines;close_and_rename($fh);}else{print \"$cfg:missing '$_'\\n\" foreach @$missing;}}elsif ($tap){print \"ok $test - $cfg has no missing keys\\n\";}}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 3101,
       "cutPercent": 31.4,
-      "durationMs": 0.501
+      "durationMs": 0.686
     },
     "content": "#!/usr/bin/perl use strict;use warnings;use autodie;sub usage{my $err = shift and select STDERR;print \"usage:$0 [--list] [--regen] [--default=value]\\n\";exit $err;}use Getopt::Long qw(:config bundling);GetOptions ( \"help|?\" => sub{usage (0);},\"l|list!\" => \\(my $opt_l = 0),\"regen\" => \\(my $opt_r = 0),\"default=s\" => \\ my $default,\"tap\" => \\(my $tap = 0),\"v|verbose:1\" => \\(my $opt_v = 0),) or usage (1);$default and $default =~ s/^'(.*)'$/$1/;my $test;require './regen/regen_lib.pl' if $opt_r;my $MASTER_CFG = \"config_h.SH\";my $first = qr/^Author=/;my $last = qr/^zip=/;my @CFG = ( \"Cross/config.sh-arm-linux\",\"Cross/config.sh-arm-linux-n770\",\"plan9/config_sh.sample\",\"win32/config.gc\",\"win32/config.vc\",\"configure.com\",\"Porting/config.sh\",);my @MASTER_CFG;{my %seen;$opt_v and warn \"Reading $MASTER_CFG ...\\n\";open my $fh,'<',$MASTER_CFG;while (<$fh>){while (/[^\\\\]\\$([a-z]\\w+)/g){my $v = $1;next if $v =~ /^(CONFIG_H|CONFIG_SH)$/;$seen{$v}++;}}close $fh;@MASTER_CFG = sort keys %seen;}my %MANIFEST;{$opt_v and warn \"Reading MANIFEST ...\\n\";open my $fh,'<','MANIFEST';while (<$fh>){$MANIFEST{$1}++ if /^(.+?)\\t/;}close $fh;}printf \"1..%d\\n\",2 * @CFG if $tap;for my $cfg (sort @CFG){unless (exists $MANIFEST{$cfg}){warn \"[ski\n\n... [truncated 1301 chars] ...\n\n}++$test;if ($missing){if ($tap){print \"not ok $test - $cfg missing keys @$missing\\n\";}elsif ($opt_l){# print the name once,however many problems print \"$cfg\\n\";}elsif ($opt_r && $cfg ne 'configure.com'){if (defined $default){push @{$lines[1]},map{\"$_='$default'\\n\"}@$missing;}else{print \"$cfg:missing '$_',use --default to add it\\n\" foreach @$missing;}@{$lines[1]}= sort @{$lines[1]};my $fh = open_new($cfg);print $fh @{$_}foreach @lines;close_and_rename($fh);}else{print \"$cfg:missing '$_'\\n\" foreach @$missing;}}elsif ($tap){print \"ok $test - $cfg has no missing keys\\n\";}}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 3101,
       "cutPercent": 31.4,
-      "durationMs": 1.227,
+      "durationMs": 0.708,
       "failed": false,
       "type": "aggressive",
       "reason": null

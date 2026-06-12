@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 4523 | - | - | - |
-| content-view | 3761 | 16.8% | 0.382 ms | 8.5/10 |
-| applyMinification | 3101 | 31.4% | 0.359 ms | 8.5/10 |
-| sync minify | 3101 | 31.4% | 0.501 ms | 8.5/10 |
-| async minify | 3101 | 31.4% | 1.227 ms | 8.5/10 |
-| symbols | n/a | n/a | 0.017 ms | n/a |
+| content-view | 3761 | 16.8% | 0.667 ms | 8.5/10 |
+| applyMinification | 3101 | 31.4% | 0.719 ms | 8.5/10 |
+| sync minify | 3101 | 31.4% | 0.686 ms | 8.5/10 |
+| async minify | 3101 | 31.4% | 0.708 ms | 8.5/10 |
+| symbols | 1215 | 73.1% | 0.204 ms | n/a |
 
 ## Agent Understanding
 
@@ -49,7 +49,7 @@ for this language sample.
 | none | 4523 | 0% | 10/10 excellent | 6.7/10 | 9.9/10 |
 | standard | 3761 | 16.8% | 8.2/10 strong | 6.7/10 | 10/10 |
 | minify | 3101 | 31.4% | 8.3/10 strong | 6.7/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| symbols | 1215 | 73.1% | 8.6/10 strong | 6.7/10 | 9.8/10 |
 
 ## Notes
 
@@ -254,5 +254,45 @@ my %MANIFEST;
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+  1| #!/usr/bin/perl
+ 11| use strict;
+ 12| use warnings;
+ 13| use autodie;
+ 15| sub usage {
+ 19|     } # usage
+ 21| use Getopt::Long qw(:config bundling);
+ 22| GetOptions (
+ 23|     "help|?"      => sub { usage (0); },
+ 24|     "l|list!"     => \(my $opt_l = 0),
+ 25|     "regen"       => \(my $opt_r = 0),
+ 26|     "default=s"   => \ my $default,
+ 27|     "tap"         => \(my $tap   = 0),
+ 28|     "v|verbose:1" => \(my $opt_v = 0),
+ 29|     ) or usage (1);
+ 31| $default and $default =~ s/^'(.*)'$/$1/; # Will be quoted on generation
+ 32| my $test;
+ 34| require './regen/regen_lib.pl' if $opt_r;
+ 36| my $MASTER_CFG = "config_h.SH";
+ 38| my $first = qr/^Author=/;
+ 39| my $last = qr/^zip=/;
+ 41| my @CFG = (
+ 45| 	   "Cross/config.sh-arm-linux",
+ 46| 	   "Cross/config.sh-arm-linux-n770",
+ 47| 	   "plan9/config_sh.sample",
+ 48| 	   "win32/config.gc",
+ 49| 	   "win32/config.vc",
+ 50| 	   "configure.com",
+ 51| 	   "Porting/config.sh",
+ 52| 	  );
+ 54| my @MASTER_CFG;
+ 55| {
+ 68| }
+ 70| my %MANIFEST;
+ 72| {
+ 79| }
+ 81| printf "1..%d\n", 2 * @CFG if $tap;
+ 83| for my $cfg (sort @CFG) {
+ 84|     unless (exists $MANIFEST{$cfg}) {
+132|     } elsif (join("", @{$lines[1]}) eq join("", sort @{$lines[1]})) {
+176| }
 ```

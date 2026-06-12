@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 1300 | - | - | - |
-| content-view | 1258 | 3.2% | 0.196 ms | 6.3/10 |
-| applyMinification | 1258 | 3.2% | 0.169 ms | 6.3/10 |
-| sync minify | 1258 | 3.2% | 0.165 ms | 6.3/10 |
-| async minify | 1258 | 3.2% | 0.772 ms | 6.3/10 |
-| symbols | n/a | n/a | 0.008 ms | n/a |
+| content-view | 1258 | 3.2% | 0.43 ms | 6.3/10 |
+| applyMinification | 1260 | 3.1% | 0.386 ms | 6.3/10 |
+| sync minify | 1260 | 3.1% | 0.379 ms | 6.3/10 |
+| async minify | 1260 | 3.1% | 0.387 ms | 6.3/10 |
+| symbols | 840 | 35.4% | 0.079 ms | n/a |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 1300 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 1258 | 3.2% | 9.4/10 excellent | 10/10 | 10/10 |
-| minify | 1258 | 3.2% | 9.4/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| minify | 1260 | 3.1% | 9.4/10 excellent | 10/10 | 10/10 |
+| symbols | 840 | 35.4% | 9.9/10 excellent | 10/10 | 10/10 |
 
 ## Notes
 
@@ -208,6 +208,8 @@ directive @include(if: Boolean!)
 ## Apply Minification Excerpt
 
 ```graphql
+
+
 schema {
   query: QueryType
   mutation: MutationType
@@ -281,6 +283,8 @@ directive @include(if: Boolean!)
 ## Sync Minify Excerpt
 
 ```graphql
+
+
 schema {
   query: QueryType
   mutation: MutationType
@@ -354,6 +358,8 @@ directive @include(if: Boolean!)
 ## Async Minify Excerpt
 
 ```graphql
+
+
 schema {
   query: QueryType
   mutation: MutationType
@@ -427,5 +433,37 @@ directive @include(if: Boolean!)
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+ 1| # Filename: schema-kitchen-sink.graphql
+ 3| schema {
+ 6| }
+ 8| type Foo implements Bar & Baz {
+14|   six(argument: InputType = {key: "value"}): Type
+15| }
+17| type AnnotatedObject @onObject(arg: "value") {
+19| }
+21| interface Bar {
+24| }
+26| interface AnnotatedInterface @onInterface {
+28| }
+30| union Feed = Story | Article | Advert
+32| union AnnotatedUnion @onUnion = A | B
+34| scalar CustomScalar
+36| scalar AnnotatedScalar @onScalar
+38| enum Site {
+41| }
+43| enum AnnotatedEnum @onEnum {
+46| }
+48| input InputType {
+51| }
+53| input AnnotatedInput @onInputObjectType {
+55| }
+57| extend type Foo {
+59| }
+61| extend type Foo @onType {}
+63| type NoFields {}
+65| directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+67| directive @include(if: Boolean!)
+68|   on FIELD
+69|   | FRAGMENT_SPREAD
+70|   | INLINE_FRAGMENT
 ```

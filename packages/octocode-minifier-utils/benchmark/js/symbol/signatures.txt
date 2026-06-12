@@ -11,62 +11,65 @@
  22| type Dispatch<A> = A => void;
  24| function resolveDispatcher() {
  44| export function getCacheForType<T>(resourceType: () => T): T {
+ 45|   const dispatcher = ReactSharedInternals.A;
+ 46|   if (!dispatcher) {
+ 48|     return resourceType();
+ 49|   }
+ 50|   return dispatcher.getCacheForType(resourceType);
+ 51| }
  53| export function useContext<T>(Context: ReactContext<T>): T {
+ 54|   const dispatcher = resolveDispatcher();
+ 55|   if (__DEV__) {
+ 56|     if (Context.$$typeof === REACT_CONSUMER_TYPE) {
+ 57|       console.error(
+ 58|         'Calling useContext(Context.Consumer) is not supported and will cause bugs. ' +
+ 59|           'Did you mean to call useContext(Context) instead?',
+ 60|       );
+ 61|     }
+ 62|   }
+ 63|   return dispatcher.useContext(Context);
+ 64| }
  66| export function useState<S>(
  67|   initialState: (() => S) | S,
  68| ): [S, Dispatch<BasicStateAction<S>>] {
+ 69|   const dispatcher = resolveDispatcher();
+ 70|   return dispatcher.useState(initialState);
+ 71| }
  73| export function useReducer<S, I, A>(
  74|   reducer: (S, A) => S,
  75|   initialArg: I,
  76|   init?: I => S,
  77| ): [S, Dispatch<A>] {
+ 78|   const dispatcher = resolveDispatcher();
+ 79|   return dispatcher.useReducer(reducer, initialArg, init);
+ 80| }
  82| export function useRef<T>(initialValue: T): {current: T} {
- 87| export function useEffect(
- 88|   create: () => (() => void) | void,
- 89|   deps: Array<mixed> | void | null,
- 90| ): void {
-103| export function useInsertionEffect(
-104|   create: () => (() => void) | void,
-105|   deps: Array<mixed> | void | null,
-106| ): void {
-119| export function useLayoutEffect(
-120|   create: () => (() => void) | void,
-121|   deps: Array<mixed> | void | null,
-122| ): void {
-135| export function useCallback<T>(
-136|   callback: T,
-137|   deps: Array<mixed> | void | null,
-138| ): T {
-143| export function useMemo<T>(
-144|   create: () => T,
-145|   deps: Array<mixed> | void | null,
-146| ): T {
-151| export function useImperativeHandle<T>(
-152|   ref: {current: T | null} | ((inst: T | null) => mixed) | null | void,
-153|   create: () => T,
-154|   deps: Array<mixed> | void | null,
-155| ): void {
-160| export function useD
+ 83|   const dispatcher = resolveDispatcher();
+ 84|
 
-... [truncated 57 chars] ...
+... [truncated 3165 chars] ...
 
-e: T) => mixed,
-163| ): void {
-170| export function useTransition(): [
-171|   boolean,
-172|   (callback: () => void, options?: StartTransitionOptions) => void,
-173| ] {
-178| export function useDeferredValue<T>(value: T, initialValue?: T): T {
-183| export function useId(): string {
-188| export function useSyncExternalStore<T>(
-189|   subscribe: (() => void) => () => void,
-201| export function useCacheRefresh(): <T>(?() => T, ?T) => void {
-207| export function use<T>(usable: Usable<T>): T {
-212| export function useMemoCache(size: number): Array<mixed> {
+esolveDispatcher();
+215|   return dispatcher.useMemoCache(size);
+216| }
 218| export function useEffectEvent<Args, F: (...Array<Args>) => mixed>(
+219|   callback: F,
+220| ): F {
+221|   const dispatcher = resolveDispatcher();
+223|   return dispatcher.useEffectEvent(callback);
+224| }
 226| export function useOptimistic<S, A>(
 227|   passthrough: S,
 228|   reducer: ?(S, A) => S,
 229| ): [S, (A) => void] {
+230|   const dispatcher = resolveDispatcher();
+231|   return dispatcher.useOptimistic(passthrough, reducer);
+232| }
 234| export function useActionState<S, P>(
 235|   action: (Awaited<S>, P) => S,
+236|   initialState: Awaited<S>,
+237|   permalink?: string,
+238| ): [Awaited<S>, (P) => void, boolean] {
+239|   const dispatcher = resolveDispatcher();
+240|   return dispatcher.useActionState(action, initialState, permalink);
+241| }

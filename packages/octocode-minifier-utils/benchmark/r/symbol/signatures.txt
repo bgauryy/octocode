@@ -1,1 +1,40 @@
-No symbols returned for this sample.
+145| mutate <- function(.data, ...) {
+147| }
+171| mutate.data.frame <- function(
+172|   .data,
+173|   ...,
+174|   .by = NULL,
+175|   .keep = c("all", "used", "unused", "none"),
+176|   .before = NULL,
+177|   .after = NULL
+178| ) {
+181|   by <- compute_by({{ .by }}, .data, by_arg = ".by", data_arg = ".data")
+192|     before = {{ .before }},
+193|     after = {{ .after }},
+209| }
+213| mutate_relocate <- function(out, before, after, names_original) {
+232| }
+234| mutate_keep <- function(out, keep, used, names_new, names_groups) {
+251| }
+253| mutate_cols <- function(data, dots, by, error_call = caller_env()) {
+301| }
+303| mutate_col <- function(dot, data, mask, new_columns) {
+468| }
+470| mutate_bullets <- function(cnd, ...) {
+472| }
+475| `mutate_bullets.dplyr:::mutate_incompatible_size` <- function(cnd, ...) {
+481|     glue("`{label}` must be size {or_1(expected_size)}, not {result_size}."),
+484| }
+486| `mutate_bullets.dplyr:::mutate_mixed_null` <- function(cnd, ...) {
+489|     glue("`{label}` must return compatible vectors across groups."),
+493| }
+495| `mutate_bullets.dplyr:::mutate_not_vector` <- function(cnd, ...) {
+499|     glue("`{label}` must be a vector, not {obj_type_friendly(result)}."),
+502| }
+504| `mutate_bullets.dplyr:::error_incompatible_combine` <- function(cnd, ...) {
+507| }
+509| `mutate_bullets.dplyr:::mutate_constant_recycle_error` <- function(cnd, ...) {
+515|       "Inlined constant `{label}` must be size {or_1(data_size)}, not {constant_size}."
+518| }
+520| check_muffled_warning <- function(cnd) {
+542| }

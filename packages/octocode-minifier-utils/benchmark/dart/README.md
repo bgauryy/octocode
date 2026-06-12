@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 37049 | - | - | - |
-| content-view | 5383 | 85.5% | 2.209 ms | 9.5/10 |
-| applyMinification | 5383 | 85.5% | 3.445 ms | 9.5/10 |
-| sync minify | 5383 | 85.5% | 4.021 ms | 9.5/10 |
-| async minify | 5383 | 85.5% | 4.992 ms | 9.5/10 |
-| symbols | n/a | n/a | 0.015 ms | n/a |
+| content-view | 5383 | 85.5% | 2.48 ms | 9.5/10 |
+| applyMinification | 5441 | 85.3% | 2.527 ms | 9.5/10 |
+| sync minify | 5441 | 85.3% | 2.551 ms | 9.5/10 |
+| async minify | 5441 | 85.3% | 2.772 ms | 9.5/10 |
+| symbols | 450 | 98.8% | 1.139 ms | n/a |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 37049 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 5383 | 85.5% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 5383 | 85.5% | 9.5/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| minify | 5441 | 85.3% | 9.5/10 excellent | 10/10 | 10/10 |
+| symbols | 450 | 98.8% | 8.5/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 
@@ -211,10 +211,14 @@ abstract final class String implements Comparable<String>, Pattern {
 ## Apply Minification Excerpt
 
 ```dart
+
+
 part of "dart:core";
+
 
 @pragma('vm:entry-point')
 abstract final class String implements Comparable<String>, Pattern {
+
 
   external factory String.fromCharCodes(
     Iterable<int> charCodes, [
@@ -222,60 +226,82 @@ abstract final class String implements Comparable<String>, Pattern {
     int? end,
   ]);
 
+
   external factory String.fromCharCode(int charCode);
+
 
   external const factory String.fromEnvironment(
     String name, {
     String defaultValue = "",
   });
 
+
   String operator [](int index);
+
 
   int codeUnitAt(int index);
 
+
   int get length;
+
 
   int get hashCode;
 
+
   bool operator ==(Object other);
+
 
   int compareTo(String other);
 
+
   bool endsWith(String other);
+
 
   bool startsWith(Pattern pattern, [int index = 0]);
 
+
   int indexOf(Pattern pattern, [int start = 0]);
+
 
   int lastIndexOf(Pattern pattern, [int? start]);
 
+
   bool get isEmpty;
+
 
   bool get isNotEmpty;
 
+
   String operator +(String other);
+
 
   String substring(int start, [int? end]);
 
+
   String trim();
+
 
   String trimLeft();
 
+
   String trimRight();
+
 
   String operator *(int times);
 
+
   String padLeft(int width, [String padding = ' ']);
+
 
   String padRight(int width, [String padding = ' ']);
 
+
   bool contains(Pattern other, [int startIndex = 0]);
 
-  String replaceFirst(Pattern from, String to, [int startIndex = 0]);
 
-  String replaceFirs
+  String replaceFirst(Pattern from, String to, [int startIndex 
 
-... [truncated 3583 chars] ...
+... [truncated 3641 chars] ...
 
   _nextPosition = _position;
     if (_position == 0) {
@@ -302,10 +328,14 @@ abstract final class String implements Comparable<String>, Pattern {
 ## Sync Minify Excerpt
 
 ```dart
+
+
 part of "dart:core";
+
 
 @pragma('vm:entry-point')
 abstract final class String implements Comparable<String>, Pattern {
+
 
   external factory String.fromCharCodes(
     Iterable<int> charCodes, [
@@ -313,60 +343,82 @@ abstract final class String implements Comparable<String>, Pattern {
     int? end,
   ]);
 
+
   external factory String.fromCharCode(int charCode);
+
 
   external const factory String.fromEnvironment(
     String name, {
     String defaultValue = "",
   });
 
+
   String operator [](int index);
+
 
   int codeUnitAt(int index);
 
+
   int get length;
+
 
   int get hashCode;
 
+
   bool operator ==(Object other);
+
 
   int compareTo(String other);
 
+
   bool endsWith(String other);
+
 
   bool startsWith(Pattern pattern, [int index = 0]);
 
+
   int indexOf(Pattern pattern, [int start = 0]);
+
 
   int lastIndexOf(Pattern pattern, [int? start]);
 
+
   bool get isEmpty;
+
 
   bool get isNotEmpty;
 
+
   String operator +(String other);
+
 
   String substring(int start, [int? end]);
 
+
   String trim();
+
 
   String trimLeft();
 
+
   String trimRight();
+
 
   String operator *(int times);
 
+
   String padLeft(int width, [String padding = ' ']);
+
 
   String padRight(int width, [String padding = ' ']);
 
+
   bool contains(Pattern other, [int startIndex = 0]);
 
-  String replaceFirst(Pattern from, String to, [int startIndex = 0]);
 
-  String replaceFirs
+  String replaceFirst(Pattern from, String to, [int startIndex 
 
-... [truncated 3583 chars] ...
+... [truncated 3641 chars] ...
 
   _nextPosition = _position;
     if (_position == 0) {
@@ -393,10 +445,14 @@ abstract final class String implements Comparable<String>, Pattern {
 ## Async Minify Excerpt
 
 ```dart
+
+
 part of "dart:core";
+
 
 @pragma('vm:entry-point')
 abstract final class String implements Comparable<String>, Pattern {
+
 
   external factory String.fromCharCodes(
     Iterable<int> charCodes, [
@@ -404,60 +460,82 @@ abstract final class String implements Comparable<String>, Pattern {
     int? end,
   ]);
 
+
   external factory String.fromCharCode(int charCode);
+
 
   external const factory String.fromEnvironment(
     String name, {
     String defaultValue = "",
   });
 
+
   String operator [](int index);
+
 
   int codeUnitAt(int index);
 
+
   int get length;
+
 
   int get hashCode;
 
+
   bool operator ==(Object other);
+
 
   int compareTo(String other);
 
+
   bool endsWith(String other);
+
 
   bool startsWith(Pattern pattern, [int index = 0]);
 
+
   int indexOf(Pattern pattern, [int start = 0]);
+
 
   int lastIndexOf(Pattern pattern, [int? start]);
 
+
   bool get isEmpty;
+
 
   bool get isNotEmpty;
 
+
   String operator +(String other);
+
 
   String substring(int start, [int? end]);
 
+
   String trim();
+
 
   String trimLeft();
 
+
   String trimRight();
+
 
   String operator *(int times);
 
+
   String padLeft(int width, [String padding = ' ']);
+
 
   String padRight(int width, [String padding = ' ']);
 
+
   bool contains(Pattern other, [int startIndex = 0]);
 
-  String replaceFirst(Pattern from, String to, [int startIndex = 0]);
 
-  String replaceFirs
+  String replaceFirst(Pattern from, String to, [int startIndex 
 
-... [truncated 3583 chars] ...
+... [truncated 3641 chars] ...
 
   _nextPosition = _position;
     if (_position == 0) {
@@ -484,5 +562,16 @@ abstract final class String implements Comparable<String>, Pattern {
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+  5| part of "dart:core";
+107| @pragma('vm:entry-point')
+108| abstract final class String implements Comparable<String>, Pattern {
+743| }
+781| final class Runes extends Iterable<int> {
+804| }
+807| bool _isLeadSurrogate(int code) => (code & 0xFC00) == 0xD800;
+810| bool _isTrailSurrogate(int code) => (code & 0xFC00) == 0xDC00;
+813| int _combineSurrogatePair(int start, int end) {
+815| }
+818| final class RuneIterator implements Iterator<int> {
+978| }
 ```

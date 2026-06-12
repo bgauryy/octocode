@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 3466,
     "cutPercent": 9.4,
-    "durationMs": 2.485
+    "durationMs": 0.979
   },
   "applyMinification": {
-    "bytes": 3025,
-    "cutPercent": 20.9,
-    "durationMs": 57.469
+    "bytes": 2681,
+    "cutPercent": 29.9,
+    "durationMs": 0.949
   },
   "sync": {
-    "bytes": 3025,
-    "cutPercent": 20.9,
-    "durationMs": 27.718
+    "bytes": 2681,
+    "cutPercent": 29.9,
+    "durationMs": 0.925
   },
   "async": {
-    "bytes": 3025,
-    "cutPercent": 20.9,
-    "durationMs": 29.209,
+    "bytes": 2681,
+    "cutPercent": 29.9,
+    "durationMs": 0.925,
     "failed": false,
     "type": "terser",
     "reason": null
@@ -34,7 +34,7 @@
     "returned": true,
     "bytes": 600,
     "cutPercent": 84.3,
-    "durationMs": 3.46
+    "durationMs": 5.029
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,18 +153,18 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 3025,
-      "cutPercent": 20.9,
-      "score": 8.5,
-      "label": "strong",
+      "bytes": 2681,
+      "cutPercent": 29.9,
+      "score": 9.9,
+      "label": "excellent",
       "syntaxAnchors": {
-        "score": 6.7,
-        "hits": 2,
+        "score": 10,
+        "hits": 3,
         "total": 3
       },
       "structure": 10,
       "outputHealth": 10,
-      "contextBudget": 8,
+      "contextBudget": 9,
       "symbols": 10,
       "signals": [
         {
@@ -237,10 +237,10 @@
     }
   },
   "ratings": {
-    "minify": 8.3,
+    "minify": 9,
     "symbols": 10,
-    "agent": 8.9,
-    "label": "strong"
+    "agent": 9.4,
+    "label": "excellent"
   },
   "notes": [
     "engine-backed or parser-backed path"

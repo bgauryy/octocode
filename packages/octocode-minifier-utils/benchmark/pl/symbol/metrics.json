@@ -1,7 +1,7 @@
 {
   "supported": false,
-  "returned": false,
-  "bytes": null,
-  "cutPercent": null,
-  "durationMs": 0.017
+  "returned": true,
+  "bytes": 1215,
+  "cutPercent": 73.1,
+  "durationMs": 0.204
 }

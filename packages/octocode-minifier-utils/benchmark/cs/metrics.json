@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 4017,
     "cutPercent": 28.3,
-    "durationMs": 1.194
+    "durationMs": 1.335
   },
   "applyMinification": {
-    "bytes": 4017,
-    "cutPercent": 28.3,
-    "durationMs": 2.137
+    "bytes": 4024,
+    "cutPercent": 28.2,
+    "durationMs": 1.294
   },
   "sync": {
-    "bytes": 4017,
-    "cutPercent": 28.3,
-    "durationMs": 1.678
+    "bytes": 4024,
+    "cutPercent": 28.2,
+    "durationMs": 1.357
   },
   "async": {
-    "bytes": 4017,
-    "cutPercent": 28.3,
-    "durationMs": 2.741,
+    "bytes": 4024,
+    "cutPercent": 28.2,
+    "durationMs": 1.376,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -32,9 +32,9 @@
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 1484,
-    "cutPercent": 73.5,
-    "durationMs": 0.565
+    "bytes": 2649,
+    "cutPercent": 52.7,
+    "durationMs": 52.362
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 4017,
-      "cutPercent": 28.3,
+      "bytes": 4024,
+      "cutPercent": 28.2,
       "score": 9.7,
       "label": "excellent",
       "syntaxAnchors": {
@@ -195,16 +195,16 @@
     },
     "symbols": {
       "output": "symbols",
-      "bytes": 1484,
-      "cutPercent": 73.5,
-      "score": 8.5,
+      "bytes": 2649,
+      "cutPercent": 52.7,
+      "score": 8,
       "label": "strong",
       "syntaxAnchors": {
         "score": 6.7,
         "hits": 2,
         "total": 3
       },
-      "structure": 10,
+      "structure": 7.7,
       "outputHealth": 9,
       "contextBudget": 10,
       "symbols": 10,
@@ -238,8 +238,8 @@
   },
   "ratings": {
     "minify": 8.5,
-    "symbols": 9,
-    "agent": 8.7,
+    "symbols": 8,
+    "agent": 8.3,
     "label": "strong"
   },
   "notes": [

@@ -1,1 +1,65 @@
-No symbols returned for this sample.
+   1| %%
+   2| %% %CopyrightBegin%
+   3| %%
+   4| %% SPDX-License-Identifier: Apache-2.0
+   5| %%
+   6| %% Copyright Ericsson AB 1996-2026. All Rights Reserved.
+   7| %%
+   8| %% Licensed under the Apache License, Version 2.0 (the "License");
+   9| %% you may not use this file except in compliance with the License.
+  10| %% You may obtain a copy of the License at
+  11| %%
+  12| %%     http://www.apache.org/licenses/LICENSE-2.0
+  13| %%
+  14| %% Unless required by applicable law or agreed to in writing, software
+  15| %% distributed under the License is distributed on an "AS IS" BASIS,
+  16| %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  17| %% See the License for the specific language governing permissions and
+  18| %% limitations under the License.
+  19| %%
+  20| %% %CopyrightEnd%
+  21| %%
+  22| -module(lists).
+  23| -moduledoc """
+  24| List processing functions.
+  26| This module contains functions for list processing.
+  28| Unless otherwise stated, all functions assume that position numbering starts
+  29| at 1. That is, the first element of a list is at position 1.
+  31| Two terms `T1` and `T2` compare equal if `T1 == T2` evaluates to `true`. They
+  32| match if `T1 =:= T2` evaluates to `true`.
+  34| Whenever an _ordering function_{: #ordering_function } `F` is expected as
+  35| argument, it is assumed that the following properties hold of `F` for all x, y,
+  36| and z:
+  38| - If x `F` y and y `F` x, then x = y (`F` is antisymmetric).
+  39| - If x `F` y and y `F` z, then x `F` z (`F` is transitive).
+  40| - x `F` y or y `F` x (`F` is total).
+  42| An example of a typical ordering function is less than or equal to: `=</2`.
+  43| """.
+  45| -compile({no_auto_import,[max/2]}).
+  46| -compile({no_auto_impor
+
+... [truncated 141148 chars] ...
+
+ge2_2(H1, T1, Fun, [H2 | T2], M, H2M) ->
+4347|     case Fun(H1, H2) of
+4348|         true ->
+4349|             rufmerge2_2(H1, T1, Fun, T2, [H2M | M], H2);
+4350|         false ->
+4351|             case Fun(H2M, H1) of
+4352|                 true -> % H2M equal to H1
+4353|                     rufmerge2_1(T1, H2, Fun, T2, [H1 | M]);
+4354|                 false ->
+4355|                     rufmerge2_1(T1, H2, Fun, T2, [H1, H2M | M])
+4356|             end
+4357|     end;
+4358| rufmerge2_2(H1, T1, Fun, [], M, H2M) ->
+4359|     case Fun(H2M, H1) of
+4360|         true ->
+4361|             lists:reverse(T1, [H1 | M]);
+4362|         false ->
+4363|             lists:reverse(T1, [H1, H2M | M])
+4364|     end.
+4366| %%%
+4367| %%% Don't place new functions here; place them before the
+4368| %%% implementation of sort functions.
+4369| %%%

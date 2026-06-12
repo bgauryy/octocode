@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 65054,
     "cutPercent": 29.6,
-    "durationMs": 50.511
+    "durationMs": 21.304
   },
   "applyMinification": {
-    "bytes": 29680,
-    "cutPercent": 67.9,
-    "durationMs": 338.707
+    "bytes": 51154,
+    "cutPercent": 44.6,
+    "durationMs": 21.512
   },
   "sync": {
-    "bytes": 29680,
-    "cutPercent": 67.9,
-    "durationMs": 237.852
+    "bytes": 51154,
+    "cutPercent": 44.6,
+    "durationMs": 23.033
   },
   "async": {
-    "bytes": 29680,
-    "cutPercent": 67.9,
-    "durationMs": 248.05,
+    "bytes": 51154,
+    "cutPercent": 44.6,
+    "durationMs": 21.205,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -32,9 +32,9 @@
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 28537,
-    "cutPercent": 69.1,
-    "durationMs": 33.581
+    "bytes": 28507,
+    "cutPercent": 69.2,
+    "durationMs": 51.592
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,9 +153,9 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 29680,
-      "cutPercent": 67.9,
-      "score": 9.8,
+      "bytes": 51154,
+      "cutPercent": 44.6,
+      "score": 9.7,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
@@ -164,7 +164,7 @@
       },
       "structure": 10,
       "outputHealth": 9,
-      "contextBudget": 10,
+      "contextBudget": 9,
       "symbols": 10,
       "signals": [
         {
@@ -195,8 +195,8 @@
     },
     "symbols": {
       "output": "symbols",
-      "bytes": 28537,
-      "cutPercent": 69.1,
+      "bytes": 28507,
+      "cutPercent": 69.2,
       "score": 9.3,
       "label": "excellent",
       "syntaxAnchors": {
@@ -204,7 +204,7 @@
         "hits": 3,
         "total": 3
       },
-      "structure": 7.5,
+      "structure": 7.4,
       "outputHealth": 9,
       "contextBudget": 10,
       "symbols": 10,
@@ -237,9 +237,9 @@
     }
   },
   "ratings": {
-    "minify": 10,
+    "minify": 9.5,
     "symbols": 9,
-    "agent": 9.7,
+    "agent": 9.3,
     "label": "excellent"
   },
   "notes": [

@@ -1,1 +1,64 @@
-No symbols returned for this sample.
+  10| Work around this warning:
+  11| libraries/Cabal/Distribution/Simple.hs:78:0:
+  15| -}
+  42| module Distribution.Simple
+  88| import Control.Exception (try)
+  90| import Distribution.Compat.Prelude
+  91| import Distribution.Compat.ResponseFile (expandResponse)
+  92| import Prelude ()
+  96| import Distribution.Package
+  97| import Distribution.PackageDescription
+  98| import Distribution.PackageDescription.Configuration
+  99| import Distribution.Simple.Command
+ 100| import Distribution.Simple.Compiler
+ 101| import Distribution.Simple.PackageDescription
+ 102| import Distribution.Simple.PreProcess
+ 103| import Distribution.Simple.Program
+ 104| import Distribution.Simple.Setup
+ 105| import qualified Distribution.Simple.SetupHooks.Internal as SetupHooks
+ 106| import Distribution.Simple.UserHooks
+ 108| import Distribution.Simple.Build
+ 109| import Distribution.Simple.Register
+ 110| import Distribution.Simple.SrcDist
+ 112| import Distribution.Simple.Configure
+ 114| import Distribution.License
+ 115| import Distribution.Pretty
+ 116| import Distribution.Simple.Bench
+ 117| import Distribution.Simple.BuildPaths
+ 118| import Distribution.Simple.ConfigureScript (runConfigureScript)
+ 119| import Distribution.Simple.Errors
+ 120| import Distribution.Simple.Haddock
+ 121| import Distribution.Simple.Install
+ 122| import Distribution.Simple.LocalBuildInfo
+ 123| import Distribution.Simple.SetupHooks.Internal
+ 126| import Distribution.Simple.Test
+ 127| import Distribution.Simple.Utils
+ 128| import qualified Distribution.Types.LocalBuildConfig as LBC
+ 129| import Distribution.Utils.Path
+ 130| import Distribution.Verbosity
+ 131| import Distribution.Version
+ 132| import Language.Haskell.Extension
+ 135| import Data.List (unionBy, (\\))
+ 136| import System.Dire
+
+... [truncated 4878 chars] ...
+
+ooks =
+1038| getHookedBuildInfo
+1043| getHookedBuildInfo verbosity mbWorkDir build_dir = do
+1051| autoconfSetupHooks :: SetupHooks
+1052| autoconfSetupHooks =
+1110| defaultTestHook
+1118| defaultTestHook verbHandles args pkg_descr localbuildinfo _ flags =
+1121| defaultBenchHook
+1129| defaultBenchHook verbHandles args pkg_descr localbuildinfo _ flags =
+1132| defaultInstallHook
+1139| defaultInstallHook verbHandles =
+1142| defaultInstallHook_setupHooks
+1150| defaultInstallHook_setupHooks inst_hooks verbHandles pkg_descr localbuildinfo _ flags = do
+1166| defaultBuildHook
+1173| defaultBuildHook verbHandles pkg_descr localbuildinfo hooks flags =
+1183| defaultReplHook
+1191| defaultReplHook verbHandles pkg_descr localbuildinfo hooks flags args =
+1202| defaultRegHook
+1209| defaultRegHook verbHandles pkg_descr localbuildinfo _ flags

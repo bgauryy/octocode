@@ -1,3 +1,5 @@
+
+
 syntax = "proto2";
 
 package google.protobuf;
@@ -9,10 +11,13 @@ option csharp_namespace = "Google.Protobuf.Reflection";
 option objc_class_prefix = "GPB";
 option cc_enable_arenas = true;
 
+
 option optimize_for = SPEED;
+
 
 message FileDescriptorSet {
   repeated FileDescriptorProto file = 1;
+
 
   extensions 536000000 [declaration = {
     number: 536000000
@@ -21,20 +26,26 @@ message FileDescriptorSet {
   }];
 }
 
+
 enum Edition {
 
   EDITION_UNKNOWN = 0;
 
+
   EDITION_LEGACY = 900;
+
 
   EDITION_PROTO2 = 998;
   EDITION_PROTO3 = 999;
+
 
   EDITION_2023 = 1000;
   EDITION_2024 = 1001;
   EDITION_2026 = 1002;
 
+
   EDITION_UNSTABLE = 9999;
+
 
   EDITION_1_TEST_ONLY = 1;
   EDITION_2_TEST_ONLY = 2;
@@ -42,38 +53,49 @@ enum Edition {
   EDITION_99998_TEST_ONLY = 99998;
   EDITION_99999_TEST_ONLY = 99999;
 
+
   EDITION_MAX = 0x7FFFFFFF;
 }
+
 
 message FileDescriptorProto {
   optional string name = 1;
   optional string package = 2;
 
+
   repeated string dependency = 3;
 
   repeated int32 public_dependency = 10;
 
-  repeated int32 weak_
 
-... [truncated 16838 chars] ...
+  repea
 
-: ".buf.descriptor.v1.SourceCodeInfoExtension"
+... [truncated 17010 chars] ...
+
+descriptor.v1.SourceCodeInfoExtension"
     full_name: ".buf.descriptor.v1.buf_source_code_info_extension"
   }];
 }
 
+
 message GeneratedCodeInfo {
+
 
   repeated Annotation annotation = 1;
   message Annotation {
 
+
     repeated int32 path = 1 [packed = true];
+
 
     optional string source_file = 2;
 
+
     optional int32 begin = 3;
 
+
     optional int32 end = 4;
+
 
     enum Semantic {
 
@@ -86,6 +108,7 @@ message GeneratedCodeInfo {
     optional Semantic semantic = 5;
   }
 }
+
 
 enum SymbolVisibility {
   VISIBILITY_UNSET = 0;

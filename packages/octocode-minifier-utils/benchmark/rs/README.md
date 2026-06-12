@@ -4,7 +4,7 @@ Source sample: `rs/option.rs`
 
 Strategy: `conservative`
 
-Agent rating: **9.7/10 (excellent)**
+Agent rating: **9.3/10 (excellent)**
 
 Agent understanding from minified output: **10/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 100057 | - | - | - |
-| content-view | 37827 | 62.2% | 10.425 ms | 9.5/10 |
-| applyMinification | 37827 | 62.2% | 11.786 ms | 9.5/10 |
-| sync minify | 37827 | 62.2% | 10.591 ms | 9.5/10 |
-| async minify | 37827 | 62.2% | 14.865 ms | 9.5/10 |
-| symbols | 7552 | 92.5% | 0.61 ms | 10/10 |
+| content-view | 37827 | 62.2% | 9.987 ms | 9.5/10 |
+| applyMinification | 37906 | 62.1% | 10.657 ms | 9.5/10 |
+| sync minify | 37906 | 62.1% | 10.386 ms | 9.5/10 |
+| async minify | 37906 | 62.1% | 10.699 ms | 9.5/10 |
+| symbols | 33924 | 66.1% | 56.464 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 100057 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 37827 | 62.2% | 10/10 excellent | 10/10 | 10/10 |
-| minify | 37827 | 62.2% | 10/10 excellent | 10/10 | 10/10 |
-| symbols | 7552 | 92.5% | 9.2/10 excellent | 10/10 | 7.1/10 |
+| minify | 37906 | 62.1% | 10/10 excellent | 10/10 | 10/10 |
+| symbols | 33924 | 66.1% | 9.9/10 excellent | 10/10 | 9.6/10 |
 
 ## Notes
 
@@ -194,6 +194,8 @@ impl<T, const N: usize> [Option<T>; N] {
 ## Apply Minification Excerpt
 
 ```rs
+
+
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::clone::TrivialClone;
@@ -203,6 +205,7 @@ use crate::ops::{self, ControlFlow, Deref, DerefMut, Residual, Try};
 use crate::panicking::{panic, panic_display};
 use crate::pin::Pin;
 use crate::{cmp, convert, hint, mem, slice};
+
 
 #[doc(search_unbox)]
 #[derive(Copy, Debug, Hash)]
@@ -222,7 +225,9 @@ pub enum Option<T> {
     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
 }
 
+
 impl<T> Option<T> {
+
 
     #[must_use = "if you intended to assert that this has a value, consider `.unwrap()` instead"]
     #[inline]
@@ -232,13 +237,14 @@ impl<T> Option<T> {
         matches!(*self, Some(_))
     }
 
+
     #[must_use]
     #[inline]
-    #[stable(feature = "is_some_and", since = "1.70.0")
+    #[stable(feature = "is_some_and", since = "1.
 
-... [truncated 36027 chars] ...
+... [truncated 36106 chars] ...
 
-et x: Option<&mut Option<u32>> = None;
+t x: Option<&mut Option<u32>> = None;
     /// assert_eq!(None, x.flatten_mut());
     /// ```
     #[inline]
@@ -252,6 +258,7 @@ et x: Option<&mut Option<u32>> = None;
 }
 
 impl<T, const N: usize> [Option<T>; N] {
+
 
     #[inline]
     #[unstable(feature = "option_array_transpose", issue = "130828")]
@@ -264,6 +271,8 @@ impl<T, const N: usize> [Option<T>; N] {
 ## Sync Minify Excerpt
 
 ```rs
+
+
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::clone::TrivialClone;
@@ -273,6 +282,7 @@ use crate::ops::{self, ControlFlow, Deref, DerefMut, Residual, Try};
 use crate::panicking::{panic, panic_display};
 use crate::pin::Pin;
 use crate::{cmp, convert, hint, mem, slice};
+
 
 #[doc(search_unbox)]
 #[derive(Copy, Debug, Hash)]
@@ -292,7 +302,9 @@ pub enum Option<T> {
     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
 }
 
+
 impl<T> Option<T> {
+
 
     #[must_use = "if you intended to assert that this has a value, consider `.unwrap()` instead"]
     #[inline]
@@ -302,13 +314,14 @@ impl<T> Option<T> {
         matches!(*self, Some(_))
     }
 
+
     #[must_use]
     #[inline]
-    #[stable(feature = "is_some_and", since = "1.70.0")
+    #[stable(feature = "is_some_and", since = "1.
 
-... [truncated 36027 chars] ...
+... [truncated 36106 chars] ...
 
-et x: Option<&mut Option<u32>> = None;
+t x: Option<&mut Option<u32>> = None;
     /// assert_eq!(None, x.flatten_mut());
     /// ```
     #[inline]
@@ -322,6 +335,7 @@ et x: Option<&mut Option<u32>> = None;
 }
 
 impl<T, const N: usize> [Option<T>; N] {
+
 
     #[inline]
     #[unstable(feature = "option_array_transpose", issue = "130828")]
@@ -334,6 +348,8 @@ impl<T, const N: usize> [Option<T>; N] {
 ## Async Minify Excerpt
 
 ```rs
+
+
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::clone::TrivialClone;
@@ -343,6 +359,7 @@ use crate::ops::{self, ControlFlow, Deref, DerefMut, Residual, Try};
 use crate::panicking::{panic, panic_display};
 use crate::pin::Pin;
 use crate::{cmp, convert, hint, mem, slice};
+
 
 #[doc(search_unbox)]
 #[derive(Copy, Debug, Hash)]
@@ -362,7 +379,9 @@ pub enum Option<T> {
     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
 }
 
+
 impl<T> Option<T> {
+
 
     #[must_use = "if you intended to assert that this has a value, consider `.unwrap()` instead"]
     #[inline]
@@ -372,13 +391,14 @@ impl<T> Option<T> {
         matches!(*self, Some(_))
     }
 
+
     #[must_use]
     #[inline]
-    #[stable(feature = "is_some_and", since = "1.70.0")
+    #[stable(feature = "is_some_and", since = "1.
 
-... [truncated 36027 chars] ...
+... [truncated 36106 chars] ...
 
-et x: Option<&mut Option<u32>> = None;
+t x: Option<&mut Option<u32>> = None;
     /// assert_eq!(None, x.flatten_mut());
     /// ```
     #[inline]
@@ -393,6 +413,7 @@ et x: Option<&mut Option<u32>> = None;
 
 impl<T, const N: usize> [Option<T>; N] {
 
+
     #[inline]
     #[unstable(feature = "option_array_transpose", issue = "130828")]
     pub fn transpose(self) -> Option<[T; N]> {
@@ -404,6 +425,7 @@ impl<T, const N: usize> [Option<T>; N] {
 ## Symbols
 
 ```txt
+ 579| #![stable(feature = "rust1", since = "1.0.0")]
  581| use crate::clone::TrivialClone;
  582| use crate::iter::{self, FusedIterator, TrustedLen};
  583| use crate::marker::Destruct;
@@ -411,45 +433,59 @@ impl<T, const N: usize> [Option<T>; N] {
  585| use crate::panicking::{panic, panic_display};
  586| use crate::pin::Pin;
  587| use crate::{cmp, convert, hint, mem, slice};
+ 590| #[doc(search_unbox)]
+ 591| #[derive(Copy, Debug, Hash)]
+ 592| #[derive_const(Eq)]
+ 593| #[rustc_diagnostic_item = "Option"]
+ 594| #[lang = "Option"]
+ 595| #[stable(feature = "rust1", since = "1.0.0")]
+ 596| #[allow(clippy::derived_hash_with_manual_eq)] // PartialEq is manually implemented equivalently
  597| pub enum Option<T> {
+ 599|     #[lang = "None"]
+ 600|     #[stable(feature = "rust1", since = "1.0.0")]
+ 601|     None,
+ 603|     #[lang = "Some"]
+ 604|     #[stable(feature = "rust1", since = "1.0.0")]
+ 605|     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+ 606| }
+ 612| impl<T> Option<T> {
+ 628|     #[must_use = "if you intended to assert that this has a value, consider `.unwrap()` instead"]
+ 629|     #[inline]
+ 630|     #[stable(feature = "rust1", since = "1.0.0")]
+ 631|     #[rustc_const_stable(feature = "const_option_basics", since = "1.48.0")]
  632|     pub const fn is_some(&self) -> bool {
+ 654|     #[must_use]
+ 655|     #[inline]
+ 656|     #[stable(feature = "is_some_and", since = "1.70.0")]
+ 657|     #[rustc_const_unstable(feature = "const_option_ops", issue = "143956")]
  658|     pub const fn is_some_and(self, f: impl [const] FnOnce(T) -> bool + [const] Destruct) -> bool {
- 681|     pub const fn is_none(&self) -> bool {
- 707|     pub const fn is_none_or(self, f: impl [const] FnOnce(T) -> bool + [const] Destruct) -> bool {
- 741|     pub const fn as_ref(&self) -> Option<&T> {
- 763|     pub const fn as_mut(&mut self) -> Option<&mut T> {
- 777|     pub const fn as_pin_ref(self: Pin<&Self>) -> Option<Pin<&T>> {
- 794|     pub const fn as_pin_mut(self: Pin<&mut Self>) -> Option<Pin<&mut T>> {
- 807|     const fn len(&self) -> usize {
- 841|     pub const fn as_slice(&self) -> &[T] {
- 896|     pub const fn as_mut_slice(&mut self) -> &mut [T] {
- 965|     pub const fn expect(self, msg: &str) -> T {
-1010|     pub const fn unwrap(self) -> T {
-1035|     pub const fn unwrap_or(self, default: T) -> T
-1058|     pub const fn unwrap_or_else<F>(self, f: F) -> T
-1090|     pub const fn unwrap_or_default(self) -> T
-1125|     pub const unsafe fn unwrap_unchecked(self) -> T {
-1157|     pub const fn map<U, F>(self, f: F) -> Option<U>
-1188|     pub const fn inspect<F>(self, f: F) -> Self
-1221|     pub const fn map_or<U, F>(self, default: U, f: F) -> U
-1268|     pub const fn map_or_else<U, D, F>(self, default: D, f: F) -> U
-1297|     pub const fn map_or_default<U, F>(self, f: F) -> U
-1332|     pub const fn ok_or<E: [const] Destruc
+ 659|         match self {
+ 660|             None => false,
+ 661|             Some(x) => f(x),
+ 662|         }
+ 663|     }
+ 676|     #[must_use = "if you inten
 
-... [truncated 4952 chars] ...
+... [truncated 31324 chars] ...
 
-nfallible>;
-2772|     fn from_output(output: Self::Output) -> Self {
-2777|     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
-2789| const impl<T> ops::FromResidual<Option<convert::Infallible>> for Option<T> {
-2791|     fn from_residual(residual: Option<convert::Infallible>) -> Self {
-2801| const impl<T> ops::FromResidual<ops::Yeet<()>> for Option<T> {
-2803|     fn from_residual(ops::Yeet(()): ops::Yeet<()>) -> Self {
-2810| const impl<T> ops::Residual<T> for Option<convert::Infallible> {
-2811|     type TryType = Option<T>;
-2843|     pub const fn flatten(self) -> Option<T> {
+ flatten(self) -> Option<T> {
+2850| }
+2852| impl<'a, T> Option<&'a Option<T>> {
+2871|     #[inline]
+2872|     #[unstable(feature = "option_reference_flattening", issue = "149221")]
 2873|     pub const fn flatten_ref(self) -> Option<&'a T> {
+2879| }
+2881| impl<'a, T> Option<&'a mut Option<T>> {
+2902|     #[inline]
+2903|     #[unstable(feature = "option_reference_flattening", issue = "149221")]
 2904|     pub const fn flatten_ref(self) -> Option<&'a T> {
+2931|     #[inline]
+2932|     #[unstable(feature = "option_reference_flattening", issue = "149221")]
 2933|     pub const fn flatten_mut(self) -> Option<&'a mut T> {
+2939| }
+2941| impl<T, const N: usize> [Option<T>; N] {
+2958|     #[inline]
+2959|     #[unstable(feature = "option_array_transpose", issue = "130828")]
 2960|     pub fn transpose(self) -> Option<[T; N]> {
+2963| }
 ```

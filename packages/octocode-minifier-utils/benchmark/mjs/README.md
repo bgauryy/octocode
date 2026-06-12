@@ -4,7 +4,7 @@ Source sample: `mjs/llhttp-eslint.config.mjs`
 
 Strategy: `terser`
 
-Agent rating: **9/10 (excellent)**
+Agent rating: **7.6/10 (good)**
 
 Agent understanding from minified output: **9.6/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 1259 | - | - | - |
-| content-view | 1240 | 1.5% | 0.162 ms | 9/10 |
-| applyMinification | 866 | 31.2% | 0.857 ms | 9/10 |
-| sync minify | 866 | 31.2% | 0.875 ms | 9/10 |
-| async minify | 866 | 31.2% | 3.933 ms | 9/10 |
-| symbols | 268 | 78.7% | 4.524 ms | 9/10 |
+| content-view | 1240 | 1.5% | 0.304 ms | 9/10 |
+| applyMinification | 904 | 28.2% | 0.302 ms | 9/10 |
+| sync minify | 904 | 28.2% | 0.281 ms | 9/10 |
+| async minify | 904 | 28.2% | 0.293 ms | 9/10 |
+| symbols | 1443 | -14.6% | 4.159 ms | 5/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 1259 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 1240 | 1.5% | 9.6/10 excellent | 10/10 | 10/10 |
-| minify | 866 | 31.2% | 9.9/10 excellent | 10/10 | 10/10 |
-| symbols | 268 | 78.7% | 9/10 excellent | 10/10 | 5/10 |
+| minify | 904 | 28.2% | 9.9/10 excellent | 10/10 | 10/10 |
+| symbols | 1443 | -14.6% | 9/10 excellent | 10/10 | 10/10 |
 
 ## Notes
 
@@ -175,19 +175,19 @@ export default tseslint.config(
 ## Apply Minification Excerpt
 
 ```js
-import eslint from"@eslint/js";import tseslint from"typescript-eslint";import stylistic from"@stylistic/eslint-plugin";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores:["build","lib"]},{files:["bin/**/*.ts","bench/**/*.ts","src/**/*.ts","scripts/**/*.ts","test/**/*.ts","eslint.config.js"],plugins:{"@stylistic":stylistic},languageOptions:{parser:tseslint.parser,parserOptions:{project:"./tsconfig.test.json"}},rules:{"@stylistic/max-len":[2,{code:120,ignoreComments:!0}],"@stylistic/array-bracket-spacing":["error","always"],"@stylistic/operator-linebreak":["error","after"],"@stylistic/linebreak-style":["error","unix"],"@stylistic/brace-style":["error","1tbs",{allowSingleLine:!0}],"@stylistic/indent":["error",2,{SwitchCase:1,FunctionDeclaration:{parameters:"first"},FunctionExpression:{parameters:"first"}}]}});
+import eslint from "@eslint/js";import tseslint from "typescript-eslint";import stylistic from "@stylistic/eslint-plugin";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores: ["build","lib"],},{files: [ "bin/**/*.ts","bench/**/*.ts","src/**/*.ts","scripts/**/*.ts","test/**/*.ts","eslint.config.js",],plugins:{"@stylistic": stylistic,},languageOptions:{parser: tseslint.parser,parserOptions:{project: "./tsconfig.test.json",},},rules:{"@stylistic/max-len": [ 2,{code: 120,ignoreComments: true,},],"@stylistic/array-bracket-spacing": ["error","always"],"@stylistic/operator-linebreak": ["error","after"],"@stylistic/linebreak-style": ["error","unix"],"@stylistic/brace-style": ["error","1tbs",{allowSingleLine: true}],"@stylistic/indent": [ "error",2,{SwitchCase: 1,FunctionDeclaration:{parameters: "first"},FunctionExpression:{parameters: "first"},},],},});
 ```
 
 ## Sync Minify Excerpt
 
 ```js
-import eslint from"@eslint/js";import tseslint from"typescript-eslint";import stylistic from"@stylistic/eslint-plugin";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores:["build","lib"]},{files:["bin/**/*.ts","bench/**/*.ts","src/**/*.ts","scripts/**/*.ts","test/**/*.ts","eslint.config.js"],plugins:{"@stylistic":stylistic},languageOptions:{parser:tseslint.parser,parserOptions:{project:"./tsconfig.test.json"}},rules:{"@stylistic/max-len":[2,{code:120,ignoreComments:!0}],"@stylistic/array-bracket-spacing":["error","always"],"@stylistic/operator-linebreak":["error","after"],"@stylistic/linebreak-style":["error","unix"],"@stylistic/brace-style":["error","1tbs",{allowSingleLine:!0}],"@stylistic/indent":["error",2,{SwitchCase:1,FunctionDeclaration:{parameters:"first"},FunctionExpression:{parameters:"first"}}]}});
+import eslint from "@eslint/js";import tseslint from "typescript-eslint";import stylistic from "@stylistic/eslint-plugin";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores: ["build","lib"],},{files: [ "bin/**/*.ts","bench/**/*.ts","src/**/*.ts","scripts/**/*.ts","test/**/*.ts","eslint.config.js",],plugins:{"@stylistic": stylistic,},languageOptions:{parser: tseslint.parser,parserOptions:{project: "./tsconfig.test.json",},},rules:{"@stylistic/max-len": [ 2,{code: 120,ignoreComments: true,},],"@stylistic/array-bracket-spacing": ["error","always"],"@stylistic/operator-linebreak": ["error","after"],"@stylistic/linebreak-style": ["error","unix"],"@stylistic/brace-style": ["error","1tbs",{allowSingleLine: true}],"@stylistic/indent": [ "error",2,{SwitchCase: 1,FunctionDeclaration:{parameters: "first"},FunctionExpression:{parameters: "first"},},],},});
 ```
 
 ## Async Minify Excerpt
 
 ```js
-import eslint from"@eslint/js";import tseslint from"typescript-eslint";import stylistic from"@stylistic/eslint-plugin";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores:["build","lib"]},{files:["bin/**/*.ts","bench/**/*.ts","src/**/*.ts","scripts/**/*.ts","test/**/*.ts","eslint.config.js"],plugins:{"@stylistic":stylistic},languageOptions:{parser:tseslint.parser,parserOptions:{project:"./tsconfig.test.json"}},rules:{"@stylistic/max-len":[2,{code:120,ignoreComments:!0}],"@stylistic/array-bracket-spacing":["error","always"],"@stylistic/operator-linebreak":["error","after"],"@stylistic/linebreak-style":["error","unix"],"@stylistic/brace-style":["error","1tbs",{allowSingleLine:!0}],"@stylistic/indent":["error",2,{SwitchCase:1,FunctionDeclaration:{parameters:"first"},FunctionExpression:{parameters:"first"}}]}});
+import eslint from "@eslint/js";import tseslint from "typescript-eslint";import stylistic from "@stylistic/eslint-plugin";export default tseslint.config(eslint.configs.recommended,...tseslint.configs.recommended,{ignores: ["build","lib"],},{files: [ "bin/**/*.ts","bench/**/*.ts","src/**/*.ts","scripts/**/*.ts","test/**/*.ts","eslint.config.js",],plugins:{"@stylistic": stylistic,},languageOptions:{parser: tseslint.parser,parserOptions:{project: "./tsconfig.test.json",},},rules:{"@stylistic/max-len": [ 2,{code: 120,ignoreComments: true,},],"@stylistic/array-bracket-spacing": ["error","always"],"@stylistic/operator-linebreak": ["error","after"],"@stylistic/linebreak-style": ["error","unix"],"@stylistic/brace-style": ["error","1tbs",{allowSingleLine: true}],"@stylistic/indent": [ "error",2,{SwitchCase: 1,FunctionDeclaration:{parameters: "first"},FunctionExpression:{parameters: "first"},},],},});
 ```
 
 ## Symbols
@@ -200,6 +200,48 @@ import eslint from"@eslint/js";import tseslint from"typescript-eslint";import st
  8|   eslint.configs.recommended,
  9|   ...tseslint.configs.recommended,
 10|   {
+11|     ignores: ["build", "lib"],
+12|   },
 13|   {
+14|     files: [
+15|       "bin/**/*.ts",
+16|       "bench/**/*.ts",
+17|       "src/**/*.ts",
+18|       "scripts/**/*.ts",
+19|       "test/**/*.ts",
+20|       "eslint.config.js",
+21|     ],
+22|     plugins: {
+23|       "@stylistic": stylistic,
+24|     },
+25|     languageOptions: {
+26|       parser: tseslint.parser,
+27|       parserOptions: {
+28|         project: "./tsconfig.test.json",
+29|       },
+30|     },
+31|     rules: {
+32|       "@stylistic/max-len": [
+33|         2,
+34|         {
+35|           code: 120,
+36|           ignoreComments: true,
+37|         },
+38|       ],
+39|       "@stylistic/array-bracket-spacing": ["error", "always"],
+40|       "@stylistic/operator-linebreak": ["error", "after"],
+41|       "@stylistic/linebreak-style": ["error", "unix"],
+42|       "@stylistic/brace-style": ["error", "1tbs", { allowSingleLine: true }],
+43|       "@stylistic/indent": [
+44|         "error",
+45|         2,
+46|         {
+47|           SwitchCase: 1,
+48|           FunctionDeclaration: { parameters: "first" },
+49|           FunctionExpression: { parameters: "first" },
+50|         },
+51|       ],
+52|     },
+53|   }
 54| );
 ```

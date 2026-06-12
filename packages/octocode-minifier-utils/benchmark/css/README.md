@@ -4,9 +4,9 @@ Source sample: `css/bootstrap.css`
 
 Strategy: `aggressive`
 
-Agent rating: **8.5/10 (strong)**
+Agent rating: **8.3/10 (strong)**
 
-Agent understanding from minified output: **9.6/10 (excellent)**
+Agent understanding from minified output: **9.3/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 280311 | - | - | - |
-| content-view | 279205 | 0.4% | 134.068 ms | 8.3/10 |
-| applyMinification | 237337 | 15.3% | 147.679 ms | 8.3/10 |
-| sync minify | 237337 | 15.3% | 121.249 ms | 8.3/10 |
-| async minify | 230255 | 17.9% | 254.034 ms | 8.3/10 |
-| symbols | 90076 | 67.9% | 12.416 ms | 9/10 |
+| content-view | 279205 | 0.4% | 82.386 ms | 8.3/10 |
+| applyMinification | 229667 | 18.1% | 34.596 ms | 8.3/10 |
+| sync minify | 229667 | 18.1% | 31.861 ms | 8.3/10 |
+| async minify | 229667 | 18.1% | 32.052 ms | 8.3/10 |
+| symbols | 82074 | 70.7% | 11.223 ms | n/a |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 10/10 |
 | context budget | 6/10 |
-| symbol context | 10/10 |
+| symbol context | 7/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,13 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 280311 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 279205 | 0.4% | 9.6/10 excellent | 10/10 | 10/10 |
-| minify | 230255 | 17.9% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 90076 | 67.9% | 6.7/10 fair | 3.3/10 | 6.7/10 |
+| standard | 279205 | 0.4% | 9.3/10 excellent | 10/10 | 10/10 |
+| minify | 229667 | 18.1% | 9.5/10 excellent | 10/10 | 10/10 |
+| symbols | 82074 | 70.7% | 6.7/10 fair | 3.3/10 | 6.7/10 |
 
 ## Notes
 
 - engine-backed or parser-backed path.
+- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -232,42 +233,37 @@ ne-block {
 ## Apply Minification Excerpt
 
 ```css
-@charset "UTF-8";:root,[data-bs-theme=light]{--bs-blue:#0d6efd;--bs-indigo:#6610f2;--bs-purple:#6f42c1;--bs-pink:#d63384;--bs-red:#dc3545;--bs-orange:#fd7e14;--bs-yellow:#ffc107;--bs-green:#198754;--bs-teal:#20c997;--bs-cyan:#0dcaf0;--bs-black:#000;--bs-white:#fff;--bs-gray:#6c757d;--bs-gray-dark:#343a40;--bs-gray-100:#f8f9fa;--bs-gray-200:#e9ecef;--bs-gray-300:#dee2e6;--bs-gray-400:#ced4da;--bs-gray-500:#adb5bd;--bs-gray-600:#6c757d;--bs-gray-700:#495057;--bs-gray-800:#343a40;--bs-gray-900:#212529;--bs-primary:#0d6efd;--bs-secondary:#6c757d;--bs-success:#198754;--bs-info:#0dcaf0;--bs-warning:#ffc107;--bs-danger:#dc3545;--bs-light:#f8f9fa;--bs-dark:#212529;--bs-primary-rgb:13,110,253;--bs-secondary-rgb:108,117,125;--bs-success-rgb:25,135,84;--bs-info-rgb:13,202,240;--bs-warning-rgb:255,193,7;--bs-danger-rgb:220,53,69;--bs-light-rgb:248,249,250;--bs-dark-rgb:33,37,41;--bs-primary-text-emphasis:#052c65;--bs-secondary-text-emphasis:#2b2f32;--bs-success-text-emphasis:#0a3622;--bs-info-text-emphasis:#055160;--bs-warning-text-emphasis:#664d03;--bs-danger-text-emphasis:#58151c;--bs-light-text-emphasis:#495057;--bs-dark-text-emphasis:#495057;--bs-primary-bg-subtle:#cfe2ff;--bs-secondary-bg-subtle:#e2e3e5;--bs-suc
+:root,[data-bs-theme=light]{--bs-blue:#0d6efd;--bs-indigo:#6610f2;--bs-purple:#6f42c1;--bs-pink:#d63384;--bs-red:#dc3545;--bs-orange:#fd7e14;--bs-yellow:#ffc107;--bs-green:#198754;--bs-teal:#20c997;--bs-cyan:#0dcaf0;--bs-black:#000;--bs-white:#fff;--bs-gray:#6c757d;--bs-gray-dark:#343a40;--bs-gray-100:#f8f9fa;--bs-gray-200:#e9ecef;--bs-gray-300:#dee2e6;--bs-gray-400:#ced4da;--bs-gray-500:#adb5bd;--bs-gray-600:#6c757d;--bs-gray-700:#495057;--bs-gray-800:#343a40;--bs-gray-900:#212529;--bs-primary:#0d6efd;--bs-secondary:#6c757d;--bs-success:#198754;--bs-info:#0dcaf0;--bs-warning:#ffc107;--bs-danger:#dc3545;--bs-light:#f8f9fa;--bs-dark:#212529;--bs-primary-rgb:13, 110, 253;--bs-secondary-rgb:108, 117, 125;--bs-success-rgb:25, 135, 84;--bs-info-rgb:13, 202, 240;--bs-warning-rgb:255, 193, 7;--bs-danger-rgb:220, 53, 69;--bs-light-rgb:248, 249, 250;--bs-dark-rgb:33, 37, 41;--bs-primary-text-emphasis:#052c65;--bs-secondary-text-emphasis:#2b2f32;--bs-success-text-emphasis:#0a3622;--bs-info-text-emphasis:#055160;--bs-warning-text-emphasis:#664d03;--bs-danger-text-emphasis:#58151c;--bs-light-text-emphasis:#495057;--bs-dark-text-emphasis:#495057;--bs-primary-bg-subtle:#cfe2ff;--bs-secondary-bg-subtle:#e2e3e5;--bs-succ
 
-... [truncated 235535 chars] ...
+... [truncated 227864 chars] ...
 
-ze:1.75rem !important;}.fs-4{font-size:1.5rem !important;}}@media print{.d-print-inline{display:inline !important;}.d-print-inline-block{display:inline-block !important;}.d-print-block{display:block !important;}.d-print-grid{display:grid !important;}.d-print-inline-grid{display:inline-grid !important;}.d-print-table{display:table !important;}.d-print-table-row{display:table-row !important;}.d-print-table-cell{display:table-cell !important;}.d-print-flex{display:flex !important;}.d-print-inline-flex{display:inline-flex !important;}.d-print-none{display:none !important;}}
+em!important}.fs-3{font-size:1.75rem!important}.fs-4{font-size:1.5rem!important}}@media print{.d-print-inline{display:inline!important}.d-print-inline-block{display:inline-block!important}.d-print-block{display:block!important}.d-print-grid{display:grid!important}.d-print-inline-grid{display:inline-grid!important}.d-print-table{display:table!important}.d-print-table-row{display:table-row!important}.d-print-table-cell{display:table-cell!important}.d-print-flex{display:flex!important}.d-print-inline-flex{display:inline-flex!important}.d-print-none{display:none!important}}
 ```
 
 ## Sync Minify Excerpt
 
 ```css
-@charset "UTF-8";:root,[data-bs-theme=light]{--bs-blue:#0d6efd;--bs-indigo:#6610f2;--bs-purple:#6f42c1;--bs-pink:#d63384;--bs-red:#dc3545;--bs-orange:#fd7e14;--bs-yellow:#ffc107;--bs-green:#198754;--bs-teal:#20c997;--bs-cyan:#0dcaf0;--bs-black:#000;--bs-white:#fff;--bs-gray:#6c757d;--bs-gray-dark:#343a40;--bs-gray-100:#f8f9fa;--bs-gray-200:#e9ecef;--bs-gray-300:#dee2e6;--bs-gray-400:#ced4da;--bs-gray-500:#adb5bd;--bs-gray-600:#6c757d;--bs-gray-700:#495057;--bs-gray-800:#343a40;--bs-gray-900:#212529;--bs-primary:#0d6efd;--bs-secondary:#6c757d;--bs-success:#198754;--bs-info:#0dcaf0;--bs-warning:#ffc107;--bs-danger:#dc3545;--bs-light:#f8f9fa;--bs-dark:#212529;--bs-primary-rgb:13,110,253;--bs-secondary-rgb:108,117,125;--bs-success-rgb:25,135,84;--bs-info-rgb:13,202,240;--bs-warning-rgb:255,193,7;--bs-danger-rgb:220,53,69;--bs-light-rgb:248,249,250;--bs-dark-rgb:33,37,41;--bs-primary-text-emphasis:#052c65;--bs-secondary-text-emphasis:#2b2f32;--bs-success-text-emphasis:#0a3622;--bs-info-text-emphasis:#055160;--bs-warning-text-emphasis:#664d03;--bs-danger-text-emphasis:#58151c;--bs-light-text-emphasis:#495057;--bs-dark-text-emphasis:#495057;--bs-primary-bg-subtle:#cfe2ff;--bs-secondary-bg-subtle:#e2e3e5;--bs-suc
+:root,[data-bs-theme=light]{--bs-blue:#0d6efd;--bs-indigo:#6610f2;--bs-purple:#6f42c1;--bs-pink:#d63384;--bs-red:#dc3545;--bs-orange:#fd7e14;--bs-yellow:#ffc107;--bs-green:#198754;--bs-teal:#20c997;--bs-cyan:#0dcaf0;--bs-black:#000;--bs-white:#fff;--bs-gray:#6c757d;--bs-gray-dark:#343a40;--bs-gray-100:#f8f9fa;--bs-gray-200:#e9ecef;--bs-gray-300:#dee2e6;--bs-gray-400:#ced4da;--bs-gray-500:#adb5bd;--bs-gray-600:#6c757d;--bs-gray-700:#495057;--bs-gray-800:#343a40;--bs-gray-900:#212529;--bs-primary:#0d6efd;--bs-secondary:#6c757d;--bs-success:#198754;--bs-info:#0dcaf0;--bs-warning:#ffc107;--bs-danger:#dc3545;--bs-light:#f8f9fa;--bs-dark:#212529;--bs-primary-rgb:13, 110, 253;--bs-secondary-rgb:108, 117, 125;--bs-success-rgb:25, 135, 84;--bs-info-rgb:13, 202, 240;--bs-warning-rgb:255, 193, 7;--bs-danger-rgb:220, 53, 69;--bs-light-rgb:248, 249, 250;--bs-dark-rgb:33, 37, 41;--bs-primary-text-emphasis:#052c65;--bs-secondary-text-emphasis:#2b2f32;--bs-success-text-emphasis:#0a3622;--bs-info-text-emphasis:#055160;--bs-warning-text-emphasis:#664d03;--bs-danger-text-emphasis:#58151c;--bs-light-text-emphasis:#495057;--bs-dark-text-emphasis:#495057;--bs-primary-bg-subtle:#cfe2ff;--bs-secondary-bg-subtle:#e2e3e5;--bs-succ
 
-... [truncated 235535 chars] ...
+... [truncated 227864 chars] ...
 
-ze:1.75rem !important;}.fs-4{font-size:1.5rem !important;}}@media print{.d-print-inline{display:inline !important;}.d-print-inline-block{display:inline-block !important;}.d-print-block{display:block !important;}.d-print-grid{display:grid !important;}.d-print-inline-grid{display:inline-grid !important;}.d-print-table{display:table !important;}.d-print-table-row{display:table-row !important;}.d-print-table-cell{display:table-cell !important;}.d-print-flex{display:flex !important;}.d-print-inline-flex{display:inline-flex !important;}.d-print-none{display:none !important;}}
+em!important}.fs-3{font-size:1.75rem!important}.fs-4{font-size:1.5rem!important}}@media print{.d-print-inline{display:inline!important}.d-print-inline-block{display:inline-block!important}.d-print-block{display:block!important}.d-print-grid{display:grid!important}.d-print-inline-grid{display:inline-grid!important}.d-print-table{display:table!important}.d-print-table-row{display:table-row!important}.d-print-table-cell{display:table-cell!important}.d-print-flex{display:flex!important}.d-print-inline-flex{display:inline-flex!important}.d-print-none{display:none!important}}
 ```
 
 ## Async Minify Excerpt
 
 ```css
-@charset "UTF-8";/*!
- * Bootstrap  v5.3.8 (https://getbootstrap.com/)
- * Copyright 2011-2025 The Bootstrap Authors
- * Licensed under MIT (https://github.com/twbs/bootstrap/blob/main/LICENSE)
- */:root,[data-bs-theme=light]{--bs-blue:#0d6efd;--bs-indigo:#6610f2;--bs-purple:#6f42c1;--bs-pink:#d63384;--bs-red:#dc3545;--bs-orange:#fd7e14;--bs-yellow:#ffc107;--bs-green:#198754;--bs-teal:#20c997;--bs-cyan:#0dcaf0;--bs-black:#000;--bs-white:#fff;--bs-gray:#6c757d;--bs-gray-dark:#343a40;--bs-gray-100:#f8f9fa;--bs-gray-200:#e9ecef;--bs-gray-300:#dee2e6;--bs-gray-400:#ced4da;--bs-gray-500:#adb5bd;--bs-gray-600:#6c757d;--bs-gray-700:#495057;--bs-gray-800:#343a40;--bs-gray-900:#212529;--bs-primary:#0d6efd;--bs-secondary:#6c757d;--bs-success:#198754;--bs-info:#0dcaf0;--bs-warning:#ffc107;--bs-danger:#dc3545;--bs-light:#f8f9fa;--bs-dark:#212529;--bs-primary-rgb:13,110,253;--bs-secondary-rgb:108,117,125;--bs-success-rgb:25,135,84;--bs-info-rgb:13,202,240;--bs-warning-rgb:255,193,7;--bs-danger-rgb:220,53,69;--bs-light-rgb:248,249,250;--bs-dark-rgb:33,37,41;--bs-primary-text-emphasis:#052c65;--bs-secondary-text-emphasis:#2b2f32;--bs-success-text-emphasis:#0a3622;--bs-info-text-emphasis:#055160;--bs-warning-text-emphasis:#6
+:root,[data-bs-theme=light]{--bs-blue:#0d6efd;--bs-indigo:#6610f2;--bs-purple:#6f42c1;--bs-pink:#d63384;--bs-red:#dc3545;--bs-orange:#fd7e14;--bs-yellow:#ffc107;--bs-green:#198754;--bs-teal:#20c997;--bs-cyan:#0dcaf0;--bs-black:#000;--bs-white:#fff;--bs-gray:#6c757d;--bs-gray-dark:#343a40;--bs-gray-100:#f8f9fa;--bs-gray-200:#e9ecef;--bs-gray-300:#dee2e6;--bs-gray-400:#ced4da;--bs-gray-500:#adb5bd;--bs-gray-600:#6c757d;--bs-gray-700:#495057;--bs-gray-800:#343a40;--bs-gray-900:#212529;--bs-primary:#0d6efd;--bs-secondary:#6c757d;--bs-success:#198754;--bs-info:#0dcaf0;--bs-warning:#ffc107;--bs-danger:#dc3545;--bs-light:#f8f9fa;--bs-dark:#212529;--bs-primary-rgb:13, 110, 253;--bs-secondary-rgb:108, 117, 125;--bs-success-rgb:25, 135, 84;--bs-info-rgb:13, 202, 240;--bs-warning-rgb:255, 193, 7;--bs-danger-rgb:220, 53, 69;--bs-light-rgb:248, 249, 250;--bs-dark-rgb:33, 37, 41;--bs-primary-text-emphasis:#052c65;--bs-secondary-text-emphasis:#2b2f32;--bs-success-text-emphasis:#0a3622;--bs-info-text-emphasis:#055160;--bs-warning-text-emphasis:#664d03;--bs-danger-text-emphasis:#58151c;--bs-light-text-emphasis:#495057;--bs-dark-text-emphasis:#495057;--bs-primary-bg-subtle:#cfe2ff;--bs-secondary-bg-subtle:#e2e3e5;--bs-succ
 
-... [truncated 228452 chars] ...
+... [truncated 227864 chars] ...
 
-xxl-end{text-align:right!important}.text-xxl-center{text-align:center!important}}@media print{.d-print-inline{display:inline!important}.d-print-inline-block{display:inline-block!important}.d-print-block{display:block!important}.d-print-grid{display:grid!important}.d-print-inline-grid{display:inline-grid!important}.d-print-table{display:table!important}.d-print-table-row{display:table-row!important}.d-print-table-cell{display:table-cell!important}.d-print-flex{display:flex!important}.d-print-inline-flex{display:inline-flex!important}.d-print-none{display:none!important}}
+em!important}.fs-3{font-size:1.75rem!important}.fs-4{font-size:1.5rem!important}}@media print{.d-print-inline{display:inline!important}.d-print-inline-block{display:inline-block!important}.d-print-block{display:block!important}.d-print-grid{display:grid!important}.d-print-inline-grid{display:inline-grid!important}.d-print-table{display:table!important}.d-print-table-row{display:table-row!important}.d-print-table-cell{display:table-cell!important}.d-print-flex{display:flex!important}.d-print-inline-flex{display:inline-flex!important}.d-print-none{display:none!important}}
 ```
 
 ## Symbols
 
 ```txt
     1| @charset "UTF-8";
-    7| :root,
     8| [data-bs-theme=light] {
   128| [data-bs-theme=dark] {
   190| @media (prefers-reduced-motion: no-preference) {
@@ -292,32 +288,21 @@ xxl-end{text-align:right!important}.text-xxl-center{text-align:center!important}
   269| p {
   274| abbr[title] {
   282| address {
-  288| ol,
   289| ul {
-  293| ol,
-  294| ul,
   295| dl {
-  300| ol ol,
-  301| ul ul,
-  302| ol ul,
   303| ul ol {
   307| dt {
   311| dd {
   316| blockquote {
-  320| b,
   321| strong {
   325| small, .small {
   329| mark, .mark {
-  335| sub,
   336| sup {
   343| sub {
   347| sup {
   351| a {
   355| a:hover {
   359| a:not([href]):not([class]), a:not([href]):not([class]):hover {
-  364| pre,
-  365| code,
-  366| kbd,
   367| samp {
   372| pre {
   379| pre code {
@@ -326,37 +311,35 @@ xxl-end{text-align:right!important}.text-xxl-center{text-align:center!important}
   394| kbd {
   401| kbd kbd {
   406| figure {
-  410| img,
   411| svg {
   415| table {
   420| caption {
   427| th {
-  432| thead,
-  433| tbody,
-  434| tfoot,
-  435| tr,
-  436| td,
   437| th {
   443| label {
   447| button {
   451| button:focus:not(:focus-visible) {
-  455| input,
-  456| button,
-  457| select,
-  458| optgroup,
   459| textarea {
-  466| button,
   467| select {
   471| [role=button] {
   475| select {
   478| select:disabled {
   482| [list]:not([type=date]):not([type=datetime-local]):not([type=month]):not([type=week]):not([type=time])::-webkit-calendar-picker-indicator {
-  486| button,
-  487| [type=button],
-  488| [type=reset],
-  
+  489| [type=submit] {
+  495| [type=submit]:not(:disabled) {
+  499| ::-moz-focus-inner {
+  504| textarea {
+  508| fieldset {
+  515| legend {
+  523| @media (min-width: 1200px) {
+  524|   legend {
+  528| legend + * {
+  538| ::-webkit-datetime-edit-year-field {
+  542| ::-webkit-inner-spin-button {
+  546| [type=search] {
+  550| [type=search]::-webkit-search-canc
 
-... [truncated 87476 chars] ...
+... [truncated 79474 chars] ...
 
 ap-xxl-0 {
 11949|   .row-gap-xxl-1 {

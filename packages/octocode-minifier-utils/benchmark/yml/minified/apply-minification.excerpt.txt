@@ -13,8 +13,10 @@ on:
     branches:
       - main
 
+
 permissions:
   contents: read
+
 
 defaults:
   run:
@@ -26,6 +28,7 @@ jobs:
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
         config:
+
 
           - os: ubuntu-latest
             node-version: '24'
@@ -50,9 +53,9 @@ jobs:
 
           - os: ubuntu-latest
             node-version: '20'
-            bundle:
+            bund
 
-... [truncated 9933 chars] ...
+... [truncated 9938 chars] ...
 
      name: fix_baselines.patch
           path: fix_baselines.patch

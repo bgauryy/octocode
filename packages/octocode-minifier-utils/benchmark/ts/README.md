@@ -4,7 +4,7 @@ Source sample: `ts/00-typescript-core.ts`
 
 Strategy: `conservative`
 
-Agent rating: **9.7/10 (excellent)**
+Agent rating: **9.3/10 (excellent)**
 
 Agent understanding from minified output: **9.7/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 92419 | - | - | - |
-| content-view | 65054 | 29.6% | 50.511 ms | 10/10 |
-| applyMinification | 29680 | 67.9% | 338.707 ms | 10/10 |
-| sync minify | 29680 | 67.9% | 237.852 ms | 10/10 |
-| async minify | 29680 | 67.9% | 248.05 ms | 10/10 |
-| symbols | 28537 | 69.1% | 33.581 ms | 9/10 |
+| content-view | 65054 | 29.6% | 21.304 ms | 9.5/10 |
+| applyMinification | 51154 | 44.6% | 21.512 ms | 9.5/10 |
+| sync minify | 51154 | 44.6% | 23.033 ms | 9.5/10 |
+| async minify | 51154 | 44.6% | 21.205 ms | 9.5/10 |
+| symbols | 28507 | 69.2% | 51.592 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 92419 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 65054 | 29.6% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 29680 | 67.9% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 28537 | 69.1% | 9.3/10 excellent | 10/10 | 7.5/10 |
+| minify | 51154 | 44.6% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 28507 | 69.2% | 9.3/10 excellent | 10/10 | 7.4/10 |
 
 ## Notes
 
@@ -198,31 +198,31 @@ export function isNodeLikeSystem(): boolean {
 ## Apply Minification Excerpt
 
 ```ts
-import{CharacterCodes,Comparison,Debug}from"./_namespaces/ts.js";export const emptyArray=[];export const emptyMap=new Map;export function length(array){return void 0!==array?array.length:0}export function forEach(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(result)return result}}export function forEachRight(array,callback){if(void 0!==array)for(let i=array.length-1;i>=0;i--){const result=callback(array[i],i);if(result)return result}}export function firstDefined(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(void 0!==result)return result}}export function firstDefinedIterator(iter,callback){for(const value of iter){const result=callback(value);if(void 0!==result)return result}}export function reduceLeftIterator(iterator,f,initial){let result=initial;if(iterator){let pos=0;for(const value of iterator)result=f(result,value,pos),pos++}return result}export function zipWith(arrayA,arrayB,callback){const result=[];Debug.assertEqual(arrayA.length,arrayB.length);for(let i=0;i<arrayA.length;i++)result.push(callback(arrayA[i],arrayB[i],i));return result}export function intersperse(input,element){if(input.
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan,}from "./_namespaces/ts.js";export const emptyArray: never[] = [] as never[];export const emptyMap: ReadonlyMap<never,never> = new Map<never,never>();export function length(array: readonly any[] | undefined): number{return array !== undefined ? array.length: 0;}export function forEach<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function forEachRight<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = array.length - 1;i >= 0;i--){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function firstDefined<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array === undefined){return undefined;}for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result !== undefined){return result;}}r
 
-... [truncated 27880 chars] ...
+... [truncated 49354 chars] ...
 
-x===arrays.length-1?result.push(inner):cartesianProductWorker(arrays,result,inner,index+1)}}export function takeWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(0,index)}}export function skipWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(index)}}export function isNodeLikeSystem(){return"undefined"!=typeof process&&!!process.nextTick&&!process.browser&&"undefined"!=typeof require}
+ds T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined;export function skipWhile<T,U extends T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined{if(array !== undefined){const len = array.length;let index = 0;while(index < len && predicate(array[index])){index++;}return array.slice(index)as Exclude<T,U>[];}}export function isNodeLikeSystem(): boolean{return typeof process !== "undefined" && !!process.nextTick && !(process as any).browser && typeof require !== "undefined";}
 ```
 
 ## Sync Minify Excerpt
 
 ```ts
-import{CharacterCodes,Comparison,Debug}from"./_namespaces/ts.js";export const emptyArray=[];export const emptyMap=new Map;export function length(array){return void 0!==array?array.length:0}export function forEach(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(result)return result}}export function forEachRight(array,callback){if(void 0!==array)for(let i=array.length-1;i>=0;i--){const result=callback(array[i],i);if(result)return result}}export function firstDefined(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(void 0!==result)return result}}export function firstDefinedIterator(iter,callback){for(const value of iter){const result=callback(value);if(void 0!==result)return result}}export function reduceLeftIterator(iterator,f,initial){let result=initial;if(iterator){let pos=0;for(const value of iterator)result=f(result,value,pos),pos++}return result}export function zipWith(arrayA,arrayB,callback){const result=[];Debug.assertEqual(arrayA.length,arrayB.length);for(let i=0;i<arrayA.length;i++)result.push(callback(arrayA[i],arrayB[i],i));return result}export function intersperse(input,element){if(input.
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan,}from "./_namespaces/ts.js";export const emptyArray: never[] = [] as never[];export const emptyMap: ReadonlyMap<never,never> = new Map<never,never>();export function length(array: readonly any[] | undefined): number{return array !== undefined ? array.length: 0;}export function forEach<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function forEachRight<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = array.length - 1;i >= 0;i--){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function firstDefined<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array === undefined){return undefined;}for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result !== undefined){return result;}}r
 
-... [truncated 27880 chars] ...
+... [truncated 49354 chars] ...
 
-x===arrays.length-1?result.push(inner):cartesianProductWorker(arrays,result,inner,index+1)}}export function takeWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(0,index)}}export function skipWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(index)}}export function isNodeLikeSystem(){return"undefined"!=typeof process&&!!process.nextTick&&!process.browser&&"undefined"!=typeof require}
+ds T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined;export function skipWhile<T,U extends T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined{if(array !== undefined){const len = array.length;let index = 0;while(index < len && predicate(array[index])){index++;}return array.slice(index)as Exclude<T,U>[];}}export function isNodeLikeSystem(): boolean{return typeof process !== "undefined" && !!process.nextTick && !(process as any).browser && typeof require !== "undefined";}
 ```
 
 ## Async Minify Excerpt
 
 ```ts
-import{CharacterCodes,Comparison,Debug}from"./_namespaces/ts.js";export const emptyArray=[];export const emptyMap=new Map;export function length(array){return void 0!==array?array.length:0}export function forEach(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(result)return result}}export function forEachRight(array,callback){if(void 0!==array)for(let i=array.length-1;i>=0;i--){const result=callback(array[i],i);if(result)return result}}export function firstDefined(array,callback){if(void 0!==array)for(let i=0;i<array.length;i++){const result=callback(array[i],i);if(void 0!==result)return result}}export function firstDefinedIterator(iter,callback){for(const value of iter){const result=callback(value);if(void 0!==result)return result}}export function reduceLeftIterator(iterator,f,initial){let result=initial;if(iterator){let pos=0;for(const value of iterator)result=f(result,value,pos),pos++}return result}export function zipWith(arrayA,arrayB,callback){const result=[];Debug.assertEqual(arrayA.length,arrayB.length);for(let i=0;i<arrayA.length;i++)result.push(callback(arrayA[i],arrayB[i],i));return result}export function intersperse(input,element){if(input.
+import{CharacterCodes,Comparer,Comparison,Debug,EqualityComparer,MapLike,Queue,SortedArray,SortedReadonlyArray,TextSpan,}from "./_namespaces/ts.js";export const emptyArray: never[] = [] as never[];export const emptyMap: ReadonlyMap<never,never> = new Map<never,never>();export function length(array: readonly any[] | undefined): number{return array !== undefined ? array.length: 0;}export function forEach<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function forEachRight<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array !== undefined){for(let i = array.length - 1;i >= 0;i--){const result = callback(array[i],i);if(result){return result;}}}return undefined;}export function firstDefined<T,U>(array: readonly T[] | undefined,callback:(element: T,index: number)=> U | undefined): U | undefined{if(array === undefined){return undefined;}for(let i = 0;i < array.length;i++){const result = callback(array[i],i);if(result !== undefined){return result;}}r
 
-... [truncated 27880 chars] ...
+... [truncated 49354 chars] ...
 
-x===arrays.length-1?result.push(inner):cartesianProductWorker(arrays,result,inner,index+1)}}export function takeWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(0,index)}}export function skipWhile(array,predicate){if(void 0!==array){const len=array.length;let index=0;while(index<len&&predicate(array[index]))index++;return array.slice(index)}}export function isNodeLikeSystem(){return"undefined"!=typeof process&&!!process.nextTick&&!process.browser&&"undefined"!=typeof require}
+ds T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined;export function skipWhile<T,U extends T>(array: readonly T[] | undefined,predicate:(element: T)=> element is U): Exclude<T,U>[] | undefined{if(array !== undefined){const len = array.length;let index = 0;while(index < len && predicate(array[index])){index++;}return array.slice(index)as Exclude<T,U>[];}}export function isNodeLikeSystem(): boolean{return typeof process !== "undefined" && !!process.nextTick && !(process as any).browser && typeof require !== "undefined";}
 ```
 
 ## Symbols
@@ -254,7 +254,7 @@ x===arrays.length-1?result.push(inner):cartesianProductWorker(arrays,result,inne
  142| export function every<T, U extends T>(array: readonly T[] | undefined, callback: (element: T, index: number) => element is U): array is readonly U[] | undefined;
  144| export function every<T>(array: readonly T[] | undefined, cal
 
-... [truncated 25937 chars] ...
+... [truncated 25907 chars] ...
 
 rray: readonly T[], predicate: (element: T) => element is U): U[];
 2559| export function takeWhile<T, U extends T>(array: readonly T[] | undefined, predicate: (element: T) => element is U): U[] | undefined;

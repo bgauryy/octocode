@@ -4,9 +4,9 @@ Source sample: `php/Arr.php`
 
 Strategy: `conservative`
 
-Agent rating: **9.4/10 (excellent)**
+Agent rating: **9/10 (excellent)**
 
-Agent understanding from minified output: **9.7/10 (excellent)**
+Agent understanding from minified output: **9.4/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 35469 | - | - | - |
-| content-view | 20778 | 41.4% | 20.988 ms | 9/10 |
-| applyMinification | 20778 | 41.4% | 26.305 ms | 9/10 |
-| sync minify | 20778 | 41.4% | 19.729 ms | 9/10 |
-| async minify | 20778 | 41.4% | 18.495 ms | 9/10 |
-| symbols | 4562 | 87.1% | 1.141 ms | 10/10 |
+| content-view | 20778 | 41.4% | 11.635 ms | 9/10 |
+| applyMinification | 20842 | 41.2% | 12.139 ms | 9/10 |
+| sync minify | 20842 | 41.2% | 12.393 ms | 9/10 |
+| async minify | 20842 | 41.2% | 12.213 ms | 9/10 |
+| symbols | 4562 | 87.1% | 7.851 ms | n/a |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 9/10 |
 | context budget | 9/10 |
-| symbol context | 10/10 |
+| symbol context | 7/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,13 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 35469 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 20778 | 41.4% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 20778 | 41.4% | 9.7/10 excellent | 10/10 | 10/10 |
+| standard | 20778 | 41.4% | 9.4/10 excellent | 10/10 | 10/10 |
+| minify | 20842 | 41.2% | 9.4/10 excellent | 10/10 | 10/10 |
 | symbols | 4562 | 87.1% | 8.3/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 
 - conservative text strategy.
+- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -245,10 +246,12 @@ class Arr
 {
     use Macroable;
 
+
     public static function accessible($value)
     {
         return is_array($value) || $value instanceof ArrayAccess;
     }
+
 
     public static function arrayable($value)
     {
@@ -259,6 +262,7 @@ class Arr
             || $value instanceof JsonSerializable;
     }
 
+
     public static function add($array, $key, $value)
     {
         if (is_null(static::get($array, $key))) {
@@ -268,17 +272,18 @@ class Arr
         return $array;
     }
 
+
     public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array
     {
         $value = Arr::get($array, $key, $default);
 
         if (! is_array($value)) {
             throw new InvalidArgumentException(
-                sprin
+                s
 
-... [truncated 18978 chars] ...
+... [truncated 19042 chars] ...
 
-     $failed = [];
+   $failed = [];
 
         foreach ($array as $key => $item) {
             if ($callback($item, $key)) {
@@ -291,10 +296,12 @@ class Arr
         return [$passed, $failed];
     }
 
+
     public static function whereNotNull($array)
     {
         return static::where($array, fn ($value) => ! is_null($value));
     }
+
 
     public static function wrap($value)
     {
@@ -330,10 +337,12 @@ class Arr
 {
     use Macroable;
 
+
     public static function accessible($value)
     {
         return is_array($value) || $value instanceof ArrayAccess;
     }
+
 
     public static function arrayable($value)
     {
@@ -344,6 +353,7 @@ class Arr
             || $value instanceof JsonSerializable;
     }
 
+
     public static function add($array, $key, $value)
     {
         if (is_null(static::get($array, $key))) {
@@ -353,17 +363,18 @@ class Arr
         return $array;
     }
 
+
     public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array
     {
         $value = Arr::get($array, $key, $default);
 
         if (! is_array($value)) {
             throw new InvalidArgumentException(
-                sprin
+                s
 
-... [truncated 18978 chars] ...
+... [truncated 19042 chars] ...
 
-     $failed = [];
+   $failed = [];
 
         foreach ($array as $key => $item) {
             if ($callback($item, $key)) {
@@ -376,10 +387,12 @@ class Arr
         return [$passed, $failed];
     }
 
+
     public static function whereNotNull($array)
     {
         return static::where($array, fn ($value) => ! is_null($value));
     }
+
 
     public static function wrap($value)
     {
@@ -415,10 +428,12 @@ class Arr
 {
     use Macroable;
 
+
     public static function accessible($value)
     {
         return is_array($value) || $value instanceof ArrayAccess;
     }
+
 
     public static function arrayable($value)
     {
@@ -429,6 +444,7 @@ class Arr
             || $value instanceof JsonSerializable;
     }
 
+
     public static function add($array, $key, $value)
     {
         if (is_null(static::get($array, $key))) {
@@ -438,17 +454,18 @@ class Arr
         return $array;
     }
 
+
     public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array
     {
         $value = Arr::get($array, $key, $default);
 
         if (! is_array($value)) {
             throw new InvalidArgumentException(
-                sprin
+                s
 
-... [truncated 18978 chars] ...
+... [truncated 19042 chars] ...
 
-     $failed = [];
+   $failed = [];
 
         foreach ($array as $key => $item) {
             if ($callback($item, $key)) {
@@ -461,10 +478,12 @@ class Arr
         return [$passed, $failed];
     }
 
+
     public static function whereNotNull($array)
     {
         return static::where($array, fn ($value) => ! is_null($value));
     }
+
 
     public static function wrap($value)
     {

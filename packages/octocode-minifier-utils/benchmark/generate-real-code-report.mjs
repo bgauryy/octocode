@@ -10,7 +10,11 @@ import {
 } from 'node:fs';
 import { basename, extname, join, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import {
+import { createRequire } from 'node:module';
+
+// index.js is CommonJS (native .node addon); use createRequire for ESM compatibility
+const _require = createRequire(import.meta.url);
+const {
   applyContentViewMinification,
   applyMinification,
   extractSignatures,
@@ -18,7 +22,7 @@ import {
   minifyContent,
   minifyContentSync,
   SUPPORTED_SIGNATURE_EXTENSIONS,
-} from '../dist/index.js';
+} = _require('../index.js');
 
 const DEFAULT_CORPUS_ROOT = '/tmp/octocode-minifier-real-corpus';
 const EXCERPT_CHARS = 1800;

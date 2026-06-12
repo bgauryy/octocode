@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 1427 | - | - | - |
-| content-view | 1427 | 0% | 0.042 ms | 8.3/10 |
-| applyMinification | 1210 | 15.2% | 0.012 ms | 8.3/10 |
-| sync minify | 1210 | 15.2% | 0.005 ms | 8.3/10 |
-| async minify | 1210 | 15.2% | 0.012 ms | 8.3/10 |
-| symbols | n/a | n/a | 0.002 ms | n/a |
+| content-view | 1427 | 0% | 0.036 ms | 8.3/10 |
+| applyMinification | 1210 | 15.2% | 0.057 ms | 8.3/10 |
+| sync minify | 1210 | 15.2% | 0.053 ms | 8.3/10 |
+| async minify | 1210 | 15.2% | 0.058 ms | 8.3/10 |
+| symbols | 41 | 97.1% | 0.057 ms | n/a |
 
 ## Agent Understanding
 
@@ -49,7 +49,7 @@ for this language sample.
 | none | 1427 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 1427 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
 | minify | 1210 | 15.2% | 9.5/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| symbols | 41 | 97.1% | 8.5/10 strong | 6.7/10 | 10/10 |
 
 ## Notes
 
@@ -128,23 +128,25 @@ for this language sample.
 ## Apply Minification Excerpt
 
 ```jsonc
-{"lock":false,"nodeModulesDir":"none","tasks":{"check":"deno cache --allow-import src/mod.ts","backport":"deno --no-prompt --allow-read=. --allow-write=. https://deno.land/x/deno2node@v1.16.0/src/cli.ts tsconfig.json","test":"deno test --seed=123456 --parallel --allow-import ./test/","dev":"deno fmt && deno lint && deno task test && deno task check","coverage":"rm -rf ./test/cov_profile && deno task test --coverage=./test/cov_profile && deno coverage --lcov --output=./coverage.lcov ./test/cov_profile","report":"genhtml ./coverage.lcov --output-directory ./test/coverage/ && echo 'Point your browser to test/coverage/index.html to see the test coverage report.'","bundle-web":"mkdir -p out deno_cache && cd bundling && deno -ENRW bundle-web.ts dev ../src/mod.ts","contribs":"deno -ERS --allow-write=. --allow-net=api.github.com npm:all-contributors-cli","update-contribs":"deno run --allow-net=api.github.com --allow-read=. --allow-write --allow-env=GITHUB_TOKEN,GITHUB_OUTPUT .github/scripts/update-contributors.ts"},"exclude":["./bundling/bundles","./deno_cache/","./node_modules/","./out/","./package-lock.json","./test/cov_profile"],"fmt":{"indentWidth":4,"proseWrap":"preserve"},"compilerOptions":{}}
+{"compilerOptions":{},"exclude":["./bundling/bundles","./deno_cache/","./node_modules/","./out/","./package-lock.json","./test/cov_profile"],"fmt":{"indentWidth":4,"proseWrap":"preserve"},"lock":false,"nodeModulesDir":"none","tasks":{"backport":"deno --no-prompt --allow-read=. --allow-write=. https://deno.land/x/deno2node@v1.16.0/src/cli.ts tsconfig.json","bundle-web":"mkdir -p out deno_cache && cd bundling && deno -ENRW bundle-web.ts dev ../src/mod.ts","check":"deno cache --allow-import src/mod.ts","contribs":"deno -ERS --allow-write=. --allow-net=api.github.com npm:all-contributors-cli","coverage":"rm -rf ./test/cov_profile && deno task test --coverage=./test/cov_profile && deno coverage --lcov --output=./coverage.lcov ./test/cov_profile","dev":"deno fmt && deno lint && deno task test && deno task check","report":"genhtml ./coverage.lcov --output-directory ./test/coverage/ && echo 'Point your browser to test/coverage/index.html to see the test coverage report.'","test":"deno test --seed=123456 --parallel --allow-import ./test/","update-contribs":"deno run --allow-net=api.github.com --allow-read=. --allow-write --allow-env=GITHUB_TOKEN,GITHUB_OUTPUT .github/scripts/update-contributors.ts"}}
 ```
 
 ## Sync Minify Excerpt
 
 ```jsonc
-{"lock":false,"nodeModulesDir":"none","tasks":{"check":"deno cache --allow-import src/mod.ts","backport":"deno --no-prompt --allow-read=. --allow-write=. https://deno.land/x/deno2node@v1.16.0/src/cli.ts tsconfig.json","test":"deno test --seed=123456 --parallel --allow-import ./test/","dev":"deno fmt && deno lint && deno task test && deno task check","coverage":"rm -rf ./test/cov_profile && deno task test --coverage=./test/cov_profile && deno coverage --lcov --output=./coverage.lcov ./test/cov_profile","report":"genhtml ./coverage.lcov --output-directory ./test/coverage/ && echo 'Point your browser to test/coverage/index.html to see the test coverage report.'","bundle-web":"mkdir -p out deno_cache && cd bundling && deno -ENRW bundle-web.ts dev ../src/mod.ts","contribs":"deno -ERS --allow-write=. --allow-net=api.github.com npm:all-contributors-cli","update-contribs":"deno run --allow-net=api.github.com --allow-read=. --allow-write --allow-env=GITHUB_TOKEN,GITHUB_OUTPUT .github/scripts/update-contributors.ts"},"exclude":["./bundling/bundles","./deno_cache/","./node_modules/","./out/","./package-lock.json","./test/cov_profile"],"fmt":{"indentWidth":4,"proseWrap":"preserve"},"compilerOptions":{}}
+{"compilerOptions":{},"exclude":["./bundling/bundles","./deno_cache/","./node_modules/","./out/","./package-lock.json","./test/cov_profile"],"fmt":{"indentWidth":4,"proseWrap":"preserve"},"lock":false,"nodeModulesDir":"none","tasks":{"backport":"deno --no-prompt --allow-read=. --allow-write=. https://deno.land/x/deno2node@v1.16.0/src/cli.ts tsconfig.json","bundle-web":"mkdir -p out deno_cache && cd bundling && deno -ENRW bundle-web.ts dev ../src/mod.ts","check":"deno cache --allow-import src/mod.ts","contribs":"deno -ERS --allow-write=. --allow-net=api.github.com npm:all-contributors-cli","coverage":"rm -rf ./test/cov_profile && deno task test --coverage=./test/cov_profile && deno coverage --lcov --output=./coverage.lcov ./test/cov_profile","dev":"deno fmt && deno lint && deno task test && deno task check","report":"genhtml ./coverage.lcov --output-directory ./test/coverage/ && echo 'Point your browser to test/coverage/index.html to see the test coverage report.'","test":"deno test --seed=123456 --parallel --allow-import ./test/","update-contribs":"deno run --allow-net=api.github.com --allow-read=. --allow-write --allow-env=GITHUB_TOKEN,GITHUB_OUTPUT .github/scripts/update-contributors.ts"}}
 ```
 
 ## Async Minify Excerpt
 
 ```jsonc
-{"lock":false,"nodeModulesDir":"none","tasks":{"check":"deno cache --allow-import src/mod.ts","backport":"deno --no-prompt --allow-read=. --allow-write=. https://deno.land/x/deno2node@v1.16.0/src/cli.ts tsconfig.json","test":"deno test --seed=123456 --parallel --allow-import ./test/","dev":"deno fmt && deno lint && deno task test && deno task check","coverage":"rm -rf ./test/cov_profile && deno task test --coverage=./test/cov_profile && deno coverage --lcov --output=./coverage.lcov ./test/cov_profile","report":"genhtml ./coverage.lcov --output-directory ./test/coverage/ && echo 'Point your browser to test/coverage/index.html to see the test coverage report.'","bundle-web":"mkdir -p out deno_cache && cd bundling && deno -ENRW bundle-web.ts dev ../src/mod.ts","contribs":"deno -ERS --allow-write=. --allow-net=api.github.com npm:all-contributors-cli","update-contribs":"deno run --allow-net=api.github.com --allow-read=. --allow-write --allow-env=GITHUB_TOKEN,GITHUB_OUTPUT .github/scripts/update-contributors.ts"},"exclude":["./bundling/bundles","./deno_cache/","./node_modules/","./out/","./package-lock.json","./test/cov_profile"],"fmt":{"indentWidth":4,"proseWrap":"preserve"},"compilerOptions":{}}
+{"compilerOptions":{},"exclude":["./bundling/bundles","./deno_cache/","./node_modules/","./out/","./package-lock.json","./test/cov_profile"],"fmt":{"indentWidth":4,"proseWrap":"preserve"},"lock":false,"nodeModulesDir":"none","tasks":{"backport":"deno --no-prompt --allow-read=. --allow-write=. https://deno.land/x/deno2node@v1.16.0/src/cli.ts tsconfig.json","bundle-web":"mkdir -p out deno_cache && cd bundling && deno -ENRW bundle-web.ts dev ../src/mod.ts","check":"deno cache --allow-import src/mod.ts","contribs":"deno -ERS --allow-write=. --allow-net=api.github.com npm:all-contributors-cli","coverage":"rm -rf ./test/cov_profile && deno task test --coverage=./test/cov_profile && deno coverage --lcov --output=./coverage.lcov ./test/cov_profile","dev":"deno fmt && deno lint && deno task test && deno task check","report":"genhtml ./coverage.lcov --output-directory ./test/coverage/ && echo 'Point your browser to test/coverage/index.html to see the test coverage report.'","test":"deno test --seed=123456 --parallel --allow-import ./test/","update-contribs":"deno run --allow-net=api.github.com --allow-read=. --allow-write --allow-env=GITHUB_TOKEN,GITHUB_OUTPUT .github/scripts/update-contributors.ts"}}
 ```
 
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+ 1| {
+27|     "compilerOptions": {}
+28| }
 ```

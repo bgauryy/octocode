@@ -1,4 +1,7 @@
+
+
 {
+
 
 NVM_SCRIPT_SOURCE="$_"
 
@@ -59,9 +62,9 @@ nvm_command_info() {
   elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
     # shellcheck disable=SC2230
     INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
-  elif t
+  eli
 
-... [truncated 154484 chars] ...
+... [truncated 154489 chars] ...
 
 VERSION}" >/dev/null
       elif nvm_rc_version 3>/dev/null >/dev/null 2>&1; then

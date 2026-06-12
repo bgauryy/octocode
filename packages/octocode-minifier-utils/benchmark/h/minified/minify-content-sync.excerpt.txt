@@ -3,10 +3,12 @@
 
 #if __STDC_VERSION__ - 0 < 199901L
 
+
 #error "Required C99 support is in a test phase.  Please see git-compat-util.h for more details."
 #endif
 
 #ifdef USE_MSVC_CRTDBG
+
 
 #include <stdlib.h>
 #include <crtdbg.h>
@@ -26,6 +28,7 @@ struct strbuf;
 #undef FLEX_ARRAY
 #define FLEX_ARRAY
 
+
 #define BUILD_ASSERT_OR_ZERO(cond) \
 	(sizeof(char [1 - 2*!(cond)]) - 1)
 
@@ -43,11 +46,12 @@ struct strbuf;
 #else
 # define BARF_UNLESS_AN_ARRAY(arr) 0
 # define BARF_UNLESS_COPYABLE(dst, src) \
-	BUILD_AS
+	BUILD
 
-... [truncated 18355 chars] ...
+... [truncated 18400 chars] ...
 
- member))
+ember))
+
 
 #if defined(__GNUC__)
 #define OFFSETOF_VAR(ptr, member) offsetof(__typeof__(*ptr), member)
@@ -55,6 +59,7 @@ struct strbuf;
 #define OFFSETOF_VAR(ptr, member) \
 	((uintptr_t)&(ptr)->member - (uintptr_t)(ptr))
 #endif
+
 
 #define NOT_CONSTANT(expr) ((expr) || false_but_the_compiler_does_not_know_it_)
 extern int false_but_the_compiler_does_not_know_it_;

@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 156857 | - | - | - |
-| content-view | 156306 | 0.4% | 11.94 ms | 6.3/10 |
-| applyMinification | 156306 | 0.4% | 11.455 ms | 6.3/10 |
-| sync minify | 156306 | 0.4% | 13.066 ms | 6.3/10 |
-| async minify | 156306 | 0.4% | 11.813 ms | 6.3/10 |
-| symbols | 3432 | 97.8% | 7.1 ms | 10/10 |
+| content-view | 156306 | 0.4% | 6.629 ms | 6.3/10 |
+| applyMinification | 156311 | 0.3% | 6.971 ms | 6.3/10 |
+| sync minify | 156311 | 0.3% | 7.067 ms | 6.3/10 |
+| async minify | 156311 | 0.3% | 7.173 ms | 6.3/10 |
+| symbols | 4266 | 97.3% | 53.963 ms | 10/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 156857 | 0% | 10/10 excellent | 10/10 | 9.4/10 |
 | standard | 156306 | 0.4% | 9.3/10 excellent | 10/10 | 9.4/10 |
-| minify | 156306 | 0.4% | 9.3/10 excellent | 10/10 | 9.4/10 |
-| symbols | 3432 | 97.8% | 6.1/10 fair | 3.3/10 | 5/10 |
+| minify | 156311 | 0.3% | 9.3/10 excellent | 10/10 | 9.4/10 |
+| symbols | 4266 | 97.3% | 9/10 excellent | 10/10 | 7.1/10 |
 
 ## Notes
 
@@ -263,7 +263,10 @@ nvm_process_parameters "$@"
 ## Apply Minification Excerpt
 
 ```sh
+
+
 {
+
 
 NVM_SCRIPT_SOURCE="$_"
 
@@ -324,9 +327,9 @@ nvm_command_info() {
   elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
     # shellcheck disable=SC2230
     INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
-  elif t
+  eli
 
-... [truncated 154484 chars] ...
+... [truncated 154489 chars] ...
 
 VERSION}" >/dev/null
       elif nvm_rc_version 3>/dev/null >/dev/null 2>&1; then
@@ -363,7 +366,10 @@ nvm_process_parameters "$@"
 ## Sync Minify Excerpt
 
 ```sh
+
+
 {
+
 
 NVM_SCRIPT_SOURCE="$_"
 
@@ -424,9 +430,9 @@ nvm_command_info() {
   elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
     # shellcheck disable=SC2230
     INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
-  elif t
+  eli
 
-... [truncated 154484 chars] ...
+... [truncated 154489 chars] ...
 
 VERSION}" >/dev/null
       elif nvm_rc_version 3>/dev/null >/dev/null 2>&1; then
@@ -463,7 +469,10 @@ nvm_process_parameters "$@"
 ## Async Minify Excerpt
 
 ```sh
+
+
 {
+
 
 NVM_SCRIPT_SOURCE="$_"
 
@@ -524,9 +533,9 @@ nvm_command_info() {
   elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
     # shellcheck disable=SC2230
     INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
-  elif t
+  eli
 
-... [truncated 154484 chars] ...
+... [truncated 154489 chars] ...
 
 VERSION}" >/dev/null
       elif nvm_rc_version 3>/dev/null >/dev/null 2>&1; then
@@ -563,6 +572,8 @@ nvm_process_parameters "$@"
 ## Symbols
 
 ```txt
+  11| { # this ensures the entire script is downloaded #
+  14| NVM_SCRIPT_SOURCE="$_"
   16| nvm_is_zsh() {
   20| nvm_stdout_is_terminal() {
   24| nvm_echo() {
@@ -586,7 +597,28 @@ nvm_process_parameters "$@"
  189| nvm_is_version_installed() {
  204| nvm_print_npm_version() {
  214| nvm_install_latest_npm() {
+ 455| if [ -z "${NVM_CD_FLAGS-}" ]; then
  456|   export NVM_CD_FLAGS=''
+ 457| fi
+ 458| if nvm_is_zsh; then
+ 459|   NVM_CD_FLAGS="-q"
+ 460| fi
+ 463| if [ -z "${NVM_DIR-}" ]; then
+ 465|   if [ -n "${BASH_SOURCE-}" ]; then
+ 466|     NVM_SCRIPT_SOURCE="${BASH_SOURCE}"
+ 467|   fi
+ 469|   NVM_DIR="$(nvm_cd ${NVM_CD_FLAGS} "$(dirname "${NVM_SCRIPT_SOURCE:-$0}")" >/dev/null && \pwd)"
+ 470|   export NVM_DIR
+ 471| else
+ 473|   case $NVM_DIR in
+ 474|     *[!/]*/)
+ 475|       NVM_DIR="${NVM_DIR%"${NVM_DIR##*[!/]}"}"
+ 476|       export NVM_DIR
+ 477|       nvm_err "Warning: \$NVM_DIR should not have trailing slashes"
+ 478|     ;;
+ 479|   esac
+ 480| fi
+ 481| unset NVM_SCRIPT_SOURCE 2>/dev/null
  483| nvm_tree_contains_path() {
  506| nvm_find_project_dir() {
  516| nvm_find_up() {
@@ -599,39 +631,11 @@ nvm_process_parameters "$@"
  655| nvm_version_greater() {
  670| nvm_version_greater_than_or_equal_to() {
  684| nvm_version_dir() {
- 699| nvm_alias_path() {
- 703| nvm_version_path() {
- 718| nvm_ensure_version_installed() {
- 756| nvm_version() {
- 790| nvm_remote_version() {
- 828| nvm_remote_versions() {
- 903| nvm_is_valid_version() {
- 920| nvm_normalize_version() {
- 928| nvm_normalize_lts() {
- 967| nvm_ensure_version_prefix() {
- 977| nvm_format_version() {
- 989| nvm_num_version_groups() {
-1005| nvm_strip_path() {
-1024| nvm_change_path() {
-1049| nvm_binary_available() {
-1054| nvm_set_colors() {
-1079| nvm_get_colors() {
-1103| nvm_wrap_with_color_code() {
-1115| nvm_print_color_code() {
-1141| nvm_print_formatted_alias() {
-1213| nvm_print_alias_path() {
-1235| nvm_print_default_alias() {
-1249| nvm_make_alias() {
-1265| nvm_list_aliases() {
-1324| nvm_alias() {
-1349| nvm_ls_current() {
-1368|
+ 699| nvm_alias_pat
 
-... [truncated 832 chars] ...
+... [truncated 1666 chars] ...
 
-59| nvm_get_artifact_compression() {
-2478| nvm_download_artifact() {
-2602| nvm_extract_tarball() {
+all() {
 2643| nvm_get_make_jobs() {
 2686| nvm_install_source() {
 2794| nvm_use_if_needed() {
@@ -656,4 +660,6 @@ nvm_process_parameters "$@"
 4734| nvm_supports_xz() {
 4788| nvm_auto() {
 4831| nvm_process_parameters() {
+4844| nvm_process_parameters "$@"
+4846| } # this ensures the entire script is downloaded #
 ```

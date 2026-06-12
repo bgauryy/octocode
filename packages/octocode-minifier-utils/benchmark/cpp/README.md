@@ -4,7 +4,7 @@ Source sample: `cpp/00-llvm-raw-ostream.cpp`
 
 Strategy: `conservative`
 
-Agent rating: **9/10 (excellent)**
+Agent rating: **8.7/10 (strong)**
 
 Agent understanding from minified output: **9.7/10 (excellent)**
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 32621 | - | - | - |
-| content-view | 22759 | 30.2% | 24.409 ms | 8.5/10 |
-| applyMinification | 22759 | 30.2% | 8.459 ms | 8.5/10 |
-| sync minify | 22759 | 30.2% | 13.692 ms | 8.5/10 |
-| async minify | 22759 | 30.2% | 13.435 ms | 8.5/10 |
-| symbols | 6335 | 80.6% | 0.39 ms | 10/10 |
+| content-view | 22759 | 30.2% | 6.976 ms | 8.5/10 |
+| applyMinification | 22815 | 30.1% | 6.552 ms | 8.5/10 |
+| sync minify | 22815 | 30.1% | 6.825 ms | 8.5/10 |
+| async minify | 22815 | 30.1% | 6.821 ms | 8.5/10 |
+| symbols | 7693 | 76.4% | 36.569 ms | 9/10 |
 
 ## Agent Understanding
 
@@ -48,8 +48,8 @@ for this language sample.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 32621 | 0% | 10/10 excellent | 10/10 | 10/10 |
 | standard | 22759 | 30.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 22759 | 30.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 6335 | 80.6% | 9/10 excellent | 10/10 | 6/10 |
+| minify | 22815 | 30.1% | 9.7/10 excellent | 10/10 | 10/10 |
+| symbols | 7693 | 76.4% | 9.3/10 excellent | 10/10 | 6.5/10 |
 
 ## Notes
 
@@ -210,6 +210,8 @@ e + ".temp-stream-%%%%%%", Mode);
 ## Apply Minification Excerpt
 
 ```cpp
+
+
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
@@ -229,6 +231,7 @@ e + ".temp-stream-%%%%%%", Mode);
 #include <cerrno>
 #include <cstdio>
 #include <sys/stat.h>
+
 
 # include <fcntl.h>
 
@@ -263,10 +266,11 @@ using namespace llvm;
 
 raw_ostream::~raw_ostream() {
 
-  assert(OutBufCur == OutBufStart &&
-         "raw_ostream destructor
 
-... [truncated 20959 chars] ...
+  assert(OutBufCur == OutBufStart &&
+         "raw_ostream destru
+
+... [truncated 21015 chars] ...
 
 e + ".temp-stream-%%%%%%", Mode);
   if (!Temp)
@@ -295,6 +299,8 @@ e + ".temp-stream-%%%%%%", Mode);
 ## Sync Minify Excerpt
 
 ```cpp
+
+
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
@@ -314,6 +320,7 @@ e + ".temp-stream-%%%%%%", Mode);
 #include <cerrno>
 #include <cstdio>
 #include <sys/stat.h>
+
 
 # include <fcntl.h>
 
@@ -348,10 +355,11 @@ using namespace llvm;
 
 raw_ostream::~raw_ostream() {
 
-  assert(OutBufCur == OutBufStart &&
-         "raw_ostream destructor
 
-... [truncated 20959 chars] ...
+  assert(OutBufCur == OutBufStart &&
+         "raw_ostream destru
+
+... [truncated 21015 chars] ...
 
 e + ".temp-stream-%%%%%%", Mode);
   if (!Temp)
@@ -380,6 +388,8 @@ e + ".temp-stream-%%%%%%", Mode);
 ## Async Minify Excerpt
 
 ```cpp
+
+
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
@@ -399,6 +409,7 @@ e + ".temp-stream-%%%%%%", Mode);
 #include <cerrno>
 #include <cstdio>
 #include <sys/stat.h>
+
 
 # include <fcntl.h>
 
@@ -433,10 +444,11 @@ using namespace llvm;
 
 raw_ostream::~raw_ostream() {
 
-  assert(OutBufCur == OutBufStart &&
-         "raw_ostream destructor
 
-... [truncated 20959 chars] ...
+  assert(OutBufCur == OutBufStart &&
+         "raw_ostream destru
+
+... [truncated 21015 chars] ...
 
 e + ".temp-stream-%%%%%%", Mode);
   if (!Temp)
@@ -485,15 +497,30 @@ e + ".temp-stream-%%%%%%", Mode);
   30| #include <cstdio>
   31| #include <sys/stat.h>
   34| # include <fcntl.h>
+  36| #if defined(HAVE_UNISTD_H)
   37| # include <unistd.h>
+  38| #endif
+  40| #if defined(__CYGWIN__)
   41| #include <io.h>
+  42| #endif
+  44| #if defined(_MSC_VER)
   45| #include <io.h>
+  46| #ifndef STDIN_FILENO
   47| # define STDIN_FILENO 0
+  48| #endif
+  49| #ifndef STDOUT_FILENO
   50| # define STDOUT_FILENO 1
+  51| #endif
+  52| #ifndef STDERR_FILENO
   53| # define STDERR_FILENO 2
+  54| #endif
+  55| #endif
+  57| #ifdef _WIN32
   58| #include "llvm/Support/ConvertUTF.h"
   59| #include "llvm/Support/Signals.h"
   60| #include "llvm/Support/Windows/WindowsSupport.h"
+  61| #endif
+  63| using namespace llvm;
   65| raw_ostream::~raw_ostream() {
   75| size_t raw_ostream::preferred_buffer_size() const {
   87| void raw_ostream::SetBuffered() {
@@ -501,14 +528,9 @@ e + ".temp-stream-%%%%%%", Mode);
   97|                                    BufferKind Mode) {
  115| raw_ostream &raw_ostream::operator<<(unsigned long N) {
  120| raw_ostream &raw_ostream::operator<<(long N) {
- 125| raw_ostream &raw_ostream::operator<<(unsigned long long N) {
- 130| raw_ostream &raw_ostream::operator<<(long long N) {
- 135| raw_ostream &raw_ostream::write_hex(unsigned long long N) {
- 140| raw_ostream &raw_ostream::operator<<(Colors C) {
- 148| raw_ostream &raw_ostream::write_uuid(const uuid_t UUID) {
- 158| ra
+ 125|
 
-... [truncated 3735 chars] ...
+... [truncated 5093 chars] ...
 
 raw_svector_ostream::write_impl(const char *Ptr, size_t Size) {
  972| void raw_svector_ostream::pwrite_impl(const char *Ptr, size_t Size,

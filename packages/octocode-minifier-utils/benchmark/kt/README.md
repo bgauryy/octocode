@@ -6,7 +6,7 @@ Strategy: `conservative`
 
 Agent rating: **9/10 (excellent)**
 
-Agent understanding from minified output: **9.8/10 (excellent)**
+Agent understanding from minified output: **9.5/10 (excellent)**
 
 Artifacts:
 
@@ -20,11 +20,11 @@ Artifacts:
 | Tool | Bytes | Cut | Time | Rating |
 | --- | ---: | ---: | ---: | ---: |
 | input | 20559 | - | - | - |
-| content-view | 10457 | 49.1% | 9.592 ms | 9/10 |
-| applyMinification | 10457 | 49.1% | 6.158 ms | 9/10 |
-| sync minify | 10457 | 49.1% | 8.764 ms | 9/10 |
-| async minify | 10457 | 49.1% | 5.902 ms | 9/10 |
-| symbols | 4690 | 77.2% | 0.418 ms | 9/10 |
+| content-view | 10457 | 49.1% | 3.173 ms | 9/10 |
+| applyMinification | 10492 | 49% | 3.068 ms | 9/10 |
+| sync minify | 10492 | 49% | 3.102 ms | 9/10 |
+| async minify | 10492 | 49% | 3.163 ms | 9/10 |
+| symbols | 5961 | 71% | 0.501 ms | n/a |
 
 ## Agent Understanding
 
@@ -36,7 +36,7 @@ Measured from `standard` minified output.
 | delimiter structure | 10/10 |
 | output health | 9/10 |
 | context budget | 10/10 |
-| symbol context | 10/10 |
+| symbol context | 7/10 |
 | signals passed | 6/6 |
 
 ## Agent Observation By Output Level
@@ -47,13 +47,14 @@ for this language sample.
 | Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | none | 20559 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 10457 | 49.1% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 10457 | 49.1% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 4690 | 77.2% | 8/10 strong | 6.7/10 | 7.5/10 |
+| standard | 10457 | 49.1% | 9.5/10 excellent | 10/10 | 10/10 |
+| minify | 10492 | 49% | 9.5/10 excellent | 10/10 | 10/10 |
+| symbols | 5961 | 71% | 8/10 strong | 6.7/10 | 7.7/10 |
 
 ## Notes
 
 - conservative text strategy.
+- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -180,6 +181,8 @@ internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: A
 ## Apply Minification Excerpt
 
 ```kt
+
+
 @file:kotlin.js.JsFileName("CollectionsKt")
 @file:kotlin.jvm.JvmMultifileClass
 @file:kotlin.jvm.JvmName("CollectionsKt")
@@ -211,11 +214,11 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-    o
+   
 
-... [truncated 8657 chars] ...
+... [truncated 8692 chars] ...
 
-ay<T> {
+y<T> {
     if (collection.isEmpty()) return terminateCollectionToArray(0, array)
 
     val destination = if (array.size < collection.size) {
@@ -233,6 +236,7 @@ ay<T> {
 
     return terminateCollectionToArray(collection.size, destination)
 }
+
 
 internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>
 ```
@@ -240,6 +244,8 @@ internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: A
 ## Sync Minify Excerpt
 
 ```kt
+
+
 @file:kotlin.js.JsFileName("CollectionsKt")
 @file:kotlin.jvm.JvmMultifileClass
 @file:kotlin.jvm.JvmName("CollectionsKt")
@@ -271,11 +277,11 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-    o
+   
 
-... [truncated 8657 chars] ...
+... [truncated 8692 chars] ...
 
-ay<T> {
+y<T> {
     if (collection.isEmpty()) return terminateCollectionToArray(0, array)
 
     val destination = if (array.size < collection.size) {
@@ -293,6 +299,7 @@ ay<T> {
 
     return terminateCollectionToArray(collection.size, destination)
 }
+
 
 internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>
 ```
@@ -300,6 +307,8 @@ internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: A
 ## Async Minify Excerpt
 
 ```kt
+
+
 @file:kotlin.js.JsFileName("CollectionsKt")
 @file:kotlin.jvm.JvmMultifileClass
 @file:kotlin.jvm.JvmName("CollectionsKt")
@@ -331,11 +340,11 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-    o
+   
 
-... [truncated 8657 chars] ...
+... [truncated 8692 chars] ...
 
-ay<T> {
+y<T> {
     if (collection.isEmpty()) return terminateCollectionToArray(0, array)
 
     val destination = if (array.size < collection.size) {
@@ -353,6 +362,7 @@ ay<T> {
 
     return terminateCollectionToArray(collection.size, destination)
 }
+
 
 internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>
 ```
@@ -363,12 +373,14 @@ internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: A
  11| package kotlin.collections
  13| import kotlin.contracts.*
  14| import kotlin.random.Random
+ 16| internal object EmptyIterator : ListIterator<Nothing> {
  17|     override fun hasNext(): Boolean = false
  18|     override fun hasPrevious(): Boolean = false
  19|     override fun nextIndex(): Int = 0
  20|     override fun previousIndex(): Int = -1
  21|     override fun next(): Nothing = throw NoSuchElementException()
  22|     override fun previous(): Nothing = throw NoSuchElementException()
+ 25| internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
  26|     private const val serialVersionUID: Long = -7390468764508069838L
  28|     override fun equals(other: Any?): Boolean = other is List<*> && other.isEmpty()
  29|     override fun hashCode(): Int = 1
@@ -385,23 +397,20 @@ internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: A
  43|     override fun listIterator(index: Int): ListIterator<Nothing> {
  48|     override fun subList(fromIndex: Int, toIndex: Int): List<Nothing> {
  53|     private fun readResolve(): Any = EmptyList
- 61| private class ArrayAsCollection<T>(val values: Array<out T>, val isVarargs: Boolean) : Collection<T> {
- 62|     override val size: Int get() = values.size
- 63|     override fun isEmpty(): Boolean = values.isEmpty()
- 64|    
+ 57| internal expect inline fun <T> Array<out T>.asArrayList(): ArrayList<T>
+ 59| internal
 
-... [truncated 2090 chars] ...
+... [truncated 3361 chars] ...
 
-llection<T>.containsAll(elements: Collection<T>): Boolean = this.containsAll(elements)
-306| public fun <T> Iterable<T>.shuffled(random: Random): List<T> = toMutableList().apply { shuffle(random) }
-331| public fun <T : Comparable<T>> List<T?>.binarySearch(element: T?, fromIndex: Int = 0, toIndex: Int = size): Int {
-367| public fun <T> List<T>.binarySearch(element: T, comparator: Comparator<in T>, fromIndex: Int = 0, toIndex: Int = size): Int {
-404| public inline fun <T, K : Comparable<K>> List<T>.binarySearchBy(
-405|     key: K?,
-406|     fromIndex: Int = 0,
-407|     toIndex: Int = size,
-408|     crossinline selector: (T) -> K?
+r: (T) -> K?
 409| ): Int =
 436| public fun <T> List<T>.binarySearch(fromIndex: Int = 0, toIndex: Int = size, comparison: (T) -> Int): Int {
 461| private fun rangeCheck(size: Int, fromIndex: Int, toIndex: Int) {
+473| internal expect fun checkIndexOverflow(index: Int): Int
+478| internal expect fun checkCountOverflow(count: Int): Int
+483| internal fun throwIndexOverflow() { throw ArithmeticException("Index overflow has happened.") }
+487| internal fun throwCountOverflow() { throw ArithmeticException("Count overflow has happened.") }
+490| internal fun collectionToArrayCommonImpl(collection: Collection<*>): Array<Any?> {
+504| internal fun <T> collectionToArrayCommonImpl(collection: Collection<*>, array: Array<T>): Array<T> {
+528| internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>
 ```

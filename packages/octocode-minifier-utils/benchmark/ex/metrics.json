@@ -9,32 +9,32 @@
   "contentView": {
     "bytes": 152002,
     "cutPercent": 1.5,
-    "durationMs": 39.896
+    "durationMs": 24.443
   },
   "applyMinification": {
-    "bytes": 129270,
-    "cutPercent": 16.2,
-    "durationMs": 43.904
+    "bytes": 129139,
+    "cutPercent": 16.3,
+    "durationMs": 25.963
   },
   "sync": {
-    "bytes": 129270,
-    "cutPercent": 16.2,
-    "durationMs": 40.116
+    "bytes": 129139,
+    "cutPercent": 16.3,
+    "durationMs": 26.676
   },
   "async": {
-    "bytes": 129270,
-    "cutPercent": 16.2,
-    "durationMs": 60.113,
+    "bytes": 129139,
+    "cutPercent": 16.3,
+    "durationMs": 26.526,
     "failed": false,
     "type": "aggressive",
     "reason": null
   },
   "symbols": {
     "supported": false,
-    "returned": false,
-    "bytes": null,
-    "cutPercent": null,
-    "durationMs": 0.036
+    "returned": true,
+    "bytes": 28,
+    "cutPercent": 100,
+    "durationMs": 1.202
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 129270,
-      "cutPercent": 16.2,
+      "bytes": 129139,
+      "cutPercent": 16.3,
       "score": 9.5,
       "label": "excellent",
       "syntaxAnchors": {
@@ -193,7 +193,48 @@
         }
       ]
     },
-    "symbols": null
+    "symbols": {
+      "output": "symbols",
+      "bytes": 28,
+      "cutPercent": 100,
+      "score": 6.7,
+      "label": "fair",
+      "syntaxAnchors": {
+        "score": 3.3,
+        "hits": 1,
+        "total": 3
+      },
+      "structure": 8,
+      "outputHealth": 10,
+      "contextBudget": 8,
+      "symbols": 10,
+      "signals": [
+        {
+          "name": "symbols output is non-empty",
+          "passed": true
+        },
+        {
+          "name": "symbols did not grow",
+          "passed": true
+        },
+        {
+          "name": "symbols completed",
+          "passed": true
+        },
+        {
+          "name": "language syntax anchors present",
+          "passed": false
+        },
+        {
+          "name": "delimiter structure is balanced enough",
+          "passed": true
+        },
+        {
+          "name": "symbol skeleton returned or not configured",
+          "passed": true
+        }
+      ]
+    }
   },
   "ratings": {
     "minify": 7.8,

@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 15620,
     "cutPercent": 38.3,
-    "durationMs": 9.3
+    "durationMs": 5.339
   },
   "applyMinification": {
-    "bytes": 15620,
-    "cutPercent": 38.3,
-    "durationMs": 8.316
+    "bytes": 15638,
+    "cutPercent": 38.2,
+    "durationMs": 5.554
   },
   "sync": {
-    "bytes": 15620,
-    "cutPercent": 38.3,
-    "durationMs": 9.964
+    "bytes": 15638,
+    "cutPercent": 38.2,
+    "durationMs": 5.704
   },
   "async": {
-    "bytes": 15620,
-    "cutPercent": 38.3,
-    "durationMs": 4.265,
+    "bytes": 15638,
+    "cutPercent": 38.2,
+    "durationMs": 5.587,
     "failed": false,
     "type": "conservative",
     "reason": null
@@ -32,9 +32,9 @@
   "symbols": {
     "supported": true,
     "returned": true,
-    "bytes": 7208,
-    "cutPercent": 71.5,
-    "durationMs": 0.611
+    "bytes": 15359,
+    "cutPercent": 39.3,
+    "durationMs": 33.655
   },
   "agentUnderstanding": {
     "output": "standard",
@@ -153,8 +153,8 @@
     },
     "minify": {
       "output": "minify",
-      "bytes": 15620,
-      "cutPercent": 38.3,
+      "bytes": 15638,
+      "cutPercent": 38.2,
       "score": 9.8,
       "label": "excellent",
       "syntaxAnchors": {
@@ -195,18 +195,18 @@
     },
     "symbols": {
       "output": "symbols",
-      "bytes": 7208,
-      "cutPercent": 71.5,
-      "score": 9.2,
+      "bytes": 15359,
+      "cutPercent": 39.3,
+      "score": 9.6,
       "label": "excellent",
       "syntaxAnchors": {
         "score": 10,
         "hits": 3,
         "total": 3
       },
-      "structure": 6.1,
+      "structure": 8.4,
       "outputHealth": 10,
-      "contextBudget": 10,
+      "contextBudget": 9,
       "symbols": 10,
       "signals": [
         {
@@ -227,7 +227,7 @@
         },
         {
           "name": "delimiter structure is balanced enough",
-          "passed": false
+          "passed": true
         },
         {
           "name": "symbol skeleton returned or not configured",
@@ -238,9 +238,9 @@
   },
   "ratings": {
     "minify": 8.5,
-    "symbols": 9,
-    "agent": 8.7,
-    "label": "strong"
+    "symbols": 6.5,
+    "agent": 7.8,
+    "label": "good"
   },
   "notes": [
     "conservative text strategy"
