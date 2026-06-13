@@ -66,6 +66,12 @@ const npmSuffix = key ? key : null
 
 const candidates = []
 
+// Env override first (CI / custom installs) — honored even when the platform
+// is not in tripleMap so unsupported targets can still point at a binary.
+if (process.env.OCTOCODE_MINIFIER_NATIVE_PATH) {
+  candidates.push(process.env.OCTOCODE_MINIFIER_NATIVE_PATH)
+}
+
 if (localFile) {
   // 1. next to this file (local dev / workspace symlink)
   candidates.push(join(_dir, localFile))
@@ -73,10 +79,6 @@ if (localFile) {
   candidates.push(join(_dir, 'runtime', 'minifier', localFile))
   // 3. one level up (CLI distribution layout where scripts/ lives beside runtime/)
   candidates.push(join(_dir, '..', 'runtime', 'minifier', localFile))
-  // 4. env override (CI / custom installs)
-  if (process.env.OCTOCODE_MINIFIER_NATIVE_PATH) {
-    candidates.unshift(process.env.OCTOCODE_MINIFIER_NATIVE_PATH)
-  }
 }
 
 let nativeBinding = null
@@ -97,6 +99,17 @@ for (const candidatePath of candidates) {
 if (!nativeBinding && npmSuffix) {
   try {
     nativeBinding = _require(`@octocodeai/${name}-${npmSuffix}`)
+  } catch (e) {
+    loadError = loadError ?? e
+  }
+}
+
+// Last resort: delegate to the napi-generated CJS loader, which resolves
+// triples not in tripleMap above (win32-arm64/ia32, freebsd, riscv, s390x…).
+// Keeps the ESM loader a strict superset of the CJS one.
+if (!nativeBinding) {
+  try {
+    nativeBinding = _require('./index.js')
   } catch (e) {
     loadError = loadError ?? e
   }

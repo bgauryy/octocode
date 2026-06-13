@@ -59,29 +59,51 @@ fn collapse_whitespace(s: &str) -> String {
     result
 }
 
+/// Byte length of the UTF-8 sequence starting with `b`. Callers only invoke
+/// this on sequence-lead bytes (valid `&str` + always advancing by full
+/// sequences), so continuation bytes never reach it.
+#[inline]
+pub(crate) fn utf8_seq_len(b: u8) -> usize {
+    match b {
+        0x00..=0x7F => 1,
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        _ => 4,
+    }
+}
+
+/// Copy the full UTF-8 sequence at byte `i` of `s` into `result`; returns the
+/// index of the next sequence. Keeps byte-level scanners multibyte-safe: all
+/// branch decisions compare ASCII bytes (which never occur inside a multibyte
+/// sequence), and passthrough copies whole sequences instead of `u8 as char`.
+#[inline]
+fn copy_seq(s: &str, i: usize, result: &mut String) -> usize {
+    let len = utf8_seq_len(s.as_bytes()[i]).min(s.len() - i);
+    result.push_str(&s[i..i + len]);
+    i + len
+}
+
 fn re_tighten_punct(s: &str) -> String {
     // Remove spaces around {}:;, and ><
     let bytes = s.as_bytes();
     let mut result = String::with_capacity(s.len());
     let mut i = 0;
     while i < bytes.len() {
-        let ch = bytes[i] as char;
-        if ch == ' ' && i + 1 < bytes.len() {
-            let next = bytes[i + 1] as char;
-            if matches!(next, '{' | '}' | ':' | ';' | ',' | '<' | '>') {
-                i += 1; continue;
-            }
+        let b = bytes[i];
+        if b == b' '
+            && matches!(bytes.get(i + 1).copied(), Some(b'{' | b'}' | b':' | b';' | b',' | b'<' | b'>'))
+        {
+            i += 1; continue;
         }
-        if matches!(ch, '{' | '}' | ':' | ';' | ',') && i + 1 < bytes.len() && bytes[i + 1] == b' ' {
-            result.push(ch);
+        if matches!(b, b'{' | b'}' | b':' | b';' | b',') && bytes.get(i + 1) == Some(&b' ') {
+            result.push(b as char);
             i += 2; continue;
         }
-        if ch == '>' && i + 1 < bytes.len() && bytes[i + 1] == b' ' && i + 2 < bytes.len() && bytes[i + 2] == b'<' {
-            result.push(ch);
+        if b == b'>' && bytes.get(i + 1) == Some(&b' ') && bytes.get(i + 2) == Some(&b'<') {
+            result.push('>');
             i += 2; continue;
         }
-        result.push(ch);
-        i += 1;
+        i = copy_seq(s, i, &mut result);
     }
     result
 }
@@ -142,11 +164,11 @@ fn strip_json_comments(content: &str) -> String {
     while i < bytes.len() {
         let ch = bytes[i];
         if in_str {
-            result.push(ch as char);
             if escaped { escaped = false; }
             else if ch == b'\\' { escaped = true; }
             else if ch == b'"' { in_str = false; }
-            i += 1; continue;
+            i = copy_seq(content, i, &mut result);
+            continue;
         }
         if ch == b'"' { in_str = true; result.push('"'); i += 1; continue; }
         if ch == b'/' && bytes.get(i + 1) == Some(&b'/') {
@@ -159,8 +181,7 @@ fn strip_json_comments(content: &str) -> String {
             if i + 1 < bytes.len() { i += 2; }
             continue;
         }
-        result.push(ch as char);
-        i += 1;
+        i = copy_seq(content, i, &mut result);
     }
     result
 }
@@ -174,11 +195,11 @@ fn strip_trailing_commas(content: &str) -> String {
     while i < bytes.len() {
         let ch = bytes[i];
         if in_str {
-            result.push(ch as char);
             if escaped { escaped = false; }
             else if ch == b'\\' { escaped = true; }
             else if ch == b'"' || ch == b'\'' { in_str = false; }
-            i += 1; continue;
+            i = copy_seq(content, i, &mut result);
+            continue;
         }
         if ch == b'"' || ch == b'\'' { in_str = true; result.push(ch as char); i += 1; continue; }
         if ch == b',' {
@@ -186,8 +207,7 @@ fn strip_trailing_commas(content: &str) -> String {
             while look < bytes.len() && matches!(bytes[look], b' '|b'\t'|b'\n'|b'\r') { look += 1; }
             if look < bytes.len() && matches!(bytes[look], b'}'|b']') { i += 1; continue; }
         }
-        result.push(ch as char);
-        i += 1;
+        i = copy_seq(content, i, &mut result);
     }
     result
 }
@@ -246,7 +266,8 @@ pub fn minify_general_core(content: &str) -> String {
 // ── Markdown ─────────────────────────────────────────────────────────────────
 
 pub fn minify_markdown_core(content: &str) -> String {
-    let source: Vec<&str> = content.replace("\r\n", "\n").leak().split('\n').collect();
+    let normalized = content.replace("\r\n", "\n");
+    let source: Vec<&str> = normalized.split('\n').collect();
     let mut out: Vec<String> = Vec::with_capacity(source.len());
     let mut fence: Option<FenceState> = None;
     let mut in_html_comment = false;
@@ -597,7 +618,14 @@ pub fn minify_js_oxc(content: &str, file_path: &str, mangle: bool) -> Option<Str
 
     let codegen_opts = CodegenOptions {
         minify:   true,
-        comments: CommentOptions { annotation: false, ..CommentOptions::default() },
+        // Strip ALL comment classes — the "standard" view contract removes
+        // known language comments (normal + jsdoc default to true in oxc).
+        comments: CommentOptions {
+            normal: false,
+            jsdoc: false,
+            annotation: false,
+            ..CommentOptions::default()
+        },
         ..CodegenOptions::default()
     };
     let result = Codegen::new().with_options(codegen_opts).build(&program).code;
@@ -624,20 +652,18 @@ fn re_tighten_punct_js(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut i = 0;
     while i < bytes.len() {
-        let ch = bytes[i] as char;
-        if ch == ' ' && i + 1 < bytes.len() {
-            let next = bytes[i + 1] as char;
-            if matches!(next, '{' | '}' | '(' | ')' | ';' | ',' | ':') {
-                i += 1; continue;
-            }
+        let b = bytes[i];
+        if b == b' '
+            && matches!(bytes.get(i + 1).copied(), Some(b'{' | b'}' | b'(' | b')' | b';' | b',' | b':'))
+        {
+            i += 1; continue;
         }
-        if matches!(ch, '{' | '}' | '(' | ')' | ';' | ',')
-            && i + 1 < bytes.len() && bytes[i + 1] == b' ' {
-                result.push(ch);
+        if matches!(b, b'{' | b'}' | b'(' | b')' | b';' | b',')
+            && bytes.get(i + 1) == Some(&b' ') {
+                result.push(b as char);
                 i += 2; continue;
             }
-        result.push(ch);
-        i += 1;
+        i = copy_seq(s, i, &mut result);
     }
     result
 }

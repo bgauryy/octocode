@@ -7,7 +7,6 @@ import type {
   RequiredTelemetryConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
-  MinifyMode,
 } from './types.js';
 import {
   DEFAULT_GITHUB_CONFIG,
@@ -164,7 +163,6 @@ export function resolveLsp(
 }
 
 const VALID_OUTPUT_FORMATS = new Set(['yaml', 'json']);
-const VALID_MINIFY_MODES = new Set<MinifyMode>(['none', 'standard', 'symbols']);
 
 export function resolveOutput(
   fileConfig?: OctocodeConfig['output']
@@ -173,11 +171,6 @@ export function resolveOutput(
   const envDefaultCharLength = parseIntEnv(
     process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH
   );
-  const envDefaultMinify =
-    process.env.OCTOCODE_DEFAULT_MINIFY?.trim().toLowerCase() as
-      | MinifyMode
-      | undefined;
-
   const resolved =
     envFormat || fileConfig?.format || DEFAULT_OUTPUT_CONFIG.format;
   const configuredDefaultCharLength =
@@ -189,16 +182,6 @@ export function resolveOutput(
     Math.min(MAX_OUTPUT_DEFAULT_CHAR_LENGTH, configuredDefaultCharLength)
   );
 
-  const resolvedMinify =
-    (envDefaultMinify && VALID_MINIFY_MODES.has(envDefaultMinify)
-      ? envDefaultMinify
-      : undefined) ??
-    (fileConfig?.defaultMinify &&
-    VALID_MINIFY_MODES.has(fileConfig.defaultMinify)
-      ? fileConfig.defaultMinify
-      : undefined) ??
-    DEFAULT_OUTPUT_CONFIG.defaultMinify;
-
   return {
     format: VALID_OUTPUT_FORMATS.has(resolved)
       ? (resolved as 'yaml' | 'json')
@@ -206,6 +189,5 @@ export function resolveOutput(
     pagination: {
       defaultCharLength: clampedDefaultCharLength,
     },
-    defaultMinify: resolvedMinify,
   };
 }

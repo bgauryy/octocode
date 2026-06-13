@@ -1,0 +1,3 @@
+disallowed-methods = [
+    { path = "alloc::string::String::leak", reason = "leaks per call in a long-lived server process — bind to a local instead" },
+]

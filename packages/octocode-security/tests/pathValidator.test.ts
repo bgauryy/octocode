@@ -468,6 +468,75 @@ describe('PathValidator', () => {
     });
   });
 
+  describe('Non-existent leaf: symlinked parents must still resolve', () => {
+    let tmpRoot: string;
+    let outside: string;
+
+    beforeEach(() => {
+      // os.tmpdir() resolves into /private/var/… which the ignored-path
+      // filter rejects — use dirs under the package cwd instead.
+      tmpRoot = fs.realpathSync(fs.mkdtempSync(`${process.cwd()}/pv-root-`));
+      outside = fs.realpathSync(fs.mkdtempSync(`${process.cwd()}/pv-outside-`));
+      fs.symlinkSync(outside, `${tmpRoot}/evil`);
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    });
+
+    it('rejects a new file under a symlinked parent that escapes the root', () => {
+      const v = new PathValidator({
+        workspaceRoot: tmpRoot,
+        includeHomeDir: false,
+      });
+      const result = v.validate(`${tmpRoot}/evil/newfile.txt`);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain('outside allowed directories');
+    });
+
+    it('rejects a deep new path under an escaping symlinked ancestor', () => {
+      const v = new PathValidator({
+        workspaceRoot: tmpRoot,
+        includeHomeDir: false,
+      });
+      const result = v.validate(`${tmpRoot}/evil/a/b/c.txt`);
+      expect(result.isValid).toBe(false);
+    });
+
+    it('accepts a new file under a non-existent in-root directory', () => {
+      const v = new PathValidator({
+        workspaceRoot: tmpRoot,
+        includeHomeDir: false,
+      });
+      const result = v.validate(`${tmpRoot}/brand-new-dir/newfile.txt`);
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedPath).toBe(`${tmpRoot}/brand-new-dir/newfile.txt`);
+    });
+
+    it('accepts a new file under a symlinked parent that stays inside the root', () => {
+      fs.mkdirSync(`${tmpRoot}/realdir`);
+      fs.symlinkSync(`${tmpRoot}/realdir`, `${tmpRoot}/goodlink`);
+      const v = new PathValidator({
+        workspaceRoot: tmpRoot,
+        includeHomeDir: false,
+      });
+      const result = v.validate(`${tmpRoot}/goodlink/new.txt`);
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedPath).toBe(`${tmpRoot}/realdir/new.txt`);
+    });
+
+    it('rejects a non-existent leaf whose resolved parent lands in an ignored dir', () => {
+      fs.mkdirSync(`${tmpRoot}/.git`);
+      const v = new PathValidator({
+        workspaceRoot: tmpRoot,
+        includeHomeDir: false,
+      });
+      const result = v.validate(`${tmpRoot}/.git/objects/new`);
+      expect(result.isValid).toBe(false);
+    });
+  });
+
   describe('Symlink target validation', () => {
     it('should reject symlink target outside workspace', async () => {
       const mockRealpathSync = vi

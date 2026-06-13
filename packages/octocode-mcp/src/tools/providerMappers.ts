@@ -16,17 +16,14 @@ import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-typ
 import type { WithOptionalMeta } from '../types/execution.js';
 
 import { GITHUB_SEARCH_DEFAULT_LIMIT } from '../config.js';
-import { getOutputMinifyDefault } from '../utils/pagination/charLimit.js';
 import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constants.js';
 import { FileContentQueryLocalSchema } from './github_fetch_content/scheme.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-// `minify` is optional at the type level: the provider mapper applies the
-// configured content-view default so local and GitHub file reads stay aligned.
-type LocalFileContentQuery = Omit<
-  z.infer<typeof FileContentQueryLocalSchema>,
-  'minify'
-> & { minify?: import('../scheme/localSchemaOverlay.js').MinifyMode };
+// `minify` defaults to 'standard' via the Zod schema; the mapper passes it through.
+type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema> & {
+  minify: import('../scheme/localSchemaOverlay.js').MinifyMode;
+};
 type GitHubPullRequestSearchQuery = z.infer<
   typeof GitHubPullRequestSearchQuerySchema
 >;
@@ -595,7 +592,7 @@ export function mapFileContentToolQuery(query: LocalFileContentQuery) {
     fullContent,
     charOffset: query.charOffset,
     charLength: query.charLength,
-    minify: query.minify ?? getOutputMinifyDefault(),
+    minify: query.minify,
     matchStringIsRegex: query.matchStringIsRegex,
     matchStringCaseSensitive: query.matchStringCaseSensitive,
     mainResearchGoal: query.mainResearchGoal,

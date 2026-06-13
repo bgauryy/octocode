@@ -15,6 +15,14 @@ const addonExists =
   existsSync(join(__dirname, '..', `octocode-minifier-utils.${process.platform}-${process.arch}.node`)) ||
   existsSync(join(__dirname, '..', 'octocode-minifier-utils.node'))
 
+// In CI a missing addon must FAIL the suite, not silently skip every test.
+if (!addonExists && process.env.CI) {
+  throw new Error(
+    'FFI addon not built — run `yarn build:dev` before tests. ' +
+      'Silent skipping is only allowed for local runs without a compiled addon.'
+  )
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let addon: typeof import('../index.js') | null = null
 
@@ -251,5 +259,78 @@ describe.skipIf(!addonExists)('getSupportedSignatureExtensions', () => {
     expect(exts).toContain('ts')
     expect(exts).toContain('py')
     expect(exts).toContain('rs')
+  })
+})
+
+// ── UTF-8 safety across the FFI boundary ──────────────────────────────────────
+
+describe.skipIf(skip)('UTF-8 preservation', () => {
+  it('aggressive strategy preserves non-ASCII (lua)', () => {
+    const out = addon!.minifyContentSync('local s = "café → naïve" { x = 1 }', 'a.lua')
+    expect(out).toContain('café → naïve')
+    expect(out).not.toContain('Ã')
+  })
+
+  it('JSONC strip preserves non-ASCII', () => {
+    const r = addon!.minifyJsonCore('{\n  // comment\n  "k": "café",\n}')
+    expect(r.failed).toBe(false)
+    expect(r.content).toContain('café')
+    expect(r.content).not.toContain('Ã')
+  })
+
+  it('content view preserves non-ASCII markdown', () => {
+    const out = addon!.applyContentViewMinification('# Tîtle\n\ncafé text\n', 'x.md')
+    expect(out).toContain('Tîtle')
+    expect(out).toContain('café')
+  })
+})
+
+// ── size-cap contract ─────────────────────────────────────────────────────────
+
+describe.skipIf(skip)('oversized input contract', () => {
+  it('minifyContentResult flags >1MB as failed', () => {
+    const big = 'x'.repeat(1024 * 1024 + 1)
+    const r = addon!.minifyContentResult(big, 'big.txt')
+    expect(r.failed).toBe(true)
+    expect(r.content).toBe(big)
+  })
+
+  it('applyContentViewMinification returns >1MB input untouched', () => {
+    const big = 'text  \n'.repeat(180_000)
+    expect(addon!.applyContentViewMinification(big, 'big.md')).toBe(big)
+  })
+
+  it('extractSignatures returns null for >1MB input', () => {
+    const big = 'function f(){ return 1; }\n'.repeat(45_000)
+    expect(addon!.extractSignatures(big, 'big.ts')).toBeNull()
+  })
+})
+
+// ── skeleton one-liners ───────────────────────────────────────────────────────
+
+describe.skipIf(skip)('python one-liner signatures', () => {
+  it('keeps the signature row of a one-line def', () => {
+    const out = addon!.extractSignatures('def f(): return 1\n\ndef g():\n    return 2\n', 'one.py')
+    expect(out).not.toBeNull()
+    expect(out!).toContain('def f(): return 1')
+    expect(out!).toContain('def g():')
+    expect(out!).not.toContain('return 2')
+  })
+})
+
+// ── postbuild shim exports (CJS) ──────────────────────────────────────────────
+
+describe.skipIf(skip)('postbuild additions', () => {
+  it('minifyContent resolves to a MinifyResult', async () => {
+    const r = await addon!.minifyContent('{"a": 1 }', 'x.json')
+    expect(r.failed).toBe(false)
+    expect(typeof r.content).toBe('string')
+  })
+
+  it('MINIFY_CONFIG and SUPPORTED_SIGNATURE_EXTENSIONS are exported', () => {
+    expect(addon!.MINIFY_CONFIG).toBeTruthy()
+    expect(addon!.MINIFY_CONFIG.fileTypes).toBeTruthy()
+    expect(Array.isArray(addon!.SUPPORTED_SIGNATURE_EXTENSIONS)).toBe(true)
+    expect(addon!.SUPPORTED_SIGNATURE_EXTENSIONS).toContain('ts')
   })
 })

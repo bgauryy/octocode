@@ -1,6 +1,6 @@
 use crate::config::{minify_config, indentation_sensitive_names};
 use crate::file_extension::get_extension_internal;
-use crate::minifier::minify_content_sync_inner;
+use crate::minifier::{minify_content_sync_inner, MAX_SIZE};
 use crate::strategies::{
     minify_json_readable_inner, minify_markdown_core,
     minify_general_core, minify_code_core, minify_js_oxc,
@@ -18,6 +18,7 @@ pub fn apply_minification_inner(content: &str, file_path: &str) -> String {
 /// Content-view minification — agent-readable, preserves indentation.
 /// Pipeline mirrors TS `applyContentViewMinification`.
 pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> String {
+    if content.len() > MAX_SIZE { return content.to_owned(); }
     let result = std::panic::catch_unwind(|| {
         let ext = get_extension_internal(file_path, true, "txt");
         let basename = file_path

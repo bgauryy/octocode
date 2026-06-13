@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { securityRegistry } from 'octocode-security/registry';
+import { normalizeCommandName } from 'octocode-security/commandValidator';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -10,7 +12,26 @@ let cachedPath: string | null = null;
 export function resolveRipgrepBinary(): string {
   if (cachedPath !== null) return cachedPath;
   cachedPath = computePath();
+  allowRipgrepCommandName(cachedPath);
   return cachedPath;
+}
+
+const RG_BINARY_NAME = /^rg(-[a-z0-9-]+)?$/i;
+
+/**
+ * Bundled/sibling binaries ship platform-suffixed names (rg-darwin-arm64)
+ * that are not in octocode-security's builtin command allowlist. Register
+ * the exact resolved basename; anything not shaped like an rg binary
+ * (plain `rg`, `rg-<platform>`, optional `.exe`) stays blocked.
+ */
+export function allowRipgrepCommandName(binaryPath: string): void {
+  const name = normalizeCommandName(binaryPath);
+  if (name === 'rg' || !RG_BINARY_NAME.test(name)) return;
+  try {
+    securityRegistry.addAllowedCommands([name]);
+  } catch {
+    // Frozen registry — validateCommand will reject and name the binary.
+  }
 }
 
 function computePath(): string {

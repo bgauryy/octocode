@@ -129,10 +129,7 @@ export class PathValidator {
         const nodeError = error as Error & { code?: string };
 
         if (nodeError.code === 'ENOENT') {
-          return {
-            isValid: true,
-            sanitizedPath: absolutePath,
-          };
+          return this.validateNonExistentPath(absolutePath, inputPath);
         }
 
         if (nodeError.code === 'EACCES') {
@@ -162,6 +159,63 @@ export class PathValidator {
         error: `Unexpected error validating path: ${redactPath(inputPath)}`,
       };
     }
+  }
+
+  /**
+   * A path that does not exist yet can still escape the allowed roots through
+   * a symlinked PARENT — realpathSync(fullPath) throws ENOENT before it ever
+   * resolves the ancestors. Resolve the deepest existing ancestor, rebuild the
+   * path, and re-run the root/ignore checks on the resolved form.
+   */
+  private validateNonExistentPath(
+    absolutePath: string,
+    inputPath: string
+  ): PathValidationResult {
+    const { root } = path.parse(absolutePath);
+    let ancestor = path.dirname(absolutePath);
+    const remainder: string[] = [path.basename(absolutePath)];
+    while (ancestor !== root && !fs.existsSync(ancestor)) {
+      remainder.unshift(path.basename(ancestor));
+      ancestor = path.dirname(ancestor);
+    }
+
+    let resolvedAncestor: string;
+    try {
+      resolvedAncestor = fs.realpathSync(ancestor);
+    } catch {
+      // Broken symlink ancestor or racing deletion — fail closed.
+      return {
+        isValid: false,
+        error: `Unexpected error validating path: ${redactPath(inputPath)}`,
+      };
+    }
+
+    const resolvedPath = path.join(resolvedAncestor, ...remainder);
+    const isAllowed = this.allowedRoots.some(allowedRoot => {
+      return (
+        resolvedPath === allowedRoot ||
+        resolvedPath.startsWith(allowedRoot + path.sep)
+      );
+    });
+
+    if (!isAllowed) {
+      return {
+        isValid: false,
+        error: `Path '${redactPath(inputPath)}' is outside allowed directories`,
+      };
+    }
+
+    if (shouldIgnore(resolvedPath)) {
+      return {
+        isValid: false,
+        error: `Path '${redactPath(inputPath)}' is in an ignored directory or matches an ignored pattern`,
+      };
+    }
+
+    return {
+      isValid: true,
+      sanitizedPath: resolvedPath,
+    };
   }
 
   async exists(inputPath: string): Promise<boolean> {

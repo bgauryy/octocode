@@ -27,13 +27,12 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
-// `minify` is optional at the type level: the provider mapper/API boundary
-// applies the configured content-view default, while direct impl callers may
-// omit it.
+// `minify` defaults to 'standard' via the Zod schema; callers may still omit
+// it and the schema will fill in the default.
 type PartialFileContentQuery = Omit<
   z.infer<typeof FileContentQueryLocalSchema>,
   'minify'
-> & { minify?: MinifyMode };
+> & { minify: MinifyMode };
 
 export async function fetchMultipleGitHubFileContents(
   args: ToolExecutionArgs<PartialFileContentQuery>

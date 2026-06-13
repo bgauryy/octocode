@@ -22,14 +22,14 @@ describe('providerMappers', () => {
     expect(mapped.minify).toBe('symbols');
   });
 
-  it('applies the configured content-view default when minify is not requested', () => {
+  it('passes minify through untouched — the schema default (standard) owns omission', () => {
     const mapped = mapFileContentToolQuery({
       owner: 'facebook',
       repo: 'react',
       path: 'packages/react/index.js',
     } as Parameters<typeof mapFileContentToolQuery>[0]);
 
-    expect(mapped.minify).toBe('standard');
+    expect(mapped.minify).toBeUndefined();
   });
 
   it('should map code search tool queries to provider queries', () => {

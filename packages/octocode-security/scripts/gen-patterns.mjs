@@ -109,6 +109,15 @@ for (const p of allRegexPatterns) {
 
 console.log(`Converted: ${finalPatterns.length} (${skipped} skipped)\n`);
 
+if (skipped > 0) {
+  console.error(
+    `ERROR: ${skipped} pattern(s) could not be converted to Rust regex and would ` +
+      `silently vanish from the runtime detector. Rewrite them without ` +
+      `lookaheads/lookbehinds/backreferences, or remove them from allRegexPatterns.`
+  );
+  process.exit(1);
+}
+
 // ---------------------------------------------------------------------------
 // Emit patterns.rs
 // ---------------------------------------------------------------------------

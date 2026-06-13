@@ -13,10 +13,7 @@ import {
 } from '../../utils/pagination/core.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
-import {
-  getOutputCharLimit,
-  getOutputMinifyDefault,
-} from '../../utils/pagination/charLimit.js';
+import { getOutputCharLimit } from '../../utils/pagination/charLimit.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
   validateToolPath,
@@ -593,6 +590,15 @@ function buildSuccessResult(
     );
   }
 
+  // Comment-stripping hint: when minify is "standard" or "symbols" and the
+  // file has inline comments, alert agents that exact comment text requires
+  // minify:"none" + matchString to avoid false negatives.
+  if (query.minify !== 'none' && totalLines > 300 && !query.matchString) {
+    largeFileHints.push(
+      'If you need exact comment text (// … or /* … */), test assertions, or doc-strings, re-fetch with minify:"none" and add matchString to anchor on the relevant section.'
+    );
+  }
+
   return {
     path: queryPath,
     content: pagination.paginatedContent,
@@ -700,7 +706,7 @@ export async function fetchContent(
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
 
-    const minifyMode = query.minify ?? getOutputMinifyDefault();
+    const minifyMode = query.minify;
     // "symbols" implies the standard comment/whitespace strip on whatever
     // content is returned (skeleton, or full-content fallback).
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';

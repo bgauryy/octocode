@@ -44,7 +44,6 @@ export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
   pagination: {
     defaultCharLength: 2000,
   },
-  defaultMinify: 'standard',
 };
 
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {

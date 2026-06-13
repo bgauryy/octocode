@@ -2,6 +2,40 @@ import { describe, it, expect } from 'vitest';
 import { ContentSanitizer } from '../src/contentSanitizer';
 
 describe('ContentSanitizer', () => {
+  describe('validateInputParameters — DAG vs true cycle', () => {
+    it('accepts the same object referenced by two sibling keys (DAG, no cycle)', () => {
+      const shared = { name: 'shared' };
+      const params = { a: shared, b: shared };
+
+      const result = ContentSanitizer.validateInputParameters(params);
+
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedParams.a).toEqual({ name: 'shared' });
+      expect(result.sanitizedParams.b).toEqual({ name: 'shared' });
+    });
+
+    it('accepts a shared object appearing in sibling array items', () => {
+      const shared = { v: 1 };
+      const params = { list: [shared, shared] };
+
+      const result = ContentSanitizer.validateInputParameters(params);
+
+      expect(result.isValid).toBe(true);
+    });
+
+    it('still rejects a true cycle', () => {
+      const obj: Record<string, unknown> = { key: 'value' };
+      obj.self = obj;
+
+      const result = ContentSanitizer.validateInputParameters(obj);
+
+      expect(result.isValid).toBe(false);
+      expect(result.warnings.some(w => w.includes('Circular reference'))).toBe(
+        true
+      );
+    });
+  });
+
   describe('validateInputParameters', () => {
     describe('Array Parameter Handling', () => {
       it('should preserve arrays as arrays, not convert to strings', () => {

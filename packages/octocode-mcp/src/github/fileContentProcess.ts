@@ -1,8 +1,5 @@
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
-import {
-  getOutputCharLimit,
-  getOutputMinifyDefault,
-} from '../utils/pagination/charLimit.js';
+import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyContentViewMinification,
@@ -106,7 +103,7 @@ export async function processFileContentAPI(
   matchString?: string,
   matchStringIsRegex?: boolean,
   matchStringCaseSensitive?: boolean,
-  minify: MinifyMode = getOutputMinifyDefault()
+  minify: MinifyMode = 'standard'
 ): Promise<GitHubFileContentApiResult> {
   const sourceChars = decodedContent.length;
   const sourceBytes = Buffer.byteLength(decodedContent, 'utf-8');

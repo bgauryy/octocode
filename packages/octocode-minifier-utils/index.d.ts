@@ -60,3 +60,16 @@ export declare function jsonToYamlString(jsonObject: any, config?: YamlConversio
  * Shape: `{ fileTypes: Record<string, { strategy: string, comments: string | string[] | null }> }`
  */
 export declare function getMINIFY_CONFIG(): any
+
+// ── postbuild additions ──
+
+/**
+ * Async drop-in: Promise.resolve() around the synchronous Rust call — it does
+ * NOT move work off the event loop. Failures surface as MinifyResult.failed,
+ * not rejections.
+ */
+export declare function minifyContent(content: string, filePath: string): Promise<MinifyResult>
+export declare const MINIFY_CONFIG: {
+  fileTypes: Record<string, { strategy: string; comments: string | string[] | null }>
+}
+export declare const SUPPORTED_SIGNATURE_EXTENSIONS: readonly string[]

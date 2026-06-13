@@ -14,15 +14,17 @@
   },
   "exports": {
     ".": {
-      "types":   "./index.d.ts",
-      "import":  "./index.mjs",
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
       "require": "./index.js",
       "default": "./index.mjs"
     }
   },
   "typesVersions": {
     "*": {
-      "*": ["./index.d.ts"]
+      "*": [
+        "./index.d.ts"
+      ]
     }
   },
   "files": [
@@ -49,23 +51,23 @@
     }
   },
   "scripts": {
-    "build":        "napi build --platform --release && node scripts/postbuild.cjs",
-    "build:dev":    "napi build --platform && node scripts/postbuild.cjs",
-    "clean":        "rm -f *.node",
-    "test":         "cargo test",
-    "test:node":    "vitest run --coverage",
-    "test:watch":   "vitest watch",
-    "test:quiet":   "vitest run",
-    "lint":         "echo 'No TS source files to lint'",
-    "lint:rust":    "cargo clippy --all-targets -- -D warnings",
-    "typecheck":    "tsc --noEmit",
-    "verify":       "yarn typecheck && yarn lint:rust && yarn test"
+    "build": "napi build --platform --release && node scripts/postbuild.cjs",
+    "build:dev": "napi build --platform && node scripts/postbuild.cjs",
+    "clean": "rm -f *.node",
+    "test": "cargo test",
+    "test:node": "vitest run --coverage",
+    "test:watch": "vitest watch",
+    "test:quiet": "vitest run",
+    "lint": "echo 'No TS source files to lint'",
+    "lint:rust": "cargo clippy --all-targets -- -D warnings",
+    "typecheck": "tsc --noEmit",
+    "verify": "yarn typecheck && yarn lint:rust && yarn test"
   },
   "devDependencies": {
-    "@napi-rs/cli":        "^2",
-    "@types/node":         "^20",
+    "@napi-rs/cli": "^2",
+    "@types/node": "^20",
     "@vitest/coverage-v8": "^2",
-    "typescript":          "^5",
-    "vitest":              "^2"
+    "typescript": "^5",
+    "vitest": "^2"
   }
 }

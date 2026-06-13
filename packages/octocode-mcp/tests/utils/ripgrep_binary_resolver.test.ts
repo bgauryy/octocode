@@ -226,6 +226,83 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
   });
 });
 
+describe('T3.4 — resolved binary passes command allowlist', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('platform-suffixed sibling binary validates after resolution', async () => {
+    const fakeExecPath = '/usr/local/bin/octocode-mcp-darwin-arm64';
+    const expectedSibling = join('/usr/local/bin', 'rg-darwin-arm64');
+
+    vi.stubGlobal('process', {
+      ...process,
+      execPath: fakeExecPath,
+      platform: 'darwin',
+      arch: 'arm64',
+    });
+
+    const { existsSync: mockExists } = await import('node:fs');
+    vi.mocked(mockExists).mockImplementation(
+      p => String(p) === expectedSibling
+    );
+
+    vi.resetModules();
+    const { resolveRipgrepBinary } =
+      await import('../../src/utils/exec/ripgrepBinary.js');
+    const { validateCommand } =
+      await import('octocode-security/commandValidator');
+
+    const resolved = resolveRipgrepBinary();
+    expect(resolved).toBe(expectedSibling);
+    const validation = validateCommand(resolved, ['-n', 'pattern', '.']);
+    expect(validation.isValid).toBe(true);
+  });
+
+  it('plain rg binary validates without any registration', async () => {
+    vi.resetModules();
+    const { validateCommand } =
+      await import('octocode-security/commandValidator');
+    expect(
+      validateCommand('/opt/homebrew/bin/rg', ['-n', 'x', '.']).isValid
+    ).toBe(true);
+  });
+
+  it('never registers a basename that is not shaped like an rg binary', async () => {
+    vi.resetModules();
+    const { allowRipgrepCommandName } =
+      await import('../../src/utils/exec/ripgrepBinary.js');
+    const { validateCommand } =
+      await import('octocode-security/commandValidator');
+
+    allowRipgrepCommandName('/usr/local/bin/ripgrep-custom');
+    allowRipgrepCommandName('/usr/local/bin/bash');
+    expect(validateCommand('/usr/local/bin/ripgrep-custom', []).isValid).toBe(
+      false
+    );
+    expect(validateCommand('/usr/local/bin/bash', []).isValid).toBe(false);
+  });
+
+  it('registers rg flavors for every delivery channel basename', async () => {
+    vi.resetModules();
+    const { allowRipgrepCommandName } =
+      await import('../../src/utils/exec/ripgrepBinary.js');
+    const { validateCommand } =
+      await import('octocode-security/commandValidator');
+
+    allowRipgrepCommandName('/x/dist/runtime/rg/rg-linux-x64');
+    allowRipgrepCommandName('C:\\app\\rg-windows-x64.exe');
+    expect(validateCommand('/x/dist/runtime/rg/rg-linux-x64', []).isValid).toBe(
+      true
+    );
+    expect(validateCommand('C:\\app\\rg-windows-x64.exe', []).isValid).toBe(
+      true
+    );
+  });
+});
+
 describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
   afterEach(() => {
     vi.restoreAllMocks();

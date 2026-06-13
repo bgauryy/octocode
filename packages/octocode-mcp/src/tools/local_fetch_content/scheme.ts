@@ -57,11 +57,8 @@ export const LocalFetchContentQuerySchema = FetchContentQueryShape.superRefine(
   validateFileContentExtractionMode
 );
 
-export type FetchContentQuery = Omit<
-  z.infer<typeof FetchContentQueryShape>,
-  'minify'
-> & {
-  minify?: MinifyMode;
+export type FetchContentQuery = z.infer<typeof FetchContentQueryShape> & {
+  minify: MinifyMode;
 };
 
 export const LocalFetchContentBulkQuerySchema = createRelaxedBulkQuerySchema(

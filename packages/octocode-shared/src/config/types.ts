@@ -48,8 +48,6 @@ export interface OutputConfigOptions {
   format?: 'yaml' | 'json';
 
   pagination?: OutputPaginationConfigOptions;
-
-  defaultMinify?: MinifyMode;
 }
 
 export interface OctocodeConfig {
@@ -109,7 +107,6 @@ export interface RequiredOutputPaginationConfig {
 export interface RequiredOutputConfig {
   format: 'yaml' | 'json';
   pagination: RequiredOutputPaginationConfig;
-  defaultMinify: MinifyMode;
 }
 
 export interface ResolvedConfig {

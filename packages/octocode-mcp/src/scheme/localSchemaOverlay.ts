@@ -61,13 +61,17 @@ export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH).optional();
 /** View level for content-returning tools. */
 export type MinifyMode = 'none' | 'standard' | 'symbols';
 
-/** minify enum for the fetch-content tools: none (raw) | standard | symbols. */
+/** minify enum for the fetch-content tools: none (raw) | standard | symbols. Defaults to 'standard'. */
 export const minifyFieldWithSymbols = z
   .enum(['none', 'standard', 'symbols'])
-  .optional();
+  .optional()
+  .default('standard');
 
-/** minify enum for PR patches: none (raw exact diffs) | standard (token-saving view). */
-export const minifyFieldStandard = z.enum(['none', 'standard']).optional();
+/** minify enum for PR patches: none (raw exact diffs) | standard (token-saving view). Defaults to 'standard'. */
+export const minifyFieldStandard = z
+  .enum(['none', 'standard'])
+  .optional()
+  .default('standard');
 
 export type WithQueryMeta<T> = T & {
   id?: string;

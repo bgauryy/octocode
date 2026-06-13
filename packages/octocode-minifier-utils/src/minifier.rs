@@ -10,7 +10,7 @@ use crate::strategies::{
     minify_json_core_inner,
 };
 
-const MAX_SIZE: usize = 1024 * 1024; // 1 MB guard
+pub(crate) const MAX_SIZE: usize = 1024 * 1024; // 1 MB guard, shared by all FFI content entry points
 
 pub fn get_file_config(file_path: &str) -> Option<&'static FileTypeConfig> {
     let ext = get_extension_internal(file_path, true, "txt");

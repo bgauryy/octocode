@@ -405,6 +405,8 @@ function formatForOutput(
       }
       if (f.permissions) result.permissions = f.permissions;
     }
+    // `modified` may be collected solely to drive sortBy=modified (the
+    // default sort) — display stays gated on showFileLastModified.
     if (showLastModified && f.modified) {
       result.modified = f.modified;
     }

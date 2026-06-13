@@ -755,4 +755,76 @@ export function add(a: number, b: number): number {
         assert!(out.len() < src.len(), "lightningcss must strip 0px: got '{}' ({} bytes vs {})", out, out.len(), src.len());
         assert!(!has_zero_px, "0px should become 0: got '{}'", out);
     }
+
+    // ── UTF-8 safety: byte-level loops must never re-encode multibyte chars ──
+    #[test]
+    fn utf8_aggressive_strategy_preserves_non_ascii() {
+        // .lua routes to the aggressive strategy (collapse + punct tightening)
+        let out = minify_content_sync("local s = \"café → naïve\" { x = 1 }".into(), "a.lua".into());
+        assert!(out.contains("café → naïve"), "aggressive path corrupted UTF-8: '{out}'");
+        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
+    }
+
+    #[test]
+    fn utf8_jsonc_preserves_non_ascii() {
+        let src = "{\n  // comment\n  \"k\": \"café\",\n}";
+        let r = minify_json_core(src.into());
+        assert!(!r.failed);
+        assert!(r.content.contains("café"), "JSONC strip corrupted UTF-8: '{}'", r.content);
+        assert!(!r.content.contains('Ã'), "Latin-1 mojibake detected: '{}'", r.content);
+    }
+
+    #[test]
+    fn utf8_javascript_core_preserves_non_ascii() {
+        let out = minify_javascript_core("const s = \"café\"; // strip me".into());
+        assert!(out.contains("café"), "JS core punct tightening corrupted UTF-8: '{out}'");
+        assert!(!out.contains("strip me"));
+    }
+
+    // ── markdown: CRLF normalization behavior locked (leak() removal guard
+    //    itself is enforced by clippy disallowed-methods) ──────────────────────
+    #[test]
+    fn markdown_crlf_normalized() {
+        let out = minify_markdown_core("# Title\r\n\r\nSome text  \r\n".into());
+        assert!(out.contains("# Title"));
+        assert!(out.contains("Some text"));
+        assert!(!out.contains('\r'));
+    }
+
+    // ── content view strips all JS/TS comments (the "standard" contract) ─────
+    #[test]
+    fn content_view_js_strips_comments() {
+        let src = "import { useState } from \"react\";\n// Top-level comment that should be stripped\nexport function f() {\n  /** jsdoc to strip */\n  return useState;\n}\n";
+        let out = apply_content_view_minification(src.into(), "x.tsx".into());
+        assert!(!out.contains("Top-level comment"), "normal comments must be stripped: '{out}'");
+        assert!(!out.contains("jsdoc to strip"), "jsdoc comments must be stripped: '{out}'");
+        assert!(out.contains("useState"));
+    }
+
+    // ── signatures: one-line defs keep their signature row ───────────────────
+    #[test]
+    fn signatures_python_one_liner_kept() {
+        let src = "def f(): return 1\n\ndef g():\n    return 2\n";
+        let out = extract_signatures(src.into(), "one.py".into());
+        assert!(out.is_some());
+        let s = out.unwrap();
+        assert!(s.contains("def f(): return 1"), "one-liner signature dropped: '{s}'");
+        assert!(s.contains("def g():"));
+        assert!(!s.contains("return 2"), "multi-line body must still drop: '{s}'");
+    }
+
+    // ── size caps: every FFI content entry point bails out above MAX_SIZE ────
+    #[test]
+    fn content_view_caps_oversized_input() {
+        let src = "text  \n".repeat(180_000); // ~1.26MB, trailing spaces WOULD minify
+        let out = apply_content_view_minification(src.clone(), "big.md".into());
+        assert_eq!(out, src, "oversized content must be returned untouched");
+    }
+
+    #[test]
+    fn signatures_cap_oversized_input() {
+        let src = "function f(){ return 1; }\n".repeat(45_000); // ~1.17MB
+        let out = extract_signatures(src, "big.ts".into());
+        assert!(out.is_none(), "oversized content must not be parsed");
+    }
 }

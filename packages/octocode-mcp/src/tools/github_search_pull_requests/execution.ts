@@ -70,6 +70,21 @@ export async function searchMultipleGitHubPullRequests(
           (effectiveQuery as { reviewMode?: unknown }).reviewMode = undefined;
         }
 
+        // Archaeology hint: when searching by keywords without an explicit sort
+        // or date filter, nudge the agent toward the chronological pattern for
+        // finding the PR that *introduced* a feature.
+        const hasKeywordsOnly =
+          !hasPrNumber &&
+          (effectiveQuery.keywordsToSearch?.length ?? 0) > 0 &&
+          !effectiveQuery.author &&
+          !effectiveQuery.created;
+        if (hasKeywordsOnly && !effectiveQuery.sort && !effectiveQuery.order) {
+          downgradeHints.push(
+            'Archaeology tip: to find the PR that *introduced* a feature, add sort:"created" order:"asc" — this surfaces the oldest matching PRs first. ' +
+              'Alternatively, use githubSearchCode to locate the file+line where the symbol is defined, then filter PRs by author or created date range.'
+          );
+        }
+
         const hasValidParams =
           effectiveQuery.keywordsToSearch?.length ||
           effectiveQuery.owner ||
@@ -122,10 +137,11 @@ export async function searchMultipleGitHubPullRequests(
           (Boolean((query as { content?: unknown }).content) ||
             Boolean((query as { reviewMode?: unknown }).reviewMode));
         const explicitMinify = (
-          effectiveQuery as { minify?: 'none' | 'standard' }
+          effectiveQuery as { minify: 'none' | 'standard' }
         ).minify;
-        // Patch hunks are code-review evidence. Keep them exact by default;
-        // minify:"standard" is an explicit token-saving/lossy view.
+        // Patch hunks default to the token-saving "standard" view (schema
+        // default). minify:"none" opts into raw exact diffs for precise
+        // quoting/review.
         const prMinify = explicitMinify === 'standard';
         const leanRequest = {
           ...contentRequest,

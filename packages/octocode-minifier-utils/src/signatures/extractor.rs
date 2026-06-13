@@ -56,9 +56,18 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
                     let hi = end.min(n.saturating_sub(1));
                     if start < hi { keep[(start + 1)..=hi].fill(false); }
                 } else {
-                    // Drop all lines of the body (indent style).
+                    // Drop all lines of the body (indent style). A body that
+                    // shares the signature's row (`def f(): return 1`) must
+                    // not erase the signature line.
                     let hi = end.min(n.saturating_sub(1));
-                    if start <= hi { keep[start..=hi].fill(false); }
+                    let start_col = node.start_position().column;
+                    let sig_shares_row = lines.get(start).is_some_and(|l| {
+                        l.as_bytes()[..start_col.min(l.len())]
+                            .iter()
+                            .any(|b| !b.is_ascii_whitespace())
+                    });
+                    let lo = if sig_shares_row { start + 1 } else { start };
+                    if lo <= hi { keep[lo..=hi].fill(false); }
                 }
             }
         }

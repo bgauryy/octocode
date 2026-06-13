@@ -207,6 +207,9 @@ function validateRecursive(
       warnings: ['Maximum nesting depth exceeded'],
     };
   }
+  // `visited` tracks the CURRENT recursion path only (entries are removed on
+  // exit) so a DAG — the same object under two sibling keys — is legal while
+  // a true cycle is still caught.
   if (visited.has(params)) {
     return {
       sanitizedParams: {},
@@ -308,6 +311,8 @@ function validateRecursive(
       sanitizedParams[key] = value;
     }
   }
+
+  visited.delete(params);
 
   return {
     sanitizedParams,

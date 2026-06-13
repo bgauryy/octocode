@@ -371,7 +371,7 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
-  // shouldMinify defaults false here — callers pass the resolved value from getOutputMinifyDefault().
+  // shouldMinify defaults false here — callers pass the schema-resolved minify value.
   shouldMinify = false,
   showContentMap?: boolean
 ): Record<string, unknown> {
@@ -411,7 +411,7 @@ export function shapePullRequestForContent(
     ...(Array.isArray(pr.assignees) && pr.assignees.length
       ? { assignees: pr.assignees }
       : {}),
-    labels: pr.labels,
+    labels: pr.labels ?? [],
     targetBranch: pr.targetBranch,
     createdAt: pr.createdAt,
     ...(fullShape ? { updatedAt: pr.updatedAt } : {}),

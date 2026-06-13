@@ -1,25 +1,29 @@
 /**
- * Patches the napi-rs generated index.js after every build.
- * napi build regenerates index.js from the Rust #[napi] exports,
- * wiping any hand-authored additions.  This script appends them back.
+ * Patches the napi-rs generated index.js AND index.d.ts after every build.
+ * napi build regenerates both from the Rust #[napi] exports, wiping any
+ * hand-authored additions.  This script appends them back (idempotent).
  */
 'use strict'
 
 const { readFileSync, writeFileSync } = require('fs')
 const { join } = require('path')
 
-const indexPath = join(__dirname, '..', 'index.js')
-let src = readFileSync(indexPath, 'utf8')
-
 const PATCH_MARKER = '// ── postbuild additions ──'
 
-if (src.includes(PATCH_MARKER)) {
-  // Already patched (e.g. running postbuild twice)
-  console.log('index.js already patched — skipping')
-  process.exit(0)
+function patch(fileName, addition) {
+  const filePath = join(__dirname, '..', fileName)
+  const src = readFileSync(filePath, 'utf8')
+  if (src.includes(PATCH_MARKER)) {
+    console.log(`${fileName} already patched — skipping`)
+    return
+  }
+  writeFileSync(filePath, src + addition, 'utf8')
+  console.log(`${fileName} patched`)
 }
 
-const patch = `
+patch(
+  'index.js',
+  `
 ${PATCH_MARKER}
 
 // Async-compatible drop-in for the TS \`minifyContent(content, filePath): Promise<MinifyResult>\`.
@@ -36,6 +40,22 @@ module.exports.MINIFY_CONFIG = module.exports.getMINIFY_CONFIG()
 module.exports.SUPPORTED_SIGNATURE_EXTENSIONS =
   Object.freeze(module.exports.getSupportedSignatureExtensions().sort())
 `
+)
 
-writeFileSync(indexPath, src + patch, 'utf8')
-console.log('index.js patched with minifyContent, MINIFY_CONFIG, SUPPORTED_SIGNATURE_EXTENSIONS')
+patch(
+  'index.d.ts',
+  `
+${PATCH_MARKER}
+
+/**
+ * Async drop-in: Promise.resolve() around the synchronous Rust call — it does
+ * NOT move work off the event loop. Failures surface as MinifyResult.failed,
+ * not rejections.
+ */
+export declare function minifyContent(content: string, filePath: string): Promise<MinifyResult>
+export declare const MINIFY_CONFIG: {
+  fileTypes: Record<string, { strategy: string; comments: string | string[] | null }>
+}
+export declare const SUPPORTED_SIGNATURE_EXTENSIONS: readonly string[]
+`
+)

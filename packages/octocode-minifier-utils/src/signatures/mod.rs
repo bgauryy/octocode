@@ -15,6 +15,7 @@ pub const SIGNATURES_ONLY_HINT: &str = concat!(
 /// Extract a structural skeleton from `content`.
 /// Returns `NNN| text` rendered string or `None`.
 pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String> {
+    if content.len() > crate::minifier::MAX_SIZE { return None; }
     std::panic::catch_unwind(|| {
         let ext = get_extension_internal(file_path, true, "txt");
         extract_by_ext(content, &ext)
