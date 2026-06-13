@@ -1,12 +1,7 @@
-export type PackageSearchMode = 'smart' | 'full' | 'lean';
-
 export interface PackageSearchInput {
   name: string;
   itemsPerPage?: number;
-
   page?: number;
-
-  mode?: PackageSearchMode;
   mainResearchGoal?: string;
   researchGoal?: string;
   reasoning?: string;

@@ -4,52 +4,14 @@ Source sample: `tsx/00-next-app-router.tsx`
 
 Strategy: `conservative`
 
-Agent rating: **9.4/10 (excellent)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 23197 | - | - | - |
-| content-view | 16484 | 28.9% | 3.572 ms | 9/10 |
-| applyMinification | 16484 | 28.9% | 3.678 ms | 9/10 |
-| sync minify | 16484 | 28.9% | 3.592 ms | 9/10 |
-| async minify | 16484 | 28.9% | 3.884 ms | 9/10 |
-| symbols | 3742 | 83.9% | 23.426 ms | 10/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 23197 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 16484 | 28.9% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 16484 | 28.9% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 3742 | 83.9% | 9.5/10 excellent | 10/10 | 9.6/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 23197 |     - |         - |
+| content-view      | 16484 | 28.9% |  3.572 ms |
+| applyMinification | 16484 | 28.9% |  3.678 ms |
+| sync minify       | 16484 | 28.9% |  3.592 ms |
+| async minify      | 16484 | 28.9% |  3.884 ms |
+| symbols           |  3742 | 83.9% | 23.426 ms |
 
 ## Notes
 

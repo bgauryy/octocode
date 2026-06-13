@@ -1,0 +1,217 @@
+{"ts":"2026-06-13T08:13:19.603Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/server -q .[0].sha","in_chars":70,"out_chars":41,"elapsed_ms":377,"exit":0}
+{"ts":"2026-06-13T08:13:20.012Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/server","in_chars":58,"out_chars":71237,"elapsed_ms":351,"exit":0}
+{"ts":"2026-06-13T08:13:20.512Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js/git/trees/?recursive=1","in_chars":47,"out_chars":135,"elapsed_ms":449,"exit":1}
+{"ts":"2026-06-13T08:13:29.414Z","q":3,"agent":"gh","cmd":"gh search code revalidatePath repo:vercel/next.js --json path,textMatches","in_chars":70,"out_chars":18259,"elapsed_ms":619,"exit":0}
+{"ts":"2026-06-13T08:13:38.977Z","q":3,"agent":"gh","cmd":"gh search code revalidatePath( repo:vercel/next.js path:packages/next/src/server --json path,textMatches","in_chars":101,"out_chars":3,"elapsed_ms":390,"exit":0}
+{"ts":"2026-06-13T08:13:45.236Z","q":3,"agent":"rtk","cmd":"rtk rg revalidatePath\\( /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":66,"out_chars":161,"elapsed_ms":109,"exit":0}
+{"ts":"2026-06-13T08:13:50.045Z","q":3,"agent":"rtk","cmd":"rtk rg revalidatePath /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":64,"out_chars":2334,"elapsed_ms":96,"exit":0}
+{"ts":"2026-06-13T08:13:54.401Z","q":3,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/lib/router-utils/cache-life-type-utils.ts","in_chars":93,"out_chars":7024,"elapsed_ms":56,"exit":0}
+{"ts":"2026-06-13T08:13:54.506Z","q":3,"agent":"rtk","cmd":"rtk rg -n revalidatePath /tmp/nextjs-bench-rtk/packages/next/src/server/lib/router-utils/cache-life-type-utils.ts","in_chars":109,"out_chars":24,"elapsed_ms":59,"exit":0}
+{"ts":"2026-06-13T08:13:55.505Z","q":3,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/server/web/spec-extension/revalidate.ts","in_chars":91,"out_chars":15539,"elapsed_ms":357,"exit":0}
+{"ts":"2026-06-13T08:13:59.089Z","q":3,"agent":"rtk","cmd":"rtk rg -n revalidatePath\\( /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":69,"out_chars":164,"elapsed_ms":97,"exit":0}
+{"ts":"2026-06-13T08:14:03.700Z","q":3,"agent":"rtk","cmd":"rtk rg -n revalidatePath /tmp/nextjs-bench-rtk/packages/next/src/server/lib/router-utils/cache-life-type-utils.test.ts","in_chars":114,"out_chars":173,"elapsed_ms":73,"exit":0}
+{"ts":"2026-06-13T08:14:07.897Z","q":3,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/lib/router-utils/cache-life-type-utils.test.ts","in_chars":98,"out_chars":19710,"elapsed_ms":47,"exit":0}
+{"ts":"2026-06-13T08:14:16.609Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/client/components/not-found.ts -q .message","in_chars":94,"out_chars":1,"elapsed_ms":359,"exit":0}
+{"ts":"2026-06-13T08:14:17.167Z","q":2,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/server/web/spec-extension/request.ts -q .name","in_chars":97,"out_chars":11,"elapsed_ms":338,"exit":0}
+{"ts":"2026-06-13T08:14:22.150Z","q":4,"agent":"rtk","cmd":"rtk rg -l appDir /tmp/nextjs-bench-rtk/packages/next/src","in_chars":52,"out_chars":5364,"elapsed_ms":111,"exit":0}
+{"ts":"2026-06-13T08:14:22.978Z","q":4,"agent":"rtk","cmd":"rtk rg -l pagesDir /tmp/nextjs-bench-rtk/packages/next/src","in_chars":54,"out_chars":3189,"elapsed_ms":90,"exit":0}
+{"ts":"2026-06-13T08:14:23.108Z","q":4,"agent":"rtk","cmd":"rtk rg -l appDir /tmp/nextjs-bench-rtk/packages/next/src","in_chars":52,"out_chars":5364,"elapsed_ms":95,"exit":0}
+{"ts":"2026-06-13T08:14:30.395Z","q":4,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/client/components/redirect.ts","in_chars":81,"out_chars":6122,"elapsed_ms":365,"exit":0}
+{"ts":"2026-06-13T08:14:30.740Z","q":4,"agent":"rtk","cmd":"rtk rg -n export function redirect|isRedirectError /tmp/nextjs-bench-rtk/packages/next/src/client/components/redirect.ts /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":189,"out_chars":908,"elapsed_ms":57,"exit":0}
+{"ts":"2026-06-13T08:14:51.607Z","q":4,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/client/components/redirect.ts","in_chars":74,"out_chars":3731,"elapsed_ms":49,"exit":0}
+{"ts":"2026-06-13T08:14:51.686Z","q":4,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":77,"out_chars":312603,"elapsed_ms":41,"exit":0}
+{"ts":"2026-06-13T08:14:52.574Z","q":4,"agent":"rtk","cmd":"rtk rg -n export async function renderToHTMLOrFlight|^export function renderToHTMLOrFlight|^async function renderToHTMLOrFlight /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":196,"out_chars":46,"elapsed_ms":67,"exit":0}
+{"ts":"2026-06-13T08:14:56.809Z","q":4,"agent":"rtk","cmd":"rtk rg -n renderToHTMLOrFlight /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":99,"out_chars":305,"elapsed_ms":65,"exit":0}
+{"ts":"2026-06-13T08:14:57.866Z","q":4,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":77,"out_chars":312603,"elapsed_ms":52,"exit":0}
+{"ts":"2026-06-13T08:15:01.760Z","q":4,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":77,"out_chars":312603,"elapsed_ms":49,"exit":0}
+{"ts":"2026-06-13T08:15:02.357Z","q":4,"agent":"rtk","cmd":"rtk rg -n type AppPageRender|interface AppPageRender /tmp/nextjs-bench-rtk/packages/next/src/server/app-render","in_chars":106,"out_chars":335,"elapsed_ms":85,"exit":0}
+{"ts":"2026-06-13T08:15:06.306Z","q":4,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/web/spec-extension/revalidate.ts","in_chars":84,"out_chars":10521,"elapsed_ms":50,"exit":0}
+{"ts":"2026-06-13T08:15:06.905Z","q":4,"agent":"rtk","cmd":"rtk rg -n export function revalidateTag|function revalidate\\( /tmp/nextjs-bench-rtk/packages/next/src/server/web/spec-extension/revalidate.ts","in_chars":137,"out_chars":108,"elapsed_ms":66,"exit":0}
+{"ts":"2026-06-13T08:15:11.573Z","q":4,"agent":"rtk","cmd":"rtk rg -n revalidatedTags|pendingRevalidatedTags|tags.*revalidat /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/work-async-storage.external.ts /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":196,"out_chars":7550,"elapsed_ms":96,"exit":0}
+{"ts":"2026-06-13T08:15:15.876Z","q":4,"agent":"rtk","cmd":"rtk rg -n ACTION|Next-Action|next-action /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/action-handler.ts","in_chars":112,"out_chars":1792,"elapsed_ms":70,"exit":0}
+{"ts":"2026-06-13T08:15:19.504Z","q":4,"agent":"rtk","cmd":"rtk rg -n ACTION_HEADER /tmp/nextjs-bench-rtk/packages/next/src/client/components/app-router-headers.ts /tmp/nextjs-bench-rtk/packages/next/src/lib/constants.ts","in_chars":156,"out_chars":134,"elapsed_ms":69,"exit":0}
+{"ts":"2026-06-13T08:15:20.120Z","q":4,"agent":"rtk","cmd":"rtk rg -n ^export async function handleAction|^export function handleAction|function handleAction /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/action-handler.ts","in_chars":169,"out_chars":41,"elapsed_ms":75,"exit":0}
+{"ts":"2026-06-13T08:15:24.634Z","q":4,"agent":"rtk","cmd":"rtk rg -n res\\.(status|setHeader|body)|RenderResult|createFromFetch /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/action-handler.ts","in_chars":139,"out_chars":1529,"elapsed_ms":60,"exit":0}
+{"ts":"2026-06-13T08:15:25.452Z","q":4,"agent":"gh","cmd":"gh search code appDir pagesDir repo:vercel/next.js path:packages/next/src --json path","in_chars":82,"out_chars":3,"elapsed_ms":347,"exit":0}
+{"ts":"2026-06-13T08:15:30.103Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search partial prerendering --state merged --json number,title","in_chars":94,"out_chars":2470,"elapsed_ms":580,"exit":0}
+{"ts":"2026-06-13T08:15:30.937Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Server Actions --state merged --json number,title","in_chars":88,"out_chars":2441,"elapsed_ms":567,"exit":0}
+{"ts":"2026-06-13T08:15:35.450Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Partial Prerendering PPR --state merged --json number,title","in_chars":98,"out_chars":2383,"elapsed_ms":617,"exit":0}
+{"ts":"2026-06-13T08:15:36.070Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search experimental ppr --state merged --json number,title","in_chars":90,"out_chars":2365,"elapsed_ms":585,"exit":0}
+{"ts":"2026-06-13T08:15:41.818Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Partial Prerendering --state merged --limit 50 --json number,title","in_chars":105,"out_chars":4082,"elapsed_ms":641,"exit":0}
+{"ts":"2026-06-13T08:15:45.897Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search introducing Partial Prerendering --state merged --json number,title","in_chars":106,"out_chars":310,"elapsed_ms":520,"exit":0}
+{"ts":"2026-06-13T08:15:46.224Z","q":9,"agent":"gh","cmd":"gh pr view 63886 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":166,"elapsed_ms":467,"exit":0}
+{"ts":"2026-06-13T08:15:52.107Z","q":9,"agent":"rtk","cmd":"rtk rg -l Partial Prerendering /tmp/nextjs-bench-rtk","in_chars":48,"out_chars":1877,"elapsed_ms":1461,"exit":0}
+{"ts":"2026-06-13T08:15:52.224Z","q":9,"agent":"rtk","cmd":"rtk rg introduced Partial Prerendering|Partial Prerendering \\(PPR\\) /tmp/nextjs-bench-rtk/docs","in_chars":90,"out_chars":2667,"elapsed_ms":74,"exit":0}
+{"ts":"2026-06-13T08:15:52.264Z","q":9,"agent":"gh","cmd":"gh pr view 66455 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":546,"elapsed_ms":664,"exit":0}
+{"ts":"2026-06-13T08:15:57.193Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search feat: partial prerendering --state merged --json number,title","in_chars":100,"out_chars":1362,"elapsed_ms":863,"exit":0}
+{"ts":"2026-06-13T08:16:02.614Z","q":9,"agent":"gh","cmd":"gh pr view 57287 --repo vercel/next.js --json number,title,body,files","in_chars":66,"out_chars":5479,"elapsed_ms":542,"exit":0}
+{"ts":"2026-06-13T08:16:03.539Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Server Actions --state merged --limit 100 --json number,title","in_chars":100,"out_chars":8100,"elapsed_ms":783,"exit":0}
+{"ts":"2026-06-13T08:16:07.980Z","q":9,"agent":"gh","cmd":"gh pr view 57287 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":803,"elapsed_ms":455,"exit":0}
+{"ts":"2026-06-13T08:16:09.357Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search server actions --state merged --limit 100 --json number,title","in_chars":100,"out_chars":8100,"elapsed_ms":787,"exit":0}
+{"ts":"2026-06-13T08:16:13.963Z","q":9,"agent":"gh","cmd":"gh pr view 57287 --repo vercel/next.js --json files","in_chars":48,"out_chars":4663,"elapsed_ms":553,"exit":0}
+{"ts":"2026-06-13T08:16:14.460Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search RFC Server Actions --state merged --json number,title","in_chars":92,"out_chars":2353,"elapsed_ms":641,"exit":0}
+{"ts":"2026-06-13T08:16:14.987Z","q":9,"agent":"gh","cmd":"gh pr view 49855 --repo vercel/next.js --json title","in_chars":48,"out_chars":63,"elapsed_ms":463,"exit":0}
+{"ts":"2026-06-13T08:16:15.500Z","q":9,"agent":"gh","cmd":"gh pr view 54711 --repo vercel/next.js --json title","in_chars":48,"out_chars":95,"elapsed_ms":461,"exit":1}
+{"ts":"2026-06-13T08:16:19.711Z","q":9,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search use server --state merged --limit 50 --json number,title","in_chars":95,"out_chars":4198,"elapsed_ms":655,"exit":0}
+{"ts":"2026-06-13T08:16:25.372Z","q":9,"agent":"gh","cmd":"gh pr view 49771 --repo vercel/next.js --json title","in_chars":48,"out_chars":95,"elapsed_ms":488,"exit":1}
+{"ts":"2026-06-13T08:16:29.957Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Server Actions RFC --state merged --json number,title","in_chars":92,"out_chars":2353,"elapsed_ms":603,"exit":0}
+{"ts":"2026-06-13T08:16:39.804Z","q":10,"agent":"gh","cmd":"gh pr view 51877 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":62,"elapsed_ms":431,"exit":0}
+{"ts":"2026-06-13T08:16:40.326Z","q":10,"agent":"gh","cmd":"gh pr view 52041 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":468,"exit":1}
+{"ts":"2026-06-13T08:16:40.829Z","q":10,"agent":"gh","cmd":"gh pr view 52190 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":43,"elapsed_ms":454,"exit":0}
+{"ts":"2026-06-13T08:16:41.314Z","q":10,"agent":"gh","cmd":"gh pr view 52441 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":432,"exit":1}
+{"ts":"2026-06-13T08:16:41.851Z","q":10,"agent":"gh","cmd":"gh pr view 52862 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":475,"exit":1}
+{"ts":"2026-06-13T08:16:42.574Z","q":10,"agent":"gh","cmd":"gh pr view 53070 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":675,"exit":1}
+{"ts":"2026-06-13T08:16:43.089Z","q":10,"agent":"gh","cmd":"gh pr view 53212 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":69,"elapsed_ms":467,"exit":0}
+{"ts":"2026-06-13T08:16:43.657Z","q":10,"agent":"gh","cmd":"gh pr view 53402 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":47,"elapsed_ms":505,"exit":0}
+{"ts":"2026-06-13T08:16:44.124Z","q":10,"agent":"gh","cmd":"gh pr view 53695 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":425,"exit":1}
+{"ts":"2026-06-13T08:16:44.596Z","q":10,"agent":"gh","cmd":"gh pr view 53845 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":423,"exit":1}
+{"ts":"2026-06-13T08:16:45.099Z","q":10,"agent":"gh","cmd":"gh pr view 54142 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":454,"exit":1}
+{"ts":"2026-06-13T08:16:45.588Z","q":10,"agent":"gh","cmd":"gh pr view 54321 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":440,"exit":1}
+{"ts":"2026-06-13T08:16:46.066Z","q":10,"agent":"gh","cmd":"gh pr view 54500 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":31,"elapsed_ms":438,"exit":0}
+{"ts":"2026-06-13T08:16:46.561Z","q":10,"agent":"gh","cmd":"gh pr view 54700 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":44,"elapsed_ms":446,"exit":0}
+{"ts":"2026-06-13T08:16:47.127Z","q":10,"agent":"gh","cmd":"gh pr view 54900 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":48,"elapsed_ms":509,"exit":0}
+{"ts":"2026-06-13T08:16:54.896Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Server Actions in title:Server Actions --state merged --json number,title","in_chars":112,"out_chars":3,"elapsed_ms":483,"exit":0}
+{"ts":"2026-06-13T08:17:00.375Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search feat(app): Server Actions --state merged --json number,title","in_chars":99,"out_chars":1813,"elapsed_ms":578,"exit":0}
+{"ts":"2026-06-13T08:17:04.896Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search body parser limit for server actions --state merged --json number,title","in_chars":110,"out_chars":281,"elapsed_ms":557,"exit":0}
+{"ts":"2026-06-13T08:17:05.301Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Server Actions --state merged --limit 5 --json number,title","in_chars":98,"out_chars":388,"elapsed_ms":473,"exit":0}
+{"ts":"2026-06-13T08:17:05.393Z","q":10,"agent":"gh","cmd":"gh pr view 51104 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":3686,"elapsed_ms":449,"exit":0}
+{"ts":"2026-06-13T08:17:12.842Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search Next.js Server Actions --state merged --json number,title","in_chars":96,"out_chars":2451,"elapsed_ms":543,"exit":0}
+{"ts":"2026-06-13T08:17:13.822Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search serverActions --state merged --json number,title","in_chars":87,"out_chars":2411,"elapsed_ms":681,"exit":0}
+{"ts":"2026-06-13T08:17:18.779Z","q":10,"agent":"gh","cmd":"gh pr view 57145 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":111,"elapsed_ms":445,"exit":0}
+{"ts":"2026-06-13T08:17:19.870Z","q":10,"agent":"gh","cmd":"gh pr list --repo vercel/next.js --search experimental serverActions --state merged --json number,title","in_chars":100,"out_chars":1340,"elapsed_ms":532,"exit":0}
+{"ts":"2026-06-13T08:17:24.377Z","q":10,"agent":"gh","cmd":"gh pr view 49046 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":27,"elapsed_ms":438,"exit":0}
+{"ts":"2026-06-13T08:17:24.862Z","q":10,"agent":"gh","cmd":"gh pr view 49142 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":431,"exit":1}
+{"ts":"2026-06-13T08:17:29.425Z","q":10,"agent":"rtk","cmd":"rtk rg Server Actions /tmp/nextjs-bench-rtk/test --glob *.md","in_chars":56,"out_chars":90,"elapsed_ms":492,"exit":0}
+{"ts":"2026-06-13T08:17:29.869Z","q":10,"agent":"rtk","cmd":"rtk rg serverActions.*experimental|experimental.*serverActions /tmp/nextjs-bench-rtk/packages/next/src/server/config-shared.ts","in_chars":122,"out_chars":0,"elapsed_ms":66,"exit":1}
+{"ts":"2026-06-13T08:17:34.683Z","q":10,"agent":"gh","cmd":"gh pr view 53391 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":36,"elapsed_ms":535,"exit":0}
+{"ts":"2026-06-13T08:17:35.179Z","q":10,"agent":"gh","cmd":"gh pr view 54291 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":452,"exit":1}
+{"ts":"2026-06-13T08:17:40.160Z","q":10,"agent":"gh","cmd":"gh search prs repo:vercel/next.js server actions merged --json number,title","in_chars":72,"out_chars":217,"elapsed_ms":802,"exit":1}
+{"ts":"2026-06-13T08:17:44.182Z","q":10,"agent":"gh","cmd":"gh pr view 51810 --repo vercel/next.js --json number,title -q [.number,.title]|@tsv","in_chars":80,"out_chars":95,"elapsed_ms":430,"exit":1}
+{"ts":"2026-06-13T08:17:48.076Z","q":10,"agent":"gh","cmd":"gh pr view 50205 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":95,"elapsed_ms":400,"exit":1}
+{"ts":"2026-06-13T08:17:48.421Z","q":10,"agent":"gh","cmd":"gh pr view 47953 --repo vercel/next.js --json number,title","in_chars":55,"out_chars":95,"elapsed_ms":436,"exit":1}
+{"ts":"2026-06-13T08:17:55.135Z","q":10,"agent":"gh","cmd":"gh pr view 50512 --repo vercel/next.js --json title","in_chars":48,"out_chars":95,"elapsed_ms":441,"exit":1}
+{"ts":"2026-06-13T08:18:00.845Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+Server+Actions+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":105,"out_chars":36726,"elapsed_ms":828,"exit":0}
+{"ts":"2026-06-13T08:18:05.902Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22Server+Actions%22+is:pr+is:merged&sort=created&order=asc&per_page=15","in_chars":111,"out_chars":65073,"elapsed_ms":892,"exit":0}
+{"ts":"2026-06-13T08:18:11.158Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22use+server%22+is:pr+is:merged&sort=created&order=asc&per_page=20","in_chars":107,"out_chars":57263,"elapsed_ms":1149,"exit":0}
+{"ts":"2026-06-13T08:18:16.845Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+serverActions+is:pr+is:merged&sort=created&order=asc&per_page=15","in_chars":104,"out_chars":54965,"elapsed_ms":1358,"exit":0}
+{"ts":"2026-06-13T08:18:21.878Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22Server+Actions%22+compiler+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":120,"out_chars":42350,"elapsed_ms":825,"exit":0}
+{"ts":"2026-06-13T08:18:23.031Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+Actions+RFC+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":102,"out_chars":37179,"elapsed_ms":768,"exit":0}
+{"ts":"2026-06-13T08:18:27.678Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+experimental.serverActions+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":117,"out_chars":17591,"elapsed_ms":711,"exit":0}
+{"ts":"2026-06-13T08:18:28.954Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+server+action+feature+is:pr+is:merged&sort=created&order=asc&per_page=15","in_chars":112,"out_chars":55283,"elapsed_ms":984,"exit":0}
+{"ts":"2026-06-13T08:18:36.793Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+next-action+is:pr+is:merged&sort=created&order=asc&per_page=15","in_chars":102,"out_chars":50318,"elapsed_ms":932,"exit":0}
+{"ts":"2026-06-13T08:18:41.774Z","q":10,"agent":"gh","cmd":"gh pr view 46778 --repo vercel/next.js --json number,title,body,files","in_chars":66,"out_chars":1835,"elapsed_ms":522,"exit":0}
+{"ts":"2026-06-13T08:18:46.610Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+feat+Server+Actions+is:pr+is:merged&per_page=20","in_chars":87,"out_chars":93295,"elapsed_ms":1079,"exit":0}
+{"ts":"2026-06-13T08:18:52.664Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+feat+Server+Actions+is:pr+is:merged&per_page=20","in_chars":87,"out_chars":93295,"elapsed_ms":1088,"exit":0}
+{"ts":"2026-06-13T08:18:58.126Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22Add+Server+Actions%22+is:pr+is:merged&per_page=10","in_chars":92,"out_chars":43130,"elapsed_ms":789,"exit":0}
+{"ts":"2026-06-13T08:18:59.251Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22Server+Actions%22+in:title+is:pr+is:merged&sort=created&order=asc&per_page=20","in_chars":120,"out_chars":76146,"elapsed_ms":897,"exit":0}
+{"ts":"2026-06-13T08:19:06.452Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+Server+Actions+in:title+is:pr+is:merged&sort=created&order=asc&per_page=100","in_chars":115,"out_chars":396308,"elapsed_ms":2847,"exit":0}
+{"ts":"2026-06-13T08:19:13.320Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+serverActions+true+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":109,"out_chars":36009,"elapsed_ms":792,"exit":0}
+{"ts":"2026-06-13T08:19:13.589Z","q":10,"agent":"gh","cmd":"gh pr view 48675 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":95,"elapsed_ms":408,"exit":1}
+{"ts":"2026-06-13T08:19:18.360Z","q":10,"agent":"gh","cmd":"gh pr view 46683 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":1794,"elapsed_ms":441,"exit":0}
+{"ts":"2026-06-13T08:19:23.200Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+serverActions+object+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":111,"out_chars":35935,"elapsed_ms":788,"exit":0}
+{"ts":"2026-06-13T08:19:24.782Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+server-reference+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":107,"out_chars":37241,"elapsed_ms":907,"exit":0}
+{"ts":"2026-06-13T08:19:29.593Z","q":10,"agent":"gh","cmd":"gh pr view 46234 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":434,"exit":1}
+{"ts":"2026-06-13T08:19:34.447Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22use+server%22+compiler+is:pr+is:merged&sort=created&order=asc&per_page=15","in_chars":116,"out_chars":54519,"elapsed_ms":912,"exit":0}
+{"ts":"2026-06-13T08:19:39.749Z","q":10,"agent":"gh","cmd":"gh pr view 47076 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":428,"exit":1}
+{"ts":"2026-06-13T08:20:05.602Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22React+Server+Actions%22+is:pr+is:merged&sort=created&order=asc&per_page=10","in_chars":117,"out_chars":42900,"elapsed_ms":977,"exit":0}
+{"ts":"2026-06-13T08:20:25.849Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+is:pr+is:merged+Server+Actions&sort=created&order=asc&per_page=100","in_chars":106,"out_chars":364682,"elapsed_ms":3014,"exit":0}
+{"ts":"2026-06-13T08:20:31.453Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+test/e2e/app-dir/actions&per_page=5","in_chars":76,"out_chars":42358,"elapsed_ms":507,"exit":0}
+{"ts":"2026-06-13T08:20:37.363Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22Enable+Server+Actions%22+is:pr+is:merged&per_page=5","in_chars":94,"out_chars":31428,"elapsed_ms":658,"exit":0}
+{"ts":"2026-06-13T08:20:43.574Z","q":10,"agent":"gh","cmd":"gh pr view 51377 --repo vercel/next.js --json number,title -q \"\\(.number) \\(.title)\"","in_chars":81,"out_chars":54,"elapsed_ms":454,"exit":0}
+{"ts":"2026-06-13T08:20:44.064Z","q":10,"agent":"gh","cmd":"gh pr view 51418 --repo vercel/next.js --json number,title -q \"\\(.number) \\(.title)\"","in_chars":81,"out_chars":53,"elapsed_ms":423,"exit":0}
+{"ts":"2026-06-13T08:20:44.523Z","q":10,"agent":"gh","cmd":"gh pr view 51577 --repo vercel/next.js --json number,title -q \"\\(.number) \\(.title)\"","in_chars":81,"out_chars":95,"elapsed_ms":414,"exit":1}
+{"ts":"2026-06-13T08:21:04.527Z","q":10,"agent":"gh","cmd":"gh pr view 48450 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":49,"elapsed_ms":469,"exit":0}
+{"ts":"2026-06-13T08:21:05.080Z","q":10,"agent":"gh","cmd":"gh pr view 48451 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":45,"elapsed_ms":478,"exit":0}
+{"ts":"2026-06-13T08:21:05.570Z","q":10,"agent":"gh","cmd":"gh pr view 48452 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":435,"exit":1}
+{"ts":"2026-06-13T08:21:14.159Z","q":10,"agent":"gh","cmd":"gh pr view 46145 --repo vercel/next.js --json title","in_chars":48,"out_chars":95,"elapsed_ms":427,"exit":1}
+{"ts":"2026-06-13T08:21:19.253Z","q":10,"agent":"gh","cmd":"gh pr view 45678 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":44,"elapsed_ms":461,"exit":0}
+{"ts":"2026-06-13T08:21:19.751Z","q":10,"agent":"gh","cmd":"gh pr view 45789 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":437,"exit":1}
+{"ts":"2026-06-13T08:21:20.281Z","q":10,"agent":"gh","cmd":"gh pr view 45890 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":472,"exit":1}
+{"ts":"2026-06-13T08:21:20.764Z","q":10,"agent":"gh","cmd":"gh pr view 46001 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":49,"elapsed_ms":434,"exit":0}
+{"ts":"2026-06-13T08:21:21.256Z","q":10,"agent":"gh","cmd":"gh pr view 46012 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":437,"exit":1}
+{"ts":"2026-06-13T08:21:21.771Z","q":10,"agent":"gh","cmd":"gh pr view 46023 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":26,"elapsed_ms":451,"exit":0}
+{"ts":"2026-06-13T08:21:22.293Z","q":10,"agent":"gh","cmd":"gh pr view 46034 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":477,"exit":1}
+{"ts":"2026-06-13T08:21:22.774Z","q":10,"agent":"gh","cmd":"gh pr view 46045 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":414,"exit":1}
+{"ts":"2026-06-13T08:21:23.286Z","q":10,"agent":"gh","cmd":"gh pr view 46056 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":459,"exit":1}
+{"ts":"2026-06-13T08:21:23.813Z","q":10,"agent":"gh","cmd":"gh pr view 46067 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":459,"exit":1}
+{"ts":"2026-06-13T08:21:24.321Z","q":10,"agent":"gh","cmd":"gh pr view 46078 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":454,"exit":1}
+{"ts":"2026-06-13T08:21:24.839Z","q":10,"agent":"gh","cmd":"gh pr view 46089 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":30,"elapsed_ms":454,"exit":0}
+{"ts":"2026-06-13T08:21:25.329Z","q":10,"agent":"gh","cmd":"gh pr view 46100 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":428,"exit":1}
+{"ts":"2026-06-13T08:21:31.233Z","q":10,"agent":"gh","cmd":"gh pr view 47845 --repo vercel/next.js --json title -q .title","in_chars":58,"out_chars":95,"elapsed_ms":431,"exit":1}
+{"ts":"2026-06-13T08:21:42.045Z","q":10,"agent":"rtk","cmd":"rtk rg -n x-action-redirect|RedirectStatusCode|isRedirectError /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":131,"out_chars":338,"elapsed_ms":66,"exit":0}
+{"ts":"2026-06-13T08:21:52.175Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+%22Server+Actions%22&sort=author-date&order=asc&per_page=5","in_chars":99,"out_chars":39824,"elapsed_ms":644,"exit":0}
+{"ts":"2026-06-13T08:21:56.740Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+serverActions&sort=author-date&order=asc&per_page=10","in_chars":93,"out_chars":81349,"elapsed_ms":490,"exit":0}
+{"ts":"2026-06-13T08:22:01.766Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+%22use+server%22+SWC&sort=author-date&order=asc&per_page=10","in_chars":100,"out_chars":79159,"elapsed_ms":558,"exit":0}
+{"ts":"2026-06-13T08:22:06.438Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+action+transform&sort=author-date&order=asc&per_page=15","in_chars":96,"out_chars":125687,"elapsed_ms":508,"exit":0}
+{"ts":"2026-06-13T08:22:11.565Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+%22support+Server+Actions%22&sort=author-date&order=asc&per_page=10","in_chars":108,"out_chars":23900,"elapsed_ms":468,"exit":0}
+{"ts":"2026-06-13T08:22:16.652Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+Server+Actions+experimental&sort=author-date&order=asc&per_page=20","in_chars":107,"out_chars":161602,"elapsed_ms":666,"exit":0}
+{"ts":"2026-06-13T08:22:22.705Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+server+action&sort=author-date&order=asc&per_page=30","in_chars":93,"out_chars":232939,"elapsed_ms":637,"exit":0}
+{"ts":"2026-06-13T08:22:28.443Z","q":10,"agent":"gh","cmd":"gh pr view 47186 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":372,"elapsed_ms":468,"exit":0}
+{"ts":"2026-06-13T08:22:29.057Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47186/comments","in_chars":45,"out_chars":3365,"elapsed_ms":524,"exit":0}
+{"ts":"2026-06-13T08:22:35.162Z","q":10,"agent":"gh","cmd":"gh pr view 47049 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":500,"elapsed_ms":491,"exit":0}
+{"ts":"2026-06-13T08:22:35.789Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47049/comments","in_chars":45,"out_chars":3276,"elapsed_ms":555,"exit":0}
+{"ts":"2026-06-13T08:22:41.538Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+%22use+server%22&sort=author-date&order=asc&per_page=30","in_chars":96,"out_chars":234471,"elapsed_ms":622,"exit":0}
+{"ts":"2026-06-13T08:22:47.985Z","q":10,"agent":"gh","cmd":"gh pr view 47438 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":857,"elapsed_ms":451,"exit":0}
+{"ts":"2026-06-13T08:22:48.532Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47438/comments","in_chars":45,"out_chars":2,"elapsed_ms":434,"exit":0}
+{"ts":"2026-06-13T08:22:53.932Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+encodeReply&sort=author-date&order=asc&per_page=10","in_chars":91,"out_chars":24674,"elapsed_ms":508,"exit":0}
+{"ts":"2026-06-13T08:22:55.531Z","q":10,"agent":"gh","cmd":"gh pr view 47379 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":745,"elapsed_ms":507,"exit":0}
+{"ts":"2026-06-13T08:22:56.040Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47379/comments","in_chars":45,"out_chars":2,"elapsed_ms":403,"exit":0}
+{"ts":"2026-06-13T08:23:01.019Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+action-handler&sort=author-date&order=asc&per_page=10","in_chars":94,"out_chars":80757,"elapsed_ms":529,"exit":0}
+{"ts":"2026-06-13T08:23:06.573Z","q":10,"agent":"gh","cmd":"gh pr view 48626 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":210,"elapsed_ms":458,"exit":0}
+{"ts":"2026-06-13T08:23:07.254Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/48626/comments","in_chars":45,"out_chars":3589,"elapsed_ms":592,"exit":0}
+{"ts":"2026-06-13T08:23:12.867Z","q":10,"agent":"gh","cmd":"gh api search/issues?q=repo:vercel/next.js+%22Implement+Server+Actions%22+is:pr+is:merged&per_page=5","in_chars":97,"out_chars":19060,"elapsed_ms":654,"exit":0}
+{"ts":"2026-06-13T08:23:18.482Z","q":10,"agent":"gh","cmd":"gh pr view 49145 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":406,"elapsed_ms":436,"exit":0}
+{"ts":"2026-06-13T08:23:18.931Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/49145/comments","in_chars":45,"out_chars":2,"elapsed_ms":386,"exit":0}
+{"ts":"2026-06-13T08:23:24.989Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+experimental+serverActions&sort=author-date&order=asc&per_page=10","in_chars":106,"out_chars":54819,"elapsed_ms":490,"exit":0}
+{"ts":"2026-06-13T08:23:30.390Z","q":10,"agent":"gh","cmd":"gh pr view 49046 --repo vercel/next.js --json title,body,files","in_chars":59,"out_chars":960,"elapsed_ms":545,"exit":0}
+{"ts":"2026-06-13T08:23:30.860Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/49046/comments","in_chars":45,"out_chars":2,"elapsed_ms":396,"exit":0}
+{"ts":"2026-06-13T08:23:36.304Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+experimentalReact&sort=author-date&order=asc&per_page=10","in_chars":97,"out_chars":45057,"elapsed_ms":512,"exit":0}
+{"ts":"2026-06-13T08:23:41.222Z","q":10,"agent":"gh","cmd":"gh pr view 47759 --repo vercel/next.js --json number,title,body","in_chars":60,"out_chars":998,"elapsed_ms":456,"exit":0}
+{"ts":"2026-06-13T08:23:41.877Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47759/comments","in_chars":45,"out_chars":16107,"elapsed_ms":574,"exit":0}
+{"ts":"2026-06-13T08:23:47.557Z","q":10,"agent":"gh","cmd":"gh api search/commits?q=repo:vercel/next.js+%22server+action%22&sort=author-date&order=asc&per_page=50","in_chars":99,"out_chars":388314,"elapsed_ms":651,"exit":0}
+{"ts":"2026-06-13T08:23:53.909Z","q":10,"agent":"gh","cmd":"gh pr view 53523 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":2999,"elapsed_ms":446,"exit":0}
+{"ts":"2026-06-13T08:23:54.505Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/53523/comments","in_chars":45,"out_chars":7568,"elapsed_ms":535,"exit":0}
+{"ts":"2026-06-13T08:24:00.005Z","q":10,"agent":"gh","cmd":"gh pr view 49119 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":161,"elapsed_ms":463,"exit":0}
+{"ts":"2026-06-13T08:24:00.449Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/49119/comments","in_chars":45,"out_chars":2,"elapsed_ms":392,"exit":0}
+{"ts":"2026-06-13T08:24:06.130Z","q":10,"agent":"gh","cmd":"gh pr view 50257 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":266,"elapsed_ms":443,"exit":0}
+{"ts":"2026-06-13T08:24:06.842Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/50257/comments","in_chars":45,"out_chars":7712,"elapsed_ms":651,"exit":0}
+{"ts":"2026-06-13T08:24:13.710Z","q":10,"agent":"gh","cmd":"gh pr view 47364 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":706,"elapsed_ms":449,"exit":0}
+{"ts":"2026-06-13T08:24:14.202Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47364/comments","in_chars":45,"out_chars":2,"elapsed_ms":428,"exit":0}
+{"ts":"2026-06-13T08:24:20.539Z","q":10,"agent":"gh","cmd":"gh pr view 48896 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":417,"elapsed_ms":461,"exit":0}
+{"ts":"2026-06-13T08:24:21.111Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/48896/comments","in_chars":45,"out_chars":2,"elapsed_ms":520,"exit":0}
+{"ts":"2026-06-13T08:24:28.566Z","q":10,"agent":"gh","cmd":"gh pr view 47967 --repo vercel/next.js --json title,body","in_chars":53,"out_chars":607,"elapsed_ms":463,"exit":0}
+{"ts":"2026-06-13T08:24:29.259Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47967/comments","in_chars":45,"out_chars":11102,"elapsed_ms":640,"exit":0}
+{"ts":"2026-06-13T08:24:36.073Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js/pulls/47379/comments","in_chars":45,"out_chars":2,"elapsed_ms":404,"exit":0}
+{"ts":"2026-06-13T08:24:44.692Z","q":4,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/build/analyze/index.ts -q .name","in_chars":83,"out_chars":9,"elapsed_ms":362,"exit":0}
+{"ts":"2026-06-13T08:24:46.082Z","q":4,"agent":"rtk","cmd":"rtk rg -n pipeToNodeResponse|ReadableStream /tmp/nextjs-bench-rtk/packages/next/src/server/pipe-readable.ts /tmp/nextjs-bench-rtk/packages/next/src/server/stream-utils","in_chars":163,"out_chars":4907,"elapsed_ms":70,"exit":0}
+{"ts":"2026-06-13T08:24:47.380Z","q":4,"agent":"rtk","cmd":"rtk rg -n // TODO|// FIXME|// HACK /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":77,"out_chars":48518,"elapsed_ms":91,"exit":0}
+{"ts":"2026-06-13T08:24:47.499Z","q":4,"agent":"rtk","cmd":"rtk rg -n // TODO|// FIXME|// HACK /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":77,"out_chars":48518,"elapsed_ms":71,"exit":0}
+{"ts":"2026-06-13T08:24:54.202Z","q":4,"agent":"rtk","cmd":"rtk rg -n pipeToNodeResponse /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":71,"out_chars":1490,"elapsed_ms":68,"exit":0}
+{"ts":"2026-06-13T08:24:55.138Z","q":4,"agent":"rtk","cmd":"rtk rg -n generateStaticParams /tmp/nextjs-bench-rtk/packages/next/src/build","in_chars":72,"out_chars":12989,"elapsed_ms":79,"exit":0}
+{"ts":"2026-06-13T08:24:59.047Z","q":4,"agent":"rtk","cmd":"rtk rg -n generateStaticParams\\( /tmp/nextjs-bench-rtk/packages/next/src/build","in_chars":74,"out_chars":863,"elapsed_ms":72,"exit":0}
+{"ts":"2026-06-13T08:25:06.342Z","q":4,"agent":"rtk","cmd":"rtk rg -n generateStaticParams /tmp/nextjs-bench-rtk/packages/next/src/build/static-paths","in_chars":85,"out_chars":6806,"elapsed_ms":72,"exit":0}
+{"ts":"2026-06-13T08:25:20.030Z","q":4,"agent":"rtk","cmd":"rtk rg -n sendRenderResult\\( /tmp/nextjs-bench-rtk/packages/next","in_chars":60,"out_chars":1609,"elapsed_ms":174,"exit":0}
+{"ts":"2026-06-13T08:25:20.924Z","q":4,"agent":"rtk","cmd":"rtk rg -l unstable_cache /tmp/nextjs-bench-rtk/packages --glob !**/compiled/**","in_chars":74,"out_chars":2485,"elapsed_ms":114,"exit":0}
+{"ts":"2026-06-13T08:25:21.763Z","q":4,"agent":"rtk","cmd":"rtk rg -n renderToHTMLOrFlight\\( /tmp/nextjs-bench-rtk/packages/next/src","in_chars":68,"out_chars":117,"elapsed_ms":84,"exit":0}
+{"ts":"2026-06-13T08:25:26.590Z","q":4,"agent":"rtk","cmd":"rtk rg -n protected sendRenderResult|sendRenderResult\\( /tmp/nextjs-bench-rtk/packages/next/src/server --glob *.ts","in_chars":110,"out_chars":638,"elapsed_ms":68,"exit":0}
+{"ts":"2026-06-13T08:26:36.347Z","q":4,"agent":"rtk","cmd":"rtk rg -l unstable_cache /tmp/nextjs-bench-rtk/packages --glob !**/compiled/**","in_chars":74,"out_chars":2485,"elapsed_ms":177,"exit":0}
+{"ts":"2026-06-13T08:26:57.555Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":505,"exit":0}
+{"ts":"2026-06-13T08:26:58.326Z","q":2,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":529,"exit":0}
+{"ts":"2026-06-13T08:26:59.076Z","q":3,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":495,"exit":0}
+{"ts":"2026-06-13T08:26:59.889Z","q":4,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":545,"exit":0}
+{"ts":"2026-06-13T08:27:00.725Z","q":5,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":562,"exit":0}
+{"ts":"2026-06-13T08:27:01.520Z","q":6,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":523,"exit":0}
+{"ts":"2026-06-13T08:27:02.290Z","q":7,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":504,"exit":0}
+{"ts":"2026-06-13T08:27:03.057Z","q":8,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":500,"exit":0}
+{"ts":"2026-06-13T08:27:03.845Z","q":9,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":520,"exit":0}
+{"ts":"2026-06-13T08:27:04.614Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":523,"exit":0}
+{"ts":"2026-06-13T08:27:04.934Z","q":11,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":66,"exit":0}
+{"ts":"2026-06-13T08:27:05.222Z","q":12,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":64,"exit":0}
+{"ts":"2026-06-13T08:27:05.541Z","q":13,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":65,"exit":0}
+{"ts":"2026-06-13T08:27:05.834Z","q":14,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":69,"exit":0}
+{"ts":"2026-06-13T08:27:06.160Z","q":15,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":74,"exit":0}
+{"ts":"2026-06-13T08:27:06.471Z","q":16,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":72,"exit":0}
+{"ts":"2026-06-13T08:27:06.740Z","q":17,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":57,"exit":0}
+{"ts":"2026-06-13T08:27:07.010Z","q":18,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":66,"exit":0}
+{"ts":"2026-06-13T08:27:07.315Z","q":19,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":43,"exit":0}
+{"ts":"2026-06-13T08:27:07.654Z","q":20,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":58,"exit":0}

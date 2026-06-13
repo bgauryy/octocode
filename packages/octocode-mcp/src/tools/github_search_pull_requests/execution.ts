@@ -1,10 +1,10 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
-import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { GitHubSearchPullRequestsToolResult } from '@octocodeai/octocode-core/extra-types';
+import type { GitHubPullRequestSearchQueryLocalSchema } from './scheme.js';
 
 type GitHubPullRequestSearchQuery = z.infer<
-  typeof GitHubPullRequestSearchQuerySchema
+  typeof GitHubPullRequestSearchQueryLocalSchema
 >;
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
@@ -70,18 +70,32 @@ export async function searchMultipleGitHubPullRequests(
           (effectiveQuery as { reviewMode?: unknown }).reviewMode = undefined;
         }
 
-        // Archaeology hint: when searching by keywords without an explicit sort
-        // or date filter, nudge the agent toward the chronological pattern for
-        // finding the PR that *introduced* a feature.
-        const hasKeywordsOnly =
+        // Archaeology hint: when searching merged PRs by keyword without an
+        // explicit sort or date filter, nudge the agent toward the chronological
+        // pattern for finding the PR that *introduced* a feature.
+        const hasTextQuery =
           !hasPrNumber &&
-          (effectiveQuery.keywordsToSearch?.length ?? 0) > 0 &&
-          !effectiveQuery.author &&
-          !effectiveQuery.created;
-        if (hasKeywordsOnly && !effectiveQuery.sort && !effectiveQuery.order) {
+          ((effectiveQuery.keywordsToSearch?.length ?? 0) > 0 ||
+            Boolean(effectiveQuery.query));
+        const looksLikeArchaeology =
+          hasTextQuery &&
+          !effectiveQuery.created &&
+          (effectiveQuery.state === 'merged' ||
+            (effectiveQuery as { merged?: boolean }).merged === true);
+        if (looksLikeArchaeology && !effectiveQuery.sort && !effectiveQuery.order) {
           downgradeHints.push(
-            'Archaeology tip: to find the PR that *introduced* a feature, add sort:"created" order:"asc" — this surfaces the oldest matching PRs first. ' +
-              'Alternatively, use githubSearchCode to locate the file+line where the symbol is defined, then filter PRs by author or created date range.'
+            'Archaeology tip: to find the PR that *introduced* a feature, add sort:"created" order:"asc" — this surfaces the oldest merged PRs first. ' +
+              'Also: scope with match:["title"] to restrict keyword matching to the title field only, and use a double-quoted phrase in `query` (e.g. query:\'"Partial Prerendering"\') for exact-phrase matching.'
+          );
+        } else if (
+          hasTextQuery &&
+          !effectiveQuery.created &&
+          !effectiveQuery.sort &&
+          !effectiveQuery.order
+        ) {
+          downgradeHints.push(
+            'Archaeology tip: add state:"merged" sort:"created" order:"asc" to find the PR that first introduced a feature. ' +
+              'Use match:["title"] to restrict to title-only, and quote multi-word phrases in `query` (e.g. query:\'"Server Actions"\').'
           );
         }
 
@@ -136,13 +150,9 @@ export async function searchMultipleGitHubPullRequests(
           !hasPrNumber &&
           (Boolean((query as { content?: unknown }).content) ||
             Boolean((query as { reviewMode?: unknown }).reviewMode));
-        const explicitMinify = (
-          effectiveQuery as { minify: 'none' | 'standard' }
-        ).minify;
-        // Patch hunks default to the token-saving "standard" view (schema
-        // default). minify:"none" opts into raw exact diffs for precise
-        // quoting/review.
-        const prMinify = explicitMinify === 'standard';
+        // minify:"standard" (default) = token-saving view for patches AND body.
+        // minify:"none" = raw exact text — use when quoting or reviewing precisely.
+        const prMinify = effectiveQuery.minify === 'standard';
         const leanRequest = {
           ...contentRequest,
           body: false,
@@ -154,8 +164,10 @@ export async function searchMultipleGitHubPullRequests(
         // Per-PR next.* menus only make sense on a prNumber detail fetch —
         // broad list results would repeat the identical menu for every PR
         // (the "Metadata mode:" hint covers escalation guidance instead).
-        const showContentMap =
-          hasPrNumber && hasExpensiveContentRequest(contentRequest);
+        // Always emit the next.* escalation map for prNumber fetches so the
+        // agent can see exactly what to request next — especially useful on a
+        // metadata-only fetch where no content was requested yet.
+        const showContentMap = hasPrNumber;
         const shapedPullRequests = pullRequests.map(pr =>
           shapePullRequestForContent(
             pr,
@@ -289,7 +301,7 @@ export async function searchMultipleGitHubPullRequests(
               author: effectiveQuery.author,
               keywords: effectiveQuery.keywordsToSearch,
               prNumber: effectiveQuery.prNumber,
-              matchScope: effectiveQuery.matchScope,
+              prMatch: effectiveQuery.match,
             },
             extraHints: shaped.extraHints,
             evidence: {

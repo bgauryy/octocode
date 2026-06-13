@@ -4,52 +4,14 @@ Source sample: `c/00-git-add.c`
 
 Strategy: `conservative`
 
-Agent rating: **7.2/10 (good)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 18107 | - | - | - |
-| content-view | 17413 | 3.8% | 5.173 ms | 6.3/10 |
-| applyMinification | 17423 | 3.8% | 4.823 ms | 6.3/10 |
-| sync minify | 17423 | 3.8% | 4.849 ms | 6.3/10 |
-| async minify | 17423 | 3.8% | 4.876 ms | 6.3/10 |
-| symbols | 5700 | 68.5% | 12.758 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 7/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 18107 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 17413 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 17423 | 3.8% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 5700 | 68.5% | 8.2/10 strong | 6.7/10 | 7.6/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 18107 |     - |         - |
+| content-view      | 17413 |  3.8% |  5.173 ms |
+| applyMinification | 17423 |  3.8% |  4.823 ms |
+| sync minify       | 17423 |  3.8% |  4.849 ms |
+| async minify      | 17423 |  3.8% |  4.876 ms |
+| symbols           |  5700 | 68.5% | 12.758 ms |
 
 ## Notes
 

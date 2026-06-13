@@ -141,31 +141,15 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       expect(responseText).toContain('react');
       expect(responseText).toContain('vercel');
 
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: {
-            repositories?: Array<{
-              owner: string;
-              repo: string;
-              stars?: number;
-              forks?: number;
-              language?: string;
-              pushedAt?: string;
-            }>;
-          };
-        }>;
+      // Lean mode returns compact strings, not objects.
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      const data = structured.results?.[0]?.data;
-      expect(data?.repositories?.[0]).toMatchObject({
-        owner: 'facebook',
-        repo: 'react',
-        stars: 200000,
-        forks: 40000,
-      });
-      expect(data?.repositories?.[1]).toMatchObject({
-        owner: 'vercel',
-        repo: 'next.js',
-      });
+      const repoLines = repos.results?.[0]?.data?.repositories ?? [];
+      expect(repoLines[0]).toContain('facebook/react');
+      expect(repoLines[0]).toContain('★200000');
+      expect(repoLines[0]).toContain('⑂40000');
+      expect(repoLines[1]).toContain('vercel/next.js');
       expect(responseText).not.toContain('https://github.com/facebook/react');
     });
 
@@ -571,27 +555,16 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         { queries: [{ keywordsToSearch: ['repo'] }] }
       );
 
+      // Lean mode returns compact strings, not objects.
       const firstStructured = firstResult.structuredContent as {
-        results: Array<{
-          data: {
-            repositories?: Array<{
-              owner: string;
-              repo: string;
-              stars?: number;
-              language?: string;
-              topics?: string[];
-            }>;
-          };
-        }>;
+        results: Array<{ data: { repositories?: string[] } }>;
       };
       const firstData = firstStructured.results[0]!.data;
 
       expect(firstData.repositories?.length ?? 0).toBeGreaterThan(0);
-      for (const r of firstData.repositories ?? []) {
-        expect(r.owner).toBe('test');
-        expect(r.repo).toMatch(/^repo-\d+$/);
-        expect(typeof r).toBe('object');
-        expect(`${r.owner}/${r.repo}`).toMatch(/^test\/repo-\d+$/);
+      for (const line of firstData.repositories ?? []) {
+        expect(typeof line).toBe('string');
+        expect(line).toMatch(/^test\/repo-\d+/);
       }
     });
   });

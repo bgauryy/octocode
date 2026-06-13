@@ -6,117 +6,233 @@
 #[derive(Clone)]
 pub struct BlockRule {
     pub start: &'static str,
-    pub end:   &'static str,
+    pub end: &'static str,
     pub nested: bool,
 }
 
 #[derive(Clone)]
 pub struct LineRule {
-    pub token:             &'static str,
-    pub require_boundary:  bool,   // false → always strip (e.g. SQL --)
-    pub preserve_shebang:  bool,
+    pub token: &'static str,
+    pub require_boundary: bool, // false → always strip (e.g. SQL --)
+    pub preserve_shebang: bool,
 }
 
 #[derive(Clone, Default)]
 pub struct CommentRules {
-    pub block:                  Vec<BlockRule>,
-    pub line:                   Vec<LineRule>,
-    pub regex:                  bool,
-    pub powershell_here_strings:bool,
-    pub quote_delimiters:       &'static [&'static str],
+    pub block: Vec<BlockRule>,
+    pub line: Vec<LineRule>,
+    pub regex: bool,
+    pub powershell_here_strings: bool,
+    pub quote_delimiters: &'static [&'static str],
 }
 
 /// Return the CommentRules for the named CommentPatternGroup.
 pub fn rules_for(group: &str) -> Option<CommentRules> {
     match group {
         "c-style" => Some(CommentRules {
-            block: vec![BlockRule { start: "/*", end: "*/", nested: false }],
-            line:  vec![LineRule { token: "//", require_boundary: true, preserve_shebang: false }],
+            block: vec![BlockRule {
+                start: "/*",
+                end: "*/",
+                nested: false,
+            }],
+            line: vec![LineRule {
+                token: "//",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             regex: true,
             ..Default::default()
         }),
         "hash" => Some(CommentRules {
-            line: vec![LineRule { token: "#", require_boundary: true, preserve_shebang: true }],
+            line: vec![LineRule {
+                token: "#",
+                require_boundary: true,
+                preserve_shebang: true,
+            }],
             ..Default::default()
         }),
         "html" => Some(CommentRules {
-            block: vec![BlockRule { start: "<!--", end: "-->", nested: false }],
+            block: vec![BlockRule {
+                start: "<!--",
+                end: "-->",
+                nested: false,
+            }],
             ..Default::default()
         }),
         "sql" => Some(CommentRules {
-            block: vec![BlockRule { start: "/*", end: "*/", nested: false }],
-            line:  vec![LineRule { token: "--", require_boundary: false, preserve_shebang: false }],
+            block: vec![BlockRule {
+                start: "/*",
+                end: "*/",
+                nested: false,
+            }],
+            line: vec![LineRule {
+                token: "--",
+                require_boundary: false,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "lua" => Some(CommentRules {
-            block: vec![BlockRule { start: "--[[", end: "]]", nested: false }],
-            line:  vec![LineRule { token: "--", require_boundary: true, preserve_shebang: false }],
+            block: vec![BlockRule {
+                start: "--[[",
+                end: "]]",
+                nested: false,
+            }],
+            line: vec![LineRule {
+                token: "--",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "haskell" => Some(CommentRules {
-            block: vec![BlockRule { start: "{-", end: "-}", nested: false }],
-            line:  vec![LineRule { token: "--", require_boundary: true, preserve_shebang: false }],
+            block: vec![BlockRule {
+                start: "{-",
+                end: "-}",
+                nested: false,
+            }],
+            line: vec![LineRule {
+                token: "--",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "semicolon" => Some(CommentRules {
-            line: vec![LineRule { token: ";", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: ";",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "wasm-text" => Some(CommentRules {
-            block: vec![BlockRule { start: "(;", end: ";)", nested: false }],
-            line:  vec![LineRule { token: ";;", require_boundary: true, preserve_shebang: false }],
+            block: vec![BlockRule {
+                start: "(;",
+                end: ";)",
+                nested: false,
+            }],
+            line: vec![LineRule {
+                token: ";;",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "percent" => Some(CommentRules {
-            line: vec![LineRule { token: "%", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "%",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "haml" => Some(CommentRules {
-            line: vec![LineRule { token: "-#", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "-#",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "slim" => Some(CommentRules {
-            line: vec![LineRule { token: "/", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "/",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "powershell" => Some(CommentRules {
-            block: vec![BlockRule { start: "<#", end: "#>", nested: false }],
-            line:  vec![LineRule { token: "#", require_boundary: true, preserve_shebang: true }],
+            block: vec![BlockRule {
+                start: "<#",
+                end: "#>",
+                nested: false,
+            }],
+            line: vec![LineRule {
+                token: "#",
+                require_boundary: true,
+                preserve_shebang: true,
+            }],
             powershell_here_strings: true,
             ..Default::default()
         }),
         "bang" => Some(CommentRules {
-            line: vec![LineRule { token: "!", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "!",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "apostrophe" => Some(CommentRules {
-            line:             vec![LineRule { token: "'", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "'",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             quote_delimiters: &["\"\"\"", "\"", "`"],
             ..Default::default()
         }),
         "double-dash" => Some(CommentRules {
-            line: vec![LineRule { token: "--", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "--",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             ..Default::default()
         }),
         "fsharp-block" => Some(CommentRules {
-            block: vec![BlockRule { start: "(*", end: "*)", nested: true }],
+            block: vec![BlockRule {
+                start: "(*",
+                end: "*)",
+                nested: true,
+            }],
             ..Default::default()
         }),
         "pascal" => Some(CommentRules {
             block: vec![
-                BlockRule { start: "(*", end: "*)", nested: true },
-                BlockRule { start: "{",  end: "}",  nested: false },
+                BlockRule {
+                    start: "(*",
+                    end: "*)",
+                    nested: true,
+                },
+                BlockRule {
+                    start: "{",
+                    end: "}",
+                    nested: false,
+                },
             ],
-            line:             vec![LineRule { token: "//", require_boundary: true, preserve_shebang: false }],
+            line: vec![LineRule {
+                token: "//",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
             quote_delimiters: &["'", "\""],
             ..Default::default()
         }),
         "template" => Some(CommentRules {
             block: vec![
-                BlockRule { start: "{{!--", end: "--}}", nested: false },
-                BlockRule { start: "{{!",   end: "}}",   nested: false },
-                BlockRule { start: "<%#",   end: "%>",   nested: false },
-                BlockRule { start: "{#",    end: "#}",   nested: false },
+                BlockRule {
+                    start: "{{!--",
+                    end: "--}}",
+                    nested: false,
+                },
+                BlockRule {
+                    start: "{{!",
+                    end: "}}",
+                    nested: false,
+                },
+                BlockRule {
+                    start: "<%#",
+                    end: "%>",
+                    nested: false,
+                },
+                BlockRule {
+                    start: "{#",
+                    end: "#}",
+                    nested: false,
+                },
             ],
             ..Default::default()
         }),
@@ -139,16 +255,21 @@ fn effective_delimiters(rules: &CommentRules) -> &[&'static str] {
 enum QuoteState {
     Outside,
     /// Tracking escape-aware single-char string (delimiter byte)
-    Single { delim: u8, escaped: bool },
+    Single {
+        delim: u8,
+        escaped: bool,
+    },
     /// Tracking multi-char close delimiter (e.g. `"""`, `'''`)
-    Multi  { end: &'static str },
+    Multi {
+        end: &'static str,
+    },
 }
 
 pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> String {
     let bytes = content.as_bytes();
-    let len   = bytes.len();
+    let len = bytes.len();
     let mut result = String::with_capacity(content.len());
-    let mut pos    = 0usize;
+    let mut pos = 0usize;
     let mut qstate = QuoteState::Outside;
 
     while pos < len {
@@ -222,7 +343,10 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                     result.push_str(delim);
                     pos += delim.len();
                     if delim.len() == 1 {
-                        qstate = QuoteState::Single { delim: delim.as_bytes()[0], escaped: false };
+                        qstate = QuoteState::Single {
+                            delim: delim.as_bytes()[0],
+                            escaped: false,
+                        };
                     } else {
                         qstate = QuoteState::Multi { end: delim };
                     }
@@ -235,7 +359,9 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                 {
                     if preserve_newlines {
                         for ch in content[pos..end_pos].chars() {
-                            if ch == '\n' || ch == '\r' { result.push(ch); }
+                            if ch == '\n' || ch == '\r' {
+                                result.push(ch);
+                            }
                         }
                     }
                     pos = end_pos;
@@ -244,9 +370,7 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
 
                 // 7. Line comment
                 if let Some(()) = find_line_comment(content, pos, &rules.line) {
-                    let skip_to = content[pos..].find('\n')
-                        .map(|i| pos + i)
-                        .unwrap_or(len);
+                    let skip_to = content[pos..].find('\n').map(|i| pos + i).unwrap_or(len);
                     pos = skip_to;
                     continue;
                 }
@@ -269,22 +393,21 @@ fn next_char_len(bytes: &[u8], pos: usize) -> usize {
         0x00..=0x7F => 1,
         0xC0..=0xDF => 2,
         0xE0..=0xEF => 3,
-        _            => 4,
+        _ => 4,
     }
 }
 
-fn find_block_comment(
-    content: &str,
-    pos: usize,
-    rules: &[BlockRule],
-) -> Option<(usize, bool)> {
+fn find_block_comment(content: &str, pos: usize, rules: &[BlockRule]) -> Option<(usize, bool)> {
     for rule in rules {
-        if !content[pos..].starts_with(rule.start) { continue; }
+        if !content[pos..].starts_with(rule.start) {
+            continue;
+        }
         let after = pos + rule.start.len();
         let end_pos = if rule.nested {
             find_nested_block_end(content, after, rule.start, rule.end)
         } else {
-            content[after..].find(rule.end)
+            content[after..]
+                .find(rule.end)
                 .map(|i| after + i + rule.end.len())
                 .unwrap_or(content.len())
         };
@@ -295,15 +418,17 @@ fn find_block_comment(
 
 fn find_nested_block_end(content: &str, start: usize, open: &str, close: &str) -> usize {
     let mut depth = 1usize;
-    let mut pos   = start;
+    let mut pos = start;
     while pos < content.len() {
         if content[pos..].starts_with(open) {
             depth += 1;
-            pos   += open.len();
+            pos += open.len();
         } else if content[pos..].starts_with(close) {
             depth -= 1;
-            pos   += close.len();
-            if depth == 0 { return pos; }
+            pos += close.len();
+            if depth == 0 {
+                return pos;
+            }
         } else {
             pos += next_char_len(content.as_bytes(), pos);
         }
@@ -312,53 +437,81 @@ fn find_nested_block_end(content: &str, start: usize, open: &str, close: &str) -
 }
 
 fn has_line_boundary(content: &str, pos: usize) -> bool {
-    if pos == 0 { return true; }
+    if pos == 0 {
+        return true;
+    }
     let prev = content.as_bytes()[pos - 1];
     matches!(prev, b' ' | b'\t' | b'\n' | b'\r')
 }
 
 fn find_line_comment(content: &str, pos: usize, rules: &[LineRule]) -> Option<()> {
     for rule in rules {
-        if !content[pos..].starts_with(rule.token) { continue; }
-        if rule.preserve_shebang && content[pos..].starts_with("#!") { continue; }
-        if rule.require_boundary && !has_line_boundary(content, pos) { continue; }
+        if !content[pos..].starts_with(rule.token) {
+            continue;
+        }
+        if rule.preserve_shebang && content[pos..].starts_with("#!") {
+            continue;
+        }
+        if rule.require_boundary && !has_line_boundary(content, pos) {
+            continue;
+        }
         return Some(());
     }
     None
 }
 
 fn find_powershell_here_string(content: &str, pos: usize) -> Option<usize> {
-    let quote = if content[pos..].starts_with("@\"") { '"' }
-                else if content[pos..].starts_with("@'") { '\'' }
-                else { return None; };
+    let quote = if content[pos..].starts_with("@\"") {
+        '"'
+    } else if content[pos..].starts_with("@'") {
+        '\''
+    } else {
+        return None;
+    };
     let after = pos + 2;
     let b = content.as_bytes().get(after)?;
-    if *b != b'\n' && *b != b'\r' { return None; }
+    if *b != b'\n' && *b != b'\r' {
+        return None;
+    }
     let end_marker = format!("\n{}'", quote);
-    content[after..].find(&end_marker)
+    content[after..]
+        .find(&end_marker)
         .map(|i| after + i + end_marker.len())
 }
 
 fn find_rust_raw_string(content: &str, pos: usize) -> Option<usize> {
     let rest = &content[pos..];
-    if !rest.starts_with("r#") && !rest.starts_with("r\"") && !rest.starts_with("br#") && !rest.starts_with("br\"") {
+    if !rest.starts_with("r#")
+        && !rest.starts_with("r\"")
+        && !rest.starts_with("br#")
+        && !rest.starts_with("br\"")
+    {
         return None;
     }
     // Scan hashes
     let mut hi = if rest.starts_with('b') { 2 } else { 1 };
-    while rest.as_bytes().get(hi) == Some(&b'#') { hi += 1; }
-    if rest.as_bytes().get(hi) != Some(&b'"') { return None; }
+    while rest.as_bytes().get(hi) == Some(&b'#') {
+        hi += 1;
+    }
+    if rest.as_bytes().get(hi) != Some(&b'"') {
+        return None;
+    }
     let hash_count = hi - if rest.starts_with('b') { 2 } else { 1 };
     let body_start = pos + hi + 1;
     let end_marker = format!("\"{}", "#".repeat(hash_count));
-    content[body_start..].find(&end_marker)
+    content[body_start..]
+        .find(&end_marker)
         .map(|i| body_start + i + end_marker.len())
 }
 
 fn find_csharp_verbatim(content: &str, pos: usize) -> Option<usize> {
-    let body_start = if content[pos..].starts_with("@\"") { pos + 2 }
-                     else if content[pos..].starts_with("$@\"") || content[pos..].starts_with("@$\"") { pos + 3 }
-                     else { return None; };
+    let body_start = if content[pos..].starts_with("@\"") {
+        pos + 2
+    } else if content[pos..].starts_with("$@\"") || content[pos..].starts_with("@$\"") {
+        pos + 3
+    } else {
+        return None;
+    };
     let bytes = content.as_bytes();
     let mut i = body_start;
     while i < bytes.len() {
@@ -377,25 +530,55 @@ fn find_csharp_verbatim(content: &str, pos: usize) -> Option<usize> {
 
 fn find_regex_literal(content: &str, pos: usize) -> Option<usize> {
     let bytes = content.as_bytes();
-    if bytes.get(pos) != Some(&b'/') { return None; }
+    if bytes.get(pos) != Some(&b'/') {
+        return None;
+    }
     let next = bytes.get(pos + 1)?;
-    if *next == b'/' || *next == b'*' { return None; }
+    if *next == b'/' || *next == b'*' {
+        return None;
+    }
     // Check preceding token to see if `/` could be regex
     let prev_pos = {
         let mut p = pos.saturating_sub(1);
-        while p > 0 && matches!(content.as_bytes()[p], b' ' | b'\t') { p -= 1; }
+        while p > 0 && matches!(content.as_bytes()[p], b' ' | b'\t') {
+            p -= 1;
+        }
         p
     };
     if pos > 0 {
         let prev = bytes[prev_pos];
-        let regex_ok = matches!(prev, b'(' | b'[' | b'{' | b'=' | b',' | b':' | b';' | b'!' | b'&' | b'|' | b'?' | b'+' | b'-' | b'*' | b'~' | b'^' | b'<' | b'>');
+        let regex_ok = matches!(
+            prev,
+            b'(' | b'['
+                | b'{'
+                | b'='
+                | b','
+                | b':'
+                | b';'
+                | b'!'
+                | b'&'
+                | b'|'
+                | b'?'
+                | b'+'
+                | b'-'
+                | b'*'
+                | b'~'
+                | b'^'
+                | b'<'
+                | b'>'
+        );
         let keyword_before = {
             let before = &content[..=prev_pos];
-            before.ends_with("return") || before.ends_with("throw")
-                || before.ends_with("typeof") || before.ends_with("case")
-                || before.ends_with("yield")  || before.ends_with("await")
+            before.ends_with("return")
+                || before.ends_with("throw")
+                || before.ends_with("typeof")
+                || before.ends_with("case")
+                || before.ends_with("yield")
+                || before.ends_with("await")
         };
-        if !regex_ok && !keyword_before { return None; }
+        if !regex_ok && !keyword_before {
+            return None;
+        }
     }
     // Scan regex body
     let mut i = pos + 1;
@@ -403,16 +586,36 @@ fn find_regex_literal(content: &str, pos: usize) -> Option<usize> {
     let mut in_class = false;
     while i < bytes.len() {
         let c = bytes[i];
-        if escaped { escaped = false; i += 1; continue; }
-        if c == b'\\' { escaped = true; i += 1; continue; }
-        if c == b'[' { in_class = true;  i += 1; continue; }
-        if c == b']' { in_class = false; i += 1; continue; }
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        if c == b'\\' {
+            escaped = true;
+            i += 1;
+            continue;
+        }
+        if c == b'[' {
+            in_class = true;
+            i += 1;
+            continue;
+        }
+        if c == b']' {
+            in_class = false;
+            i += 1;
+            continue;
+        }
         if c == b'/' && !in_class {
             i += 1;
-            while i < bytes.len() && bytes[i].is_ascii_alphabetic() { i += 1; }
+            while i < bytes.len() && bytes[i].is_ascii_alphabetic() {
+                i += 1;
+            }
             return Some(i);
         }
-        if c == b'\n' || c == b'\r' { return None; }
+        if c == b'\n' || c == b'\r' {
+            return None;
+        }
         i += next_char_len(bytes, i);
     }
     None
@@ -423,7 +626,7 @@ fn find_regex_literal(content: &str, pos: usize) -> Option<usize> {
 pub fn strip_python_docstrings(content: &str) -> String {
     let lines: Vec<&str> = content.split('\n').collect();
     let mut out: Vec<&str> = Vec::with_capacity(lines.len());
-    let blank: &str    = "";
+    let blank: &str = "";
     let mut i = 0;
 
     let prev_code_line = |idx: usize, lines: &[&str]| -> &'static str {
@@ -440,14 +643,21 @@ pub fn strip_python_docstrings(content: &str) -> String {
         let line = lines[i];
         let trimmed = line.trim();
         if trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
-            let delim = if trimmed.starts_with("\"\"\"") { "\"\"\"" } else { "'''" };
-            let prev  = prev_code_line(i, &lines);
+            let delim = if trimmed.starts_with("\"\"\"") {
+                "\"\"\""
+            } else {
+                "'''"
+            };
+            let prev = prev_code_line(i, &lines);
             let is_doc = prev.is_empty() || {
                 // Check if previous code line ends with ':'
                 let mut code_line = "";
                 for j in (0..i).rev() {
                     let t = lines[j].trim();
-                    if !t.is_empty() && !t.starts_with('#') { code_line = t; break; }
+                    if !t.is_empty() && !t.starts_with('#') {
+                        code_line = t;
+                        break;
+                    }
                 }
                 code_line.ends_with(':') || code_line.is_empty()
             };
@@ -461,7 +671,9 @@ pub fn strip_python_docstrings(content: &str) -> String {
                         out.push(blank);
                         let nl = lines[i];
                         i += 1;
-                        if nl.contains(delim) { break; }
+                        if nl.contains(delim) {
+                            break;
+                        }
                     }
                 }
                 continue;
@@ -519,7 +731,10 @@ mod tests {
     fn comment_markers_inside_strings_preserved() {
         let src = "const url = \"http://x\"; // real comment";
         let out = remove_comments(src, &["c-style"]);
-        assert!(out.contains("http://x"), "string content must survive: '{out}'");
+        assert!(
+            out.contains("http://x"),
+            "string content must survive: '{out}'"
+        );
         assert!(!out.contains("real comment"));
     }
 

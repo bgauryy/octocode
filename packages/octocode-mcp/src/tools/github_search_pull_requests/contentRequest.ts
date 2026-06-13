@@ -5,7 +5,6 @@ export type PartialContentRange = {
 };
 
 export type PrContentSelector = {
-  metadata?: boolean;
   body?: boolean;
   changedFiles?: boolean;
   patches?: {
@@ -32,7 +31,6 @@ export type PullRequestContentQuery = {
 };
 
 export type NormalizedPrContentRequest = {
-  metadata: boolean;
   body: boolean;
   changedFiles: boolean;
   patches: {
@@ -124,7 +122,6 @@ export function normalizePullRequestContentRequest(
   const full = reviewMode === 'full';
 
   return {
-    metadata: content?.metadata ?? true,
     body: content?.body ?? full,
     changedFiles: (content?.changedFiles ?? full) || patches.mode !== 'none',
     patches,

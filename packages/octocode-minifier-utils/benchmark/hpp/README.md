@@ -4,52 +4,14 @@ Source sample: `hpp/fmt-color.hpp`
 
 Strategy: `conservative`
 
-Agent rating: **7.8/10 (good)**
-
-Agent understanding from minified output: **9.8/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 25322 | - | - | - |
-| content-view | 15620 | 38.3% | 5.7 ms | 8.5/10 |
-| applyMinification | 15638 | 38.2% | 5.519 ms | 8.5/10 |
-| sync minify | 15638 | 38.2% | 5.964 ms | 8.5/10 |
-| async minify | 15638 | 38.2% | 5.996 ms | 8.5/10 |
-| symbols | 15359 | 39.3% | 33.342 ms | 6.5/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 9.6/10 |
-| output health | 10/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 25322 | 0% | 10/10 excellent | 10/10 | 9.6/10 |
-| standard | 15620 | 38.3% | 9.8/10 excellent | 10/10 | 9.6/10 |
-| minify | 15638 | 38.2% | 9.8/10 excellent | 10/10 | 9.6/10 |
-| symbols | 15359 | 39.3% | 9.6/10 excellent | 10/10 | 8.4/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 25322 |     - |         - |
+| content-view      | 15620 | 38.3% |    5.7 ms |
+| applyMinification | 15638 | 38.2% |  5.519 ms |
+| sync minify       | 15638 | 38.2% |  5.964 ms |
+| async minify      | 15638 | 38.2% |  5.996 ms |
+| symbols           | 15359 | 39.3% | 33.342 ms |
 
 ## Notes
 
@@ -89,7 +51,7 @@ enum class color : uint32_t {
   burly_wood = 0xDEB887,               // rgb(222,184,135)
   cadet_blue = 0x5F9EA0,               // rgb(95,158,160)
   chartreuse = 0x7FFF00,               // rgb(127,255,0)
-  chocolate = 0xD2691E,  
+  chocolate = 0xD2691E,
 
 ... [truncated 23290 chars] ...
 
@@ -493,7 +455,7 @@ FMT_END_NAMESPACE
  39|   dark_cyan = 0x008B8B,                // rgb(0,139,139)
  40|   dark_golden_rod = 0xB8860B,          // rgb(184,134,11)
  41|   dark_gray = 0xA9A9A9,                // rgb(169,169,169)
- 42|   dark_green = 0x006400,           
+ 42|   dark_green = 0x006400,
 
 ... [truncated 12759 chars] ...
 

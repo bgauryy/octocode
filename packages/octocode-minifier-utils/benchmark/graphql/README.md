@@ -4,52 +4,14 @@ Source sample: `graphql/graphql-go-kitchen-sink.graphql`
 
 Strategy: `conservative`
 
-Agent rating: **6.3/10 (fair)**
-
-Agent understanding from minified output: **9.4/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 1300 | - | - | - |
-| content-view | 1258 | 3.2% | 0.347 ms | 6.3/10 |
-| applyMinification | 1260 | 3.1% | 0.339 ms | 6.3/10 |
-| sync minify | 1260 | 3.1% | 0.353 ms | 6.3/10 |
-| async minify | 1260 | 3.1% | 0.353 ms | 6.3/10 |
-| symbols | 840 | 35.4% | 0.072 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 7/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 1300 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 1258 | 3.2% | 9.4/10 excellent | 10/10 | 10/10 |
-| minify | 1260 | 3.1% | 9.4/10 excellent | 10/10 | 10/10 |
-| symbols | 840 | 35.4% | 9.9/10 excellent | 10/10 | 10/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  1300 |     - |        - |
+| content-view      |  1258 |  3.2% | 0.347 ms |
+| applyMinification |  1260 |  3.1% | 0.339 ms |
+| sync minify       |  1260 |  3.1% | 0.353 ms |
+| async minify      |  1260 |  3.1% | 0.353 ms |
+| symbols           |   840 | 35.4% | 0.072 ms |
 
 ## Notes
 

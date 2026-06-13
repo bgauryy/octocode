@@ -4,52 +4,14 @@ Source sample: `sh/nvm.sh`
 
 Strategy: `conservative`
 
-Agent rating: **7.6/10 (good)**
-
-Agent understanding from minified output: **9.3/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 156857 | - | - | - |
-| content-view | 156306 | 0.4% | 6.79 ms | 6.3/10 |
-| applyMinification | 156311 | 0.3% | 6.776 ms | 6.3/10 |
-| sync minify | 156311 | 0.3% | 6.761 ms | 6.3/10 |
-| async minify | 156311 | 0.3% | 6.705 ms | 6.3/10 |
-| symbols | 4266 | 97.3% | 54.036 ms | 10/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 9.4/10 |
-| output health | 9/10 |
-| context budget | 6/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 156857 | 0% | 10/10 excellent | 10/10 | 9.4/10 |
-| standard | 156306 | 0.4% | 9.3/10 excellent | 10/10 | 9.4/10 |
-| minify | 156311 | 0.3% | 9.3/10 excellent | 10/10 | 9.4/10 |
-| symbols | 4266 | 97.3% | 9/10 excellent | 10/10 | 7.1/10 |
+| Tool              |  Bytes |   Cut |      Time |
+| ----------------- | -----: | ----: | --------: |
+| input             | 156857 |     - |         - |
+| content-view      | 156306 |  0.4% |   6.79 ms |
+| applyMinification | 156311 |  0.3% |  6.776 ms |
+| sync minify       | 156311 |  0.3% |  6.761 ms |
+| async minify      | 156311 |  0.3% |  6.705 ms |
+| symbols           |   4266 | 97.3% | 54.036 ms |
 
 ## Notes
 

@@ -61,8 +61,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
-    "build:dev": "node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build": "yarn clean && OCTOCODE_RUNTIME_PLATFORMS=all node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-rg.mjs darwin-arm64 dist && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-minifier.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
     "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-rg.mjs darwin-arm64 dist && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-minifier.mjs darwin-arm64 dist",

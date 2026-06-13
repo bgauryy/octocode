@@ -4,52 +4,14 @@ Source sample: `erl/erlang-lists.erl`
 
 Strategy: `aggressive`
 
-Agent rating: **6.8/10 (fair)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 123312 | - | - | - |
-| content-view | 116175 | 5.8% | 26.611 ms | 7.8/10 |
-| applyMinification | 94098 | 23.7% | 27.667 ms | 7.8/10 |
-| sync minify | 94098 | 23.7% | 28.123 ms | 7.8/10 |
-| async minify | 94098 | 23.7% | 26.967 ms | 7.8/10 |
-| symbols | 143752 | -16.6% | 6.37 ms | 5/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 7/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 123312 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 116175 | 5.8% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 94098 | 23.7% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 143752 | -16.6% | 9/10 excellent | 10/10 | 10/10 |
+| Tool              |  Bytes |    Cut |      Time |
+| ----------------- | -----: | -----: | --------: |
+| input             | 123312 |      - |         - |
+| content-view      | 116175 |   5.8% | 26.611 ms |
+| applyMinification |  94098 |  23.7% | 27.667 ms |
+| sync minify       |  94098 |  23.7% | 28.123 ms |
+| async minify      |  94098 |  23.7% | 26.967 ms |
+| symbols           | 143752 | -16.6% |   6.37 ms |
 
 ## Notes
 
@@ -107,7 +69,7 @@ argument, it is assumed that the following properties hold of `F` for a
     end;
 rufmerge2_2(H1, T1, Fun, [], M, H2M) ->
     case Fun(H2M, H1) of
-        true -> 
+        true ->
             lists:reverse(T1, [H1 | M]);
         false ->
             lists:reverse(T1, [H1, H2M | M])

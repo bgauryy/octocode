@@ -1,0 +1,1 @@
+{"calls":2,"in_chars":345,"out_chars":20960,"elapsed_ms":7680,"calls_detail":[{"cmd":"githubSearchPullRequests","in_chars":166,"out_chars":9729,"elapsed_ms":3209,"exit":0},{"cmd":"githubSearchPullRequests","in_chars":179,"out_chars":11231,"elapsed_ms":4471,"exit":0}],"tool_elapsed_ms":7680,"q_elapsed_ms":4587}

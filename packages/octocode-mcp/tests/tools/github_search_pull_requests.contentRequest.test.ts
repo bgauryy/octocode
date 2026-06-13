@@ -2,16 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { normalizePullRequestContentRequest } from '../../src/tools/github_search_pull_requests/contentRequest.js';
 
 describe('githubSearchPullRequests content request normalization', () => {
-  it('keeps metadata lean by default', () => {
+  it('keeps request lean by default', () => {
     const request = normalizePullRequestContentRequest({});
     expect(request).toMatchObject({
-      metadata: true,
       body: false,
       changedFiles: false,
       patches: { mode: 'none' },
       comments: false,
       commits: false,
     });
+    // metadata field was removed — confirm it no longer exists
+    expect('metadata' in request).toBe(false);
   });
 
   it('maps explicit selected patch ranges', () => {

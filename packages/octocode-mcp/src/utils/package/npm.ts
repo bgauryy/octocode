@@ -790,7 +790,13 @@ async function searchNpmPackageViaCliSearch(
     };
   }
 
-  const pageItems = raw.slice(from, from + limit) as unknown[];
+  // Sort by npm's combined score (higher = more relevant/popular) before paginating.
+  const sortedRaw = [...raw].sort((a, b) => {
+    const scoreA = (a as NpmCliSearchItem)?.score?.final ?? 0;
+    const scoreB = (b as NpmCliSearchItem)?.score?.final ?? 0;
+    return scoreB - scoreA;
+  });
+  const pageItems = sortedRaw.slice(from, from + limit) as unknown[];
   const packageResults = await Promise.all(
     pageItems.map(async item => {
       if (!item || typeof item !== 'object') return null;
@@ -878,8 +884,15 @@ async function searchNpmPackageViaRegistrySearch(
       };
     }
 
+    // Sort by npm's own combined score (higher = more relevant/popular) before slicing.
+    const sortedObjects = [...validation.data.objects].sort((a, b) => {
+      const scoreA = (a.score as { final?: number } | null | undefined)?.final ?? 0;
+      const scoreB = (b.score as { final?: number } | null | undefined)?.final ?? 0;
+      return scoreB - scoreA;
+    });
+
     const searchResults = (
-      validation.data.objects
+      sortedObjects
         .map(obj => obj.package as NpmRegistrySearchItem)
         .filter(
           (pkg): pkg is NpmRegistrySearchItem & { name: string } =>

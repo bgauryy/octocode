@@ -7,7 +7,8 @@
  *
  * Previously this parsed TS source files directly (alphabetical file order).
  * That caused pattern-priority differences (e.g. credentialsInUrl firing before
- * postgresqlConnectionString). Now we import the compiled TS array directly.
+ * postgresqlConnectionString). Now we bundle and import the source TS array
+ * directly so generation never depends on a possibly stale dist/ directory.
  *
  * Conversion rules:
  *   - JS flag `g`  → dropped (Rust find_iter / replace_all are global)
@@ -19,13 +20,14 @@
  *   - Lookaheads / lookbehinds / backreferences → SKIPPED (none found in current patterns)
  */
 
-import { writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import * as esbuild from 'esbuild';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Load from our own dist (build:ts must run before gen-patterns when patterns change)
-const UTILS_DIST = join(__dirname, '..', 'dist');
+const SRC_ENTRY  = join(__dirname, '..', 'src', 'regexes', 'index.ts');
 const OUT_FILE   = join(__dirname, '..', 'src', 'patterns.rs');
 
 // ---------------------------------------------------------------------------
@@ -65,13 +67,35 @@ function rustStringEscape(s) {
 }
 
 // ---------------------------------------------------------------------------
-// Load allRegexPatterns in canonical TS order
+// Load allRegexPatterns in canonical TS source order.
 // ---------------------------------------------------------------------------
-console.log(`Loading allRegexPatterns from local dist: ${UTILS_DIST}/regexes/index.js`);
+console.log(`Loading allRegexPatterns from source: ${SRC_ENTRY}`);
 
-const { allRegexPatterns } = await import(
-  `file://${UTILS_DIST}/regexes/index.js`
-);
+async function loadAllRegexPatternsFromSource() {
+  const tempDir = mkdtempSync(join(tmpdir(), 'octocode-security-patterns-'));
+  const bundledEntry = join(tempDir, 'patterns.mjs');
+
+  try {
+    await esbuild.build({
+      entryPoints: [SRC_ENTRY],
+      outfile: bundledEntry,
+      bundle: true,
+      platform: 'node',
+      target: 'node20',
+      format: 'esm',
+      logLevel: 'silent',
+    });
+
+    const { allRegexPatterns } = await import(
+      `file://${bundledEntry}?t=${Date.now()}`
+    );
+    return allRegexPatterns;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+const allRegexPatterns = await loadAllRegexPatternsFromSource();
 
 console.log(`  Loaded ${allRegexPatterns.length} patterns in TS canonical order\n`);
 
@@ -159,7 +183,7 @@ lines.push('];', '');
 
 // RegexSet for fast detection
 lines.push(
-  '/// Single-pass multi-pattern detection (256MB limit for 304 patterns).',
+  `/// Single-pass multi-pattern detection (256MB limit for ${finalPatterns.length} patterns).`,
   'pub static REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {',
   '    RegexSetBuilder::new([',
 );

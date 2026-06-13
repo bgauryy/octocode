@@ -2323,10 +2323,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core::locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp":
   version: 4.3.0
-  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=f4a669&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
+  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=6d4c5e&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/6f7b718922f043f5409cc6c74cffc09d22ea872657b87d57edb96903927d05a47de283f2d942719eee6172c7b341b40402fc28c5e539b6300e18c0e6741546cb
+  checksum: 10c0/4d85aa5156d163ca0e6a1d6420f285c0c1846a81002ef08a02b0eda21977c888d52c797f18bf30d4076eacd9b74f4d324202beed977ff29ef6ec2a05a4025c15
   languageName: node
   linkType: hard
 

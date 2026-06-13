@@ -85,7 +85,8 @@ export function transformPullRequestResult(
         ...(c.commentType && { commentType: c.commentType }),
         ...(c.path && { path: c.path }),
         ...(c.line !== undefined && { line: c.line }),
-      })),
+        ...(c.in_reply_to_id != null && { in_reply_to_id: c.in_reply_to_id }),
+      })) as PullRequestItem['comments'],
       reviews: pr.reviews?.map(review => ({
         id: review.id,
         user: review.user,
@@ -107,6 +108,10 @@ export function transformPullRequestResult(
         deletions: f.deletions,
         patch: f.patch,
       })),
+      // Surface sanitization warnings (bot filtering, secret redaction) to agent
+      ...(Array.isArray(pr._sanitization_warnings) && pr._sanitization_warnings.length > 0
+        ? { sanitizationWarnings: pr._sanitization_warnings as string[] }
+        : {}),
     })
   );
 
@@ -177,7 +182,7 @@ export async function searchPullRequests(
     comments: query.comments,
     reactions: query.reactions,
     interactions: query.interactions,
-    match: query.matchScope,
+    match: query.match,
     archived: query.archived,
     content: query.content,
     reviewMode: query.reviewMode,

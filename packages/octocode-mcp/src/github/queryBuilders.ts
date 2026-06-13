@@ -205,10 +205,16 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     if (params.updated) {
       this.queryParts.push(`pushed:${params.updated}`);
     }
-
     if (params.language) {
       this.queryParts.push(`language:${params.language}`);
     }
+
+    // New filter qualifiers
+    const p = params as Record<string, unknown>;
+    if (typeof p.forks === 'string') this.queryParts.push(`forks:${p.forks}`);
+    if (typeof p.license === 'string') this.queryParts.push(`license:${p.license}`);
+    if (typeof p.goodFirstIssues === 'string')
+      this.queryParts.push(`good-first-issues:${p.goodFirstIssues}`);
 
     return this;
   }
@@ -236,10 +242,15 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
   addQualityFilters(
     params?: WithOptionalMeta<GitHubReposSearchSingleQuery>
   ): this {
-    const archived = (params as { archived?: boolean } | undefined)?.archived;
+    const p = params as Record<string, unknown> | undefined;
+    const archived = p?.archived as boolean | undefined;
     this.queryParts.push(
       archived === true ? 'archived:true' : 'is:not-archived'
     );
+    // visibility: is:public / is:private
+    const visibility = p?.visibility as string | undefined;
+    if (visibility === 'public') this.queryParts.push('is:public');
+    else if (visibility === 'private') this.queryParts.push('is:private');
     return this;
   }
 }
@@ -362,7 +373,8 @@ export function shouldUseSearchForPRs(
     params.draft !== undefined ||
     params.author !== undefined ||
     params.assignee !== undefined ||
-    params.query !== undefined ||
+    // Non-empty text query must use Search API (REST list has no text search)
+    (typeof params.query === 'string' && params.query.trim().length > 0) ||
     (params.label && params.label.length > 0) ||
     params.mentions !== undefined ||
     params.commenter !== undefined ||
@@ -381,6 +393,11 @@ export function shouldUseSearchForPRs(
     params['merged-at'] !== undefined ||
     params.closed !== undefined ||
     params.merged !== undefined ||
+    // match (in:title/body/comments) is only meaningful in Search API
+    (params.match !== undefined && params.match.length > 0) ||
+    // REST pulls.list only supports sort=created|updated; comments/reactions require Search API
+    params.sort === 'comments' ||
+    params.sort === 'reactions' ||
     Array.isArray(params.owner) ||
     Array.isArray(params.repo)
   );

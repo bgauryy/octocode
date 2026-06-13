@@ -4,52 +4,14 @@ Source sample: `ex/elixir-enum.ex`
 
 Strategy: `aggressive`
 
-Agent rating: **8.6/10 (strong)**
-
-Agent understanding from minified output: **9.6/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 154291 | - | - | - |
-| content-view | 152002 | 1.5% | 25.035 ms | 7.8/10 |
-| applyMinification | 129139 | 16.3% | 26.501 ms | 7.8/10 |
-| sync minify | 129139 | 16.3% | 27.137 ms | 7.8/10 |
-| async minify | 129139 | 16.3% | 26.673 ms | 7.8/10 |
-| symbols | 28 | 100% | 1.247 ms | 10/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 6/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 154291 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 152002 | 1.5% | 9.6/10 excellent | 10/10 | 10/10 |
-| minify | 129139 | 16.3% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 28 | 100% | 6.7/10 fair | 3.3/10 | 8/10 |
+| Tool              |  Bytes |   Cut |      Time |
+| ----------------- | -----: | ----: | --------: |
+| input             | 154291 |     - |         - |
+| content-view      | 152002 |  1.5% | 25.035 ms |
+| applyMinification | 129139 | 16.3% | 26.501 ms |
+| sync minify       | 129139 | 16.3% | 27.137 ms |
+| async minify      | 129139 | 16.3% | 26.673 ms |
+| symbols           |     28 |  100% |  1.247 ms |
 
 ## Notes
 
@@ -178,7 +140,7 @@ end
 ## Apply Minification Excerpt
 
 ```ex
-defprotocol Enumerable do @moduledoc """ Enumerable protocol used by `Enum` and `Stream` modules. When you invoke a function in the `Enum` module,the first argument is usually a collection that must implement this protocol. For example,the expression `Enum.map([1,2,3],&(&1 * 2))` invokes `Enumerable.reduce/3` to perform the reducing operation that builds a mapped list by calling the mapping function `&(&1 * 2)` on every element in the collection and consuming the element with an accumulated list. Internally,`Enum.map/2` is implemented as follows:def map(enumerable,fun) do reducer = fn x,acc ->{:cont,[fun.(x) | acc]}end Enumerable.reduce(enumerable,{:cont,[]},reducer) |> elem(1) |>:lists.reverse() end Note that the user-supplied function is wrapped into a `t:reducer/0` function. The `t:reducer/0` function must return a tagged tuple after each step,as described in the `t:acc/0` type. At the end,`Enumerable.reduce/3` returns `t:result/0`. This protocol uses tagged tuples to exchange information between the reducer function and the data type that implements the protocol. This allows enumeration of resources,such as files,to be done efficiently while also guaranteeing the resource will be closed at the end of 
+defprotocol Enumerable do @moduledoc """ Enumerable protocol used by `Enum` and `Stream` modules. When you invoke a function in the `Enum` module,the first argument is usually a collection that must implement this protocol. For example,the expression `Enum.map([1,2,3],&(&1 * 2))` invokes `Enumerable.reduce/3` to perform the reducing operation that builds a mapped list by calling the mapping function `&(&1 * 2)` on every element in the collection and consuming the element with an accumulated list. Internally,`Enum.map/2` is implemented as follows:def map(enumerable,fun) do reducer = fn x,acc ->{:cont,[fun.(x) | acc]}end Enumerable.reduce(enumerable,{:cont,[]},reducer) |> elem(1) |>:lists.reverse() end Note that the user-supplied function is wrapped into a `t:reducer/0` function. The `t:reducer/0` function must return a tagged tuple after each step,as described in the `t:acc/0` type. At the end,`Enumerable.reduce/3` returns `t:result/0`. This protocol uses tagged tuples to exchange information between the reducer function and the data type that implements the protocol. This allows enumeration of resources,such as files,to be done efficiently while also guaranteeing the resource will be closed at the end of
 
 ... [truncated 127339 chars] ...
 
@@ -188,7 +150,7 @@ nge,:step,step),value) end def member?(_,_value) do{:ok,false}end def count(rang
 ## Sync Minify Excerpt
 
 ```ex
-defprotocol Enumerable do @moduledoc """ Enumerable protocol used by `Enum` and `Stream` modules. When you invoke a function in the `Enum` module,the first argument is usually a collection that must implement this protocol. For example,the expression `Enum.map([1,2,3],&(&1 * 2))` invokes `Enumerable.reduce/3` to perform the reducing operation that builds a mapped list by calling the mapping function `&(&1 * 2)` on every element in the collection and consuming the element with an accumulated list. Internally,`Enum.map/2` is implemented as follows:def map(enumerable,fun) do reducer = fn x,acc ->{:cont,[fun.(x) | acc]}end Enumerable.reduce(enumerable,{:cont,[]},reducer) |> elem(1) |>:lists.reverse() end Note that the user-supplied function is wrapped into a `t:reducer/0` function. The `t:reducer/0` function must return a tagged tuple after each step,as described in the `t:acc/0` type. At the end,`Enumerable.reduce/3` returns `t:result/0`. This protocol uses tagged tuples to exchange information between the reducer function and the data type that implements the protocol. This allows enumeration of resources,such as files,to be done efficiently while also guaranteeing the resource will be closed at the end of 
+defprotocol Enumerable do @moduledoc """ Enumerable protocol used by `Enum` and `Stream` modules. When you invoke a function in the `Enum` module,the first argument is usually a collection that must implement this protocol. For example,the expression `Enum.map([1,2,3],&(&1 * 2))` invokes `Enumerable.reduce/3` to perform the reducing operation that builds a mapped list by calling the mapping function `&(&1 * 2)` on every element in the collection and consuming the element with an accumulated list. Internally,`Enum.map/2` is implemented as follows:def map(enumerable,fun) do reducer = fn x,acc ->{:cont,[fun.(x) | acc]}end Enumerable.reduce(enumerable,{:cont,[]},reducer) |> elem(1) |>:lists.reverse() end Note that the user-supplied function is wrapped into a `t:reducer/0` function. The `t:reducer/0` function must return a tagged tuple after each step,as described in the `t:acc/0` type. At the end,`Enumerable.reduce/3` returns `t:result/0`. This protocol uses tagged tuples to exchange information between the reducer function and the data type that implements the protocol. This allows enumeration of resources,such as files,to be done efficiently while also guaranteeing the resource will be closed at the end of
 
 ... [truncated 127339 chars] ...
 
@@ -198,7 +160,7 @@ nge,:step,step),value) end def member?(_,_value) do{:ok,false}end def count(rang
 ## Async Minify Excerpt
 
 ```ex
-defprotocol Enumerable do @moduledoc """ Enumerable protocol used by `Enum` and `Stream` modules. When you invoke a function in the `Enum` module,the first argument is usually a collection that must implement this protocol. For example,the expression `Enum.map([1,2,3],&(&1 * 2))` invokes `Enumerable.reduce/3` to perform the reducing operation that builds a mapped list by calling the mapping function `&(&1 * 2)` on every element in the collection and consuming the element with an accumulated list. Internally,`Enum.map/2` is implemented as follows:def map(enumerable,fun) do reducer = fn x,acc ->{:cont,[fun.(x) | acc]}end Enumerable.reduce(enumerable,{:cont,[]},reducer) |> elem(1) |>:lists.reverse() end Note that the user-supplied function is wrapped into a `t:reducer/0` function. The `t:reducer/0` function must return a tagged tuple after each step,as described in the `t:acc/0` type. At the end,`Enumerable.reduce/3` returns `t:result/0`. This protocol uses tagged tuples to exchange information between the reducer function and the data type that implements the protocol. This allows enumeration of resources,such as files,to be done efficiently while also guaranteeing the resource will be closed at the end of 
+defprotocol Enumerable do @moduledoc """ Enumerable protocol used by `Enum` and `Stream` modules. When you invoke a function in the `Enum` module,the first argument is usually a collection that must implement this protocol. For example,the expression `Enum.map([1,2,3],&(&1 * 2))` invokes `Enumerable.reduce/3` to perform the reducing operation that builds a mapped list by calling the mapping function `&(&1 * 2)` on every element in the collection and consuming the element with an accumulated list. Internally,`Enum.map/2` is implemented as follows:def map(enumerable,fun) do reducer = fn x,acc ->{:cont,[fun.(x) | acc]}end Enumerable.reduce(enumerable,{:cont,[]},reducer) |> elem(1) |>:lists.reverse() end Note that the user-supplied function is wrapped into a `t:reducer/0` function. The `t:reducer/0` function must return a tagged tuple after each step,as described in the `t:acc/0` type. At the end,`Enumerable.reduce/3` returns `t:result/0`. This protocol uses tagged tuples to exchange information between the reducer function and the data type that implements the protocol. This allows enumeration of resources,such as files,to be done efficiently while also guaranteeing the resource will be closed at the end of
 
 ... [truncated 127339 chars] ...
 

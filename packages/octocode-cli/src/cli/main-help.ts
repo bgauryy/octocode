@@ -49,9 +49,9 @@ export function showHelp(): void {
     `  ${bold('HOW TO USE')}`,
     `    ${c('red', bold('1.'))} Check schema BEFORE any tool call   ${c('yellow', 'octocode tools <name>')}`,
     `    ${c('red', bold('2.'))} Run a tool                          ${c('yellow', "octocode tools <name> --queries '<json>'")}`,
-    `    ${c('cyan',    '3.')} For file/search/PR use smart cmds   ${dim('(no schema needed — see below)')}`,
-    `    ${dim(         '4.')} Full context + all schemas           ${c('yellow', 'octocode instructions')}`,
-    `    ${dim(         '5.')} All schemas as inline JSON           ${c('yellow', 'octocode instructions --full')}`,
+    `    ${c('cyan', '3.')} For file/search/PR use smart cmds   ${dim('(no schema needed — see below)')}`,
+    `    ${dim('4.')} Full context + all schemas           ${c('yellow', 'octocode instructions')}`,
+    `    ${dim('5.')} All schemas as inline JSON           ${c('yellow', 'octocode instructions --full')}`,
     '',
 
     // ── Smart commands — preferred ─────────────────────────────────────────

@@ -4,52 +4,14 @@ Source sample: `rst/cpython-tutorial-index.rst`
 
 Strategy: `conservative`
 
-Agent rating: **6.3/10 (fair)**
-
-Agent understanding from minified output: **8/10 (strong)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 2616 | - | - | - |
-| content-view | 2569 | 1.8% | 0.273 ms | 6.3/10 |
-| applyMinification | 2571 | 1.7% | 0.301 ms | 6.3/10 |
-| sync minify | 2571 | 1.7% | 0.397 ms | 6.3/10 |
-| async minify | 2571 | 1.7% | 0.257 ms | 6.3/10 |
-| symbols | n/a | n/a | 0.005 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 6.7/10 (2/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 6/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 2616 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 2569 | 1.8% | 8/10 strong | 6.7/10 | 10/10 |
-| minify | 2571 | 1.7% | 8/10 strong | 6.7/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| Tool              | Bytes |  Cut |     Time |
+| ----------------- | ----: | ---: | -------: |
+| input             |  2616 |    - |        - |
+| content-view      |  2569 | 1.8% | 0.273 ms |
+| applyMinification |  2571 | 1.7% | 0.301 ms |
+| sync minify       |  2571 | 1.7% | 0.397 ms |
+| async minify      |  2571 | 1.7% | 0.257 ms |
+| symbols           |   n/a |  n/a | 0.005 ms |
 
 ## Notes
 
@@ -85,7 +47,7 @@ The Python interpreter is easily extended with new functions and data types
 implemented in C or C++ (or other languages callable from C). Python is also
 suitable as an extension language for customizable applications.
 
-This tutorial introduces the reader informally to 
+This tutorial introduces the reader informally to
 
 ... [truncated 816 chars] ...
 
@@ -146,7 +108,7 @@ implemented in C or C++ (or other languages callable from C). Python is also
 suitable as an extension language for customizable applications.
 
 This tutorial introduces the reader informally to the basic concepts and
-features of the Python 
+features of the Python
 
 ... [truncated 769 chars] ...
 

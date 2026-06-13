@@ -4,52 +4,14 @@ Source sample: `scss/_buttons.scss`
 
 Strategy: `aggressive`
 
-Agent rating: **8.5/10 (strong)**
-
-Agent understanding from minified output: **9.6/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 7057 | - | - | - |
-| content-view | 5411 | 23.3% | 2.088 ms | 8.3/10 |
-| applyMinification | 5411 | 23.3% | 2.044 ms | 8.3/10 |
-| sync minify | 5411 | 23.3% | 1.892 ms | 8.3/10 |
-| async minify | 5411 | 23.3% | 1.939 ms | 8.3/10 |
-| symbols | 1523 | 78.4% | 0.271 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 8/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 7057 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 5411 | 23.3% | 9.6/10 excellent | 10/10 | 10/10 |
-| minify | 5411 | 23.3% | 9.6/10 excellent | 10/10 | 10/10 |
-| symbols | 1523 | 78.4% | 8.1/10 strong | 6.7/10 | 7.1/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  7057 |     - |        - |
+| content-view      |  5411 | 23.3% | 2.088 ms |
+| applyMinification |  5411 | 23.3% | 2.044 ms |
+| sync minify       |  5411 | 23.3% | 1.892 ms |
+| async minify      |  5411 | 23.3% | 1.939 ms |
+| symbols           |  1523 | 78.4% | 0.271 ms |
 
 ## Notes
 

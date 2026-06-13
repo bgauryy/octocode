@@ -40,7 +40,8 @@ export const databasePatterns: SensitiveDataPattern[] = [
   {
     name: 'redisAuthPassword',
     description: 'Redis AUTH password command',
-    regex: /\bAUTH\s+[a-zA-Z0-9_-]{8,}\b/gi,
+    regex:
+      /^[ \t]*(?:(?:redis-cli(?:[ \t]+|>)|[a-zA-Z0-9_.-]+:\d+>[ \t]*))?AUTH[ \t]+(?:[a-zA-Z0-9_.@-]+[ \t]+)?[a-zA-Z0-9_-]{8,}\b/gm,
     matchAccuracy: 'medium',
   },
 

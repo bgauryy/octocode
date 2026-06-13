@@ -83,6 +83,12 @@ export const authPatterns: SensitiveDataPattern[] = [
     regex: /\bBasic\s+[A-Za-z0-9+/]{20,}={0,2}\b/gi,
     matchAccuracy: 'medium',
   },
+  {
+    name: 'bearerAuthHeader',
+    description: 'HTTP Bearer authentication header with token',
+    regex: /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]{20,}\b/gi,
+    matchAccuracy: 'medium',
+  },
 ];
 
 export const codeConfigPatterns: SensitiveDataPattern[] = [

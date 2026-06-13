@@ -1,64 +1,142 @@
 # Benchmark Suite
 
-Benchmarks for AI-assisted code research. The goal is to measure which tool helps an agent produce the best verified answer per measured context budget.
+Benchmarks for AI-assisted code research. The suite measures which research
+tooling helps an agent produce the best verified answer for the measured
+character budget.
 
-Raw command speed is context only. Winners are decided by answer quality, research depth, and measured character/token cost.
-
----
+Raw command speed is context only. Winners are decided by answer quality,
+research depth, and measured character cost. Optional real token counters can
+be reported separately when every compared runner supports them.
 
 ## Directory Structure
 
 ```text
 benchmark/
-├── README.md                  # Map, runbook, and artifact contract
+├── README.md                  # Map, runbook, and output contract
 ├── COMPARISON.md              # Scoring methodology and comparison rules
-├── OCTOCODE_RESEARCHER.md     # Paste-ready prompt for Octocode researcher runs
-├── judge/
-│   └── prompt.md              # Unified judge prompt
+├── prompts/
+│   ├── octocode-researcher.md # Paste-ready Octocode researcher prompt
+│   ├── rtk-gh-researcher.md   # Paste-ready RTK + gh researcher prompt
+│   └── judge.md               # Paste-ready judge prompt
+├── questions/
+│   ├── README.md              # Detailed Next.js benchmark notes
+│   └── nextjs.md              # Default 20-question benchmark
 ├── scripts/
-│   └── score-comparison.mjs   # Generic N-agent score combiner
-├── github/                    # Runnable suite: octocode vs gh
-│   ├── QUESTIONS.md
-│   ├── README.md
-│   ├── RUN_MANIFEST.template.md
-│   ├── prompts/
-│   └── scripts/
-├── rtk/                       # Runnable suite: octocode vs rtk
-│   ├── QUESTIONS.md
-│   ├── README.md
-│   ├── RUN_MANIFEST.template.md
-│   ├── prompts/
-│   └── scripts/
-└── questions/                 # Reusable question banks, not runnable suites
-    ├── README.md
-    └── nextjs.md
+│   ├── init-run.sh            # Creates output/<agent>/ and exports RUN/LOG
+│   ├── set-q.sh               # Selects the active question
+│   ├── *-meas.sh              # Metered wrappers for octocode, rtk, gh
+│   ├── record.sh              # Records one answer and per-Q metrics
+│   ├── finalize.mjs           # Writes output.md and summary.json
+│   └── score-comparison.mjs   # Combines judge scores with measured metrics
+└── output/
+    ├── octocode/              # Completed Octocode researcher run
+    ├── rtk-gh/                # Completed RTK + gh researcher run
+    └── summary.md             # Judge output
 ```
 
-Runnable suites have their own `QUESTIONS.md`, `scripts/`, prompts, manifest template, and `output/` directory. Files in `questions/` are shared question banks; use them by wiring them into a runnable suite or a future benchmark harness.
+The default benchmark uses
+[`benchmark/questions/nextjs.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/questions/nextjs.md).
+The shared scripts can run any question file that uses the existing
+`### Q<n> — <question>` heading format.
 
----
+## Agents
 
-## Runnable Suites
+| Role | Reads | Writes | Rule |
+|---|---|---|---|
+| `researcher: octocode` | `benchmark/questions/nextjs.md`, `benchmark/prompts/octocode-researcher.md` | `benchmark/output/octocode/` | Use only metered Octocode wrapper calls. |
+| `researcher: rtk-gh` | `benchmark/questions/nextjs.md`, `benchmark/prompts/rtk-gh-researcher.md` | `benchmark/output/rtk-gh/` | Use only metered `rtk` and `gh` wrapper calls. |
+| `judge` | completed run dirs, questions, `benchmark/prompts/judge.md` | `benchmark/output/summary.md` | Fact-check independently; do not count judge research in researcher totals. |
 
-| Suite | Agents | What It Tests |
-|---|---|---|
-| [`github/`](./github/README.md) | `octocode` vs `gh` | GitHub API breadth: code search, file content, repo structure, PR intelligence, repository search, package registry |
-| [`rtk/`](./rtk/README.md) | `octocode` vs `rtk` | Local + GitHub research: result completeness, comment preservation, file metadata, PR body/label coverage |
+Researchers must stay blind: do not read another agent's output or
+`benchmark/output/summary.md` before finalizing the current run.
 
-Shared question banks:
+## Run A Researcher
 
-| File | Target | Intended Use |
-|---|---|---|
-| [`questions/nextjs.md`](./questions/nextjs.md) | `vercel/next.js` | Full code-research comparison across GitHub, local clone, package, and LSP-style tasks |
+From the repository root:
 
----
+```bash
+# Optional for local development builds.
+export OCTOCODE_CLI_BIN="/Users/guybary/Documents/octocode-mcp/packages/octocode-cli/out/octocode-cli.js"
 
-## Core Measurement
+# Required for local-tool questions in the default Next.js benchmark.
+rm -rf /tmp/nextjs-bench
+git clone --depth 1 https://github.com/vercel/next.js /tmp/nextjs-bench
+export ALLOWED_PATHS="/tmp/nextjs-bench"
 
-The benchmark uses a deterministic character ruler:
+# Start one fresh run.
+rm -rf benchmark/output/octocode
+source benchmark/scripts/init-run.sh octocode
+```
+
+For each question:
+
+```bash
+bash benchmark/scripts/set-q.sh <n>
+
+# Octocode researcher:
+bash benchmark/scripts/octo-meas.sh <tool-name> '<queries-json>'
+
+# RTK + gh researcher:
+bash benchmark/scripts/rtk-meas.sh <rtk-subcommand-and-args>
+bash benchmark/scripts/gh-meas.sh <gh-subcommand-and-flags>
+
+bash benchmark/scripts/record.sh <n> "<model-id>" /tmp/answer.md
+```
+
+Finalize the run:
+
+```bash
+node benchmark/scripts/finalize.mjs "$RUN"
+```
+
+Every research command must go through a metering wrapper. Bare `octocode`,
+`rtk`, or `gh` calls make the run invalid because they do not appear in
+`log.jsonl`.
+
+## Run The Judge
+
+Wait until both researcher runs contain `output.md` and `summary.json`, then use
+[`benchmark/prompts/judge.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/prompts/judge.md)
+with:
 
 ```text
-total_chars_to_answer = sum(in_chars + out_chars) across every metered call for the question
+AGENTS:    octocode, rtk-gh
+RUNS:      /Users/guybary/Documents/octocode-mcp/benchmark/output/octocode,
+           /Users/guybary/Documents/octocode-mcp/benchmark/output/rtk-gh
+QUESTIONS: /Users/guybary/Documents/octocode-mcp/benchmark/questions/nextjs.md
+OUTPUT:    /Users/guybary/Documents/octocode-mcp/benchmark/output/summary.md
+```
+
+The judge assigns quality/depth scores after independently verifying source
+facts. Judge tool calls are outside the measured researcher runs.
+
+## Make A New Benchmark
+
+1. Add a question bank under `benchmark/questions/<name>.md`.
+2. Use headings like `### Q1 — <category>: <question>` so scripts can count and extract questions.
+3. Decide the agents to compare, then create or update prompts in `benchmark/prompts/`.
+4. Start each run with a custom questions file:
+
+```bash
+export QUESTIONS_FILE="$(pwd)/benchmark/questions/<name>.md"
+source benchmark/scripts/init-run.sh <agent-slug>
+```
+
+5. Require every researcher to use `benchmark/scripts/*-meas.sh`.
+6. Record every answer with `benchmark/scripts/record.sh`.
+7. Finalize each run with `benchmark/scripts/finalize.mjs`.
+8. Judge the completed outputs and write the comparison to `benchmark/output/summary.md`.
+
+Keep benchmark questions independently verifiable. Good questions require exact
+file paths, lines, source quotes, PR metadata, package facts, or exhaustive
+search results. Mark changing questions with `[drift]`.
+
+## Measurement
+
+Canonical cost:
+
+```text
+total_chars_to_answer = sum(in_chars + out_chars) across every metered call
 ```
 
 Approximate tokens are display-only:
@@ -67,88 +145,16 @@ Approximate tokens are display-only:
 approx_tokens = ceil(total_chars_to_answer / 4)
 ```
 
-Actual LLM token counters may be reported when present, but they do not replace the character ruler unless every compared agent has equivalent token accounting.
-
-For the full scoring model, clean-win rules, drift handling, and token/character policy, see [`COMPARISON.md`](./COMPARISON.md).
-
----
-
-## Scoring Summary
-
-The judge assigns:
-
-| Axis | Range | Meaning |
-|---|---:|---|
-| `Q` quality | 0-3 | Factual correctness of the final answer |
-| `D` depth | 0-3 | Evidence quality, citations, exact lines, quotes, and completeness |
-| `T` turns | raw count | Metered tool calls or model turns |
-
-Computed scores:
-
-```text
-research_score  = Q * D
-tradeoff_score  = research_score / max(total_chars_to_answer / 1000, 0.01)
-turns_per_point = T / max(Q, 0.5)
-```
-
-Highest `research_score` means best answer quality. Highest `tradeoff_score` means best quality-adjusted cost. If the tradeoff winner has materially lower `Q` or `D`, report it as an efficiency win rather than a clean research win.
-
----
-
-## Running A Suite
-
-Read the suite README first:
-
-- [`github/README.md`](./github/README.md)
-- [`rtk/README.md`](./rtk/README.md)
-
-Quick flow from the repository root:
-
-```bash
-# Fresh run for one agent
-rm -rf benchmark/<suite>/output/<agent>
-source benchmark/<suite>/scripts/init-run.sh <agent>
-
-# For each question
-bash benchmark/<suite>/scripts/set-q.sh <n>
-# ... metered research through the suite wrapper ...
-bash benchmark/<suite>/scripts/record.sh <n> "<model-id>" /tmp/answer.md
-
-# Finalize
-node benchmark/<suite>/scripts/finalize.mjs benchmark/<suite>/output/<agent>
-```
-
-Every research command must go through the suite's metering wrapper:
-
-| Agent | Wrapper |
-|---|---|
-| `octocode` | `benchmark/<suite>/scripts/octo-meas.sh` |
-| `gh` | `benchmark/github/scripts/gh-meas.sh` |
-| `rtk` | `benchmark/rtk/scripts/rtk-meas.sh` |
-
-Bare tool calls are unmetered and make the run invalid.
-
----
-
-## Agent Prompts
-
-| Role | Prompt |
-|---|---|
-| `researcher: octocode` | [`OCTOCODE_RESEARCHER.md`](./OCTOCODE_RESEARCHER.md), with `<BENCHMARK>` set to `github` or `rtk` |
-| `researcher: gh` | [`github/prompts/researcher.md`](./github/prompts/researcher.md) |
-| `researcher: rtk` | [`rtk/prompts/researcher.md`](./rtk/prompts/researcher.md) |
-| `judge` | [`judge/prompt.md`](./judge/prompt.md) |
-
-Keep researcher runs blind: do not read another agent's output or `output/summary.md` before finalizing the current run.
-
----
+For the full scoring model, clean-win rules, drift handling, and character/token
+policy, see
+[`benchmark/COMPARISON.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/COMPARISON.md).
 
 ## Output Contract
 
 Each completed agent run directory must contain:
 
 ```text
-benchmark/<suite>/output/<agent>/
+benchmark/output/<agent>/
 ├── log.jsonl
 ├── q1.md
 ├── q1.json
@@ -173,19 +179,8 @@ Per-question metric shape:
 }
 ```
 
-Publication-quality runs also need:
-
-- completed `RUN_MANIFEST.template.md` copy
-- exact model IDs, tool versions, auth source, benchmark commit SHA, and retrieval dates
-- judge notes for every `Q < 3` or `D < 3`
-- drift questions reported separately from main totals
-- at least three repeated runs when stochastic agent behavior is being compared
-
----
-
-## Combining Scores
-
-After the judge writes a quality/depth JSON file, use the generic scorer:
+After the judge writes a quality/depth JSON file, combine measured run metrics
+with judge scores:
 
 ```bash
 node benchmark/scripts/score-comparison.mjs \
@@ -193,8 +188,5 @@ node benchmark/scripts/score-comparison.mjs \
   --scores benchmark/output/quality-depth.json \
   --markdown \
   octocode=benchmark/output/octocode \
-  gh=benchmark/output/gh \
-  rtk=benchmark/output/rtk
+  rtk-gh=benchmark/output/rtk-gh
 ```
-
-The scorer only combines judge-assigned `Q`/`D` scores with measured run metrics. It does not fact-check answers.

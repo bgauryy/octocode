@@ -4,52 +4,14 @@ Source sample: `vb/00-dotnet-strings.vb`
 
 Strategy: `conservative`
 
-Agent rating: **7/10 (good)**
-
-Agent understanding from minified output: **9.5/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 91031 | - | - | - |
-| content-view | 81820 | 10.1% | 15.481 ms | 7/10 |
-| applyMinification | 81865 | 10.1% | 15.442 ms | 7/10 |
-| sync minify | 81865 | 10.1% | 18.924 ms | 7/10 |
-| async minify | 81865 | 10.1% | 16.985 ms | 7/10 |
-| symbols | 101799 | -11.8% | 5.312 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 8/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 91031 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 81820 | 10.1% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 81865 | 10.1% | 9.5/10 excellent | 10/10 | 10/10 |
-| symbols | 101799 | -11.8% | 9/10 excellent | 10/10 | 10/10 |
+| Tool              |  Bytes |    Cut |      Time |
+| ----------------- | -----: | -----: | --------: |
+| input             |  91031 |      - |         - |
+| content-view      |  81820 |  10.1% | 15.481 ms |
+| applyMinification |  81865 |  10.1% | 15.442 ms |
+| sync minify       |  81865 |  10.1% | 18.924 ms |
+| async minify      |  81865 |  10.1% | 16.985 ms |
+| symbols           | 101799 | -11.8% |  5.312 ms |
 
 ## Notes
 
@@ -94,10 +56,10 @@ Namespace Global.Microsoft.VisualBasic
 
     Public Module Strings
         'Positive format strings
-        '0      $n  
-        '1      n$ 
-        '2      $ n  
-        '3      n $ 
+        '0      $n
+        '1      n$
+        '2      $ n
+        '3      n $
         Private ReadOnly CurrencyPo
 
 ... [truncated 89231 chars] ...
@@ -435,7 +397,7 @@ End Namespace
   42|         'The negative currency pattern needs to be selected based
   43|         '  on the criteria provided for parens
   44|         'nfi.CurrencyPositivePattern
-  45| 
+  45|
 
 ... [truncated 99199 chars] ...
 

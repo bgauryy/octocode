@@ -25,7 +25,10 @@ pub const SIGNATURES_ONLY_HINT: &str = signatures::SIGNATURES_ONLY_HINT;
 #[napi(js_name = "getExtension")]
 pub fn get_extension(file_path: String, options: Option<GetExtensionOptions>) -> String {
     let lowercase = options.as_ref().and_then(|o| o.lowercase).unwrap_or(false);
-    let fallback  = options.as_ref().and_then(|o| o.fallback.as_deref()).unwrap_or("");
+    let fallback = options
+        .as_ref()
+        .and_then(|o| o.fallback.as_deref())
+        .unwrap_or("");
     file_extension::get_extension_internal(&file_path, lowercase, fallback)
 }
 
@@ -98,7 +101,12 @@ pub fn minify_aggressive_core(content: String, config: FileTypeMinifyConfig) -> 
 #[napi(js_name = "minifyJsonCore")]
 pub fn minify_json_core(content: String) -> MinifyResult {
     let (out, failed) = strategies::minify_json_core_inner(&content);
-    MinifyResult { content: out, failed, r#type: "json".to_owned(), reason: None }
+    MinifyResult {
+        content: out,
+        failed,
+        r#type: "json".to_owned(),
+        reason: None,
+    }
 }
 
 /// Readable JSON view: keeps formatting, strips JSONC noise and trailing
@@ -106,7 +114,12 @@ pub fn minify_json_core(content: String) -> MinifyResult {
 #[napi(js_name = "minifyJsonReadable")]
 pub fn minify_json_readable(content: String) -> MinifyResult {
     let (out, failed) = strategies::minify_json_readable_inner(&content);
-    MinifyResult { content: out, failed, r#type: "json".to_owned(), reason: None }
+    MinifyResult {
+        content: out,
+        failed,
+        r#type: "json".to_owned(),
+        reason: None,
+    }
 }
 
 /// Whitespace-only code cleanup: trim line ends, collapse 3+ blank lines,
@@ -174,8 +187,9 @@ pub fn strip_python_docstrings(content: String) -> String {
 // ── Signature extraction ──────────────────────────────────────────────────────
 
 /// Structural skeleton with an `NNN| ` line-number gutter: tree-sitter for
-/// the top-10 languages, heuristics for the rest. Returns `null` for data,
-/// config, and prose formats and for content above the 1MB guard.
+/// configured parser-backed languages, document outlines for Markdown,
+/// heuristics for the rest. Returns `null` for data, config, unsupported
+/// prose formats, and content above the 1MB guard.
 #[napi(js_name = "extractSignatures")]
 pub fn extract_signatures(content: String, file_path: String) -> Option<String> {
     signatures::extract_signatures_inner(&content, &file_path)
@@ -193,18 +207,21 @@ pub fn get_supported_signature_extensions() -> Vec<String> {
 
     // Heuristic-covered extensions (matching heuristic.rs extract_heuristic routes)
     const HEURISTIC_ONLY: &[&str] = &[
-        "kt", "kotlin", "scala",          // JVM family
-        "rb",                               // Ruby
-        "php",                              // PHP
-        "swift",                            // Swift
-        "css", "scss", "less",             // CSS family
-        "html", "htm",                      // HTML
-        "sql", "tsql", "plsql",            // SQL
-        "vue", "svelte",                    // SFC components
-        "ex", "exs",                        // Elixir
-        "hs", "lhs",                        // Haskell
-        "lua",                              // Lua
-        "erl", "hrl",                       // Erlang
+        "cpp", "hpp", "cc", "cxx", // C++ family; heuristic fallback when grammar disabled
+        "cs",  // C#; heuristic fallback when grammar disabled
+        "kt", "kotlin", "scala", // JVM family
+        "rb",    // Ruby
+        "php",   // PHP
+        "swift", // Swift
+        "css", "scss", "less", // CSS family
+        "html", "htm", // HTML
+        "sql", "tsql", "plsql", // SQL
+        "vue", "svelte", // SFC components
+        "ex", "exs", // Elixir
+        "hs", "lhs", // Haskell
+        "md", "markdown", // Markdown document outline
+        "lua",      // Lua
+        "erl", "hrl", // Erlang
     ];
     for ext in HEURISTIC_ONLY {
         if !exts.iter().any(|e| e == ext) {
@@ -221,8 +238,11 @@ pub fn get_supported_signature_extensions() -> Vec<String> {
 /// response. Optional key sorting and priority-key ordering; multiline
 /// strings become block scalars. Emission is locked by yaml_utils tests.
 #[napi(js_name = "jsonToYamlString")]
-pub fn json_to_yaml_string(json_object: serde_json::Value, config: Option<YamlConversionConfig>) -> String {
-    let sort_keys     = config.as_ref().and_then(|c| c.sort_keys).unwrap_or(false);
+pub fn json_to_yaml_string(
+    json_object: serde_json::Value,
+    config: Option<YamlConversionConfig>,
+) -> String {
+    let sort_keys = config.as_ref().and_then(|c| c.sort_keys).unwrap_or(false);
     let priority_keys = config
         .as_ref()
         .and_then(|c| c.keys_priority.as_deref())
@@ -242,18 +262,24 @@ pub fn get_minify_config() -> serde_json::Value {
         .map(|(ext, cfg)| {
             let comments: serde_json::Value = match cfg.comments {
                 None => serde_json::Value::Null,
-                Some(groups) if groups.len() == 1 =>
-                    serde_json::Value::String(groups[0].to_string()),
+                Some(groups) if groups.len() == 1 => {
+                    serde_json::Value::String(groups[0].to_string())
+                }
                 Some(groups) => serde_json::Value::Array(
-                    groups.iter().map(|g| serde_json::Value::String((*g).to_string())).collect(),
+                    groups
+                        .iter()
+                        .map(|g| serde_json::Value::String((*g).to_string()))
+                        .collect(),
                 ),
             };
-            (ext.to_string(), serde_json::json!({ "strategy": cfg.strategy, "comments": comments }))
+            (
+                ext.to_string(),
+                serde_json::json!({ "strategy": cfg.strategy, "comments": comments }),
+            )
         })
         .collect();
     serde_json::json!({ "fileTypes": file_types })
 }
-
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -286,9 +312,15 @@ mod tests {
 
     #[test]
     fn get_extension_honors_lowercase_and_fallback_options() {
-        let opts = GetExtensionOptions { lowercase: Some(true), fallback: Some("txt".into()) };
+        let opts = GetExtensionOptions {
+            lowercase: Some(true),
+            fallback: Some("txt".into()),
+        };
         assert_eq!(get_extension("Foo.TS".into(), Some(opts)), "ts");
-        let opts = GetExtensionOptions { lowercase: None, fallback: Some("txt".into()) };
+        let opts = GetExtensionOptions {
+            lowercase: None,
+            fallback: Some("txt".into()),
+        };
         assert_eq!(get_extension("Makefile".into(), Some(opts)), "txt");
     }
 
@@ -296,7 +328,7 @@ mod tests {
     fn remove_comments_accepts_string_or_array_union() {
         let src = "int x; // c\nint y;";
         let from_string = remove_comments(src.into(), json!("c-style"));
-        let from_array  = remove_comments(src.into(), json!(["c-style"]));
+        let from_array = remove_comments(src.into(), json!(["c-style"]));
         assert_eq!(from_string, from_array);
         assert!(!from_string.contains("// c"));
     }
@@ -304,14 +336,20 @@ mod tests {
     #[test]
     fn remove_comments_returns_content_unchanged_on_invalid_union_shape() {
         assert_eq!(remove_comments("hello".into(), json!(42)), "hello");
-        assert_eq!(remove_comments("hello".into(), json!({"bad": true})), "hello");
+        assert_eq!(
+            remove_comments("hello".into(), json!({"bad": true})),
+            "hello"
+        );
     }
 
     #[test]
     fn parse_comment_groups_handles_all_union_shapes() {
         assert!(parse_comment_groups(&None).is_empty());
         assert_eq!(parse_comment_groups(&Some(json!("hash"))), vec!["hash"]);
-        assert_eq!(parse_comment_groups(&Some(json!(["a", "b"]))), vec!["a", "b"]);
+        assert_eq!(
+            parse_comment_groups(&Some(json!(["a", "b"]))),
+            vec!["a", "b"]
+        );
         assert!(parse_comment_groups(&Some(json!(7))).is_empty());
     }
 
@@ -326,7 +364,7 @@ mod tests {
     #[test]
     fn supported_signature_extensions_are_sorted_and_complete() {
         let exts = get_supported_signature_extensions();
-        for required in ["ts", "py", "rs", "vue", "svelte"] {
+        for required in ["ts", "py", "rs", "vue", "svelte", "md", "markdown"] {
             assert!(exts.iter().any(|e| e == required), "missing {required}");
         }
         let mut sorted = exts.clone();

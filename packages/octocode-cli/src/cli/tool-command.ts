@@ -10,14 +10,12 @@ import {
   executeDirectTool,
   findDirectToolDefinition,
   formatCallToolResultForOutput,
-  formatDirectToolOutputSchemaText,
   formatDirectToolMetadataSchemaText,
   formatDirectToolSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolCategory,
   getDirectToolDescription,
   getDirectToolDisplayFields,
-  getDirectToolOutputFields,
   loadToolContent,
   prepareDirectToolInputFromJsonText,
   sortDirectToolNames,
@@ -142,7 +140,9 @@ function getInputText(toolName: string, args: ParsedArgs): string | undefined {
 export function truncateDescription(desc: string, maxLen: number): string {
   if (desc.length <= maxLen) return desc;
   const cut = desc.lastIndexOf(' ', maxLen - 1);
-  return cut > maxLen * 0.6 ? desc.slice(0, cut) + '…' : desc.slice(0, maxLen - 1) + '…';
+  return cut > maxLen * 0.6
+    ? desc.slice(0, cut) + '…'
+    : desc.slice(0, maxLen - 1) + '…';
 }
 
 export function formatRequiredFields(toolName: string): string {
@@ -163,7 +163,10 @@ export function formatRequiredFields(toolName: string): string {
     return `[${parts.join(', ')}]`;
   }
   // No required fields — show first 3 optional as guidance
-  return `[${optional.slice(0, 3).map(f => `${f.name}?`).join(', ')}]`;
+  return `[${optional
+    .slice(0, 3)
+    .map(f => `${f.name}?`)
+    .join(', ')}]`;
 }
 
 function extractShortDescription(fullDescription: string): string {
@@ -180,27 +183,91 @@ function formatFullDescription(fullDescription: string): string {
 
   // Strip XML-like section tags (<types>, <format>, <next>, etc.) while
   // preserving their inner content — callers see clean readable lines.
-  return rest.replace(/<\/?[a-z][a-z0-9]*>/gi, '').replace(/\n{3,}/g, '\n\n').trim();
+  return rest
+    .replace(/<\/?[a-z][a-z0-9]*>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 const LSP_TOOL_NAME = 'lspGetSemanticContent';
 
 const LSP_TYPE_EXAMPLES: Array<[string, Record<string, unknown>]> = [
-  ['definition — jump to declaration', { uri: '/path/to/file.ts', type: 'definition', symbolName: 'myFunction', lineHint: 42 }],
-  ['references — all usages', { uri: '/path/to/file.ts', type: 'references', symbolName: 'MyClass', lineHint: 10 }],
-  ['callers — who calls this function', { uri: '/path/to/file.ts', type: 'callers', symbolName: 'handleRequest', lineHint: 55 }],
-  ['callees — what this function calls', { uri: '/path/to/file.ts', type: 'callees', symbolName: 'handleRequest', lineHint: 55 }],
-  ['hover — type signature + docs', { uri: '/path/to/file.ts', type: 'hover', symbolName: 'myVar', lineHint: 20 }],
-  ['documentSymbols — file outline (no symbolName/lineHint needed)', { uri: '/path/to/file.ts', type: 'documentSymbols' }],
-  ['typeDefinition — where the type was declared', { uri: '/path/to/file.ts', type: 'typeDefinition', symbolName: 'myVar', lineHint: 20 }],
-  ['implementation — concrete impl of interface member', { uri: '/path/to/file.ts', type: 'implementation', symbolName: 'render', lineHint: 88 }],
+  [
+    'definition — jump to declaration',
+    {
+      uri: '/path/to/file.ts',
+      type: 'definition',
+      symbolName: 'myFunction',
+      lineHint: 42,
+    },
+  ],
+  [
+    'references — all usages',
+    {
+      uri: '/path/to/file.ts',
+      type: 'references',
+      symbolName: 'MyClass',
+      lineHint: 10,
+    },
+  ],
+  [
+    'callers — who calls this function',
+    {
+      uri: '/path/to/file.ts',
+      type: 'callers',
+      symbolName: 'handleRequest',
+      lineHint: 55,
+    },
+  ],
+  [
+    'callees — what this function calls',
+    {
+      uri: '/path/to/file.ts',
+      type: 'callees',
+      symbolName: 'handleRequest',
+      lineHint: 55,
+    },
+  ],
+  [
+    'hover — type signature + docs',
+    {
+      uri: '/path/to/file.ts',
+      type: 'hover',
+      symbolName: 'myVar',
+      lineHint: 20,
+    },
+  ],
+  [
+    'documentSymbols — file outline (no symbolName/lineHint needed)',
+    { uri: '/path/to/file.ts', type: 'documentSymbols' },
+  ],
+  [
+    'typeDefinition — where the type was declared',
+    {
+      uri: '/path/to/file.ts',
+      type: 'typeDefinition',
+      symbolName: 'myVar',
+      lineHint: 20,
+    },
+  ],
+  [
+    'implementation — concrete impl of interface member',
+    {
+      uri: '/path/to/file.ts',
+      type: 'implementation',
+      symbolName: 'render',
+      lineHint: 88,
+    },
+  ],
 ];
 
 export async function showAvailableTools(): Promise<void> {
   const metadata = await getOptionalToolMetadata();
 
   console.log();
-  console.log(`  ${c('magenta', bold('Octocode Tools'))}  ${dim('(* = required field)')}`);
+  console.log(
+    `  ${c('magenta', bold('Octocode Tools'))}  ${dim('(* = required field)')}`
+  );
   console.log();
   console.log(
     `  ${c('red', bold('REQUIRED BEFORE CALLING ANY TOOL:'))} read its schema first`
@@ -314,20 +381,40 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
 
   console.log(`  ${bold('Output Schema')}`);
   console.log(`    ${dim('Default (YAML):')}`);
-  console.log(`      ${dim('Clean YAML — read directly. Trust hints[] for next steps.')}`);
+  console.log(
+    `      ${dim('Clean YAML — read directly. Trust hints[] for next steps.')}`
+  );
   console.log(`    ${dim('--json envelope:')}`);
-  console.log(`      ${c('cyan', 'isError')}                          ${dim('true = tool failed')}`);
-  console.log(`      ${c('cyan', 'content[].text')}                   ${dim('YAML string (same as default output)')}`);
-  console.log(`      ${c('cyan', 'structuredContent.results[]')}      ${dim('tool result objects  (id + data)')}`);
-  console.log(`      ${c('cyan', 'structuredContent.base')}           ${dim('cwd / workspace root used for the query')}`);
-  console.log(`      ${c('cyan', 'structuredContent.hints[]')}        ${dim('next-step suggestions — follow them')}`);
-  console.log(`      ${c('cyan', 'structuredContent.evidence')}       ${dim('{ answerReady, complete, kind }')}`);
-  console.log(`      ${dim('Trust evidence.answerReady — true = answer complete, stop calling')}`);
+  console.log(
+    `      ${c('cyan', 'isError')}                          ${dim('true = tool failed')}`
+  );
+  console.log(
+    `      ${c('cyan', 'content[].text')}                   ${dim('YAML string (same as default output)')}`
+  );
+  console.log(
+    `      ${c('cyan', 'structuredContent.results[]')}      ${dim('tool result objects  (id + data)')}`
+  );
+  console.log(
+    `      ${c('cyan', 'structuredContent.base')}           ${dim('cwd / workspace root used for the query')}`
+  );
+  console.log(
+    `      ${c('cyan', 'structuredContent.hints[]')}        ${dim('next-step suggestions — follow them')}`
+  );
+  console.log(
+    `      ${c('cyan', 'structuredContent.evidence')}       ${dim('{ answerReady, complete, kind }')}`
+  );
+  console.log(
+    `      ${dim('Trust evidence.answerReady — true = answer complete, stop calling')}`
+  );
   console.log();
 
   console.log(`  ${bold('Flags')}`);
-  console.log(`    ${c('cyan', '--json')}     ${dim('raw JSON envelope (structuredContent + content + isError)')}`);
-  console.log(`    ${c('cyan', '--compact')}  ${dim('leanest output — fewer tokens')}`);
+  console.log(
+    `    ${c('cyan', '--json')}     ${dim('raw JSON envelope (structuredContent + content + isError)')}`
+  );
+  console.log(
+    `    ${c('cyan', '--compact')}  ${dim('leanest output — fewer tokens')}`
+  );
 
   console.log();
 
@@ -420,7 +507,7 @@ export async function getToolsContextString(
       'You are an agent driving the octocode CLI. Follow this protocol:',
       '',
       '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY TOOL CALL ***',
-      '  Always read a tool\'s schema before calling it:',
+      "  Always read a tool's schema before calling it:",
       '    octocode tools <name>                    # schema: required fields, types, examples',
       '    octocode tools <n1> <n2> ...             # batch: read multiple schemas at once',
       full

@@ -24,16 +24,16 @@ function emptyApiResult() {
   };
 }
 
-describe('searchPullRequests — matchScope mapping to API `match`', () => {
+describe('searchPullRequests — match field forwarded to GitHub API `match`', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchAPI.mockResolvedValue(emptyApiResult());
   });
 
-  it('forwards a single-value matchScope as `match`', async () => {
+  it('forwards a single-value match as `match`', async () => {
     await searchPullRequests({
       query: 'Suspense',
-      matchScope: ['title'],
+      match: ['title'],
     } as PRQuery);
 
     expect(mockSearchAPI).toHaveBeenCalledTimes(1);
@@ -42,16 +42,16 @@ describe('searchPullRequests — matchScope mapping to API `match`', () => {
     expect(forwarded.query).toBe('Suspense');
   });
 
-  it('forwards a multi-value matchScope as `match`', async () => {
+  it('forwards a multi-value match as `match`', async () => {
     await searchPullRequests({
       query: 'x',
-      matchScope: ['title', 'body'],
+      match: ['title', 'body'],
     } as PRQuery);
 
     expect(mockSearchAPI.mock.calls[0]![0].match).toEqual(['title', 'body']);
   });
 
-  it('forwards undefined `match` when matchScope is absent', async () => {
+  it('forwards undefined match when match is absent', async () => {
     await searchPullRequests({ query: 'x' } as PRQuery);
 
     expect(mockSearchAPI.mock.calls[0]![0].match).toBeUndefined();

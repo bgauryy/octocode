@@ -642,7 +642,7 @@ describe('Query Builders', () => {
       );
     });
 
-    it('applies matchScope as an in: qualifier when a query term is present', () => {
+    it('applies match as an in: qualifier when a query term is present', () => {
       const params = {
         query: 'Suspense',
         match: ['title'] as ('title' | 'body' | 'comments')[],
@@ -652,7 +652,7 @@ describe('Query Builders', () => {
       expect(query).toContain('in:title');
     });
 
-    it('joins multiple matchScope values into one comma-separated in: qualifier', () => {
+    it('joins multiple match values into one comma-separated in: qualifier', () => {
       const params = {
         query: 'Suspense',
         match: ['title', 'body'] as ('title' | 'body' | 'comments')[],
@@ -662,7 +662,7 @@ describe('Query Builders', () => {
       expect(query).not.toContain('in:title in:body');
     });
 
-    it('omits in: when matchScope is set but there is no free-text query to scope', () => {
+    it('omits in: when match is set but there is no free-text query to scope', () => {
       const params = {
         match: ['title'] as ('title' | 'body' | 'comments')[],
         state: 'open' as const,
@@ -671,7 +671,7 @@ describe('Query Builders', () => {
       expect(query).not.toContain('in:');
     });
 
-    it('omits in: when no matchScope is provided', () => {
+    it('omits in: when no match is provided', () => {
       const params = { query: 'Suspense' };
       const query = buildPullRequestSearchQuery(params);
       expect(query).not.toContain('in:');
@@ -818,6 +818,46 @@ describe('Query Builders', () => {
       };
 
       expect(shouldUseSearchForPRs(params)).toBe(true);
+    });
+
+    it('returns true when sort is comments (REST only supports created/updated)', () => {
+      expect(shouldUseSearchForPRs({ sort: 'comments' })).toBe(true);
+    });
+
+    it('returns true when sort is reactions (REST only supports created/updated)', () => {
+      expect(shouldUseSearchForPRs({ sort: 'reactions' })).toBe(true);
+    });
+
+    it('returns false when sort is created (REST supports it)', () => {
+      expect(
+        shouldUseSearchForPRs({ owner: 'x', repo: 'y', sort: 'created' })
+      ).toBe(false);
+    });
+
+    it('returns false when sort is updated (REST supports it)', () => {
+      expect(
+        shouldUseSearchForPRs({ owner: 'x', repo: 'y', sort: 'updated' })
+      ).toBe(false);
+    });
+
+    it('returns true when match is provided (in: requires Search API)', () => {
+      expect(
+        shouldUseSearchForPRs({
+          match: ['title'] as ('title' | 'body' | 'comments')[],
+        })
+      ).toBe(true);
+    });
+
+    it('returns false when query is an empty string (REST list is fine)', () => {
+      expect(
+        shouldUseSearchForPRs({ owner: 'x', repo: 'y', query: '' })
+      ).toBe(false);
+    });
+
+    it('returns true when query is a non-empty string', () => {
+      expect(shouldUseSearchForPRs({ query: 'Partial Prerendering' })).toBe(
+        true
+      );
     });
   });
 });

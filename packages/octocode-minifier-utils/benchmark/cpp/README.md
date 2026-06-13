@@ -4,52 +4,14 @@ Source sample: `cpp/00-llvm-raw-ostream.cpp`
 
 Strategy: `conservative`
 
-Agent rating: **8.7/10 (strong)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 32621 | - | - | - |
-| content-view | 22759 | 30.2% | 7.275 ms | 8.5/10 |
-| applyMinification | 22815 | 30.1% | 7.083 ms | 8.5/10 |
-| sync minify | 22815 | 30.1% | 6.883 ms | 8.5/10 |
-| async minify | 22815 | 30.1% | 7.111 ms | 8.5/10 |
-| symbols | 7693 | 76.4% | 37.192 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 32621 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 22759 | 30.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 22815 | 30.1% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 7693 | 76.4% | 9.3/10 excellent | 10/10 | 6.5/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 32621 |     - |         - |
+| content-view      | 22759 | 30.2% |  7.275 ms |
+| applyMinification | 22815 | 30.1% |  7.083 ms |
+| sync minify       | 22815 | 30.1% |  6.883 ms |
+| async minify      | 22815 | 30.1% |  7.111 ms |
+| symbols           |  7693 | 76.4% | 37.192 ms |
 
 ## Notes
 

@@ -1,12 +1,12 @@
 # Next.js — 20 Research Questions
 
-20 research questions about `vercel/next.js`. Answer using whatever tooling you have available.
+20 research questions about `vercel/next.js` and the surrounding Next.js benchmark/eval ecosystem. Answer using whatever tooling you have available.
 
 ---
 
 ## Section 1 — Remote Only (Q1–Q10)
 
-> **MUST:** Answer Q1–Q10 using the **remote repository only** . Do **not** clone the repo for this section.
+> **MUST:** Answer Q1–Q10 using **remote GitHub repositories only**. Do **not** clone any repo for this section.
 
 ---
 
@@ -32,7 +32,7 @@ Find where each of these symbols is **defined** (class or function declaration, 
 
 ---
 
-### Q3 — `revalidatePath` call sites
+### Q3 — `revalidatePath` call sites [drift]
 
 In `vercel/next.js`, find every call to `revalidatePath` inside `packages/next/src/server/`.
 For each match: state the file path, line number, and the exact source line.
@@ -95,25 +95,25 @@ In `vercel/next.js`, trace how an HTTP request carrying a Server Action is ident
 
 ---
 
-### Q9 — Partial Prerendering introduction
+### Q9 — Official Next.js agent eval benchmark
 
-Search merged PRs in `vercel/next.js` for the PR that introduced **Partial Prerendering (PPR)**.
-1. State the PR number and exact title.
-2. Quote the paragraph from the PR body that describes the motivation or user-facing goal.
-3. List the key files added or modified to implement it.
+Find Vercel's public GitHub repository for official **Next.js AI agent evaluations**.
+1. State the repository name and quote what the README says the benchmark evaluates.
+2. What files make up one eval case? List the required filenames and the role of each file.
+3. List the current eval IDs that test caching, proxy/middleware, request APIs, and revalidation behavior.
 
-> *Tests PR search combined with body access and changed-file enumeration. D=3 requires PR number + verbatim body quote + file list. Judge independently verifies all three against the cited PR. Agents that return only the title without accessing the PR body score D≤1.*
+> *Tests repository discovery plus benchmark-structure extraction. D=3 requires the correct repo, README-backed quote, exact eval-case file roles, and relevant eval IDs. Agents that only cite nextjs.org/evals without finding the GitHub repository score D≤1.*
 
 ---
 
-### Q10 — Inline review thread: Server Actions introduction
+### Q10 — Official Turbopack benchmark workflow
 
-Search merged PRs in `vercel/next.js` for the PR that introduced Server Actions as a feature.
-1. State the PR number and title.
-2. How many inline review comments (code-level thread comments, not top-level PR review summaries) does it have?
-3. Quote the most substantive reviewer objection from an inline comment thread.
+In `vercel/next.js`, find the GitHub Actions workflow that runs the official **Turbopack benchmarks**.
+1. State the workflow file path and workflow name.
+2. What events and path filters trigger it? Quote the relevant YAML lines.
+3. List every benchmark job and, for each job, the Cargo package/bench target it builds or runs.
 
-> *Inline thread comments are a separate resource from PR-level review summaries. Agents that answer from summary data alone will miss or fabricate the inline threads. D=3 requires correct PR number + correct inline comment count + verbatim inline quote. Judge verifies all three against the cited PR.*
+> *Tests workflow discovery and benchmark-harness reading. D=3 requires exact workflow path/name, trigger filters, all benchmark jobs, and the Cargo commands. Agents that find a generic CI workflow instead of the Turbopack benchmark workflow score D≤1.*
 
 ---
 
@@ -137,13 +137,14 @@ In the local clone, trace how the React Server Component (RSC) stream is piped i
 
 ---
 
-### Q12 — TODO/FIXME annotation survey
+### Q12 — Turbopack benchmark Rust entrypoints [drift]
 
-Find every `// TODO`, `// FIXME`, or `// HACK` comment in `packages/next/src/server/`.
-For each match: state the file path, line number, and exact comment text.
-What is the total count?
+In the local clone, map the Rust benchmark entrypoints used by the Turbopack benchmark workflow.
+1. Find every Rust bench file under `turbopack/crates/**/benches/` that corresponds to a Cargo bench target named by the workflow.
+2. For each bench file: state the package directory, bench target name, and file path.
+3. Which bench target runs the small app build benchmarks, and which one runs reference/analyzer benchmarks?
 
-> *Tests exhaustive local search completeness. D=3 requires exact comment text, line number, and file path for every match. Judge verifies total count against a fresh clone snapshot. Note: these annotations change frequently — count and content will shift across repo versions.*
+> *Tests local workflow-to-source mapping across YAML, Cargo package layout, and Rust bench files. D=3 requires every relevant bench file, correct package-to-target mapping, and the correct small-app vs analyzer classification. Marked drift because benchmark targets can change across commits.*
 
 ---
 
@@ -158,14 +159,14 @@ In the local clone, trace how exported `generateStaticParams` functions in route
 
 ---
 
-### Q14 — Server directory structure
+### Q14 — Turbopack benchmark app fixtures [drift]
 
-List all direct subdirectories under `packages/next/src/server/`.
-1. How many subdirectories are there?
-2. List all their names.
-3. Which subdirectory contains the most immediate children (files + subdirs combined)? State its name and child count.
+In the local clone, inspect `turbopack/benchmark-apps/`.
+1. List all direct benchmark app fixture directories.
+2. Which package-manager/workspace files at that path define or lock the benchmark app dependencies?
+3. Pick one fixture and state the file path for its Next.js configuration plus the package script used to build or run it.
 
-> *Tests local directory tree navigation. D=3 requires a fully enumerated list and a correctly computed answer to sub-question 3. Sub-question 3 is independently verifiable.*
+> *Tests benchmark-fixture navigation rather than generic tree listing. D=3 requires a complete fixture inventory, workspace/dependency files, and one concrete fixture's config + script evidence. Marked drift because fixtures may be added or removed.*
 
 ---
 
@@ -179,14 +180,14 @@ Read `packages/next/src/server/base-server.ts`.
 
 ---
 
-### Q16 — Configuration defaults
+### Q16 — How the small-app benchmark executes builds
 
-Read `packages/next/src/server/config-shared.ts`.
-1. What is the default value for `reactStrictMode`?
-2. What is the default value for `poweredByHeader`?
-3. List 5 other top-level config keys with their default values.
+Read the Rust bench implementation for the Turbopack small-app benchmark.
+1. Which benchmark cases or app names does it define? List them with the file path and line number.
+2. How does it prepare or invoke the build command for each app? Quote the key command-building or execution line.
+3. Which helper/function records the benchmark measurement?
 
-> *Tests targeted extraction from a large configuration object. D=3 requires exact boolean/value defaults for all requested keys, verified against the source file.*
+> *Tests targeted Rust source reading tied to a real Next.js benchmark. D=3 requires exact app/case names, a verbatim build/execution quote, and the measurement helper/function. Agents that only read the workflow without following into the Rust bench implementation score D≤1.*
 
 ---
 
@@ -212,7 +213,7 @@ The abstract method `sendRenderResult` is declared in `BaseServer`. Find every c
 
 ---
 
-### Q19 — Reference exhaustiveness: `unstable_cache`
+### Q19 — Reference exhaustiveness: `unstable_cache` [drift]
 
 Find all files across `packages/` that reference or import `unstable_cache`, excluding the `compiled/` subdirectory.
 1. How many unique files reference it?

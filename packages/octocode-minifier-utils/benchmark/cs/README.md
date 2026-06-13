@@ -4,52 +4,14 @@ Source sample: `cs/00-dotnet-argument-exception.cs`
 
 Strategy: `conservative`
 
-Agent rating: **8.3/10 (strong)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 5603 | - | - | - |
-| content-view | 4017 | 28.3% | 1.304 ms | 8.5/10 |
-| applyMinification | 4024 | 28.2% | 1.317 ms | 8.5/10 |
-| sync minify | 4024 | 28.2% | 1.225 ms | 8.5/10 |
-| async minify | 4024 | 28.2% | 1.308 ms | 8.5/10 |
-| symbols | 2649 | 52.7% | 52.889 ms | 8/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 5603 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 4017 | 28.3% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 4024 | 28.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 2649 | 52.7% | 8/10 strong | 6.7/10 | 7.7/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             |  5603 |     - |         - |
+| content-view      |  4017 | 28.3% |  1.304 ms |
+| applyMinification |  4024 | 28.2% |  1.317 ms |
+| sync minify       |  4024 | 28.2% |  1.225 ms |
+| async minify      |  4024 | 28.2% |  1.308 ms |
+| symbols           |  2649 | 52.7% | 52.889 ms |
 
 ## Notes
 
@@ -230,7 +192,7 @@ namespace System
 
         public ArgumentException(string? message, string? paramName)
             : base(message)
-    
+
 
 ... [truncated 2224 chars] ...
 
@@ -300,7 +262,7 @@ namespace System
 
         public ArgumentException(string? message, string? paramName)
             : base(message)
-    
+
 
 ... [truncated 2224 chars] ...
 
@@ -370,7 +332,7 @@ namespace System
 
         public ArgumentException(string? message, string? paramName)
             : base(message)
-    
+
 
 ... [truncated 2224 chars] ...
 
@@ -428,7 +390,7 @@ DoesNotReturn]
  65|         [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
  66|         [EditorBrowsable(EditorBrowsableState.Never)]
  67|         public override void GetObjectData(SerializationInfo info, StreamingContext context)
- 68| 
+ 68|
 
 ... [truncated 49 chars] ...
 

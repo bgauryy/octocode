@@ -4,52 +4,14 @@ Source sample: `rs/option.rs`
 
 Strategy: `conservative`
 
-Agent rating: **9.3/10 (excellent)**
-
-Agent understanding from minified output: **10/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 100057 | - | - | - |
-| content-view | 37827 | 62.2% | 10.422 ms | 9.5/10 |
-| applyMinification | 37906 | 62.1% | 10.38 ms | 9.5/10 |
-| sync minify | 37906 | 62.1% | 10.301 ms | 9.5/10 |
-| async minify | 37906 | 62.1% | 10.19 ms | 9.5/10 |
-| symbols | 33924 | 66.1% | 54.018 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 10/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 100057 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 37827 | 62.2% | 10/10 excellent | 10/10 | 10/10 |
-| minify | 37906 | 62.1% | 10/10 excellent | 10/10 | 10/10 |
-| symbols | 33924 | 66.1% | 9.9/10 excellent | 10/10 | 9.6/10 |
+| Tool              |  Bytes |   Cut |      Time |
+| ----------------- | -----: | ----: | --------: |
+| input             | 100057 |     - |         - |
+| content-view      |  37827 | 62.2% | 10.422 ms |
+| applyMinification |  37906 | 62.1% |  10.38 ms |
+| sync minify       |  37906 | 62.1% | 10.301 ms |
+| async minify      |  37906 | 62.1% |  10.19 ms |
+| symbols           |  33924 | 66.1% | 54.018 ms |
 
 ## Notes
 
@@ -57,7 +19,7 @@ for this language sample.
 
 ## Before Excerpt
 
-```rs
+````rs
 //! Optional values.
 //!
 //! Type [`Option`] represents an optional value: every [`Option`]
@@ -119,11 +81,11 @@ mples
     }
 }
 
-```
+````
 
 ## Content-View Excerpt
 
-```rs
+````rs
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::clone::TrivialClone;
@@ -189,11 +151,11 @@ impl<T, const N: usize> [Option<T>; N] {
         self.try_map(core::convert::identity)
     }
 }
-```
+````
 
 ## Apply Minification Excerpt
 
-```rs
+````rs
 
 
 #![stable(feature = "rust1", since = "1.0.0")]
@@ -266,11 +228,11 @@ impl<T, const N: usize> [Option<T>; N] {
         self.try_map(core::convert::identity)
     }
 }
-```
+````
 
 ## Sync Minify Excerpt
 
-```rs
+````rs
 
 
 #![stable(feature = "rust1", since = "1.0.0")]
@@ -343,11 +305,11 @@ impl<T, const N: usize> [Option<T>; N] {
         self.try_map(core::convert::identity)
     }
 }
-```
+````
 
 ## Async Minify Excerpt
 
-```rs
+````rs
 
 
 #![stable(feature = "rust1", since = "1.0.0")]
@@ -420,7 +382,7 @@ impl<T, const N: usize> [Option<T>; N] {
         self.try_map(core::convert::identity)
     }
 }
-```
+````
 
 ## Symbols
 

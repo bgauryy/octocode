@@ -196,6 +196,8 @@ export interface PullRequestItem {
     path?: string;
     /** Line number targeted by an inline review comment */
     line?: number;
+    /** For inline reply comments: id of the parent comment being replied to */
+    in_reply_to_id?: number;
   }>;
 
   reviews?: Array<{
@@ -221,6 +223,9 @@ export interface PullRequestItem {
     deletions: number;
     patch?: string;
   }>;
+
+  /** Warnings from content sanitization and bot filtering — surface to agent. */
+  sanitizationWarnings?: string[];
 }
 
 export interface PullRequestSearchResult {

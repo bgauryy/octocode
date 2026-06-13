@@ -4,52 +4,14 @@ Source sample: `pm/perl-strict.pm`
 
 Strategy: `aggressive`
 
-Agent rating: **7.8/10 (good)**
-
-Agent understanding from minified output: **8.1/10 (strong)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 5491 | - | - | - |
-| content-view | 5005 | 8.9% | 1.248 ms | 7.8/10 |
-| applyMinification | 4384 | 20.2% | 1.298 ms | 7.8/10 |
-| sync minify | 4384 | 20.2% | 1.335 ms | 7.8/10 |
-| async minify | 4384 | 20.2% | 1.317 ms | 7.8/10 |
-| symbols | 4228 | 23% | 0.29 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 6.7/10 (2/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 7/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 5491 | 0% | 10/10 excellent | 6.7/10 | 10/10 |
-| standard | 5005 | 8.9% | 8.1/10 strong | 6.7/10 | 10/10 |
-| minify | 4384 | 20.2% | 8.2/10 strong | 6.7/10 | 10/10 |
-| symbols | 4228 | 23% | 8.5/10 strong | 6.7/10 | 10/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  5491 |     - |        - |
+| content-view      |  5005 |  8.9% | 1.248 ms |
+| applyMinification |  4384 | 20.2% | 1.298 ms |
+| sync minify       |  4384 | 20.2% | 1.335 ms |
+| async minify      |  4384 | 20.2% | 1.317 ms |
+| symbols           |  4228 |   23% |  0.29 ms |
 
 ## Notes
 

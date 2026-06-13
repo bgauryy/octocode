@@ -1,7 +1,7 @@
 {
   "name": "octocode-security",
   "version": "0.1.0",
-  "description": "Rust-backed secret detection for Node.js \u2014 replaces octocode-security-utils",
+  "description": "Rust-backed secret detection for Node.js — replaces octocode-security-utils",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -103,6 +103,7 @@
     "targets": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
       "x86_64-unknown-linux-musl",
       "aarch64-unknown-linux-gnu",
       "x86_64-pc-windows-msvc"
@@ -118,8 +119,8 @@
     "lint:fix": "eslint src tests --fix",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn typecheck && yarn lint:rust && yarn audit",
-    "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/patterns.rs || (echo 'ERROR: src/patterns.rs is out of sync with the TS source \u2014 run yarn gen and commit the result' && exit 1)",
+    "verify": "yarn verify:patterns && yarn typecheck && yarn lint:rust && yarn audit",
+    "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/patterns.rs || (echo 'ERROR: src/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",
     "bench": "node bench/compare.mjs",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run",

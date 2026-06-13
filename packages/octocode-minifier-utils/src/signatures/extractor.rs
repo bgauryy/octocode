@@ -11,9 +11,9 @@
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
 
 pub struct LangExtractConfig {
-    pub language:      Language,
+    pub language: Language,
     /// Tree-sitter S-expression query; captures named `@body` must be the nodes to drop.
-    pub body_query:    &'static str,
+    pub body_query: &'static str,
     /// Comment prefix used by `renderer::is_pure_comment` to filter comment lines.
     #[allow(dead_code)]
     pub comment_style: &'static str,
@@ -23,7 +23,9 @@ pub struct LangExtractConfig {
 pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
     let lines: Vec<&str> = content.lines().collect();
     let n = lines.len();
-    if n == 0 { return None; }
+    if n == 0 {
+        return None;
+    }
 
     let mut keep = vec![true; n];
 
@@ -38,9 +40,9 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
         let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
         while let Some(m) = matches.next() {
             for capture in m.captures {
-                let node  = capture.node;
+                let node = capture.node;
                 let start = node.start_position().row;
-                let end   = node.end_position().row;
+                let end = node.end_position().row;
 
                 // Detect brace-style vs indent-style body.
                 // Brace-style: the body node's FIRST BYTE is `{` (JS/TS/Go/Rust/C/Java etc.)
@@ -54,7 +56,9 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
                     // the trailing `}`.  Class closing `}` is preserved naturally
                     // because class_body is never queried.
                     let hi = end.min(n.saturating_sub(1));
-                    if start < hi { keep[(start + 1)..=hi].fill(false); }
+                    if start < hi {
+                        keep[(start + 1)..=hi].fill(false);
+                    }
                 } else {
                     // Drop all lines of the body (indent style). A body that
                     // shares the signature's row (`def f(): return 1`) must
@@ -67,7 +71,9 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
                             .any(|b| !b.is_ascii_whitespace())
                     });
                     let lo = if sig_shares_row { start + 1 } else { start };
-                    if lo <= hi { keep[lo..=hi].fill(false); }
+                    if lo <= hi {
+                        keep[lo..=hi].fill(false);
+                    }
                 }
             }
         }
@@ -83,7 +89,11 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
         .map(|(i, _)| (i + 1, lines[i].trim_end().to_string()))
         .collect();
 
-    if result.is_empty() { None } else { Some(result) }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
 }
 
 /// Walk an AST node recursively (depth-first) and drop interior rows of all
@@ -93,9 +103,11 @@ pub fn drop_bodies_walk(node: Node<'_>, keep: &mut Vec<bool>, body_kinds: &[&str
     let kind = node.kind();
     if body_kinds.contains(&kind) {
         let start = node.start_position().row;
-        let end   = node.end_position().row;
+        let end = node.end_position().row;
         for row in (start + 1)..end {
-            if row < keep.len() { keep[row] = false; }
+            if row < keep.len() {
+                keep[row] = false;
+            }
         }
         return; // don't recurse — interior already dropped
     }

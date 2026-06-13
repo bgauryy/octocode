@@ -6,7 +6,6 @@ import {
 import type { NormalizedPrContentRequest } from '../../src/tools/github_search_pull_requests/contentRequest.js';
 
 const baseRequest: NormalizedPrContentRequest = {
-  metadata: true,
   body: false,
   changedFiles: false,
   patches: { mode: 'none' },
@@ -232,11 +231,42 @@ describe('githubSearchPullRequests content response shaping', () => {
       }
     );
 
-    expect(shaped.body).toBeUndefined();
+    expect(shaped.bodyEmpty).toBe(true);
+    expect('body' in shaped).toBe(false);
     expect(shaped.changedFiles).toEqual([]);
     expect(shaped.comments).toEqual([]);
     expect(shaped.reviews).toEqual([]);
     expect(shaped.commits).toEqual([]);
+  });
+
+  it('paginates review body via charLength when reviews are requested', () => {
+    const shaped = shapePullRequestForContent(
+      pr,
+      { ...query, charLength: 8 },
+      { ...baseRequest, reviews: true }
+    );
+    const reviews = shaped.reviews as Array<Record<string, unknown>>;
+    expect(reviews).toHaveLength(1);
+    // Body should be paginated, not a short preview
+    expect(reviews[0]!.body).toBe('approval');
+    expect(reviews[0]!.bodyPagination).toMatchObject({
+      hasMore: true,
+      nextCharOffset: 8,
+      totalChars: 13, // 'approval-body'
+    });
+    // bodyPreview should NOT be present when full body pagination is included
+    expect(reviews[0]).not.toHaveProperty('bodyPreview');
+  });
+
+  it('returns full review body without pagination when body fits within charLength', () => {
+    const shaped = shapePullRequestForContent(
+      pr,
+      { ...query, charLength: 1000 },
+      { ...baseRequest, reviews: true }
+    );
+    const reviews = shaped.reviews as Array<Record<string, unknown>>;
+    expect(reviews[0]!.body).toBe('approval-body');
+    expect(reviews[0]!.bodyPagination).toMatchObject({ hasMore: false });
   });
 
   it('omits optional hint branches when data is absent or already requested', () => {
@@ -374,6 +404,147 @@ describe('githubSearchPullRequests content response shaping', () => {
     const shaped = shapePullRequestForContent(prEmpty, query, baseRequest);
     expect(shaped.assignees).toBeUndefined();
     expect(shaped.commentsCount).toBeUndefined();
+  });
+
+  it('omits draft when false, labels when empty, additions/deletions when zero', () => {
+    const prClean = {
+      ...pr,
+      draft: false,
+      labels: [],
+      additions: 0,
+      deletions: 0,
+    };
+    const shaped = shapePullRequestForContent(prClean, query, baseRequest);
+    expect(shaped).not.toHaveProperty('draft');
+    expect(shaped).not.toHaveProperty('labels');
+    expect(shaped).not.toHaveProperty('additions');
+    expect(shaped).not.toHaveProperty('deletions');
+  });
+
+  it('emits draft when true, labels when non-empty, additions/deletions when non-zero', () => {
+    const prActive = {
+      ...pr,
+      draft: true,
+      labels: ['bug'],
+      additions: 10,
+      deletions: 5,
+    };
+    const shaped = shapePullRequestForContent(prActive, query, baseRequest);
+    expect(shaped.draft).toBe(true);
+    expect(shaped.labels).toEqual(['bug']);
+    expect(shaped.additions).toBe(10);
+    expect(shaped.deletions).toBe(5);
+  });
+
+  it('verbose exposes sourceBranch, sourceSha alongside targetBranch', () => {
+    const prBranches = {
+      ...pr,
+      sourceBranch: 'feature/foo',
+      sourceSha: 'abc123',
+      targetBranch: 'main',
+    };
+    // prNumber makes it fullShape
+    const shaped = shapePullRequestForContent(prBranches, query, baseRequest);
+    expect(shaped.targetBranch).toBe('main');
+    expect(shaped.sourceBranch).toBe('feature/foo');
+    expect(shaped.sourceSha).toBe('abc123');
+  });
+
+  it('body is null (not absent) when requested on a PR with no body', () => {
+    const shaped = shapePullRequestForContent(
+      { number: 55, title: 'no body PR', body: undefined },
+      { prNumber: 55 },
+      { ...baseRequest, body: true }
+    );
+    // bodyEmpty:true = fetched, no content; absent body key = never fetched
+    expect(shaped.bodyEmpty).toBe(true);
+    expect('body' in shaped).toBe(false);
+  });
+
+  it('body is absent (not null) when body was NOT requested', () => {
+    const shaped = shapePullRequestForContent(
+      { number: 56, title: 'no body PR', body: undefined },
+      { prNumber: 56 },
+      baseRequest  // body: false
+    );
+    expect('body' in shaped).toBe(false);
+  });
+
+  it('matchString skips patch minification so matched text is visible in output', () => {
+    const patchWithComment = '@@ -1 +1 @@\n+const x = 1; // comment line';
+    const prWithFiles = {
+      ...pr,
+      fileChanges: [{
+        path: 'src/a.ts',
+        status: 'modified',
+        additions: 1,
+        deletions: 0,
+        patch: patchWithComment,
+      }],
+    };
+    // Without matchString: minify:standard strips the comment-only line
+    const minified = shapePullRequestForContent(
+      prWithFiles,
+      { ...query, charLength: 5000 },
+      { ...baseRequest, patches: { mode: 'all' } },
+      true  // shouldMinify
+    );
+    // With matchString: minification skipped so matched comment line is visible
+    const withMatch = shapePullRequestForContent(
+      prWithFiles,
+      { ...query, charLength: 5000, matchString: 'comment line' },
+      { ...baseRequest, patches: { mode: 'all' } },
+      true  // shouldMinify (but overridden by needle)
+    );
+    const minifiedPatch = (minified.changedFiles as Array<{patch?: string}>)[0]?.patch;
+    const matchedPatch = (withMatch.changedFiles as Array<{patch?: string}>)[0]?.patch;
+    // Standard minification strips the comment-only trailing comment
+    expect(minifiedPatch).toBeDefined();
+    // matchString overrides minification — full raw patch shown
+    expect(matchedPatch).toContain('// comment line');
+  });
+
+  it('comment bodies start at charOffset=0 regardless of query charOffset', () => {
+    // Query has charOffset=10 (for PR body continuation), but comment bodies
+    // should always start from the beginning.
+    const shaped = shapePullRequestForContent(
+      pr,
+      { ...query, charOffset: 10, charLength: 100 },
+      {
+        ...baseRequest,
+        comments: { discussion: true, reviewInline: true, includeBots: false },
+      }
+    );
+    const comments = shaped.comments as Array<Record<string, unknown>>;
+    expect(comments.length).toBeGreaterThan(0);
+    // discussion-body starts at char 0, not char 10
+    const discussion = comments.find(c => c.commentType === 'discussion');
+    expect(discussion!.body).toBe('discussion-body');
+  });
+
+  it('minify:false preserves raw body; minify:true may normalise it', () => {
+    // Use a body with many consecutive blank lines — minifyMarkdownCore
+    // collapses them. This is a structural change minification makes reliably.
+    const rawBody = 'section one\n\n\n\n\nsection two';
+    const prMd = { ...pr, body: rawBody };
+    const standard = shapePullRequestForContent(
+      prMd,
+      { ...query, charLength: 1000 },
+      { ...baseRequest, body: true },
+      true  // shouldMinify = true
+    );
+    const raw = shapePullRequestForContent(
+      prMd,
+      { ...query, charLength: 1000 },
+      { ...baseRequest, body: true },
+      false  // shouldMinify = false
+    );
+    // minify:none → exact raw body returned
+    expect(raw.body).toBe(rawBody);
+    // minify:standard → body may differ (minification applied)
+    // At minimum: the raw body is NOT returned unchanged under minification
+    // (collapsed blank lines make it shorter).
+    expect((standard.body as string).length).toBeLessThan(rawBody.length);
   });
 });
 

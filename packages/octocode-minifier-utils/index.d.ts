@@ -115,8 +115,9 @@ export declare function minifyHTMLQuality(content: string): string
 export declare function stripPythonDocstrings(content: string): string
 /**
  * Structural skeleton with an `NNN| ` line-number gutter: tree-sitter for
- * the top-10 languages, heuristics for the rest. Returns `null` for data,
- * config, and prose formats and for content above the 1MB guard.
+ * configured parser-backed languages, document outlines for Markdown,
+ * heuristics for the rest. Returns `null` for data, config, unsupported
+ * prose formats, and content above the 1MB guard.
  */
 export declare function extractSignatures(content: string, filePath: string): string | null
 /**

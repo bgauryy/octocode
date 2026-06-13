@@ -149,7 +149,7 @@ export class ContentSanitizer {
       };
     }
 
-    // --- Rust fast path (304 built-in patterns) ---
+    // --- Rust fast path (built-in patterns) ---
     const rustResult = nativeSanitizeContent(content, filePath ?? null);
 
     // --- JS fallback for any extra patterns added via registry ---

@@ -4,52 +4,14 @@ Source sample: `kt/Collections.kt`
 
 Strategy: `conservative`
 
-Agent rating: **9/10 (excellent)**
-
-Agent understanding from minified output: **9.8/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 20559 | - | - | - |
-| content-view | 10457 | 49.1% | 3.342 ms | 9/10 |
-| applyMinification | 10492 | 49% | 3.062 ms | 9/10 |
-| sync minify | 10492 | 49% | 2.998 ms | 9/10 |
-| async minify | 10492 | 49% | 3.142 ms | 9/10 |
-| symbols | 5961 | 71% | 0.488 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 10/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 20559 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 10457 | 49.1% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 10492 | 49% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 5961 | 71% | 8/10 strong | 6.7/10 | 7.7/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             | 20559 |     - |        - |
+| content-view      | 10457 | 49.1% | 3.342 ms |
+| applyMinification | 10492 |   49% | 3.062 ms |
+| sync minify       | 10492 |   49% | 2.998 ms |
+| async minify      | 10492 |   49% | 3.142 ms |
+| symbols           |  5961 |   71% | 0.488 ms |
 
 ## Notes
 
@@ -89,7 +51,7 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun hashCode(): Int = 1
     override fun toString(): String = "[]"
 
-    override val size: Int 
+    override val size: Int
 
 ... [truncated 18759 chars] ...
 
@@ -213,7 +175,7 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-   
+
 
 ... [truncated 8692 chars] ...
 
@@ -276,7 +238,7 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-   
+
 
 ... [truncated 8692 chars] ...
 
@@ -339,7 +301,7 @@ internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
     override fun contains(element: Nothing): Boolean = false
     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
 
-   
+
 
 ... [truncated 8692 chars] ...
 

@@ -55,13 +55,14 @@
     "build:dev": "napi build --platform && node scripts/postbuild.cjs",
     "clean": "rm -f *.node",
     "test": "cargo test",
-    "test:node": "vitest run --coverage",
+    "test:node": "vitest run",
+    "test:node:coverage": "vitest run --coverage",
     "test:watch": "vitest watch",
     "test:quiet": "vitest run",
     "lint": "echo 'No TS source files to lint'",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn audit",
+    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn test:node && yarn audit",
     "audit": "cargo audit -D unmaintained -D unsound -D yanked"
   },
   "devDependencies": {

@@ -4,52 +4,14 @@ Source sample: `jsx/00-fullcalendar-demo.jsx`
 
 Strategy: `terser`
 
-Agent rating: **9.4/10 (excellent)**
-
-Agent understanding from minified output: **9.9/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 3825 | - | - | - |
-| content-view | 2863 | 25.2% | 0.874 ms | 9/10 |
-| applyMinification | 2863 | 25.2% | 0.735 ms | 9/10 |
-| sync minify | 2863 | 25.2% | 0.615 ms | 9/10 |
-| async minify | 2863 | 25.2% | 0.611 ms | 9/10 |
-| symbols | 600 | 84.3% | 4.943 ms | 10/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 3825 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 2863 | 25.2% | 9.9/10 excellent | 10/10 | 10/10 |
-| minify | 2863 | 25.2% | 9.9/10 excellent | 10/10 | 10/10 |
-| symbols | 600 | 84.3% | 8.2/10 strong | 6.7/10 | 8.6/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  3825 |     - |        - |
+| content-view      |  2863 | 25.2% | 0.874 ms |
+| applyMinification |  2863 | 25.2% | 0.735 ms |
+| sync minify       |  2863 | 25.2% | 0.615 ms |
+| async minify      |  2863 | 25.2% | 0.611 ms |
+| symbols           |   600 | 84.3% | 4.943 ms |
 
 ## Notes
 
@@ -135,7 +97,7 @@ function SidebarEvent({ event }) {
 import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
       <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
       <div className="demo-app-main">
-    
+
 
 ... [truncated 1063 chars] ...
 
@@ -162,7 +124,7 @@ abel>
 import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
       <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
       <div className="demo-app-main">
-    
+
 
 ... [truncated 1063 chars] ...
 
@@ -189,7 +151,7 @@ abel>
 import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
       <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
       <div className="demo-app-main">
-    
+
 
 ... [truncated 1063 chars] ...
 
@@ -216,7 +178,7 @@ abel>
 import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
       <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
       <div className="demo-app-main">
-    
+
 
 ... [truncated 1063 chars] ...
 

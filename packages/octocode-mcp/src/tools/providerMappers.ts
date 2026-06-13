@@ -8,10 +8,10 @@ import type {
 import type { z } from 'zod';
 import type {
   GitHubCodeSearchQuerySchema,
-  GitHubPullRequestSearchQuerySchema,
   GitHubReposSearchSingleQuerySchema,
   GitHubViewRepoStructureQuerySchema,
 } from '@octocodeai/octocode-core/schemas';
+import type { GitHubPullRequestSearchQueryLocalSchema } from './github_search_pull_requests/scheme.js';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../types/execution.js';
 
@@ -25,7 +25,7 @@ type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema> & {
   minify: import('../scheme/localSchemaOverlay.js').MinifyMode;
 };
 type GitHubPullRequestSearchQuery = z.infer<
-  typeof GitHubPullRequestSearchQuerySchema
+  typeof GitHubPullRequestSearchQueryLocalSchema
 >;
 type GitHubReposSearchSingleQuery = z.infer<
   typeof GitHubReposSearchSingleQuerySchema
@@ -357,11 +357,33 @@ export function mapRepoSearchProviderRepositories(
   });
 }
 
+/**
+ * Quote a PR keyword for GitHub search if it contains whitespace and is not
+ * already double-quoted. GitHub treats space-separated bare words as AND
+ * (not a phrase); wrapping in quotes produces an exact-phrase search.
+ */
+function quotePRKeyword(kw: string): string {
+  if (kw.startsWith('"')) return kw; // already quoted
+  if (/\s/.test(kw)) return `"${kw.replace(/"/g, '\\"')}"`;
+  return kw;
+}
+
 export function mapPullRequestToolQuery(query: PartialPRQuery) {
+  // Build the free-text portion:
+  //   1. keywordsToSearch terms — each multi-word keyword is phrase-quoted.
+  //   2. query (raw GitHub syntax) — appended verbatim so agents can pass
+  //      pre-formatted qualifiers like '"Partial Prerendering"'.
+  const keywordParts = (query.keywordsToSearch ?? [])
+    .filter(k => k.trim())
+    .map(quotePRKeyword);
+  const rawQuery = (query as { query?: string }).query?.trim() ?? '';
+  const combinedQuery =
+    [...keywordParts, ...(rawQuery ? [rawQuery] : [])].join(' ') || undefined;
+
   return {
     projectId: toProviderProjectId(query.owner, query.repo),
     owner: query.owner,
-    query: query.keywordsToSearch?.join(' '),
+    query: combinedQuery,
     number: query.prNumber,
     state: query.state as 'open' | 'closed' | 'merged' | 'all' | undefined,
     author: query.author,
@@ -390,9 +412,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     reactions: query.reactions,
     interactions: query.interactions,
     draft: query.draft,
-    matchScope: query.matchScope as
-      | Array<'title' | 'body' | 'comments'>
-      | undefined,
+    match: query.match,
     archived: (query as Record<string, unknown>).archived as
       | boolean
       | undefined,
@@ -546,6 +566,9 @@ export function mapPullRequestProviderResultData(
       ...(reviewSummary && { reviewSummary }),
       ...(cappedFileChanges && includeFileChanges
         ? { fileChanges: cappedFileChanges }
+        : {}),
+      ...(Array.isArray(pr.sanitizationWarnings) && pr.sanitizationWarnings.length > 0
+        ? { sanitizationWarnings: pr.sanitizationWarnings }
         : {}),
     };
   });

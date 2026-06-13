@@ -85,6 +85,27 @@ function getJsonProperties(schema: z.ZodTypeAny): Record<string, unknown> {
     : {};
 }
 
+/**
+ * Per-tool intentional deviations from the octocode-core schema contract.
+ * - removedCoreFields: core-described fields intentionally omitted from the local schema
+ *   (e.g. replaced by a better local alternative).
+ * - addedLocalFields: local schema fields that extend core but are not yet described there
+ *   (must carry an inline description in scheme.ts).
+ * - overriddenDescriptions: fields whose upstream description is intentionally replaced
+ *   with a more accurate local one (skips the description-match assertion).
+ */
+const SCHEMA_EXCEPTIONS: Record<
+  string,
+  { removedCoreFields?: string[]; addedLocalFields?: string[]; overriddenDescriptions?: string[] }
+> = {
+  [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: {
+    // `mode` (smart/full/lean) is not exposed; the tool always returns a compact
+    // string-list format so there is no output mode to select.
+    removedCoreFields: ['mode'],
+  },
+
+};
+
 function getCoreQueryDescriptions(toolName: string): Record<string, string> {
   const tool = completeMetadata.tools[toolName];
   return {
@@ -228,19 +249,28 @@ describe('all-tools schema contract', () => {
         const properties = getJsonProperties(querySchema);
         const expectedDescriptions = getCoreQueryDescriptions(toolName);
         const actualFields = Object.keys(properties);
+        const exceptions = SCHEMA_EXCEPTIONS[toolName] ?? {};
+        const allowedMissing = exceptions.removedCoreFields ?? [];
+        const allowedExtra = exceptions.addedLocalFields ?? [];
+        const allowedDescriptionOverrides = exceptions.overriddenDescriptions ?? [];
+
         const missingFields = Object.keys(expectedDescriptions).filter(
-          field => !(field in properties)
+          field => !(field in properties) && !allowedMissing.includes(field)
         );
         const undocumentedFields = actualFields.filter(
-          field => !(field in expectedDescriptions)
+          field =>
+            !(field in expectedDescriptions) && !allowedExtra.includes(field)
         );
-        const mismatchedDescriptions = actualFields.filter(field => {
-          const expected = expectedDescriptions[field];
-          return (
-            expected !== undefined &&
-            getPropertyDescription(properties[field]) !== expected
-          );
-        });
+        const mismatchedDescriptions = actualFields
+          .filter(field => !allowedExtra.includes(field))
+          .filter(field => !allowedDescriptionOverrides.includes(field))
+          .filter(field => {
+            const expected = expectedDescriptions[field];
+            return (
+              expected !== undefined &&
+              getPropertyDescription(properties[field]) !== expected
+            );
+          });
 
         expect(
           missingFields,

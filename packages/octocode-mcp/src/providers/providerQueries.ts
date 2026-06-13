@@ -147,7 +147,7 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   draft?: boolean;
 
-  matchScope?: Array<'title' | 'body' | 'comments'>;
+  match?: Array<'title' | 'body' | 'comments'>;
 
   archived?: boolean;
 

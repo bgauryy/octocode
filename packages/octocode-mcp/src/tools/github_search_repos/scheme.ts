@@ -53,6 +53,16 @@ const GitHubReposSearchQuerySchema = z.object({
     .describe(QUERY_DESCRIPTIONS.limit!),
   page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
   archived: z.boolean().optional().describe(QUERY_DESCRIPTIONS.archived!),
+  visibility: z
+    .enum(['public', 'private'])
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.visibility!),
+  forks: z.string().optional().describe(QUERY_DESCRIPTIONS.forks!),
+  license: z.string().optional().describe(QUERY_DESCRIPTIONS.license!),
+  goodFirstIssues: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.goodFirstIssues!),
   verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
 });
 
@@ -70,23 +80,27 @@ const LocalRepositoryDetailSchema = z.object({
   repo: z.string(),
   stars: z.number().optional(),
   forks: z.number().optional(),
+  openIssuesCount: z.number().optional(),
   language: z.string().optional(),
+  license: z.string().optional(),
   description: z.string().optional(),
+  homepage: z.string().optional(),
   pushedAt: z.string().optional(),
+  createdAt: z.string().optional(),
   defaultBranch: z.string().optional(),
   topics: z.array(z.string()).optional(),
   visibility: z.string().optional(),
   url: z.string().optional(),
-  createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-  openIssuesCount: z.number().optional(),
 });
 
 export const GitHubSearchRepositoriesOutputLocalSchema = z
   .object({
     data: z
       .object({
-        repositories: z.array(LocalRepositoryDetailSchema),
+        // Lean mode returns compact strings ("owner/repo ★stars …");
+        // verbose=true returns full structured objects.
+        repositories: z.array(z.union([z.string(), LocalRepositoryDetailSchema])),
         pagination: z
           .object({
             currentPage: z.number(),

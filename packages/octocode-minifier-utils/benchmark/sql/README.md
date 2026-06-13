@@ -4,52 +4,14 @@ Source sample: `sql/00-postgres-select.sql`
 
 Strategy: `conservative`
 
-Agent rating: **9/10 (excellent)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 8415 | - | - | - |
-| content-view | 5419 | 35.6% | 1.52 ms | 8.5/10 |
-| applyMinification | 5447 | 35.3% | 1.545 ms | 8.5/10 |
-| sync minify | 5447 | 35.3% | 1.572 ms | 8.5/10 |
-| async minify | 5447 | 35.3% | 1.589 ms | 8.5/10 |
-| symbols | 454 | 94.6% | 1.318 ms | 10/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 8415 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 5419 | 35.6% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 5447 | 35.3% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 454 | 94.6% | 7.1/10 good | 3.3/10 | 10/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  8415 |     - |        - |
+| content-view      |  5419 | 35.6% |  1.52 ms |
+| applyMinification |  5447 | 35.3% | 1.545 ms |
+| sync minify       |  5447 | 35.3% | 1.572 ms |
+| async minify      |  5447 | 35.3% | 1.589 ms |
+| symbols           |   454 | 94.6% | 1.318 ms |
 
 ## Notes
 

@@ -4,52 +4,14 @@ Source sample: `cjs/apidom-babel.config.cjs`
 
 Strategy: `terser`
 
-Agent rating: **7.9/10 (good)**
-
-Agent understanding from minified output: **10/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 3184 | - | - | - |
-| content-view | 1605 | 49.6% | 2.543 ms | 9.5/10 |
-| applyMinification | 1605 | 49.6% | 0.563 ms | 9.5/10 |
-| sync minify | 1605 | 49.6% | 0.435 ms | 9.5/10 |
-| async minify | 1605 | 49.6% | 0.37 ms | 9.5/10 |
-| symbols | 3792 | -19.1% | 5.294 ms | 5/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 10/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 3184 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 1605 | 49.6% | 10/10 excellent | 10/10 | 10/10 |
-| minify | 1605 | 49.6% | 10/10 excellent | 10/10 | 10/10 |
-| symbols | 3792 | -19.1% | 9/10 excellent | 10/10 | 10/10 |
+| Tool              | Bytes |    Cut |     Time |
+| ----------------- | ----: | -----: | -------: |
+| input             |  3184 |      - |        - |
+| content-view      |  1605 |  49.6% | 2.543 ms |
+| applyMinification |  1605 |  49.6% | 0.563 ms |
+| sync minify       |  1605 |  49.6% | 0.435 ms |
+| async minify      |  1605 |  49.6% |  0.37 ms |
+| symbols           |  3792 | -19.1% | 5.294 ms |
 
 ## Notes
 
@@ -139,25 +101,473 @@ module.exports = {
 ## Content-View Excerpt
 
 ```js
-const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};
+const path = require(`node:path`);
+module.exports = {
+  babelrcRoots: [`packages/*`],
+  ignore: [`**/*.d.ts`],
+  env: {
+    cjs: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `commonjs`,
+            loose: !0,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [`babel-plugin-transform-import-meta`],
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+        process.env.NODE_ENV === `test`
+          ? !1
+          : [
+              path.join(
+                __dirname,
+                `./scripts/babel-plugin-add-import-extension.cjs`
+              ),
+              { extension: `cjs` },
+            ],
+      ].filter(Boolean),
+    },
+    es: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: !1,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            useESModules: !0,
+            version: `^7.22.15`,
+          },
+        ],
+        [
+          path.join(
+            __dirname,
+            `./scripts/babel-plugin-add-import-extension.cjs`
+          ),
+          { extension: `mjs` },
+        ],
+      ],
+    },
+    browser: {
+      browserslistEnv: `browser-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `auto`,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+      ],
+    },
+  },
+};
 ```
 
 ## Apply Minification Excerpt
 
 ```js
-const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};
+const path = require(`node:path`);
+module.exports = {
+  babelrcRoots: [`packages/*`],
+  ignore: [`**/*.d.ts`],
+  env: {
+    cjs: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `commonjs`,
+            loose: !0,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [`babel-plugin-transform-import-meta`],
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+        process.env.NODE_ENV === `test`
+          ? !1
+          : [
+              path.join(
+                __dirname,
+                `./scripts/babel-plugin-add-import-extension.cjs`
+              ),
+              { extension: `cjs` },
+            ],
+      ].filter(Boolean),
+    },
+    es: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: !1,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            useESModules: !0,
+            version: `^7.22.15`,
+          },
+        ],
+        [
+          path.join(
+            __dirname,
+            `./scripts/babel-plugin-add-import-extension.cjs`
+          ),
+          { extension: `mjs` },
+        ],
+      ],
+    },
+    browser: {
+      browserslistEnv: `browser-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `auto`,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+      ],
+    },
+  },
+};
 ```
 
 ## Sync Minify Excerpt
 
 ```js
-const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};
+const path = require(`node:path`);
+module.exports = {
+  babelrcRoots: [`packages/*`],
+  ignore: [`**/*.d.ts`],
+  env: {
+    cjs: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `commonjs`,
+            loose: !0,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [`babel-plugin-transform-import-meta`],
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+        process.env.NODE_ENV === `test`
+          ? !1
+          : [
+              path.join(
+                __dirname,
+                `./scripts/babel-plugin-add-import-extension.cjs`
+              ),
+              { extension: `cjs` },
+            ],
+      ].filter(Boolean),
+    },
+    es: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: !1,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            useESModules: !0,
+            version: `^7.22.15`,
+          },
+        ],
+        [
+          path.join(
+            __dirname,
+            `./scripts/babel-plugin-add-import-extension.cjs`
+          ),
+          { extension: `mjs` },
+        ],
+      ],
+    },
+    browser: {
+      browserslistEnv: `browser-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `auto`,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+      ],
+    },
+  },
+};
 ```
 
 ## Async Minify Excerpt
 
 ```js
-const path=require(`node:path`);module.exports={babelrcRoots:[`packages/*`],ignore:[`**/*.d.ts`],env:{cjs:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`commonjs`,loose:!0,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`babel-plugin-transform-import-meta`],[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}],process.env.NODE_ENV===`test`?!1:[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`cjs`}]].filter(Boolean)},es:{browserslistEnv:`isomorphic-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:!1,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,useESModules:!0,version:`^7.22.15`}],[path.join(__dirname,`./scripts/babel-plugin-add-import-extension.cjs`),{extension:`mjs`}]]},browser:{browserslistEnv:`browser-production`,presets:[[`@babel/preset-env`,{debug:!1,modules:`auto`,useBuiltIns:!1,forceAllTransforms:!1,ignoreBrowserslistConfig:!1,exclude:[`transform-function-name`]}],[`@babel/preset-typescript`,{allowDeclareFields:!0}]],plugins:[[`@babel/plugin-transform-runtime`,{corejs:{version:3,proposals:!1},absoluteRuntime:!1,helpers:!0,regenerator:!1,version:`^7.22.15`}]]}}};
+const path = require(`node:path`);
+module.exports = {
+  babelrcRoots: [`packages/*`],
+  ignore: [`**/*.d.ts`],
+  env: {
+    cjs: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `commonjs`,
+            loose: !0,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [`babel-plugin-transform-import-meta`],
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+        process.env.NODE_ENV === `test`
+          ? !1
+          : [
+              path.join(
+                __dirname,
+                `./scripts/babel-plugin-add-import-extension.cjs`
+              ),
+              { extension: `cjs` },
+            ],
+      ].filter(Boolean),
+    },
+    es: {
+      browserslistEnv: `isomorphic-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: !1,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            useESModules: !0,
+            version: `^7.22.15`,
+          },
+        ],
+        [
+          path.join(
+            __dirname,
+            `./scripts/babel-plugin-add-import-extension.cjs`
+          ),
+          { extension: `mjs` },
+        ],
+      ],
+    },
+    browser: {
+      browserslistEnv: `browser-production`,
+      presets: [
+        [
+          `@babel/preset-env`,
+          {
+            debug: !1,
+            modules: `auto`,
+            useBuiltIns: !1,
+            forceAllTransforms: !1,
+            ignoreBrowserslistConfig: !1,
+            exclude: [`transform-function-name`],
+          },
+        ],
+        [`@babel/preset-typescript`, { allowDeclareFields: !0 }],
+      ],
+      plugins: [
+        [
+          `@babel/plugin-transform-runtime`,
+          {
+            corejs: { version: 3, proposals: !1 },
+            absoluteRuntime: !1,
+            helpers: !0,
+            regenerator: !1,
+            version: `^7.22.15`,
+          },
+        ],
+      ],
+    },
+  },
+};
 ```
 
 ## Symbols

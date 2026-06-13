@@ -4,58 +4,18 @@ Source sample: `md/rust-readme.md`
 
 Strategy: `markdown`
 
-Agent rating: **5.5/10 (needs work)**
-
-Agent understanding from minified output: **9.2/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 3304 | - | - | - |
-| content-view | 3303 | 0% | 0.278 ms | 5.5/10 |
-| applyMinification | 3303 | 0% | 0.249 ms | 5.5/10 |
-| sync minify | 3303 | 0% | 0.242 ms | 5.5/10 |
-| async minify | 3303 | 0% | 0.272 ms | 5.5/10 |
-| symbols | n/a | n/a | 0.003 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 5/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 3304 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 3303 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
-| minify | 3303 | 0% | 9.2/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  3304 |     - |        - |
+| content-view      |  3264 |  1.2% | 0.385 ms |
+| applyMinification |  3264 |  1.2% | 0.226 ms |
+| sync minify       |  3264 |  1.2% | 0.207 ms |
+| async minify      |  3264 |  1.2% | 0.346 ms |
+| symbols           |  1961 | 40.6% | 0.949 ms |
 
 ## Notes
 
 - markdown text strategy.
-- content-view kept original because the readable output was not shorter.
-- symbols are not implemented for this extension.
 
 ## Before Excerpt
 
@@ -70,6 +30,7 @@ for this language sample.
   </picture>
 
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
+
 </div>
 
 This is the main source code repository for [Rust]. It contains the compiler,
@@ -103,52 +64,37 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
 [rust-foundation]: https://rustfoundation.org/
 [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
 [policies-licenses]: https://www.rust-lang.org/policies/licenses
-
 ```
 
 ## Content-View Excerpt
 
 ```markdown
 <div align="center">
-  <picture>
+<picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-         width="50%">
-  </picture>
-
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg" width="50%">
+</picture>
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
 </div>
-
-This is the main source code repository for [Rust]. It contains the compiler,
-standard library, and documentation.
-
+This is the main source code repository for [Rust]. It contains the compiler, standard library, and documentation.
 [Rust]: https://www.rust-lang.org/
 [Getting Started]: https://www.rust-lang.org/learn/get-started
 [Learn]: https://www.rust-lang.org/learn
 [Documentation]: https://www.rust-lang.org/learn#learn-use
 [Contributing]: CONTRIBUTING.md
-
 ## Why Rust?
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages.
+-
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
+... [truncated 1464 chars] ...
 
-... [truncated 1503 chars] ...
-
-T) for details.
+YRIGHT) for details.
 
 ## Trademark
 
-[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo
-trademarks and logos (the "Rust Trademarks").
-
-If you want to use these names or brands, please read the
-[Rust language trademark policy][trademark-policy].
-
-Third-party logos may be subject to third-party copyrights and trademarks. See
-[Licenses][policies-licenses] for details.
-
+[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo trademarks and logos (the "Rust Trademarks"). If you want to use these names or brands, please read the [Rust language trademark policy][trademark-policy]. Third-party logos may be subject to third-party copyrights and trademarks. See [Licenses][policies-licenses] for details.
 [rust-foundation]: https://rustfoundation.org/
 [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
 [policies-licenses]: https://www.rust-lang.org/policies/licenses
@@ -158,45 +104,31 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
 
 ```markdown
 <div align="center">
-  <picture>
+<picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-         width="50%">
-  </picture>
-
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg" width="50%">
+</picture>
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
 </div>
-
-This is the main source code repository for [Rust]. It contains the compiler,
-standard library, and documentation.
-
+This is the main source code repository for [Rust]. It contains the compiler, standard library, and documentation.
 [Rust]: https://www.rust-lang.org/
 [Getting Started]: https://www.rust-lang.org/learn/get-started
 [Learn]: https://www.rust-lang.org/learn
 [Documentation]: https://www.rust-lang.org/learn#learn-use
 [Contributing]: CONTRIBUTING.md
-
 ## Why Rust?
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages.
+-
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
+... [truncated 1464 chars] ...
 
-... [truncated 1503 chars] ...
-
-T) for details.
+YRIGHT) for details.
 
 ## Trademark
 
-[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo
-trademarks and logos (the "Rust Trademarks").
-
-If you want to use these names or brands, please read the
-[Rust language trademark policy][trademark-policy].
-
-Third-party logos may be subject to third-party copyrights and trademarks. See
-[Licenses][policies-licenses] for details.
-
+[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo trademarks and logos (the "Rust Trademarks"). If you want to use these names or brands, please read the [Rust language trademark policy][trademark-policy]. Third-party logos may be subject to third-party copyrights and trademarks. See [Licenses][policies-licenses] for details.
 [rust-foundation]: https://rustfoundation.org/
 [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
 [policies-licenses]: https://www.rust-lang.org/policies/licenses
@@ -206,45 +138,31 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
 
 ```markdown
 <div align="center">
-  <picture>
+<picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-         width="50%">
-  </picture>
-
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg" width="50%">
+</picture>
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
 </div>
-
-This is the main source code repository for [Rust]. It contains the compiler,
-standard library, and documentation.
-
+This is the main source code repository for [Rust]. It contains the compiler, standard library, and documentation.
 [Rust]: https://www.rust-lang.org/
 [Getting Started]: https://www.rust-lang.org/learn/get-started
 [Learn]: https://www.rust-lang.org/learn
 [Documentation]: https://www.rust-lang.org/learn#learn-use
 [Contributing]: CONTRIBUTING.md
-
 ## Why Rust?
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages.
+-
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
+... [truncated 1464 chars] ...
 
-... [truncated 1503 chars] ...
-
-T) for details.
+YRIGHT) for details.
 
 ## Trademark
 
-[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo
-trademarks and logos (the "Rust Trademarks").
-
-If you want to use these names or brands, please read the
-[Rust language trademark policy][trademark-policy].
-
-Third-party logos may be subject to third-party copyrights and trademarks. See
-[Licenses][policies-licenses] for details.
-
+[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo trademarks and logos (the "Rust Trademarks"). If you want to use these names or brands, please read the [Rust language trademark policy][trademark-policy]. Third-party logos may be subject to third-party copyrights and trademarks. See [Licenses][policies-licenses] for details.
 [rust-foundation]: https://rustfoundation.org/
 [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
 [policies-licenses]: https://www.rust-lang.org/policies/licenses
@@ -254,45 +172,31 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
 
 ```markdown
 <div align="center">
-  <picture>
+<picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg">
     <img alt="The Rust Programming Language: A language empowering everyone to build reliable and efficient software"
-         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg"
-         width="50%">
-  </picture>
-
+         src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/master/static/images/rust-social-wide-light.svg" width="50%">
+</picture>
 [Website][Rust] | [Getting started] | [Learn] | [Documentation] | [Contributing]
 </div>
-
-This is the main source code repository for [Rust]. It contains the compiler,
-standard library, and documentation.
-
+This is the main source code repository for [Rust]. It contains the compiler, standard library, and documentation.
 [Rust]: https://www.rust-lang.org/
 [Getting Started]: https://www.rust-lang.org/learn/get-started
 [Learn]: https://www.rust-lang.org/learn
 [Documentation]: https://www.rust-lang.org/learn#learn-use
 [Contributing]: CONTRIBUTING.md
-
 ## Why Rust?
+- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages.
+-
 
-- **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with o
+... [truncated 1464 chars] ...
 
-... [truncated 1503 chars] ...
-
-T) for details.
+YRIGHT) for details.
 
 ## Trademark
 
-[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo
-trademarks and logos (the "Rust Trademarks").
-
-If you want to use these names or brands, please read the
-[Rust language trademark policy][trademark-policy].
-
-Third-party logos may be subject to third-party copyrights and trademarks. See
-[Licenses][policies-licenses] for details.
-
+[The Rust Foundation][rust-foundation] owns and protects the Rust and Cargo trademarks and logos (the "Rust Trademarks"). If you want to use these names or brands, please read the [Rust language trademark policy][trademark-policy]. Third-party logos may be subject to third-party copyrights and trademarks. See [Licenses][policies-licenses] for details.
 [rust-foundation]: https://rustfoundation.org/
 [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
 [policies-licenses]: https://www.rust-lang.org/policies/licenses
@@ -301,5 +205,37 @@ Third-party logos may be subject to third-party copyrights and trademarks. See
 ## Symbols
 
 ```txt
-No symbols returned for this sample.
+10| links: [Website][Rust]
+16| link ref: [Rust]: https://www.rust-lang.org/
+17| link ref: [Getting Started]: https://www.rust-lang.org/learn/get-started
+18| link ref: [Learn]: https://www.rust-lang.org/learn
+19| link ref: [Documentation]: https://www.rust-lang.org/learn#learn-use
+20| link ref: [Contributing]: CONTRIBUTING.md
+22| ## Why Rust?
+24| - **Performance:** Fast and memory-efficient, suitable for critical services, embedded devices, and easily integrated with other languages.
+26| - **Reliability:** Our rich type system and ownership model ensure memory and thread safety, reducing bugs at compile-time.
+28| - **Productivity:** Comprehensive documentation, a compiler committed to providing great diagnostics, and advanced tooling including package manager and build t...
+30| link ref: [Cargo]: https://github.com/rust-lang/cargo
+31| link ref: [rustfmt]: https://github.com/rust-lang/rustfmt
+32| link ref: [Clippy]: https://github.com/rust-lang/rust-clippy
+33| link ref: [rust-analyzer]: https://github.com/rust-lang/rust-analyzer
+35| ## Quick Start
+39| link ref: ["Installation"]: https://doc.rust-lang.org/book/ch01-01-installation.html
+40| link ref: [The Book]: https://doc.rust-lang.org/book/index.html
+42| ## Installing from Source
+45| links: [INSTALL.md](INSTALL.md)
+47| ## Getting Help
+51| ## Contributing
+53| links: [CONTRIBUTING.md](CONTRIBUTING.md)
+55| links: [rustc-dev-guide](https://rustc-dev-guide.rust-lang.org/)
+57| ## License
+63| links: [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-MIT](LICENSE-MIT)
+64| links: [COPYRIGHT](COPYRIGHT)
+66| ## Trademark
+68| links: [The Rust Foundation][rust-foundation]
+72| links: [Rust language trademark policy][trademark-policy]
+75| links: [Licenses][policies-licenses]
+77| link ref: [rust-foundation]: https://rustfoundation.org/
+78| link ref: [trademark-policy]: https://rustfoundation.org/policy/rust-trademark-policy/
+79| link ref: [policies-licenses]: https://www.rust-lang.org/policies/licenses
 ```

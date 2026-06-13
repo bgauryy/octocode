@@ -44,9 +44,38 @@ function shouldFetchFileChanges(
   );
 }
 
-function shouldFetchComments(params: GitHubPullRequestsSearchParams): boolean {
-  const content = params.content as { comments?: unknown } | undefined;
-  return Boolean(params.reviewMode === 'full' || content?.comments);
+type ContentComments = {
+  discussion?: boolean;
+  reviewInline?: boolean;
+  includeBots?: boolean;
+  file?: string;
+};
+
+function getCommentsConfig(
+  params: GitHubPullRequestsSearchParams
+): ContentComments | null {
+  if (params.reviewMode === 'full') return { discussion: true, reviewInline: true };
+  const c = (params.content as { comments?: ContentComments } | undefined)
+    ?.comments;
+  return c ?? null;
+}
+
+function shouldFetchDiscussionComments(
+  params: GitHubPullRequestsSearchParams
+): boolean {
+  const cfg = getCommentsConfig(params);
+  if (!cfg) return false;
+  // Default true when the comments block is present but the field is unset
+  return cfg.discussion !== false;
+}
+
+function shouldFetchInlineComments(
+  params: GitHubPullRequestsSearchParams
+): boolean {
+  const cfg = getCommentsConfig(params);
+  if (!cfg) return false;
+  // Default true when the comments block is present but the field is unset
+  return cfg.reviewInline !== false;
 }
 
 function shouldFetchCommits(params: GitHubPullRequestsSearchParams): boolean {
@@ -141,7 +170,7 @@ async function fetchPRComments(
 
     const notes: string[] = [];
     if (botsDropped > 0) {
-      notes.push(`${botsDropped} bot comment(s) hidden (set includeBots:true)`);
+      notes.push(`${botsDropped} bot comment(s) hidden (set content.comments.includeBots:true to include)`);
     }
 
     return {
@@ -249,13 +278,16 @@ async function fetchPRInlineComments(
         commentType: 'review_inline',
         path: comment.path,
         line: comment.line ?? comment.original_line ?? undefined,
+        ...(comment.in_reply_to_id != null
+          ? { in_reply_to_id: comment.in_reply_to_id }
+          : {}),
       };
     });
 
     const notes: string[] = [];
     if (botsDropped > 0) {
       notes.push(
-        `${botsDropped} bot inline comment(s) hidden (set includeBots:true)`
+        `${botsDropped} bot inline comment(s) hidden (set content.comments.includeBots:true to include)`
       );
     }
 
@@ -344,27 +376,24 @@ export async function transformPullRequestItemFromSearch(
     }
   }
 
-  if (shouldFetchComments(params)) {
+  const wantDiscussion = shouldFetchDiscussionComments(params);
+  const wantInline = shouldFetchInlineComments(params);
+  if (wantDiscussion || wantInline) {
     const { owner, repo } = normalizeOwnerRepo(params);
     if (owner && repo) {
+      const includeBots = shouldIncludeBotComments(params);
+      const empty = (): Promise<{ comments: PRCommentItem[]; note?: string }> =>
+        Promise.resolve({ comments: attachRawResponseChars([], 0) });
       const [
         { comments: discussionComments, note: discussionNote },
         { comments: inlineComments, note: inlineNote },
       ] = await Promise.all([
-        fetchPRComments(
-          octokit,
-          owner,
-          repo,
-          item.number,
-          shouldIncludeBotComments(params)
-        ),
-        fetchPRInlineComments(
-          octokit,
-          owner,
-          repo,
-          item.number,
-          shouldIncludeBotComments(params)
-        ),
+        wantDiscussion
+          ? fetchPRComments(octokit, owner, repo, item.number, includeBots)
+          : empty(),
+        wantInline
+          ? fetchPRInlineComments(octokit, owner, repo, item.number, includeBots)
+          : empty(),
       ]);
 
       result.comments = [...discussionComments, ...inlineComments];
@@ -635,25 +664,22 @@ export async function transformPullRequestItemFromREST(
     }
   }
 
-  if (shouldFetchComments(params)) {
+  const wantDiscussionRest = shouldFetchDiscussionComments(params);
+  const wantInlineRest = shouldFetchInlineComments(params);
+  if (wantDiscussionRest || wantInlineRest) {
+    const includeBots = shouldIncludeBotComments(params);
+    const emptyRest = (): Promise<{ comments: PRCommentItem[]; note?: string }> =>
+      Promise.resolve({ comments: attachRawResponseChars([], 0) });
     const [
       { comments: discussionComments, note: discussionNote },
       { comments: inlineComments, note: inlineNote },
     ] = await Promise.all([
-      fetchPRComments(
-        octokit,
-        owner,
-        repo,
-        item.number,
-        shouldIncludeBotComments(params)
-      ),
-      fetchPRInlineComments(
-        octokit,
-        owner,
-        repo,
-        item.number,
-        shouldIncludeBotComments(params)
-      ),
+      wantDiscussionRest
+        ? fetchPRComments(octokit, owner, repo, item.number, includeBots)
+        : emptyRest(),
+      wantInlineRest
+        ? fetchPRInlineComments(octokit, owner, repo, item.number, includeBots)
+        : emptyRest(),
     ]);
 
     result.comments = [...discussionComments, ...inlineComments];

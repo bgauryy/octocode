@@ -1,3 +1,14 @@
+/**
+ * Contract tests for the packageSearch execution layer.
+ *
+ * Tests are written against OUTPUT CONTRACTS, not implementation internals.
+ * Every test mocks `searchPackage` (the npm API boundary) and asserts:
+ *   - the YAML/text content shape
+ *   - the hints behaviour
+ *   - the evidence flags
+ *
+ * Format contract: packages[] is a list of strings "name url[ sourceRoot]"
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchPackages } from '../../src/tools/package_search/execution.js';
 import * as packageCommon from '../../src/utils/package/common.js';
@@ -9,386 +20,413 @@ vi.mock('../../src/utils/package/common.js', () => ({
 
 const mockSearchPackage = vi.mocked(packageCommon.searchPackage);
 
-describe('package_search execution branches', () => {
-  const baseQuery = {
-    mainResearchGoal: 'Test',
-    researchGoal: 'Find package',
-    reasoning: 'Testing',
+// ─── fixtures ────────────────────────────────────────────────────────────────
+
+const BASE = {
+  mainResearchGoal: 'Test',
+  researchGoal: 'Find package',
+  reasoning: 'Unit test',
+};
+
+function pkg(overrides: Record<string, unknown> = {}) {
+  return {
+    name: 'mypkg',
+    npmUrl: 'https://www.npmjs.com/package/mypkg',
+    version: '1.0.0',
+    repoUrl: 'https://github.com/owner/mypkg',
+    mainEntry: null,
+    typeDefinitions: null,
+    ...overrides,
   };
+}
 
-  beforeEach(() => {
-    vi.clearAllMocks();
+function callTool(packageName: string, extra: Record<string, unknown> = {}) {
+  return searchPackages({
+    queries: [{ ...BASE, packageName, ...extra } as never],
+  });
+}
+
+function text(result: Awaited<ReturnType<typeof searchPackages>>): string {
+  return (result.content as { text?: string }[])?.[0]?.text ?? '';
+}
+
+// ─── input validation ────────────────────────────────────────────────────────
+
+describe('input validation', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('errors when packageName is missing', async () => {
+    const r = await searchPackages({ queries: [{ ...BASE } as never] });
+    expect(text(r).toLowerCase()).toContain('required');
+    expect(mockSearchPackage).not.toHaveBeenCalled();
   });
 
-  describe('input validation', () => {
-    it('should return error when name is missing', async () => {
-      const result = await searchPackages({
-        queries: [{ ...baseQuery } as never],
-      });
+  it('errors when packageName is empty string', async () => {
+    const r = await callTool('');
+    expect(r.isError).toBe(true);
+    expect(mockSearchPackage).not.toHaveBeenCalled();
+  });
+});
 
-      expect(result.content).toBeDefined();
-      const content = Array.isArray(result.content)
-        ? result.content
-        : [{ type: 'text', text: JSON.stringify(result.content) }];
-      const text = content
-        .map((c: { text?: string }) => c.text)
-        .join('')
-        .toLowerCase();
-      expect(text).toContain('required');
-      expect(mockSearchPackage).not.toHaveBeenCalled();
+// ─── output format: string list ──────────────────────────────────────────────
+
+describe('output format — "name url[ sourceRoot]" string list', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('flat repo → "name https://github.com/owner/repo"', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' })],
+      totalFound: 1,
     });
-
-    it('should return error when name is empty', async () => {
-      const result = await searchPackages({
-        queries: [
-          {
-            ...baseQuery,
-            packageName: '',
-          } as never,
-        ],
-      });
-
-      expect(result.content).toBeDefined();
-      expect(mockSearchPackage).not.toHaveBeenCalled();
-    });
+    const t = text(await callTool('zod'));
+    expect(t).toContain('zod https://github.com/colinhacks/zod');
+    expect(t).not.toContain('zod https://github.com/colinhacks/zod '); // no trailing sourceRoot
   });
 
-  describe('parseRepoInfo - repoUrl does not match github', () => {
-    it('should return package without owner/repo when repository URL is not from supported hosts', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: 'some-pkg',
-            npmUrl: 'https://www.npmjs.com/package/some-pkg',
-            path: 'some-pkg',
-            version: '1.0.0',
-            repoUrl: 'https://example.com/owner/repo',
-            mainEntry: null,
-            typeDefinitions: null,
-          },
-        ],
-        totalFound: 1,
-      });
-
-      const result = await searchPackages({
-        queries: [
-          {
-            ...baseQuery,
-            id: 'test:1',
-            packageName: 'some-pkg',
-          } as never,
-        ],
-      });
-
-      expect(result.content).toBeDefined();
-      const content = Array.isArray(result.content)
-        ? result.content
-        : [{ type: 'text', text: String(result.content) }];
-      const text = content.map((c: { text?: string }) => c.text ?? '').join('');
-      expect(text).toContain('some-pkg');
-      expect(text).toContain('1.0.0');
-      expect(result.isError).not.toBe(true);
+  it('monorepo → "name url sourceRoot"', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({
+          name: 'react',
+          repoUrl: 'https://github.com/facebook/react',
+          repositoryDirectory: 'packages/react',
+        }),
+      ],
+      totalFound: 1,
     });
+    const t = text(await callTool('react'));
+    expect(t).toContain('react https://github.com/facebook/react packages/react');
   });
 
-  describe('generateSuccessHints branches', () => {
-    it('should add deprecated hint when package is deprecated (line 147)', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: 'deprecated-pkg',
-            npmUrl: 'https://www.npmjs.com/package/deprecated-pkg',
-            path: 'deprecated-pkg',
-            version: '1.0.0',
-            repoUrl: 'https://github.com/owner/repo',
-            mainEntry: null,
-            typeDefinitions: null,
-          },
-        ],
-        totalFound: 1,
-      });
-      vi.mocked(packageCommon.checkNpmDeprecation).mockResolvedValue({
-        deprecated: true,
-        message: 'Use new-pkg instead',
-      });
-
-      const result = await searchPackages({
-        queries: [
-          {
-            ...baseQuery,
-            packageName: 'deprecated-pkg',
-          } as never,
-        ],
-      });
-
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('DEPRECATED');
-      expect(text).toContain('Use new-pkg instead');
+  it('strips leading "./" from repositoryDirectory', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({
+          name: 'pkg-a',
+          repoUrl: 'https://github.com/org/mono',
+          repositoryDirectory: './packages/pkg-a',
+        }),
+      ],
+      totalFound: 1,
     });
-
-    it('skips npm deprecation checks for CDN fallback metadata', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: 'zod',
-            npmUrl: 'https://www.npmjs.com/package/zod',
-            path: 'zod',
-            version: '4.4.3',
-            repoUrl: 'https://github.com/colinhacks/zod',
-            mainEntry: 'index.cjs',
-            typeDefinitions: 'index.d.ts',
-            source: 'cdn',
-          },
-        ],
-        totalFound: 1,
-      });
-
-      const result = await searchPackages({
-        queries: [
-          {
-            ...baseQuery,
-            packageName: 'zod',
-          } as never,
-        ],
-      });
-
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(packageCommon.checkNpmDeprecation).not.toHaveBeenCalled();
-      expect(text).toContain(
-        'metadata came from npm CDN package.json fallback'
-      );
-    });
+    const t = text(await callTool('pkg-a'));
+    expect(t).toContain('pkg-a https://github.com/org/mono packages/pkg-a');
+    expect(t).not.toContain('./packages');
   });
 
-  describe('network error recovery hints', () => {
-    it('PackageSearchError emits githubSearchRepositories recovery hint', async () => {
-      mockSearchPackage.mockResolvedValue({
-        error: 'Failed to fetch after 2 attempts: fetch failed',
-      });
-
-      const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'err:1', packageName: 'react' } as never],
-      });
-
-      expect(result.isError).toBe(true);
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('githubSearchRepositories');
+  it('non-GitHub repoUrl → included as-is, no sourceRoot', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ repoUrl: 'https://gitlab.com/owner/repo' })],
+      totalFound: 1,
     });
-
-    it('PackageSearchError for unreachable registry emits unreachable hint', async () => {
-      mockSearchPackage.mockResolvedValue({
-        error: 'NPM view failed: network timeout',
-      });
-
-      const result = await searchPackages({
-        queries: [
-          { ...baseQuery, id: 'err:2', packageName: 'lodash' } as never,
-        ],
-      });
-
-      expect(result.isError).toBe(true);
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('unreachable');
-    });
-
-    it('thrown error emits githubSearchRepositories recovery hint', async () => {
-      mockSearchPackage.mockRejectedValue(new Error('fetch failed'));
-
-      const result = await searchPackages({
-        queries: [{ ...baseQuery, id: 'err:3', packageName: 'axios' } as never],
-      });
-
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('githubSearchRepositories');
-    });
+    const t = text(await callTool('mypkg'));
+    expect(t).toContain('mypkg https://gitlab.com/owner/repo');
   });
 
-  describe('npm.ts hints propagate through execution.ts (integration boundary)', () => {
-    it('passes hints from PackageSearchError through to the response', async () => {
-      mockSearchPackage.mockResolvedValue({
-        error: 'NPM registry search failed: fetch failed',
-        hints: [
-          'npm registry is unreachable on all endpoints (exact lookup + /-/v1/search).',
-          'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
-        ],
-      });
-
-      const result = await searchPackages({
-        queries: [
-          { ...baseQuery, id: 'hint:1', packageName: 'octocode-mcp' } as never,
-        ],
-      });
-
-      expect(result.isError).toBe(true);
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('unreachable');
-      expect(text).toContain('githubSearchRepositories');
+  it('null repoUrl → just "name"', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ repoUrl: null })],
+      totalFound: 1,
     });
-
-    it('packages returned via fallback path are shaped correctly', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: '@modelcontextprotocol/sdk',
-            npmUrl: 'https://www.npmjs.com/package/@modelcontextprotocol/sdk',
-            version: '1.0.0',
-            description: 'MCP TypeScript SDK',
-            repoUrl: 'https://github.com/modelcontextprotocol/typescript-sdk',
-            mainEntry: null,
-            typeDefinitions: null,
-          },
-        ],
-        totalFound: 1,
-      });
-
-      const result = await searchPackages({
-        queries: [
-          {
-            ...baseQuery,
-            id: 'fallback:1',
-            packageName: '@modelcontextprotocol/sdk',
-          } as never,
-        ],
-      });
-
-      expect(result.isError).not.toBe(true);
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('@modelcontextprotocol/sdk');
-      expect(text).toContain('1.0.0');
-      expect(text).toContain('modelcontextprotocol');
-    });
+    const t = text(await callTool('mypkg'));
+    expect(t).toContain('mypkg');
+    // no trailing URL
+    expect(t).not.toContain('mypkg https://');
   });
 
-  describe('research handoff output', () => {
-    it('adds repository, entrypoints, researchTargets, and truncates descriptions', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: '@scope/pkg',
-            npmUrl: 'https://www.npmjs.com/package/@scope/pkg',
-            version: '1.0.0',
-            description: 'D'.repeat(250),
-            repoUrl: 'https://github.com/owner/repo',
-            mainEntry: 'dist/index.cjs',
-            moduleEntry: 'dist/index.mjs',
-            typeDefinitions: 'dist/index.d.ts',
-            packageType: 'module',
-            repositoryDirectory: 'packages/pkg',
-            exports: ['./dist/index.mjs', './dist/index.d.ts'],
-            dependencies: { leftpad: '^1.0.0' },
-            peerDependencies: { react: '^18.0.0' },
-          },
-        ],
-        totalFound: 1,
-      });
-
-      const result = await searchPackages({
-        queries: [
-          { ...baseQuery, id: 'handoff:1', packageName: '@scope/pkg' } as never,
-        ],
-      });
-
-      expect(result.isError).not.toBe(true);
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('repository:');
-      expect(text).toContain('sourceRoot: "packages/pkg"');
-      expect(text).toContain('entrypoints:');
-      expect(text).toContain('researchTargets:');
-      expect(text).toContain('githubGetFileContent');
-      expect(text).toContain('packages/pkg/dist/index.cjs');
-      expect(text).not.toContain('leftpad');
-      expect(text).not.toContain('peerDependencies');
-      expect(text).toContain(`${'D'.repeat(197)}...`);
+  it('multiple packages → one string line each', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
+        pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' }),
+        pkg({
+          name: '@tanstack/query',
+          repoUrl: 'https://github.com/TanStack/query',
+          repositoryDirectory: 'packages/query-core',
+        }),
+      ],
+      totalFound: 3,
     });
-
-    it('exports supersedes main, surfaces bin, and never duplicates the "." entry', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: 'clitool',
-            npmUrl: 'https://www.npmjs.com/package/clitool',
-            version: '2.0.0',
-            repoUrl: 'https://github.com/owner/clitool',
-            mainEntry: './dist/index.cjs', // package metadata fallback; should be superseded
-            typeDefinitions: './dist/index.d.ts',
-            // collapsed exports (one per subpath) as produced upstream
-            exports: ['. → ./dist/index.js', './sub → ./dist/sub.js'],
-            bin: ['clitool → ./bin/cli.js'],
-          },
-        ],
-        totalFound: 1,
-      });
-
-      const result = await searchPackages({
-        queries: [
-          { ...baseQuery, id: 'cli:1', packageName: 'clitool' } as never,
-        ],
-      });
-
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      // "." promoted to main from exports (supersedes ./dist/index.cjs)
-      expect(text).toContain('main: "./dist/index.js"');
-      expect(text).not.toContain('./dist/index.cjs');
-      // exports lists only the OTHER subpaths — "." is not shown twice
-      expect(text).toContain('./sub → ./dist/sub.js');
-      expect(text).not.toContain('". → ./dist/index.js"');
-      // bin (CLI code location) is surfaced
-      expect(text).toContain('clitool → ./bin/cli.js');
-    });
-
-    it('keeps non-GitHub repository URLs without GitHub research targets', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: 'non-gh',
-            npmUrl: 'https://www.npmjs.com/package/non-gh',
-            version: '1.0.0',
-            repoUrl: 'https://example.com/owner/repo',
-            mainEntry: 'index.js',
-            typeDefinitions: null,
-          },
-        ],
-        totalFound: 1,
-      });
-
-      const result = await searchPackages({
-        queries: [
-          { ...baseQuery, id: 'handoff:2', packageName: 'non-gh' } as never,
-        ],
-      });
-
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('url: "https://example.com/owner/repo"');
-      expect(text).not.toContain('researchTargets');
-      expect(text).not.toContain('owner: "owner"');
-    });
+    const t = text(await callTool('zustand'));
+    expect(t).toContain('zustand https://github.com/pmndrs/zustand');
+    expect(t).toContain('jotai https://github.com/pmndrs/jotai');
+    expect(t).toContain('@tanstack/query https://github.com/TanStack/query packages/query-core');
   });
 
-  describe('generateSuccessHints — null repoUrl branch', () => {
-    it('emits githubSearchRepositories hint when repoUrl is null in npm manifest', async () => {
-      mockSearchPackage.mockResolvedValue({
-        packages: [
-          {
-            name: 'no-repo-pkg',
-            npmUrl: 'https://www.npmjs.com/package/no-repo-pkg',
-            version: '2.0.0',
-            description: 'Package with no repository field',
-            repoUrl: null,
-            mainEntry: null,
-            typeDefinitions: null,
-          },
-        ],
+  it('packages[] is a YAML sequence of strings, not objects', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ name: 'express', repoUrl: 'https://github.com/expressjs/express' })],
+      totalFound: 1,
+    });
+    const t = text(await callTool('express'));
+    // must NOT contain any YAML object keys that would indicate an object shape
+    expect(t).not.toContain('repoUrl:');
+    expect(t).not.toContain('repositoryDirectory:');
+    expect(t).not.toContain('npmUrl:');
+    expect(t).not.toContain('version:');
+    expect(t).not.toContain('weeklyDownloads:');
+  });
+});
+
+// ─── evidence flags ───────────────────────────────────────────────────────────
+
+describe('evidence flags', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('answerReady:true and complete:true when package found', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg()],
+      totalFound: 1,
+    });
+    const t = text(await callTool('mypkg'));
+    expect(t).toContain('answerReady: true');
+    expect(t).toContain('complete: true');
+  });
+
+  it('answerReady:false when no packages found', async () => {
+    mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
+    const t = text(await callTool('no-such-pkg'));
+    expect(t).toContain('answerReady: false');
+  });
+});
+
+// ─── hints — exact / single result ───────────────────────────────────────────
+
+describe('hints — exact / single result', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('includes Install hint with package name', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' })],
+      totalFound: 1,
+    });
+    const t = text(await callTool('zod'));
+    expect(t).toContain('Install: npm install zod');
+  });
+
+  it('includes Browse source hint with owner and repo for GitHub packages', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' })],
+      totalFound: 1,
+    });
+    const t = text(await callTool('zod'));
+    expect(t).toContain('githubViewRepoStructure');
+    expect(t).toContain('owner=colinhacks');
+    expect(t).toContain('repo=zod');
+  });
+
+  it('uses githubSearchRepositories when repoUrl is null', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ repoUrl: null })],
+      totalFound: 1,
+    });
+    const t = text(await callTool('mypkg'));
+    expect(t).toContain('githubSearchRepositories');
+    expect(t).not.toContain('githubViewRepoStructure');
+  });
+
+  it('uses githubSearchRepositories for non-GitHub repo URLs', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ repoUrl: 'https://gitlab.com/owner/repo' })],
+      totalFound: 1,
+    });
+    const t = text(await callTool('mypkg'));
+    expect(t).toContain('githubSearchRepositories');
+  });
+
+  it('adds DEPRECATED prefix when package is deprecated', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ repoUrl: 'https://github.com/owner/old' })],
+      totalFound: 1,
+    });
+    vi.mocked(packageCommon.checkNpmDeprecation).mockResolvedValue({
+      deprecated: true,
+      message: 'Use new-pkg instead',
+    });
+    const t = text(await callTool('old'));
+    expect(t).toContain('DEPRECATED');
+    expect(t).toContain('Use new-pkg instead');
+  });
+
+  it('skips deprecation check for CDN fallback source', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ source: 'cdn', repoUrl: 'https://github.com/owner/pkg' })],
+      totalFound: 1,
+    });
+    await callTool('pkg');
+    expect(packageCommon.checkNpmDeprecation).not.toHaveBeenCalled();
+  });
+
+  it('skips deprecation check for web fallback source', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [pkg({ source: 'web', repoUrl: 'https://github.com/owner/pkg' })],
+      totalFound: 1,
+    });
+    await callTool('pkg');
+    expect(packageCommon.checkNpmDeprecation).not.toHaveBeenCalled();
+  });
+});
+
+// ─── hints — keyword / multiple results ──────────────────────────────────────
+
+describe('hints — keyword / multiple results', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('does NOT emit Install or Browse hints for a specific package', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'obscure-pkg-a', repoUrl: 'https://github.com/a/a' }),
+        pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
+        pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' }),
+      ],
+      totalFound: 3,
+    });
+    const t = text(await callTool('state management'));
+    // Should NOT say "npm install obscure-pkg-a" (first result bias)
+    expect(t).not.toContain('npm install obscure-pkg-a');
+    expect(t).not.toContain('githubViewRepoStructure owner=a repo=a');
+  });
+
+  it('tells agent to pick one and re-run with exact name', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'pkg-a', repoUrl: 'https://github.com/a/a' }),
+        pkg({ name: 'pkg-b', repoUrl: 'https://github.com/b/b' }),
+      ],
+      totalFound: 2,
+    });
+    const t = text(await callTool('state lib'));
+    // hint should guide toward exact name lookup
+    expect(t).toMatch(/exact|pick|re.?run|refine/i);
+  });
+
+  it('does not check deprecation for keyword results', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'a', repoUrl: 'https://github.com/a/a' }),
+        pkg({ name: 'b', repoUrl: 'https://github.com/b/b' }),
+      ],
+      totalFound: 2,
+    });
+    await callTool('state lib');
+    expect(packageCommon.checkNpmDeprecation).not.toHaveBeenCalled();
+  });
+});
+
+// ─── hints — empty result ─────────────────────────────────────────────────────
+
+describe('hints — empty result', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('reports package not found', async () => {
+    mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
+    const t = text(await callTool('no-such-pkg'));
+    // hints.ts empty handler: "Package '...' not found on npm."
+    expect(t).toContain("Package 'no-such-pkg' not found on npm.");
+  });
+
+  it('suggests hyphen→underscore variation (via hints.ts buildVariations)', async () => {
+    mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
+    const t = text(await callTool('my-pkg'));
+    expect(t).toContain('my_pkg');
+  });
+
+  it('suggests unscoped name for scoped packages (via hints.ts buildVariations)', async () => {
+    mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
+    const t = text(await callTool('@scope/mypkg'));
+    expect(t).toContain('mypkg');
+  });
+});
+
+// ─── hints — error recovery ───────────────────────────────────────────────────
+
+describe('hints — error recovery', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('propagates error hints from the npm layer', async () => {
+    mockSearchPackage.mockResolvedValue({
+      error: 'npm registry is unreachable.',
+      hints: ['Use `githubSearchRepositories` to find the source repo.'],
+    });
+    const t = text(await callTool('mypkg'));
+    expect(t).toContain('githubSearchRepositories');
+  });
+
+  it('isError=true on PackageSearchError', async () => {
+    mockSearchPackage.mockResolvedValue({ error: 'fetch failed' });
+    const r = await callTool('mypkg');
+    expect(r.isError).toBe(true);
+  });
+
+  it('isError=true on thrown exception', async () => {
+    mockSearchPackage.mockRejectedValue(new Error('network error'));
+    const r = await callTool('mypkg');
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('githubSearchRepositories');
+  });
+});
+
+// ─── pagination ─────────────────────────────────────────────────────────────────
+
+describe('pagination — hasMore through searchPackages', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('sets hasMore:true and complete:false when packages.length < totalFound', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
+        pkg({ name: 'jotai',   repoUrl: 'https://github.com/pmndrs/jotai' }),
+      ],
+      totalFound: 50, // API knows about 50, only 2 returned
+    });
+
+    const t = text(await callTool('state management'));
+    expect(t).toContain('hasMore: true');
+    expect(t).toContain('totalFound: 50');
+    expect(t).toContain('complete: false');
+  });
+
+  it('no hasMore when packages.length === totalFound (complete page)', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
+        pkg({ name: 'jotai',   repoUrl: 'https://github.com/pmndrs/jotai' }),
+      ],
+      totalFound: 2, // exactly what was returned
+    });
+
+    const t = text(await callTool('zustand'));
+    expect(t).not.toContain('hasMore');
+    expect(t).toContain('complete: true');
+  });
+});
+
+// ─── bulk queries ─────────────────────────────────────────────────────────────────
+
+describe('bulk queries', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('processes multiple queries independently', async () => {
+    mockSearchPackage
+      .mockResolvedValueOnce({
+        packages: [pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' })],
+        totalFound: 1,
+      })
+      .mockResolvedValueOnce({
+        packages: [pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' })],
         totalFound: 1,
       });
 
-      const result = await searchPackages({
-        queries: [{ ...baseQuery, packageName: 'no-repo-pkg' } as never],
-      });
-
-      expect(result.isError).not.toBe(true);
-      const text = (result.content as { text?: string }[])?.[0]?.text ?? '';
-      expect(text).toContain('No repository URL in npm manifest');
-      expect(text).toContain('githubSearchRepositories');
+    const r = await searchPackages({
+      queries: [
+        { ...BASE, id: 'q1', packageName: 'zustand' },
+        { ...BASE, id: 'q2', packageName: 'jotai' },
+      ] as never,
     });
+
+    const t = text(r);
+    expect(t).toContain('zustand https://github.com/pmndrs/zustand');
+    expect(t).toContain('jotai https://github.com/pmndrs/jotai');
+    expect(mockSearchPackage).toHaveBeenCalledTimes(2);
   });
 });

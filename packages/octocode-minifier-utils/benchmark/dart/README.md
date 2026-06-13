@@ -4,52 +4,14 @@ Source sample: `dart/dart-string.dart`
 
 Strategy: `conservative`
 
-Agent rating: **9.5/10 (excellent)**
-
-Agent understanding from minified output: **9.5/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 37049 | - | - | - |
-| content-view | 5383 | 85.5% | 2.549 ms | 9.5/10 |
-| applyMinification | 5441 | 85.3% | 2.574 ms | 9.5/10 |
-| sync minify | 5441 | 85.3% | 2.716 ms | 9.5/10 |
-| async minify | 5441 | 85.3% | 2.76 ms | 9.5/10 |
-| symbols | 450 | 98.8% | 1.169 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 8/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 37049 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 5383 | 85.5% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 5441 | 85.3% | 9.5/10 excellent | 10/10 | 10/10 |
-| symbols | 450 | 98.8% | 8.5/10 strong | 6.7/10 | 10/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             | 37049 |     - |        - |
+| content-view      |  5383 | 85.5% | 2.549 ms |
+| applyMinification |  5441 | 85.3% | 2.574 ms |
+| sync minify       |  5441 | 85.3% | 2.716 ms |
+| async minify      |  5441 | 85.3% |  2.76 ms |
+| symbols           |   450 | 98.8% | 1.169 ms |
 
 ## Notes
 
@@ -58,7 +20,7 @@ for this language sample.
 
 ## Before Excerpt
 
-```dart
+````dart
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -115,7 +77,7 @@ part of "dart:core";
   }
 }
 
-```
+````
 
 ## Content-View Excerpt
 
@@ -299,7 +261,7 @@ abstract final class String implements Comparable<String>, Pattern {
   bool contains(Pattern other, [int startIndex = 0]);
 
 
-  String replaceFirst(Pattern from, String to, [int startIndex 
+  String replaceFirst(Pattern from, String to, [int startIndex
 
 ... [truncated 3641 chars] ...
 
@@ -416,7 +378,7 @@ abstract final class String implements Comparable<String>, Pattern {
   bool contains(Pattern other, [int startIndex = 0]);
 
 
-  String replaceFirst(Pattern from, String to, [int startIndex 
+  String replaceFirst(Pattern from, String to, [int startIndex
 
 ... [truncated 3641 chars] ...
 
@@ -533,7 +495,7 @@ abstract final class String implements Comparable<String>, Pattern {
   bool contains(Pattern other, [int startIndex = 0]);
 
 
-  String replaceFirst(Pattern from, String to, [int startIndex 
+  String replaceFirst(Pattern from, String to, [int startIndex
 
 ... [truncated 3641 chars] ...
 

@@ -4,52 +4,14 @@ Source sample: `js/00-react-hooks.js`
 
 Strategy: `terser`
 
-Agent rating: **7.7/10 (good)**
-
-Agent understanding from minified output: **9.5/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 6864 | - | - | - |
-| content-view | 6205 | 9.6% | 1.843 ms | 8.3/10 |
-| applyMinification | 5431 | 20.9% | 1.774 ms | 8.3/10 |
-| sync minify | 5431 | 20.9% | 1.779 ms | 8.3/10 |
-| async minify | 5431 | 20.9% | 1.773 ms | 8.3/10 |
-| symbols | 5765 | 16% | 11.309 ms | 6.5/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 7/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 6864 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 6205 | 9.6% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 5431 | 20.9% | 9.6/10 excellent | 10/10 | 10/10 |
-| symbols | 5765 | 16% | 9.6/10 excellent | 10/10 | 9.8/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             |  6864 |     - |         - |
+| content-view      |  6205 |  9.6% |  1.843 ms |
+| applyMinification |  5431 | 20.9% |  1.774 ms |
+| sync minify       |  5431 | 20.9% |  1.779 ms |
+| async minify      |  5431 | 20.9% |  1.773 ms |
+| symbols           |  5765 |   16% | 11.309 ms |
 
 ## Notes
 

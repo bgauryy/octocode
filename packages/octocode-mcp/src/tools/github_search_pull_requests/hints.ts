@@ -9,10 +9,8 @@ export const hints: ToolHintGenerators = {
     const author = typeof c.author === 'string' ? c.author : undefined;
     const query = typeof c.query === 'string' ? c.query : undefined;
     const prNumber = typeof c.prNumber === 'number' ? c.prNumber : undefined;
-    const matchScope = Array.isArray(c.matchScope)
-      ? (c.matchScope as string[])
-      : undefined;
-    const alreadyTitleScope = matchScope?.includes('title') ?? false;
+    const prMatch = Array.isArray(c.prMatch) ? (c.prMatch as string[]) : undefined;
+    const alreadyTitleScope = prMatch?.includes('title') ?? false;
     const scope = owner && repo ? `${owner}/${repo}` : undefined;
 
     if (prNumber !== undefined && scope) {
@@ -46,7 +44,8 @@ export const hints: ToolHintGenerators = {
             : 'If unexpected, try removing or loosening filters one at a time.',
       ...(query && !alreadyTitleScope
         ? [
-            'For approximate title matching, use `matchScope=["title"]` with `sort="best-match"` to surface the closest PR.',
+            'For title-only matching, add match:["title"] with sort:"best-match" to surface the closest PR. ' +
+            'For exact phrases, use the `query` field with double-quoted text, e.g. query:\'"Partial Prerendering"\'.',
           ]
         : !query
           ? [

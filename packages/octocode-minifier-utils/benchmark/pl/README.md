@@ -4,52 +4,14 @@ Source sample: `pl/perl-checkcfgvar.pl`
 
 Strategy: `aggressive`
 
-Agent rating: **8.5/10 (strong)**
-
-Agent understanding from minified output: **8.2/10 (strong)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 4523 | - | - | - |
-| content-view | 3761 | 16.8% | 0.66 ms | 8.5/10 |
-| applyMinification | 3101 | 31.4% | 0.685 ms | 8.5/10 |
-| sync minify | 3101 | 31.4% | 0.694 ms | 8.5/10 |
-| async minify | 3101 | 31.4% | 0.695 ms | 8.5/10 |
-| symbols | 1215 | 73.1% | 0.198 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 6.7/10 (2/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 8/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 4523 | 0% | 10/10 excellent | 6.7/10 | 9.9/10 |
-| standard | 3761 | 16.8% | 8.2/10 strong | 6.7/10 | 10/10 |
-| minify | 3101 | 31.4% | 8.3/10 strong | 6.7/10 | 10/10 |
-| symbols | 1215 | 73.1% | 8.6/10 strong | 6.7/10 | 9.8/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  4523 |     - |        - |
+| content-view      |  3761 | 16.8% |  0.66 ms |
+| applyMinification |  3101 | 31.4% | 0.685 ms |
+| sync minify       |  3101 | 31.4% | 0.694 ms |
+| async minify      |  3101 | 31.4% | 0.695 ms |
+| symbols           |  1215 | 73.1% | 0.198 ms |
 
 ## Notes
 

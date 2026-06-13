@@ -1,5 +1,5 @@
 /**
- * allRegexPatterns — the canonical ordered list of all 304 secret-detection patterns.
+ * allRegexPatterns — the canonical ordered list of all secret-detection patterns.
  *
  * The patterns live here as TypeScript source (used by gen-patterns.mjs to generate
  * the Rust RegexSet). The hot path (sanitizeContent, maskSensitiveData) always runs

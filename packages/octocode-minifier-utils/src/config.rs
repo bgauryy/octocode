@@ -10,10 +10,16 @@ pub struct FileTypeConfig {
 
 impl FileTypeConfig {
     const fn new(strategy: &'static str) -> Self {
-        Self { strategy, comments: None }
+        Self {
+            strategy,
+            comments: None,
+        }
     }
     const fn with(strategy: &'static str, comments: &'static [&'static str]) -> Self {
-        Self { strategy, comments: Some(comments) }
+        Self {
+            strategy,
+            comments: Some(comments),
+        }
     }
 }
 
@@ -174,9 +180,23 @@ pub fn indentation_sensitive_names() -> &'static HashSet<&'static str> {
     static NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
     NAMES.get_or_init(|| {
         [
-            "makefile","dockerfile","procfile","justfile","rakefile",
-            "gemfile","podfile","fastfile","vagrantfile","jenkinsfile",
-            "cakefile","pipfile","buildfile","capfile","brewfile",
-        ].into_iter().collect()
+            "makefile",
+            "dockerfile",
+            "procfile",
+            "justfile",
+            "rakefile",
+            "gemfile",
+            "podfile",
+            "fastfile",
+            "vagrantfile",
+            "jenkinsfile",
+            "cakefile",
+            "pipfile",
+            "buildfile",
+            "capfile",
+            "brewfile",
+        ]
+        .into_iter()
+        .collect()
     })
 }

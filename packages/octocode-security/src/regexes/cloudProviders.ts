@@ -78,8 +78,14 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
 
   {
     name: 'supabaseServiceKey',
-    description: 'Supabase service role key',
+    description: 'Supabase personal access token',
     regex: /\bsbp_[a-f0-9]{40}\b/g,
+    matchAccuracy: 'high',
+  },
+  {
+    name: 'supabaseSecretKey',
+    description: 'Supabase secret API key',
+    regex: /\bsb_secret_[a-zA-Z0-9_-]{22}_[a-fA-F0-9]{8}\b/g,
     matchAccuracy: 'high',
   },
   {
@@ -340,9 +346,8 @@ export const cloudProviderPatterns: SensitiveDataPattern[] = [
   },
   {
     name: 'cloudflareApiTokenPrefixed',
-    description: 'Cloudflare Access team domain (not API token)',
-    regex: /\b[A-Za-z0-9_-]{40}\.cloudflareaccess\.com\b/g,
+    description: 'Cloudflare scannable API credential',
+    regex: /\bcf(?:k|ut|at)_[a-zA-Z0-9]{40}[a-fA-F0-9]{8}\b/g,
     matchAccuracy: 'high',
-    fileContext: /(?:\.env|config|settings|secrets)/i,
   },
 ];

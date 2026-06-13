@@ -16,35 +16,84 @@ import type {
 
 type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
 
-function truncateDescription(description: string, max = 100): string {
-  const clean = description.replace(/\s+/g, ' ').trim();
-  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+// ── Verbose structured output (verbose=true) ─────────────────────────────────
+
+type RepositoryDetail = {
+  owner: string;
+  repo: string;
+  stars?: number;
+  forks?: number;
+  openIssuesCount?: number;
+  language?: string;
+  license?: string;
+  description?: string;
+  homepage?: string;
+  pushedAt?: string;
+  createdAt?: string;
+  defaultBranch?: string;
+  topics?: string[];
+  visibility?: string;
+  url?: string;
+  updatedAt?: string;
+};
+
+function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
+  const r = repo as GitHubRepositoryOutput & {
+    license?: string;
+    homepage?: string;
+  };
+  const detail: RepositoryDetail = {
+    owner: r.owner ?? '',
+    repo: r.repo,
+    stars: r.stars,
+    forks: r.forksCount,
+    openIssuesCount: r.openIssuesCount,
+    language: r.language,
+    license: r.license || undefined,
+    description:
+      r.description && r.description !== 'No description'
+        ? r.description
+        : undefined,
+    homepage: r.homepage || undefined,
+    pushedAt: r.pushedAt ? r.pushedAt.slice(0, 10) : undefined,
+    createdAt: r.createdAt,
+    defaultBranch:
+      r.defaultBranch &&
+      r.defaultBranch !== 'main' &&
+      r.defaultBranch !== 'master'
+        ? r.defaultBranch
+        : undefined,
+    topics: r.topics?.length ? r.topics : undefined,
+    visibility:
+      r.visibility && r.visibility !== 'public' ? r.visibility : undefined,
+    url: r.url,
+    updatedAt: r.updatedAt,
+  };
+  return Object.fromEntries(
+    Object.entries(detail).filter(([, v]) => v !== undefined)
+  ) as RepositoryDetail;
 }
 
-function isoDate(value?: string): string | undefined {
-  return typeof value === 'string' && value.length >= 10
-    ? value.slice(0, 10)
-    : undefined;
-}
+// ── Lean compact-string output (default) ─────────────────────────────────────
+//
+// Format: "owner/repo ★stars [⑂forks] [language] [YYYY-MM-DD] [#t1,t2,t3] [— desc]"
+// Example: "vitejs/vite ★ 81442 ⑂ 8294 TypeScript 2026-06-13 #build-tool,vite — Next generation frontend tooling"
+// Saves ~40% tokens vs the YAML-object format (1 line vs 10-12 lines per repo).
 
-/**
- * Render a repository as one compact line for agent scanning. Packs every
- * meaningful field (stars, forks, open issues, language, push/create dates,
- * non-default branch, private flag, topics, description) while dropping
- * redundant data — the URL is derivable as github.com/<owner>/<repo>, and
- * updatedAt is omitted in favour of pushedAt (true code-activity signal).
- */
-export function formatRepoLine(repo: GitHubRepositoryOutput): string {
+function formatRepoLine(repo: GitHubRepositoryOutput): string {
   const r = repo as GitHubRepositoryOutput & {
     pushedAt?: string;
     visibility?: string;
     topics?: string[];
     forksCount?: number;
     openIssuesCount?: number;
-    language?: string;
     defaultBranch?: string;
+    license?: string;
+    homepage?: string;
   };
-  const parts: string[] = [`${r.owner ? `${r.owner}/` : ''}${r.repo}`];
+
+  const name = `${r.owner ? `${r.owner}/` : ''}${r.repo}`;
+  const parts: string[] = [name];
 
   if (typeof r.stars === 'number') parts.push(`★${r.stars}`);
   if (typeof r.forksCount === 'number' && r.forksCount > 0)
@@ -52,95 +101,39 @@ export function formatRepoLine(repo: GitHubRepositoryOutput): string {
   if (typeof r.openIssuesCount === 'number' && r.openIssuesCount > 0)
     parts.push(`${r.openIssuesCount}i`);
   if (r.language) parts.push(r.language);
+  if (r.license) parts.push(r.license);
 
-  const pushed = isoDate(r.pushedAt);
-  if (pushed) parts.push(`pushed ${pushed}`);
-  const created = isoDate(r.createdAt);
-  if (created) parts.push(`created ${created}`);
+  if (r.pushedAt) parts.push(r.pushedAt.slice(0, 10));
 
-  if (r.visibility && r.visibility !== 'public') parts.push(r.visibility);
   if (
     r.defaultBranch &&
     r.defaultBranch !== 'main' &&
     r.defaultBranch !== 'master'
   )
     parts.push(`@${r.defaultBranch}`);
+  if (r.visibility && r.visibility !== 'public') parts.push(`[${r.visibility}]`);
+
   if (Array.isArray(r.topics) && r.topics.length > 0)
-    parts.push(`#${r.topics.slice(0, 3).join(',')}`);
+    parts.push(`#${r.topics.slice(0, 4).join(',')}`);
 
-  if (r.description) parts.push(truncateDescription(r.description));
+  // 'No description' is a placeholder injected by the API mapper when GitHub
+  // returns null — suppress it; it carries no information.
+  if (r.description && r.description !== 'No description') {
+    const desc = r.description.replace(/\s+/g, ' ').trim();
+    parts.push(`— ${desc.length > 100 ? `${desc.slice(0, 99)}…` : desc}`);
+  }
 
-  return parts.join(' · ');
+  return parts.join(' ');
 }
 
-type RepositoryDetail = {
-  owner: string;
-  repo: string;
-  stars?: number;
-  forks?: number;
-  language?: string;
-  description?: string;
-  pushedAt?: string;
-  defaultBranch?: string;
-  topics?: string[];
-  visibility?: string;
-  // verbose-mode extras
-  url?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  openIssuesCount?: number;
-};
-
-function buildRepositoryDetail(
-  repo: GitHubRepositoryOutput,
-  verbose = false
-): RepositoryDetail {
-  const detail: RepositoryDetail = {
-    owner: repo.owner ?? '',
-    repo: repo.repo,
-    stars: repo.stars,
-    forks: repo.forksCount,
-    language: repo.language,
-    description: repo.description || undefined,
-    pushedAt: repo.pushedAt,
-    // Lean mode hides the default main/master branch and public visibility;
-    // verbose reports them explicitly.
-    defaultBranch:
-      verbose ||
-      (repo.defaultBranch &&
-        repo.defaultBranch !== 'main' &&
-        repo.defaultBranch !== 'master')
-        ? repo.defaultBranch
-        : undefined,
-    // Empty topic arrays are omitted in lean mode (noise); verbose keeps them.
-    topics: verbose
-      ? repo.topics
-      : repo.topics?.length
-        ? repo.topics.slice(0, 5)
-        : undefined,
-    visibility:
-      verbose || (repo.visibility && repo.visibility !== 'public')
-        ? repo.visibility
-        : undefined,
-    ...(verbose && {
-      url: repo.url,
-      createdAt: repo.createdAt,
-      updatedAt: repo.updatedAt,
-      openIssuesCount: repo.openIssuesCount,
-    }),
-  };
-
-  return Object.fromEntries(
-    Object.entries(detail).filter(([, value]) => value !== undefined)
-  ) as RepositoryDetail;
-}
+// ── Output builder ────────────────────────────────────────────────────────────
 
 function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
   query: PartialReposSearchQuery
 ): {
   data: {
-    repositories: RepositoryDetail[];
+    repositories: (string | RepositoryDetail)[];
     pagination?: unknown;
   };
   extraHints: string[];
@@ -149,9 +142,9 @@ function buildReposSearchOutput(
   return {
     data: {
       pagination: data.pagination,
-      repositories: data.repositories.map(repo =>
-        buildRepositoryDetail(repo, verbose)
-      ),
+      repositories: verbose
+        ? data.repositories.map(buildRepositoryDetail)
+        : data.repositories.map(formatRepoLine),
     },
     extraHints: [],
   };
@@ -315,6 +308,13 @@ function compareByRequestedSort(
       return (right.stars ?? 0) - (left.stars ?? 0);
     case 'forks':
       return (right.forksCount ?? 0) - (left.forksCount ?? 0);
+    case 'help-wanted-issues':
+      // Use openIssuesCount as the best available proxy when re-sorting
+      // merged dual-variant results. The API already sorts correctly for
+      // single-variant calls; this comparator only kicks in for merges.
+      return (
+        (right.openIssuesCount ?? 0) - (left.openIssuesCount ?? 0)
+      );
     case 'updated':
       return compareIsoDateDescending(left.updatedAt, right.updatedAt);
     case 'best-match':
@@ -469,12 +469,25 @@ function sumVariantRawResponseChars(
   );
 }
 
+const LARGE_RESULT_THRESHOLD = 100;
+
 function generateSearchSpecificHints(
   query: PartialReposSearchQuery,
-  hasResults: boolean
+  hasResults: boolean,
+  hasMore = false,
+  totalMatches = 0
 ): string[] | undefined {
   if (hasResults) {
-    if (!query.owner && !query.language && !query.stars) {
+    // Only fire the narrowing hint when the result set is genuinely large
+    // (>100 total matches) and has no scope filters. hasMore alone is
+    // insufficient — a limit=1 query on 2 total results also sets hasMore:true.
+    if (
+      hasMore &&
+      totalMatches > LARGE_RESULT_THRESHOLD &&
+      !query.owner &&
+      !query.language &&
+      !query.stars
+    ) {
       return [
         'Large result set with no owner/language/stars filter — add owner="<org>" to scope to a specific org, language="<lang>" to restrict by language, or stars=">100" to surface established repos.',
       ];
@@ -567,7 +580,11 @@ export async function searchMultipleGitHubRepos(
           return handleProviderError(firstFailedVariant.response, query);
         }
 
-        const repositories = rankRepositoriesByRelevance(
+        // Merge and deduplicate across all variants (topics + keywords run as
+        // separate searches). Cap at query.limit so dual-variant mode never
+        // silently returns more repos than the caller asked for.
+        const mergedLimit = (query as { limit?: number }).limit;
+        const rankedRepositories = rankRepositoriesByRelevance(
           deduplicateRepositories(
             successfulVariants.flatMap(variant =>
               mapRepoSearchProviderRepositories(
@@ -577,6 +594,10 @@ export async function searchMultipleGitHubRepos(
           ),
           query
         );
+        const repositories =
+          mergedLimit != null
+            ? rankedRepositories.slice(0, mergedLimit)
+            : rankedRepositories;
 
         const nonExistentScope = successfulVariants.some(
           variant =>
@@ -621,9 +642,19 @@ export async function searchMultipleGitHubRepos(
               `page ${requestedPage} exceeds totalPages ${lastAvailablePage} — last page is ${lastAvailablePage}.`,
             ]
           : [];
+
+        const hasContent = repositories.length > 0;
+        const hasMore = Boolean(effectivePagination?.hasMore);
+        const variantsPartial =
+          variants.length > 1 && successfulVariants.length < variants.length;
+
+        const totalMatchesForHint =
+          effectivePagination?.totalMatches ??
+          effectivePagination?.reachableTotalMatches ??
+          0;
         const searchHints = pageExceedsTotal
           ? undefined
-          : generateSearchSpecificHints(query, repositories.length > 0);
+          : generateSearchSpecificHints(query, hasContent, hasMore, totalMatchesForHint);
         const partialFailureHints =
           variants.length > 1 && successfulVariants.length === 1
             ? [
@@ -631,11 +662,6 @@ export async function searchMultipleGitHubRepos(
                 ...createVariantFailureHints(failedVariants),
               ]
             : createVariantFailureHints(failedVariants);
-
-        const hasContent = repositories.length > 0;
-        const hasMore = Boolean(effectivePagination?.hasMore);
-        const variantsPartial =
-          variants.length > 1 && successfulVariants.length < variants.length;
 
         const shape = buildReposSearchOutput(
           { repositories, pagination: resultPagination },
@@ -650,7 +676,9 @@ export async function searchMultipleGitHubRepos(
               `Top result: ${top.owner}/${top.repo} — use githubViewRepoStructure to browse or githubSearchCode to search within it.`
             );
           }
-          if (repositories.length > 1) {
+          // Only suggest parallel browsing when there are enough distinct results
+          // to compare — fewer than 3 makes the hint noise rather than signal.
+          if (repositories.length >= 3) {
             escalationHints.push(
               'Use multiple githubViewRepoStructure queries in parallel to compare the layouts of top results.'
             );

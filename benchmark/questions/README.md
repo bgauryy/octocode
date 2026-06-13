@@ -2,7 +2,7 @@
 
 This directory benchmarks two approaches to LLM-assisted code research on `vercel/next.js`: **Octocode CLI** vs **RTK + `gh` CLI**. The metric is **semantic answer quality per total chars spent on the task**: every metered call records `in_chars + out_chars`, and the denominator is the sum across *all* calls made to answer a question — not just the first. A tool that makes three follow-up calls pays for all three.
 
-**20 questions in one file.** Q1–Q10 can be answered from the remote repository. Q11–Q20 require a local clone.
+**20 questions in one file.** Q1–Q10 can be answered from remote GitHub repositories. Q11–Q20 require a local clone.
 
 ---
 
@@ -25,9 +25,9 @@ This directory benchmarks two approaches to LLM-assisted code research on `verce
 
 | Assigned role | What you do | Output directory |
 |---|---|---|
-| `researcher: octocode` | Answer all 20 questions using only metered `octocode` calls | `benchmark/questions/output/octocode/` |
-| `researcher: rtk-gh` | Answer all 20 questions using only metered `rtk` + `gh` calls | `benchmark/questions/output/rtk-gh/` |
-| `judge` | Compare completed runs semantically and by efficiency | `benchmark/questions/output/summary.md` |
+| `researcher: octocode` | Answer all 20 questions using only metered `octocode` calls | `benchmark/output/octocode/` |
+| `researcher: rtk-gh` | Answer all 20 questions using only metered `rtk` + `gh` calls | `benchmark/output/rtk-gh/` |
+| `judge` | Compare completed runs semantically and by efficiency | `benchmark/output/summary.md` |
 
 If your assigned role is unclear, ask before starting.
 
@@ -54,7 +54,7 @@ The metering wrapper reads this env var and runs `node $OCTOCODE_CLI_BIN tools .
 ## Output layout
 
 ```text
-benchmark/questions/output/
+benchmark/output/
 ├── octocode/
 │   ├── log.jsonl
 │   ├── q1.md · q1.json
@@ -75,7 +75,7 @@ benchmark/questions/output/
 Start fresh:
 
 ```bash
-rm -rf benchmark/questions/output/octocode benchmark/questions/output/rtk-gh
+rm -rf benchmark/output/octocode benchmark/output/rtk-gh
 ```
 
 ---
@@ -104,15 +104,15 @@ The rtk-gh researcher routes all calls through `rtk-meas.sh` or `gh-meas.sh` —
 
 | Script | Who uses it | Purpose |
 |---|---|---|
-| `scripts/init-run.sh <agent>` | operator | Creates `output/<agent>/`, exports `$RUN`, `$LOG`, `$QUESTIONS_FILE` |
-| `scripts/set-q.sh <n>` | researcher | Sets question sentinel, starts Q wall-clock |
-| `scripts/octo-meas.sh <tool> '<queries-json>'` | octocode researcher | Wraps `octocode tools`; logs char I/O |
-| `scripts/rtk-meas.sh <rtk args>` | rtk-gh researcher | Wraps `rtk`; logs char I/O |
-| `scripts/gh-meas.sh <gh args>` | rtk-gh researcher | Wraps bare `gh`; logs char I/O |
-| `scripts/record.sh <n> <model> /tmp/answer.md` | researcher | Aggregates Q metrics, writes `q<n>.md` + `q<n>.json` |
-| `scripts/finalize.mjs <run-dir>` | researcher | Writes `output.md` + `summary.json` |
-| `scripts/aggregate.mjs` | internal | Sums log rows for one Q |
-| `scripts/chars.mjs` | metering | Counts Unicode codepoints |
+| `benchmark/scripts/init-run.sh <agent>` | operator | Creates `benchmark/output/<agent>/`, exports `$RUN`, `$LOG`, `$QUESTIONS_FILE` |
+| `benchmark/scripts/set-q.sh <n>` | researcher | Sets question sentinel, starts Q wall-clock |
+| `benchmark/scripts/octo-meas.sh <tool> '<queries-json>'` | octocode researcher | Wraps `octocode tools`; logs char I/O |
+| `benchmark/scripts/rtk-meas.sh <rtk args>` | rtk-gh researcher | Wraps `rtk`; logs char I/O |
+| `benchmark/scripts/gh-meas.sh <gh args>` | rtk-gh researcher | Wraps bare `gh`; logs char I/O |
+| `benchmark/scripts/record.sh <n> <model> /tmp/answer.md` | researcher | Aggregates Q metrics, writes `q<n>.md` + `q<n>.json` |
+| `benchmark/scripts/finalize.mjs <run-dir>` | researcher | Writes `output.md` + `summary.json` |
+| `benchmark/scripts/aggregate.mjs` | internal | Sums log rows for one Q |
+| `benchmark/scripts/chars.mjs` | metering | Counts Unicode codepoints |
 
 ---
 
@@ -123,8 +123,8 @@ Use this section only if your assigned role is `researcher: octocode`.
 ## Validity requirements
 
 - Read [`nextjs.md`](./nextjs.md) before starting.
-- Keep the run blind: leave `output/rtk-gh/` and `output/summary.md` unread during the run.
-- Route every tool call through `scripts/octo-meas.sh`. Bare `octocode tools` is unmetered.
+- Keep the run blind: leave `benchmark/output/rtk-gh/` and `benchmark/output/summary.md` unread during the run.
+- Route every tool call through `benchmark/scripts/octo-meas.sh`. Bare `octocode tools` is unmetered.
 - For Q11–Q20: set `ALLOWED_PATHS` to include the clone so local tools can access `/tmp/nextjs-bench`.
 - Run questions sequentially — finish and record Q`n` before starting Q`n+1`.
 
@@ -134,8 +134,8 @@ Use this section only if your assigned role is `researcher: octocode`.
 export OCTOCODE_CLI_BIN="/Users/guybary/Documents/octocode-mcp/packages/octocode-cli/out/octocode-cli.js"
 export ALLOWED_PATHS="/tmp/nextjs-bench"
 git clone --depth 1 https://github.com/vercel/next.js /tmp/nextjs-bench
-rm -rf benchmark/questions/output/octocode
-source benchmark/questions/scripts/init-run.sh octocode
+rm -rf benchmark/output/octocode
+source benchmark/scripts/init-run.sh octocode
 ```
 
 ## Available tools
@@ -162,7 +162,7 @@ Use any of the 12 Octocode tools. Every call must go through the wrapper.
 Every tool call uses the wrapper:
 
 ```bash
-bash benchmark/questions/scripts/octo-meas.sh <tool-name> '<queries-json>'
+bash benchmark/scripts/octo-meas.sh <tool-name> '<queries-json>'
 ```
 
 **Required fields on every query:** `mainResearchGoal`, `researchGoal`, `reasoning`. Missing any of these will fail schema validation.
@@ -171,23 +171,23 @@ Examples:
 
 ```bash
 # Search code on GitHub (Q1–Q10)
-bash benchmark/questions/scripts/octo-meas.sh githubSearchCode \
+bash benchmark/scripts/octo-meas.sh githubSearchCode \
   '{"keywordsToSearch":["notFound"],"owner":"vercel","repo":"next.js","mainResearchGoal":"trace notFound propagation","researchGoal":"find notFound definition","reasoning":"need exact declaration file and line"}'
 
 # Get a file from GitHub (Q1–Q10)
-bash benchmark/questions/scripts/octo-meas.sh githubGetFileContent \
+bash benchmark/scripts/octo-meas.sh githubGetFileContent \
   '{"owner":"vercel","repo":"next.js","path":"packages/next/src/server/app-render/app-render.tsx","mainResearchGoal":"read renderToHTMLOrFlight signature","researchGoal":"read app-render.tsx","reasoning":"need return type and parameters"}'
 
 # Browse repo tree (Q1–Q10)
-bash benchmark/questions/scripts/octo-meas.sh githubViewRepoStructure \
+bash benchmark/scripts/octo-meas.sh githubViewRepoStructure \
   '{"owner":"vercel","repo":"next.js","path":"packages/next/src/server","mainResearchGoal":"list server subdirectories","researchGoal":"browse server dir","reasoning":"need subdirectory names"}'
 
 # Search local clone (Q11–Q20)
-bash benchmark/questions/scripts/octo-meas.sh localSearchCode \
+bash benchmark/scripts/octo-meas.sh localSearchCode \
   '{"path":"/tmp/nextjs-bench/packages/next/src/server","pattern":"TODO|FIXME|HACK","mainResearchGoal":"find all annotation comments","researchGoal":"search for TODO FIXME HACK","reasoning":"need exhaustive list with file and line"}'
 
 # LSP call hierarchy (Q11–Q20)
-bash benchmark/questions/scripts/octo-meas.sh lspGetSemanticContent \
+bash benchmark/scripts/octo-meas.sh lspGetSemanticContent \
   '{"type":"callHierarchy","uri":"/tmp/nextjs-bench/packages/next/src/server/app-render/app-render.tsx","symbolName":"renderToHTMLOrFlight","lineHint":42,"mainResearchGoal":"find all callers of renderToHTMLOrFlight","researchGoal":"incoming call hierarchy","reasoning":"need direct callers with file and line"}'
 ```
 
@@ -197,10 +197,10 @@ Run `cat "$RUN/.q-count"` to see the total number of questions (20). For each `n
 
 ```bash
 # 1. Advance the question sentinel
-bash benchmark/questions/scripts/set-q.sh <n>
+bash benchmark/scripts/set-q.sh <n>
 
 # 2. Research using metered octocode calls (repeat as needed)
-bash benchmark/questions/scripts/octo-meas.sh <tool> '<queries-json>'
+bash benchmark/scripts/octo-meas.sh <tool> '<queries-json>'
 
 # 3. Write your answer to a file
 cat > /tmp/answer.md << 'EOF'
@@ -209,7 +209,7 @@ cat > /tmp/answer.md << 'EOF'
 EOF
 
 # 4. Record the answer and metrics
-bash benchmark/questions/scripts/record.sh <n> "<model-id>" /tmp/answer.md
+bash benchmark/scripts/record.sh <n> "<model-id>" /tmp/answer.md
 ```
 
 Answer format:
@@ -221,7 +221,7 @@ Answer format:
 ## Finalize
 
 ```bash
-node benchmark/questions/scripts/finalize.mjs "$RUN"
+node benchmark/scripts/finalize.mjs "$RUN"
 ```
 
 ---
@@ -233,8 +233,8 @@ Use this section only if your assigned role is `researcher: rtk-gh`.
 ## Validity requirements
 
 - Read [`nextjs.md`](./nextjs.md) before starting.
-- Keep the run blind: leave `output/octocode/` and `output/summary.md` unread during the run.
-- Route every `rtk` call through `scripts/rtk-meas.sh` and every `gh` call through `scripts/gh-meas.sh`. Bare `rtk` or bare `gh` is unmetered.
+- Keep the run blind: leave `benchmark/output/octocode/` and `benchmark/output/summary.md` unread during the run.
+- Route every `rtk` call through `benchmark/scripts/rtk-meas.sh` and every `gh` call through `benchmark/scripts/gh-meas.sh`. Bare `rtk` or bare `gh` is unmetered.
 - For Q11–Q20: run `rtk` commands against the clone at `/tmp/nextjs-bench`.
 - Run questions sequentially.
 
@@ -242,49 +242,49 @@ Use this section only if your assigned role is `researcher: rtk-gh`.
 
 ```bash
 git clone --depth 1 https://github.com/vercel/next.js /tmp/nextjs-bench
-rm -rf benchmark/questions/output/rtk-gh
-source benchmark/questions/scripts/init-run.sh rtk-gh
+rm -rf benchmark/output/rtk-gh
+source benchmark/scripts/init-run.sh rtk-gh
 ```
 
 ## How to call rtk
 
 ```bash
-bash benchmark/questions/scripts/rtk-meas.sh <rtk-subcommand-and-args>
+bash benchmark/scripts/rtk-meas.sh <rtk-subcommand-and-args>
 ```
 
 Examples:
 
 ```bash
-bash benchmark/questions/scripts/rtk-meas.sh rg 'notFound' /tmp/nextjs-bench/packages/next/src
-bash benchmark/questions/scripts/rtk-meas.sh read /tmp/nextjs-bench/packages/next/src/server/base-server.ts
-bash benchmark/questions/scripts/rtk-meas.sh ls /tmp/nextjs-bench/packages/next/src/server
-bash benchmark/questions/scripts/rtk-meas.sh find /tmp/nextjs-bench/packages/next/src --name '*.ts'
+bash benchmark/scripts/rtk-meas.sh rg 'notFound' /tmp/nextjs-bench/packages/next/src
+bash benchmark/scripts/rtk-meas.sh read /tmp/nextjs-bench/packages/next/src/server/base-server.ts
+bash benchmark/scripts/rtk-meas.sh ls /tmp/nextjs-bench/packages/next/src/server
+bash benchmark/scripts/rtk-meas.sh find /tmp/nextjs-bench/packages/next/src --name '*.ts'
 ```
 
 ## How to call gh
 
 ```bash
-bash benchmark/questions/scripts/gh-meas.sh <gh-subcommand-and-flags>
+bash benchmark/scripts/gh-meas.sh <gh-subcommand-and-flags>
 ```
 
 Examples:
 
 ```bash
-bash benchmark/questions/scripts/gh-meas.sh api repos/vercel/next.js/contents/packages/next/src/server
-bash benchmark/questions/scripts/gh-meas.sh search code 'notFound repo:vercel/next.js' --json repository,path,textMatches
-bash benchmark/questions/scripts/gh-meas.sh pr list --repo vercel/next.js --search 'partial prerendering' --state merged --json number,title
-bash benchmark/questions/scripts/gh-meas.sh pr view 12345 --repo vercel/next.js --json title,body,files,comments,reviews
+bash benchmark/scripts/gh-meas.sh api repos/vercel/next.js/contents/packages/next/src/server
+bash benchmark/scripts/gh-meas.sh search code 'notFound repo:vercel/next.js' --json repository,path,textMatches
+bash benchmark/scripts/gh-meas.sh pr list --repo vercel/next.js --search 'partial prerendering' --state merged --json number,title
+bash benchmark/scripts/gh-meas.sh pr view 12345 --repo vercel/next.js --json title,body,files,comments,reviews
 ```
 
 ## Per-question loop
 
 ```bash
 # 1. Advance the question sentinel
-bash benchmark/questions/scripts/set-q.sh <n>
+bash benchmark/scripts/set-q.sh <n>
 
 # 2. Research using metered rtk / gh commands (repeat as needed)
-bash benchmark/questions/scripts/rtk-meas.sh rg '<pattern>' /tmp/nextjs-bench/...
-bash benchmark/questions/scripts/gh-meas.sh search code '...'
+bash benchmark/scripts/rtk-meas.sh rg '<pattern>' /tmp/nextjs-bench/...
+bash benchmark/scripts/gh-meas.sh search code '...'
 
 # 3. Write your answer to a file
 cat > /tmp/answer.md << 'EOF'
@@ -293,7 +293,7 @@ cat > /tmp/answer.md << 'EOF'
 EOF
 
 # 4. Record the answer and metrics
-bash benchmark/questions/scripts/record.sh <n> "<model-id>" /tmp/answer.md
+bash benchmark/scripts/record.sh <n> "<model-id>" /tmp/answer.md
 ```
 
 If `record.sh` reports zero rows, redo the question through the metered wrappers before moving on.
@@ -301,7 +301,7 @@ If `record.sh` reports zero rows, redo the question through the metered wrappers
 ## Finalize
 
 ```bash
-node benchmark/questions/scripts/finalize.mjs "$RUN"
+node benchmark/scripts/finalize.mjs "$RUN"
 ```
 
 ---
@@ -314,10 +314,10 @@ Wait for both researcher runs to be finalized before scoring.
 
 ```
 AGENTS:    octocode, rtk-gh
-RUNS:      benchmark/questions/output/octocode
-           benchmark/questions/output/rtk-gh
+RUNS:      benchmark/output/octocode
+           benchmark/output/rtk-gh
 QUESTIONS: benchmark/questions/nextjs.md
-OUTPUT:    benchmark/questions/output/summary.md
+OUTPUT:    benchmark/output/summary.md
 ```
 
 ## Scoring rubric
@@ -336,13 +336,13 @@ For each question also record the **efficiency ratio**: `total_chars_agent_A / t
 ## How to score
 
 For each Q, read:
-- `output/octocode/q<n>.md` — the octocode answer
-- `output/rtk-gh/q<n>.md` — the rtk-gh answer
+- `benchmark/output/octocode/q<n>.md` — the octocode answer
+- `benchmark/output/rtk-gh/q<n>.md` — the rtk-gh answer
 - The question text in `nextjs.md`
 
 Verify factual claims (file paths, line numbers, PR numbers, verbatim quotes) against the source repo directly — do not accept them at face value.
 
-Write one row per question to `output/summary.md`:
+Write one row per question to `benchmark/output/summary.md`:
 
 ```markdown
 | Q | octocode D | rtk-gh D | octocode chars | rtk-gh chars | Notes |
@@ -356,9 +356,9 @@ Then add a totals row and a brief qualitative verdict.
 **Special scoring notes:**
 
 - Code archaeology (Q1, Q5, Q7, Q8, Q11, Q13): full D=3 only when all three sub-answers include exact verbatim quotes with correct file:line citations.
-- Symbol definitions (Q2, Q17–Q19): deduct for import sites returned instead of declaration sites.
-- Search completeness (Q3, Q4, Q12, Q19): verify total count independently from a fresh clone.
-- PR research (Q9, Q10): verify PR number, body quote, and inline comment count against the cited PR directly.
+- Benchmark/eval discovery (Q9, Q10, Q12, Q14, Q16): full D=3 requires the named benchmark/eval artifact, its file path, and the concrete source lines or README lines proving how it is structured or run.
+- Symbol definitions (Q2, Q17, Q18): deduct for import sites returned instead of declaration sites.
+- Search completeness (Q3, Q4, Q12, Q14, Q19): verify total count independently from a fresh clone or the cited GitHub repository.
 - Call hierarchy (Q20): verify every direct caller — agents that miss one or include indirect callers score D≤1.
 
 ---
@@ -381,5 +381,4 @@ Then add a totals row and a brief qualitative verdict.
 ## Links
 
 - Questions: [`benchmark/questions/nextjs.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/questions/nextjs.md)
-- Prior art: [`benchmark/rtk/README.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/rtk/README.md) — same framework on `rtk-ai/rtk`
 - Benchmark framework: [`benchmark/README.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/README.md)

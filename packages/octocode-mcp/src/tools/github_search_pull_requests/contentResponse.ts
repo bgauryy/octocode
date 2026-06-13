@@ -1,6 +1,6 @@
 import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../config.js';
 import type { NormalizedPrContentRequest } from './contentRequest.js';
-import { applyContentViewMinification } from '@octocodeai/octocode-minifier-utils';
+import { applyContentViewMinification, minifyMarkdownCore } from '@octocodeai/octocode-minifier-utils';
 
 type QueryLike = {
   owner?: string;
@@ -213,10 +213,12 @@ function shapeComments(
   );
   return {
     comments: items.map(comment => {
+      // Each comment body always starts at offset 0 — charOffset from the
+      // query is for the PR body continuation only, not per-comment pagination.
       const body = paginateText(
         typeof comment.body === 'string' ? comment.body : '',
-        query.charOffset ?? 0,
-        query.charLength ?? 8_000
+        0,
+        query.charLength ?? 12_000
       );
       return {
         id: comment.id,
@@ -224,6 +226,9 @@ function shapeComments(
         commentType: comment.commentType ?? 'discussion',
         path: comment.path,
         line: comment.line,
+        ...(comment.in_reply_to_id != null
+          ? { in_reply_to_id: comment.in_reply_to_id }
+          : {}),
         // bodyPreview is only a fallback — when the full (paginated) body is
         // included it would duplicate the same text verbatim.
         ...(body
@@ -255,16 +260,26 @@ function shapeReviews(
     ? allReviews.filter(review => containsNeedle(review.body, needle))
     : allReviews;
   return {
-    reviews: reviews.map(review => ({
-      id: review.id,
-      user: review.user,
-      state: review.state,
-      bodyPreview: compactBody(
-        typeof review.body === 'string' ? review.body : ''
-      ),
-      submittedAt: review.submittedAt ?? review.submitted_at,
-      commitId: review.commitId ?? review.commit_id,
-    })),
+    reviews: reviews.map(review => {
+      // Paginate the review body. charOffset=0 always (review bodies start
+      // fresh — charOffset is for PR body continuation only).
+      const rawBody = typeof review.body === 'string' ? review.body : '';
+      const paginated = paginateText(
+        rawBody || undefined,
+        0,
+        query.charLength ?? 12_000
+      );
+      return {
+        id: review.id,
+        user: review.user,
+        state: review.state,
+        ...(paginated
+          ? { body: paginated.content, bodyPagination: paginated.pagination }
+          : {}),
+        submittedAt: review.submittedAt ?? review.submitted_at,
+        commitId: review.commitId ?? review.commit_id,
+      };
+    }),
   };
 }
 
@@ -327,12 +342,16 @@ function shapeFileSurfaces(
   );
 
   const includePatch = request.patches.mode !== 'none';
+  // When matchString is active, skip minification so the displayed patch
+  // contains the matched text. Minification could otherwise strip the very
+  // lines that caused the file to match (e.g. comment-only diff lines).
+  const effectiveMinify = shouldMinify && !needle;
   const shaped = items.map(change => {
     const base = shapeFileChange(change, false);
     if (!includePatch || typeof change.patch !== 'string') return base;
     const rawPatch = change.patch;
     const processedPatch =
-      shouldMinify && typeof rawPatch === 'string'
+      effectiveMinify && typeof rawPatch === 'string'
         ? minifyPatchView(rawPatch, filePathOf(change))
         : rawPatch;
     const patch = paginateText(
@@ -378,7 +397,13 @@ export function shapePullRequestForContent(
   const prNumber = Number(pr.number);
   const body = request.body
     ? paginateText(
-        typeof pr.body === 'string' ? pr.body : undefined,
+        (() => {
+          const raw = typeof pr.body === 'string' ? pr.body : undefined;
+          if (!raw) return undefined;
+          // Apply markdown minification when the standard (token-saving) view
+          // is requested. minify:"none" opts out for exact-text quoting.
+          return shouldMinify ? minifyMarkdownCore(raw) : raw;
+        })(),
         query.charOffset ?? 0,
         query.charLength ?? 12_000
       )
@@ -406,21 +431,33 @@ export function shapePullRequestForContent(
     title: pr.title,
     ...(fullShape ? { url: pr.url } : {}),
     state: pr.state,
-    draft: pr.draft,
+    // draft only emitted when true (false is the normal case, wastes tokens)
+    ...(pr.draft ? { draft: pr.draft } : {}),
     author: pr.author,
     ...(Array.isArray(pr.assignees) && pr.assignees.length
       ? { assignees: pr.assignees }
       : {}),
-    labels: pr.labels ?? [],
+    // labels omitted when empty
+    ...(Array.isArray(pr.labels) && (pr.labels as unknown[]).length
+      ? { labels: pr.labels }
+      : {}),
     targetBranch: pr.targetBranch,
+    // verbose: expose branch details and SHA for precise checkout/diff context
+    ...(fullShape
+      ? {
+          sourceBranch: pr.sourceBranch,
+          ...(pr.sourceSha ? { sourceSha: pr.sourceSha } : {}),
+        }
+      : {}),
     createdAt: pr.createdAt,
     ...(fullShape ? { updatedAt: pr.updatedAt } : {}),
     ...(fullShape || !pr.mergedAt ? { closedAt: pr.closedAt } : {}),
     mergedAt: pr.mergedAt,
     ...(pr.commentsCount ? { commentsCount: pr.commentsCount } : {}),
     changedFilesCount: pr.changedFilesCount,
-    additions: pr.additions,
-    deletions: pr.deletions,
+    // additions/deletions omitted when zero
+    ...(pr.additions ? { additions: pr.additions } : {}),
+    ...(pr.deletions ? { deletions: pr.deletions } : {}),
     // bodyPreview is only a fallback — omitted when the full (paginated)
     // body is part of this response.
     ...(fullShape && !body
@@ -435,12 +472,22 @@ export function shapePullRequestForContent(
 
   return {
     ...metadata,
-    ...(body ? { body: body.content, bodyPagination: body.pagination } : {}),
+    // When body was explicitly requested but the PR has no description,
+    // emit bodyEmpty:true so the agent knows it was fetched (not just missing).
+    ...(request.body
+      ? body
+        ? { body: body.content, bodyPagination: body.pagination }
+        : { bodyEmpty: true }
+      : {}),
     ...shapeFileSurfaces(pr, query, request, shouldMinify),
     ...shapeComments(pr, query, request),
     ...shapeReviews(pr, query, request),
     ...shapeCommits(pr, query, request),
     ...(pr.reviewSummary ? { reviewSummary: pr.reviewSummary } : {}),
+    // Warnings from bot filtering, secret redaction — must reach agent output.
+    ...(Array.isArray(pr.sanitizationWarnings) && (pr.sanitizationWarnings as unknown[]).length > 0
+      ? { sanitizationWarnings: pr.sanitizationWarnings }
+      : {}),
   };
 }
 

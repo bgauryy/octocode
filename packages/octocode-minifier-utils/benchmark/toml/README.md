@@ -4,52 +4,14 @@ Source sample: `toml/rust-cargo.toml`
 
 Strategy: `conservative`
 
-Agent rating: **8.5/10 (strong)**
-
-Agent understanding from minified output: **9.6/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 3039 | - | - | - |
-| content-view | 1881 | 38.1% | 0.286 ms | 8.5/10 |
-| applyMinification | 1885 | 38% | 0.269 ms | 8.5/10 |
-| sync minify | 1885 | 38% | 0.251 ms | 8.5/10 |
-| async minify | 1885 | 38% | 0.247 ms | 8.5/10 |
-| symbols | n/a | n/a | 0.003 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 9/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 3039 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 1881 | 38.1% | 9.6/10 excellent | 10/10 | 10/10 |
-| minify | 1885 | 38% | 9.6/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             |  3039 |     - |        - |
+| content-view      |  1881 | 38.1% | 0.286 ms |
+| applyMinification |  1885 |   38% | 0.269 ms |
+| sync minify       |  1885 |   38% | 0.251 ms |
+| async minify      |  1885 |   38% | 0.247 ms |
+| symbols           |   n/a |   n/a | 0.003 ms |
 
 ## Notes
 

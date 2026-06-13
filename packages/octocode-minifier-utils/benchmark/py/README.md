@@ -4,52 +4,14 @@ Source sample: `py/00-httpx-client.py`
 
 Strategy: `conservative`
 
-Agent rating: **7.9/10 (good)**
-
-Agent understanding from minified output: **9.8/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 65713 | - | - | - |
-| content-view | 51725 | 21.3% | 16.09 ms | 7.8/10 |
-| applyMinification | 51801 | 21.2% | 15.375 ms | 7.8/10 |
-| sync minify | 51801 | 21.2% | 15.527 ms | 7.8/10 |
-| async minify | 51801 | 21.2% | 15.069 ms | 7.8/10 |
-| symbols | 30668 | 53.3% | 21.099 ms | 8/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 8/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 65713 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 51725 | 21.3% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 51801 | 21.2% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 30668 | 53.3% | 8.7/10 strong | 6.7/10 | 10/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 65713 |     - |         - |
+| content-view      | 51725 | 21.3% |  16.09 ms |
+| applyMinification | 51801 | 21.2% | 15.375 ms |
+| sync minify       | 51801 | 21.2% | 15.527 ms |
+| async minify      | 51801 | 21.2% | 15.069 ms |
+| symbols           | 30668 | 53.3% | 21.099 ms |
 
 ## Notes
 

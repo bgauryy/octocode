@@ -7,7 +7,7 @@ use crate::file_extension::get_extension_internal;
 use extractor::{extract, LangExtractConfig};
 
 pub const SIGNATURES_ONLY_HINT: &str = concat!(
-    "Signatures only — bodies and comments omitted; ",
+    "Signatures/outline only — bodies and comments omitted; ",
     "the whole skeleton is returned in one response (never paginated). ",
     "Left gutter shows original line numbers; use startLine/endLine to read a body."
 );
@@ -15,7 +15,9 @@ pub const SIGNATURES_ONLY_HINT: &str = concat!(
 /// Extract a structural skeleton from `content`.
 /// Returns `NNN| text` rendered string or `None`.
 pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minifier::MAX_SIZE { return None; }
+    if content.len() > crate::minifier::MAX_SIZE {
+        return None;
+    }
     std::panic::catch_unwind(|| {
         let ext = get_extension_internal(file_path, true, "txt");
         extract_by_ext(content, &ext)
@@ -23,36 +25,46 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
     .unwrap_or(None)
 }
 
-/// Extensions where symbol extraction reliably produces output LARGER than
-/// the source or adds no semantic value (config, data, and prose formats).
 /// Extensions where symbol extraction has no semantic value:
 /// data/config formats have key-value pairs, not code signatures;
-/// prose/doc formats have section headings, not function declarations.
+/// most prose formats have no reliable navigation anchors.
 /// Code languages (Lua, Erlang, Clojure, VB) are intentionally excluded
 /// even when their heuristic grows output — the skeleton is still useful.
 const NO_SYMBOL_EXTS: &[&str] = &[
     // Data / config — no code signatures whatsoever
-    "json", "jsonc", "json5",
-    "yaml", "yml",
+    "json",
+    "jsonc",
+    "json5",
+    "yaml",
+    "yml",
     "toml",
-    "ini", "cfg", "conf", "config", "properties", "env",
-    "csv", "tsv",
-    "xml", "svg",
-    // Prose / docs — no function declarations
-    "md", "markdown",
+    "ini",
+    "cfg",
+    "conf",
+    "config",
+    "properties",
+    "env",
+    "csv",
+    "tsv",
+    "xml",
+    "svg",
+    // Prose/docs without a dedicated outline extractor.
     "rst",
-    "txt", "log",
+    "txt",
+    "log",
 ];
 
 fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
     // P0: never extract symbols for formats with no code signatures
-    if NO_SYMBOL_EXTS.contains(&ext) { return None; }
+    if NO_SYMBOL_EXTS.contains(&ext) {
+        return None;
+    }
 
     // ── tree-sitter path (top-10 languages) ─────────────────────────────────
     if let Some(entry) = languages::find_entry(ext) {
         let cfg = LangExtractConfig {
-            language:      (entry.language_fn)(),
-            body_query:    entry.body_query,
+            language: (entry.language_fn)(),
+            body_query: entry.body_query,
             comment_style: entry.comment_style,
         };
         // Try tree-sitter; fall back to heuristic on failure.
@@ -70,12 +82,13 @@ fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
 
 fn comment_style_for(ext: &str) -> &'static str {
     match ext {
-        "py"|"rb"|"sh"|"bash"|"zsh"|"fish"|"coffee"|"r"|"nim"|"jl"
-        |"pl"|"pm"|"ex"|"exs"|"cr"|"pp" => "hash",
-        "hs"|"lhs"|"lua"|"erl"|"hrl" => "hash",
-        "html"|"htm"|"vue"|"svelte"  => "html",
-        "sql"|"tsql"|"plsql"         => "sql",
-        "php"                        => "c-hash",
+        "py" | "rb" | "sh" | "bash" | "zsh" | "fish" | "coffee" | "r" | "nim" | "jl" | "pl"
+        | "pm" | "ex" | "exs" | "cr" | "pp" => "hash",
+        "hs" | "lhs" | "lua" | "erl" | "hrl" => "hash",
+        "html" | "htm" | "vue" | "svelte" => "html",
+        "sql" | "tsql" | "plsql" => "sql",
+        "php" => "c-hash",
+        "md" | "markdown" => "none",
         _ => "c",
     }
 }
@@ -118,9 +131,15 @@ mod tests {
     fn python_one_line_def_keeps_its_signature_row() {
         let src = "def f(): return 1\n\ndef g():\n    return 2\n";
         let s = extract(src, "one.py").expect("must extract");
-        assert!(s.contains("def f(): return 1"), "one-liner signature dropped: '{s}'");
+        assert!(
+            s.contains("def f(): return 1"),
+            "one-liner signature dropped: '{s}'"
+        );
         assert!(s.contains("def g():"));
-        assert!(!s.contains("return 2"), "multi-line body must still drop: '{s}'");
+        assert!(
+            !s.contains("return 2"),
+            "multi-line body must still drop: '{s}'"
+        );
     }
 
     #[test]
@@ -155,9 +174,9 @@ mod tests {
         assert!(!s.contains("printf"), "body dropped");
     }
 
-    // ── NO_SYMBOL_EXTS denylist: data / config / prose return None ────────────
+    // ── NO_SYMBOL_EXTS denylist: data / config / unsupported prose return None ─
     #[test]
-    fn data_and_prose_formats_return_none() {
+    fn data_and_unsupported_prose_formats_return_none() {
         let cases: &[(&str, &str)] = &[
             ("{\"key\":\"value\",\"count\":42}", "data.json"),
             ("// comment\n{\"a\": 1}", "tsconfig.json"),
@@ -165,7 +184,6 @@ mod tests {
             ("name: my-app\nversion: 1.0.0", "package.yml"),
             ("[package]\nname = \"foo\"", "Cargo.toml"),
             ("[section]\nkey = value", "config.ini"),
-            ("# Title\n\nSome text.", "README.md"),
             ("Title\n=====\n\nProse.", "docs.rst"),
         ];
         for (content, path) in cases {
@@ -177,9 +195,60 @@ mod tests {
     }
 
     #[test]
+    fn markdown_skeleton_keeps_headings_links_and_list_items() {
+        let src = r#"---
+title: Guide
+draft: false
+---
+
+# Project
+
+Intro with [Docs](https://example.com/docs) and [API][api].
+
+## Install ##
+
+- yarn install
+* cargo test
+
+```ts
+export function hidden() {
+  return 1;
+}
+```
+
+Details that should not be part of the outline.
+
+API
+===
+
+[api]: ./api.md
+"#;
+        let s = extract(src, "README.md").expect("markdown must extract");
+        assert!(s.contains("frontmatter: title"));
+        assert!(s.contains("# Project"));
+        assert!(s.contains("links: [Docs](https://example.com/docs), [API][api]"));
+        assert!(s.contains("## Install"));
+        assert!(s.contains("- yarn install"));
+        assert!(s.contains("* cargo test"));
+        assert!(s.contains("code fence: ts"));
+        assert!(s.contains("# API"));
+        assert!(s.contains("link ref: [api]: ./api.md"));
+        assert!(!s.contains("hidden"));
+        assert!(!s.contains("Details that should not"));
+    }
+
+    #[test]
     fn code_formats_still_extract_despite_denylist() {
-        assert!(extract("CREATE TABLE users (id INT, name VARCHAR(255));", "schema.sql").is_some());
-        assert!(extract("export function add(a: number, b: number): number { return a + b; }", "math.ts").is_some());
+        assert!(extract(
+            "CREATE TABLE users (id INT, name VARCHAR(255));",
+            "schema.sql"
+        )
+        .is_some());
+        assert!(extract(
+            "export function add(a: number, b: number): number { return a + b; }",
+            "math.ts"
+        )
+        .is_some());
     }
 
     // ── size cap ──────────────────────────────────────────────────────────────

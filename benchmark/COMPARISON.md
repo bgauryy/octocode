@@ -1,6 +1,6 @@
 # Benchmark Comparison Methodology
 
-This benchmark suite compares research tools by the answer they let an agent produce, not by raw command speed alone. A tool wins only when it preserves factual quality and research depth while spending fewer measured characters or tokens.
+This benchmark suite compares research tools by the answer they let an agent produce, not by raw command speed alone. A tool wins only when it preserves factual quality and research depth while spending fewer measured characters.
 
 ---
 
@@ -9,10 +9,11 @@ This benchmark suite compares research tools by the answer they let an agent pro
 | File | Job |
 |---|---|
 | `benchmark/README.md` | Folder map, runbook, output contract |
-| `benchmark/COMPARISON.md` | Methodology, scoring rules, token/character policy |
-| `benchmark/OCTOCODE_RESEARCHER.md` | Paste-ready instructions for Octocode researcher agents |
-| `benchmark/judge/prompt.md` | Paste-ready instructions for judge agents |
-| `benchmark/<suite>/README.md` | Suite-specific setup, allowed tools, and caveats |
+| `benchmark/COMPARISON.md` | Methodology, scoring rules, character/token policy |
+| `benchmark/prompts/octocode-researcher.md` | Paste-ready instructions for Octocode researcher agents |
+| `benchmark/prompts/rtk-gh-researcher.md` | Paste-ready instructions for RTK + gh researcher agents |
+| `benchmark/prompts/judge.md` | Paste-ready instructions for judge agents |
+| `benchmark/questions/README.md` | Question-bank-specific setup, allowed tools, and caveats |
 
 ---
 
@@ -20,13 +21,11 @@ This benchmark suite compares research tools by the answer they let an agent pro
 
 | Comparison | Question set | Agents | Claim it can support |
 |---|---|---|---|
-| GitHub research | `benchmark/github/QUESTIONS.md` | `octocode` vs `gh` | Whether structured GitHub tools beat raw GitHub CLI for search, file content, repo structure, PRs, repo search, and package lookup. |
-| Local + GitHub filtering | `benchmark/rtk/QUESTIONS.md` | `octocode` vs `rtk` | Whether structured retrieval beats token-saving CLI filtering for local code, comments, metadata, PRs, and remote content. |
-| Full code research | `benchmark/questions/nextjs.md` wired into a suite harness | `octocode` vs `gh` vs `rtk` | End-to-end research quality across GitHub, local clone work, package registry lookup, exhaustive search, and LSP-style symbol questions. |
+| Full code research | `benchmark/questions/nextjs.md` | `octocode` vs `rtk-gh` | End-to-end research quality across GitHub, local clone work, package registry lookup, exhaustive search, and LSP-style symbol questions. |
 
-Use `rtk gh` as a separate agent only when the claim is about rtk's filtering layer. If the output is identical to `gh`, report it as a `gh` proxy result, not a new research capability.
+Use `rtk-gh` as a single agent when the claim is about RTK local filtering plus raw GitHub CLI coverage. If a future run compares bare `gh` separately, keep it as its own run directory under `benchmark/output/gh`.
 
-`benchmark/questions/*.md` files are question banks. They become runnable only when paired with metering scripts and an output directory.
+`benchmark/questions/*.md` files are question banks. They become runnable through `benchmark/scripts/init-run.sh`; set `QUESTIONS_FILE` when using a non-default question bank.
 
 ---
 
@@ -48,7 +47,7 @@ Avoid questions that can be answered from memory, README summaries, or subjectiv
 
 ---
 
-## Token And Character Measurement
+## Character And Optional Token Measurement
 
 The canonical ruler is:
 
@@ -82,7 +81,7 @@ Count what the research agent sees:
 | Judge fact-checking calls | No | The judge is outside researcher runs. |
 | Wall-clock time | No winner impact | Report only as context. |
 
-For CLI-only runs in `benchmark/github/` and `benchmark/rtk/`, there is no MCP session schema-loading cost. If a future MCP-server benchmark includes a startup tool-list or schema dump, record it separately as init cost and amortize it across answered questions.
+For the current CLI-wrapper runs, there is no MCP session schema-loading cost. If a future MCP-server benchmark includes a startup tool-list or schema dump, record it separately as init cost and amortize it across answered questions.
 
 ---
 
@@ -142,8 +141,7 @@ node benchmark/scripts/score-comparison.mjs \
   --scores benchmark/output/quality-depth.json \
   --markdown \
   octocode=benchmark/output/octocode \
-  gh=benchmark/output/gh \
-  rtk=benchmark/output/rtk
+  rtk-gh=benchmark/output/rtk-gh
 ```
 
 The scorer performs arithmetic only. It does not judge factual correctness.

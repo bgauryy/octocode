@@ -475,7 +475,8 @@ function markerPatternsFor(ext) {
 
 function syntaxAnchorRating(ext, output) {
   const patterns = markerPatternsFor(ext);
-  const hits = patterns.filter(pattern => pattern.test(output)).length;
+  const markerInput = output.replace(/^\s*\d+\|\s?/gm, '');
+  const hits = patterns.filter(pattern => pattern.test(markerInput)).length;
   return {
     score: clampScore((hits / patterns.length) * 10),
     hits,
@@ -1136,18 +1137,16 @@ function metricTable(metric) {
     metric.symbols.cutPercent === null
       ? 'n/a'
       : `${metric.symbols.cutPercent}%`;
-  const symbolRating =
-    metric.ratings.symbols === null ? 'n/a' : `${metric.ratings.symbols}/10`;
 
   return [
-    '| Tool | Bytes | Cut | Time | Rating |',
-    '| --- | ---: | ---: | ---: | ---: |',
-    `| input | ${metric.sourceBytes} | - | - | - |`,
-    `| content-view | ${metric.contentView.bytes} | ${metric.contentView.cutPercent}% | ${metric.contentView.durationMs} ms | ${metric.ratings.minify}/10 |`,
-    `| applyMinification | ${metric.applyMinification.bytes} | ${metric.applyMinification.cutPercent}% | ${metric.applyMinification.durationMs} ms | ${metric.ratings.minify}/10 |`,
-    `| sync minify | ${metric.sync.bytes} | ${metric.sync.cutPercent}% | ${metric.sync.durationMs} ms | ${metric.ratings.minify}/10 |`,
-    `| async minify | ${metric.async.bytes} | ${metric.async.cutPercent}% | ${metric.async.durationMs} ms | ${metric.ratings.minify}/10 |`,
-    `| symbols | ${metric.symbols.bytes ?? 'n/a'} | ${symbolCut} | ${metric.symbols.durationMs} ms | ${symbolRating} |`,
+    '| Tool | Bytes | Cut | Time |',
+    '| --- | ---: | ---: | ---: |',
+    `| input | ${metric.sourceBytes} | - | - |`,
+    `| content-view | ${metric.contentView.bytes} | ${metric.contentView.cutPercent}% | ${metric.contentView.durationMs} ms |`,
+    `| applyMinification | ${metric.applyMinification.bytes} | ${metric.applyMinification.cutPercent}% | ${metric.applyMinification.durationMs} ms |`,
+    `| sync minify | ${metric.sync.bytes} | ${metric.sync.cutPercent}% | ${metric.sync.durationMs} ms |`,
+    `| async minify | ${metric.async.bytes} | ${metric.async.cutPercent}% | ${metric.async.durationMs} ms |`,
+    `| symbols | ${metric.symbols.bytes ?? 'n/a'} | ${symbolCut} | ${metric.symbols.durationMs} ms |`,
   ].join('\n');
 }
 
@@ -1195,33 +1194,7 @@ Source sample: \`${metric.source}\`
 
 Strategy: \`${metric.strategy}\`
 
-Agent rating: **${metric.ratings.agent}/10 (${metric.ratings.label})**
-
-Agent understanding from minified output: **${metric.agentUnderstanding.score}/10 (${metric.agentUnderstanding.label})**
-
-Artifacts:
-
-- \`raw/source.excerpt.txt\`
-- \`minified/content-view.excerpt.txt\`
-- \`minified/apply-minification.excerpt.txt\`
-- \`minified/minify-content-sync.excerpt.txt\`
-- \`minified/minify-content-async.excerpt.txt\`
-- \`symbol/signatures.txt\`
-
 ${metricTable(metric)}
-
-## Agent Understanding
-
-Measured from \`${metric.agentUnderstanding.output}\` minified output.
-
-${agentUnderstandingTable(metric)}
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-${agentObservationTable(metric)}
 
 ## Notes
 
@@ -1291,7 +1264,7 @@ function writeBenchmarkArtifacts(languageDir, metric) {
 
 Source sample: \`${metric.source}\`
 
-This folder stores an excerpt and metadata for the original real-code sample.
+This folder stores an excerpt of the original real-code sample.
 Full third-party source files are intentionally not vendored.
 `
   );
@@ -1358,47 +1331,20 @@ Returned symbols for this sample: \`${metric.symbols.returned}\`
   );
 }
 
-function rootSummary(metrics, corpusRoot, missingExtensions) {
+function rootSummary(metrics) {
   const quality = qualitySummary(metrics);
-  const understanding = agentUnderstandingSummary(metrics);
-  const observations = agentObservationSummary(metrics);
-  const readmeRating = readmeMinificationRating(metrics);
   const typeDistribution = asyncTypeDistribution(metrics);
   const commonTypeRows = commonTypeMetrics(metrics).map(metric => {
     const symbolCut =
       metric.symbols.cutPercent === null
         ? 'n/a'
         : `${metric.symbols.cutPercent}%`;
-    return `| \`${metric.ext}\` | ${metric.language} | \`${metric.strategy}\` | \`${metric.async.type}\` | ${metric.contentView.cutPercent}% | ${metric.applyMinification.cutPercent}% | ${metric.async.cutPercent}% | ${symbolCut} | \`${metric.source}\` |`;
+    return `| \`${metric.ext}\` | ${metric.language} | \`${metric.strategy}\` | \`${metric.async.type}\` | ${metric.sourceBytes} | ${metric.contentView.cutPercent}% | ${metric.applyMinification.cutPercent}% | ${metric.sync.cutPercent}% | ${metric.async.cutPercent}% | ${symbolCut} | \`${metric.source}\` |`;
   });
   const typeDistributionText = Object.entries(typeDistribution)
     .map(([type, info]) => `${type} ${info.count}`)
     .join(', ');
-  const rows = metrics.map(metric => {
-    const symbolCut =
-      metric.symbols.cutPercent === null
-        ? 'n/a'
-        : `${metric.symbols.cutPercent}%`;
-    return `| \`${metric.ext}\` | ${metric.language} | \`${metric.ext}/README.md\` | ${metric.sourceBytes} | ${metric.contentView.cutPercent}% | ${metric.applyMinification.cutPercent}% | ${metric.sync.cutPercent}% | ${metric.async.cutPercent}% | ${symbolCut} | ${metric.ratings.agent}/10 ${metric.ratings.label} |`;
-  });
-  const understandingRows = metrics.map(metric => {
-    const agentUnderstanding = metric.agentUnderstanding;
-    const signalsPassed = agentUnderstanding.signals.filter(
-      signal => signal.passed
-    ).length;
-    return `| \`${metric.ext}\` | ${metric.language} | ${agentUnderstanding.score}/10 ${agentUnderstanding.label} | ${agentUnderstanding.syntaxAnchors.score}/10 (${agentUnderstanding.syntaxAnchors.hits}/${agentUnderstanding.syntaxAnchors.total}) | ${agentUnderstanding.structure}/10 | ${agentUnderstanding.outputHealth}/10 | ${agentUnderstanding.contextBudget}/10 | ${agentUnderstanding.symbols}/10 | ${signalsPassed}/${agentUnderstanding.signals.length} |`;
-  });
-  const observationRows = metrics.map(metric => {
-    const { none, standard, minify, symbols } = metric.agentObservations;
-    const symbolText = symbols
-      ? `${symbols.score}/10 ${symbols.label} (${symbols.cutPercent}%)`
-      : 'n/a';
-    return `| \`${metric.ext}\` | ${metric.language} | ${none.score}/10 ${none.label} (${none.cutPercent}%) | ${standard.score}/10 ${standard.label} (${standard.cutPercent}%) | ${minify.score}/10 ${minify.label} (${minify.cutPercent}%) | ${symbolText} |`;
-  });
-
   return `# Real-Code Minifier Benchmark
-
-Generated from local corpus: \`${corpusRoot}\`
 
 This directory records before/after excerpts and metrics for one real sample per
 discovered extension. Full third-party source files are not vendored here; use
@@ -1406,88 +1352,9 @@ the generator to recreate reports from a local corpus.
 
 ## Summary
 
-- Agent-context minifier rating: **${quality.averageAgent}/10**
-- Minify rating: **${quality.averageMinify}/10**
-- Agent understanding from minified output: **${understanding.averageScore}/10**
-- Agent usefulness across output levels: **${observations.overallAgentUsefulness}/10**
-- Symbols rating where supported: **${quality.averageSymbolsWhenSupported}/10** (${quality.symbolsReturned}/${quality.symbolsSupported} returned)
+- Samples covered: ${metrics.length}
+- Symbol skeletons returned: ${quality.symbolsReturned}/${quality.symbolsSupported}
 - Average cuts: content-view ${quality.averageContentViewCut}%, apply ${quality.averageApplyCut}%, async ${quality.averageAsyncCut}%
-- Rating buckets: ${Object.entries(quality.buckets)
-    .map(([label, count]) => `${label} ${count}`)
-    .join(', ')}
-
-${
-  readmeRating
-    ? `## Real README Minification Rating
-
-Source: \`${readmeRating.source}\`
-
-Overall README rating: **${readmeRating.score}/10 (${readmeRating.label})**
-
-| Dimension | Score / Value |
-| --- | ---: |
-| Input bytes | ${readmeRating.inputBytes} |
-| Content-view bytes | ${readmeRating.outputBytes} |
-| Content-view cut | ${readmeRating.cutPercent}% |
-| Readability preservation | ${readmeRating.readabilityScore}/10 |
-| Byte reduction | ${readmeRating.byteReductionScore}/10 |
-
-Signals: ${readmeRating.signals
-        .map(signal => `${signal.passed ? 'passed' : 'failed'} ${signal.name}`)
-        .join(', ')}.
-
-${readmeRating.notes.map(note => `- ${note}`).join('\n')}
-
-`
-    : ''
-}
-## Agent Understanding Quality From Minified Output
-
-Measured from \`content-view\` output, which is the minified form intended for
-agent context. Scores weight syntax anchors 40%, delimiter structure 20%,
-output health 20%, context budget 10%, and symbol context 10%.
-
-Rating buckets: ${Object.entries(understanding.buckets)
-    .map(([label, count]) => `${label} ${count}`)
-    .join(', ')}
-
-| Ext | Format | Understanding | Syntax anchors | Structure | Output health | Context budget | Symbol context | Signals |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-${understandingRows.join('\n')}
-
-## Agent Observation By Output Level
-
-Measured from the actual raw and generated outputs for each language. \`none\`
-is exact source fidelity, \`standard\` is the default agent-readable minified
-view, \`minify\` is the full async minifier output, and \`symbols\` is the
-navigation skeleton when available.
-
-| Level | Samples | Avg score | Avg cut | Buckets |
-| --- | ---: | ---: | ---: | --- |
-| none | ${observations.levels.none.count} | ${observations.levels.none.averageScore}/10 | ${observations.levels.none.averageCut}% | ${Object.entries(
-    observations.levels.none.buckets
-  )
-    .map(([label, count]) => `${label} ${count}`)
-    .join(', ')} |
-| standard | ${observations.levels.standard.count} | ${observations.levels.standard.averageScore}/10 | ${observations.levels.standard.averageCut}% | ${Object.entries(
-    observations.levels.standard.buckets
-  )
-    .map(([label, count]) => `${label} ${count}`)
-    .join(', ')} |
-| minify | ${observations.levels.minify.count} | ${observations.levels.minify.averageScore}/10 | ${observations.levels.minify.averageCut}% | ${Object.entries(
-    observations.levels.minify.buckets
-  )
-    .map(([label, count]) => `${label} ${count}`)
-    .join(', ')} |
-| symbols | ${observations.levels.symbols.count} | ${observations.levels.symbols.averageScore}/10 | ${observations.levels.symbols.averageCut}% | ${Object.entries(
-    observations.levels.symbols.buckets
-  )
-    .map(([label, count]) => `${label} ${count}`)
-    .join(', ')} |
-
-| Ext | Format | none | standard | minify | symbols |
-| --- | --- | ---: | ---: | ---: | ---: |
-${observationRows.join('\n')}
 
 ## Competitor Baseline
 
@@ -1506,40 +1373,9 @@ compiler and bundler minifiers are the right baseline for deployable output:
 
 Measured async result types across the real corpus: ${typeDistributionText}.
 
-| Ext | Format | Configured strategy | Async type | Content-view cut | Apply cut | Async cut | Symbols cut | Source |
-| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
+| Ext | Format | Configured strategy | Async type | Input bytes | Content-view cut | Apply cut | Sync cut | Async cut | Symbols cut | Source |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 ${commonTypeRows.join('\n')}
-
-| Ext | Format | Report | Input bytes | Content-view cut | Apply cut | Sync cut | Async cut | Symbols cut | Agent rating |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-${rows.join('\n')}
-
-## Coverage
-
-- Configured extensions: ${Object.keys(MINIFY_CONFIG.fileTypes).length}
-- Real corpus extensions covered here: ${metrics.length}
-- Configured extensions missing from this corpus: ${missingExtensions.length}
-
-See \`missing-real-samples.md\` for formats that are
-supported by the package but not present in this local corpus.
-
-## Weakest Measured Formats
-
-${quality.weakest
-  .map(
-    metric =>
-      `- \`.${metric.ext}\` ${metric.language}: ${metric.agent}/10 ${metric.label}; content-view cut ${metric.contentViewCut}%, async cut ${metric.asyncCut}%, symbols ${metric.symbolsReturned ? 'returned' : 'not returned'}.`
-  )
-  .join('\n')}
-
-## Weakest Agent Understanding Scores
-
-${understanding.weakest
-  .map(
-    metric =>
-      `- \`.${metric.ext}\` ${metric.language}: ${metric.score}/10 ${metric.label}; syntax anchors ${metric.syntaxAnchors}/10, structure ${metric.structure}/10, output health ${metric.outputHealth}/10, context budget ${metric.contextBudget}/10, symbols ${metric.symbols}/10.`
-  )
-  .join('\n')}
 
 ## Regenerate
 
@@ -1655,10 +1491,7 @@ async function main() {
       2
     )}\n`
   );
-  writeFileSync(
-    join(outputRoot, 'README.md'),
-    rootSummary(metrics, corpusRoot, missingExtensions)
-  );
+  writeFileSync(join(outputRoot, 'README.md'), rootSummary(metrics));
   writeFileSync(
     join(outputRoot, 'missing-real-samples.md'),
     missingReport(missingExtensions)

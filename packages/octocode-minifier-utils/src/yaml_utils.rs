@@ -18,11 +18,7 @@ pub fn json_to_yaml_string_inner(
     }
 }
 
-fn json_to_yaml_value(
-    json: serde_json::Value,
-    sort_keys: bool,
-    priority: &[String],
-) -> YamlValue {
+fn json_to_yaml_value(json: serde_json::Value, sort_keys: bool, priority: &[String]) -> YamlValue {
     match json {
         serde_json::Value::Object(map) => {
             let mut keys: Vec<String> = map.keys().cloned().collect();
@@ -32,9 +28,15 @@ fn json_to_yaml_value(
                     let bi = priority.iter().position(|k| k == b);
                     match (ai, bi) {
                         (Some(x), Some(y)) => x.cmp(&y),
-                        (Some(_), None)    => std::cmp::Ordering::Less,
-                        (None, Some(_))    => std::cmp::Ordering::Greater,
-                        (None, None) => if sort_keys { a.cmp(b) } else { std::cmp::Ordering::Equal },
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => {
+                            if sort_keys {
+                                a.cmp(b)
+                            } else {
+                                std::cmp::Ordering::Equal
+                            }
+                        }
                     }
                 });
             }
@@ -49,17 +51,15 @@ fn json_to_yaml_value(
             }
             YamlValue::Mapping(mapping)
         }
-        serde_json::Value::Array(arr) => {
-            YamlValue::Sequence(
-                arr.into_iter()
-                    .map(|v| json_to_yaml_value(v, sort_keys, priority))
-                    .collect(),
-            )
-        }
-        serde_json::Value::String(s)  => YamlValue::String(s),
-        serde_json::Value::Bool(b)    => YamlValue::Bool(b),
-        serde_json::Value::Null       => YamlValue::Null,
-        serde_json::Value::Number(n)  => {
+        serde_json::Value::Array(arr) => YamlValue::Sequence(
+            arr.into_iter()
+                .map(|v| json_to_yaml_value(v, sort_keys, priority))
+                .collect(),
+        ),
+        serde_json::Value::String(s) => YamlValue::String(s),
+        serde_json::Value::Bool(b) => YamlValue::Bool(b),
+        serde_json::Value::Null => YamlValue::Null,
+        serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 YamlValue::Number(i.into())
             } else if let Some(u) = n.as_u64() {
@@ -116,7 +116,10 @@ mod tests {
         let c = out.find("c:").expect("c");
         let z = out.find("z:").expect("z");
         assert!(a < b && b < c && c < z, "keys not sorted: {out}");
-        assert!(out.contains("|-"), "multiline must use a block scalar: {out}");
+        assert!(
+            out.contains("|-"),
+            "multiline must use a block scalar: {out}"
+        );
     }
 
     /// Emission contract captured empirically from the serde_yaml 0.9 output
@@ -132,8 +135,14 @@ mod tests {
         assert_eq!(emit(json!({"v": "a: b"})), "v: 'a: b'\n");
         assert_eq!(emit(json!({"v": "- item"})), "v: '- item'\n");
         assert_eq!(emit(json!({"v": "#comment"})), "v: '#comment'\n");
-        assert_eq!(emit(json!({"v": "line1\nline2"})), "v: |-\n  line1\n  line2\n");
-        assert_eq!(emit(json!({"v": "café ünïcode 中文"})), "v: café ünïcode 中文\n");
+        assert_eq!(
+            emit(json!({"v": "line1\nline2"})),
+            "v: |-\n  line1\n  line2\n"
+        );
+        assert_eq!(
+            emit(json!({"v": "café ünïcode 中文"})),
+            "v: café ünïcode 中文\n"
+        );
         assert_eq!(emit(json!({"n": 1.5})), "n: 1.5\n");
         assert_eq!(emit(json!({"n": 0})), "n: 0\n");
         assert_eq!(

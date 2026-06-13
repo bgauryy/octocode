@@ -78,7 +78,8 @@ export interface HintContext {
 
   language?: string;
   topic?: string;
-  matchScope?: string[];
+  /** PR tool: which fields keywordsToSearch is scoped to (title/body/comments) */
+  prMatch?: string[];
 }
 
 type HintGenerator = (context: HintContext) => (string | undefined)[];

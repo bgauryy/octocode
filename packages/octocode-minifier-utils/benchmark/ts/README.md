@@ -4,52 +4,14 @@ Source sample: `ts/00-typescript-core.ts`
 
 Strategy: `conservative`
 
-Agent rating: **9.3/10 (excellent)**
-
-Agent understanding from minified output: **9.7/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 92419 | - | - | - |
-| content-view | 55225 | 40.2% | 14.949 ms | 9.5/10 |
-| applyMinification | 55225 | 40.2% | 18.432 ms | 9.5/10 |
-| sync minify | 55225 | 40.2% | 18.746 ms | 9.5/10 |
-| async minify | 55225 | 40.2% | 18.635 ms | 9.5/10 |
-| symbols | 28507 | 69.2% | 50.063 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 92419 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 55225 | 40.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| minify | 55225 | 40.2% | 9.7/10 excellent | 10/10 | 10/10 |
-| symbols | 28507 | 69.2% | 9.3/10 excellent | 10/10 | 7.4/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 92419 |     - |         - |
+| content-view      | 55225 | 40.2% | 14.949 ms |
+| applyMinification | 55225 | 40.2% | 18.432 ms |
+| sync minify       | 55225 | 40.2% | 18.746 ms |
+| async minify      | 55225 | 40.2% | 18.635 ms |
+| symbols           | 28507 | 69.2% | 50.063 ms |
 
 ## Notes
 
@@ -97,7 +59,7 @@ export function forEach<T, U>(array: readonly T[] | undefined, callback: (elemen
             if (result) {
                 return result;
             }
- 
+
 
 ... [truncated 90615 chars] ...
 

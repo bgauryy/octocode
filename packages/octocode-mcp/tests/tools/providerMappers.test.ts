@@ -653,4 +653,63 @@ describe('providerMappers', () => {
     expect(summary.inlineComments).toBe(1);
     expect(summary.discussionComments).toBe(1);
   });
+
+  // ── mapPullRequestToolQuery: keyword quoting + query field ────────────────
+
+  it('phrase-quotes a multi-word keywordsToSearch entry', () => {
+    const result = mapPullRequestToolQuery({
+      keywordsToSearch: ['Partial Prerendering'],
+    });
+    expect(result.query).toBe('"Partial Prerendering"');
+  });
+
+  it('leaves single-word keywords unquoted', () => {
+    const result = mapPullRequestToolQuery({
+      keywordsToSearch: ['PPR'],
+    });
+    expect(result.query).toBe('PPR');
+  });
+
+  it('phrase-quotes multi-word items and leaves single-word items bare', () => {
+    const result = mapPullRequestToolQuery({
+      keywordsToSearch: ['Server Actions', 'experimental'],
+    });
+    expect(result.query).toBe('"Server Actions" experimental');
+  });
+
+  it('does not double-quote already-quoted keywords', () => {
+    const result = mapPullRequestToolQuery({
+      keywordsToSearch: ['"Partial Prerendering"'],
+    });
+    expect(result.query).toBe('"Partial Prerendering"');
+  });
+
+  it('appends raw query field verbatim after keywords', () => {
+    const result = mapPullRequestToolQuery({
+      keywordsToSearch: ['PPR'],
+      query: '"partial prerendering" in:title',
+    } as Parameters<typeof mapPullRequestToolQuery>[0] & { query?: string });
+    expect(result.query).toBe('PPR "partial prerendering" in:title');
+  });
+
+  it('uses raw query alone when keywordsToSearch is absent', () => {
+    const result = mapPullRequestToolQuery({
+      query: '"Partial Prerendering" in:title',
+    } as Parameters<typeof mapPullRequestToolQuery>[0] & { query?: string });
+    expect(result.query).toBe('"Partial Prerendering" in:title');
+  });
+
+  it('forwards match field directly to provider query match', () => {
+    const result = mapPullRequestToolQuery({
+      match: ['title'],
+    } as Parameters<typeof mapPullRequestToolQuery>[0] & {
+      match?: ('title' | 'body' | 'comments')[];
+    });
+    expect(result.match).toEqual(['title']);
+  });
+
+  it('leaves match undefined when not provided', () => {
+    const result = mapPullRequestToolQuery({ keywordsToSearch: ['PPR'] });
+    expect(result.match).toBeUndefined();
+  });
 });

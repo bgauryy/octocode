@@ -29,6 +29,25 @@ import {
 
 const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
 
+/**
+ * Extract license (SPDX key) and homepage from raw API item.
+ * Both fields are absent from the shared RepoSearchResultItem type but are
+ * returned by the GitHub API and available at runtime via the `license` and
+ * `homepage` properties on the raw response object.
+ */
+function extractLicenseHomepage(
+  repo: Record<string, unknown>
+): { license?: string; homepage?: string } {
+  const result: { license?: string; homepage?: string } = {};
+  const license = repo.license as Record<string, string> | null | undefined;
+  if (license?.spdx_id && license.spdx_id !== 'NOASSERTION') {
+    result.license = license.spdx_id;
+  }
+  const homepage = repo.homepage as string | null | undefined;
+  if (homepage) result.homepage = homepage;
+  return result;
+}
+
 interface RepoSearchPagination {
   currentPage: number;
   totalPages: number;
@@ -170,6 +189,7 @@ async function listGitHubOrgReposAPIInternal(
           openIssuesCount: repo.open_issues_count,
         }),
       ...(repo.language && { language: repo.language }),
+      ...extractLicenseHomepage(repo as unknown as Record<string, unknown>),
     };
   });
 
@@ -259,7 +279,7 @@ async function searchGitHubReposAPIInternal(
       page: currentPage,
     };
 
-    const API_SORTS = ['stars', 'forks', 'updated'] as const;
+    const API_SORTS = ['stars', 'forks', 'help-wanted-issues', 'updated'] as const;
     if (params.sort && (API_SORTS as readonly string[]).includes(params.sort)) {
       searchParams.sort = params.sort as SearchReposParameters['sort'];
     }
@@ -297,6 +317,7 @@ async function searchGitHubReposAPIInternal(
             openIssuesCount: repo.open_issues_count,
           }),
         ...(repo.language && { language: repo.language }),
+        ...extractLicenseHomepage(repo as unknown as Record<string, unknown>),
       };
     });
 

@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
-import { PackageSearchOutputSchema as UpstreamPackageOutput } from '@octocodeai/octocode-core/schemas/outputs';
 import {
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
@@ -12,8 +11,6 @@ const QUERY_DESCRIPTIONS = {
   ...completeMetadata.baseSchema,
   ...completeMetadata.tools[STATIC_TOOL_NAMES.PACKAGE_SEARCH]?.schema,
 } as Record<string, string>;
-
-const PACKAGE_SEARCH_MODES = ['smart', 'full', 'lean'] as const;
 
 const PackageSearchQueryShape = z.object({
   id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
@@ -27,10 +24,6 @@ const PackageSearchQueryShape = z.object({
     .describe(QUERY_DESCRIPTIONS.researchGoal!),
   reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
   packageName: z.string().describe(QUERY_DESCRIPTIONS.packageName!),
-  mode: z
-    .enum(PACKAGE_SEARCH_MODES)
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.mode!),
   page: relaxedPageNumberField.describe(QUERY_DESCRIPTIONS.page!),
 });
 
@@ -42,6 +35,28 @@ export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-export const PackageSearchOutputLocalSchema = UpstreamPackageOutput.extend(
-  responseEnvelopeFields
-);
+/**
+ * Output: each result's `packages` is a list of strings in the form:
+ *   "name repoUrl[ sourceRoot]"
+ * e.g.
+ *   "zod https://github.com/colinhacks/zod"
+ *   "react https://github.com/facebook/react packages/react"
+ */
+export const PackageSearchOutputLocalSchema = z
+  .object({
+    results: z
+      .array(
+        z.looseObject({
+          id: z.string(),
+          data: z
+            .looseObject({
+              packages: z.array(z.string()),
+              totalFound: z.number().optional(),
+            })
+            .optional(),
+          status: z.string().optional(),
+        })
+      )
+      .optional(),
+  })
+  .extend(responseEnvelopeFields);

@@ -21,12 +21,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Map build:bin platform names → octocode-security binary names
 const PLATFORM_MAP = {
-  'darwin-arm64':   'darwin-arm64',
-  'darwin-x64':     'darwin-x64',
-  'linux-arm64':    'linux-arm64-gnu',
-  'linux-x64':      'linux-x64-gnu',
-  'linux-x64-musl': 'linux-x64-gnu',   // no musl build yet — gnu works on most musl systems
-  'windows-x64':    'win32-x64-msvc',
+  'darwin-arm64': 'darwin-arm64',
+  'darwin-x64': 'darwin-x64',
+  'linux-arm64': 'linux-arm64-gnu',
+  'linux-x64': 'linux-x64-gnu',
+  'linux-x64-musl': 'linux-x64-musl',
+  'windows-x64': 'win32-x64-msvc',
 };
 
 const [platform, outDir] = process.argv.slice(2);
@@ -45,8 +45,8 @@ if (!triple) {
 }
 
 const securityPkg = join(__dirname, '..', '..', 'octocode-security');
-const binaryName  = `octocode-security.${triple}.node`;
-const src  = join(securityPkg, binaryName);
+const binaryName = `octocode-security.${triple}.node`;
+const src = join(securityPkg, binaryName);
 const dest = join(outDir, binaryName);
 const runtimeDest = join(outDir, 'runtime', 'security', binaryName);
 

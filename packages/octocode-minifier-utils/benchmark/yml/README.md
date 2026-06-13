@@ -4,52 +4,14 @@ Source sample: `yaml/typescript-ci.yml`
 
 Strategy: `conservative`
 
-Agent rating: **7/10 (good)**
-
-Agent understanding from minified output: **9.2/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 12508 | - | - | - |
-| content-view | 11733 | 6.2% | 3.395 ms | 7/10 |
-| applyMinification | 11738 | 6.2% | 5.381 ms | 7/10 |
-| sync minify | 11738 | 6.2% | 3.436 ms | 7/10 |
-| async minify | 11738 | 6.2% | 3.59 ms | 7/10 |
-| symbols | n/a | n/a | 0.01 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 7/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 12508 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 11733 | 6.2% | 9.2/10 excellent | 10/10 | 10/10 |
-| minify | 11738 | 6.2% | 9.2/10 excellent | 10/10 | 10/10 |
-| symbols | n/a | n/a | n/a | n/a | n/a |
+| Tool              | Bytes |  Cut |     Time |
+| ----------------- | ----: | ---: | -------: |
+| input             | 12508 |    - |        - |
+| content-view      | 11733 | 6.2% | 3.395 ms |
+| applyMinification | 11738 | 6.2% | 5.381 ms |
+| sync minify       | 11738 | 6.2% | 3.436 ms |
+| async minify      | 11738 | 6.2% |  3.59 ms |
+| symbols           |   n/a |  n/a |  0.01 ms |
 
 ## Notes
 
@@ -107,7 +69,7 @@ jobs:
           - os: ubuntu-latest
             node-version: '22'
             bundle: true
-            skip: 
+            skip:
 
 ... [truncated 10708 chars] ...
 

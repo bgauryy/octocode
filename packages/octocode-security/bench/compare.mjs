@@ -9,11 +9,9 @@
 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 import { writeFileSync, mkdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Parse CLI args
@@ -30,7 +28,7 @@ const WARMUP = getArg('--warmup', 100);
 // Load both implementations
 // ---------------------------------------------------------------------------
 const pkg     = await import('../dist/index.js');
-const _native = require(join(__dirname, '..', 'octocode-security.darwin-arm64.node'));
+const native  = await import('../dist/native.js');
 
 // ---------------------------------------------------------------------------
 // Rust implementation — goes through NAPI bridge
@@ -85,7 +83,7 @@ const tsSanitize = jsSanitizeContent;   // pure JS — real baseline
 const tsMask     = jsMaskSensitiveData;
 
 console.log(`\n🔬  octocode-security benchmark  (Rust/NAPI  vs  pure-JS/V8)`);
-console.log(`   Patterns loaded: ${_native.patternCount()} (Rust)  /  ${allRegexPatterns.filter(p => !p.fileContext).length} applicable (JS)`);
+console.log(`   Patterns loaded: ${native.nativePatternCount()} (Rust/native loader)  /  ${allRegexPatterns.filter(p => !p.fileContext).length} applicable (JS)`);
 console.log(`   Note: "TS" = pure-JS V8 regex engine,  "Rust" = NAPI bridge to Rust regex crate`);
 console.log(`   Runs: ${RUNS}  Warmup: ${WARMUP}\n`);
 

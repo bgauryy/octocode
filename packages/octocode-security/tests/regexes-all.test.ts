@@ -25,10 +25,40 @@ import {
 } from '../src/regexes/payments-commerce.js';
 import { versionControlPatterns } from '../src/regexes/vcs.js';
 import { allRegexPatterns } from '../src/regexes/index.js';
+import type { SensitiveDataPattern } from '../src/regexes/index.js';
+import { ContentSanitizer } from '../src/contentSanitizer.js';
 
 function resetAndTest(re: RegExp, sample: string): boolean {
   re.lastIndex = 0;
   return re.test(sample);
+}
+
+const FILE_CONTEXT_CANDIDATES = [
+  '.env',
+  'config/settings.yaml',
+  'secrets/config.json',
+  'wandb/settings',
+  'kubernetes/secret.yaml',
+  'docker-compose.yml',
+  'application.properties',
+  'application.yml',
+  'appsettings.json',
+  'web.config',
+  'mollie.env',
+  'postmark.env',
+];
+
+function filePathForPattern(pattern: SensitiveDataPattern): string | undefined {
+  if (!pattern.fileContext) return undefined;
+
+  for (const candidate of FILE_CONTEXT_CANDIDATES) {
+    pattern.fileContext.lastIndex = 0;
+    const matches = pattern.fileContext.test(candidate);
+    pattern.fileContext.lastIndex = 0;
+    if (matches) return candidate;
+  }
+
+  return undefined;
 }
 
 type Sample = { match: string[]; noMatch: string[] };
@@ -206,6 +236,22 @@ const SAMPLES: Record<string, Sample> = {
     match: ['phx_' + 'a'.repeat(39)],
     noMatch: ['phx_' + 'a'.repeat(38), 'phx_' + 'a'.repeat(40)],
   },
+  posthogFeatureFlagsSecureApiKey: {
+    match: ['phs_' + 'a'.repeat(39), 'phs_' + 'A'.repeat(39)],
+    noMatch: [
+      'phs_tooshort',
+      'phs_your_feature_flags_secure_api_key',
+      'notphs_' + 'a'.repeat(39),
+    ],
+  },
+  posthogOauthAccessToken: {
+    match: ['pha_' + 'a'.repeat(39), 'pha_' + 'A'.repeat(39)],
+    noMatch: ['pha_tooshort', 'notpha_' + 'a'.repeat(39)],
+  },
+  posthogOauthRefreshToken: {
+    match: ['phr_' + 'a'.repeat(39), 'phr_' + 'A'.repeat(39)],
+    noMatch: ['phr_tooshort', 'notphr_' + 'a'.repeat(39)],
+  },
   datadogApiKey: {
     match: [
       'datadog api key: ' + 'a'.repeat(32),
@@ -294,6 +340,17 @@ const SAMPLES: Record<string, Sample> = {
       'Basic QWxhZGRpbjpPcGVuU2VzYW1l',
     ],
     noMatch: ['Bearer abc123', 'Basic short'],
+  },
+  bearerAuthHeader: {
+    match: [
+      'Authorization: Bearer ' + 'a'.repeat(20),
+      'authorization: bearer ya29.' + 'A'.repeat(20),
+    ],
+    noMatch: [
+      'Bearer ' + 'a'.repeat(30),
+      'Authorization: Bearer short',
+      'Authorization Bearer ' + 'a'.repeat(30),
+    ],
   },
   jwtSecrets: {
     match: [
@@ -608,6 +665,14 @@ const SAMPLES: Record<string, Sample> = {
     match: ['sbp_' + 'a'.repeat(40)],
     noMatch: ['sbp_tooshort', 'notsbp_' + 'a'.repeat(40)],
   },
+  supabaseSecretKey: {
+    match: ['sb_secret_' + 'a'.repeat(22) + '_' + 'A1b2C3d4'],
+    noMatch: [
+      'sb_publishable_' + 'a'.repeat(22) + '_A1b2C3d4',
+      'sb_secret_' + 'a'.repeat(21) + '_A1b2C3d4',
+      'sb_secret_' + 'a'.repeat(22) + '_nothexzz',
+    ],
+  },
   planetScaleConnectionString: {
     match: [
       'mysql://user:pscale_pw_abc123@aws.connect.psdb.cloud/mydb?sslaccept=strict',
@@ -793,8 +858,17 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['OTHER_KAFKA=' + 'a'.repeat(40)],
   },
   cloudflareApiTokenPrefixed: {
-    match: ['a'.repeat(40) + '.cloudflareaccess.com'],
-    noMatch: ['short.cloudflareaccess.com', 'a'.repeat(40) + '.cloudflare.com'],
+    match: [
+      'cfk_' + 'a'.repeat(40) + 'A1b2C3d4',
+      'cfut_' + 'A'.repeat(40) + 'deadBEEF',
+      'cfat_' + '0'.repeat(40) + '1234abcd',
+    ],
+    noMatch: [
+      'cfk_' + 'a'.repeat(39) + 'A1b2C3d4',
+      'cfut_' + 'a'.repeat(40) + 'nothexzz',
+      'cfapi_' + 'a'.repeat(40) + 'A1b2C3d4',
+      'a'.repeat(40) + '.cloudflareaccess.com',
+    ],
   },
 
   slackBotToken: {
@@ -1030,8 +1104,20 @@ const SAMPLES: Record<string, Sample> = {
     noMatch: ['redis://localhost:6379'],
   },
   redisAuthPassword: {
-    match: ['AUTH mysecretpassword', 'AUTH s3cr3tP4ssw0rd'],
-    noMatch: ['AUTH short', 'AUTH '],
+    match: [
+      'AUTH mysecretpassword',
+      'AUTH default s3cr3tP4ssw0rd',
+      'redis-cli AUTH mysecretpassword',
+      '127.0.0.1:6379> AUTH mysecretpassword',
+    ],
+    noMatch: [
+      'AUTH short',
+      'AUTH ',
+      'auth authorization',
+      'auth\nauthorization',
+      '- auth\n  - authorization',
+      'topics: [access-control, acl, ai-friendly, api, authorization, prisma]',
+    ],
   },
   elasticsearchCredentials: {
     match: ['https://user:password@elasticsearch.example.com:9200'],
@@ -1651,6 +1737,29 @@ describe('All regex patterns — match correctness', () => {
       for (const sample of samples.noMatch) {
         it(`should NOT match: ${sample.slice(0, 80)}${sample.length > 80 ? '…' : ''}`, () => {
           expect(resetAndTest(pattern.regex, sample)).toBe(false);
+        });
+      }
+    });
+  }
+});
+
+describe('All regex patterns — Rust runtime sample parity', () => {
+  for (const [patternName, samples] of Object.entries(SAMPLES)) {
+    const pattern = allRegexPatterns.find(p => p.name === patternName);
+
+    if (!pattern) {
+      it.todo(`${patternName} — pattern not found in allRegexPatterns`);
+      continue;
+    }
+
+    const filePath = filePathForPattern(pattern);
+
+    describe(patternName, () => {
+      for (const sample of samples.match) {
+        it(`Rust runtime detects: ${sample.slice(0, 80)}${sample.length > 80 ? '…' : ''}`, () => {
+          const result = ContentSanitizer.sanitizeContent(sample, filePath);
+          expect(result.hasSecrets, `should detect: ${sample}`).toBe(true);
+          expect(result.content).not.toBe(sample);
         });
       }
     });

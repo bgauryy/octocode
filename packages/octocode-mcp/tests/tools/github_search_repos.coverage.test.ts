@@ -174,15 +174,10 @@ describe('GitHub Search Repositories Coverage', () => {
         sort: 'forks',
       });
 
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
-        }>;
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'high',
-      });
+      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain('b/high');
     });
 
     it('sorts by updated date when sort=updated', async () => {
@@ -199,15 +194,10 @@ describe('GitHub Search Repositories Coverage', () => {
         sort: 'updated',
       });
 
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
-        }>;
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'new',
-      });
+      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain('b/new');
     });
 
     it('falls back to relevance/stars when sort=best-match', async () => {
@@ -224,15 +214,10 @@ describe('GitHub Search Repositories Coverage', () => {
         sort: 'best-match',
       });
 
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
-        }>;
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'b',
-        repo: 'high',
-      });
+      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain('b/high');
     });
   });
 
@@ -265,15 +250,10 @@ describe('GitHub Search Repositories Coverage', () => {
         language: 'python',
       });
 
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: { repositories?: Array<{ owner: string; repo: string }> };
-        }>;
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        owner: 'org',
-        repo: 'whale',
-      });
+      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain('org/whale');
     });
   });
 
@@ -381,11 +361,12 @@ describe('GitHub Search Repositories Coverage', () => {
 
   describe('noisy results hint — no owner/language/stars filter', () => {
     it('emits narrowing hint when results are returned but no owner/language/stars given', async () => {
+      // totalMatches must exceed the LARGE_RESULT_THRESHOLD (100) for the hint to fire.
       mockProvider.searchRepos.mockResolvedValue(
-        okResponse([
-          repo({ fullPath: 'a/repo1' }),
-          repo({ fullPath: 'b/repo2' }),
-        ])
+        okResponse(
+          [repo({ fullPath: 'a/repo1' }), repo({ fullPath: 'b/repo2' })],
+          { currentPage: 1, totalPages: 10, hasMore: true, totalMatches: 500 }
+        )
       );
 
       const result = await call({
@@ -395,7 +376,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const text = getTextContent(result.content);
       expect(result.isError).toBe(false);
-      expect(text).toContain('owner');
+      expect(text).toContain('Large result set');
     });
 
     it('does not emit narrowing hint when owner is provided', async () => {
@@ -462,12 +443,10 @@ describe('GitHub Search Repositories Coverage', () => {
         keywordsToSearch: ['x'],
         sort: 'stars',
       });
-      const structured = result.structuredContent as {
-        results?: Array<{ data?: { repositories?: Array<{ repo: string }> } }>;
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      expect(structured.results?.[0]?.data?.repositories?.[0]).toMatchObject({
-        repo: 'high',
-      });
+      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain('b/high');
     });
   });
 });

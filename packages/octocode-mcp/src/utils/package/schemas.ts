@@ -60,6 +60,20 @@ const NpmRegistrySearchItemSchema = z.looseObject({
       })
       .nullish(),
   }),
+  // npm registry search score: final is the combined ranking signal (0–1).
+  // We capture it to sort results by relevance before returning to callers.
+  score: z
+    .looseObject({
+      final: z.number().nullish(),
+      detail: z
+        .looseObject({
+          quality: z.number().nullish(),
+          popularity: z.number().nullish(),
+          maintenance: z.number().nullish(),
+        })
+        .nullish(),
+    })
+    .nullish(),
 });
 
 export const NpmRegistrySearchSchema = z.looseObject({

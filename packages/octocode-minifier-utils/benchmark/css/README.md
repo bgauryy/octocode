@@ -4,52 +4,14 @@ Source sample: `css/bootstrap.css`
 
 Strategy: `aggressive`
 
-Agent rating: **8.5/10 (strong)**
-
-Agent understanding from minified output: **9.8/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 280311 | - | - | - |
-| content-view | 229667 | 18.1% | 34.371 ms | 8.3/10 |
-| applyMinification | 229667 | 18.1% | 31.623 ms | 8.3/10 |
-| sync minify | 229667 | 18.1% | 32.168 ms | 8.3/10 |
-| async minify | 229667 | 18.1% | 32.992 ms | 8.3/10 |
-| symbols | 82074 | 70.7% | 12.356 ms | 9/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 8/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 280311 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 229667 | 18.1% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 229667 | 18.1% | 9.8/10 excellent | 10/10 | 10/10 |
-| symbols | 82074 | 70.7% | 6.7/10 fair | 3.3/10 | 6.7/10 |
+| Tool              |  Bytes |   Cut |      Time |
+| ----------------- | -----: | ----: | --------: |
+| input             | 280311 |     - |         - |
+| content-view      | 229667 | 18.1% | 34.371 ms |
+| applyMinification | 229667 | 18.1% | 31.623 ms |
+| sync minify       | 229667 | 18.1% | 32.168 ms |
+| async minify      | 229667 | 18.1% | 32.992 ms |
+| symbols           |  82074 | 70.7% | 12.356 ms |
 
 ## Notes
 

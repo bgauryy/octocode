@@ -4,52 +4,14 @@ Source sample: `go/print.go`
 
 Strategy: `conservative`
 
-Agent rating: **9/10 (excellent)**
-
-Agent understanding from minified output: **9.9/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 33315 | - | - | - |
-| content-view | 21954 | 34.1% | 6.783 ms | 8.5/10 |
-| applyMinification | 22018 | 33.9% | 6.878 ms | 8.5/10 |
-| sync minify | 22018 | 33.9% | 6.46 ms | 8.5/10 |
-| async minify | 22018 | 33.9% | 6.604 ms | 8.5/10 |
-| symbols | 4385 | 86.8% | 15.203 ms | 10/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 9/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 33315 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 21954 | 34.1% | 9.9/10 excellent | 10/10 | 10/10 |
-| minify | 22018 | 33.9% | 9.9/10 excellent | 10/10 | 10/10 |
-| symbols | 4385 | 86.8% | 9.3/10 excellent | 10/10 | 7.5/10 |
+| Tool              | Bytes |   Cut |      Time |
+| ----------------- | ----: | ----: | --------: |
+| input             | 33315 |     - |         - |
+| content-view      | 21954 | 34.1% |  6.783 ms |
+| applyMinification | 22018 | 33.9% |  6.878 ms |
+| sync minify       | 22018 | 33.9% |   6.46 ms |
+| async minify      | 22018 | 33.9% |  6.604 ms |
+| symbols           |  4385 | 86.8% | 15.203 ms |
 
 ## Notes
 

@@ -21,12 +21,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Map build:bin platform names → octocode-minifier-utils binary triple names
 const PLATFORM_MAP = {
-  'darwin-arm64':   'darwin-arm64',
-  'darwin-x64':     'darwin-x64',
-  'linux-arm64':    'linux-arm64-gnu',
-  'linux-x64':      'linux-x64-gnu',
-  'linux-x64-musl': 'linux-x64-gnu',   // no dedicated musl build — gnu binary works on most musl systems
-  'windows-x64':    'win32-x64-msvc',
+  'darwin-arm64': 'darwin-arm64',
+  'darwin-x64': 'darwin-x64',
+  'linux-arm64': 'linux-arm64-gnu',
+  'linux-x64': 'linux-x64-gnu',
+  'linux-x64-musl': 'linux-x64-musl',
+  'windows-x64': 'win32-x64-msvc',
 };
 
 const [platform, outDir] = process.argv.slice(2);
@@ -45,8 +45,8 @@ if (!triple) {
 }
 
 const minifierPkg = join(__dirname, '..', '..', 'octocode-minifier-utils');
-const binaryName  = `octocode-minifier-utils.${triple}.node`;
-const src  = join(minifierPkg, binaryName);
+const binaryName = `octocode-minifier-utils.${triple}.node`;
+const src = join(minifierPkg, binaryName);
 const dest = join(outDir, binaryName);
 const runtimeDest = join(outDir, 'runtime', 'minifier', binaryName);
 

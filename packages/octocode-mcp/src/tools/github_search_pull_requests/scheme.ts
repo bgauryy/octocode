@@ -29,33 +29,49 @@ const PrPartialContentMetadataSchema = z.object({
 
 const PrContentSelectorSchema = z
   .object({
-    metadata: z.boolean().optional(),
-    body: z.boolean().optional(),
-    changedFiles: z.boolean().optional(),
+    body: z.boolean().optional().describe('Include the full PR description body with char pagination.'),
+    changedFiles: z.boolean().optional().describe('Include the list of changed files with path, status, additions, deletions.'),
     patches: z
       .object({
-        mode: z.enum(['none', 'selected', 'all']).optional(),
-        files: z.array(z.string()).optional(),
-        ranges: z.array(PrPartialContentMetadataSchema).optional(),
+        mode: z.enum(['none', 'selected', 'all']).optional().describe(
+          '"none" = no diff text (default). "selected" = only files listed in `files`. "all" = every file diff.'
+        ),
+        files: z.array(z.string()).optional().describe('File paths to include when mode="selected". Obtain paths from changedFiles first.'),
+        ranges: z.array(PrPartialContentMetadataSchema).optional().describe('Line-level diff ranges per file for surgical diff reads.'),
       })
-      .optional(),
+      .optional()
+      .describe('Diff patch access. Start with mode:"selected" + specific files to avoid token overload.'),
     comments: z
       .object({
-        discussion: z.boolean().optional(),
-        reviewInline: z.boolean().optional(),
-        includeBots: z.boolean().optional(),
-        file: z.string().optional(),
+        discussion: z.boolean().optional().describe(
+          'Include PR-level discussion comments (thread on the PR itself). Default true when comments block is present.'
+        ),
+        reviewInline: z.boolean().optional().describe(
+          'Include inline code-review comments (attached to a file line). Includes reply threads via in_reply_to_id. Default true when comments block is present.'
+        ),
+        includeBots: z.boolean().optional().describe('Include bot comments (vercel, coderabbitai, etc.). Default false.'),
+        file: z.string().optional().describe(
+          'Filter inline comments to a specific file path. Useful for deep-dive on one file — pair with reviewInline:true.'
+        ),
       })
-      .optional(),
-    reviews: z.boolean().optional(),
+      .optional()
+      .describe(
+        'Comment access. Use {discussion:true} for PR thread, {reviewInline:true} for code annotations, or both together. ' +
+        'Set file:"path" to restrict inline comments to one file. All comment pages auto-fetched.'
+      ),
+    reviews: z.boolean().optional().describe(
+      'Include PR-level review summaries (Approved / Changes Requested / Commented) with full paginated body.'
+    ),
     commits: z
       .object({
-        list: z.boolean().optional(),
-        includeFiles: z.boolean().optional(),
+        list: z.boolean().optional().describe('Include commit list (sha, message, author, date).'),
+        includeFiles: z.boolean().optional().describe('Include per-commit changed-file list.'),
       })
-      .optional(),
+      .optional()
+      .describe('Commit access. Use {list:true} for history; add includeFiles:true for per-commit diffs.'),
   })
-  .optional();
+  .optional()
+  .describe(QUERY_DESCRIPTIONS.content!);
 
 const GitHubPullRequestSearchQuerySchema = z.object({
   id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
@@ -72,6 +88,10 @@ const GitHubPullRequestSearchQuerySchema = z.object({
     .array(z.string())
     .optional()
     .describe(QUERY_DESCRIPTIONS.keywordsToSearch!),
+  query: z
+    .string()
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.query!),
   prNumber: clampedInt(1, 1_000_000_000)
     .optional()
     .describe(QUERY_DESCRIPTIONS.prNumber!),
@@ -125,10 +145,10 @@ const GitHubPullRequestSearchQuerySchema = z.object({
     .optional()
     .describe(QUERY_DESCRIPTIONS.interactions!),
   draft: z.boolean().optional().describe(QUERY_DESCRIPTIONS.draft!),
-  matchScope: z
+  match: z
     .array(z.enum(['title', 'body', 'comments']))
     .optional()
-    .describe(QUERY_DESCRIPTIONS.matchScope!),
+    .describe(QUERY_DESCRIPTIONS.match!),
   sort: z
     .enum(['created', 'updated', 'best-match', 'comments', 'reactions'])
     .optional()
@@ -155,7 +175,7 @@ const GitHubPullRequestSearchQuerySchema = z.object({
     .literal('full')
     .optional()
     .describe(QUERY_DESCRIPTIONS.reviewMode!),
-  content: PrContentSelectorSchema.describe(QUERY_DESCRIPTIONS.content!),
+  content: PrContentSelectorSchema,
   matchString: z.string().optional().describe(QUERY_DESCRIPTIONS.matchString!),
   charOffset: clampedInt(0, 100_000_000)
     .optional()
@@ -163,7 +183,6 @@ const GitHubPullRequestSearchQuerySchema = z.object({
   charLength: clampedInt(1, MAX_CHAR_LENGTH)
     .optional()
     .describe(QUERY_DESCRIPTIONS.charLength!),
-  includeBots: z.boolean().optional().describe(QUERY_DESCRIPTIONS.includeBots!),
   minify: minifyFieldStandard.describe(QUERY_DESCRIPTIONS.minify!),
 });
 

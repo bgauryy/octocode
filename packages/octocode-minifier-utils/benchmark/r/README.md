@@ -4,52 +4,14 @@ Source sample: `r/dplyr-mutate.R`
 
 Strategy: `aggressive`
 
-Agent rating: **9/10 (excellent)**
-
-Agent understanding from minified output: **9.5/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 15796 | - | - | - |
-| content-view | 8436 | 46.6% | 2.572 ms | 9/10 |
-| applyMinification | 6643 | 57.9% | 2.441 ms | 9/10 |
-| sync minify | 6643 | 57.9% | 2.39 ms | 9/10 |
-| async minify | 6643 | 57.9% | 2.474 ms | 9/10 |
-| symbols | 1540 | 90.3% | 0.561 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 10/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 15796 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 8436 | 46.6% | 9.5/10 excellent | 10/10 | 10/10 |
-| minify | 6643 | 57.9% | 9.5/10 excellent | 10/10 | 10/10 |
-| symbols | 1540 | 90.3% | 9.8/10 excellent | 10/10 | 10/10 |
+| Tool              | Bytes |   Cut |     Time |
+| ----------------- | ----: | ----: | -------: |
+| input             | 15796 |     - |        - |
+| content-view      |  8436 | 46.6% | 2.572 ms |
+| applyMinification |  6643 | 57.9% | 2.441 ms |
+| sync minify       |  6643 | 57.9% |  2.39 ms |
+| async minify      |  6643 | 57.9% | 2.474 ms |
+| symbols           |  1540 | 90.3% | 0.561 ms |
 
 ## Notes
 
@@ -58,7 +20,7 @@ for this language sample.
 
 ## Before Excerpt
 
-```r
+````r
 #' Create, modify, and delete columns
 #'
 #' `mutate()` creates new columns that are functions of existing variables.
@@ -135,7 +97,7 @@ check_muffled_warning <- function(cnd) {
   muffled
 }
 
-```
+````
 
 ## Content-View Excerpt
 
@@ -245,7 +207,7 @@ check_muffled_warning <- function(cnd) {
 ## Apply Minification Excerpt
 
 ```r
-mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .data,...,.by = NULL,.keep = c("all","used","unused","none"),.before = NULL,.after = NULL ){keep<- arg_match0(.keep,values = c("all","used","unused","none")) by<- compute_by({{.by}},.data,by_arg = ".by",data_arg = ".data") cols<- mutate_cols(.data,dplyr_quosures(...),by) used<- attr(cols,"used") out<- dplyr_col_modify(.data,cols) names_original<- names(.data) out<- mutate_relocate( out = out,before ={{.before}},after ={{.after}},names_original = names_original ) names_new<- names(cols) names_groups<- by$names out<- mutate_keep( out = out,keep = keep,used = used,names_new = names_new,names_groups = names_groups ) out}mutate_relocate<- function(out,before,after,names_original){before<- enquo(before) after<- enquo(after) if (quo_is_null(before) && quo_is_null(after)){return(out)}names<- names(out) names<- setdiff(names,names_original) relocate( out,all_of(names),.before = !!before,.after = !!after )}mutate_keep<- function(out,keep,used,names_new,names_groups){names<- names(out) if (keep == "all"){names_out<- names}else{names_keep<- switch( keep,used = names(used)[used],unused = names(used)[!used],none = character(),abort("Unknown 
+mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .data,...,.by = NULL,.keep = c("all","used","unused","none"),.before = NULL,.after = NULL ){keep<- arg_match0(.keep,values = c("all","used","unused","none")) by<- compute_by({{.by}},.data,by_arg = ".by",data_arg = ".data") cols<- mutate_cols(.data,dplyr_quosures(...),by) used<- attr(cols,"used") out<- dplyr_col_modify(.data,cols) names_original<- names(.data) out<- mutate_relocate( out = out,before ={{.before}},after ={{.after}},names_original = names_original ) names_new<- names(cols) names_groups<- by$names out<- mutate_keep( out = out,keep = keep,used = used,names_new = names_new,names_groups = names_groups ) out}mutate_relocate<- function(out,before,after,names_original){before<- enquo(before) after<- enquo(after) if (quo_is_null(before) && quo_is_null(after)){return(out)}names<- names(out) names<- setdiff(names,names_original) relocate( out,all_of(names),.before = !!before,.after = !!after )}mutate_keep<- function(out,keep,used,names_new,names_groups){names<- names(out) if (keep == "all"){names_out<- names}else{names_keep<- switch( keep,used = names(used)[used],unused = names(used)[!used],none = character(),abort("Unknown
 
 ... [truncated 4843 chars] ...
 
@@ -255,7 +217,7 @@ mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .
 ## Sync Minify Excerpt
 
 ```r
-mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .data,...,.by = NULL,.keep = c("all","used","unused","none"),.before = NULL,.after = NULL ){keep<- arg_match0(.keep,values = c("all","used","unused","none")) by<- compute_by({{.by}},.data,by_arg = ".by",data_arg = ".data") cols<- mutate_cols(.data,dplyr_quosures(...),by) used<- attr(cols,"used") out<- dplyr_col_modify(.data,cols) names_original<- names(.data) out<- mutate_relocate( out = out,before ={{.before}},after ={{.after}},names_original = names_original ) names_new<- names(cols) names_groups<- by$names out<- mutate_keep( out = out,keep = keep,used = used,names_new = names_new,names_groups = names_groups ) out}mutate_relocate<- function(out,before,after,names_original){before<- enquo(before) after<- enquo(after) if (quo_is_null(before) && quo_is_null(after)){return(out)}names<- names(out) names<- setdiff(names,names_original) relocate( out,all_of(names),.before = !!before,.after = !!after )}mutate_keep<- function(out,keep,used,names_new,names_groups){names<- names(out) if (keep == "all"){names_out<- names}else{names_keep<- switch( keep,used = names(used)[used],unused = names(used)[!used],none = character(),abort("Unknown 
+mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .data,...,.by = NULL,.keep = c("all","used","unused","none"),.before = NULL,.after = NULL ){keep<- arg_match0(.keep,values = c("all","used","unused","none")) by<- compute_by({{.by}},.data,by_arg = ".by",data_arg = ".data") cols<- mutate_cols(.data,dplyr_quosures(...),by) used<- attr(cols,"used") out<- dplyr_col_modify(.data,cols) names_original<- names(.data) out<- mutate_relocate( out = out,before ={{.before}},after ={{.after}},names_original = names_original ) names_new<- names(cols) names_groups<- by$names out<- mutate_keep( out = out,keep = keep,used = used,names_new = names_new,names_groups = names_groups ) out}mutate_relocate<- function(out,before,after,names_original){before<- enquo(before) after<- enquo(after) if (quo_is_null(before) && quo_is_null(after)){return(out)}names<- names(out) names<- setdiff(names,names_original) relocate( out,all_of(names),.before = !!before,.after = !!after )}mutate_keep<- function(out,keep,used,names_new,names_groups){names<- names(out) if (keep == "all"){names_out<- names}else{names_keep<- switch( keep,used = names(used)[used],unused = names(used)[!used],none = character(),abort("Unknown
 
 ... [truncated 4843 chars] ...
 
@@ -265,7 +227,7 @@ mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .
 ## Async Minify Excerpt
 
 ```r
-mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .data,...,.by = NULL,.keep = c("all","used","unused","none"),.before = NULL,.after = NULL ){keep<- arg_match0(.keep,values = c("all","used","unused","none")) by<- compute_by({{.by}},.data,by_arg = ".by",data_arg = ".data") cols<- mutate_cols(.data,dplyr_quosures(...),by) used<- attr(cols,"used") out<- dplyr_col_modify(.data,cols) names_original<- names(.data) out<- mutate_relocate( out = out,before ={{.before}},after ={{.after}},names_original = names_original ) names_new<- names(cols) names_groups<- by$names out<- mutate_keep( out = out,keep = keep,used = used,names_new = names_new,names_groups = names_groups ) out}mutate_relocate<- function(out,before,after,names_original){before<- enquo(before) after<- enquo(after) if (quo_is_null(before) && quo_is_null(after)){return(out)}names<- names(out) names<- setdiff(names,names_original) relocate( out,all_of(names),.before = !!before,.after = !!after )}mutate_keep<- function(out,keep,used,names_new,names_groups){names<- names(out) if (keep == "all"){names_out<- names}else{names_keep<- switch( keep,used = names(used)[used],unused = names(used)[!used],none = character(),abort("Unknown 
+mutate<- function(.data,...){UseMethod("mutate")}mutate.data.frame<- function( .data,...,.by = NULL,.keep = c("all","used","unused","none"),.before = NULL,.after = NULL ){keep<- arg_match0(.keep,values = c("all","used","unused","none")) by<- compute_by({{.by}},.data,by_arg = ".by",data_arg = ".data") cols<- mutate_cols(.data,dplyr_quosures(...),by) used<- attr(cols,"used") out<- dplyr_col_modify(.data,cols) names_original<- names(.data) out<- mutate_relocate( out = out,before ={{.before}},after ={{.after}},names_original = names_original ) names_new<- names(cols) names_groups<- by$names out<- mutate_keep( out = out,keep = keep,used = used,names_new = names_new,names_groups = names_groups ) out}mutate_relocate<- function(out,before,after,names_original){before<- enquo(before) after<- enquo(after) if (quo_is_null(before) && quo_is_null(after)){return(out)}names<- names(out) names<- setdiff(names,names_original) relocate( out,all_of(names),.before = !!before,.after = !!after )}mutate_keep<- function(out,keep,used,names_new,names_groups){names<- names(out) if (keep == "all"){names_out<- names}else{names_keep<- switch( keep,used = names(used)[used],unused = names(used)[!used],none = character(),abort("Unknown
 
 ... [truncated 4843 chars] ...
 

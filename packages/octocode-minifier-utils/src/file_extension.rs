@@ -1,14 +1,7 @@
 /// Extract the file extension from a path, handling dotfiles correctly.
 /// Mirrors the TypeScript `getExtension()` in octocode-minifier.
-pub fn get_extension_internal(
-    file_path: &str,
-    lowercase: bool,
-    fallback: &str,
-) -> String {
-    let basename = file_path
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(file_path);
+pub fn get_extension_internal(file_path: &str, lowercase: bool, fallback: &str) -> String {
+    let basename = file_path.rsplit(['/', '\\']).next().unwrap_or(file_path);
 
     let parts: Vec<&str> = basename.splitn(3, '.').collect();
 

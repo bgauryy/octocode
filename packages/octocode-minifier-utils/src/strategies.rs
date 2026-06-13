@@ -21,7 +21,9 @@ fn collapse_blanks_preserve_indent(s: &str) -> String {
         let stripped = line.trim_end_matches([' ', '\t']);
         if stripped.is_empty() {
             blank_run += 1;
-            if blank_run <= 2 { result.push('\n'); }
+            if blank_run <= 2 {
+                result.push('\n');
+            }
         } else {
             blank_run = 0;
             result.push_str(stripped);
@@ -50,7 +52,10 @@ fn collapse_whitespace(s: &str) -> String {
     let mut ws = false;
     for ch in s.chars() {
         if ch.is_whitespace() {
-            if !ws { result.push(' '); ws = true; }
+            if !ws {
+                result.push(' ');
+                ws = true;
+            }
         } else {
             ws = false;
             result.push(ch);
@@ -91,17 +96,23 @@ fn re_tighten_punct(s: &str) -> String {
     while i < bytes.len() {
         let b = bytes[i];
         if b == b' '
-            && matches!(bytes.get(i + 1).copied(), Some(b'{' | b'}' | b':' | b';' | b',' | b'<' | b'>'))
+            && matches!(
+                bytes.get(i + 1).copied(),
+                Some(b'{' | b'}' | b':' | b';' | b',' | b'<' | b'>')
+            )
         {
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         if matches!(b, b'{' | b'}' | b':' | b';' | b',') && bytes.get(i + 1) == Some(&b' ') {
             result.push(b as char);
-            i += 2; continue;
+            i += 2;
+            continue;
         }
         if b == b'>' && bytes.get(i + 1) == Some(&b' ') && bytes.get(i + 2) == Some(&b'<') {
             result.push('>');
-            i += 2; continue;
+            i += 2;
+            continue;
         }
         i = copy_seq(s, i, &mut result);
     }
@@ -113,12 +124,18 @@ fn re_tighten_punct(s: &str) -> String {
 pub fn minify_json_core_inner(content: &str) -> (String, bool) {
     // Try direct parse first
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(content) {
-        return (serde_json::to_string(&v).unwrap_or_else(|_| content.trim().to_owned()), false);
+        return (
+            serde_json::to_string(&v).unwrap_or_else(|_| content.trim().to_owned()),
+            false,
+        );
     }
     // JSONC / JSON5: strip comments + trailing commas then parse
     let cleaned = strip_json_noise(content);
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cleaned) {
-        (serde_json::to_string(&v).unwrap_or_else(|_| content.trim().to_owned()), false)
+        (
+            serde_json::to_string(&v).unwrap_or_else(|_| content.trim().to_owned()),
+            false,
+        )
     } else {
         (content.trim().to_owned(), false)
     }
@@ -140,7 +157,9 @@ pub fn minify_json_readable_inner(content: &str) -> (String, bool) {
     for line in cleaned.lines() {
         if line.trim().is_empty() {
             blanks += 1;
-            if blanks <= 2 { result.push('\n'); }
+            if blanks <= 2 {
+                result.push('\n');
+            }
         } else {
             blanks = 0;
             result.push_str(line);
@@ -164,21 +183,36 @@ fn strip_json_comments(content: &str) -> String {
     while i < bytes.len() {
         let ch = bytes[i];
         if in_str {
-            if escaped { escaped = false; }
-            else if ch == b'\\' { escaped = true; }
-            else if ch == b'"' { in_str = false; }
+            if escaped {
+                escaped = false;
+            } else if ch == b'\\' {
+                escaped = true;
+            } else if ch == b'"' {
+                in_str = false;
+            }
             i = copy_seq(content, i, &mut result);
             continue;
         }
-        if ch == b'"' { in_str = true; result.push('"'); i += 1; continue; }
+        if ch == b'"' {
+            in_str = true;
+            result.push('"');
+            i += 1;
+            continue;
+        }
         if ch == b'/' && bytes.get(i + 1) == Some(&b'/') {
-            while i < bytes.len() && bytes[i] != b'\n' { i += 1; }
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
             continue;
         }
         if ch == b'/' && bytes.get(i + 1) == Some(&b'*') {
             i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') { i += 1; }
-            if i + 1 < bytes.len() { i += 2; }
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 < bytes.len() {
+                i += 2;
+            }
             continue;
         }
         i = copy_seq(content, i, &mut result);
@@ -195,17 +229,31 @@ fn strip_trailing_commas(content: &str) -> String {
     while i < bytes.len() {
         let ch = bytes[i];
         if in_str {
-            if escaped { escaped = false; }
-            else if ch == b'\\' { escaped = true; }
-            else if ch == b'"' || ch == b'\'' { in_str = false; }
+            if escaped {
+                escaped = false;
+            } else if ch == b'\\' {
+                escaped = true;
+            } else if ch == b'"' || ch == b'\'' {
+                in_str = false;
+            }
             i = copy_seq(content, i, &mut result);
             continue;
         }
-        if ch == b'"' || ch == b'\'' { in_str = true; result.push(ch as char); i += 1; continue; }
+        if ch == b'"' || ch == b'\'' {
+            in_str = true;
+            result.push(ch as char);
+            i += 1;
+            continue;
+        }
         if ch == b',' {
             let mut look = i + 1;
-            while look < bytes.len() && matches!(bytes[look], b' '|b'\t'|b'\n'|b'\r') { look += 1; }
-            if look < bytes.len() && matches!(bytes[look], b'}'|b']') { i += 1; continue; }
+            while look < bytes.len() && matches!(bytes[look], b' ' | b'\t' | b'\n' | b'\r') {
+                look += 1;
+            }
+            if look < bytes.len() && matches!(bytes[look], b'}' | b']') {
+                i += 1;
+                continue;
+            }
         }
         i = copy_seq(content, i, &mut result);
     }
@@ -226,7 +274,9 @@ pub fn minify_code_core(content: &str) -> String {
         if stripped.is_empty() {
             consecutive_blanks += 1;
             // allow max 1 blank line (= 2 consecutive \n in output)
-            if consecutive_blanks <= 1 { result.push('\n'); }
+            if consecutive_blanks <= 1 {
+                result.push('\n');
+            }
         } else {
             consecutive_blanks = 0;
             result.push_str(stripped);
@@ -249,7 +299,9 @@ pub fn minify_general_core(content: &str) -> String {
         let stripped = line.trim_end_matches([' ', '\t']);
         if stripped.is_empty() {
             blank_run += 1;
-            if blank_run <= 2 { result.push('\n'); }
+            if blank_run <= 2 {
+                result.push('\n');
+            }
         } else {
             blank_run = 0;
             // Halve leading whitespace
@@ -274,8 +326,8 @@ pub fn minify_markdown_core(content: &str) -> String {
     let mut in_generated_toc = false;
     let src = &source;
     let first_content = src.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
-    let mut in_frontmatter = first_content == 0
-        && src.first().map(|l| l.trim_end() == "---").unwrap_or(false);
+    let mut in_frontmatter =
+        first_content == 0 && src.first().map(|l| l.trim_end() == "---").unwrap_or(false);
 
     let mut i = 0;
     while i < src.len() {
@@ -284,59 +336,78 @@ pub fn minify_markdown_core(content: &str) -> String {
         // Inside code fence
         if let Some(ref f) = fence {
             append_md(&mut out, original, true);
-            if is_fence_close(original, f) { fence = None; }
-            i += 1; continue;
+            if is_fence_close(original, f) {
+                fence = None;
+            }
+            i += 1;
+            continue;
         }
         // Fence start
         if let Some(f) = fence_start(original) {
             fence = Some(f);
             append_md(&mut out, original.trim_end(), true);
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         // Indented code
         if original.starts_with("    ") || original.starts_with('\t') {
             append_md(&mut out, original, true);
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         // Frontmatter
         if in_frontmatter {
-            append_md(&mut out, original.trim_end(), false);
+            let cleaned = strip_md_inline_noise(original.trim_end());
+            append_md(&mut out, &cleaned, false);
             if i > 0 && (original.trim_end() == "---" || original.trim_end() == "...") {
                 in_frontmatter = false;
             }
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         // Generated TOC
         if in_generated_toc {
-            if is_toc_end(original) { in_generated_toc = false; append_md(&mut out, "", false); }
-            i += 1; continue;
+            if is_toc_end(original) {
+                in_generated_toc = false;
+                append_md(&mut out, "", false);
+            }
+            i += 1;
+            continue;
         }
         if is_toc_start(original) {
             in_generated_toc = !is_toc_end(original);
             append_md(&mut out, "", false);
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         // Strip HTML comments
         let (stripped, still_in_comment) = strip_md_html_comment(original, in_html_comment);
         in_html_comment = still_in_comment;
         let line = &stripped;
         // Pseudo-comment or badge line
-        if is_pseudo_comment(line) || is_badge_line(line) {
+        if is_pseudo_comment(line) || is_discardable_md_line(line) {
             append_md(&mut out, "", false);
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         // Setext heading conversion
         if let Some(level) = setext_level(line) {
-            if convert_setext(&mut out, level) { i += 1; continue; }
+            if convert_setext(&mut out, level) {
+                i += 1;
+                continue;
+            }
         }
         // Thematic break
         if is_thematic_break(line) {
             append_md(&mut out, "---", false);
-            i += 1; continue;
+            i += 1;
+            continue;
         }
         // Table row
         let is_table = is_delimiter_row(line)
-            || src.get(i.saturating_sub(1)).is_some_and(|l| is_delimiter_row(l))
+            || src
+                .get(i.saturating_sub(1))
+                .is_some_and(|l| is_delimiter_row(l))
             || src.get(i + 1).is_some_and(|l| is_delimiter_row(l));
         let compacted = if is_table {
             compact_table_row(line.trim_end())
@@ -346,55 +417,87 @@ pub fn minify_markdown_core(content: &str) -> String {
         append_md(&mut out, &compacted, false);
         i += 1;
     }
-    let joined = out.join("\n");
+    let compacted = compact_markdown_newlines(out);
+    let joined = compacted.join("\n");
     joined.trim().to_owned()
 }
 
 // ── Markdown helpers ──────────────────────────────────────────────────────────
 
-struct FenceState { marker: char, length: usize }
+struct FenceState {
+    marker: char,
+    length: usize,
+}
 
 fn fence_start(line: &str) -> Option<FenceState> {
     let leading = line.len() - line.trim_start().len();
-    if leading > 3 { return None; }
+    if leading > 3 {
+        return None;
+    }
     let rest = line.trim_start();
     let marker = rest.chars().next()?;
-    if marker != '`' && marker != '~' { return None; }
+    if marker != '`' && marker != '~' {
+        return None;
+    }
     let length = rest.chars().take_while(|&c| c == marker).count();
-    if length >= 3 { Some(FenceState { marker, length }) } else { None }
+    if length >= 3 {
+        Some(FenceState { marker, length })
+    } else {
+        None
+    }
 }
 
 fn is_fence_close(line: &str, f: &FenceState) -> bool {
     let rest = line.trim_start();
     let count = rest.chars().take_while(|&c| c == f.marker).count();
-    if count < f.length { return false; }
+    if count < f.length {
+        return false;
+    }
     rest[count..].trim().is_empty()
 }
 
 fn is_thematic_break(line: &str) -> bool {
     let compact: String = line.trim().chars().filter(|c| !c.is_whitespace()).collect();
-    if compact.len() < 3 { return false; }
-    let Some(m) = compact.chars().next() else { return false; };
+    if compact.len() < 3 {
+        return false;
+    }
+    let Some(m) = compact.chars().next() else {
+        return false;
+    };
     (m == '-' || m == '_' || m == '*') && compact.chars().all(|c| c == m)
 }
 
 fn setext_level(line: &str) -> Option<u8> {
     let t = line.trim();
-    if t.chars().all(|c| c == '=') && !t.is_empty() { Some(1) }
-    else if t.chars().all(|c| c == '-') && !t.is_empty() { Some(2) }
-    else { None }
+    if t.chars().all(|c| c == '=') && !t.is_empty() {
+        Some(1)
+    } else if t.chars().all(|c| c == '-') && !t.is_empty() {
+        Some(2)
+    } else {
+        None
+    }
 }
 
 fn convert_setext(out: &mut Vec<String>, level: u8) -> bool {
     let prefix = if level == 1 { "# " } else { "## " };
     let mut heading_lines: Vec<String> = Vec::new();
     while let Some(l) = out.last() {
-        if l.trim().is_empty() { break; }
-        if let Some(line) = out.pop() { heading_lines.push(line); }
+        if l.trim().is_empty() {
+            break;
+        }
+        if let Some(line) = out.pop() {
+            heading_lines.push(line);
+        }
     }
-    if heading_lines.is_empty() { return false; }
+    if heading_lines.is_empty() {
+        return false;
+    }
     heading_lines.reverse();
-    let text = heading_lines.iter().map(|l| l.trim().to_owned()).collect::<Vec<_>>().join(" ");
+    let text = heading_lines
+        .iter()
+        .map(|l| l.trim().to_owned())
+        .collect::<Vec<_>>()
+        .join(" ");
     let candidate = format!("{}{}", prefix, text);
     append_md(out, &candidate, false);
     true
@@ -404,12 +507,18 @@ fn is_toc_start(line: &str) -> bool {
     let toc = regex_like_toc(line);
     toc.0
 }
-fn is_toc_end(line: &str) -> bool { regex_like_toc(line).1 }
+fn is_toc_end(line: &str) -> bool {
+    regex_like_toc(line).1
+}
 fn regex_like_toc(line: &str) -> (bool, bool) {
     let lower = line.to_lowercase();
-    let is_end   = lower.contains("<!-- end") || lower.contains("<!-- /toc") || lower.contains("tocstop");
-    let is_start = !is_end && (lower.contains("<!-- toc") || lower.contains("<!-- table of contents")
-        || lower.contains("<!-- doctoc") || lower.contains("<!-- markdown-toc"));
+    let is_end =
+        lower.contains("<!-- end") || lower.contains("<!-- /toc") || lower.contains("tocstop");
+    let is_start = !is_end
+        && (lower.contains("<!-- toc")
+            || lower.contains("<!-- table of contents")
+            || lower.contains("<!-- doctoc")
+            || lower.contains("<!-- markdown-toc"));
     (is_start, is_end)
 }
 
@@ -448,17 +557,36 @@ fn is_pseudo_comment(line: &str) -> bool {
     t.starts_with("[//]: #")
 }
 
+fn is_discardable_md_line(line: &str) -> bool {
+    is_badge_line(line)
+        || is_image_only_line(line)
+        || is_anchor_only_line(line)
+        || is_html_break_only_line(line)
+}
+
 fn is_badge_line(line: &str) -> bool {
     let t = line.trim();
-    let badge_domains = ["img.shields.io","badge.fury.io","badgen.net","codecov.io","coveralls.io","circleci.com","travis-ci"];
+    let badge_domains = [
+        "img.shields.io",
+        "badge.fury.io",
+        "badgen.net",
+        "codecov.io",
+        "coveralls.io",
+        "circleci.com",
+        "travis-ci",
+    ];
     // Find all image urls
     let images: Vec<_> = t.match_indices("![").collect();
-    if images.is_empty() { return false; }
+    if images.is_empty() {
+        return false;
+    }
     // Check if every image URL is a badge
     let mut has_badge = false;
     for (_, _) in &images {
         let all_badges = badge_domains.iter().any(|d| t.contains(d));
-        if all_badges { has_badge = true; }
+        if all_badges {
+            has_badge = true;
+        }
     }
     has_badge && {
         // Check nothing is left after removing badge images
@@ -467,27 +595,107 @@ fn is_badge_line(line: &str) -> bool {
         while let Some(start) = cleaned.find("![") {
             if let Some(end) = cleaned[start..].find(')') {
                 cleaned.replace_range(start..start + end + 1, "");
-            } else { break; }
+            } else {
+                break;
+            }
         }
         cleaned.trim().is_empty()
     }
 }
 
+fn is_image_only_line(line: &str) -> bool {
+    let mut cleaned = line.trim().to_owned();
+    loop {
+        let next = strip_one_markdown_image(&cleaned);
+        if next == cleaned {
+            break;
+        }
+        cleaned = next;
+    }
+    cleaned.trim().is_empty()
+}
+
+fn strip_one_markdown_image(line: &str) -> String {
+    if let Some(start) = line.find("[![") {
+        if let Some(end) = linked_image_end(line, start) {
+            let mut output = String::with_capacity(line.len());
+            output.push_str(&line[..start]);
+            output.push_str(&line[end..]);
+            return output;
+        }
+    }
+    if let Some(start) = line.find("![") {
+        if let Some(end) = markdown_image_end(line, start) {
+            let mut output = String::with_capacity(line.len());
+            output.push_str(&line[..start]);
+            output.push_str(&line[end..]);
+            return output;
+        }
+    }
+    line.to_owned()
+}
+
+fn markdown_image_end(line: &str, start: usize) -> Option<usize> {
+    let label_end = line[start + 2..].find(']')? + start + 2;
+    let rest = &line[label_end + 1..];
+    if !rest.starts_with('(') {
+        return None;
+    }
+    let target_end = rest.find(')')?;
+    Some(label_end + 1 + target_end + 1)
+}
+
+fn linked_image_end(line: &str, start: usize) -> Option<usize> {
+    let image_end = markdown_image_end(line, start + 1)?;
+    let rest = &line[image_end..];
+    if !rest.starts_with("](") {
+        return None;
+    }
+    let link_end = rest[2..].find(')')?;
+    Some(image_end + 2 + link_end + 1)
+}
+
+fn is_anchor_only_line(line: &str) -> bool {
+    let t = line.trim().to_ascii_lowercase();
+    if t.is_empty() {
+        return false;
+    }
+    (t.starts_with("<a ") || t.starts_with("<a\t"))
+        && t.contains("id=")
+        && (t.ends_with("</a>") || t.ends_with("/>"))
+}
+
+fn is_html_break_only_line(line: &str) -> bool {
+    matches!(
+        line.trim().to_ascii_lowercase().as_str(),
+        "<br>" | "<br/>" | "<br />"
+    )
+}
+
 fn is_delimiter_row(line: &str) -> bool {
     let parts: Vec<&str> = line.trim().split('|').filter(|p| !p.is_empty()).collect();
-    parts.len() >= 2 && parts.iter().all(|p| {
-        let t = p.trim();
-        t.starts_with(':') || t.ends_with(':') || t.trim_matches('-').trim_matches(':').is_empty()
-    })
+    parts.len() >= 2
+        && parts.iter().all(|p| {
+            let t = p.trim();
+            t.starts_with(':')
+                || t.ends_with(':')
+                || t.trim_matches('-').trim_matches(':').is_empty()
+        })
 }
 
 fn compact_table_row(line: &str) -> String {
-    line.split('|').map(|p| p.trim()).collect::<Vec<_>>().join("|")
+    let compacted = line
+        .split('|')
+        .map(|p| p.trim())
+        .collect::<Vec<_>>()
+        .join("|");
+    strip_md_inline_noise(&compacted)
 }
 
 fn compact_md_line(line: &str) -> String {
     // Compact heading, list markers, blockquote, trim trailing whitespace
-    let s = line.trim_end();
+    let cleaned = strip_md_inline_noise(line);
+    let s = cleaned.trim_end();
     // Setext-like lines handled above; just tighten multiple spaces inside text
     let mut result = s.to_owned();
     // Compact ATX heading
@@ -500,6 +708,166 @@ fn compact_md_line(line: &str) -> String {
         }
     }
     result
+}
+
+fn strip_md_inline_noise(line: &str) -> String {
+    let without_images = strip_inline_markdown_images(line);
+    let without_emoji_shortcodes = strip_md_emoji_shortcodes(&without_images);
+    let without_emoji = strip_unicode_emoji(&without_emoji_shortcodes);
+    let without_breaks = strip_inline_html_breaks(&without_emoji);
+    normalize_md_inline_spacing(&without_breaks)
+}
+
+fn strip_inline_markdown_images(line: &str) -> String {
+    let mut cleaned = line.to_owned();
+    loop {
+        let next = strip_one_markdown_image(&cleaned);
+        if next == cleaned {
+            break;
+        }
+        cleaned = next;
+    }
+    cleaned
+}
+
+fn strip_md_emoji_shortcodes(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0usize;
+    while i < line.len() {
+        if line.as_bytes()[i] == b':' {
+            if let Some(end_offset) = line[i + 1..].find(':') {
+                let end = i + 1 + end_offset;
+                let label = &line[i + 1..end];
+                if is_emoji_shortcode_label(label) {
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+        i = copy_seq(line, i, &mut out);
+    }
+    out
+}
+
+fn is_emoji_shortcode_label(label: &str) -> bool {
+    let len = label.len();
+    (2..=40).contains(&len)
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+'))
+}
+
+fn strip_unicode_emoji(line: &str) -> String {
+    line.chars().filter(|&ch| !is_emoji_scalar(ch)).collect()
+}
+
+fn is_emoji_scalar(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x1F000..=0x1FAFF
+            | 0x1FB00..=0x1FFFF
+            | 0x2600..=0x27BF
+            | 0xFE00..=0xFE0F
+            | 0x200D
+            | 0x20E3
+    )
+}
+
+fn strip_inline_html_breaks(line: &str) -> String {
+    line.replace("<br />", " ")
+        .replace("<br/>", " ")
+        .replace("<br>", " ")
+        .replace("<BR />", " ")
+        .replace("<BR/>", " ")
+        .replace("<BR>", " ")
+}
+
+fn normalize_md_inline_spacing(line: &str) -> String {
+    let compact = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    compact
+        .replace(" .", ".")
+        .replace(" ,", ",")
+        .replace(" ;", ";")
+        .replace(" :", ":")
+        .replace(" !", "!")
+        .replace(" ?", "?")
+        .trim()
+        .to_owned()
+}
+
+fn compact_markdown_newlines(lines: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut fence: Option<FenceState> = None;
+
+    for line in lines {
+        if let Some(ref active_fence) = fence {
+            if is_fence_close(&line, active_fence) {
+                fence = None;
+            }
+            out.push(line);
+            continue;
+        }
+
+        if let Some(next_fence) = fence_start(&line) {
+            fence = Some(next_fence);
+            out.push(line);
+            continue;
+        }
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        if let Some(prev) = out.last_mut() {
+            if is_markdown_paragraph_line(prev) && is_markdown_paragraph_line(&line) {
+                prev.push(' ');
+                prev.push_str(line.trim());
+                continue;
+            }
+        }
+
+        out.push(line);
+    }
+    out
+}
+
+fn is_markdown_paragraph_line(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if fence_start(t).is_some()
+        || t.starts_with('#')
+        || t.starts_with('>')
+        || t.starts_with('<')
+        || t.starts_with('[') && t.contains("]:")
+        || t.contains('|')
+        || is_thematic_break(t)
+        || is_delimiter_row(t)
+        || is_markdown_list_item(t)
+    {
+        return false;
+    }
+    true
+}
+
+fn is_markdown_list_item(line: &str) -> bool {
+    let t = line.trim_start();
+    if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+        return true;
+    }
+
+    let mut saw_digit = false;
+    for (idx, ch) in t.char_indices() {
+        if ch.is_ascii_digit() {
+            saw_digit = true;
+            continue;
+        }
+        return saw_digit
+            && matches!(ch, '.' | ')')
+            && t[idx + ch.len_utf8()..].starts_with(char::is_whitespace);
+    }
+    false
 }
 
 fn append_md(out: &mut Vec<String>, line: &str, preserve_blank: bool) {
@@ -525,11 +893,15 @@ pub fn minify_css_core(content: &str) -> String {
 /// High-quality CSS minification via lightningcss (100× better than regex).
 /// Falls back to `minify_css_core` on parse error.
 pub fn minify_css_quality(content: &str) -> String {
-    use lightningcss::stylesheet::{StyleSheet, ParserOptions, PrinterOptions};
+    use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
     match StyleSheet::parse(content, ParserOptions::default()) {
-        Ok(ss) => ss.to_css(PrinterOptions { minify: true, ..Default::default() })
-                    .map(|out| out.code.to_string())
-                    .unwrap_or_else(|_| minify_css_core(content)),
+        Ok(ss) => ss
+            .to_css(PrinterOptions {
+                minify: true,
+                ..Default::default()
+            })
+            .map(|out| out.code.to_string())
+            .unwrap_or_else(|_| minify_css_core(content)),
         Err(_) => minify_css_core(content),
     }
 }
@@ -547,8 +919,12 @@ pub fn minify_html_core(content: &str) -> String {
 /// High-quality HTML minification via minify-html crate.
 /// Falls back to `minify_html_core` on error.
 pub fn minify_html_quality(content: &str) -> String {
-    use minify_html::{Cfg, minify};
-    let cfg = Cfg { minify_css: true, minify_js: false, ..Cfg::default() };
+    use minify_html::{minify, Cfg};
+    let cfg = Cfg {
+        minify_css: true,
+        minify_js: false,
+        ..Cfg::default()
+    };
     let out = minify(content.as_bytes(), &cfg);
     String::from_utf8(out).unwrap_or_else(|_| minify_html_core(content))
 }
@@ -571,23 +947,23 @@ pub fn minify_js_oxc(content: &str, file_path: &str, mangle: bool) -> Option<Str
     let allocator = Allocator::default();
     let ext = crate::file_extension::get_extension_internal(file_path, true, "js");
     let source_type = match ext.as_str() {
-        "ts"  => SourceType::ts(),
+        "ts" => SourceType::ts(),
         "tsx" => SourceType::tsx(),
         "jsx" => SourceType::jsx(),
         "mjs" => SourceType::mjs(),
-        _     => SourceType::default(), // js / cjs
+        _ => SourceType::default(), // js / cjs
     };
 
     let parser_ret = Parser::new(&allocator, content, source_type).parse();
     // If plain-JS parse failed (e.g. Flow-annotated file with `import type`), retry as TS.
-    let parser_ret = if !parser_ret.errors.is_empty()
-        && matches!(ext.as_str(), "js" | "cjs")
-    {
+    let parser_ret = if !parser_ret.errors.is_empty() && matches!(ext.as_str(), "js" | "cjs") {
         Parser::new(&allocator, content, SourceType::ts()).parse()
     } else {
         parser_ret
     };
-    if !parser_ret.errors.is_empty() { return None; }
+    if !parser_ret.errors.is_empty() {
+        return None;
+    }
 
     let mut program = parser_ret.program;
 
@@ -609,12 +985,17 @@ pub fn minify_js_oxc(content: &str, file_path: &str, mangle: bool) -> Option<Str
     // safest() = keep all code, join vars, comma sequences — no dead-code removal
     // (avoids OXC 0.95 bug where CompressOptions::default() can produce empty output).
     Minifier::new(MinifierOptions {
-        mangle:   if mangle { Some(MangleOptions::default()) } else { None },
+        mangle: if mangle {
+            Some(MangleOptions::default())
+        } else {
+            None
+        },
         compress: Some(CompressOptions::safest()),
-    }).minify(&allocator, &mut program);
+    })
+    .minify(&allocator, &mut program);
 
     let codegen_opts = CodegenOptions {
-        minify:   true,
+        minify: true,
         // Strip ALL comment classes — the "standard" view contract removes
         // known language comments (normal + jsdoc default to true in oxc).
         comments: CommentOptions {
@@ -625,10 +1006,15 @@ pub fn minify_js_oxc(content: &str, file_path: &str, mangle: bool) -> Option<Str
         },
         ..CodegenOptions::default()
     };
-    let result = Codegen::new().with_options(codegen_opts).build(&program).code;
+    let result = Codegen::new()
+        .with_options(codegen_opts)
+        .build(&program)
+        .code;
     // Guard: never return empty output — that signals OXC mangle produced broken code.
     // Also fall back gracefully if OXC grew the content (shouldn't happen but be safe).
-    if result.is_empty() || result.len() >= content.len() { return None; }
+    if result.is_empty() || result.len() >= content.len() {
+        return None;
+    }
     Some(result)
 }
 
@@ -651,15 +1037,19 @@ fn re_tighten_punct_js(s: &str) -> String {
     while i < bytes.len() {
         let b = bytes[i];
         if b == b' '
-            && matches!(bytes.get(i + 1).copied(), Some(b'{' | b'}' | b'(' | b')' | b';' | b',' | b':'))
+            && matches!(
+                bytes.get(i + 1).copied(),
+                Some(b'{' | b'}' | b'(' | b')' | b';' | b',' | b':')
+            )
         {
-            i += 1; continue;
+            i += 1;
+            continue;
         }
-        if matches!(b, b'{' | b'}' | b'(' | b')' | b';' | b',')
-            && bytes.get(i + 1) == Some(&b' ') {
-                result.push(b as char);
-                i += 2; continue;
-            }
+        if matches!(b, b'{' | b'}' | b'(' | b')' | b';' | b',') && bytes.get(i + 1) == Some(&b' ') {
+            result.push(b as char);
+            i += 2;
+            continue;
+        }
         i = copy_seq(s, i, &mut result);
     }
     result
@@ -722,7 +1112,10 @@ mod tests {
     #[test]
     fn aggressive_preserves_non_ascii() {
         let out = minify_aggressive("local s = \"café → naïve\" { x = 1 }", None);
-        assert!(out.contains("café → naïve"), "aggressive path corrupted UTF-8: '{out}'");
+        assert!(
+            out.contains("café → naïve"),
+            "aggressive path corrupted UTF-8: '{out}'"
+        );
         assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
     }
 
@@ -730,7 +1123,10 @@ mod tests {
     #[test]
     fn javascript_core_preserves_non_ascii_and_strips_comments() {
         let out = minify_javascript_core("const s = \"café\"; // strip me");
-        assert!(out.contains("café"), "punct tightening corrupted UTF-8: '{out}'");
+        assert!(
+            out.contains("café"),
+            "punct tightening corrupted UTF-8: '{out}'"
+        );
         assert!(!out.contains("strip me"));
     }
 
@@ -742,5 +1138,40 @@ mod tests {
         assert!(out.contains("# Title"));
         assert!(out.contains("Some text"));
         assert!(!out.contains('\r'));
+    }
+
+    #[test]
+    fn markdown_strips_emoji_noise_and_joins_paragraph_wraps() {
+        let src = "# Guide 🚀\n\nThis is a soft\nwrapped paragraph 😊 with :sparkles: punctuation .\n\nSecond paragraph.\n\n```js\nconsole.log(\"😀 keep code literal\");\n```\n";
+        let out = minify_markdown_core(src);
+        assert!(out.contains("# Guide"), "heading kept: '{out}'");
+        assert!(
+            out.contains("This is a soft wrapped paragraph with punctuation."),
+            "soft wrap should join and punctuation should tighten: '{out}'"
+        );
+        assert!(out.contains("Second paragraph."));
+        assert!(
+            out.contains("console.log(\"😀 keep code literal\");"),
+            "fenced code is literal content: '{out}'"
+        );
+        assert!(!out.contains('🚀'));
+        assert!(!out.contains('😊'));
+        assert!(!out.contains(":sparkles:"));
+        assert!(
+            !out.contains("\n\n"),
+            "blank padding should be removed: '{out}'"
+        );
+    }
+
+    #[test]
+    fn markdown_drops_image_anchor_and_break_noise() {
+        let src = "# Assets\n\n<a id=\"top\"></a>\n<br />\n![Build](https://img.shields.io/badge/build-passing-green)\n![Screenshot](./screen.png)\nText <br> after break.\n";
+        let out = minify_markdown_core(src);
+        assert!(out.contains("# Assets"));
+        assert!(out.contains("Text after break."));
+        assert!(!out.contains("img.shields.io"));
+        assert!(!out.contains("Screenshot"));
+        assert!(!out.contains("<a id"));
+        assert!(!out.contains("<br"));
     }
 }

@@ -4,52 +4,14 @@ Source sample: `lua/plenary-path.lua`
 
 Strategy: `aggressive`
 
-Agent rating: **7.3/10 (good)**
-
-Agent understanding from minified output: **9.8/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 23250 | - | - | - |
-| content-view | 19630 | 15.6% | 5.66 ms | 8.5/10 |
-| applyMinification | 16783 | 27.8% | 5.911 ms | 8.5/10 |
-| sync minify | 16783 | 27.8% | 6.007 ms | 8.5/10 |
-| async minify | 16783 | 27.8% | 5.668 ms | 8.5/10 |
-| symbols | 25967 | -11.7% | 1.234 ms | 5/10 |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 10/10 |
-| context budget | 8/10 |
-| symbol context | 10/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 23250 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 19630 | 15.6% | 9.8/10 excellent | 10/10 | 10/10 |
-| minify | 16783 | 27.8% | 9.9/10 excellent | 10/10 | 10/10 |
-| symbols | 25967 | -11.7% | 9/10 excellent | 10/10 | 10/10 |
+| Tool              | Bytes |    Cut |     Time |
+| ----------------- | ----: | -----: | -------: |
+| input             | 23250 |      - |        - |
+| content-view      | 19630 |  15.6% |  5.66 ms |
+| applyMinification | 16783 |  27.8% | 5.911 ms |
+| sync minify       | 16783 |  27.8% | 6.007 ms |
+| async minify      | 16783 |  27.8% | 5.668 ms |
+| symbols           | 25967 | -11.7% | 1.234 ms |
 
 ## Notes
 
@@ -232,7 +194,7 @@ local _split_by_separator = (function()
   end
 end)()
 
-local is_uri = 
+local is_uri =
 
 ... [truncated 17830 chars] ...
 

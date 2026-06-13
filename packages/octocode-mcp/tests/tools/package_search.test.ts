@@ -354,7 +354,7 @@ describe('searchPackage - NPM (CLI)', () => {
     );
   });
 
-  it('keyword queries default to a ranked page of 20 lean results', async () => {
+  it('keyword queries default to a ranked page of 10 results (with metadata fetch)', async () => {
     const searchItems = JSON.stringify([
       { name: 'pkg-a', version: '1.0.0', description: 'a' },
       { name: 'pkg-b', version: '2.0.0', description: 'b' },
@@ -374,11 +374,11 @@ describe('searchPackage - NPM (CLI)', () => {
 
     expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
       'search',
-      ['react state management', '--json', '--searchlimit', '20'],
+      ['react state management', '--json', '--searchlimit', '10'],
       expect.any(Object)
     );
-    // lean keyword list: no per-item `npm view` metadata fetches
-    expect(mockExecuteNpmCommand).not.toHaveBeenCalledWith(
+    // keyword search now fetches per-item metadata to populate repositoryDirectory
+    expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
       'view',
       expect.arrayContaining(['pkg-a', '--json']),
       expect.any(Object)
@@ -389,7 +389,7 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('mode full enriches every package in keyword results', async () => {
+  it('keyword search calls npm view per-item to populate repositoryDirectory (sourceRoot)', async () => {
     const searchItems = JSON.stringify([
       { name: 'pkg-a', version: '1.0.0', description: 'a' },
       { name: 'pkg-b', version: '2.0.0', description: 'b' },
@@ -398,15 +398,13 @@ describe('searchPackage - NPM (CLI)', () => {
       name: 'pkg-a',
       version: '1.0.0',
       description: 'a',
-      keywords: ['alpha'],
       repository: 'https://github.com/octo/pkg-a',
     });
     mockNpmViewFull('pkg-b', {
       name: 'pkg-b',
       version: '2.0.0',
       description: 'b',
-      keywords: ['beta'],
-      repository: 'https://github.com/octo/pkg-b',
+      repository: { url: 'https://github.com/octo/monorepo', directory: 'packages/pkg-b' },
     });
     mockExecuteNpmCommand.mockImplementation(
       createNpmCommandMock({ stdout: searchItems, stderr: '', exitCode: 0 })
@@ -414,34 +412,31 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const result = await searchPackage({
       name: 'react state management',
-      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
     });
 
+    // keyword search: calls search AND per-item npm view for repositoryDirectory
     expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
-      'view',
-      ['pkg-a', '--json'],
+      'search',
+      expect.arrayContaining(['react state management', '--json']),
       expect.any(Object)
     );
     expect(mockExecuteNpmCommand).toHaveBeenCalledWith(
       'view',
-      ['pkg-b', '--json'],
+      expect.arrayContaining(['pkg-a']),
       expect.any(Object)
     );
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
-      expect((result.packages[0] as NpmPackageResult).keywords).toEqual([
-        'alpha',
-      ]);
-      expect((result.packages[1] as NpmPackageResult).keywords).toEqual([
-        'beta',
-      ]);
+      const pkgB = result.packages.find(p => p.name === 'pkg-b') as NpmPackageResult | undefined;
+      // repositoryDirectory populated from per-item fetch
+      expect(pkgB?.repositoryDirectory).toBe('packages/pkg-b');
     }
   });
 
-  it('should return full NPM package results in mode full', async () => {
+  it('should return full NPM package results for exact package name', async () => {
     mockNpmViewFull('axios', {
       name: 'axios',
       version: '1.6.0',
@@ -461,7 +456,6 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const query: PackageSearchInput = {
       name: 'axios',
-      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -488,7 +482,7 @@ describe('searchPackage - NPM (CLI)', () => {
     }
   });
 
-  it('should return full exact-package metadata in smart mode by default', async () => {
+  it('should return full exact-package metadata by default (exact names always fetch metadata)', async () => {
     mockNpmViewFull('full-meta-pkg', {
       name: 'full-meta-pkg',
       version: '2.0.0',
@@ -641,7 +635,7 @@ describe('searchPackage - NPM (CLI)', () => {
     );
   });
 
-  it('should return package details in mode full', async () => {
+  it('should return package details for exact name lookup', async () => {
     mockNpmViewFull('test-package', {
       name: 'test-package',
       version: '1.0.0',
@@ -658,7 +652,6 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const query: PackageSearchInput = {
       name: 'test-package',
-      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -1018,7 +1011,7 @@ describe('Package search response structure', () => {
     }
   });
 
-  it('should return full structure in mode full', async () => {
+  it('should return full structure for exact name lookup', async () => {
     mockNpmViewFull('express', {
       name: 'express',
       version: '4.18.2',
@@ -1029,7 +1022,6 @@ describe('Package search response structure', () => {
 
     const query: PackageSearchInput = {
       name: 'express',
-      mode: 'full',
       mainResearchGoal: 'Test',
       researchGoal: 'Test',
       reasoning: 'Test',
@@ -1239,7 +1231,7 @@ describe('registerPackageSearchTool', () => {
       expect(text).toContain('1000');
     });
 
-    it('should not report hasMore on the last package result page', async () => {
+    it('should not report hasMore when returned count equals totalFound', async () => {
       mockExecuteNpmCommand.mockRejectedValue(new Error('npm not found'));
 
       mockFetch.mockImplementation((url: string | URL | Request) => {
@@ -1249,15 +1241,16 @@ describe('registerPackageSearchTool', () => {
             ok: true,
             status: 200,
             json: () =>
+              // 10 results, total=10 → complete, no hasMore
               Promise.resolve({
-                objects: Array.from({ length: 20 }, (_, index) => ({
+                objects: Array.from({ length: 10 }, (_, index) => ({
                   package: {
-                    name: `react-hook-page-two-${index}`,
+                    name: `react-hook-${index}`,
                     version: '1.0.0',
                     description: 'React hook package',
                   },
                 })),
-                total: 40,
+                total: 10,
               }),
             body: null,
           });
@@ -1295,11 +1288,11 @@ describe('registerPackageSearchTool', () => {
 
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('totalFound: 40');
+      expect(text).toContain('totalFound: 10');
       expect(text).not.toContain('hasMore: true');
     });
 
-    it('should return lean package shape in mode lean', async () => {
+    it('should return string-list output: "name repoUrl[ sourceRoot]" per package', async () => {
       mockNpmViewFull('lodash', {
         name: 'lodash',
         version: '4.17.21',
@@ -1316,24 +1309,25 @@ describe('registerPackageSearchTool', () => {
         queries: [
           {
             packageName: 'lodash',
-            mode: 'lean',
-            mainResearchGoal: 'Test lean path',
+            mainResearchGoal: 'Test string-list output',
             researchGoal: 'Test',
-            reasoning: 'Cover shapeLeanPackage branch',
+            reasoning: 'Packages are formatted as string lines: name repoUrl sourceRoot',
           },
         ],
       });
 
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
+      // String-list format: "name repoUrl" on one line
       expect(text).toContain('lodash');
-      expect(text).toContain('repoUrl');
+      expect(text).toContain('https://github.com/lodash/lodash');
       expect(text).not.toContain('entrypoints');
       expect(text).not.toContain('researchTargets');
       expect(text).not.toContain('packageType');
+      expect(text).not.toContain('weeklyDownloads');
     });
 
-    it('should suggest underscore-based name variations on error', async () => {
+    it('emits githubSearchRepositories hint when registry is unreachable', async () => {
       mockFetch.mockRejectedValue(new Error('fetch failed'));
       mockExecuteNpmCommand.mockRejectedValue(new Error('npm failed'));
 
@@ -1343,15 +1337,15 @@ describe('registerPackageSearchTool', () => {
         queries: [
           {
             packageName: 'my_package_name',
-            mainResearchGoal: 'Test name variation',
+            mainResearchGoal: 'Test error hint',
             researchGoal: 'Test',
-            reasoning: 'Cover generateNameVariations underscore branch',
+            reasoning: 'Registry unreachable — should hint githubSearchRepositories',
           },
         ],
       });
 
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('my-package-name');
+      expect(text).toContain('githubSearchRepositories');
     });
   });
 
@@ -1582,13 +1576,13 @@ describe('registerPackageSearchTool', () => {
       const text = (result.content[0] as { text: string }).text;
 
       expect(text).toContain(
-        "No npm packages found for 'nonexistent pkg xyz123 keyword'"
+        "Package 'nonexistent pkg xyz123 keyword' not found on npm."
       );
       expect(text).not.toContain(
         'Browse: https://npmjs.com/search?q=nonexistent%20pkg%20xyz123%20keyword'
       );
 
-      expect(text).toContain('status: "empty"');
+      expect(text).toContain('status: empty');
     });
   });
 });
@@ -1631,7 +1625,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     });
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("No npm packages found for 'date-fns keyword'");
+    expect(text).toContain("Package 'date-fns keyword' not found on npm.");
   });
 
   it('should suggest unscoped name for @scope/name packages', async () => {
@@ -1681,7 +1675,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     });
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("No npm packages found for 'chart library'");
+    expect(text).toContain("Package 'chart library' not found on npm.");
   });
 
   it('should return all packages from a search result', async () => {

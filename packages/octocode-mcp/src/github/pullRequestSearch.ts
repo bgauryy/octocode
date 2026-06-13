@@ -196,6 +196,9 @@ async function searchGitHubPullRequestsAPIInternal(
     );
     const currentPage = params.page || 1;
 
+    // Capture the effective GitHub query string for debugging / agent transparency
+    const effectiveQuery = searchQuery;
+
     const searchResult = await octokit.rest.search.issuesAndPullRequests({
       q: searchQuery,
       sort: sortValue as
@@ -242,6 +245,7 @@ async function searchGitHubPullRequestsAPIInternal(
     return {
       pull_requests: formattedPRs,
       total_count: searchResult.data.total_count,
+      effectiveQuery,
       ...(searchResult.data.incomplete_results && { incomplete_results: true }),
       pagination: {
         currentPage: clampedPage,

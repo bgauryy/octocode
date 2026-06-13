@@ -7,7 +7,9 @@ pub fn render_skeleton(kept: &[(usize, String)], comment_prefix: &str) -> Option
         .filter(|(_, text)| !is_pure_comment(text, comment_prefix))
         .collect();
 
-    if visible.is_empty() { return None; }
+    if visible.is_empty() {
+        return None;
+    }
 
     let max_line = visible.iter().map(|(n, _)| *n).max().unwrap_or(1);
     let width = max_line.to_string().len();
@@ -23,23 +25,37 @@ pub fn render_skeleton(kept: &[(usize, String)], comment_prefix: &str) -> Option
 
 fn is_pure_comment(text: &str, prefix: &str) -> bool {
     let t = text.trim();
-    if t.is_empty() { return false; }
-    if t.starts_with("#!") { return false; } // shebang
+    if t.is_empty() {
+        return false;
+    }
+    if t.starts_with("#!") {
+        return false;
+    } // shebang
     match prefix {
         "c" | "c-hash" => {
-            if t.starts_with("//") { return true; }
-            if t.starts_with('*')  { return true; }
+            if t.starts_with("//") {
+                return true;
+            }
+            if t.starts_with('*') {
+                return true;
+            }
             if t.starts_with("/*") {
                 let close = t.find("*/");
-                if close.is_none_or(|i| t[i + 2..].trim().is_empty()) { return true; }
+                if close.is_none_or(|i| t[i + 2..].trim().is_empty()) {
+                    return true;
+                }
             }
-            if prefix == "c-hash" && t.starts_with('#') { return true; }
+            if prefix == "c-hash" && t.starts_with('#') {
+                return true;
+            }
             false
         }
         "hash" => t.starts_with('#'),
         "html" => t.starts_with("<!--") || t.starts_with("-->"),
-        "sql"  => {
-            if t.starts_with("--") { return true; }
+        "sql" => {
+            if t.starts_with("--") {
+                return true;
+            }
             if t.starts_with("/*") {
                 let close = t.find("*/");
                 return close.is_none_or(|i| t[i + 2..].trim().is_empty());

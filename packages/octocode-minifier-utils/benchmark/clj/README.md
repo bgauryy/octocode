@@ -4,52 +4,14 @@ Source sample: `clj/clojure-core.clj`
 
 Strategy: `aggressive`
 
-Agent rating: **7.8/10 (good)**
-
-Agent understanding from minified output: **9.1/10 (excellent)**
-
-Artifacts:
-
-- `raw/source.excerpt.txt`
-- `minified/content-view.excerpt.txt`
-- `minified/apply-minification.excerpt.txt`
-- `minified/minify-content-sync.excerpt.txt`
-- `minified/minify-content-async.excerpt.txt`
-- `symbol/signatures.txt`
-
-| Tool | Bytes | Cut | Time | Rating |
-| --- | ---: | ---: | ---: | ---: |
-| input | 276207 | - | - | - |
-| content-view | 274661 | 0.6% | 27.742 ms | 7.8/10 |
-| applyMinification | 229250 | 17% | 31.341 ms | 7.8/10 |
-| sync minify | 229250 | 17% | 31.615 ms | 7.8/10 |
-| async minify | 229250 | 17% | 32.241 ms | 7.8/10 |
-| symbols | 312284 | -13.1% | 13.993 ms | n/a |
-
-## Agent Understanding
-
-Measured from `standard` minified output.
-
-| Component | Score |
-| --- | ---: |
-| syntax anchors | 10/10 (3/3) |
-| delimiter structure | 10/10 |
-| output health | 9/10 |
-| context budget | 6/10 |
-| symbol context | 7/10 |
-| signals passed | 6/6 |
-
-## Agent Observation By Output Level
-
-Ratings are computed from the actual raw, standard, minify, and symbol outputs
-for this language sample.
-
-| Level | Bytes | Cut | Agent observation | Syntax anchors | Structure |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| none | 276207 | 0% | 10/10 excellent | 10/10 | 10/10 |
-| standard | 274661 | 0.6% | 9.1/10 excellent | 10/10 | 10/10 |
-| minify | 229250 | 17% | 8/10 strong | 6.7/10 | 10/10 |
-| symbols | 312284 | -13.1% | 8.8/10 strong | 10/10 | 10/10 |
+| Tool              |  Bytes |    Cut |      Time |
+| ----------------- | -----: | -----: | --------: |
+| input             | 276207 |      - |         - |
+| content-view      | 274661 |   0.6% | 27.742 ms |
+| applyMinification | 229250 |    17% | 31.341 ms |
+| sync minify       | 229250 |    17% | 31.615 ms |
+| async minify      | 229250 |    17% | 32.241 ms |
+| symbols           | 312284 | -13.1% | 13.993 ms |
 
 ## Notes
 

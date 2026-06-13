@@ -49,6 +49,8 @@ export interface GitHubPullRequestApiItem {
     commentType?: 'discussion' | 'review_inline';
     path?: string;
     line?: number;
+    /** For inline reply comments: id of the parent comment being replied to */
+    in_reply_to_id?: number | null;
     body_pagination?: {
       charOffset: number;
       charLength: number;
@@ -90,6 +92,8 @@ export interface GitHubPullRequestApiItem {
       patch?: string;
     }>;
   }>;
+  /** Warnings from content sanitization, bot filtering, secret redaction. */
+  _sanitization_warnings?: string[];
 }
 
 export interface GitHubPullRequestSearchApiData {
@@ -98,6 +102,8 @@ export interface GitHubPullRequestSearchApiData {
   pull_requests?: GitHubPullRequestApiItem[];
   total_count?: number;
   incomplete_results?: boolean;
+  /** The exact GitHub search query string sent to the API — aids debugging when results are unexpected. */
+  effectiveQuery?: string;
   pagination?: PaginationInfo;
   outputPagination?: {
     charOffset: number;

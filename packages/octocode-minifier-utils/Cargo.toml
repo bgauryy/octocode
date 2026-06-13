@@ -46,9 +46,15 @@ tree-sitter-go         = "0.23"   # covers .go
 tree-sitter-rust       = "0.23"   # covers .rs
 tree-sitter-java       = "0.23"   # covers .java
 tree-sitter-c          = "0.23"   # covers .c / .h
-tree-sitter-cpp        = "0.23"   # covers .cpp / .hpp / .cc
-tree-sitter-c-sharp    = "0.23"   # covers .cs
+tree-sitter-cpp        = { version = "0.23", optional = true }  # covers .cpp / .hpp / .cc
+tree-sitter-c-sharp    = { version = "0.23", optional = true }  # covers .cs
 tree-sitter-bash       = "0.23"   # covers .sh / .bash / .zsh
+
+[features]
+default = ["tree-sitter-large-grammars"]
+tree-sitter-cpp = ["dep:tree-sitter-cpp"]
+tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
 
 [build-dependencies]
 napi-build = "2"

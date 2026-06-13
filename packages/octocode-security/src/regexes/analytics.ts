@@ -20,6 +20,24 @@ export const analyticsModernPatterns: SensitiveDataPattern[] = [
     matchAccuracy: 'high',
   },
   {
+    name: 'posthogFeatureFlagsSecureApiKey',
+    description: 'PostHog feature flags secure API key',
+    regex: /\bphs_[a-zA-Z0-9_-]{39}\b/g,
+    matchAccuracy: 'high',
+  },
+  {
+    name: 'posthogOauthAccessToken',
+    description: 'PostHog OAuth access token',
+    regex: /\bpha_[a-zA-Z0-9_-]{39}\b/g,
+    matchAccuracy: 'high',
+  },
+  {
+    name: 'posthogOauthRefreshToken',
+    description: 'PostHog OAuth refresh token',
+    regex: /\bphr_[a-zA-Z0-9_-]{39}\b/g,
+    matchAccuracy: 'high',
+  },
+  {
     name: 'datadogApiKey',
     description: 'Datadog API and application keys (with context)',
     regex:

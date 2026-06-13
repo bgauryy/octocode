@@ -1,0 +1,1 @@
+{"calls":1,"in_chars":249,"out_chars":541,"elapsed_ms":788,"calls_detail":[{"cmd":"lspGetSemanticContent","in_chars":249,"out_chars":541,"elapsed_ms":788,"exit":0}],"tool_elapsed_ms":788,"q_elapsed_ms":855}

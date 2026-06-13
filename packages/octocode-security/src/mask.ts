@@ -67,7 +67,7 @@ export function maskSensitiveData(
     return applyJsMask(text, patterns);
   }
 
-  // Run Rust engine on built-in 304 patterns (fileContext already filtered in Rust)
+  // Run Rust engine on built-in patterns (fileContext already filtered in Rust)
   let result = nativeMaskSensitiveData(text);
 
   // Apply any extra patterns registered at runtime (JS fallback)

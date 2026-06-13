@@ -8,7 +8,7 @@
  * Slow path (cross-compile): downloads the tarball from the npm registry.
  *
  * Usage:
- *   node scripts/bundle-rg.mjs <platform> <outDir>
+ *   node scripts/bundle-rg.mjs <platform> <outDir> [--runtime-only]
  *
  * Platforms:
  *   darwin-arm64 | darwin-x64 | linux-arm64 | linux-x64 | linux-x64-musl | windows-x64
@@ -28,7 +28,7 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { rm, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { get } from 'node:https';
@@ -48,19 +48,22 @@ const RG_VERSION = ripgrepVersion.replace(/^[~^]/, '');
 
 /** @type {Record<string, { vscodeArch: string; binary: string }>} */
 const PLATFORM_MAP = {
-  'darwin-arm64':   { vscodeArch: 'darwin-arm64',  binary: 'rg'     },
-  'darwin-x64':     { vscodeArch: 'darwin-x64',    binary: 'rg'     },
-  'linux-arm64':    { vscodeArch: 'linux-arm64',   binary: 'rg'     },
-  'linux-x64':      { vscodeArch: 'linux-x64',     binary: 'rg'     },
-  'linux-x64-musl': { vscodeArch: 'linux-x64',     binary: 'rg'     }, // @vscode/ripgrep's linux-x64 rg is static-pie linked (no glibc/musl interpreter), so it runs on Alpine/musl too
-  'windows-x64':    { vscodeArch: 'win32-x64',     binary: 'rg.exe' },
+  'darwin-arm64': { vscodeArch: 'darwin-arm64', binary: 'rg' },
+  'darwin-x64': { vscodeArch: 'darwin-x64', binary: 'rg' },
+  'linux-arm64': { vscodeArch: 'linux-arm64', binary: 'rg' },
+  'linux-x64': { vscodeArch: 'linux-x64', binary: 'rg' },
+  'linux-x64-musl': { vscodeArch: 'linux-x64', binary: 'rg' }, // @vscode/ripgrep's linux-x64 rg is static-pie linked (no glibc/musl interpreter), so it runs on Alpine/musl too
+  'windows-x64': { vscodeArch: 'win32-x64', binary: 'rg.exe' },
 };
 
 async function main() {
-  const [platform, outDir] = process.argv.slice(2);
+  const [platform, outDir, ...flags] = process.argv.slice(2);
+  const runtimeOnly = flags.includes('--runtime-only');
 
   if (!platform || !outDir) {
-    console.error('Usage: node scripts/bundle-rg.mjs <platform> <outDir>');
+    console.error(
+      'Usage: node scripts/bundle-rg.mjs <platform> <outDir> [--runtime-only]'
+    );
     console.error('  Platforms:', Object.keys(PLATFORM_MAP).join(', '));
     process.exit(1);
   }
@@ -74,9 +77,11 @@ async function main() {
 
   const isWindows = platform === 'windows-x64';
   const outExt = isWindows ? '.exe' : '';
-  const outFile = join(outDir, `rg-${platform}${outExt}`);
+  const outFile = runtimeOnly
+    ? join(outDir, 'runtime', 'rg', `rg-${platform}${outExt}`)
+    : join(outDir, `rg-${platform}${outExt}`);
 
-  await mkdir(outDir, { recursive: true });
+  await mkdir(dirname(outFile), { recursive: true });
 
   // Fast path: use locally installed optional package (native platform build).
   const localPkgName = `@vscode/ripgrep-${config.vscodeArch}`;
@@ -85,13 +90,17 @@ async function main() {
     console.log(`bundle-rg: copying from local ${localPkgName}`);
     copyFileSync(localPath, outFile);
     if (!isWindows) chmodSync(outFile, 0o755);
-    copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
+    if (!runtimeOnly) {
+      copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
+    }
     console.log(`bundle-rg: ✓ ${outFile}`);
     return;
   }
 
   // Slow path: download from npm registry (cross-platform build).
-  console.log(`bundle-rg: downloading ${localPkgName}@${RG_VERSION} from npm registry`);
+  console.log(
+    `bundle-rg: downloading ${localPkgName}@${RG_VERSION} from npm registry`
+  );
   const tmpDir = join(tmpdir(), `bundle-rg-${platform}-${Date.now()}`);
   try {
     await mkdir(tmpDir, { recursive: true });
@@ -100,7 +109,9 @@ async function main() {
     await download(tgzUrl, tgz);
     extractBinaryFromTgz(tgz, `package/bin/${config.binary}`, outFile, tmpDir);
     if (!isWindows) chmodSync(outFile, 0o755);
-    copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
+    if (!runtimeOnly) {
+      copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
+    }
     console.log(`bundle-rg: ✓ ${outFile}`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
@@ -139,7 +150,7 @@ function npmTarballUrl(vscodeArch, version) {
 function download(url, dest) {
   return new Promise((resolve, reject) => {
     const file = createWriteStream(dest);
-    const req = get(url, (res) => {
+    const req = get(url, res => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         file.close();
         download(res.headers.location, dest).then(resolve).catch(reject);
@@ -159,15 +170,19 @@ function download(url, dest) {
 
 /** Extract a single file from a .tgz archive using the system tar command. */
 function extractBinaryFromTgz(tgzPath, entryPath, destPath, cwd) {
-  execFileSync('tar', ['-xzf', tgzPath, '--strip-components=2', '-C', cwd, entryPath], {
-    cwd,
-    stdio: 'inherit',
-  });
+  execFileSync(
+    'tar',
+    ['-xzf', tgzPath, '--strip-components=2', '-C', cwd, entryPath],
+    {
+      cwd,
+      stdio: 'inherit',
+    }
+  );
   const extracted = join(cwd, entryPath.split('/').pop());
   copyFileSync(extracted, destPath);
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error('bundle-rg failed:', err.message);
   process.exit(1);
 });

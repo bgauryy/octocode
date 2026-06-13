@@ -6,7 +6,7 @@ function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
   return parsed.queries[0] as Record<string, unknown>;
 }
 
-describe('packageSearch pagination (page-based exact fields)', () => {
+describe('packageSearch schema', () => {
   it('defaults page to 1 when omitted', () => {
     expect(parsedQuery({ packageName: 'lodash' }).page).toBe(1);
   });
@@ -15,28 +15,19 @@ describe('packageSearch pagination (page-based exact fields)', () => {
     expect(parsedQuery({ packageName: 'lodash', page: 2 }).page).toBe(2);
   });
 
-  it('does not expose itemsPerPage or searchLimit', () => {
+  it('does not expose itemsPerPage, searchLimit, or mode', () => {
     const q = parsedQuery({ packageName: 'lodash' });
     expect('itemsPerPage' in q).toBe(false);
     expect('searchLimit' in q).toBe(false);
     expect('limit' in q).toBe(false);
+    expect('mode' in q).toBe(false);
+    expect('verbose' in q).toBe(false);
   });
 
-  it('accepts explicit detail modes', () => {
-    expect(parsedQuery({ packageName: 'lodash', mode: 'lean' }).mode).toBe(
-      'lean'
-    );
-    expect(parsedQuery({ packageName: 'lodash', mode: 'full' }).mode).toBe(
-      'full'
-    );
-    expect(parsedQuery({ packageName: 'lodash', mode: 'smart' }).mode).toBe(
-      'smart'
-    );
-  });
-
-  it('rejects unsupported detail modes', () => {
-    expect(() =>
-      parsedQuery({ packageName: 'lodash', mode: 'compact' })
-    ).toThrow();
+  it('unknown fields are stripped (mode, verbose)', () => {
+    // Zod strips unknown fields — neither mode nor verbose is part of the schema
+    const q = parsedQuery({ packageName: 'lodash', mode: 'lean', verbose: true });
+    expect('mode' in q).toBe(false);
+    expect('verbose' in q).toBe(false);
   });
 });

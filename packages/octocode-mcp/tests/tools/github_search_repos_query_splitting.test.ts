@@ -359,16 +359,12 @@ describe('GitHub Search Repositories Query Splitting', () => {
         }
       );
 
-      const structured = result.structuredContent as {
-        results?: Array<{
-          data?: {
-            repositories?: Array<{ owner: string; repo: string }>;
-          };
-        }>;
+      // Lean mode returns compact strings.
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      const topRepo = structured.results?.[0]?.data?.repositories?.[0];
-      expect(topRepo?.owner).toBe('keyword');
-      expect(topRepo?.repo).toBe('keyword');
+      const topLine = repos.results?.[0]?.data?.repositories?.[0];
+      expect(topLine).toContain('keyword/keyword');
     });
   });
 

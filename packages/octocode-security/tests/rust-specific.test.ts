@@ -4,7 +4,7 @@
  * Edge cases unique to the Rust/NAPI implementation.
  * These do NOT exist in octocode-security-utils because they test:
  *   - NAPI binary loading
- *   - patternCount() == 304
+ *   - patternCount() matches generated detector count
  *   - Unicode / multibyte content via Rust
  *   - Large content / chunked path
  *   - ReDoS linear-time guarantee
@@ -76,8 +76,8 @@ describe('RUST-01: Native binary', () => {
     expect(typeof native!.patternCount).toBe('function');
   });
 
-  it('patternCount() === 304', () => {
-    expect(native!.patternCount()).toBe(304);
+  it('patternCount() === 309', () => {
+    expect(native!.patternCount()).toBe(309);
   });
 });
 
@@ -349,6 +349,9 @@ describe('RUST-06: Known secret detection', () => {
     'SELECT * FROM users WHERE id = 1',
     'v1.0.0-beta.1',
     '127.0.0.1:8080',
+    'auth authorization',
+    'auth\nauthorization',
+    'topics: [access-control, acl, ai-friendly, api, authorization, prisma]',
     '',
     '   ',
   ];
