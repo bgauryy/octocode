@@ -79,3 +79,113 @@ fn comment_style_for(ext: &str) -> &'static str {
         _ => "c",
     }
 }
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extract(content: &str, path: &str) -> Option<String> {
+        extract_signatures_inner(content, path)
+    }
+
+    // ── tree-sitter languages ─────────────────────────────────────────────────
+    #[test]
+    fn typescript_skeleton_keeps_signatures_drops_bodies() {
+        let src = "\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n\nexport class Calc {\n  value: number = 0;\n  multiply(x: number): number {\n    return this.value * x;\n  }\n}\n";
+        let s = extract(src, "calc.ts").expect("TS must extract");
+        assert!(s.contains("add"), "function preserved");
+        assert!(s.contains("Calc"), "class preserved");
+        assert!(s.contains("value"), "field preserved");
+        assert!(s.contains("multiply"), "method sig preserved");
+        assert!(!s.contains("return a + b"), "body dropped");
+        assert!(!s.contains("this.value * x"), "body dropped");
+    }
+
+    #[test]
+    fn python_skeleton_keeps_imports_classes_and_defs() {
+        let src = "\nimport os\n\nclass Foo:\n    name: str\n\n    def bar(self, x: int) -> str:\n        return str(x)\n\ndef top_level():\n    pass\n";
+        let s = extract(src, "foo.py").expect("python must extract");
+        assert!(s.contains("import os"), "must keep import");
+        assert!(s.contains("class Foo"), "must keep class");
+        assert!(s.contains("def bar"), "must keep method sig");
+        assert!(s.contains("def top_level"), "must keep top-level def");
+        assert!(!s.contains("return str"), "body dropped");
+        assert!(!s.contains("pass"), "body dropped");
+    }
+
+    #[test]
+    fn python_one_line_def_keeps_its_signature_row() {
+        let src = "def f(): return 1\n\ndef g():\n    return 2\n";
+        let s = extract(src, "one.py").expect("must extract");
+        assert!(s.contains("def f(): return 1"), "one-liner signature dropped: '{s}'");
+        assert!(s.contains("def g():"));
+        assert!(!s.contains("return 2"), "multi-line body must still drop: '{s}'");
+    }
+
+    #[test]
+    fn rust_skeleton_drops_fn_bodies() {
+        let src = "\npub fn greet(name: &str) -> String {\n    format!(\"Hello, {}\", name)\n}\n\npub struct Point { x: f64, y: f64 }\n\nimpl Point {\n    pub fn distance(&self, other: &Point) -> f64 {\n        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()\n    }\n}\n";
+        let s = extract(src, "geo.rs").expect("rust must extract");
+        assert!(s.contains("greet"));
+        assert!(!s.contains("format!"), "body dropped");
+    }
+
+    #[test]
+    fn go_skeleton_drops_fn_bodies() {
+        let src = "\npackage main\n\nimport \"fmt\"\n\nfunc Add(a, b int) int {\n    return a + b\n}\n\ntype Server struct {\n    Port int\n}\n\nfunc (s *Server) Start() error {\n    fmt.Println(\"starting\")\n    return nil\n}\n";
+        let s = extract(src, "main.go").expect("go must extract");
+        assert!(s.contains("Add") || s.contains("func"));
+        assert!(!s.contains("Println"), "body dropped");
+    }
+
+    #[test]
+    fn java_skeleton_drops_method_bodies() {
+        let src = "\npublic class Calculator {\n    private int value;\n\n    public Calculator(int initial) {\n        this.value = initial;\n    }\n\n    public int add(int x) {\n        return value + x;\n    }\n}\n";
+        let s = extract(src, "Calculator.java").expect("java must extract");
+        assert!(s.contains("Calculator") || s.contains("add"));
+        assert!(!s.contains("return value"), "body dropped");
+    }
+
+    #[test]
+    fn c_skeleton_drops_fn_bodies() {
+        let src = "\n#include <stdio.h>\n\nint add(int a, int b) {\n    return a + b;\n}\n\nvoid greet(const char *name) {\n    printf(\"Hello, %s\\n\", name);\n}\n";
+        let s = extract(src, "math.c").expect("c must extract");
+        assert!(s.contains("add") || s.contains("int"));
+        assert!(!s.contains("printf"), "body dropped");
+    }
+
+    // ── NO_SYMBOL_EXTS denylist: data / config / prose return None ────────────
+    #[test]
+    fn data_and_prose_formats_return_none() {
+        let cases: &[(&str, &str)] = &[
+            ("{\"key\":\"value\",\"count\":42}", "data.json"),
+            ("// comment\n{\"a\": 1}", "tsconfig.json"),
+            ("key: value\ncount: 42", "config.yaml"),
+            ("name: my-app\nversion: 1.0.0", "package.yml"),
+            ("[package]\nname = \"foo\"", "Cargo.toml"),
+            ("[section]\nkey = value", "config.ini"),
+            ("# Title\n\nSome text.", "README.md"),
+            ("Title\n=====\n\nProse.", "docs.rst"),
+        ];
+        for (content, path) in cases {
+            assert!(
+                extract(content, path).is_none(),
+                "{path} has no code signatures — must return None"
+            );
+        }
+    }
+
+    #[test]
+    fn code_formats_still_extract_despite_denylist() {
+        assert!(extract("CREATE TABLE users (id INT, name VARCHAR(255));", "schema.sql").is_some());
+        assert!(extract("export function add(a: number, b: number): number { return a + b; }", "math.ts").is_some());
+    }
+
+    // ── size cap ──────────────────────────────────────────────────────────────
+    #[test]
+    fn oversized_input_returns_none_without_parsing() {
+        let src = "function f(){ return 1; }\n".repeat(45_000); // ~1.17MB
+        assert!(extract(&src, "big.ts").is_none());
+    }
+}

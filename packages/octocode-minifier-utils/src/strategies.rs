@@ -374,7 +374,7 @@ fn is_fence_close(line: &str, f: &FenceState) -> bool {
 fn is_thematic_break(line: &str) -> bool {
     let compact: String = line.trim().chars().filter(|c| !c.is_whitespace()).collect();
     if compact.len() < 3 { return false; }
-    let m = compact.chars().next().unwrap();
+    let Some(m) = compact.chars().next() else { return false; };
     (m == '-' || m == '_' || m == '*') && compact.chars().all(|c| c == m)
 }
 
@@ -388,12 +388,9 @@ fn setext_level(line: &str) -> Option<u8> {
 fn convert_setext(out: &mut Vec<String>, level: u8) -> bool {
     let prefix = if level == 1 { "# " } else { "## " };
     let mut heading_lines: Vec<String> = Vec::new();
-    loop {
-        match out.last() {
-            None => break,
-            Some(l) if l.trim().is_empty() => break,
-            Some(_) => { heading_lines.push(out.pop().unwrap()); }
-        }
+    while let Some(l) = out.last() {
+        if l.trim().is_empty() { break; }
+        if let Some(line) = out.pop() { heading_lines.push(line); }
     }
     if heading_lines.is_empty() { return false; }
     heading_lines.reverse();
@@ -666,4 +663,84 @@ fn re_tighten_punct_js(s: &str) -> String {
         i = copy_seq(s, i, &mut result);
     }
     result
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── JSON ──────────────────────────────────────────────────────────────────
+    #[test]
+    fn json_core_compacts_valid_json() {
+        let (out, failed) = minify_json_core_inner("{\"a\": 1,  \"b\": 2 }");
+        assert_eq!(out, r#"{"a":1,"b":2}"#);
+        assert!(!failed);
+    }
+
+    #[test]
+    fn json_core_strips_jsonc_comments_and_trailing_commas() {
+        let src = "{ // comment\n  \"key\": \"value\", // trailing comma\n}";
+        let (out, failed) = minify_json_core_inner(src);
+        assert!(!failed);
+        assert!(out.contains("key"));
+        assert!(!out.contains("comment"));
+    }
+
+    #[test]
+    fn json_core_preserves_non_ascii_through_jsonc_strip() {
+        let (out, failed) = minify_json_core_inner("{\n  // comment\n  \"k\": \"café\",\n}");
+        assert!(!failed);
+        assert!(out.contains("café"), "JSONC strip corrupted UTF-8: '{out}'");
+        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
+    }
+
+    // ── conservative ──────────────────────────────────────────────────────────
+    #[test]
+    fn conservative_strips_c_style_comments() {
+        let out = minify_conservative("int x; // comment\nint y;", Some(&["c-style"]));
+        assert!(!out.contains("comment"));
+        assert!(out.contains("int x"));
+    }
+
+    #[test]
+    fn conservative_strips_hash_comments_preserving_code() {
+        let out = minify_conservative("x = 1 # comment\n# full line\ny = 2", Some(&["hash"]));
+        assert!(!out.contains("comment"));
+        assert!(!out.contains("full line"));
+        assert!(out.contains("x = 1") && out.contains("y = 2"));
+    }
+
+    // ── code core ─────────────────────────────────────────────────────────────
+    #[test]
+    fn code_core_collapses_blank_runs_to_one() {
+        // Mirrors the TS contract exactly: "a\n\n\n\nb" → "a\n\nb"
+        assert_eq!(minify_code_core("a\n\n\n\nb"), "a\n\nb");
+    }
+
+    // ── aggressive: UTF-8 safety through collapse + punct tightening ──────────
+    #[test]
+    fn aggressive_preserves_non_ascii() {
+        let out = minify_aggressive("local s = \"café → naïve\" { x = 1 }", None);
+        assert!(out.contains("café → naïve"), "aggressive path corrupted UTF-8: '{out}'");
+        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
+    }
+
+    // ── javascript core ───────────────────────────────────────────────────────
+    #[test]
+    fn javascript_core_preserves_non_ascii_and_strips_comments() {
+        let out = minify_javascript_core("const s = \"café\"; // strip me");
+        assert!(out.contains("café"), "punct tightening corrupted UTF-8: '{out}'");
+        assert!(!out.contains("strip me"));
+    }
+
+    // ── markdown ──────────────────────────────────────────────────────────────
+    #[test]
+    fn markdown_normalizes_crlf_without_carriage_returns() {
+        // leak() removal itself is enforced by clippy disallowed-methods.
+        let out = minify_markdown_core("# Title\r\n\r\nSome text  \r\n");
+        assert!(out.contains("# Title"));
+        assert!(out.contains("Some text"));
+        assert!(!out.contains('\r'));
+    }
 }

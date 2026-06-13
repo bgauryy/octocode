@@ -24,36 +24,111 @@ export interface YamlConversionConfig {
   keysPriority?: Array<string>
 }
 export const SIGNATURES_ONLY_HINT: string
+/**
+ * Extract the file extension from a path (dotfile-aware).
+ * Options control lowercasing and the fallback used when no extension exists.
+ */
 export declare function getExtension(filePath: string, options?: GetExtensionOptions | undefined | null): string
+/**
+ * Full minification, synchronous. Content above the 1MB guard is returned
+ * unchanged; unknown file types fall back to the general strategy.
+ */
 export declare function minifyContentSync(content: string, filePath: string): string
 /**
  * Sync equivalent of TS `minifyContent` — returns MinifyResult.
  * The JS shim wraps this in Promise.resolve() so callers can await it.
  */
 export declare function minifyContentResult(content: string, filePath: string): MinifyResult
+/**
+ * Full minification that never grows the content — returns the minified
+ * form only when it is shorter, otherwise the original. Panic-contained.
+ */
 export declare function applyMinification(content: string, filePath: string): string
+/**
+ * Agent-readable "standard" view: strips comments and blank-line noise while
+ * preserving indentation and code shape. Capped at 1MB; panic-contained.
+ */
 export declare function applyContentViewMinification(content: string, filePath: string): string
 /** `commentTypes` accepts a single string or array of strings. */
 export declare function removeComments(content: string, commentTypes: any): string
+/**
+ * Conservative strategy: strip the configured comment groups, collapse blank
+ * runs, preserve indentation.
+ */
 export declare function minifyConservativeCore(content: string, config: FileTypeMinifyConfig): string
+/**
+ * Aggressive strategy: strip comments, collapse all whitespace, tighten
+ * punctuation. Lossy — for token-budget views only.
+ */
 export declare function minifyAggressiveCore(content: string, config: FileTypeMinifyConfig): string
+/**
+ * Compact JSON to a single line. JSONC/JSON5 noise (comments, trailing
+ * commas) is stripped before parsing; unparseable input is returned trimmed.
+ */
 export declare function minifyJsonCore(content: string): MinifyResult
+/**
+ * Readable JSON view: keeps formatting, strips JSONC noise and trailing
+ * whitespace, collapses blank runs. Valid JSON passes through unchanged.
+ */
 export declare function minifyJsonReadable(content: string): MinifyResult
+/**
+ * Whitespace-only code cleanup: trim line ends, collapse 3+ blank lines,
+ * preserve indentation.
+ */
 export declare function minifyCodeCore(content: string): string
+/** Generic text cleanup for unknown file types: trim + collapse blank runs. */
 export declare function minifyGeneralCore(content: string): string
+/**
+ * Markdown view: drops HTML comments, badges, and generated TOCs; compacts
+ * tables and headings; preserves code fences and frontmatter verbatim.
+ */
 export declare function minifyMarkdownCore(content: string): string
+/**
+ * Lightweight CSS cleanup (comment strip + whitespace). See
+ * `minifyCSSQuality` for the lightningcss-backed variant.
+ */
 export declare function minifyCSSCore(content: string): string
+/**
+ * Lightweight HTML/XML cleanup (comment strip + whitespace). See
+ * `minifyHTMLQuality` for the minify-html-backed variant.
+ */
 export declare function minifyHTMLCore(content: string): string
+/**
+ * Heuristic JS fallback (comment strip + whitespace tightening) used when
+ * the OXC pipeline declines the input.
+ */
 export declare function minifyJavaScriptCore(content: string): string
+/**
+ * CSS minification via lightningcss — parser-grade, strips comments and
+ * redundant units.
+ */
 export declare function minifyCSSQuality(content: string): string
+/**
+ * HTML minification via minify-html — parser-grade comment and whitespace
+ * removal.
+ */
 export declare function minifyHTMLQuality(content: string): string
+/**
+ * Remove Python docstrings (module/class/function level) while preserving
+ * all runtime code.
+ */
 export declare function stripPythonDocstrings(content: string): string
+/**
+ * Structural skeleton with an `NNN| ` line-number gutter: tree-sitter for
+ * the top-10 languages, heuristics for the rest. Returns `null` for data,
+ * config, and prose formats and for content above the 1MB guard.
+ */
 export declare function extractSignatures(content: string, filePath: string): string | null
 /**
  * Returns all extensions that have signature extraction support
  * (tree-sitter languages + heuristic-covered languages).
  */
 export declare function getSupportedSignatureExtensions(): Array<string>
+/**
+ * Serialize a JSON value to YAML — the formatter for every MCP tool
+ * response. Optional key sorting and priority-key ordering; multiline
+ * strings become block scalars. Emission is locked by yaml_utils tests.
+ */
 export declare function jsonToYamlString(jsonObject: any, config?: YamlConversionConfig | undefined | null): string
 /**
  * Returns the full MINIFY_CONFIG as a JS-compatible object.

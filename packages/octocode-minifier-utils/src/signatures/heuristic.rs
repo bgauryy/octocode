@@ -62,9 +62,9 @@ fn hash_comment(t: &str) -> bool { t.starts_with('#') && !t.starts_with("#!") }
 fn java_cs_patterns() -> &'static Vec<Regex> {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| vec![
-        Regex::new(r"^\s*(public|private|protected|static|abstract|final|override|sealed|internal)\s+").unwrap(),
-        Regex::new(r"^\s*(class|interface|enum|record|object)\s+\w+").unwrap(),
-        Regex::new(r"^\s*(import|using|package|namespace)\s+").unwrap(),
+        Regex::new(r"^\s*(public|private|protected|static|abstract|final|override|sealed|internal)\s+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(class|interface|enum|record|object)\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(import|using|package|namespace)\s+").expect("static heuristic regex must compile"),
     ])
 }
 
@@ -77,9 +77,9 @@ pub fn extract_kotlin_java_cs(content: &str) -> Option<Vec<(usize, String)>> {
 fn scala_patterns() -> &'static Vec<Regex> {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| vec![
-        Regex::new(r"^\s*(package|import)\s+").unwrap(),
-        Regex::new(r"^\s*(sealed\s+|abstract\s+|final\s+|case\s+)*(class|object|trait|enum)\s+\w+").unwrap(),
-        Regex::new(r"^\s*(override\s+|private\s+|protected\s+|implicit\s+|given\s+)*(def|val|var|type)\s+\w+").unwrap(),
+        Regex::new(r"^\s*(package|import)\s+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(sealed\s+|abstract\s+|final\s+|case\s+)*(class|object|trait|enum)\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(override\s+|private\s+|protected\s+|implicit\s+|given\s+)*(def|val|var|type)\s+\w+").expect("static heuristic regex must compile"),
     ])
 }
 
@@ -92,9 +92,9 @@ pub fn extract_scala(content: &str) -> Option<Vec<(usize, String)>> {
 fn ruby_patterns() -> &'static Vec<Regex> {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| vec![
-        Regex::new(r"^\s*(require|require_relative|include|extend|module_function|alias)\b").unwrap(),
-        Regex::new(r"^\s*attr_(reader|writer|accessor)\b").unwrap(),
-        Regex::new(r"^\s*(def|class|module)\s+\S").unwrap(),
+        Regex::new(r"^\s*(require|require_relative|include|extend|module_function|alias)\b").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*attr_(reader|writer|accessor)\b").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(def|class|module)\s+\S").expect("static heuristic regex must compile"),
     ])
 }
 
@@ -107,10 +107,10 @@ pub fn extract_ruby(content: &str) -> Option<Vec<(usize, String)>> {
 fn php_patterns() -> &'static Vec<Regex> {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| vec![
-        Regex::new(r"^\s*(use|namespace)\s+[\w\\]").unwrap(),
-        Regex::new(r"^\s*(abstract\s+|final\s+)*(class|interface|trait|enum)\s+\w+").unwrap(),
-        Regex::new(r"^\s*((public|private|protected|static|abstract|final)\s+)*function\s+&?\w+\s*\(").unwrap(),
-        Regex::new(r"^\s*((public|private|protected)\s+)?const\s+\w+").unwrap(),
+        Regex::new(r"^\s*(use|namespace)\s+[\w\\]").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(abstract\s+|final\s+)*(class|interface|trait|enum)\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*((public|private|protected|static|abstract|final)\s+)*function\s+&?\w+\s*\(").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*((public|private|protected)\s+)?const\s+\w+").expect("static heuristic regex must compile"),
     ])
 }
 
@@ -126,10 +126,10 @@ pub fn extract_php(content: &str) -> Option<Vec<(usize, String)>> {
 fn swift_patterns() -> &'static Vec<Regex> {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| vec![
-        Regex::new(r"^\s*import\s+\w").unwrap(),
-        Regex::new(r"^\s*@\w+(\([^)]*\))?\s*$").unwrap(),
-        Regex::new(r"^\s*((public|private|fileprivate|internal|open|final|static|override|required|convenience|indirect|mutating|class)\s+)*(func|init|class|struct|protocol|enum|extension|subscript|typealias)\b").unwrap(),
-        Regex::new(r"^\s*((public|private|fileprivate|internal|open|static|final)\s+)+(var|let)\s+\w").unwrap(),
+        Regex::new(r"^\s*import\s+\w").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*@\w+(\([^)]*\))?\s*$").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*((public|private|fileprivate|internal|open|final|static|override|required|convenience|indirect|mutating|class)\s+)*(func|init|class|struct|protocol|enum|extension|subscript|typealias)\b").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*((public|private|fileprivate|internal|open|static|final)\s+)+(var|let)\s+\w").expect("static heuristic regex must compile"),
     ])
 }
 
@@ -177,12 +177,12 @@ pub fn extract_css_signatures(content: &str) -> Option<Vec<(usize, String)>> {
 fn html_keep_patterns() -> &'static Vec<Regex> {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| vec![
-        Regex::new(r"(?i)^\s*<!doctype\b").unwrap(),
-        Regex::new(r"(?i)<script\b[^>]*\bsrc\s*=").unwrap(),
-        Regex::new(r"(?i)<link\b[^>]*\bhref\s*=").unwrap(),
-        Regex::new(r"(?i)<meta\b[^>]*\bname\s*=").unwrap(),
-        Regex::new(r"(?i)<h[1-6][\s>]").unwrap(),
-        Regex::new(r#"(?i)<[a-z][\w-]*(?:\s[^<>]*)?\bid\s*="#).unwrap(),
+        Regex::new(r"(?i)^\s*<!doctype\b").expect("static heuristic regex must compile"),
+        Regex::new(r"(?i)<script\b[^>]*\bsrc\s*=").expect("static heuristic regex must compile"),
+        Regex::new(r"(?i)<link\b[^>]*\bhref\s*=").expect("static heuristic regex must compile"),
+        Regex::new(r"(?i)<meta\b[^>]*\bname\s*=").expect("static heuristic regex must compile"),
+        Regex::new(r"(?i)<h[1-6][\s>]").expect("static heuristic regex must compile"),
+        Regex::new(r#"(?i)<[a-z][\w-]*(?:\s[^<>]*)?\bid\s*="#).expect("static heuristic regex must compile"),
     ])
 }
 
@@ -191,8 +191,8 @@ pub fn extract_html_signatures(content: &str) -> Option<Vec<(usize, String)>> {
     static STYLE_OPEN:  OnceLock<Regex> = OnceLock::new();
 
     let pats       = html_keep_patterns();
-    let script_any = SCRIPT_ANY.get_or_init(|| Regex::new(r"(?i)<script\b[^>]*>").unwrap());
-    let style_open = STYLE_OPEN.get_or_init(|| Regex::new(r"(?i)<style\b").unwrap());
+    let script_any = SCRIPT_ANY.get_or_init(|| Regex::new(r"(?i)<script\b[^>]*>").expect("static heuristic regex must compile"));
+    let style_open = STYLE_OPEN.get_or_init(|| Regex::new(r"(?i)<style\b").expect("static heuristic regex must compile"));
 
     let lines: Vec<&str> = content.lines().collect();
     let mut kept: Vec<(usize, String)> = Vec::new();
@@ -237,7 +237,7 @@ fn sql_create_pattern() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(
         r"(?i)^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:GLOBAL\s+|LOCAL\s+|TEMP(?:ORARY)?\s+|UNLOGGED\s+|UNIQUE\s+|MATERIALIZED\s+|DEFINER\s*=\s*\S+\s+)*(TABLE|VIEW|FUNCTION|PROCEDURE|INDEX|TRIGGER)\b"
-    ).unwrap())
+    ).expect("static heuristic regex must compile"))
 }
 
 pub fn extract_sql(content: &str) -> Option<Vec<(usize, String)>> {
@@ -301,10 +301,10 @@ pub fn extract_vue_svelte(content: &str) -> Option<Vec<(usize, String)>> {
     static STYLE_OPEN:   OnceLock<Regex> = OnceLock::new();
     static ID_ATTR:      OnceLock<Regex> = OnceLock::new();
 
-    let script_open  = SCRIPT_OPEN .get_or_init(|| Regex::new(r"(?i)^<script\b([^>]*)>").unwrap());
-    let script_close = SCRIPT_CLOSE.get_or_init(|| Regex::new(r"(?i)</script>").unwrap());
-    let style_open   = STYLE_OPEN  .get_or_init(|| Regex::new(r"(?i)^<style\b").unwrap());
-    let id_attr      = ID_ATTR     .get_or_init(|| Regex::new(r#"(?i)<[a-z][\w-]*[^>]*\bid\s*="#).unwrap());
+    let script_open  = SCRIPT_OPEN .get_or_init(|| Regex::new(r"(?i)^<script\b([^>]*)>").expect("static heuristic regex must compile"));
+    let script_close = SCRIPT_CLOSE.get_or_init(|| Regex::new(r"(?i)</script>").expect("static heuristic regex must compile"));
+    let style_open   = STYLE_OPEN  .get_or_init(|| Regex::new(r"(?i)^<style\b").expect("static heuristic regex must compile"));
+    let id_attr      = ID_ATTR     .get_or_init(|| Regex::new(r#"(?i)<[a-z][\w-]*[^>]*\bid\s*="#).expect("static heuristic regex must compile"));
 
     let lines: Vec<&str> = content.lines().collect();
     let mut kept: Vec<(usize, String)> = Vec::new();
@@ -371,11 +371,11 @@ pub fn extract_python(content: &str) -> Option<Vec<(usize, String)>> {
     static PY_DECORATOR: OnceLock<Regex> = OnceLock::new();
     static PY_DUNDER:    OnceLock<Regex> = OnceLock::new();
 
-    let py_import    = PY_IMPORT   .get_or_init(|| Regex::new(r"^(?:import|from)\s+\S").unwrap());
-    let py_def       = PY_DEF      .get_or_init(|| Regex::new(r"^(?:async\s+)?def\s+\w").unwrap());
-    let py_class     = PY_CLASS    .get_or_init(|| Regex::new(r"^class\s+\w").unwrap());
-    let py_decorator = PY_DECORATOR.get_or_init(|| Regex::new(r"^@\w").unwrap());
-    let py_dunder    = PY_DUNDER   .get_or_init(|| Regex::new(r"^__\w+__\s*=").unwrap());
+    let py_import    = PY_IMPORT   .get_or_init(|| Regex::new(r"^(?:import|from)\s+\S").expect("static heuristic regex must compile"));
+    let py_def       = PY_DEF      .get_or_init(|| Regex::new(r"^(?:async\s+)?def\s+\w").expect("static heuristic regex must compile"));
+    let py_class     = PY_CLASS    .get_or_init(|| Regex::new(r"^class\s+\w").expect("static heuristic regex must compile"));
+    let py_decorator = PY_DECORATOR.get_or_init(|| Regex::new(r"^@\w").expect("static heuristic regex must compile"));
+    let py_dunder    = PY_DUNDER   .get_or_init(|| Regex::new(r"^__\w+__\s*=").expect("static heuristic regex must compile"));
 
     let lines: Vec<&str> = content.lines().collect();
     let mut kept: Vec<(usize, String)> = Vec::new();
@@ -427,9 +427,9 @@ pub fn extract_go(content: &str) -> Option<Vec<(usize, String)>> {
     static GO_PAREN:      OnceLock<Regex> = OnceLock::new();
     static GO_BRACE_TYPE: OnceLock<Regex> = OnceLock::new();
 
-    let go_top   = GO_TOP       .get_or_init(|| Regex::new(r"^(?:package|import|func|type|const|var)\b").unwrap());
-    let go_paren = GO_PAREN     .get_or_init(|| Regex::new(r"^(?:import|const|var)\s*\(").unwrap());
-    let go_brace = GO_BRACE_TYPE.get_or_init(|| Regex::new(r"^type\s+\w+\s+(?:struct|interface)\b").unwrap());
+    let go_top   = GO_TOP       .get_or_init(|| Regex::new(r"^(?:package|import|func|type|const|var)\b").expect("static heuristic regex must compile"));
+    let go_paren = GO_PAREN     .get_or_init(|| Regex::new(r"^(?:import|const|var)\s*\(").expect("static heuristic regex must compile"));
+    let go_brace = GO_BRACE_TYPE.get_or_init(|| Regex::new(r"^type\s+\w+\s+(?:struct|interface)\b").expect("static heuristic regex must compile"));
 
     let lines: Vec<&str> = content.lines().collect();
     let mut kept: Vec<(usize, String)> = Vec::new();
@@ -482,11 +482,11 @@ pub fn extract_c_family(content: &str) -> Option<Vec<(usize, String)>> {
     static C_CONTROL:  OnceLock<Regex> = OnceLock::new();
     static C_FUNC:     OnceLock<Regex> = OnceLock::new();
 
-    let c_preproc = C_PREPROC.get_or_init(|| Regex::new(r"^\s*#\s*(?:include|define)\b").unwrap());
-    let c_type    = C_TYPE   .get_or_init(|| Regex::new(r"^(?:typedef\s+)?(?:struct|union|enum|class)\b").unwrap());
-    let c_extra   = C_EXTRA  .get_or_init(|| Regex::new(r#"^(?:namespace\s+\w|template\s*<|extern\s+")"#).unwrap());
-    let c_control = C_CONTROL.get_or_init(|| Regex::new(r"^(?:if|else|for|while|switch|return|do|case|goto|sizeof|break|continue)\b").unwrap());
-    let c_func    = C_FUNC   .get_or_init(|| Regex::new(r"^[A-Za-z_][\w\s*&:<>,~]*\(").unwrap());
+    let c_preproc = C_PREPROC.get_or_init(|| Regex::new(r"^\s*#\s*(?:include|define)\b").expect("static heuristic regex must compile"));
+    let c_type    = C_TYPE   .get_or_init(|| Regex::new(r"^(?:typedef\s+)?(?:struct|union|enum|class)\b").expect("static heuristic regex must compile"));
+    let c_extra   = C_EXTRA  .get_or_init(|| Regex::new(r#"^(?:namespace\s+\w|template\s*<|extern\s+")"#).expect("static heuristic regex must compile"));
+    let c_control = C_CONTROL.get_or_init(|| Regex::new(r"^(?:if|else|for|while|switch|return|do|case|goto|sizeof|break|continue)\b").expect("static heuristic regex must compile"));
+    let c_func    = C_FUNC   .get_or_init(|| Regex::new(r"^[A-Za-z_][\w\s*&:<>,~]*\(").expect("static heuristic regex must compile"));
 
     let lines: Vec<&str> = content.lines().collect();
     let mut kept: Vec<(usize, String)> = Vec::new();
@@ -536,9 +536,9 @@ pub fn extract_c_family(content: &str) -> Option<Vec<(usize, String)>> {
 pub fn extract_shell(content: &str) -> Option<Vec<(usize, String)>> {
     static SHELL_PATS: OnceLock<Vec<Regex>> = OnceLock::new();
     let pats = SHELL_PATS.get_or_init(|| vec![
-        Regex::new(r"^(?:export\s+)?(?:function\s+\w+|\w+\s*\(\s*\))").unwrap(),
-        Regex::new(r"^(?:readonly\s+|declare\s+(?:-[a-zA-Z]+\s+)*)?[A-Z_][A-Z0-9_]+=").unwrap(),
-        Regex::new(r"^\.\s+\S|^source\s+\S").unwrap(),
+        Regex::new(r"^(?:export\s+)?(?:function\s+\w+|\w+\s*\(\s*\))").expect("static heuristic regex must compile"),
+        Regex::new(r"^(?:readonly\s+|declare\s+(?:-[a-zA-Z]+\s+)*)?[A-Z_][A-Z0-9_]+=").expect("static heuristic regex must compile"),
+        Regex::new(r"^\.\s+\S|^source\s+\S").expect("static heuristic regex must compile"),
     ]);
     extract_line_pattern(content, pats, hash_comment)
 }
@@ -591,14 +591,14 @@ pub fn extract_haskell(content: &str) -> Option<Vec<(usize, String)>> {
 pub fn extract_ts_js_heuristic(content: &str) -> Option<Vec<(usize, String)>> {
     static PATS: OnceLock<Vec<Regex>> = OnceLock::new();
     let pats = PATS.get_or_init(|| vec![
-        Regex::new(r"^\s*(export\s+)?(default\s+)?(async\s+)?function\s*\*?\s*\w+").unwrap(),
-        Regex::new(r"^\s*(export\s+)?(abstract\s+)?class\s+\w+").unwrap(),
-        Regex::new(r"^\s*(export\s+)?interface\s+\w+").unwrap(),
-        Regex::new(r"^\s*(export\s+)?type\s+\w+").unwrap(),
-        Regex::new(r"^\s*(import|export)\s+").unwrap(),
-        Regex::new(r"^\s*(export\s+)?const\s+\w+[^=]*=\s*(\([^)]*\)|[^=>\n]+)\s*=>").unwrap(),
-        Regex::new(r"^\s*(export\s+)?enum\s+\w+").unwrap(),
-        Regex::new(r"^\s*(public|private|protected|static|abstract|readonly|override)\s+\w+").unwrap(),
+        Regex::new(r"^\s*(export\s+)?(default\s+)?(async\s+)?function\s*\*?\s*\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(export\s+)?(abstract\s+)?class\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(export\s+)?interface\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(export\s+)?type\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(import|export)\s+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(export\s+)?const\s+\w+[^=]*=\s*(\([^)]*\)|[^=>\n]+)\s*=>").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(export\s+)?enum\s+\w+").expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(public|private|protected|static|abstract|readonly|override)\s+\w+").expect("static heuristic regex must compile"),
     ]);
     extract_line_pattern(content, pats, c_comment)
 }

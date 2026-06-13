@@ -8,6 +8,9 @@ repository = "https://github.com/bgauryy/octocode-mcp"
 keywords = ["napi", "nodejs", "security", "secrets", "detection"]
 categories = ["development-tools"]
 
+[lints.clippy]
+unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy.toml
+
 [lib]
 crate-type = ["cdylib"]
 

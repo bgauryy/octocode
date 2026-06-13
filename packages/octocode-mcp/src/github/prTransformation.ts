@@ -198,9 +198,9 @@ export function formatPRForResponse(
     closed_at: pr.closed_at ?? undefined,
     merged_at: pr.merged_at,
     author: pr.author,
-    ...(pr.labels?.length
-      ? { labels: pr.labels.map(name => ({ id: 0, name, color: '' })) }
-      : {}),
+    labels: pr.labels?.length
+      ? pr.labels.map(name => ({ id: 0, name, color: '' }))
+      : [],
     head_ref: pr.head || '',
     ...(pr.head_sha ? { head_sha: pr.head_sha } : {}),
     base_ref: pr.base || '',

@@ -88,21 +88,44 @@ jobs:
             packages/*/coverage/
           retention-days: 7
 
+  rust-audit:
+    name: Rust Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install cargo-audit (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit octocode-security crates
+        working-directory: packages/octocode-security
+        run: cargo audit -D unmaintained -D unsound -D yanked
+
+      - name: Audit octocode-minifier-utils crates
+        working-directory: packages/octocode-minifier-utils
+        run: cargo audit -D unmaintained -D unsound -D yanked
+
   pr-validation-complete:
     name: PR Validation Complete
-    needs: [checks, build-and-test]
+    needs: [checks, build-and-test, rust-audit]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check all jobs passed
         run: |
           if [ "${{ needs.checks.result }}" != "success" ] || \
-             [ "${{ needs.build-and-test.result }}" != "success" ]; then
+             [ "${{ needs.build-and-test.result }}" != "success" ] || \
+             [ "${{ needs.rust-audit.result }}" != "success" ]; then
             echo "❌ One or more CI jobs failed"
             echo "   Checks: ${{ needs.checks.result }}"
             echo "   Build & Test: ${{ needs.build-and-test.result }}"
+            echo "   Rust Audit: ${{ needs.rust-audit.result }}"
             exit 1
           fi
           echo "✅ All CI checks passed!"
           echo "   Checks: ${{ needs.checks.result }}"
           echo "   Build & Test: ${{ needs.build-and-test.result }}"
+          echo "   Rust Audit: ${{ needs.rust-audit.result }}"

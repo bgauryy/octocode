@@ -23,9 +23,13 @@ pub fn get_extension_internal(
                 ext.to_string()
             }
         }
-        // Normal file: collect everything after the last dot
+        // Normal file: collect everything after the last dot.
+        // This arm only matches when basename contains a dot, but stay
+        // panic-free at the boundary anyway.
         _ => {
-            let last_dot = basename.rfind('.').unwrap();
+            let Some(last_dot) = basename.rfind('.') else {
+                return fallback.to_owned();
+            };
             let ext = &basename[last_dot + 1..];
             if lowercase {
                 ext.to_lowercase()
@@ -33,5 +37,36 @@ pub fn get_extension_internal(
                 ext.to_string()
             }
         }
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_returned_when_path_has_dot() {
+        assert_eq!(get_extension_internal("foo.ts", false, ""), "ts");
+    }
+
+    #[test]
+    fn extension_lowercased_when_lowercase_requested() {
+        assert_eq!(get_extension_internal("Foo.TS", true, ""), "ts");
+    }
+
+    #[test]
+    fn dotfile_name_treated_as_extension() {
+        assert_eq!(get_extension_internal(".gitignore", true, ""), "gitignore");
+    }
+
+    #[test]
+    fn fallback_returned_when_no_extension() {
+        assert_eq!(get_extension_internal("Makefile", false, "txt"), "txt");
+    }
+
+    #[test]
+    fn last_dot_wins_for_multi_dot_names() {
+        assert_eq!(get_extension_internal("archive.tar.gz", false, ""), "gz");
     }
 }

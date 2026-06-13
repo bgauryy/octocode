@@ -61,7 +61,8 @@
     "lint": "echo 'No TS source files to lint'",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn typecheck && yarn lint:rust && yarn test"
+    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn audit",
+    "audit": "cargo audit -D unmaintained -D unsound -D yanked"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2",

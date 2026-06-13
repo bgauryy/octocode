@@ -122,3 +122,63 @@ fn dispatch(content: &str, file_path: &str, _high_quality: bool) -> String {
         _          => minify_general_core(content),
     }
 }
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── TS type stripping in the full-minify path (OXC) ───────────────────────
+    #[test]
+    fn full_minify_strips_import_type() {
+        let src = "import type { Foo } from './foo';\nimport { bar } from './bar';\nexport function greet(name: string): void {\n  bar();\n}\n";
+        let out = minify_content_sync_inner(src, "greet.ts");
+        assert!(!out.contains("import type"), "must strip 'import type': {out}");
+    }
+
+    #[test]
+    fn full_minify_strips_interfaces() {
+        let src = "interface User { name: string; age: number; }\nexport function getName(u: User): string { return u.name; }\n";
+        let out = minify_content_sync_inner(src, "user.ts");
+        assert!(!out.contains("interface"), "must strip interfaces: {out}");
+    }
+
+    #[test]
+    fn full_minify_strips_type_aliases() {
+        let src = "type Id = string | number;\nexport function process(id: Id): string { return String(id); }\n";
+        let out = minify_content_sync_inner(src, "util.ts");
+        assert!(!out.contains("type Id"), "must strip type aliases: {out}");
+    }
+
+    #[test]
+    fn full_minify_preserves_runtime_code_after_type_stripping() {
+        let src = "import type { Opts } from './opts';\ninterface Config { host: string; }\ntype Port = number;\nexport function connect(host: string, port: number): boolean {\n  return host.length > 0 && port > 0;\n}\n";
+        let out = minify_content_sync_inner(src, "connect.ts");
+        assert!(out.contains("connect"), "runtime function must survive: {out}");
+        assert!(!out.contains("import type"));
+        assert!(!out.contains("interface"));
+    }
+
+    // ── dispatch routing preserves UTF-8 on the aggressive path ───────────────
+    #[test]
+    fn lua_dispatch_preserves_non_ascii() {
+        let out = minify_content_sync_inner("local s = \"café → naïve\" { x = 1 }", "a.lua");
+        assert!(out.contains("café → naïve"), "aggressive dispatch corrupted UTF-8: '{out}'");
+        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
+    }
+
+    // ── size cap contract ─────────────────────────────────────────────────────
+    #[test]
+    fn oversized_input_flagged_failed_with_content_untouched() {
+        let big = "x".repeat(MAX_SIZE + 1);
+        let r = minify_content_result_inner(&big, "big.txt");
+        assert!(r.failed);
+        assert_eq!(r.content, big);
+    }
+
+    #[test]
+    fn oversized_input_returned_unchanged_by_sync_path() {
+        let big = "x".repeat(MAX_SIZE + 1);
+        assert_eq!(minify_content_sync_inner(&big, "big.txt"), big);
+    }
+}

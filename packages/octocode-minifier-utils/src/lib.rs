@@ -1,3 +1,5 @@
+// napi-rs requires owned String/Value parameters at the FFI boundary, which
+// trips needless_pass_by_value on every exported fn — allowed crate-wide.
 #![allow(clippy::needless_pass_by_value)]
 
 mod apply;
@@ -18,6 +20,8 @@ use types::{FileTypeMinifyConfig, GetExtensionOptions, MinifyResult, YamlConvers
 pub const SIGNATURES_ONLY_HINT: &str = signatures::SIGNATURES_ONLY_HINT;
 
 // ── File extension ────────────────────────────────────────────────────────────
+/// Extract the file extension from a path (dotfile-aware).
+/// Options control lowercasing and the fallback used when no extension exists.
 #[napi(js_name = "getExtension")]
 pub fn get_extension(file_path: String, options: Option<GetExtensionOptions>) -> String {
     let lowercase = options.as_ref().and_then(|o| o.lowercase).unwrap_or(false);
@@ -26,6 +30,8 @@ pub fn get_extension(file_path: String, options: Option<GetExtensionOptions>) ->
 }
 
 // ── Minification ──────────────────────────────────────────────────────────────
+/// Full minification, synchronous. Content above the 1MB guard is returned
+/// unchanged; unknown file types fall back to the general strategy.
 #[napi(js_name = "minifyContentSync")]
 pub fn minify_content_sync(content: String, file_path: String) -> String {
     minifier::minify_content_sync_inner(&content, &file_path)
@@ -38,11 +44,15 @@ pub fn minify_content_result(content: String, file_path: String) -> MinifyResult
     minifier::minify_content_result_inner(&content, &file_path)
 }
 
+/// Full minification that never grows the content — returns the minified
+/// form only when it is shorter, otherwise the original. Panic-contained.
 #[napi(js_name = "applyMinification")]
 pub fn apply_minification(content: String, file_path: String) -> String {
     apply::apply_minification_inner(&content, &file_path)
 }
 
+/// Agent-readable "standard" view: strips comments and blank-line noise while
+/// preserving indentation and code shape. Capped at 1MB; panic-contained.
 #[napi(js_name = "applyContentViewMinification")]
 pub fn apply_content_view_minification(content: String, file_path: String) -> String {
     apply::apply_content_view_minification_inner(&content, &file_path)
@@ -65,6 +75,8 @@ pub fn remove_comments(content: String, comment_types: serde_json::Value) -> Str
     comment_remover::remove_comments(&content, &refs)
 }
 
+/// Conservative strategy: strip the configured comment groups, collapse blank
+/// runs, preserve indentation.
 #[napi(js_name = "minifyConservativeCore")]
 pub fn minify_conservative_core(content: String, config: FileTypeMinifyConfig) -> String {
     let groups = parse_comment_groups(&config.comments);
@@ -72,6 +84,8 @@ pub fn minify_conservative_core(content: String, config: FileTypeMinifyConfig) -
     strategies::minify_conservative(&content, if refs.is_empty() { None } else { Some(&refs) })
 }
 
+/// Aggressive strategy: strip comments, collapse all whitespace, tighten
+/// punctuation. Lossy — for token-budget views only.
 #[napi(js_name = "minifyAggressiveCore")]
 pub fn minify_aggressive_core(content: String, config: FileTypeMinifyConfig) -> String {
     let groups = parse_comment_groups(&config.comments);
@@ -79,58 +93,79 @@ pub fn minify_aggressive_core(content: String, config: FileTypeMinifyConfig) -> 
     strategies::minify_aggressive(&content, if refs.is_empty() { None } else { Some(&refs) })
 }
 
+/// Compact JSON to a single line. JSONC/JSON5 noise (comments, trailing
+/// commas) is stripped before parsing; unparseable input is returned trimmed.
 #[napi(js_name = "minifyJsonCore")]
 pub fn minify_json_core(content: String) -> MinifyResult {
     let (out, failed) = strategies::minify_json_core_inner(&content);
     MinifyResult { content: out, failed, r#type: "json".to_owned(), reason: None }
 }
 
+/// Readable JSON view: keeps formatting, strips JSONC noise and trailing
+/// whitespace, collapses blank runs. Valid JSON passes through unchanged.
 #[napi(js_name = "minifyJsonReadable")]
 pub fn minify_json_readable(content: String) -> MinifyResult {
     let (out, failed) = strategies::minify_json_readable_inner(&content);
     MinifyResult { content: out, failed, r#type: "json".to_owned(), reason: None }
 }
 
+/// Whitespace-only code cleanup: trim line ends, collapse 3+ blank lines,
+/// preserve indentation.
 #[napi(js_name = "minifyCodeCore")]
 pub fn minify_code_core(content: String) -> String {
     strategies::minify_code_core(&content)
 }
 
+/// Generic text cleanup for unknown file types: trim + collapse blank runs.
 #[napi(js_name = "minifyGeneralCore")]
 pub fn minify_general_core(content: String) -> String {
     strategies::minify_general_core(&content)
 }
 
+/// Markdown view: drops HTML comments, badges, and generated TOCs; compacts
+/// tables and headings; preserves code fences and frontmatter verbatim.
 #[napi(js_name = "minifyMarkdownCore")]
 pub fn minify_markdown_core(content: String) -> String {
     strategies::minify_markdown_core(&content)
 }
 
+/// Lightweight CSS cleanup (comment strip + whitespace). See
+/// `minifyCSSQuality` for the lightningcss-backed variant.
 #[napi(js_name = "minifyCSSCore")]
 pub fn minify_css_core(content: String) -> String {
     strategies::minify_css_core(&content)
 }
 
+/// Lightweight HTML/XML cleanup (comment strip + whitespace). See
+/// `minifyHTMLQuality` for the minify-html-backed variant.
 #[napi(js_name = "minifyHTMLCore")]
 pub fn minify_html_core(content: String) -> String {
     strategies::minify_html_core(&content)
 }
 
+/// Heuristic JS fallback (comment strip + whitespace tightening) used when
+/// the OXC pipeline declines the input.
 #[napi(js_name = "minifyJavaScriptCore")]
 pub fn minify_javascript_core(content: String) -> String {
     strategies::minify_javascript_core(&content)
 }
 
+/// CSS minification via lightningcss — parser-grade, strips comments and
+/// redundant units.
 #[napi(js_name = "minifyCSSQuality")]
 pub fn minify_css_quality(content: String) -> String {
     strategies::minify_css_quality(&content)
 }
 
+/// HTML minification via minify-html — parser-grade comment and whitespace
+/// removal.
 #[napi(js_name = "minifyHTMLQuality")]
 pub fn minify_html_quality(content: String) -> String {
     strategies::minify_html_quality(&content)
 }
 
+/// Remove Python docstrings (module/class/function level) while preserving
+/// all runtime code.
 #[napi(js_name = "stripPythonDocstrings")]
 pub fn strip_python_docstrings(content: String) -> String {
     comment_remover::strip_python_docstrings(&content)
@@ -138,6 +173,9 @@ pub fn strip_python_docstrings(content: String) -> String {
 
 // ── Signature extraction ──────────────────────────────────────────────────────
 
+/// Structural skeleton with an `NNN| ` line-number gutter: tree-sitter for
+/// the top-10 languages, heuristics for the rest. Returns `null` for data,
+/// config, and prose formats and for content above the 1MB guard.
 #[napi(js_name = "extractSignatures")]
 pub fn extract_signatures(content: String, file_path: String) -> Option<String> {
     signatures::extract_signatures_inner(&content, &file_path)
@@ -179,6 +217,9 @@ pub fn get_supported_signature_extensions() -> Vec<String> {
 
 // ── YAML ──────────────────────────────────────────────────────────────────────
 
+/// Serialize a JSON value to YAML — the formatter for every MCP tool
+/// response. Optional key sorting and priority-key ordering; multiline
+/// strings become block scalars. Emission is locked by yaml_utils tests.
 #[napi(js_name = "jsonToYamlString")]
 pub fn json_to_yaml_string(json_object: serde_json::Value, config: Option<YamlConversionConfig>) -> String {
     let sort_keys     = config.as_ref().and_then(|c| c.sort_keys).unwrap_or(false);
@@ -228,603 +269,74 @@ fn parse_comment_groups(val: &Option<serde_json::Value>) -> Vec<String> {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Tests — FFI-boundary glue only ───────────────────────────────────────────
+// Logic tests live next to the code they cover (strategies.rs, apply.rs,
+// minifier.rs, signatures/mod.rs, comment_remover.rs, file_extension.rs,
+// yaml_utils.rs). This module covers only the lib.rs argument-parsing glue.
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    // ── file extension ────────────────────────────────────────────────────────
     #[test]
-    fn test_get_extension_basic()    { assert_eq!(get_extension("foo.ts".into(), None), "ts"); }
-    #[test]
-    fn test_get_extension_lowercase(){ assert_eq!(get_extension("Foo.TS".into(), Some(GetExtensionOptions { lowercase: Some(true), fallback: None })), "ts"); }
-    #[test]
-    fn test_get_extension_dotfile()  { assert_eq!(get_extension(".gitignore".into(), Some(GetExtensionOptions { lowercase: Some(true), fallback: None })), "gitignore"); }
-    #[test]
-    fn test_get_extension_no_ext()   { assert_eq!(get_extension("Makefile".into(), Some(GetExtensionOptions { lowercase: Some(false), fallback: Some("txt".into()) })), "txt"); }
-
-    // ── comment removal ───────────────────────────────────────────────────────
-    #[test]
-    fn test_remove_c_style() {
-        let src  = "int x = 1; // comment\nint y = 2; /* block */ int z;";
-        let out  = remove_comments(src.into(), serde_json::Value::String("c-style".into()));
-        assert!(!out.contains("comment"));
-        assert!(!out.contains("block"));
-        assert!(out.contains("int x"));
-        assert!(out.contains("int z"));
+    fn get_extension_applies_option_defaults_when_options_omitted() {
+        assert_eq!(get_extension("foo.ts".into(), None), "ts");
+        assert_eq!(get_extension("Makefile".into(), None), "");
     }
 
     #[test]
-    fn test_remove_hash() {
-        let src = "x = 1 # inline\n# full line\ny = 2";
-        let out = remove_comments(src.into(), serde_json::Value::String("hash".into()));
-        assert!(!out.contains("inline"));
-        assert!(out.contains("x = 1"));
-        assert!(out.contains("y = 2"));
+    fn get_extension_honors_lowercase_and_fallback_options() {
+        let opts = GetExtensionOptions { lowercase: Some(true), fallback: Some("txt".into()) };
+        assert_eq!(get_extension("Foo.TS".into(), Some(opts)), "ts");
+        let opts = GetExtensionOptions { lowercase: None, fallback: Some("txt".into()) };
+        assert_eq!(get_extension("Makefile".into(), Some(opts)), "txt");
     }
 
-    // ── JSON strategies ───────────────────────────────────────────────────────
     #[test]
-    fn test_minify_json_core() {
-        let r = minify_json_core("{\"a\": 1,  \"b\": 2 }".into());
-        assert_eq!(r.content, r#"{"a":1,"b":2}"#);
+    fn remove_comments_accepts_string_or_array_union() {
+        let src = "int x; // c\nint y;";
+        let from_string = remove_comments(src.into(), json!("c-style"));
+        let from_array  = remove_comments(src.into(), json!(["c-style"]));
+        assert_eq!(from_string, from_array);
+        assert!(!from_string.contains("// c"));
+    }
+
+    #[test]
+    fn remove_comments_returns_content_unchanged_on_invalid_union_shape() {
+        assert_eq!(remove_comments("hello".into(), json!(42)), "hello");
+        assert_eq!(remove_comments("hello".into(), json!({"bad": true})), "hello");
+    }
+
+    #[test]
+    fn parse_comment_groups_handles_all_union_shapes() {
+        assert!(parse_comment_groups(&None).is_empty());
+        assert_eq!(parse_comment_groups(&Some(json!("hash"))), vec!["hash"]);
+        assert_eq!(parse_comment_groups(&Some(json!(["a", "b"]))), vec!["a", "b"]);
+        assert!(parse_comment_groups(&Some(json!(7))).is_empty());
+    }
+
+    #[test]
+    fn minify_json_core_wrapper_shapes_minify_result() {
+        let r = minify_json_core("{\"a\": 1 }".into());
         assert!(!r.failed);
+        assert_eq!(r.r#type, "json");
+        assert!(r.reason.is_none());
     }
 
     #[test]
-    fn test_minify_json_core_jsonc() {
-        let src = r#"{ // comment
-  "key": "value", // trailing comma
-}"#;
-        let r = minify_json_core(src.into());
-        assert!(!r.failed);
-        assert!(r.content.contains("key"));
-    }
-
-    // ── conservative / code core ──────────────────────────────────────────────
-    #[test]
-    fn test_minify_conservative_strips_comments() {
-        let cfg = FileTypeMinifyConfig { strategy: "conservative".into(), comments: Some(json!(["c-style"])) };
-        let out = minify_conservative_core("int x; // comment\nint y;".into(), cfg);
-        assert!(!out.contains("comment"));
-        assert!(out.contains("int x"));
+    fn supported_signature_extensions_are_sorted_and_complete() {
+        let exts = get_supported_signature_extensions();
+        for required in ["ts", "py", "rs", "vue", "svelte"] {
+            assert!(exts.iter().any(|e| e == required), "missing {required}");
+        }
+        let mut sorted = exts.clone();
+        sorted.sort();
+        assert_eq!(exts, sorted, "extension list must be sorted");
     }
 
     #[test]
-    fn test_minify_code_core_collapses_blanks() {
-        let src = "a\n\n\n\nb";
-        let out = minify_code_core(src.into());
-        // max 2 blank lines
-        assert!(!out.contains("\n\n\n"));
-        assert!(out.contains('a') && out.contains('b'));
-    }
-
-    // ── YAML ─────────────────────────────────────────────────────────────────
-    #[test]
-    fn test_yaml_basic() {
-        let val = json!({"z": 1, "a": 2});
-        let out = json_to_yaml_string(val, Some(YamlConversionConfig { sort_keys: Some(true), keys_priority: None }));
-        // 'a' should come before 'z' when sorted
-        let a_pos = out.find('a').unwrap();
-        let z_pos = out.find('z').unwrap();
-        assert!(a_pos < z_pos);
-    }
-
-    #[test]
-    fn test_yaml_priority_keys() {
-        let val = json!({"c": 3, "a": 1, "b": 2});
-        let out = json_to_yaml_string(val, Some(YamlConversionConfig {
-            sort_keys:     None,
-            keys_priority: Some(vec!["b".into(), "c".into()]),
-        }));
-        let b_pos = out.find('b').unwrap();
-        let c_pos = out.find('c').unwrap();
-        let a_pos = out.find("a:").unwrap();
-        assert!(b_pos < c_pos);
-        assert!(c_pos < a_pos);
-    }
-
-    // ── apply helpers ─────────────────────────────────────────────────────────
-    #[test]
-    fn test_apply_content_view_json() {
-        let src = r#"{"a":1,"b":  2}"#;
-        let out = apply_content_view_minification(src.into(), "foo.json".into());
-        // Should return as-is (already valid JSON, no JSONC noise)
-        assert!(out.contains('a'));
-    }
-
-    #[test]
-    fn test_apply_content_view_markdown() {
-        let src = "# Title\n\nText <!-- hidden --> end\n";
-        let out = apply_content_view_minification(src.into(), "readme.md".into());
-        assert!(out.contains("Title"));
-        assert!(!out.contains("hidden"));
-    }
-
-    // ── tree-sitter signatures ────────────────────────────────────────────────
-    #[test]
-    fn test_signatures_typescript() {
-        let src = r#"
-export function add(a: number, b: number): number {
-  return a + b;
-}
-
-export class Calc {
-  value: number = 0;
-  multiply(x: number): number {
-    return this.value * x;
-  }
-}
-"#;
-        let out = extract_signatures(src.into(), "calc.ts".into());
-        assert!(out.is_some(), "should extract signatures from TS");
-        let s = out.unwrap();
-        assert!(s.contains("add"), "should include function name");
-        assert!(s.contains("Calc"), "should include class name");
-        assert!(!s.contains("return a + b"), "body should be dropped");
-    }
-
-    #[test]
-    fn test_signatures_python() {
-        let src = r#"
-import os
-
-class Foo:
-    name: str
-
-    def bar(self, x: int) -> str:
-        return str(x)
-
-def top_level():
-    pass
-"#;
-        let out = extract_signatures(src.into(), "foo.py".into());
-        assert!(out.is_some());
-        let s = out.unwrap();
-        assert!(s.contains("def bar"), "should include method signature");
-        assert!(s.contains("def top_level"), "should include top-level function");
-        assert!(!s.contains("pass"), "body should be dropped");
-        assert!(!s.contains("return str"), "body should be dropped");
-    }
-
-    #[test]
-    fn test_signatures_rust() {
-        let src = r#"
-pub fn greet(name: &str) -> String {
-    format!("Hello, {}", name)
-}
-
-pub struct Point { x: f64, y: f64 }
-
-impl Point {
-    pub fn distance(&self, other: &Point) -> f64 {
-        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
-    }
-}
-"#;
-        let out = extract_signatures(src.into(), "geo.rs".into());
-        assert!(out.is_some());
-        let s = out.unwrap();
-        assert!(s.contains("greet"), "should include function");
-        assert!(!s.contains("format!"), "body should be dropped");
-    }
-
-    #[test]
-    fn test_signatures_go() {
-        let src = r#"
-package main
-
-import "fmt"
-
-func Add(a, b int) int {
-    return a + b
-}
-
-type Server struct {
-    Port int
-}
-
-func (s *Server) Start() error {
-    fmt.Println("starting")
-    return nil
-}
-"#;
-        let out = extract_signatures(src.into(), "main.go".into());
-        assert!(out.is_some());
-        let s = out.unwrap();
-        assert!(s.contains("Add") || s.contains("func"), "should include function");
-        assert!(!s.contains("Println"), "body should be dropped");
-    }
-
-    #[test]
-    fn test_signatures_java() {
-        let src = r#"
-public class Calculator {
-    private int value;
-
-    public Calculator(int initial) {
-        this.value = initial;
-    }
-
-    public int add(int x) {
-        return value + x;
-    }
-}
-"#;
-        let out = extract_signatures(src.into(), "Calculator.java".into());
-        assert!(out.is_some());
-        let s = out.unwrap();
-        assert!(s.contains("Calculator") || s.contains("add"), "should include class/methods");
-        assert!(!s.contains("return value"), "body should be dropped");
-    }
-
-    #[test]
-    fn test_signatures_c() {
-        let src = r#"
-#include <stdio.h>
-
-int add(int a, int b) {
-    return a + b;
-}
-
-void greet(const char *name) {
-    printf("Hello, %s\n", name);
-}
-"#;
-        let out = extract_signatures(src.into(), "math.c".into());
-        assert!(out.is_some());
-        let s = out.unwrap();
-        assert!(s.contains("add") || s.contains("int"), "should include function signature");
-        assert!(!s.contains("printf"), "body should be dropped");
-    }
-}
-
-#[cfg(test)]
-mod parity_tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn parity_yaml_multiline_and_sort() {
-        let obj = json!({"z": "last", "a": "first\nsecond line", "b": 42, "c": true});
-        let out = json_to_yaml_string(obj, Some(YamlConversionConfig { sort_keys: Some(true), keys_priority: None }));
-        eprintln!("=== Rust YAML (sorted, multiline) ===\n{}", out);
-        // Keys sorted: a < b < c < z
-        let a = out.find("a:").unwrap();
-        let b = out.find("b:").unwrap();
-        let c = out.find("c:").unwrap();
-        let z = out.find("z:").unwrap();
-        assert!(a < b && b < c && c < z, "keys not sorted: a={a} b={b} c={c} z={z}");
-    }
-
-    #[test]
-    fn parity_conservative_py() {
-        let cfg = FileTypeMinifyConfig { strategy: "conservative".into(), comments: Some(json!("hash")) };
-        let out = minify_conservative_core("x = 1 # comment\n# full line\ny = 2".into(), cfg);
-        eprintln!("=== Rust conservative (py) === {:?}", out);
-        assert!(!out.contains("comment"));
-        assert!(!out.contains("full line"));
-        assert!(out.contains("x = 1") && out.contains("y = 2"));
-    }
-
-    #[test]
-    fn parity_code_core_blanks() {
-        // TS: "a\n\n\n\nb" → "a\n\nb"  (max 1 blank line)
-        let out = minify_code_core("a\n\n\n\nb".into());
-        eprintln!("=== Rust codeCore === {:?}", out);
-        assert_eq!(out, "a\n\nb", "should match TS output exactly");
-    }
-
-    #[test]
-    fn parity_sig_py() {
-        let src = "\nimport os\n\nclass Foo:\n    name: str\n\n    def bar(self, x: int) -> str:\n        return str(x)\n\ndef top_level():\n    pass\n";
-        let out = extract_signatures(src.into(), "foo.py".into());
-        eprintln!("=== Rust sig py ===\n{}", out.as_deref().unwrap_or("None"));
-        let s = out.unwrap();
-        assert!(s.contains("import os"), "must keep import");
-        assert!(s.contains("class Foo"), "must keep class");
-        assert!(s.contains("def bar"), "must keep method sig");
-        assert!(s.contains("def top_level"), "must keep top-level def");
-        assert!(!s.contains("return str"), "body dropped");
-        assert!(!s.contains("pass"), "body dropped");
-    }
-
-    #[test]
-    fn parity_sig_ts() {
-        let src = "\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n\nexport class Calc {\n  value: number = 0;\n  multiply(x: number): number {\n    return this.value * x;\n  }\n}\n";
-        let out = extract_signatures(src.into(), "calc.ts".into());
-        eprintln!("=== Rust sig ts ===\n{}", out.as_deref().unwrap_or("None"));
-        let s = out.unwrap();
-        assert!(s.contains("add"), "function preserved");
-        assert!(s.contains("Calc"), "class preserved");
-        assert!(s.contains("value"), "field preserved");
-        assert!(s.contains("multiply"), "method sig preserved");
-        assert!(!s.contains("return a + b"), "body dropped");
-        assert!(!s.contains("this.value * x"), "body dropped");
-    }
-}
-
-// ── TDD: P0 · P1 · P2 failing tests ─────────────────────────────────────────
-#[cfg(test)]
-mod tdd_tests {
-    use super::*;
-
-    // ── P0: symbols disabled for data / config / prose formats ────────────────
-
-    #[test]
-    fn p0_symbols_json_returns_null() {
-        let json = r#"{"key":"value","count":42,"nested":{"a":1}}"#;
-        assert!(
-            extract_signatures(json.into(), "data.json".into()).is_none(),
-            "JSON has no meaningful signatures — must return null"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_yaml_returns_null() {
-        let yaml = "key: value\ncount: 42\nnested:\n  a: 1\nlist:\n  - x\n  - y";
-        assert!(
-            extract_signatures(yaml.into(), "config.yaml".into()).is_none(),
-            "YAML config must return null — no code signatures"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_yml_returns_null() {
-        let yml = "name: my-app\nversion: 1.0.0\ndependencies:\n  foo: bar";
-        assert!(
-            extract_signatures(yml.into(), "package.yml".into()).is_none(),
-            ".yml files must return null"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_toml_returns_null() {
-        let toml = "[package]\nname = \"foo\"\nversion = \"1.0\"\n[dependencies]\nserde = \"1\"";
-        assert!(
-            extract_signatures(toml.into(), "Cargo.toml".into()).is_none(),
-            "TOML must return null"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_ini_returns_null() {
-        let ini = "[section]\nkey = value\nother = 42";
-        assert!(
-            extract_signatures(ini.into(), "config.ini".into()).is_none(),
-            "INI must return null"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_jsonc_returns_null() {
-        let jsonc = "// comment\n{\"a\": 1}";
-        assert!(
-            extract_signatures(jsonc.into(), "tsconfig.json".into()).is_none(),
-            "JSONC must return null"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_markdown_returns_null() {
-        let md = "# Title\n\nSome text.\n\n## Section\n\nMore text.";
-        assert!(
-            extract_signatures(md.into(), "README.md".into()).is_none(),
-            "Markdown must return null"
-        );
-    }
-
-    #[test]
-    fn p0_symbols_rst_returns_null() {
-        let rst = "Title\n=====\n\nSome prose.\n\nSection\n-------\n\nMore prose.";
-        assert!(
-            extract_signatures(rst.into(), "docs.rst".into()).is_none(),
-            "reStructuredText must return null"
-        );
-    }
-
-    // ── P0: code formats must still work ──────────────────────────────────────
-
-    #[test]
-    fn p0_symbols_sql_still_works() {
-        let sql = "CREATE TABLE users (id INT, name VARCHAR(255));";
-        let out = extract_signatures(sql.into(), "schema.sql".into());
-        assert!(out.is_some(), "SQL should still extract signatures");
-    }
-
-    #[test]
-    fn p0_symbols_ts_still_works() {
-        let ts = "export function add(a: number, b: number): number { return a + b; }";
-        let out = extract_signatures(ts.into(), "math.ts".into());
-        assert!(out.is_some(), "TypeScript should still extract signatures");
-    }
-
-    // ── P1: TypeScript type stripping ─────────────────────────────────────────
-
-    #[test]
-    fn p1_import_type_stripped_in_full_minify() {
-        let src = r#"import type { Foo } from './foo';
-import { bar } from './bar';
-export function greet(name: string): void {
-  bar();
-}
-"#;
-        let out = minify_content_sync(src.into(), "greet.ts".into());
-        assert!(
-            !out.contains("import type"),
-            "full minify must strip 'import type' — got: {out}"
-        );
-    }
-
-    #[test]
-    fn p1_interface_stripped_in_full_minify() {
-        let src = r#"interface User { name: string; age: number; }
-export function getName(u: User): string { return u.name; }
-"#;
-        let out = minify_content_sync(src.into(), "user.ts".into());
-        assert!(
-            !out.contains("interface"),
-            "full minify must strip interface declarations — got: {out}"
-        );
-    }
-
-    #[test]
-    fn p1_type_alias_stripped_in_full_minify() {
-        let src = r#"type Id = string | number;
-export function process(id: Id): string { return String(id); }
-"#;
-        let out = minify_content_sync(src.into(), "util.ts".into());
-        assert!(
-            !out.contains("type Id"),
-            "full minify must strip type alias declarations — got: {out}"
-        );
-    }
-
-    #[test]
-    fn p1_runtime_code_preserved_after_stripping() {
-        let src = r#"import type { Opts } from './opts';
-interface Config { host: string; }
-type Port = number;
-export function connect(host: string, port: number): boolean {
-  return host.length > 0 && port > 0;
-}
-"#;
-        let out = minify_content_sync(src.into(), "connect.ts".into());
-        // Runtime function must survive stripping
-        assert!(out.contains("connect"), "runtime function must survive — got: {out}");
-        assert!(!out.contains("import type"), "import type must be stripped");
-        assert!(!out.contains("interface"), "interface must be stripped");
-    }
-
-    #[test]
-    fn p1_ts_content_view_strips_types() {
-        let src = r#"import type { Foo } from './foo';
-export function add(a: number, b: number): number {
-  return a + b;
-}
-"#;
-        let out = apply_content_view_minification(src.into(), "math.ts".into());
-        assert!(
-            !out.contains("import type"),
-            "content-view must strip 'import type' — got: {out}"
-        );
-    }
-
-    // ── P2: CSS content-view uses lightningcss ────────────────────────────────
-
-    #[test]
-    fn p2_css_content_view_compresses() {
-        let src = "h1 { color: red; font-weight: bold; }\np { margin: 0px; padding: 0px; }\n/* comment */\n.foo { display: flex; }";
-        let out = apply_content_view_minification(src.into(), "style.css".into());
-        assert!(
-            out.len() < src.len(),
-            "CSS content-view must compress (got {} vs {} bytes)",
-            out.len(), src.len()
-        );
-        assert!(!out.contains("/* comment */"), "CSS comments must be stripped");
-    }
-
-    #[test]
-    fn p2_scss_content_view_compresses() {
-        let src = ".container {\n  display: flex;\n  /* comment */\n  flex-direction: row;\n  padding: 0px 0px;\n}\n.header { color: red; /* header comment */ }";
-        let out = apply_content_view_minification(src.into(), "styles.scss".into());
-        assert!(
-            out.len() < src.len(),
-            "SCSS content-view must compress"
-        );
-    }
-
-    #[test]
-    fn p2_css_content_view_output_is_valid() {
-        let src = "body { margin: 0; padding: 0; background-color: #fff; }\nh1 { font-size: 2em; color: #333; }";
-        let out = apply_content_view_minification(src.into(), "main.css".into());
-        // Output must still contain the key selectors
-        assert!(out.contains("body") || out.contains("h1"), "CSS selectors must survive");
-        assert!(out.len() <= src.len(), "output must not grow");
-    }
-
-    #[test]
-    fn p2_css_removes_0px_redundancy() {
-        // lightningcss converts 0px → 0, reducing bytes
-        let src = "div { margin: 0px; padding: 0px 0px; border-width: 0px; }";
-        let out = apply_content_view_minification(src.into(), "base.css".into());
-        // lightningcss removes the 'px' from 0px
-        let has_zero_px = out.contains("0px");
-        // The output should be shorter (0px -> 0)
-        assert!(out.len() < src.len(), "lightningcss must strip 0px: got '{}' ({} bytes vs {})", out, out.len(), src.len());
-        assert!(!has_zero_px, "0px should become 0: got '{}'", out);
-    }
-
-    // ── UTF-8 safety: byte-level loops must never re-encode multibyte chars ──
-    #[test]
-    fn utf8_aggressive_strategy_preserves_non_ascii() {
-        // .lua routes to the aggressive strategy (collapse + punct tightening)
-        let out = minify_content_sync("local s = \"café → naïve\" { x = 1 }".into(), "a.lua".into());
-        assert!(out.contains("café → naïve"), "aggressive path corrupted UTF-8: '{out}'");
-        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
-    }
-
-    #[test]
-    fn utf8_jsonc_preserves_non_ascii() {
-        let src = "{\n  // comment\n  \"k\": \"café\",\n}";
-        let r = minify_json_core(src.into());
-        assert!(!r.failed);
-        assert!(r.content.contains("café"), "JSONC strip corrupted UTF-8: '{}'", r.content);
-        assert!(!r.content.contains('Ã'), "Latin-1 mojibake detected: '{}'", r.content);
-    }
-
-    #[test]
-    fn utf8_javascript_core_preserves_non_ascii() {
-        let out = minify_javascript_core("const s = \"café\"; // strip me".into());
-        assert!(out.contains("café"), "JS core punct tightening corrupted UTF-8: '{out}'");
-        assert!(!out.contains("strip me"));
-    }
-
-    // ── markdown: CRLF normalization behavior locked (leak() removal guard
-    //    itself is enforced by clippy disallowed-methods) ──────────────────────
-    #[test]
-    fn markdown_crlf_normalized() {
-        let out = minify_markdown_core("# Title\r\n\r\nSome text  \r\n".into());
-        assert!(out.contains("# Title"));
-        assert!(out.contains("Some text"));
-        assert!(!out.contains('\r'));
-    }
-
-    // ── content view strips all JS/TS comments (the "standard" contract) ─────
-    #[test]
-    fn content_view_js_strips_comments() {
-        let src = "import { useState } from \"react\";\n// Top-level comment that should be stripped\nexport function f() {\n  /** jsdoc to strip */\n  return useState;\n}\n";
-        let out = apply_content_view_minification(src.into(), "x.tsx".into());
-        assert!(!out.contains("Top-level comment"), "normal comments must be stripped: '{out}'");
-        assert!(!out.contains("jsdoc to strip"), "jsdoc comments must be stripped: '{out}'");
-        assert!(out.contains("useState"));
-    }
-
-    // ── signatures: one-line defs keep their signature row ───────────────────
-    #[test]
-    fn signatures_python_one_liner_kept() {
-        let src = "def f(): return 1\n\ndef g():\n    return 2\n";
-        let out = extract_signatures(src.into(), "one.py".into());
-        assert!(out.is_some());
-        let s = out.unwrap();
-        assert!(s.contains("def f(): return 1"), "one-liner signature dropped: '{s}'");
-        assert!(s.contains("def g():"));
-        assert!(!s.contains("return 2"), "multi-line body must still drop: '{s}'");
-    }
-
-    // ── size caps: every FFI content entry point bails out above MAX_SIZE ────
-    #[test]
-    fn content_view_caps_oversized_input() {
-        let src = "text  \n".repeat(180_000); // ~1.26MB, trailing spaces WOULD minify
-        let out = apply_content_view_minification(src.clone(), "big.md".into());
-        assert_eq!(out, src, "oversized content must be returned untouched");
-    }
-
-    #[test]
-    fn signatures_cap_oversized_input() {
-        let src = "function f(){ return 1; }\n".repeat(45_000); // ~1.17MB
-        let out = extract_signatures(src, "big.ts".into());
-        assert!(out.is_none(), "oversized content must not be parsed");
+    fn json_to_yaml_string_defaults_when_config_omitted() {
+        let out = json_to_yaml_string(json!({"k": "v"}), None);
+        assert_eq!(out, "k: v\n");
     }
 }

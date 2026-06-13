@@ -8,6 +8,9 @@ repository = "https://github.com/bgauryy/octocode-mcp"
 keywords   = ["napi", "minifier", "tree-sitter", "signatures", "nodejs"]
 categories = ["development-tools", "text-processing"]
 
+[lints.clippy]
+unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy.toml
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -16,7 +19,7 @@ napi        = { version = "2", features = ["napi4", "serde-json"] }
 napi-derive = "2"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
-serde_yaml  = "0.9"
+serde_yaml_ng = "0.10"  # maintained continuation of serde_yaml (archived upstream)
 regex       = "1"
 
 # ── high-quality CSS / HTML minifiers ────────────────────────────────────────

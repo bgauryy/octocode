@@ -161,7 +161,9 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                     pos += end_str.len();
                     qstate = QuoteState::Outside;
                 } else {
-                    result.push(content[pos..].chars().next().unwrap());
+                    if let Some(c) = content[pos..].chars().next() {
+                        result.push(c);
+                    }
                     pos += next_char_len(bytes, pos);
                 }
             }
@@ -487,4 +489,42 @@ pub fn remove_comments(content: &str, groups: &[&str]) -> String {
         // Unknown group → skip silently (matches TS behaviour)
     }
     result
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn c_style_line_and_block_comments_removed() {
+        let src = "int x = 1; // comment\nint y = 2; /* block */ int z;";
+        let out = remove_comments(src, &["c-style"]);
+        assert!(!out.contains("comment"));
+        assert!(!out.contains("block"));
+        assert!(out.contains("int x"));
+        assert!(out.contains("int z"));
+    }
+
+    #[test]
+    fn hash_comments_removed_code_preserved() {
+        let src = "x = 1 # inline\n# full line\ny = 2";
+        let out = remove_comments(src, &["hash"]);
+        assert!(!out.contains("inline"));
+        assert!(out.contains("x = 1"));
+        assert!(out.contains("y = 2"));
+    }
+
+    #[test]
+    fn comment_markers_inside_strings_preserved() {
+        let src = "const url = \"http://x\"; // real comment";
+        let out = remove_comments(src, &["c-style"]);
+        assert!(out.contains("http://x"), "string content must survive: '{out}'");
+        assert!(!out.contains("real comment"));
+    }
+
+    #[test]
+    fn unknown_comment_group_returns_content_unchanged() {
+        assert_eq!(remove_comments("hello", &["nonexistent-type"]), "hello");
+    }
 }
